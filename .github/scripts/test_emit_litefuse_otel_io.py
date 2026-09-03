@@ -24,6 +24,7 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 import urllib.error
+import urllib.parse
 
 
 MODULE_PATH = Path(__file__).with_name("emit_litefuse_otel_io.py")
@@ -62,6 +63,14 @@ class FakeResponse:
 class PartialSuccessResponse(FakeResponse):
     def read(self):
         return b'{"partialSuccess":{"rejectedSpans":"1","errorMessage":"bad span"}}'
+
+
+class JsonResponse(FakeResponse):
+    def __init__(self, payload):
+        self.payload = payload
+
+    def read(self):
+        return json.dumps(self.payload).encode()
 
 
 class LitefuseOtelExporterTest(unittest.TestCase):
@@ -238,6 +247,27 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         self.assertNotIn("truncated_json", output)
         self.assertEqual(len(json.loads(output)["text"]), 3_500)
 
+    def test_preserves_near_limit_single_span_payload(self):
+        trace_event = {"type": "trace-create", "body": self.trace_body()}
+        span_event = self.span_event("2" * 32, output_size=4_509)
+        original = MODULE.otlp_payload(self.trace_body(), [span_event])
+        original_size = MODULE.json_payload_bytes(original)
+
+        self.assertGreater(original_size, 6_000)
+        self.assertLess(original_size, 6_100)
+        chunks = MODULE.otlp_chunks(
+            {"batch": [trace_event, span_event]}, max_payload_bytes=6_000
+        )
+
+        self.assertEqual(len(chunks), 1)
+        _legacy, otel, size = chunks[0]
+        self.assertGreater(size, 5_500)
+        self.assertLessEqual(size, 6_000)
+        output = attribute_values(
+            otel["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        )["langfuse.observation.output"]
+        self.assertGreater(len(json.loads(output)["truncated_json"]), 4_000)
+
     def test_prechunks_before_otlp_encoding(self):
         trace_event = {"type": "trace-create", "body": self.trace_body()}
         span_events = [
@@ -286,6 +316,52 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         self.assertEqual(headers["x-langfuse-sdk-name"], "doris-code-review")
         self.assertEqual(captured["timeout"], 30)
         self.assertEqual(status["success_count"], 1)
+
+    def test_paginates_v2_observations_until_root_is_visible(self):
+        first_page = [{"id": f"child-{index}"} for index in range(1_000)]
+        responses = [
+            JsonResponse({"data": first_page, "meta": {"cursor": "next"}}),
+            JsonResponse({"data": [{"id": "root"}], "meta": {}}),
+        ]
+        requests = []
+
+        def fake_urlopen(request, timeout):
+            requests.append((request, timeout))
+            return responses.pop(0)
+
+        with mock.patch.object(MODULE.urllib.request, "urlopen", fake_urlopen):
+            payload = MODULE.fetch_observations_v2(
+                "https://litefuse.example", "public", "secret", "trace-id"
+            )
+
+        self.assertEqual(len(payload["data"]), 1_001)
+        self.assertEqual(payload["data"][-1], {"id": "root"})
+        first_query = urllib.parse.parse_qs(
+            urllib.parse.urlparse(requests[0][0].full_url).query
+        )
+        second_query = urllib.parse.parse_qs(
+            urllib.parse.urlparse(requests[1][0].full_url).query
+        )
+        self.assertEqual(first_query["limit"], ["1000"])
+        self.assertNotIn("cursor", first_query)
+        self.assertEqual(second_query["cursor"], ["next"])
+
+    def test_rejects_incomplete_v2_observation_pagination(self):
+        response = JsonResponse(
+            {"data": [{"id": "newest"}], "meta": {"cursor": "still-more"}}
+        )
+
+        with mock.patch.object(
+            MODULE.urllib.request, "urlopen", return_value=response
+        ):
+            with self.assertRaisesRegex(RuntimeError, "remained paginated"):
+                MODULE.fetch_observations_v2(
+                    "https://litefuse.example",
+                    "public",
+                    "secret",
+                    "trace-id",
+                    max_pages=1,
+                )
 
     def test_rejects_otlp_partial_success(self):
         payload = MODULE.otlp_payload(

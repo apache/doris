@@ -1025,10 +1025,15 @@ def compact_context_event(event, max_chars):
     return compact
 
 
-def shrink_event_for_payload(event, max_payload_bytes):
+def shrink_event_for_payload(event, max_payload_bytes, payload_bytes=None):
     shrunk = json.loads(json.dumps(event, ensure_ascii=False))
     body = shrunk.get("body") if isinstance(shrunk.get("body"), dict) else {}
     event_name = body.get("name")
+
+    def measured_payload_bytes(candidate):
+        if payload_bytes is not None:
+            return payload_bytes(candidate)
+        return json_payload_bytes({"batch": [candidate]})
 
     def candidate_with_limits(max_chars, max_context_events=None):
         candidate = json.loads(json.dumps(shrunk, ensure_ascii=False))
@@ -1079,21 +1084,35 @@ def shrink_event_for_payload(event, max_payload_bytes):
             candidate_body["metadata"] = truncate_json(metadata, max_chars)
         return candidate
 
+    def maximize_candidate(max_chars, max_context_events=None):
+        best = candidate_with_limits(max_chars, max_context_events)
+        lower = max_chars + 1
+        upper = max_payload_bytes
+        while lower <= upper:
+            middle = (lower + upper) // 2
+            candidate = candidate_with_limits(middle, max_context_events)
+            if measured_payload_bytes(candidate) <= max_payload_bytes:
+                best = candidate
+                lower = middle + 1
+            else:
+                upper = middle - 1
+        return best
+
     for max_chars in (2_000, 1_000, 500, 200, 80):
         candidate = candidate_with_limits(max_chars)
 
-        if json_payload_bytes({"batch": [candidate]}) <= max_payload_bytes:
-            return candidate
+        if measured_payload_bytes(candidate) <= max_payload_bytes:
+            return maximize_candidate(max_chars)
 
     for max_context_events in (50, 20, 10, 5, 2, 1, 0):
         for max_chars in (80, 40, 20, 10):
             candidate = candidate_with_limits(max_chars, max_context_events)
-            if json_payload_bytes({"batch": [candidate]}) <= max_payload_bytes:
-                return candidate
+            if measured_payload_bytes(candidate) <= max_payload_bytes:
+                return maximize_candidate(max_chars, max_context_events)
 
     raise RuntimeError(
         "Litefuse ingestion event is too large after truncation: "
-        f"{json_payload_bytes({'batch': [event]})} bytes > {max_payload_bytes} bytes; "
+        f"{measured_payload_bytes(event)} bytes > {max_payload_bytes} bytes; "
         f"type={event.get('type')}, name={event_name}"
     )
 
@@ -1330,20 +1349,20 @@ def otlp_chunks(payload, max_payload_bytes, trace_body=None):
             return
 
         event = candidate_events[0]
-        for divisor in (2, 4, 8, 16, 32, 64):
-            target_size = max(1_000, max_payload_bytes // divisor)
-            shrunk_event = shrink_event_for_payload(event, target_size)
-            shrunk_payload = otlp_payload(trace_body, [shrunk_event])
-            shrunk_size = json_payload_bytes(shrunk_payload)
-            if shrunk_size <= max_payload_bytes:
-                chunks.append(
-                    ({"batch": [shrunk_event]}, shrunk_payload, shrunk_size)
-                )
-                return
-        raise RuntimeError(
-            "Litefuse OTLP span is too large after truncation: "
-            f"{request_size} bytes > {max_payload_bytes} bytes; "
-            f"name={(event.get('body') or {}).get('name')}"
+        shrunk_event = shrink_event_for_payload(
+            event,
+            max_payload_bytes,
+            payload_bytes=lambda candidate: json_payload_bytes(
+                otlp_payload(trace_body, [candidate])
+            ),
+        )
+        shrunk_payload = otlp_payload(trace_body, [shrunk_event])
+        chunks.append(
+            (
+                {"batch": [shrunk_event]},
+                shrunk_payload,
+                json_payload_bytes(shrunk_payload),
+            )
         )
 
     if not events:
@@ -1495,25 +1514,40 @@ def fetch_trace(base_url, public_key, secret_key, trace_id):
         return json.loads(response.read().decode())
 
 
-def fetch_observations_v2(base_url, public_key, secret_key, trace_id):
+def fetch_observations_v2(
+    base_url, public_key, secret_key, trace_id, max_pages=10
+):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
     now = datetime.now(timezone.utc)
-    params = urllib.parse.urlencode(
-        {
-            "traceId": trace_id,
-            "fromStartTime": (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
-            "toStartTime": (now + timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
-            "fields": "core,basic,io,trace_context,model,usage",
-            "limit": "100",
-        }
+    query = {
+        "traceId": trace_id,
+        "fromStartTime": (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+        "toStartTime": (now + timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
+        "fields": "core,basic,io,trace_context,model,usage",
+        "limit": "1000",
+    }
+    rows = []
+    cursor = ""
+    for _ in range(max_pages):
+        if cursor:
+            query["cursor"] = cursor
+        params = urllib.parse.urlencode(query)
+        request = urllib.request.Request(
+            f"{base_url.rstrip('/')}/api/public/v2/observations?{params}",
+            headers={"Authorization": f"Basic {auth}"},
+            method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode())
+        rows.extend(observation_rows_from_v2(payload))
+        meta = payload.get("meta") if isinstance(payload, dict) else {}
+        cursor = meta.get("cursor") if isinstance(meta, dict) else ""
+        if not cursor:
+            return {**payload, "data": rows}
+    raise RuntimeError(
+        "Litefuse v2 observations remained paginated after "
+        f"{max_pages} pages for trace {trace_id}"
     )
-    request = urllib.request.Request(
-        f"{base_url.rstrip('/')}/api/public/v2/observations?{params}",
-        headers={"Authorization": f"Basic {auth}"},
-        method="GET",
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.loads(response.read().decode())
 
 
 def fetch_observations_legacy(
