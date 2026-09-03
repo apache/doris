@@ -54,6 +54,8 @@ public:
     void get_stream_load_record(TStreamLoadRecordResult& result,
                                 int64_t last_stream_record_time) override;
 
+    void get_stream_load_record_desc(TStreamLoadRecordResult& result, int64_t count) override;
+
 private:
     void _warm_up_cache(const TWarmUpCacheAsyncRequest& request);
 

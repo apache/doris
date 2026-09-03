@@ -1724,6 +1724,7 @@ struct TLoadJob {
     18: optional string user
     19: optional string comment
     20: optional string first_error_msg
+    21: optional string error_detail
 }
 
 struct TFetchLoadJobResult {

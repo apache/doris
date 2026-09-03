@@ -96,7 +96,9 @@ public enum SchemaTableType {
             TSchemaTableType.SCH_BACKEND_KERBEROS_TICKET_CACHE),
     SCH_ROUTINE_LOAD_JOBS("ROUTINE_LOAD_JOBS", "ROUTINE_LOAD_JOBS",
             TSchemaTableType.SCH_ROUTINE_LOAD_JOBS),
-    SCH_LOAD_JOBS("LOAD_JOBS", "LOAD_JOBS",
+    // User-visible unified import task table is named "loads". The enum constant and the
+    // thrift type remain SCH_LOAD_JOBS (historical naming) so the BE scanner mapping is unchanged.
+    SCH_LOAD_JOBS("LOADS", "LOADS",
             TSchemaTableType.SCH_LOAD_JOBS),
     SCH_FILE_CACHE_INFO("FILE_CACHE_INFO", "FILE_CACHE_INFO",
             TSchemaTableType.SCH_FILE_CACHE_INFO),

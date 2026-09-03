@@ -192,6 +192,11 @@ public class GenericPoolTest {
         }
 
         @Override
+        public TStreamLoadRecordResult getStreamLoadRecordDesc(long count) throws TException {
+            return null;
+        }
+
+        @Override
         public TCheckStorageFormatResult checkStorageFormat() throws TException {
             return new TCheckStorageFormatResult();
         }
