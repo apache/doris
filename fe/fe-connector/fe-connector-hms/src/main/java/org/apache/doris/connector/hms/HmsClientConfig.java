@@ -146,7 +146,7 @@ public final class HmsClientConfig {
         }
         int parsed;
         try {
-            parsed = Integer.parseInt(value);
+            parsed = Integer.parseInt(value.trim());
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException(key + " must be a positive integer, got " + value, e);
         }
