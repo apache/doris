@@ -344,6 +344,8 @@ public class StmtExecutorTest extends TestWithFeService {
         Assertions.assertEquals(0xFE, Byte.toUnsignedInt(connector82Packets.get(2)[0]));
         Assertions.assertTrue(connector82Packets.get(2).length > 5);
 
+        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector Java", "5.1.49").size());
+        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector/J", "6.0.6").size());
         Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector/J", "9.4.0").size());
         Assertions.assertEquals(2, sendEmptyResultSet(true, "MySQL Connector/J", "9.5.0").size());
         Assertions.assertEquals(2, sendEmptyResultSet(false, "MySQL Connector/J", "8.2.0").size());

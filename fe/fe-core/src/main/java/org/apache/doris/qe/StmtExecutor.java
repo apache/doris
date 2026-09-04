@@ -191,9 +191,10 @@ public class StmtExecutor {
     private static Set<String> blockSqlAstNames = Sets.newHashSet();
 
     private static final Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
-    private static final String MYSQL_CONNECTOR_J = "MySQL Connector/J";
+    private static final Set<String> MYSQL_CONNECTOR_J_CLIENT_NAMES = Sets.newHashSet(
+            "MySQL Connector/J", "MySQL Connector Java");
     private static final Pattern CONNECTOR_J_CONSUMES_CURSOR_METADATA_TERMINATOR =
-            Pattern.compile("^(8\\.|9\\.[0-4](?:\\.|$))");
+            Pattern.compile("^(?:(?:5|6|8)\\.|9\\.[0-4](?:\\.|$))");
     private ConnectContext context;
     private StatementContext statementContext;
     private MysqlSerializer serializer;
@@ -2006,7 +2007,7 @@ public class StmtExecutor {
             return false;
         }
         Map<String, String> connectAttributes = context.getConnectAttributes();
-        if (!MYSQL_CONNECTOR_J.equals(connectAttributes.get("_client_name"))) {
+        if (!MYSQL_CONNECTOR_J_CLIENT_NAMES.contains(connectAttributes.get("_client_name"))) {
             return false;
         }
         String clientVersion = connectAttributes.get("_client_version");
