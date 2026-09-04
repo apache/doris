@@ -17,15 +17,22 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -76,7 +83,8 @@ class DataSketchesHllUnionAggTest {
                 SKETCH, new DecimalV3Literal(new BigDecimal("8.5")));
         DataSketchesHllUnionAgg nullValue = new DataSketchesHllUnionAgg(SKETCH, new NullLiteral());
 
-        Assertions.assertThrows(AnalysisException.class, nonConstant::checkLegalityBeforeTypeCoercion);
+        Assertions.assertDoesNotThrow(nonConstant::checkLegalityBeforeTypeCoercion);
+        Assertions.assertThrows(AnalysisException.class, nonConstant::checkLegalityAfterRewrite);
         Assertions.assertThrows(AnalysisException.class, nonInteger::checkLegalityBeforeTypeCoercion);
         Assertions.assertThrows(AnalysisException.class, nullValue::checkLegalityBeforeTypeCoercion);
     }
@@ -87,6 +95,29 @@ class DataSketchesHllUnionAggTest {
             DataSketchesHllUnionAgg function =
                     new DataSketchesHllUnionAgg(SKETCH, new IntegerLiteral(value));
             Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
+        }
+    }
+
+    @Test
+    void testTypedAggStateCanBuildMergeAndUnion() {
+        FunctionRegistry functionRegistry = new FunctionRegistry();
+        for (String functionName : ImmutableList.of(
+                "datasketches_hll_union_agg", "ds_hll_estimate", "datasketches_hll_estimate")) {
+            String stateName = functionName + "_state";
+            List<Expression> stateArguments = ImmutableList.of(SKETCH, new IntegerLiteral(8));
+            FunctionBuilder stateBuilder = functionRegistry.findFunctionBuilder(stateName, stateArguments);
+            StateCombinator state = (StateCombinator) stateBuilder.build(stateName, stateArguments).first;
+            SlotReference stateSlot = new SlotReference("state", state.getDataType(), false);
+
+            String mergeName = functionName + "_merge";
+            FunctionBuilder mergeBuilder = functionRegistry.findFunctionBuilder(mergeName, stateSlot);
+            MergeCombinator merge = (MergeCombinator) mergeBuilder.build(mergeName, stateSlot).first;
+            Assertions.assertDoesNotThrow(merge::checkLegalityBeforeTypeCoercion);
+
+            String unionName = functionName + "_union";
+            FunctionBuilder unionBuilder = functionRegistry.findFunctionBuilder(unionName, stateSlot);
+            UnionCombinator union = (UnionCombinator) unionBuilder.build(unionName, stateSlot).first;
+            Assertions.assertDoesNotThrow(union::checkLegalityBeforeTypeCoercion);
         }
     }
 }

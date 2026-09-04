@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_datasketches_hll_union_agg") {
+    sql "set enable_agg_state=true"
+
     def tableName = "test_datasketches_hll_union_agg_tbl"
     def varcharTableName = "test_datasketches_hll_union_agg_varchar_tbl"
     def emptyTableName = "test_datasketches_hll_union_agg_empty_tbl"
@@ -63,6 +65,37 @@ suite("test_datasketches_hll_union_agg") {
             CAST(ROUND(ds_hll_estimate(sk, 8)) AS BIGINT),
             CAST(ROUND(datasketches_hll_estimate(sk, 8)) AS BIGINT)
         FROM ${tableName}
+    """
+
+    order_qt_typed_state_merge """SELECT
+            CAST(ROUND(datasketches_hll_union_agg_merge(sk_state)) AS BIGINT)
+        FROM (
+            SELECT datasketches_hll_union_agg_state(sk, 8) AS sk_state
+            FROM ${tableName}
+            WHERE id IN (1, 2)
+        ) states
+    """
+
+    order_qt_typed_state_union """SELECT
+            CAST(ROUND(datasketches_hll_union_agg_merge(sk_state)) AS BIGINT)
+        FROM (
+            SELECT datasketches_hll_union_agg_union(sk_state) AS sk_state
+            FROM (
+                SELECT datasketches_hll_union_agg_state(sk, 8) AS sk_state
+                FROM ${tableName}
+                WHERE id IN (1, 2)
+            ) states
+        ) unioned
+    """
+
+    order_qt_alias_typed_state_merge """SELECT
+            CAST(ROUND(ds_hll_estimate_merge(sk_state)) AS BIGINT),
+            CAST(ROUND(datasketches_hll_estimate_merge(sk_state)) AS BIGINT)
+        FROM (
+            SELECT ds_hll_estimate_state(sk, 8) AS sk_state
+            FROM ${tableName}
+            WHERE id IN (1, 2)
+        ) states
     """
 
     // 3) Group-by

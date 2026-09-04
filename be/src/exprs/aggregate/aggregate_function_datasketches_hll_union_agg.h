@@ -85,7 +85,29 @@ struct AggregateFunctionHllSketchData {
         }
     }
     void merge(const Sketch& sketch_data) {
-        merge(sketch_data, std::max<uint8_t>(sketch_data.get_lg_config_k(), MIN_UNION_LOG_K));
+        if (sketch_data.is_empty()) {
+            return;
+        }
+        const auto lg_max_k = std::max<uint8_t>(sketch_data.get_lg_config_k(), MIN_UNION_LOG_K);
+        if (hll_union_data.has_value() && lg_max_k < hll_union_data->get_lg_config_k()) {
+            try {
+                // Sparse sketch updates do not lower an existing union's lgK.
+                auto current = hll_union_data->get_result(datasketches::HLL_8);
+                hll_union_data.emplace(lg_max_k, Alloc());
+                hll_union_data->update(current);
+            } catch (const doris::Exception& e) {
+                throw Exception(e.code(), "Internal error happened when update HLL sketch: {}",
+                                e.to_string());
+            } catch (const std::exception& e) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Internal error happened when update HLL sketch: {}", e.what());
+            } catch (...) {
+                throw Exception(
+                        ErrorCode::INTERNAL_ERROR,
+                        "Internal error happened when update HLL sketch: unknown exception.");
+            }
+        }
+        merge(sketch_data, lg_max_k);
     }
     void reset() { hll_union_data.reset(); }
 

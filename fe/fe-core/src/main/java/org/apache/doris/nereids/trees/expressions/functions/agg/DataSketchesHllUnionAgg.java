@@ -90,8 +90,7 @@ public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
             throw new AnalysisException(getName()
                 + " function's argument should be of STRING/VARCHAR/VARBINARY type, but was " + inputType);
         }
-        if (arity() == 2
-                && (!getArgument(1).isConstant() || !getArgumentType(1).isIntegralType())) {
+        if (arity() == 2 && !getArgumentType(1).isIntegralType()) {
             throw new AnalysisException(getName()
                     + " requires lg_max_k to be a constant integer: " + this.toSql());
         }

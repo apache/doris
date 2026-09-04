@@ -8,6 +8,15 @@
 -- !explicit_lg_max_k --
 18	17	17	17
 
+-- !typed_state_merge --
+17
+
+-- !typed_state_union --
+17
+
+-- !alias_typed_state_merge --
+17	17
+
 -- !group_by --
 1	7
 2	10

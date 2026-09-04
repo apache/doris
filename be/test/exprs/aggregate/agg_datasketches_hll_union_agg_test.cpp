@@ -625,6 +625,37 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
     EXPECT_EQ(restored.hll_union_data->get_lg_config_k(), 12);
 }
 
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMixedCapStateMergeUsesMinimumLgK) {
+    constexpr uint64_t cardinality = 7;
+    Data low_cap_state;
+    low_cap_state.merge(create_sketch(21, 0, cardinality), 7);
+    ASSERT_TRUE(low_cap_state.hll_union_data.has_value());
+    EXPECT_EQ(low_cap_state.hll_union_data->get_lg_config_k(), 7);
+
+    Data high_cap_state;
+    high_cap_state.merge(create_sketch(21, 100, cardinality), 21);
+    ASSERT_TRUE(high_cap_state.hll_union_data.has_value());
+    EXPECT_EQ(high_cap_state.hll_union_data->get_lg_config_k(), 21);
+
+    const auto low_cap_sketch = low_cap_state.hll_union_data->get_result(datasketches::HLL_8);
+    const auto high_cap_sketch = high_cap_state.hll_union_data->get_result(datasketches::HLL_8);
+
+    Data high_then_low;
+    high_then_low.merge(high_cap_sketch);
+    high_then_low.merge(low_cap_sketch);
+    ASSERT_TRUE(high_then_low.hll_union_data.has_value());
+    EXPECT_EQ(high_then_low.hll_union_data->get_lg_config_k(), 7);
+
+    Data low_then_high;
+    low_then_high.merge(low_cap_sketch);
+    low_then_high.merge(high_cap_sketch);
+    ASSERT_TRUE(low_then_high.hll_union_data.has_value());
+    EXPECT_EQ(low_then_high.hll_union_data->get_lg_config_k(), 7);
+
+    EXPECT_NEAR(high_then_low.get_result(), 2 * cardinality, 1.0);
+    EXPECT_NEAR(low_then_high.get_result(), 2 * cardinality, 1.0);
+}
+
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testDeserializeLegacyDenseMaxLgKState) {
     Sketch legacy_state(Data::DEFAULT_UNION_LOG_K, datasketches::HLL_8, true, Data::Alloc());
     for (uint64_t value = 0; value < 10000; ++value) {
