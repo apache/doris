@@ -25,30 +25,30 @@
 #include "storage/index/inverted/gram/gram_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
-// gram_boolean_query —— 对一棵 gram::GramQuery 布尔查询树在某个 SNII 段的
-// gram 族词典/postings 上求值，产出一个 docid 位图。索引只能收窄候选集合：
-// gram 缺失、查询形态不支持、或查找失败，都只能在上层退化为「不加速」，
-// 绝不能改变查询结果，因此这里的每条代码路径都以 Status 返回，而不是断言
-// gram 一定存在。
+// gram_boolean_query -- evaluates a gram::GramQuery boolean query tree against the gram-family
+// dictionary/postings of one SNII segment, producing a docid bitmap. The index may only narrow
+// the candidate set: a missing gram, an unsupported query shape or a failed lookup can only make
+// the layer above degrade to "no acceleration" and must never change the query result, which is
+// why every code path here returns a Status instead of asserting that a gram must exist.
 namespace doris::snii::query {
 
-// gram_boolean_query() 消费的 posting 数据源。生产环境由下方的
-// LogicalIndexPostingSource 适配 LogicalIndexReader；测试则注入一个基于 map
-// 的假实现，从而在不构造真实索引文件的前提下覆盖 AND/OR/ALL/NONE 的求值逻辑。
+// The posting data source gram_boolean_query() consumes. In production it is
+// LogicalIndexPostingSource below, adapting a LogicalIndexReader; tests inject a map-based fake
+// so that the AND/OR/ALL/NONE evaluation logic can be covered without building real index files.
 class GramPostingSource {
 public:
     virtual ~GramPostingSource() = default;
-    // 查询一个 gram 的文档频率（df）。found=false 表示该 gram 不在词典中，
-    // 此时任何包含它的 AND 节点都会求值为 NONE（空集），且不会再读取任何
-    // posting 列表。
+    // Look up the document frequency (df) of one gram. found=false means the gram is not in the
+    // dictionary, in which case every AND node containing it evaluates to NONE (the empty set)
+    // and no posting list is read at all.
     virtual Status df(std::string_view gram, bool* found, uint64_t* df) = 0;
-    // 将一个 gram 的完整 docid 集合（不含位置/词频）解码进 out。只会在 df()
-    // 已确认该 gram 存在之后才会被调用。
+    // Decode the complete docid set of one gram (without positions or term frequencies) into
+    // out. Only called after df() has confirmed that the gram exists.
     virtual Status postings(std::string_view gram, roaring::Roaring* out) = 0;
 };
 
-// 基于 LogicalIndexReader 的生产环境 GramPostingSource 实现：df() 只是一次
-// 普通的词典查找，postings() 在此基础上还要解码 docid-only 的 posting。
+// The production GramPostingSource implementation on top of LogicalIndexReader: df() is just an
+// ordinary dictionary lookup, and postings() additionally decodes the docid-only posting.
 class LogicalIndexPostingSource final : public GramPostingSource {
 public:
     explicit LogicalIndexPostingSource(const reader::LogicalIndexReader& idx) : _idx(idx) {}
@@ -59,12 +59,13 @@ private:
     const reader::LogicalIndexReader& _idx;
 };
 
-// 在 src 上对 q 求值：ALL -> [0, num_docs)；NONE -> 空集；AND 先对每个直属
-// gram 叶子查询 df（任一叶子缺失即整体短路为空，不读取任何 posting），再按
-// df 升序对剩余叶子求交，交集一旦为空立即提前返回，随后以同样的方式与每个
-// 子查询求交（既无叶子也无子查询的 AND 退化为 ALL）；OR 则是对每个叶子的
-// postings 与每个子查询的结果求并。递归深度由 GramQuery::parse 产出的树
-// 决定（构造时已设有上限）。
+// Evaluate q against src: ALL -> [0, num_docs); NONE -> the empty set; AND first looks up the df
+// of every gram leaf it holds directly (a single missing leaf short-circuits the whole node to
+// empty without reading any posting), then intersects the remaining leaves in ascending df order
+// and returns early as soon as the intersection is empty, and finally intersects with each
+// sub-query the same way (an AND with neither leaves nor sub-queries degenerates to ALL); OR
+// unions the postings of every leaf with the result of every sub-query. The recursion depth is
+// bounded by the tree GramQuery::parse produces (which is capped at construction time).
 Status gram_boolean_query(GramPostingSource& src, const segment_v2::gram::GramQuery& q,
                           uint32_t num_docs, roaring::Roaring* out);
 

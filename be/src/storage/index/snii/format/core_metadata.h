@@ -55,8 +55,9 @@ struct CoreMetadata {
     SectionRefs section_refs;
     std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata> common_grams_metadata;
     CommonGramsPostingPolicy common_grams_posting_policy = CommonGramsPostingPolicy::kNone;
-    // gram 族索引的分段方案，供 P1 的 mode=auto 按段自适应选型使用。P0 写入侧恒为
-    // nullopt：这里只预留字段与编解码，不改变任何既有段的编码字节。
+    // The chunking scheme of a gram-family index, for P1's per-segment adaptive mode=auto. On
+    // the P0 write side it is always nullopt: only the field and its codec are reserved here,
+    // and the encoded bytes of any existing segment stay unchanged.
     std::optional<segment_v2::gram::GramScheme> gram_scheme;
 };
 

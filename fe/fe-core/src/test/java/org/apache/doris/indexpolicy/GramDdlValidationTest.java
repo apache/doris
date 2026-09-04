@@ -42,9 +42,10 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Task 14：gram 族 analyzer 的图谱约束（R31：ngram tokenizer 带 mode 时禁止叠加任何
- * token filter）与索引属性约束（gram 族只能用于 SNII、不支持短语、禁止索引级 char_filter、
- * support_phrase 未显式指定时默认写为 false）。
+ * Task 14: the analyzer graph constraint for gram-family analyzers (R31: an ngram tokenizer with
+ * mode may not stack any token filter) and the index property constraints (a gram-family index
+ * only works on SNII, does not support phrases, forbids an index-level char_filter, and defaults
+ * support_phrase to false when it is not given explicitly).
  */
 public class GramDdlValidationTest {
 
@@ -53,18 +54,19 @@ public class GramDdlValidationTest {
     @BeforeEach
     public void setUp() {
         manager = new IndexPolicyMgr();
-        // gram_sparse_tok：自定义 TOKENIZER，ngram + mode=sparse（gram 族）。
+        // gram_sparse_tok: a custom TOKENIZER, ngram + mode=sparse (gram family).
         manager.replayCreateIndexPolicy(policy(1L, "gram_sparse_tok", IndexPolicyTypeEnum.TOKENIZER,
                 Map.of("type", "ngram", "mode", "sparse")));
-        // gram_sparse：只引用 tokenizer、不带任何 token_filter 的合法 gram 族 analyzer。
+        // gram_sparse: a valid gram-family analyzer referencing only the tokenizer, no token_filter.
         manager.replayCreateIndexPolicy(policy(2L, "gram_sparse", IndexPolicyTypeEnum.ANALYZER,
                 Map.of("tokenizer", "gram_sparse_tok")));
-        // plain_tok / plain：legacy ngram（min_gram/max_gram，无 mode），不属于 gram 族。
+        // plain_tok / plain: legacy ngram (min_gram/max_gram, no mode), not gram family.
         manager.replayCreateIndexPolicy(policy(3L, "plain_tok", IndexPolicyTypeEnum.TOKENIZER,
                 Map.of("type", "ngram", "min_gram", "2", "max_gram", "3")));
         manager.replayCreateIndexPolicy(policy(4L, "plain", IndexPolicyTypeEnum.ANALYZER,
                 Map.of("tokenizer", "plain_tok")));
-        // gram_dense_tok：ngram + mode=dense，用于验证 R31 对 dense 模式同样生效（比 brief 更严格）。
+        // gram_dense_tok: ngram + mode=dense, to check that R31 applies to dense as well
+        // (stricter than the brief).
         manager.replayCreateIndexPolicy(policy(5L, "gram_dense_tok", IndexPolicyTypeEnum.TOKENIZER,
                 Map.of("type", "ngram", "mode", "dense")));
     }
@@ -79,7 +81,7 @@ public class GramDdlValidationTest {
         Assertions.assertEquals(Optional.empty(), manager.resolveGramTokenizerMode("no_such_analyzer"));
     }
 
-    // ---------------- validateAnalyzerGraphLocked（R31，经 createIndexPolicy 触发） ----------------
+    // ------------- validateAnalyzerGraphLocked (R31, triggered via createIndexPolicy) -------------
 
     @Test
     public void testLowercaseFilterRejectedWithSparseMode() {
@@ -94,8 +96,9 @@ public class GramDdlValidationTest {
 
     @Test
     public void testOtherFilterRejectedWithSparseMode() {
-        // lowercase 以外的任意 token filter（这里用内置的 asciifolding）同样必须被拒绝：
-        // R31 要求 gram 族 analyzer 必须是纯 tokenizer，不止针对 lowercase。
+        // Any token filter other than lowercase (the built-in asciifolding here) must be rejected
+        // too: R31 requires a gram-family analyzer to be a bare tokenizer, not just free of
+        // lowercase.
         Map<String, String> props = new HashMap<>();
         props.put("tokenizer", "gram_sparse_tok");
         props.put("token_filter", "asciifolding");
@@ -106,8 +109,9 @@ public class GramDdlValidationTest {
 
     @Test
     public void testLowercaseFilterRejectedWhenNotFirstInChain() {
-        // lowercase 不在链首时，报错信息仍必须是那条更具体的 lowercase 提示：
-        // 用户要改的是「换用 tokenizer 自带的 lower_case」，而不是先去掉 asciifolding。
+        // When lowercase is not first in the chain, the message must still be the more specific
+        // lowercase hint: what the user has to change is "switch to the tokenizer's own
+        // lower_case", not remove asciifolding first.
         Map<String, String> props = new HashMap<>();
         props.put("tokenizer", "gram_sparse_tok");
         props.put("token_filter", "asciifolding,lowercase");
@@ -119,7 +123,8 @@ public class GramDdlValidationTest {
 
     @Test
     public void testLowercaseFilterRejectedWithDenseMode() {
-        // 修正裁决 R31 比 brief 更严格：dense 模式也必须拒绝，不能像 brief 草稿那样放过 dense。
+        // The corrected ruling R31 is stricter than the brief: dense mode must be rejected too,
+        // rather than let through as in the brief's draft.
         Map<String, String> props = new HashMap<>();
         props.put("tokenizer", "gram_dense_tok");
         props.put("token_filter", "lowercase");
@@ -131,12 +136,13 @@ public class GramDdlValidationTest {
 
     @Test
     public void testGramTokenizerOnlyAnalyzerRemainsValid() throws Exception {
-        // 纯 tokenizer（不带任何 token_filter）的 gram 族 analyzer 必须继续被允许，
-        // 不能被 R31 误伤；"gram_sparse" 本身就是这种合法形态（setUp 中已注册）。
+        // A gram-family analyzer that is a bare tokenizer (no token_filter at all) must stay
+        // allowed and must not be caught by R31; "gram_sparse" is exactly that valid shape
+        // (registered in setUp).
         Assertions.assertFalse(manager.validateAnalyzerUsesCommonGrams("gram_sparse"));
     }
 
-    // ---------------- InvertedIndexUtil.checkInvertedIndexParser 的索引属性约束 ----------------
+    // ---------- index property constraints of InvertedIndexUtil.checkInvertedIndexParser ----------
 
     @Test
     public void testIndexPropertiesForGramAnalyzer() throws Exception {
@@ -146,8 +152,8 @@ public class GramDdlValidationTest {
         withIndexPolicyManager(mockMgr, () -> Assertions.assertDoesNotThrow(
                 () -> InvertedIndexUtil.checkInvertedIndexParser("c", PrimitiveType.VARCHAR, props,
                         TInvertedIndexFileStorageFormat.SNII)));
-        // support_phrase 未显式给出时必须被强制写为 "false"，覆盖 Index 构造函数「存在
-        // analyzer 时默认 true」的通用规则。
+        // When support_phrase is not given explicitly it must be forced to "false", overriding the
+        // general rule of the Index constructor that "an analyzer implies true".
         Assertions.assertEquals("false", props.get("support_phrase"));
     }
 
@@ -196,13 +202,14 @@ public class GramDdlValidationTest {
     }
 
     /**
-     * ADD INDEX / 独立 CREATE INDEX 路径：{@code CreateIndexOp#validate} 先物化 Index，
-     * {@code SchemaChangeHandler#processAddIndex} 之后才做 {@code checkColumn}。gram 族的
-     * support_phrase=false 缺省值是 checkColumn 阶段写进 IndexDefinition 的，必须经
-     * {@code IndexDefinition#applyPropertiesTo} 回填，落盘的 Index 才带得上。
+     * The ADD INDEX / standalone CREATE INDEX path: {@code CreateIndexOp#validate} materializes the
+     * Index first, and {@code SchemaChangeHandler#processAddIndex} only runs {@code checkColumn}
+     * afterwards. The gram family's support_phrase=false default is written into the
+     * IndexDefinition during checkColumn and has to be copied back by
+     * {@code IndexDefinition#applyPropertiesTo} for the persisted Index to carry it.
      *
-     * <p>{@code processAddIndex} 需要完整的 Env/OlapTable 才能跑，这里按它的调用顺序
-     * （translateToCatalogStyle → checkColumn → applyPropertiesTo）驱动同样的三步来断言。
+     * <p>{@code processAddIndex} needs a complete Env/OlapTable to run, so this drives the same
+     * three steps in its call order (translateToCatalogStyle -> checkColumn -> applyPropertiesTo).
      */
     @Test
     public void testAddIndexPathKeepsGramSupportPhraseDefault() throws Exception {
@@ -215,25 +222,30 @@ public class GramDdlValidationTest {
         withIndexPolicyManager(mockMgr, () -> {
             Assertions.assertDoesNotThrow(() -> createIndexOp.validate(null));
             Index index = createIndexOp.getIndex();
-            // 物化发生在 checkColumn 之前，此时 Index 构造函数按「有 analyzer 就支持短语」补了 true
+            // Materialization happens before checkColumn, so the Index constructor has filled in
+            // true by the rule "an analyzer implies phrase support"
             Assertions.assertEquals("true", index.getProperties().get("support_phrase"));
 
-            // processAddIndex 里的 checkColumn：gram 族缺省值只写进了 IndexDefinition
+            // checkColumn inside processAddIndex: the gram-family default lands in the
+            // IndexDefinition only
             indexDef.checkColumn(new Column("msg", PrimitiveType.STRING), KeysType.DUP_KEYS, false,
                     TInvertedIndexFileStorageFormat.SNII);
             Assertions.assertEquals("false", indexDef.getProperties().get("support_phrase"));
 
-            // 回填之后，真正落盘的 Index 才带上 support_phrase=false
+            // Only after the write-back does the Index that is actually persisted carry
+            // support_phrase=false
             indexDef.applyPropertiesTo(index);
             Assertions.assertEquals("false", index.getProperties().get("support_phrase"));
-            // 回填必须就地改同一个实例：processAddIndex 的调用方已经持有这个引用
+            // The write-back must modify the same instance in place: processAddIndex's caller
+            // already holds this reference
             Assertions.assertSame(index, createIndexOp.getIndex());
         });
     }
 
     /**
-     * 回填只覆盖 IndexDefinition 里存在的 key：Index 构造函数按通用规则补出的、
-     * IndexDefinition 侧没有的缺省值（如 parser 索引的 lower_case=true）必须原样保留。
+     * The write-back only overwrites keys present in the IndexDefinition: a default filled in by
+     * the Index constructor's general rules that the IndexDefinition side lacks (such as
+     * lower_case=true for a parser index) must be preserved as is.
      */
     @Test
     public void testApplyPropertiesToKeepsIndexOnlyDefaults() {

@@ -1116,29 +1116,35 @@ Status FunctionRegexpLike::open(FunctionContext* context,
     return Status::OK();
 }
 
-// R8（Unity Build）：storage 目标把多个 .cpp 合并进一个翻译单元，匿名命名空间中的
-// 同名符号会跨文件冲突；file-scope helper 一律放进本文件专属的命名空间。
+// R8 (unity build): the storage target merges several .cpp files into one translation unit, so
+// identically named symbols in anonymous namespaces collide across files; file-scope helpers
+// always go into a namespace private to this file.
 namespace like_gram_index_detail {
 
-// LIKE 的 ESCAPE 形状校验（保守策略）。只有两种形状允许下推：
-//   * arguments.size() == 1：没有 ESCAPE 子句。Nereids 的 like 函数只有 2 元
-//     (col, pattern) 和 3 元 (col, pattern, escape) 两个签名
-//     （fe/.../nereids/trees/expressions/Like.java:37-48），列走 slot_ref 进 iterators，
-//     所以「arguments 里只有模式串」等价于「没有第三个参数」——前提是 ESCAPE 一定是字面量。
-//   * arguments.size() == 2 且第二个参数是常量列，且取值恰为默认反斜杠。
-// 其余任何形状（参数多于 2 个、ESCAPE 不是常量列、ESCAPE 为 NULL、ESCAPE 不是反斜杠）
-// 一律拒绝下推——P0 的编译器只实现了默认反斜杠转义语义。
+// Conservative shape check for the LIKE ESCAPE clause. Only two shapes may be pushed down:
+//   * arguments.size() == 1: no ESCAPE clause. Nereids' like function has only the 2-ary
+//     (col, pattern) and the 3-ary (col, pattern, escape) signature
+//     (fe/.../nereids/trees/expressions/Like.java:37-48), and the column reaches iterators as a
+//     slot_ref, so "arguments holds only the pattern" is equivalent to "there is no third
+//     argument" -- provided ESCAPE is always a literal.
+//   * arguments.size() == 2, the second argument is a constant column, and its value is exactly
+//     the default backslash.
+// Any other shape (more than 2 arguments, a non-constant ESCAPE column, a NULL ESCAPE, an
+// ESCAPE that is not a backslash) is refused -- the P0 compiler only implements the default
+// backslash escaping semantics.
 //
-// 已知局限（P0 接受，P1 收紧）：VExpr::_evaluate_inverted_index 只把 **字面量** 子表达式
-// 收进 arguments（be/src/exprs/vexpr.cpp:998-1002）。FE 侧 ESCAPE 是任意表达式
-// （LogicalPlanBuilder.java:5116-5126 的 getExpression(ctx.escape)），因此一个
-// 非字面量的 ESCAPE 子表达式不会出现在 arguments 里：
-//   - 若它是一个带索引的 slot_ref，则 iterators 会多出一项，被上面的
-//     iterators.size() != 1 挡下；
-//   - 若它是一个不带索引的 slot_ref，iterators 仍只有一项、arguments 仍只有模式串，
-//     此处无法与「没有 ESCAPE 子句」区分。函数侧签名里没有 VExpr，拿不到
-//     get_num_children()，所以 P0 无法在这一层判定；P1 需要把原始子表达式个数
-//     （或 ESCAPE 子表达式本身）透传进 evaluate_inverted_index 后再收紧。
+// Known limitation (accepted in P0, tightened in P1): VExpr::_evaluate_inverted_index only
+// collects **literal** sub-expressions into arguments (be/src/exprs/vexpr.cpp:998-1002). On the
+// FE side ESCAPE is an arbitrary expression (getExpression(ctx.escape) in
+// LogicalPlanBuilder.java:5116-5126), so a non-literal ESCAPE sub-expression never appears in
+// arguments:
+//   - if it is a slot_ref carrying an index, iterators gains an extra entry and is rejected by
+//     the iterators.size() != 1 check above;
+//   - if it is a slot_ref without an index, iterators still holds one entry and arguments still
+//     holds only the pattern, which is indistinguishable here from "no ESCAPE clause". The
+//     function-side signature has no VExpr, so get_num_children() is out of reach and P0 cannot
+//     decide at this layer; P1 needs to pass the original child count (or the ESCAPE
+//     sub-expression itself) into evaluate_inverted_index and tighten this.
 bool like_escape_is_default_backslash(const ColumnsWithTypeAndName& arguments) {
     if (arguments.size() == 1) {
         return true;
@@ -1161,10 +1167,11 @@ bool like_escape_is_default_backslash(const ColumnsWithTypeAndName& arguments) {
     return true;
 }
 
-// 前置校验：总开关 / iterator 形状 / arguments 与 data_type_with_names 形状 / LIKE 的
-// ESCAPE 形状（见 like_escape_is_default_backslash）/ 模式串是否为非 NULL 常量。全部通过时
-// 把模式串写入 *pattern 并返回 true；任何一项不满足都返回 false——调用方据此直接 return OK()，不写
-// bitmap_result（Ruling R26：索引侧不适用只能导致不加速，不能报错）。
+// Preconditions: master switch / iterator shape / arguments and data_type_with_names shape /
+// LIKE ESCAPE shape (see like_escape_is_default_backslash) / pattern being a non-NULL constant.
+// Writes the pattern into *pattern and returns true when all of them hold; returns false as
+// soon as one does not -- the caller then simply returns OK() without writing bitmap_result
+// (Ruling R26: an inapplicable index may only cost the speedup, it must never raise an error).
 bool check_preconditions(bool is_like, const ColumnsWithTypeAndName& arguments,
                          const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
                          const std::vector<segment_v2::IndexIterator*>& iterators,
@@ -1199,32 +1206,40 @@ bool check_preconditions(bool is_like, const ColumnsWithTypeAndName& arguments,
     return true;
 }
 
-// 从 iterator 的 FULLTEXT reader 属性解析 gram 方案。返回 nullopt 的情形：没有 FULLTEXT
-// reader、reader 不是 SNII reader（存储格式栅栏，见下）、resolve_gram_scheme 判定不是
-// gram 族、或策略管理器因策略缺失而抛出异常——一律视为“这个索引用不了 gram 加速”，
-// 而不是查询错误。
+// Resolve the gram scheme from the iterator's FULLTEXT reader properties. nullopt is returned
+// when there is no FULLTEXT reader, the reader is not a SNII reader (storage-format fence, see
+// below), resolve_gram_scheme decides this is not a gram-family analyzer, or the policy manager
+// throws because a policy is missing -- all of these mean "this index cannot use gram
+// acceleration", not a query error.
 //
-// 存储格式栅栏（Ruling R30，第 1 层）：GRAM_BOOLEAN_QUERY 只有 SniiIndexReader 认识。
-// CLucene 格式的段（V1/V2/V3，reader 为 FullTextIndexReader / StringTypeInvertedIndexReader）
-// 即使属性表里写着 gram 族 analyzer（同一张表的旧段就是这样：索引定义相同、段格式不同），
-// 也绝不能收到 GRAM_BOOLEAN_QUERY——它们的 query() 会把序列化后的布尔查询串当作待分词的
-// 普通文本去走 QueryFactory，结果不可预期。因此这里在拿到 reader 之后立刻用 dynamic_cast
-// 判定具体类型：不是 SNII reader 就当作“没有可用方案”，静默不加速。
-// 第 2 层栅栏在 CLucene reader 的 query() 入口（inverted_index_reader.cpp），第 3 层是
-// dispatch_query 的兜底降级——三层都独立成立，任何一层被绕过都不会导致错误结果。
+// Storage-format fence (Ruling R30, layer 1): only SniiIndexReader understands
+// GRAM_BOOLEAN_QUERY. Segments in CLucene format (V1/V2/V3, whose reader is
+// FullTextIndexReader / StringTypeInvertedIndexReader) must never receive a GRAM_BOOLEAN_QUERY
+// even when their property table names a gram-family analyzer (old segments of the very same
+// table look exactly like that: identical index definition, different segment format) -- their
+// query() would hand the serialized boolean query to QueryFactory as ordinary text to be
+// tokenized, with unpredictable results. So right after obtaining the reader we determine its
+// concrete type with dynamic_cast: anything that is not a SNII reader counts as "no usable
+// scheme" and silently skips the acceleration.
+// Layer 2 of the fence sits at the query() entry of the CLucene readers
+// (inverted_index_reader.cpp), and layer 3 is the catch-all degradation in dispatch_query --
+// the three hold independently, so bypassing any one of them still cannot produce a wrong
+// result.
 //
-// 方案不变性（Ruling R28）：P0 直接用“查询时解析出的方案”当作“写入时使用的方案”，
-// 因为二者在 P0 一定相同：
-//   * FE 没有任何 ALTER INDEX POLICY 语句（indexpolicy/ 下只有 CREATE / DROP / SHOW），
-//     策略一经创建其属性不可变；
-//   * DROP 被引用的策略会被拒绝：analyzer 被索引引用时
-//     IndexPolicyMgr.checkAnalyzerNotUsedByIndex（IndexPolicyMgr.java:612-634）抛
-//     DdlException；tokenizer / token_filter / char_filter 被 analyzer 或 normalizer 引用时
-//     IndexPolicyMgr.checkPolicyNotReferenced（同文件 670-699，配合 checkFilterReference
-//     701-713）抛 DdlException；两条检查在 dropIndexPolicy（566-600）里被强制串接。
-// 也就是说“索引 -> analyzer -> tokenizer”这条链上的任何一环，只要索引还在，就既不能改也
-// 不能删。P1 会在此基础上再比对段内记录的 gram_scheme（Task 12 写入的 core 元数据），
-// 从而覆盖未来引入 ALTER / 跨版本重建带来的方案漂移。
+// Scheme invariance (Ruling R28): P0 simply takes "the scheme resolved at query time" to be
+// "the scheme used at write time", because in P0 the two are necessarily identical:
+//   * FE has no ALTER INDEX POLICY statement at all (indexpolicy/ only has CREATE / DROP /
+//     SHOW), so a policy's properties are immutable once created;
+//   * dropping a referenced policy is refused: when an analyzer is referenced by an index,
+//     IndexPolicyMgr.checkAnalyzerNotUsedByIndex (IndexPolicyMgr.java:612-634) throws
+//     DdlException; when a tokenizer / token_filter / char_filter is referenced by an analyzer
+//     or a normalizer, IndexPolicyMgr.checkPolicyNotReferenced (same file, 670-699, together
+//     with checkFilterReference 701-713) throws DdlException; dropIndexPolicy (566-600) chains
+//     both checks.
+// That is, no link of the "index -> analyzer -> tokenizer" chain can be modified or dropped
+// while the index still exists. On top of that, P1 will also compare the gram_scheme recorded
+// in the segment (the core metadata written by Task 12), covering the scheme drift that future
+// ALTER or cross-version rebuilds could introduce.
 std::optional<segment_v2::gram::GramScheme> resolve_scheme(segment_v2::IndexIterator* iter) {
     auto reader = iter->get_reader(segment_v2::InvertedIndexReaderType::FULLTEXT);
     if (reader == nullptr) {
@@ -1253,21 +1268,26 @@ std::optional<segment_v2::gram::GramScheme> resolve_scheme(segment_v2::IndexIter
     }
 }
 
-// 编译 pattern 为 GramQuery 并向 iterator 下发 GRAM_BOOLEAN_QUERY。编译器内部失败、编译
-// 结果为 ALL（gram_index_uncompilable，计数留给 Task 11）、以及 read_from_index 返回的
-// **任何** 非 OK 状态，都折叠成 OK 且不写 *bitmap_result。
+// Compile pattern into a GramQuery and issue a GRAM_BOOLEAN_QUERY to the iterator. An internal
+// compiler failure, a compilation result of ALL (gram_index_uncompilable, counted in Task 11),
+// and **any** non-OK status returned by read_from_index all collapse into OK without writing
+// *bitmap_result.
 //
-// 全兜底（Ruling R29）：这里刻意不再维护“已知该降级的错误码白名单”。gram 索引是纯加速
-// 手段——位图之外的行一定不匹配、位图之内的行由行级路径复验，因此索引侧无论出什么错
-// （损坏的段、读 S3 超时、未来新增的错误码……），正确的行为都只有一个：不加速，退回全
-// 表扫描。白名单一旦漏掉某个错误码，就会把一个“本可以正常出结果”的 LIKE/REGEXP 查询变成
-// 报错，这是比慢更严重的回归。
+// Catch-all degradation (Ruling R29): deliberately no allow-list of "error codes known to be
+// degradable" is kept here. The gram index is purely an accelerator -- rows outside the bitmap
+// certainly do not match, and rows inside it are re-verified by the row-level path -- so
+// whatever goes wrong on the index side (a corrupted segment, an S3 read timeout, an error code
+// added in the future, ...), the only correct behaviour is always the same: skip the
+// acceleration and fall back to a full scan. An allow-list that misses one error code turns a
+// LIKE/REGEXP query that could have returned results into a failure, which is a worse
+// regression than being slow.
 //
-// 唯一的例外是两类“查询整体已经该终止”的状态，吞掉它们只会让查询继续跑下去做无用功
-// （而且掩盖真实原因），因此原样上抛：
-//   * ErrorCode::CANCELLED —— 查询已被取消；
-//   * ErrorCode::MEM_LIMIT_EXCEEDED / ErrorCode::MEM_ALLOC_FAILED —— 内存超限 / 分配失败，
-//     退回全表扫描只会用掉更多内存。
+// The only exceptions are the two kinds of status that mean "the query as a whole should
+// already be stopping"; swallowing them would only let the query keep doing useless work (and
+// hide the real cause), so they are rethrown as-is:
+//   * ErrorCode::CANCELLED -- the query has been cancelled;
+//   * ErrorCode::MEM_LIMIT_EXCEEDED / ErrorCode::MEM_ALLOC_FAILED -- memory limit exceeded /
+//     allocation failed; falling back to a full scan would only use more memory.
 Status dispatch_query(bool is_like, const segment_v2::gram::GramScheme& scheme,
                       const std::string& pattern, segment_v2::IndexIterator* iter,
                       const IndexFieldNameAndTypePair& data_type_with_name, uint32_t num_rows,
@@ -1277,8 +1297,9 @@ Status dispatch_query(bool is_like, const segment_v2::gram::GramScheme& scheme,
     Status compile_status = is_like ? compiler.compile_like(pattern, &query)
                                     : compiler.compile_regexp(pattern, &query);
     if (!compile_status.ok()) {
-        // compile_* 的约定是只在内部断言失败时才返回非 OK；即便如此，索引侧的问题也只能
-        // 降级为不加速，绝不能让 LIKE/REGEXP 查询因此报错。
+        // compile_* only returns non-OK when an internal assertion fails; even then, a problem
+        // on the index side may only degrade to "no acceleration", it must never make the
+        // LIKE/REGEXP query fail.
         VLOG_DEBUG << "gram index push-down skipped: compiler returned " << compile_status;
         return Status::OK();
     }
@@ -1300,11 +1321,12 @@ Status dispatch_query(bool is_like, const segment_v2::gram::GramScheme& scheme,
         if (query_status.is<ErrorCode::CANCELLED>() ||
             query_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
             query_status.is<ErrorCode::MEM_ALLOC_FAILED>()) {
-            // 查询整体已经该终止：原样上抛（见上面的注释）。
+            // The query as a whole should already be stopping: rethrow as-is (see above).
             return query_status;
         }
-        // 其余一切错误都只降级为不加速。用 LOG_EVERY_N 而不是 VLOG，是因为这条路径
-        // 已经代表“索引没能用上”，值得在默认日志级别留下痕迹，同时避免逐段刷屏。
+        // Every other error only degrades to "no acceleration". LOG_EVERY_N rather than VLOG,
+        // because this path already means "the index could not be used" and deserves a trace at
+        // the default log level, while still not flooding the log once per segment.
         LOG_EVERY_N(WARNING, 100) << "gram index push-down skipped, read_from_index returned "
                                   << query_status;
         return Status::OK();

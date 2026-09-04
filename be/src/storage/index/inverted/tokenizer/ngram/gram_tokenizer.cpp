@@ -30,11 +30,13 @@ void GramTokenizer::reset() {
     if (_in == nullptr || _in->size() == 0) {
         return;
     }
-    // 与 NGramTokenizer::reset() 一致：一次性读取全量输入（ngram_tokenizer.cpp:83-94）。
+    // Same as NGramTokenizer::reset(): read the whole input in one go
+    // (ngram_tokenizer.cpp:83-94).
     _char_length = _in->read(reinterpret_cast<const void**>(&_char_buffer), 0,
                              static_cast<int32_t>(_in->size()));
-    // 必须一次读全：少读一个字节就会少切出若干 gram，直接破坏"落库 gram 是查询侧所需
-    // gram 的超集"这条不变式（漏行且无从察觉）。
+    // The read must cover everything: one byte short means a handful of grams fewer, which
+    // breaks the invariant "the grams stored in the index are a superset of the grams the query
+    // side needs" outright (rows go missing with no way to notice).
     DCHECK_EQ(_char_length, static_cast<int32_t>(_in->size()));
     if (_char_length <= 0 || _char_buffer == nullptr) {
         return;

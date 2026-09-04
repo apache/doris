@@ -373,8 +373,9 @@ public class InvertedIndexUtil {
                 }
                 return;
             }
-            // gram 族 analyzer（ngram tokenizer 且带 mode，见 IndexPolicyMgr#resolveGramTokenizerMode）：
-            // BE 只在 SNII 上为它构建稀疏/稠密 gram 倒排项，且该倒排项不带位置信息，无法支持短语查询。
+            // Gram-family analyzer (an ngram tokenizer carrying mode, see
+            // IndexPolicyMgr#resolveGramTokenizerMode): BE builds sparse/dense gram postings for it
+            // only on SNII, and those postings carry no positions, so phrase queries are impossible.
             Optional<String> gramMode = indexPolicyMgr.resolveGramTokenizerMode(analyzerName);
             if (gramMode.isPresent()) {
                 if (colType.isArrayType()) {
@@ -406,16 +407,18 @@ public class InvertedIndexUtil {
     }
 
     /**
-     * gram 族 analyzer（ngram tokenizer 携带 mode）在索引属性层面的强制约束：
-     * 1) 索引级 char_filter（char_filter_type/pattern/replacement）与 gram 切分边界语义冲突
-     *    （字符替换会发生在 tokenizer 已经按 gram 规则切分之后，破坏可复现性），直接拒绝；
-     * 2) support_phrase 未显式给出时缺省写为 "false"，覆盖 {@link Index} 构造函数「存在
-     *    analyzer 时默认 true」的通用规则 —— gram 索引在 BE 侧被强制 docs-only，没有位置信息
-     *    可供短语查询使用。
+     * Constraints a gram-family analyzer (an ngram tokenizer carrying mode) enforces at the index
+     * property level:
+     * 1) an index-level char_filter (char_filter_type/pattern/replacement) conflicts with the
+     *    semantics of gram split boundaries (the character replacement happens after the tokenizer
+     *    has already split by the gram rule, which breaks reproducibility), so it is rejected;
+     * 2) when support_phrase is not given explicitly it defaults to "false", overriding the general
+     *    rule of the {@link Index} constructor that "an analyzer implies true" -- a gram index is
+     *    forced to docs-only on the BE side and has no positions for a phrase query to use.
      *
-     * <p>调用方（{@link #checkInvertedIndexProperties}）持有的 {@code properties} 与
-     * {@link IndexDefinition} 字段是同一个可变 Map 引用，因此这里写入的默认值会在
-     * {@code IndexDefinition#translateToCatalogStyle} 构造 {@link Index} 时被读到。
+     * <p>The {@code properties} held by the caller ({@link #checkInvertedIndexProperties}) and the
+     * {@link IndexDefinition} field are the same mutable Map reference, so the defaults written
+     * here are seen when {@code IndexDefinition#translateToCatalogStyle} builds the {@link Index}.
      */
     private static void applyGramFamilyIndexDefaults(String analyzerName, Map<String, String> properties)
             throws AnalysisException {

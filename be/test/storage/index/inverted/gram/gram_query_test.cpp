@@ -35,15 +35,16 @@ TEST(GramQueryTest, FlattenDedupeAbsorb) {
                              GramQuery::of_gram("abc"));
     EXPECT_EQ(q.op, GramQuery::Op::AND);
     EXPECT_EQ(q.grams.size(), 2U);
-    // AND 内已有 abc，则子 OR(abc|xyz) 恒真，被吸收
+    // abc is already in the AND, so the child OR(abc|xyz) is always true and gets absorbed
     auto r = GramQuery::and_(q,
                              GramQuery::or_(GramQuery::of_gram("abc"), GramQuery::of_gram("xyz")));
     EXPECT_EQ(r.leaf_count(), 2U);
-    // OR 内已有 gram "x"，则含 "x" 的子 AND 被吸收（吸收律的另一个方向）：x | (x & y) → x
+    // The gram "x" is already in the OR, so a child AND containing "x" is absorbed (the other
+    // direction of absorption): x | (x & y) -> x
     auto t = GramQuery::or_(GramQuery::of_gram("x"),
                             GramQuery::and_(GramQuery::of_gram("x"), GramQuery::of_gram("y")));
     EXPECT_EQ(t.to_debug_string(), "(\"x\")");
-    // OR 内 AND 子集吸收超集：(a&b) | (a&b&c) → (a&b)
+    // Inside an OR, a subset AND absorbs its superset: (a&b) | (a&b&c) -> (a&b)
     auto s = GramQuery::or_(
             GramQuery::and_(GramQuery::of_gram("a"), GramQuery::of_gram("b")),
             GramQuery::and_(GramQuery::and_(GramQuery::of_gram("a"), GramQuery::of_gram("b")),
@@ -68,7 +69,7 @@ TEST(GramQueryTest, SerializeRoundTrip) {
 }
 
 TEST(GramQueryTest, ParseRejectsMalformedInput) {
-    // 65 层嵌套的 "&(" 前缀必须在爆栈之前被深度上限拒绝。
+    // A 65-level nested "&(" prefix must be rejected by the depth cap before the stack overflows.
     std::string deep;
     for (int i = 0; i < 65; i++) {
         deep += "&(";
@@ -77,28 +78,31 @@ TEST(GramQueryTest, ParseRejectsMalformedInput) {
     EXPECT_FALSE(GramQuery::parse(deep, &too_deep).ok());
 
     GramQuery bad;
-    EXPECT_FALSE(GramQuery::parse("&()", &bad).ok());      // 零操作数的 AND
-    EXPECT_FALSE(GramQuery::parse("&(,)", &bad).ok());     // 开头逗号 → 空 item
-    EXPECT_FALSE(GramQuery::parse("&(a,,b)", &bad).ok());  // 连续逗号 → 空 item
-    EXPECT_FALSE(GramQuery::parse("&(YQ==,)", &bad).ok()); // 结尾逗号 → 空 item
-    EXPECT_FALSE(GramQuery::parse("&(@@)", &bad).ok());    // 非法 base64
-    EXPECT_FALSE(GramQuery::parse("*x", &bad).ok());       // 尾随输入
+    EXPECT_FALSE(GramQuery::parse("&()", &bad).ok());      // AND with no operand
+    EXPECT_FALSE(GramQuery::parse("&(,)", &bad).ok());     // leading comma -> empty item
+    EXPECT_FALSE(GramQuery::parse("&(a,,b)", &bad).ok());  // consecutive commas -> empty item
+    EXPECT_FALSE(GramQuery::parse("&(YQ==,)", &bad).ok()); // trailing comma -> empty item
+    EXPECT_FALSE(GramQuery::parse("&(@@)", &bad).ok());    // invalid base64
+    EXPECT_FALSE(GramQuery::parse("*x", &bad).ok());       // trailing input
 
-    // 解析失败时 *out 必须保持调用前的值，不能残留半成品树。
+    // On a parse failure *out must keep its value from before the call, with no half-built tree
+    // left behind.
     GramQuery preserved = GramQuery::of_gram("z");
     EXPECT_FALSE(GramQuery::parse("&()", &preserved).ok());
     EXPECT_EQ(preserved.to_debug_string(), "(\"z\")");
 }
 
 TEST(GramQueryTest, ParseRebuildsViaCombinators) {
-    // "&(*)" 只有一个操作数 *，按 and_ 组合子折叠：and_(all(), all()) 短路为 all()，
-    // 而不是原样产出一个持有单个 ALL 子查询的 AND 节点。
+    // "&(*)" has a single operand *, folded through the and_ combinator: and_(all(), all())
+    // short-circuits to all() instead of literally producing an AND node holding one ALL
+    // sub-query.
     GramQuery all_query;
     ASSERT_TRUE(GramQuery::parse("&(*)", &all_query).ok());
     EXPECT_TRUE(all_query.is_all());
 
-    // OR 内已有 gram "a"（YQ==），含 "a" 的子 AND(a,b) 按 or_ 组合子重建时被吸收，
-    // 而不是被原样拼装成一棵 or_() 本不会产出的树。
+    // The gram "a" (YQ==) is already in the OR, so the child AND(a,b) containing "a" is absorbed
+    // while being rebuilt through the or_ combinator, instead of being assembled verbatim into a
+    // tree that or_() would never produce.
     GramQuery absorbed;
     ASSERT_TRUE(GramQuery::parse("|(YQ==,&(YQ==,Yg==))", &absorbed).ok());
     EXPECT_EQ(absorbed.to_debug_string(), "(\"a\")");

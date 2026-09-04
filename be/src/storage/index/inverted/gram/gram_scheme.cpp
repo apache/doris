@@ -25,7 +25,8 @@
 namespace doris::segment_v2::gram {
 
 namespace {
-// 解析取值范围为 [lo, hi] 的整数属性；失败时返回带上下文的 InvalidArgument。
+// Parse an integer property whose value range is [lo, hi]; on failure return InvalidArgument
+// with context.
 Status parse_uint(const std::string& key, const std::string& v, uint32_t lo, uint32_t hi,
                   uint32_t* out) {
     char* end = nullptr;
@@ -37,7 +38,8 @@ Status parse_uint(const std::string& key, const std::string& v, uint32_t lo, uin
     return Status::OK();
 }
 
-// 解析千分比属性：输入是 [lo, hi] 范围内的小数（如 0.33），落盘为 ×1000 后的整数（如 330）。
+// Parse a permille property: the input is a decimal in [lo, hi] (0.33, say) and is stored as
+// that value times 1000 (330).
 Status parse_permille(const std::string& key, const std::string& v, double lo, double hi,
                       uint32_t* out) {
     char* end = nullptr;
@@ -55,7 +57,7 @@ Status GramScheme::from_properties(const std::map<std::string, std::string>& pro
     GramScheme s;
     if (auto it = props.find("mode"); it != props.end()) {
         if (it->second == "sparse" || it->second == "auto") {
-            s.mode = GramMode::SPARSE; // auto 在写入侧按段样本解析；库级默认 sparse
+            s.mode = GramMode::SPARSE; // auto resolves per segment sample; sparse is the default
         } else if (it->second == "dense") {
             s.mode = GramMode::DENSE;
         } else {

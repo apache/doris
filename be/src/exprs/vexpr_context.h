@@ -124,7 +124,8 @@ public:
         return &iter->second;
     }
 
-    // 近似（超集）索引结果的专用入口，与上面的精确结果表严格分开。
+    // Dedicated entry point for approximate (superset) index results, kept strictly apart from
+    // the exact result map above.
     void set_approx_index_result_for_expr(const VExpr* expr,
                                           segment_v2::InvertedIndexResultBitmap bitmap) {
         _approx_index_result_bitmap[expr] = std::move(bitmap);
@@ -189,14 +190,17 @@ private:
     // A map of expressions to their corresponding result columns.
     std::unordered_map<const VExpr*, ColumnPtr> _index_result_column;
 
-    // 近似（超集）索引结果：位图之外的行一定不匹配，位图之内的行未必匹配，所以它只能
-    // 用来裁剪候选行，表达式必须留在下推列表里在候选行上复验。三条不变量：
-    // (a) 绝不写入 _index_result_bitmap / _index_result_column——否则 VExpr::fast_execute
-    //     会用候选位图冒充函数结果，_output_index_result_column 也会把它物化成结果列；
-    // (b) 绝不调用 set_true_for_index_status——否则该列会被判定 need_read_data=false，
-    //     复验时无列可读；
-    // (c) 只有当该表达式正好是 VExprContext 的根节点时才允许拿去与 _row_bitmap 求交
-    //     （顶层 AND 语境）；被 NOT/OR 包住时 VCompoundPred 看不到这张表，自然不生效。
+    // Approximate (superset) index results: rows outside the bitmap certainly do not match, but
+    // rows inside it may not match either, so it may only be used to prune candidate rows and
+    // the expression must stay in the push-down list to re-verify them. Three invariants:
+    // (a) never write into _index_result_bitmap / _index_result_column -- VExpr::fast_execute
+    //     would then pass the candidate bitmap off as the function result, and
+    //     _output_index_result_column would materialize it as a result column;
+    // (b) never call set_true_for_index_status -- the column would then be judged
+    //     need_read_data=false and there would be no column left to read during re-verification;
+    // (c) intersecting with _row_bitmap is allowed only when the expression happens to be the
+    //     root of the VExprContext (a top-level AND context); wrapped in NOT/OR, VCompoundPred
+    //     never sees this map, so it simply does not apply.
     std::unordered_map<const VExpr*, segment_v2::InvertedIndexResultBitmap>
             _approx_index_result_bitmap;
 

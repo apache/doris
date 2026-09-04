@@ -299,16 +299,19 @@ CustomAnalyzerProvider::CustomAnalyzerProvider(
         _common_grams_identity =
                 build_common_grams_identity(_common_words->identity(), _base_analyzer_fingerprint);
     }
-    // gram 族识别：tokenizer 是 "ngram" 时，把它的 Settings 交给
-    // NGramTokenizerFactory::parse_gram_scheme 复用同一份属性映射（R16 DRY）。
-    // build_purpose_analyzers() 已经在上面成功构造出该 tokenizer（否则会抛异常中断构造），
-    // 因此这里重新解析同一份配置不会失败；解析失败时保持 nullopt 兜底，不重复上抛。
+    // Gram-family detection: when the tokenizer is "ngram", hand its Settings to
+    // NGramTokenizerFactory::parse_gram_scheme so the same property mapping is reused (R16,
+    // DRY). build_purpose_analyzers() has already constructed that tokenizer successfully above
+    // (otherwise it would have thrown and aborted construction), so re-parsing the same
+    // configuration here cannot fail; should it fail anyway, we fall back to nullopt rather than
+    // rethrowing.
     //
-    // R22（fail-safe）：带任何 char filter 或 token filter 的 analyzer 一律不算 gram 族。
-    // gram 族的全部价值建立在"落库 term == GramExtractor.extract(原始列值)"这条行不变式上，
-    // 查询侧（阶段 C）据此把正则改写成 gram 的合取式；char filter 会改写文本、token filter
-    // 会改写/增删 gram，任一存在都让该等式不再成立。宁可退回全表扫描，也不能凭一个不成立的
-    // 不变式漏行。
+    // R22 (fail-safe): an analyzer carrying any char filter or token filter is never treated as
+    // gram family. The whole value of the gram family rests on the row invariant "the stored
+    // term == GramExtractor.extract(raw column value)", which the query side (phase C) uses to
+    // rewrite a regex into a conjunction of grams; a char filter rewrites the text and a token
+    // filter rewrites, adds or removes grams, and either one breaks that equality. Better to
+    // fall back to a full scan than to drop rows on an invariant that no longer holds.
     const bool has_filters = !_config->get_char_filter_configs().empty() ||
                              !_config->get_token_filter_configs().empty();
     if (const auto& tokenizer_config = _config->get_tokenizer_config();

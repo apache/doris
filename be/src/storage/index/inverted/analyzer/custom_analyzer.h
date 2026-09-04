@@ -106,11 +106,12 @@ public:
         return _uses_common_grams ? _common_words.get() : nullptr;
     }
     const std::shared_ptr<const CommonWordSet>& common_words() const { return _common_words; }
-    // 由构造函数依据 analyzer 配置一次性算出并缓存：tokenizer 是 "ngram" 且带非空 "mode"
-    // 属性、且该 analyzer 不带任何 char filter / token filter 时有值，否则为 nullopt
-    // （R22 fail-safe：任何 filter 都会让"落库 term == GramExtractor.extract(原始列值)"
-    // 这条行不变式失效）。取值逻辑复用 NGramTokenizerFactory::parse_gram_scheme，
-    // 与 tokenizer 自身的属性解析保持唯一真源。
+    // Computed once by the constructor from the analyzer configuration and cached: it holds a
+    // value when the tokenizer is "ngram" with a non-empty "mode" property and the analyzer
+    // carries no char filter or token filter, and is nullopt otherwise (R22 fail-safe: any
+    // filter invalidates the row invariant "the stored term == GramExtractor.extract(raw column
+    // value)"). The value is computed by NGramTokenizerFactory::parse_gram_scheme, keeping a
+    // single source of truth with the tokenizer's own property parsing.
     std::optional<gram::GramScheme> gram_scheme() const override { return _gram_scheme; }
 
     static std::string calculate_base_analyzer_fingerprint(

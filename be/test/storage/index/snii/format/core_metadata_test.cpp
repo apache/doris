@@ -322,8 +322,9 @@ TEST(SniiCoreMetadata, GramSchemeRoundTrip) {
     EXPECT_TRUE(*actual.gram_scheme == scheme);
     expect_core_eq(expected, actual);
 
-    // P0 字节兼容性：写入侧从不设置 gram_scheme，因此缺省（nullopt）编码之后，底层 PB
-    // 的 has_gram_scheme() 必须为 false —— 这个字段的引入不能改变任何既有段的编码字节。
+    // P0 byte compatibility: the write side never sets gram_scheme, so after encoding the default
+    // (nullopt), has_gram_scheme() on the underlying PB must be false -- introducing this field
+    // must not change the encoded bytes of any existing segment.
     const auto none_framed = encode(sample_core());
     CoreMetadata none_actual;
     ASSERT_TRUE(decode_core_metadata(Slice(none_framed), &none_actual).ok());
@@ -337,7 +338,7 @@ TEST(SniiCoreMetadata, GramSchemeRoundTrip) {
 
 TEST(SniiCoreMetadata, GramSchemeSparseRoundTrip) {
     auto expected = sample_core();
-    expected.gram_scheme = GramScheme {}; // 成员初值即 SPARSE / 3 / 16 / 250 / 100 / lc0 / v1
+    expected.gram_scheme = GramScheme {}; // member defaults: SPARSE / 3 / 16 / 250 / 100 / lc0 / v1
 
     CoreMetadata actual;
     ASSERT_TRUE(decode_core_metadata(Slice(encode(expected)), &actual).ok());
@@ -349,20 +350,21 @@ TEST(SniiCoreMetadata, GramSchemeSparseRoundTrip) {
     expect_core_eq(expected, actual);
 }
 
-// 解码必须把整个方案校验到底，而不只是看一眼 mode：越界的方案一旦放过去，就会带着
-// min_len=0 之类的值直接喂给 GramExtractor。
+// Decoding has to validate the whole scheme, not just glance at mode: an out-of-range scheme that
+// slips through would feed values such as min_len=0 straight into GramExtractor.
 TEST(SniiCoreMetadata, RejectsCorruptGramScheme) {
     auto metadata = sample_core();
     metadata.gram_scheme = GramScheme {};
 
-    // mode 只允许 1(DENSE) / 2(SPARSE)。
+    // mode only allows 1 (DENSE) / 2 (SPARSE).
     const auto bad_mode = mutate_core_payload(
             metadata, [](auto* core) { core->mutable_gram_scheme()->set_mode(7); });
     CoreMetadata actual;
     auto status = decode_core_metadata(Slice(frame_payload(bad_mode)), &actual);
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
 
-    // 半条消息：只设了 mode，其余字段按 PB 语义默认为 0，而 0 不是任何合法方案。
+    // A partial message: only mode is set, every other field defaults to 0 by PB semantics, and 0
+    // is not part of any valid scheme.
     const auto partial = mutate_core_payload(sample_core(), [](auto* core) {
         core->mutable_gram_scheme()->set_mode(static_cast<uint32_t>(GramMode::SPARSE));
     });

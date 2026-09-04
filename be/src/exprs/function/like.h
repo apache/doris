@@ -374,16 +374,21 @@ protected:
     static Status hs_prepare(FunctionContext* context, const char* expression,
                              hs_database_t** database, hs_scratch_t** scratch);
 
-    // gram 索引下推入口，LIKE / REGEXP 共用；两者仅编译方式不同（LIKE 按 %/_ 切字面量段，
-    // REGEXP 走正则语法树），其余流程（方案解析、下发 GRAM_BOOLEAN_QUERY、近似标记）完全一致。
+    // Entry point for gram index push-down, shared by LIKE and REGEXP; the two differ only in
+    // how they compile (LIKE cuts literal segments on %/_, REGEXP goes through the regex syntax
+    // tree) and are otherwise identical (scheme resolution, issuing GRAM_BOOLEAN_QUERY, marking
+    // the result approximate).
     //
-    // 语义硬约束（Ruling R26 / R29）：索引只能产生超集候选，任何索引侧失败或不适用场景都
-    // 只能导致“不加速”——一律直接 return OK() 且不写 bitmap_result，绝不能让 LIKE/REGEXP
-    // 查询因为索引侧的问题而报错或结果变化。具体到每种情形（开关关闭、iterator/参数形状
-    // 不对、模式串非常量或为 NULL、LIKE 的 ESCAPE 形状不是“无 ESCAPE / 常量反斜杠”、reader
-    // 不是 SNII reader、非 gram 族索引、gram 编译器内部失败、编译结果为 ALL、
-    // read_from_index 返回任何非 OK 状态）见 like.cpp 的实现。唯一会被上抛的是
-    // CANCELLED / MEM_LIMIT_EXCEEDED / MEM_ALLOC_FAILED 这类“查询整体已经该终止”的状态。
+    // Hard semantic constraint (Rulings R26 / R29): the index may only produce a superset of
+    // candidates, and any index-side failure or inapplicable case may only cost the speedup --
+    // all of them simply return OK() without writing bitmap_result, and a problem on the index
+    // side must never make a LIKE/REGEXP query fail or change its result. The individual cases
+    // (switch turned off, wrong iterator/argument shape, a non-constant or NULL pattern, a LIKE
+    // ESCAPE shape other than "no ESCAPE / a constant backslash", a reader that is not a SNII
+    // reader, a non-gram-family index, an internal gram compiler failure, a compilation result
+    // of ALL, any non-OK status from read_from_index) are handled in the implementation in
+    // like.cpp. The only statuses rethrown are the "the query as a whole should already be
+    // stopping" ones: CANCELLED / MEM_LIMIT_EXCEEDED / MEM_ALLOC_FAILED.
     enum class GramCompileKind { LIKE, REGEXP };
     Status evaluate_gram_index(GramCompileKind kind, const ColumnsWithTypeAndName& arguments,
                                const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,

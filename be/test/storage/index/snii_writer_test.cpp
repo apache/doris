@@ -120,9 +120,9 @@ private:
     doris::IndexPolicyMgr* previous_ = nullptr;
 };
 
-// 注入一个 gram 族（ngram tokenizer + mode=sparse）的 tokenizer/analyzer 策略对，
-// 与 ScopedCommonGramsPolicies 同样的“替换再还原” ExecEnv::_index_policy_mgr 手法，
-// 供 gram 族识别 + SNII 写入器强制 docs-only 的测试使用。
+// Inject a gram-family (ngram tokenizer + mode=sparse) tokenizer/analyzer policy pair, with the
+// same "swap and restore" trick on ExecEnv::_index_policy_mgr as ScopedCommonGramsPolicies, for
+// the tests of gram-family detection and the SNII writer forcing docs-only.
 class ScopedGramPolicies {
 public:
     ScopedGramPolicies() {
@@ -130,11 +130,12 @@ public:
         previous_ = exec_env->index_policy_mgr();
         exec_env->_index_policy_mgr = &manager_;
 
-        // IndexPolicyMgr 的 _name_to_id 是不分策略类型的单一命名空间（apply_policy_changes
-        // 按名字去重，后到者若与已有名字冲突会被整个拒绝，见 index_policy_mgr.cpp:86-92）。
-        // tokenizer 和 analyzer 因此不能同名，故 tokenizer 用独立的
-        // "gram_sparse_tokenizer"，analyzer 保留 "gram_sparse"（索引 analyzer 属性引用的
-        // 正是这个名字）。
+        // IndexPolicyMgr's _name_to_id is a single namespace across policy types
+        // (apply_policy_changes deduplicates by name and rejects a later policy outright when its
+        // name clashes with an existing one, see index_policy_mgr.cpp:86-92). A tokenizer and an
+        // analyzer therefore cannot share a name, so the tokenizer gets its own
+        // "gram_sparse_tokenizer" while the analyzer keeps "gram_sparse" (the name the index's
+        // analyzer property refers to).
         doris::TIndexPolicy tokenizer;
         tokenizer.id = 9001;
         tokenizer.name = "gram_sparse_tokenizer";
@@ -148,8 +149,9 @@ public:
         analyzer.type = doris::TIndexPolicyType::ANALYZER;
         analyzer.properties["tokenizer"] = "gram_sparse_tokenizer";
 
-        // 同一个 gram 族 tokenizer，但挂了一个 token filter：R22 要求这样的 analyzer
-        // 一律不算 gram 族（filter 会改写 token，落库 term 不再等于抽取器的产出）。
+        // The same gram-family tokenizer, but with a token filter attached: R22 requires such an
+        // analyzer never to count as gram family (the filter rewrites tokens, so the stored term
+        // is no longer what the extractor produced).
         doris::TIndexPolicy filtered_analyzer;
         filtered_analyzer.id = 9003;
         filtered_analyzer.name = filtered_analyzer_name();
@@ -216,8 +218,9 @@ void init_common_grams_index_meta(doris::TabletIndex* index_meta, int64_t index_
     index_meta->init_from_pb(index_pb);
 }
 
-// 通用 index_meta 构造：把任意属性表塞进一个新建的 TabletIndex，供 gram 族识别测试直接
-// 传入自定义 properties（而不是像上面两个专用 helper 那样把属性硬编码在函数体内）。
+// Generic index_meta construction: push an arbitrary property table into a fresh TabletIndex, so
+// the gram-family detection tests can pass custom properties directly instead of hardcoding them
+// in the function body like the two dedicated helpers above.
 void init_gram_index_meta(doris::TabletIndex* index_meta, int64_t index_id,
                           const std::map<std::string, std::string>& properties) {
     doris::TabletIndexPB index_pb;
@@ -573,15 +576,16 @@ TEST(SniiCommonGramsWriter, PlainControlKeepsRawTermsAndLegacyConfig) {
     EXPECT_FALSE(writer.has_common_grams_metadata_seed_for_test());
 }
 
-// gram 族（ngram tokenizer + mode=sparse）analyzer 必须被 resolve_gram_scheme 识别，
-// 且 SniiIndexColumnWriter::init() 必须无视 support_phrase=true、强制转为 docs-only：
-// gram 索引不支持短语位置。同时验证写入的 term 与落地的 GramExtractor 产出的 gram 完全一致
-// （行不变式：gram 族索引的 term 就是抽取器切出的 gram，不多不少）。
+// A gram-family (ngram tokenizer + mode=sparse) analyzer must be recognized by
+// resolve_gram_scheme, and SniiIndexColumnWriter::init() must ignore support_phrase=true and
+// force docs-only: a gram index does not support phrase positions. This also checks that the
+// written terms are exactly the grams GramExtractor produces (the row invariant: the terms of a
+// gram-family index are exactly the grams the extractor cuts, no more and no less).
 TEST(SniiWriterTest, GramTokenizerForcesDocsOnlyAndIsRecognised) {
     ScopedGramPolicies policies;
 
     const std::map<std::string, std::string> props {{"analyzer", "gram_sparse"},
-                                                    {"support_phrase", "true"}}; // 故意要位置
+                                                    {"support_phrase", "true"}}; // ask for pos
     doris::TabletIndex index_meta;
     init_gram_index_meta(&index_meta, 9010, props);
 
@@ -592,7 +596,7 @@ TEST(SniiWriterTest, GramTokenizerForcesDocsOnlyAndIsRecognised) {
     doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &index_meta,
                                                     doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
     ASSERT_OK(writer.init());
-    // gram 族强制 docs-only，忽略 support_phrase。
+    // The gram family forces docs-only and ignores support_phrase.
     EXPECT_EQ(writer.config_for_test(), IndexConfig::kDocsOnly);
     ASSERT_TRUE(writer.gram_scheme_for_test().has_value());
     EXPECT_TRUE(writer.gram_scheme_for_test().value() == *scheme);
@@ -613,9 +617,10 @@ TEST(SniiWriterTest, GramTokenizerForcesDocsOnlyAndIsRecognised) {
     EXPECT_EQ(terms, expected);
 }
 
-// 非 gram 族（内置 parser="english"，无 analyzer/normalizer 属性）必须解析不出方案，
-// 且无论进程里当前的 IndexPolicyMgr 是否为空都要成立（resolve_gram_scheme 对 mgr==nullptr
-// 与「analyzer 名为空」两种情况都直接短路返回 nullopt，不依赖策略管理器是否已初始化）。
+// A non-gram-family index (the built-in parser="english", with no analyzer/normalizer property)
+// must resolve to no scheme, whether or not the process's current IndexPolicyMgr is empty
+// (resolve_gram_scheme short-circuits to nullopt for both mgr==nullptr and "empty analyzer name",
+// without depending on whether the policy manager has been initialized).
 TEST(SniiWriterTest, NonGramAnalyzerHasNoScheme) {
     const std::map<std::string, std::string> props {{"parser", "english"}};
     doris::TabletIndex index_meta;
@@ -625,15 +630,17 @@ TEST(SniiWriterTest, NonGramAnalyzerHasNoScheme) {
                          .has_value());
 }
 
-// R21 回归护栏：内置 analyzer 名（standard/english/...）从不注册成索引策略，问策略管理器
-// 一定抛 "Policy not found"。gram 族识别一旦走策略管理器，每一个
-// PROPERTIES("analyzer"="standard") 的存量索引都会建不起来——这里刻意装上一个只含 gram
-// 策略的管理器，确保内置名既不进管理器、也不改变原有的 config 结论。
+// R21 regression guard: built-in analyzer names (standard/english/...) are never registered as
+// index policies, so asking the policy manager for one always throws "Policy not found". If
+// gram-family detection went through the policy manager, every existing index with
+// PROPERTIES("analyzer"="standard") would fail to build -- so this deliberately installs a
+// manager holding gram policies only, making sure a built-in name neither enters the manager nor
+// changes the previous config conclusion.
 TEST(SniiWriterTest, BuiltinAnalyzerNameStillInitialises) {
-    ScopedGramPolicies policies; // 管理器里只有 gram 族策略，没有 "standard"/"english"
+    ScopedGramPolicies policies; // only gram policies in the manager, no "standard"/"english"
     const std::vector<std::map<std::string, std::string>> cases {
             {{"analyzer", "standard"}, {"support_phrase", "true"}},
-            {{"parser", "english"}}}; // legacy parser 写法
+            {{"parser", "english"}}}; // the legacy parser spelling
     int64_t index_id = 9012;
     for (const auto& props : cases) {
         doris::TabletIndex index_meta;
@@ -642,15 +649,17 @@ TEST(SniiWriterTest, BuiltinAnalyzerNameStillInitialises) {
                                                         doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
         ASSERT_OK(writer.init());
         EXPECT_FALSE(writer.gram_scheme_for_test().has_value());
-        // config 完全由 support_phrase 决定，与 gram 族判定无关。
+        // config is decided purely by support_phrase, independently of gram-family detection.
         EXPECT_EQ(writer.config_for_test(), props.contains("support_phrase")
                                                     ? IndexConfig::kDocsPositions
                                                     : IndexConfig::kDocsOnly);
     }
 }
 
-// 反面：analyzer 名既不是内置名、策略管理器里也没有 —— 这是真正的配置错误，必须保持
-// 原有行为（analyzer 创建阶段报 INVERTED_INDEX_ANALYZER_ERROR），不能被 R21 的短路吞掉。
+// The negative case: an analyzer name that is neither built-in nor present in the policy manager
+// -- a genuine configuration error, which must keep its existing behaviour (an
+// INVERTED_INDEX_ANALYZER_ERROR while creating the analyzer) and must not be swallowed by R21's
+// short circuit.
 TEST(SniiWriterTest, MissingAnalyzerPolicyFailsInit) {
     ScopedGramPolicies policies;
     const std::map<std::string, std::string> props {{"analyzer", "no_such_policy"}};
@@ -662,9 +671,9 @@ TEST(SniiWriterTest, MissingAnalyzerPolicyFailsInit) {
     EXPECT_EQ(status.code(), doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
 }
 
-// R22：gram 族 tokenizer 一旦挂上 token filter，落库 term 就不再等于
-// GramExtractor.extract(原始列值)，必须按"不是 gram 族"处理 —— 既不上报方案，也不能
-// 顺手把用户要的短语位置抹掉。
+// R22: once a token filter is attached to a gram-family tokenizer, the stored term is no longer
+// GramExtractor.extract(raw column value), so it must be treated as "not gram family" -- neither
+// reporting a scheme nor quietly dropping the phrase positions the user asked for.
 TEST(SniiWriterTest, TokenFilteredGramAnalyzerIsNotGramFamily) {
     ScopedGramPolicies policies;
     const std::string analyzer_name = ScopedGramPolicies::filtered_analyzer_name();
@@ -680,11 +689,12 @@ TEST(SniiWriterTest, TokenFilteredGramAnalyzerIsNotGramFamily) {
                                                     doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
     ASSERT_OK(writer.init());
     EXPECT_FALSE(writer.gram_scheme_for_test().has_value());
-    EXPECT_EQ(writer.config_for_test(), IndexConfig::kDocsPositions); // 不强制 docs-only
+    EXPECT_EQ(writer.config_for_test(), IndexConfig::kDocsPositions); // docs-only not forced
 }
 
-// R22 的另一半：索引级 char_filter 由写入器自己包在 reader 外层，policy provider 看不见
-// 它，因此 provider 仍会报出方案 —— 必须由写入器把它按下去。
+// The other half of R22: an index-level char_filter is wrapped around the reader by the writer
+// itself and is invisible to the policy provider, so the provider still reports a scheme -- the
+// writer has to suppress it.
 TEST(SniiWriterTest, IndexLevelCharFilterIsNotGramFamily) {
     ScopedGramPolicies policies;
     EXPECT_TRUE(policies.manager()

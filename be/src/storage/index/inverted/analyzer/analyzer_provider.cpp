@@ -17,11 +17,12 @@
 
 #include "storage/index/inverted/analyzer/analyzer_provider.h"
 
-// gram_scheme.h 只在这个 .cpp 里出现完整定义：analyzer_provider.h 为了不把
-// exec/pipeline/dependency.h 的前向包含闭包挤过预算，只前置声明了 GramScheme
-// （见 analyzer_provider.h 顶部注释）。gram_scheme() 的默认实现需要构造一个空的
-// std::optional<GramScheme>，这要求完整类型，因此挪到这里、只在真正编译这个
-// 翻译单元时才需要该完整定义。
+// gram_scheme.h is completely defined only in this .cpp: to keep the forward include closure of
+// exec/pipeline/dependency.h under budget, analyzer_provider.h only forward-declares GramScheme
+// (see the comment at the top of analyzer_provider.h). The default implementation of
+// gram_scheme() has to construct an empty std::optional<GramScheme>, which requires the complete
+// type, so it was moved here, where that definition is needed only while this translation unit
+// is actually compiled.
 #include "storage/index/inverted/gram/gram_scheme.h"
 
 namespace doris::segment_v2::inverted_index {

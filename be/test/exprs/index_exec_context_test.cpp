@@ -29,8 +29,8 @@
 
 namespace doris::index_exec_context_test {
 
-// 仅用于提供互不相同的「表达式身份」键：IndexExecContext 只把 VExpr* 当作 map 的 key，
-// 从不解引用，所以这里不需要构造真实表达式树。
+// Only used to provide distinct "expression identity" keys: IndexExecContext treats a VExpr* as a
+// map key and never dereferences it, so there is no need to build a real expression tree here.
 class StubVExpr final : public VExpr {
 public:
     const std::string& expr_name() const override { return _name; }
@@ -44,7 +44,7 @@ private:
     const std::string _name = "stub_vexpr";
 };
 
-// 造一个只含 row_id 一行的候选位图。
+// Build a candidate bitmap holding the single row row_id.
 segment_v2::InvertedIndexResultBitmap make_bitmap(uint32_t row_id, bool approximate) {
     auto data_bitmap = std::make_shared<roaring::Roaring>();
     data_bitmap->add(row_id);
@@ -53,8 +53,10 @@ segment_v2::InvertedIndexResultBitmap make_bitmap(uint32_t row_id, bool approxim
     return result;
 }
 
-// 近似结果必须与精确表完全隔离：不进 _index_result_bitmap / _index_result_column，
-// 也不触碰列的索引执行状态，否则 fast_execute 会把候选当结果、或列被判定为无需读数据。
+// An approximate result must be fully isolated from the exact tables: it may not enter
+// _index_result_bitmap / _index_result_column and may not touch a column's index execution
+// status, or fast_execute would take the candidates for the result, or the column would be judged
+// not to need its data read.
 TEST(IndexExecContextTest, ApproxResultIsIsolatedFromExactTables) {
     const std::vector<std::unique_ptr<segment_v2::IndexIterator>> iterators;
     const std::vector<IndexFieldNameAndTypePair> storage_name_and_type;
@@ -71,19 +73,20 @@ TEST(IndexExecContextTest, ApproxResultIsIsolatedFromExactTables) {
     EXPECT_TRUE(approx->approximate());
     EXPECT_TRUE(approx->get_data_bitmap()->contains(7));
 
-    // 精确侧的三张表都必须是空的。
+    // All three tables on the exact side must be empty.
     EXPECT_FALSE(ctx.has_index_result_for_expr(&expr));
     EXPECT_EQ(ctx.get_index_result_for_expr(&expr), nullptr);
     EXPECT_TRUE(ctx.get_index_result_bitmap().empty());
     EXPECT_TRUE(ctx.get_index_result_column().empty());
     EXPECT_TRUE(index_status.empty());
 
-    // 未写入的表达式在近似表里查不到。
+    // An expression that was never written cannot be found in the approximate table.
     StubVExpr other;
     EXPECT_EQ(ctx.get_approx_index_result_for_expr(&other), nullptr);
 }
 
-// 分流的另一半：精确结果仍旧进精确表并把列状态置真；近似结果不会翻转任何列状态。
+// The other half of the split: an exact result still enters the exact table and sets the column
+// status to true; an approximate result flips no column status.
 TEST(IndexExecContextTest, ExactResultKeepsExactTableAndColumnStatus) {
     const std::vector<std::unique_ptr<segment_v2::IndexIterator>> iterators;
     const std::vector<IndexFieldNameAndTypePair> storage_name_and_type;
@@ -97,7 +100,7 @@ TEST(IndexExecContextTest, ExactResultKeepsExactTableAndColumnStatus) {
     IndexExecContext ctx(iterators, storage_name_and_type, index_status, nullptr, nullptr,
                          column_iter_opts);
 
-    // 精确路径：与 VExpr::evaluate_inverted_index 中的写法一致。
+    // The exact path: the same shape as in VExpr::evaluate_inverted_index.
     ctx.set_index_result_for_expr(&exact_expr, make_bitmap(11, false));
     ctx.set_true_for_index_status(&exact_expr, static_cast<int32_t>(kColumnId));
     EXPECT_TRUE(ctx.has_index_result_for_expr(&exact_expr));
@@ -106,7 +109,7 @@ TEST(IndexExecContextTest, ExactResultKeepsExactTableAndColumnStatus) {
     EXPECT_TRUE(index_status[kColumnId][&exact_expr]);
     EXPECT_EQ(ctx.get_approx_index_result_for_expr(&exact_expr), nullptr);
 
-    // 近似路径：只落近似表，列状态保持 false。
+    // The approximate path: only the approximate table is written, the column status stays false.
     ctx.set_approx_index_result_for_expr(&approx_expr, make_bitmap(12, true));
     EXPECT_FALSE(ctx.has_index_result_for_expr(&approx_expr));
     EXPECT_FALSE(index_status[kColumnId][&approx_expr]);

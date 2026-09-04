@@ -19,23 +19,29 @@ import java.util.regex.Pattern
 
 import org.apache.doris.regression.action.ProfileAction
 
-// gram（稀疏 / 稠密 ngram）索引对 LIKE / REGEXP 的加速是「近似候选超集 + 表达式复验」：
-// 索引只负责把候选行收窄，最终匹配仍由 LIKE / REGEXP 表达式逐行判定。因此本用例的核心断言是
-// **语义对照**——同一条查询在 enable_inverted_index_query=true / false 两种模式下必须返回
-// 完全相同的行集合。任何一处不一致都说明索引把真正匹配的行裁掉了（假阴性），属于功能缺陷。
+// A gram (sparse / dense ngram) index accelerates LIKE / REGEXP by "an approximate candidate
+// superset plus expression re-verification": the index only narrows the candidate rows, and the
+// final match is still decided row by row by the LIKE / REGEXP expression. So the core assertion
+// of this suite is a **semantic comparison** -- the same query must return exactly the same set
+// of rows with enable_inverted_index_query=true and with false. Any difference means the index
+// pruned away a genuinely matching row (a false negative), which is a functional defect.
 //
-// 两条兜底：
-//   1) .out golden：每个模式各生成 idx_true_* / idx_false_* 两段，人工/脚本比对必须逐字节相同；
-//   2) 程序化断言：runParityCheck 对同一批查询直接比较两种模式下排序后的 id 列表。
+// Two safety nets:
+//   1) the .out golden: each mode emits its own idx_true_* / idx_false_* sections, which must be
+//      byte-identical when compared by hand or by script;
+//   2) programmatic assertions: runParityCheck compares the sorted id lists of the same queries
+//      in the two modes directly.
 suite("test_gram_regexp_like", "p0") {
     def tbl = "t_gram_regexp_like"
-    // 策略名全局唯一：tokenizer / analyzer 共享同一命名空间，两者名字必须不同
+    // Policy names are globally unique: tokenizers and analyzers share one namespace, so the two
+    // names must differ
     def sparseTok = "gram_rl_sparse_tok"
     def sparseAna = "gram_rl_sparse"
     def denseLcTok = "gram_rl_dense_lc_tok"
     def denseLcAna = "gram_rl_dense_lc"
 
-    // analyzer 通过心跳异步下发到 BE，建表前必须确认 BE 已装载，否则写入端拿不到 gram 方案
+    // An analyzer reaches BE asynchronously over the heartbeat, so before creating the table we
+    // must confirm BE has loaded it, otherwise the write side gets no gram scheme
     def waitAnalyzerInstalled = { String name ->
         def deadline = System.currentTimeMillis() + 180_000
         Exception lastNotFound = null
@@ -54,8 +60,9 @@ suite("test_gram_regexp_like", "p0") {
         throw new IllegalStateException("analyzer ${name} was not installed on BE", lastNotFound)
     }
 
-    // 把 groovy 侧的「正则/LIKE 原文」转成 SQL 字符串字面量内容：
-    // Doris 与 MySQL 一样会在字符串字面量里再吃掉一层反斜杠，所以 \. 必须写成 \\.
+    // Turn the groovy-side "raw regex/LIKE text" into the contents of a SQL string literal:
+    // Doris, like MySQL, eats one more layer of backslashes inside a string literal, so \. has to
+    // be written as \\.
     def sqlEsc = { String s -> s.replace('\\', '\\\\').replace("'", "\\'") }
 
     sql "DROP TABLE IF EXISTS ${tbl}"
@@ -64,7 +71,7 @@ suite("test_gram_regexp_like", "p0") {
     try_sql "DROP INVERTED INDEX TOKENIZER IF EXISTS ${sparseTok}"
     try_sql "DROP INVERTED INDEX TOKENIZER IF EXISTS ${denseLcTok}"
 
-    // 稀疏 gram：density=0.25，min_gram..max_gram = 3..16
+    // Sparse gram: density=0.25, min_gram..max_gram = 3..16
     sql """
         CREATE INVERTED INDEX TOKENIZER IF NOT EXISTS ${sparseTok}
         PROPERTIES (
@@ -75,12 +82,13 @@ suite("test_gram_regexp_like", "p0") {
             "density" = "0.25"
         )
     """
-    // gram 族 analyzer 只能是「纯 tokenizer」，不允许挂 token_filter（FE 校验）
+    // A gram-family analyzer must be a "bare tokenizer" and may carry no token_filter (FE checks)
     sql """
         CREATE INVERTED INDEX ANALYZER IF NOT EXISTS ${sparseAna}
         PROPERTIES ("tokenizer" = "${sparseTok}")
     """
-    // 稠密 gram + lower_case：用于覆盖大小写不敏感的候选召回（'code = unavailable' vs 'CODE = UNAVAILABLE'）
+    // Dense gram + lower_case: covers case-insensitive candidate recall
+    // ('code = unavailable' vs 'CODE = UNAVAILABLE')
     sql """
         CREATE INVERTED INDEX TOKENIZER IF NOT EXISTS ${denseLcTok}
         PROPERTIES (
@@ -97,9 +105,11 @@ suite("test_gram_regexp_like", "p0") {
     waitAnalyzerInstalled(sparseAna)
     waitAnalyzerInstalled(denseLcAna)
 
-    // 同一列上挂三个 INVERTED 索引：稀疏 gram / 稠密 gram（lower_case）/ english 分词索引。
-    // 前两个用于验证「优化器挑哪个 gram 索引都必须保持语义一致」，第三个用于验证与语言分词索引共存。
-    // gram 索引强制 docs-only，support_phrase 由 FE 缺省写成 false；存储格式必须是 SNII。
+    // Three INVERTED indexes on the same column: sparse gram / dense gram (lower_case) / english
+    // tokenized index. The first two verify that "whichever gram index the optimizer picks, the
+    // semantics stay the same", and the third that gram coexists with a language tokenizer index.
+    // A gram index is forced to docs-only and FE defaults support_phrase to false; the storage
+    // format must be SNII.
     sql """
         CREATE TABLE ${tbl} (
             id INT,
@@ -117,7 +127,7 @@ suite("test_gram_regexp_like", "p0") {
         )
     """
 
-    // 第一个 rowset / segment
+    // The first rowset / segment
     sql """INSERT INTO ${tbl} VALUES
         (1, 'rpc error: code = Unavailable desc = error reading from server'),
         (2, 'user_id="eacb47f6-967d-11f0-b88d-8eb93cba8bdb" user_currency="USD"'),
@@ -132,7 +142,8 @@ suite("test_gram_regexp_like", "p0") {
         (11, 'failed to charge card: rpc error'),
         (12, 'timeout after error error error')"""
     sql "sync"
-    // 第二个 rowset / segment：验证多 segment 下候选位图按 segment 分别求解仍然正确
+    // The second rowset / segment: checks that the candidate bitmap is still solved correctly per
+    // segment when there are several segments
     sql """INSERT INTO ${tbl} VALUES
         (13, 'rpc error: code = Internal desc = boom'),
         (14, '微博手机'),
@@ -143,8 +154,9 @@ suite("test_gram_regexp_like", "p0") {
         (19, 'MiXeD CaSe UnAvAiLaBlE')"""
     sql "sync"
 
-    // 覆盖矩阵：长字面量 / 通配 / 交替 / 可选组 / 字符类 / 无字面量 / 锚点 / 转义点 /
-    // 大小写（(?i) 与 lower_case 索引）/ CJK / 短于 min_gram 的字面量 / 空模式
+    // Coverage matrix: long literal / wildcard / alternation / optional group / character class /
+    // no literal / anchors / escaped dot / case ((?i) and the lower_case index) / CJK / a literal
+    // shorter than min_gram / the empty pattern
     def regexps = [
         'rpc error: code = Unavailable',
         'error.*timeout',
@@ -174,7 +186,8 @@ suite("test_gram_regexp_like", "p0") {
         'HTTP/1\\.[0-9]',
     ]
 
-    // LIKE 覆盖：% / _ 通配、空串、精确匹配、多段通配、CJK、大小写
+    // LIKE coverage: the % / _ wildcards, the empty string, an exact match, multi-segment
+    // wildcards, CJK, and case
     def likes = [
         '%rpc error%',
         '%Unavail%',
@@ -191,8 +204,9 @@ suite("test_gram_regexp_like", "p0") {
         '%CODE = UNAVAILABLE%',
     ]
 
-    // 复合谓词：REGEXP 的 OR、NOT (a AND b) 里的 REGEXP、REGEXP 与 LIKE 混用，
-    // 以及自定义 ESCAPE 的 LIKE（BE 侧保守处理：不下推也必须正确）
+    // Compound predicates: an OR of REGEXPs, a REGEXP inside NOT (a AND b), REGEXP mixed with
+    // LIKE, and a LIKE with a custom ESCAPE (handled conservatively on the BE side: it is not
+    // pushed down, but it must still be correct)
     def compounds = [
         "msg REGEXP 'rpc' OR msg REGEXP '微博'",
         "NOT (msg REGEXP 'rpc' AND id > 5)",
@@ -205,7 +219,8 @@ suite("test_gram_regexp_like", "p0") {
         "msg LIKE '%100!% do%' ESCAPE '!'",
     ]
 
-    // 生成 [tag, sql] 列表；tag 不含 pattern 原文，保证 .out 的段名稳定可复现
+    // Build the [tag, sql] list; the tag does not contain the raw pattern, which keeps the
+    // section names in .out stable and reproducible
     def buildQueries = { ->
         def qs = []
         regexps.eachWithIndex { p, i ->
@@ -236,10 +251,11 @@ suite("test_gram_regexp_like", "p0") {
     def queries = buildQueries()
     log.info("gram parity matrix: ${queries.size()} queries x 2 modes".toString())
 
-    // 关闭 SQL cache，避免两种模式复用同一份缓存结果导致对照失真
+    // Turn the SQL cache off, so the two modes cannot reuse one cached result and blur the
+    // comparison
     sql "SET enable_sql_cache=false"
 
-    // 生成 .out golden：同一批查询分别在索引开 / 关两种模式下各跑一遍
+    // Produce the .out golden: run the same batch of queries once with the index on and once off
     def runAll = { boolean useIndex ->
         sql "SET enable_inverted_index_query=${useIndex}"
         queries.each { entry ->
@@ -251,7 +267,8 @@ suite("test_gram_regexp_like", "p0") {
     runAll(true)
     runAll(false)
 
-    // 程序化兜底：不依赖 .out 目测，逐条比较两种模式下排序后的 id 列表
+    // Programmatic safety net: instead of eyeballing .out, compare the sorted id lists of the two
+    // modes query by query
     def idsOf = { String q ->
         return sql(q).collect { it[0] as Integer }.sort()
     }
@@ -275,8 +292,8 @@ suite("test_gram_regexp_like", "p0") {
     }
     runParityCheck("base")
 
-    // profile 证明 gram 索引真的参与了裁剪：RowsGramIndexFiltered > 0。
-    // 计数器可能被渲染成 "18" 或 "12.0K (12000)"，两种形态都要能解析。
+    // The profile proves the gram index really took part in the pruning: RowsGramIndexFiltered > 0.
+    // A counter may be rendered as "18" or as "12.0K (12000)", and both forms must be parseable.
     def parseProfileCounter = { String profileString, String name ->
         def exact = Pattern.compile(Pattern.quote(name) + ":\\s*[^\\(\\n]*\\((\\d+)\\)").matcher(profileString)
         if (exact.find()) {
@@ -299,29 +316,32 @@ suite("test_gram_regexp_like", "p0") {
     sql "SET enable_inverted_index_query=true"
     sql "set enable_profile=true"
     sql "set profile_level=2"
-    // profile 由 FE 异步汇报，固定 sleep 要么白等要么在慢机器上偶发抓空。改用框架自带的有界
-    // 轮询 ProfileAction#getProfileBySql：最多等 30 s（每 500 ms 一次），直到该 SQL 的 profile
-    // 变成 "Profile Completion State: COMPLETE" 且两个 gram 计数器都已渲染出来；超时即失败。
+    // The profile is reported asynchronously by FE, so a fixed sleep either wastes time or
+    // occasionally comes up empty on a slow machine. Use the framework's own bounded polling
+    // ProfileAction#getProfileBySql instead: wait at most 30 s (every 500 ms) until this SQL's
+    // profile reads "Profile Completion State: COMPLETE" and both gram counters have been
+    // rendered; a timeout fails the test.
     def gramProfileCounters = ["RowsGramIndexFiltered", "GramIndexCandidateRows"]
     def profileAction = new ProfileAction(context)
-    // REGEXP 走 gram 加速
+    // REGEXP takes the gram acceleration
     order_qt_profile_q "/* gram_regexp_profile */ SELECT id FROM ${tbl} WHERE msg REGEXP 'context deadline exceeded'"
     checkGramPruned("regexp",
             profileAction.getProfileBySql("gram_regexp_profile", gramProfileCounters), null)
-    // LIKE 同样走 gram 加速
+    // LIKE takes the gram acceleration too
     order_qt_profile_q_like "/* gram_like_profile */ SELECT id FROM ${tbl} WHERE msg LIKE '%Sending Quote%'"
     checkGramPruned("like",
             profileAction.getProfileBySql("gram_like_profile", gramProfileCounters), null)
     sql "set enable_profile=false"
 
-    // 删除后再查：delete 谓词与 gram 候选位图叠加后仍必须与不走索引一致
+    // Query again after a delete: the delete predicate combined with the gram candidate bitmap
+    // must still agree with the no-index path
     sql "SET enable_inverted_index_query=true"
     sql "DELETE FROM ${tbl} WHERE id = 1"
     sql "sync"
     order_qt_after_delete_idx_true "SELECT id FROM ${tbl} WHERE msg REGEXP 'rpc error'"
     sql "SET enable_inverted_index_query=false"
     order_qt_after_delete_idx_false "SELECT id FROM ${tbl} WHERE msg REGEXP 'rpc error'"
-    // 删除之后整个矩阵再对照一遍
+    // Compare the whole matrix once more after the delete
     runParityCheck("after_delete")
 
     sql "SET enable_inverted_index_query=true"

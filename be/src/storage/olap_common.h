@@ -328,9 +328,11 @@ struct OlapReaderStatistics {
     // Pushed-down conjuncts skipped (never index-evaluated) because the row
     // bitmap was already empty when their turn came.
     int64_t inverted_index_conjuncts_short_circuited = 0;
-    // 近似（gram）索引裁掉的行数：候选位图与 _row_bitmap 求交时减少的行数。
+    // Rows pruned by the approximate (gram) index: rows removed when the candidate bitmap is
+    // intersected with _row_bitmap.
     int64_t rows_gram_index_filtered = 0;
-    // 近似（gram）索引给出的候选行数：求交之后仍需表达式复验的行数。
+    // Candidate rows produced by the approximate (gram) index: rows that still need expression
+    // re-verification after the intersection.
     int64_t gram_index_candidate_rows = 0;
     int64_t inverted_index_analyzer_timer = 0;
     int64_t inverted_index_lookup_timer = 0;

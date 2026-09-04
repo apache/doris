@@ -23,31 +23,36 @@
 
 namespace doris::segment_v2::gram {
 
-// BE 的 Storage 目标开启了 CMake Unity Build（多个 .cpp
-// 合并编译，见 be/src/storage/CMakeLists.txt 的 UNITY_BUILD_BATCH_SIZE），
-// 同一批次内所有文件的匿名命名空间会被合并进同一个翻译单元，裸的匿名命名空间
-// 一旦与批次内其他文件重名（哪怕在不同 .cpp 里）就会重定义报错，且批次分组
-// 会随目录下文件增删而变化，无法长期假设「这批次只有这几个文件」。因此这里
-// 额外套一层本文件专属的具名命名空间，隔离本文件的匿名命名空间，不影响其中
-// 各符号本身仍是内部链接（匿名命名空间语义不受具名外层嵌套影响）。
+// The BE storage target enables CMake unity builds (several .cpp files are compiled together,
+// see UNITY_BUILD_BATCH_SIZE in be/src/storage/CMakeLists.txt), so every anonymous namespace in
+// a batch is merged into one translation unit. A bare anonymous namespace then redefines any
+// symbol whose name another file of the same batch happens to reuse (even in a different .cpp),
+// and the batching changes as files are added to or removed from the directory, so "this batch
+// only holds these files" cannot be assumed for long. Hence the extra named namespace private
+// to this file, which isolates this file's anonymous namespace; the symbols inside it still
+// have internal linkage (anonymous-namespace semantics are unaffected by a named enclosing
+// namespace).
 namespace regex_ast_detail {
 
 namespace {
 
-// 分组 `(...)` 的最大递归嵌套深度：解析每多套一层分组，就会多递归一层
-// parse_alt/parse_cat/parse_atom 调用链。畸形（或恶意构造）的正则可以用
-// 大量嵌套括号把这个调用链撑得很深，从而爆栈；本仓库有过深递归爆栈的
-// 先例（CIR-21633），因此这里做一个硬上限，超过直接报错而不是继续递归。
+// Maximum recursion nesting depth of `(...)` groups: every extra group level adds one more
+// recursion through the parse_alt/parse_cat/parse_atom call chain. A malformed (or maliciously
+// crafted) regex can drive that chain very deep with a pile of nested parentheses and blow the
+// stack; this repository has already seen a stack overflow from deep recursion (CIR-21633), so
+// there is a hard cap here that errors out instead of recursing further.
 constexpr int kMaxNestingDepth = 64;
 
 // ------------------------------------------------------------------
-// 以下 UTF-8 编解码工具与 Parser 均从原型 tools/regex-ngram-model/ngram_model.cpp
-// 的 utf8_len/decode_cps/encode_cp 与 struct Parser 移植而来，语义保持一致；
-// 移植改动仅：Node → RegexNode（含枚举 T → Type 的相应限定写法）、ok/err
-// 在 parse_regex 里转换为 Status::InvalidArgument、新增 depth 嵌套深度计数。
+// The UTF-8 codec helpers and the Parser below were ported from utf8_len/decode_cps/encode_cp
+// and struct Parser in the prototype tools/regex-ngram-model/ngram_model.cpp with identical
+// semantics; the only porting changes are: Node -> RegexNode (plus the matching qualification
+// of the enum T -> Type), ok/err converted into Status::InvalidArgument inside parse_regex, and
+// the new depth nesting counter.
 // ------------------------------------------------------------------
 
-// 前导字节推断该 UTF-8 序列的字节长度；非法前导字节按单字节处理。
+// Infer the byte length of a UTF-8 sequence from its lead byte; an illegal lead byte counts as a
+// single byte.
 int utf8_len(unsigned char c) {
     if (c < 0x80) {
         return 1;
@@ -61,10 +66,11 @@ int utf8_len(unsigned char c) {
     if ((c >> 3) == 0x1E) {
         return 4;
     }
-    return 1; // 非法前导字节：按单字节处理
+    return 1; // illegal lead byte: treat it as a single byte
 }
 
-// 解码为码点序列；非法字节映射到 0x110000+byte（仍 < 2^21，不与合法码点冲突）。
+// Decode into a code point sequence; an illegal byte maps to 0x110000+byte (still < 2^21, so it
+// cannot collide with a legal code point).
 void decode_cps(std::string_view s, std::vector<uint32_t>* out) {
     out->clear();
     size_t i = 0;
@@ -101,7 +107,7 @@ void decode_cps(std::string_view s, std::vector<uint32_t>* out) {
     }
 }
 
-// 把一个码点编码为 UTF-8 追加到 out。
+// Encode one code point as UTF-8 and append it to out.
 void encode_cp(uint32_t cp, std::string* out) {
     if (cp < 0x80) {
         out->push_back((char)cp);
@@ -128,15 +134,17 @@ NP mk(RegexNode::Type t) {
     return p;
 }
 
-// RE2 语法子集的递归下降解析器，从原型 struct Parser 移植。除头部注释所述
-// 的三处改动外，函数拆分、控制流、每条语法规则的处理顺序均与原型一致。
+// Recursive-descent parser for the RE2 syntax subset, ported from the prototype's struct Parser.
+// Apart from the three changes listed in the comment at the top of this file, the function
+// split, the control flow and the order in which each syntax rule is handled match the
+// prototype.
 struct Parser {
     std::string_view p;
     size_t i = 0;
     bool icase = false;
     bool ok = true;
     std::string err;
-    int depth = 0; // 当前分组嵌套深度，见 kMaxNestingDepth
+    int depth = 0; // current group nesting depth, see kMaxNestingDepth
 
     explicit Parser(std::string_view s) : p(s) {}
 
@@ -145,9 +153,10 @@ struct Parser {
 
     uint32_t next_cp(std::string* utf8) {
         if (eof()) {
-            // 防御性兜底：正常调用点在进 next_cp 前都会先确认还有字符可读，这里
-            // 只是不信任调用方、避免 string_view（不保证 NUL 结尾，不同于原型用
-            // 的 std::string）在 i==size() 时被 p[i] 越界读。
+            // Defensive fallback: every normal call site checks that a character is still
+            // available before entering next_cp; this merely distrusts the caller and avoids an
+            // out-of-bounds p[i] read at i==size() on a string_view, which -- unlike the
+            // std::string the prototype used -- is not guaranteed to be NUL-terminated.
             utf8->clear();
             return 0;
         }
@@ -194,7 +203,7 @@ struct Parser {
                 return c;
             }
             if (!atom) {
-                continue; // 例如 (?i) 这种仅设标志的空原子
+                continue; // e.g. a flags-only empty atom such as (?i)
             }
             atom = parse_quant(std::move(atom));
             c->kids.push_back(std::move(atom));
@@ -261,19 +270,20 @@ struct Parser {
                 break;
             }
             if (peek() == '?') {
-                i++; // 懒惰量词不影响匹配集合
+                i++; // a lazy quantifier does not change the match set
             }
         }
         return a;
     }
 
-    // class_escape 里 `\x` 转义的十六进制取值：调用时 "\x" 已被消费（i 指向
-    // 花括号或首个十六进制数字）。Ruling R12：`\x{...}` 形式要求花括号内至少
-    // 一位十六进制数字且必须闭合；裸 `\xHH` 形式要求恰好两位十六进制数字，
-    // 不足（到串尾或遇到非十六进制字符）一律报错，与 RE2 拒绝 `\x4` 的行为
-    // 对齐。成功时把值写入 *v 并返回 true；失败则置 ok=false、err 并返回
-    // false（调用方据此直接 return，不再继续）。从 class_escape 抽出以降低
-    // 其复杂度/长度，语义与原内联代码完全一致。
+    // Hex value of a `\x` escape in class_escape: on entry "\x" has already been consumed (i
+    // points at the brace or at the first hex digit). Ruling R12: the `\x{...}` form requires at
+    // least one hex digit inside the braces and the braces must be closed; the bare `\xHH` form
+    // requires exactly two hex digits, and anything shorter (end of string, or a non-hex
+    // character) is an error, matching RE2's rejection of `\x4`. On success the value is written
+    // to *v and true is returned; on failure ok=false and err are set and false is returned (the
+    // caller then returns immediately). Split out of class_escape to reduce its
+    // complexity/length; the semantics are identical to the original inline code.
     bool parse_hex_escape_value(uint32_t* v) {
         *v = 0;
         if (peek() == '{') {
@@ -297,7 +307,7 @@ struct Parser {
                 err = "bad \\x escape";
                 return false;
             }
-            i++; // 消费 '}'
+            i++; // consume '}'
             return true;
         }
         for (int cnt = 0; cnt < 2; cnt++) {
@@ -315,12 +325,13 @@ struct Parser {
         return true;
     }
 
-    // 把类里的一个码点或转义加入 out（大类置 big）。
+    // Add one code point or escape from inside a class to out (a large class sets big).
     void class_escape(std::vector<uint32_t>* out, bool* big) {
-        // 调用方总是先消费了触发转义的 '\\' 再调用本函数；若此时已经 eof，说明
-        // 该 '\\' 是整个 pattern 的最后一个字符，后面没有被转义的字符——与顶层
-        // parse_atom 里 "trailing backslash" 是同一种错误，同样处理：直接报错，
-        // 不再往下走到 default 分支里 next_cp 会再读一次 i（此时 i==p.size()）。
+        // The caller always consumes the '\\' that triggered the escape before calling this
+        // function; being at eof here means that '\\' was the last character of the whole
+        // pattern with nothing left to escape -- the same error as "trailing backslash" in the
+        // top-level parse_atom, and handled the same way: report it instead of falling through
+        // to the default branch, where next_cp would read p[i] once more at i==p.size().
         if (eof()) {
             ok = false;
             err = "trailing backslash";
@@ -375,10 +386,12 @@ struct Parser {
         }
     }
 
-    // [...] 内单个码点 lo 之后的 `-hi` 区间处理：是区间就展开 [lo,hi]（超过 4 项
-    // 连同已有 items 一起退化为大类）；不是区间（下一字符不是 '-'，或 '-' 紧邻
-    // ']'，即字面量 '-'）就把 lo 本身作为一个单独 item。从 parse_class 抽出以
-    // 降低其复杂度/长度，语义与原内联代码完全一致。
+    // Handling of a `-hi` range after a single code point lo inside [...]: a real range expands
+    // to [lo,hi] (beyond 4 items it degrades to a large class together with the items already
+    // collected); when it is not a range (the next character is not '-', or the '-' sits right
+    // before ']' and is therefore a literal '-'), lo itself becomes a standalone item. Split out
+    // of parse_class to reduce its complexity/length; the semantics are identical to the
+    // original inline code.
     void parse_class_range_or_single(uint32_t lo, std::vector<uint32_t>* items, bool* big) {
         if (!(peek() == '-' && i + 1 < p.size() && p[i + 1] != ']')) {
             items->push_back(lo);
@@ -412,7 +425,7 @@ struct Parser {
     }
 
     NP parse_class() {
-        // 已消费 '['
+        // '[' has already been consumed
         NP n = mk(RegexNode::Type::CLASS);
         bool neg = false;
         bool big = false;
@@ -424,7 +437,7 @@ struct Parser {
         bool first = true;
         while (!eof() && (peek() != ']' || first)) {
             first = false;
-            if (peek() == '[' && i + 1 < p.size() && p[i + 1] == ':') { // [:alpha:] 等 POSIX 类
+            if (peek() == '[' && i + 1 < p.size() && p[i + 1] == ':') { // POSIX class, [:alpha:]
                 size_t e = p.find(":]", i);
                 if (e == std::string_view::npos) {
                     ok = false;
@@ -477,10 +490,11 @@ struct Parser {
         std::sort(n->cls.begin(), n->cls.end());
         n->cls.erase(std::unique(n->cls.begin(), n->cls.end()), n->cls.end());
         if (n->cls.size() > 4) {
-            // `(?i)` 下大小写展开可能把 ≤4 个原始码点翻倍到 >4 项（如
-            // (?i)[abc] 展开成 6 项），此时退化为大类；big_class=true 时 cls
-            // 必须清空（见头文件 RegexNode 注释的不变式），否则调用方无法仅凭
-            // big_class 判断「是否可枚举」。
+            // Under `(?i)` the case expansion can double <= 4 original code points to more than
+            // 4 items (e.g. (?i)[abc] expands to 6), which degrades to a large class; cls must
+            // be cleared whenever big_class=true (see the invariant in the RegexNode comment in
+            // the header), otherwise a caller cannot tell "is this enumerable?" from big_class
+            // alone.
             n->big_class = true;
             n->cls.clear();
         }
@@ -506,10 +520,10 @@ struct Parser {
         return n;
     }
 
-    // parse_atom 里 `\` 转义分支的具体解码：调用时 '\\' 已被消费、且已确认未到
-    // 达 eof（trailing-backslash 由调用方在切换前处理），据 peek() 到的转义选择
-    // 字符分派。从 parse_atom 抽出以降低其复杂度/长度，语义与原内联 switch
-    // 完全一致。
+    // Decoding of the `\` escape branch in parse_atom: on entry '\\' has been consumed and eof
+    // has been ruled out (the caller handles a trailing backslash before switching here), and
+    // the escape is dispatched on the peek()ed character. Split out of parse_atom to reduce its
+    // complexity/length; the semantics are identical to the original inline switch.
     NP parse_backslash_escape() {
         char e = peek();
         switch (e) {
@@ -562,7 +576,7 @@ struct Parser {
             class_escape(&tmp, &big);
             return make_lit(tmp.empty() ? 0 : tmp[0]);
         }
-        case 'Q': { // \Q...\E 字面量
+        case 'Q': { // \Q...\E literal
             i++;
             NP cat = mk(RegexNode::Type::CAT);
             while (!eof() && !(peek() == '\\' && i + 1 < p.size() && p[i + 1] == 'E')) {
@@ -583,17 +597,18 @@ struct Parser {
         }
     }
 
-    // parse_atom 里 '(' 分支：解析捕获组 / 非捕获组 `(?:...)` / 命名组
-    // `(?P<name>...)`、`(?<name>...)` 与内联标志 `(?i) (?is) (?i:...)`，随后
-    // 递归解析组内内容并校验闭合括号，同时维护 kMaxNestingDepth 递归深度上限。
-    // 调用时前导 '(' 已被消费。从 parse_atom 抽出以降低其复杂度/长度，语义与
-    // 原内联代码完全一致。
+    // The '(' branch of parse_atom: parses a capturing group / a non-capturing group `(?:...)` /
+    // a named group `(?P<name>...)` or `(?<name>...)` and the inline flags `(?i) (?is) (?i:...)`,
+    // then recursively parses the group body and checks the closing parenthesis, all while
+    // maintaining the kMaxNestingDepth recursion cap. On entry the leading '(' has already been
+    // consumed. Split out of parse_atom to reduce its complexity/length; the semantics are
+    // identical to the original inline code.
     NP parse_group() {
         if (peek() == '?') {
             i++;
             if (peek() == ':') {
                 i++;
-            } else if (peek() == 'P' || peek() == '<') { // 命名组
+            } else if (peek() == 'P' || peek() == '<') { // named group
                 if (peek() == 'P') {
                     i++;
                 }
@@ -606,7 +621,7 @@ struct Parser {
                     i++;
                 }
                 i++;
-            } else { // 标志 (?i) (?is) (?i:...)
+            } else { // flags (?i) (?is) (?i:...)
                 bool neg = false;
                 while (!eof() && peek() != ')' && peek() != ':') {
                     char f = peek();
@@ -616,8 +631,9 @@ struct Parser {
                     } else if (f == 'i') {
                         icase = !neg;
                     } else if (f == 's' || f == 'm' || f == 'U') {
-                        // 已识别但不影响 AST 结构：(?s)(?m)(?U) 不改变
-                        // 字面量/类的匹配集合，gram 编译不需要区分。
+                        // Recognized but irrelevant to the AST shape: (?s)(?m)(?U) do not
+                        // change the match set of a literal or a class, so gram compilation
+                        // need not distinguish them.
                     } else {
                         ok = false;
                         err = "unknown flag";

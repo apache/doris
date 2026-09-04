@@ -28,10 +28,11 @@
 
 namespace doris::snii::format {
 
-// Storage 是 Unity Build（多个 .cpp 合并进同一个 unity_N_cxx.cxx TU）：同目录其他 .cpp
-// 里可能存在同名的文件级 helper，因此 gram_scheme 的编解码 helper 单独放进这个文件专属
-// 命名空间（内层仍套一层匿名命名空间保持内部链接），不与下面已有的匿名命名空间共享，
-// 避免任何跨文件同名符号在 Unity TU 里撞在一起（Ruling R8）。
+// Storage is a unity build (several .cpp files merged into one unity_N_cxx.cxx TU): other .cpp
+// files in this directory may define file-level helpers with the same names, so the gram_scheme
+// codec helpers go into this file-private namespace (with an inner anonymous namespace to keep
+// internal linkage) instead of sharing the anonymous namespace further below, which keeps
+// same-named symbols from different files from colliding in the unity TU (Ruling R8).
 namespace core_metadata_detail {
 namespace {
 
@@ -60,10 +61,12 @@ Status decode_gram_scheme(const doris::snii::SniiGramSchemePB& input,
             .stop_df_permille = input.stop_df_permille(),
             .lower_case = input.lower_case(),
             .hash_version = input.hash_version()};
-    // 逐字段的合法区间只写在 GramScheme::from_properties 一处（唯一真源），所以这里用
-    // "属性往返"来复用它：落盘的方案必须能原样往返回同一个方案，否则视为文件损坏。
-    // 缺了这一步，一条半截的（或被改坏的）PB 会带着 min_len=0 之类的值一路流进
-    // GramExtractor —— 半条消息里所有未设置的字段都是 0，而 0 不是任何合法方案。
+    // The valid range of each field is written down in exactly one place,
+    // GramScheme::from_properties (the single source of truth), so it is reused here through a
+    // "property round trip": a persisted scheme must round-trip back to the very same scheme, or
+    // the file counts as corrupted. Without this step a truncated (or tampered) PB would carry
+    // values such as min_len=0 all the way into GramExtractor -- every unset field of a partial
+    // message is 0, and 0 is not part of any valid scheme.
     segment_v2::gram::GramScheme round_tripped;
     const Status validated =
             segment_v2::gram::GramScheme::from_properties(scheme.to_properties(), &round_tripped);

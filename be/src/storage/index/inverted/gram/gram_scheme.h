@@ -24,28 +24,34 @@
 
 namespace doris::segment_v2::gram {
 
-// gram 方案的编码模式：DENSE 为逐字节滑窗全量 gram，SPARSE 为按哈希抽样的稀疏 gram。
-// auto 是用户可见的第三个取值，但只存在于写入侧：解析样本后落盘为二者之一，
-// 因此 GramScheme（落盘/缓存 key 的真源）里不出现 auto。
+// Encoding mode of a gram scheme: DENSE emits every gram from a byte-by-byte sliding window,
+// SPARSE emits hash-sampled sparse grams. auto is a third, user-visible value, but it exists
+// only on the write side: after the sample is analysed it is stored as one of the two, so auto
+// never appears in GramScheme (the source of truth for on-disk data and cache keys).
 enum class GramMode : uint8_t { DENSE = 1, SPARSE = 2 };
 
-// gram 方案的全部参数，作为 GramExtractor / RegexGramCompiler 等下游组件的唯一真源。
-// 一个 GramScheme 实例完全决定了「同一段文本会切出哪些 gram」，因此它既要能从
-// tokenizer/索引属性构造，也要能序列化回属性（写入段元数据）以及生成缓存 key。
+// All parameters of a gram scheme, the single source of truth for downstream components such as
+// GramExtractor and RegexGramCompiler. A GramScheme instance fully determines "which grams a
+// given piece of text is split into", so it must be constructible from tokenizer/index
+// properties, serializable back to properties (for the segment metadata), and able to produce a
+// cache key.
 struct GramScheme {
     GramMode mode = GramMode::SPARSE;
-    uint32_t min_len = 3;            // n（字节）
-    uint32_t max_len = 16;           // L（字节，仅 SPARSE 使用）
-    uint32_t density_permille = 250; // p×1000（仅 SPARSE 使用）
-    uint32_t stop_df_permille = 100; // τ×1000，0 表示不做高频 gram 裁剪
+    uint32_t min_len = 3;            // n (bytes)
+    uint32_t max_len = 16;           // L (bytes, SPARSE only)
+    uint32_t density_permille = 250; // p x 1000 (SPARSE only)
+    uint32_t stop_df_permille = 100; // tau x 1000; 0 disables high-frequency gram pruning
     bool lower_case = false;
     uint32_t hash_version = 1;
 
-    // 从 tokenizer/索引属性构造 GramScheme；缺省值同上；出现非法值时返回 InvalidArgument。
+    // Build a GramScheme from tokenizer/index properties; defaults are as above; an illegal
+    // value yields InvalidArgument.
     static Status from_properties(const std::map<std::string, std::string>& props, GramScheme* out);
-    // 写回属性表，用于段元数据持久化与缓存 key 计算的输入。
+    // Write back to a property table, for persisting the segment metadata and as the input to
+    // the cache key computation.
     std::map<std::string, std::string> to_properties() const;
-    // 形如 "gram:v1:sparse:3:16:250:100:lc0" 的缓存 key，唯一标识一套方案参数。
+    // Cache key of the form "gram:v1:sparse:3:16:250:100:lc0", uniquely identifying one set of
+    // scheme parameters.
     std::string cache_key() const;
     bool operator==(const GramScheme& o) const {
         return mode == o.mode && min_len == o.min_len && max_len == o.max_len &&

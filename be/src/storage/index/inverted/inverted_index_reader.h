@@ -81,9 +81,11 @@ class InvertedIndexResultBitmap {
 private:
     std::shared_ptr<roaring::Roaring> _data_bitmap = nullptr;
     std::shared_ptr<roaring::Roaring> _null_bitmap = nullptr;
-    // true 表示 _data_bitmap 只是超集候选（例如 gram 索引下推），调用方（SegmentIterator）
-    // 必须保留原表达式做行级复验，不能像精确索引结果那样直接消费掉表达式。
-    // 四个特殊成员函数都显式传播它——不能依赖成员的默认拷贝语义（下面每一个都要改）。
+    // true means _data_bitmap is only a superset of candidates (from a gram index push-down, for
+    // instance), so the caller (SegmentIterator) must keep the original expression for row-level
+    // re-verification and may not consume the expression as it would for an exact index result.
+    // All four special member functions propagate it explicitly -- the members' default copy
+    // semantics cannot be relied on (every one of them below has to be adjusted).
     bool _approximate = false;
 
 public:
@@ -214,7 +216,8 @@ public:
     // Check if both bitmaps are empty
     bool is_empty() const { return (_data_bitmap == nullptr && _null_bitmap == nullptr); }
 
-    // true = 超集候选，命中位图之外一定不匹配，但位图内部未必全部匹配，表达式必须复验。
+    // true = superset of candidates: rows outside the bitmap certainly do not match, but rows
+    // inside it may not all match, so the expression must re-verify them.
     void set_approximate(bool v) { _approximate = v; }
     bool approximate() const { return _approximate; }
 

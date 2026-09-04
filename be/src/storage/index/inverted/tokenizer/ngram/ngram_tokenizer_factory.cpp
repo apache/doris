@@ -28,10 +28,12 @@ std::unordered_map<std::string, CharMatcherPtr> NGramTokenizerFactory::MATCHERS;
 Status NGramTokenizerFactory::parse_gram_scheme(const Settings& settings,
                                                 std::optional<gram::GramScheme>* out) {
     out->reset();
-    // "mode" 出现即进入 gram 族（sparse|dense|auto），与 legacy ngram 的滑窗窗口互斥；
-    // gram 族的方案解析、校验、默认值全部委托给 GramScheme::from_properties，这里只负责把
-    // tokenizer 属性透传过去。min/max_gram 缺省时由 GramScheme 的成员初值（3/16）给出，
-    // 不在这里再注入一份副本——两处默认值早晚会漂移，唯一真源只能有一个。
+    // The presence of "mode" (sparse|dense|auto) switches to the gram family, which is mutually
+    // exclusive with the legacy ngram sliding window; parsing, validation and defaults of the
+    // gram scheme are all delegated to GramScheme::from_properties, and this function only
+    // forwards the tokenizer properties. Absent min/max_gram come from GramScheme's own member
+    // initializers (3/16) and are deliberately not duplicated here -- two sets of defaults would
+    // drift sooner or later, and there can be only one source of truth.
     if (settings.get_string("mode").empty()) {
         return Status::OK();
     }
@@ -53,7 +55,7 @@ void NGramTokenizerFactory::initialize(const Settings& settings) {
     }
     if (scheme.has_value()) {
         _gram_scheme = scheme;
-        return; // 跳过 legacy 的 max-min>1 校验与 token_chars 解析
+        return; // skip the legacy max-min>1 validation and token_chars parsing
     }
 
     _min_gram = settings.get_int("min_gram", NGramTokenizer::DEFAULT_MIN_NGRAM_SIZE);

@@ -24,9 +24,10 @@
 
 namespace doris::segment_v2::inverted_index {
 
-// 把 gram::GramExtractor 适配为 DorisTokenizer：一个列值 = 一次 reset，一次性提取全部 gram。
-// 与逐字节滑窗的 NGramTokenizer 不同，这里没有增量式的窗口推进状态，reset() 时一把读完
-// reader 的全量输入并交给 GramExtractor 切好，next() 只是顺序吐出结果。
+// Adapts gram::GramExtractor to the DorisTokenizer interface: one column value = one reset, with
+// every gram extracted at once. Unlike NGramTokenizer, which slides a window byte by byte, there
+// is no incremental window state here: reset() reads the reader's entire input in one go and
+// hands it to GramExtractor, and next() just yields the results in order.
 class GramTokenizer : public DorisTokenizer {
 public:
     explicit GramTokenizer(const gram::GramScheme& scheme) : _extractor(scheme) {}
@@ -40,7 +41,7 @@ private:
     gram::GramExtractor _extractor;
     const char* _char_buffer = nullptr;
     int32_t _char_length = 0;
-    std::vector<std::string_view> _grams; // view 指向 _char_buffer 或提取器内部折叠副本
+    std::vector<std::string_view> _grams; // views into _char_buffer or the extractor's fold copy
     size_t _next = 0;
 };
 

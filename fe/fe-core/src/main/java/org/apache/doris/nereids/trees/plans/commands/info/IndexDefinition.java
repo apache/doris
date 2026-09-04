@@ -475,18 +475,22 @@ public class IndexDefinition {
     }
 
     /**
-     * 把（可能已被 {@link #checkColumn} 补齐缺省值的）索引属性同步回一个已经物化的 {@link Index}。
+     * Syncs the index properties (possibly completed with defaults by {@link #checkColumn}) back into
+     * an already materialized {@link Index}.
      *
-     * <p>ADD INDEX / 独立 CREATE INDEX 路径上，{@code CreateIndexOp#validate} 早于
-     * {@code checkColumn} 就用 {@link #translateToCatalogStyle()} 物化了 {@link Index}，
-     * 而 gram 族的 {@code support_phrase=false} 等缺省值要到 {@code checkColumn}
-     * （{@code InvertedIndexUtil#applyGramFamilyIndexDefaults}）才写进 IndexDefinition 的属性里，
-     * 不回填就会丢在最终落盘的索引之外。CREATE TABLE 路径先 checkColumn 再 translate，不受影响。
+     * <p>On the ADD INDEX / standalone CREATE INDEX path, {@code CreateIndexOp#validate}
+     * materializes the {@link Index} through {@link #translateToCatalogStyle()} before
+     * {@code checkColumn} runs, while gram-family defaults such as {@code support_phrase=false} are
+     * only written into the IndexDefinition properties by {@code checkColumn}
+     * ({@code InvertedIndexUtil#applyGramFamilyIndexDefaults}); without this write-back they would be
+     * lost from the index that is finally persisted. The CREATE TABLE path runs checkColumn before
+     * translate and is unaffected.
      *
-     * <p>合并规则：IndexDefinition 侧存在的 key 覆盖 Index 侧，Index 侧独有的 key 保留 ——
-     * 后者是 {@link Index} 构造函数按通用规则补出的缺省值（例如 parser 索引的
-     * {@code lower_case=true}），不能因为这次回填而丢失。就地修改传入的实例，
-     * 因为调用方可能已经持有同一个 Index 引用。
+     * <p>Merge rule: a key present on the IndexDefinition side overrides the Index side, and a key
+     * only the Index side has is kept -- the latter is a default filled in by the {@link Index}
+     * constructor's general rules (for example {@code lower_case=true} for a parser index) and must
+     * not be lost to this write-back. The passed instance is modified in place, because the caller
+     * may already hold the same Index reference.
      */
     public void applyPropertiesTo(Index index) {
         if (index == null || properties == null || properties.isEmpty()) {

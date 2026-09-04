@@ -34,14 +34,16 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
     private static final Set<String> VALID_TOKEN_CHARS = ImmutableSet.of(
             "letter", "digit", "whitespace", "punctuation", "symbol", "custom");
 
-    // gram 族（稀疏/稠密 gram 索引）支持的 mode 取值。
-    // 取值必须与 BE 端 `gram_scheme.cpp::GramScheme::from_properties` 完全一致：BE 做的是
-    // 精确字符串比较（既不 trim 也不折叠大小写），因此 FE 也只接受严格小写、不带空白的
-    // 字面量：" Sparse " / "SPARSE" 一律在 DDL 阶段就拒掉，而不是让 DDL 通过、写入时才在
-    // BE 上报 InvalidArgument（FE 不做隐式归一化，否则落盘的策略属性会与用户写的不一致）。
+    // The mode values supported by the gram family (sparse/dense gram indexes).
+    // They must match BE's `gram_scheme.cpp::GramScheme::from_properties` exactly: BE compares the
+    // strings literally (no trimming, no case folding), so FE also accepts only strictly lower-case
+    // literals without whitespace: " Sparse " / "SPARSE" are rejected at DDL time instead of letting
+    // the DDL pass and having BE report InvalidArgument at write time (FE does no implicit
+    // normalization, which would leave the persisted policy properties differing from what the user
+    // wrote).
     private static final Set<String> VALID_MODES = ImmutableSet.of("auto", "sparse", "dense");
 
-    // gram 族参数的取值域，逐条对齐 BE `gram_scheme.cpp::from_properties`。
+    // Value domains of the gram-family parameters, mirroring BE's `gram_scheme.cpp::from_properties`.
     private static final int MIN_GRAM_LOWER_BOUND = 1;
     private static final int MIN_GRAM_UPPER_BOUND = 64;
     private static final int MAX_GRAM_LOWER_BOUND = 1;
@@ -59,14 +61,15 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
 
     @Override
     protected void validateSpecific(Map<String, String> props) throws DdlException {
-        // gram 族新参数：一旦指定 mode，就说明这是 auto/sparse/dense gram 索引，
-        // 校验规则与 legacy ngram 完全独立，校验完直接返回，不再复用下面的 legacy 规则。
+        // The new gram-family parameters: once mode is given this is an auto/sparse/dense gram index,
+        // whose validation rules are entirely independent of legacy ngram, so validate and return
+        // without reusing any of the legacy rules below.
         String mode = props.get("mode");
         if (mode != null) {
             validateGramMode(props, mode);
             return;
         }
-        // 未指定 mode 时，density/stop_gram_df/lower_case 没有意义，直接拒绝
+        // Without mode, density/stop_gram_df/lower_case are meaningless, so reject them outright
         for (String key : new String[] {"density", "stop_gram_df", "lower_case"}) {
             if (props.containsKey(key)) {
                 throw new DdlException("ngram tokenizer parameter '" + key + "' requires mode = auto|sparse|dense");
@@ -134,13 +137,16 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
     }
 
     /**
-     * 校验 gram 族（auto/sparse/dense）参数：mode 本身的取值范围、min/max_gram 的默认值与顺序关系、
-     * density/stop_gram_df/lower_case 的取值范围，以及 token_chars 系列与 mode 的互斥关系。
-     * 空字符串 mode（未在白名单校验阶段被拦截）也会在这里因不属于 VALID_MODES 而被拒绝。
+     * Validates the gram-family (auto/sparse/dense) parameters: the value domain of mode itself, the
+     * defaults and the ordering of min/max_gram, the value domains of
+     * density/stop_gram_df/lower_case, and the mutual exclusion of the token_chars family with mode.
+     * An empty mode string (which the allow-list stage does not catch) is rejected here too, for not
+     * belonging to VALID_MODES.
      *
-     * <p>所有取值域与 BE 端 `gram_scheme.cpp::GramScheme::from_properties` 逐条对齐：
-     * min_gram ∈ [1, 64]、max_gram ∈ [1, 256]、density ∈ [0.001, 1]、stop_gram_df ∈ [0, 1]。
-     * FE 先拦住越界值，避免 DDL 通过但 BE 解析 gram 方案时才报 InvalidArgument。
+     * <p>Every value domain mirrors BE's `gram_scheme.cpp::GramScheme::from_properties` entry by entry:
+     * min_gram in [1, 64], max_gram in [1, 256], density in [0.001, 1], stop_gram_df in [0, 1].
+     * FE rejects out-of-range values up front, so a DDL cannot pass only for BE to report
+     * InvalidArgument when it parses the gram scheme.
      */
     private void validateGramMode(Map<String, String> props, String mode) throws DdlException {
         if (!VALID_MODES.contains(mode)) {
@@ -173,8 +179,10 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
     }
 
     /**
-     * 解析取值范围为 {@code [lo, hi]} 的整数属性；属性未设置时返回默认值 {@code dflt}。
-     * 与 BE 端 `gram_scheme.cpp::parse_uint` 同范围，越界与非数字统一报同一条信息。
+     * Parses an integer property whose value range is {@code [lo, hi]}; returns the default
+     * {@code dflt} when the property is not set.
+     * Same range as BE's `gram_scheme.cpp::parse_uint`; out-of-range and non-numeric values report
+     * the same message.
      */
     private static int parseIntInRange(Map<String, String> props, String key, int dflt, int lo, int hi)
             throws DdlException {
@@ -194,7 +202,7 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
     }
 
     /**
-     * 解析 double 属性，解析失败时抛出携带字段名的 DdlException。
+     * Parses a double property, throwing a DdlException that carries the field name on failure.
      */
     private static double parseDouble(String value, String key) throws DdlException {
         try {

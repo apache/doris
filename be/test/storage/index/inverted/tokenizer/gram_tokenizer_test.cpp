@@ -30,10 +30,11 @@ namespace doris::segment_v2 {
 
 using namespace inverted_index;
 
-// Ruling R8：BE UT 二进制启用 Unity Build，ngram_tokenizer_test.cpp 已经在本命名空间
-// 定义了同名同参的 tokenize(NGramTokenizerFactory&, const std::string&)，直接重名会在
-// 合批后的翻译单元里重定义报错。这里用文件专属的具名命名空间隔离辅助函数，并改名为
-// gram_tokenize 双重避免冲突。
+// Ruling R8: the BE UT binary uses unity builds, and ngram_tokenizer_test.cpp already defines a
+// tokenize(NGramTokenizerFactory&, const std::string&) with the same name and signature in this
+// namespace, so reusing the name would be a redefinition error in the merged translation unit.
+// The helper here lives in a file-private named namespace and is renamed to gram_tokenize, which
+// avoids the clash twice over.
 namespace gram_tokenizer_test_detail {
 
 std::vector<std::string> gram_tokenize(NGramTokenizerFactory& factory, const std::string& data) {
@@ -71,7 +72,7 @@ TEST(GramTokenizerTest, SparseModeProducesCdcGrams) {
     factory.initialize(settings);
     ASSERT_TRUE(factory.gram_scheme().has_value());
     EXPECT_EQ(factory.gram_scheme()->mode, gram::GramMode::SPARSE);
-    // golden 同 GramExtractorTest.SparseGoldenFromPrototype（按起点顺序）
+    // Same golden as GramExtractorTest.SparseGoldenFromPrototype (in start-position order)
     EXPECT_EQ(gram_tokenize(factory, "rpc error: code = Unavailable"),
               (std::vector<std::string> {"or: co", "cod", "ode = U", " Unavai", "ailable"}));
     EXPECT_EQ(gram_tokenize(factory, "手机ab微博"),
@@ -87,10 +88,11 @@ TEST(GramTokenizerTest, DenseModeAndAutoAlias) {
     NGramTokenizerFactory f2;
     std::unordered_map<std::string, std::string> a2 {{"mode", "auto"}};
     f2.initialize(Settings(a2));
-    EXPECT_EQ(f2.gram_scheme()->mode, gram::GramMode::SPARSE); // P0：auto = sparse
+    EXPECT_EQ(f2.gram_scheme()->mode, gram::GramMode::SPARSE); // P0: auto = sparse
 }
 
-// min/max_gram 缺省时的默认值来自 GramScheme 的成员初值（3/16），工厂不再注入副本。
+// When min/max_gram are absent the defaults come from GramScheme's member initializers (3/16);
+// the factory no longer injects a copy of its own.
 TEST(GramTokenizerTest, GramDefaultsComeFromGramScheme) {
     NGramTokenizerFactory factory;
     std::unordered_map<std::string, std::string> args {{"mode", "sparse"}};
@@ -100,8 +102,9 @@ TEST(GramTokenizerTest, GramDefaultsComeFromGramScheme) {
     EXPECT_EQ(factory.gram_scheme()->max_len, 16U);
 }
 
-// lower_case=true 时折叠发生在切分之前（边界哈希也算在折叠后的字节上），因此大小写不同
-// 的同一段文本必须切出完全相同的 gram 序列。
+// With lower_case=true the folding happens before the split (the boundary hash is computed over
+// the folded bytes as well), so the same text in different cases must yield exactly the same gram
+// sequence.
 TEST(GramTokenizerTest, LowerCaseFoldsBeforeExtraction) {
     NGramTokenizerFactory factory;
     std::unordered_map<std::string, std::string> args {{"mode", "sparse"}, {"lower_case", "true"}};
@@ -110,15 +113,17 @@ TEST(GramTokenizerTest, LowerCaseFoldsBeforeExtraction) {
     EXPECT_TRUE(factory.gram_scheme()->lower_case);
     EXPECT_EQ(gram_tokenize(factory, "Code = Unavailable"),
               gram_tokenize(factory, "code = unavailable"));
-    // 换一段够长、确定能切出 gram 的输入，避免上面那条在两边都为空时空转。
+    // Use a longer input that is guaranteed to yield grams, so the check above cannot pass
+    // vacuously with both sides empty.
     const auto mixed = gram_tokenize(factory, "RPC error: Code = Unavailable");
     EXPECT_FALSE(mixed.empty());
     EXPECT_EQ(mixed, gram_tokenize(factory, "rpc error: code = unavailable"));
 }
 
 TEST(GramTokenizerTest, GramModeSkipsLegacyMinMaxGapCheck) {
-    // 现状 initialize 对 max_gram-min_gram>1 抛 INVALID_ARGUMENT（ngram_tokenizer_factory.cpp:29-36）；
-    // gram 族在 mode 分支内直接 return，不受此限。
+    // Today initialize throws INVALID_ARGUMENT for max_gram-min_gram>1
+    // (ngram_tokenizer_factory.cpp:29-36); the gram family returns from inside the mode branch and
+    // is not subject to that limit.
     NGramTokenizerFactory factory;
     std::unordered_map<std::string, std::string> args {
             {"mode", "sparse"}, {"min_gram", "3"}, {"max_gram", "24"}};

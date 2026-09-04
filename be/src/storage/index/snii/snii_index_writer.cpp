@@ -68,18 +68,22 @@ SniiIndexColumnWriter::SniiIndexColumnWriter(
           _common_grams_build_enabled(config::enable_common_grams_index_build),
           _common_grams_metadata_seed(std::move(common_grams_metadata_seed)) {}
 
-// gram 族识别（Ruling R21/R22）：方案只来自写入器自己创建的那一个 analyzer provider——同一个
-// provider 既产出实际分词器、又回答"我是不是 gram 族"，两者不可能漂移。内置 analyzer
-// （standard/english/...）由 BuiltinAnalyzerProvider 走基类默认实现恒为 nullopt，不再去问
-// 策略管理器（问了会因 "Policy not found" 抛异常，让所有内置 analyzer 索引建不起来）。
+// Gram-family detection (Rulings R21/R22): the scheme comes only from the single analyzer
+// provider the writer created itself -- the same provider both produces the actual tokenizer and
+// answers "am I gram family?", so the two cannot drift. A built-in analyzer
+// (standard/english/...) goes through BuiltinAnalyzerProvider and the base class default, which
+// is always nullopt, and the policy manager is never consulted (consulting it would throw
+// "Policy not found" and make every built-in-analyzer index impossible to build).
 void SniiIndexColumnWriter::_apply_gram_family_scheme(
         const inverted_index::AnalyzerProviderPtr& analyzer_provider) {
     if (analyzer_provider != nullptr) {
         _gram_scheme = analyzer_provider->gram_scheme();
     }
-    // 索引级 char_filter 由写入器自己包在 reader 外层（create_reader），provider 看不见它：
-    // 一旦存在，落库 term 就不再等于 GramExtractor.extract(原始列值)，查询侧（阶段 C）赖以
-    // 成立的行不变式被破坏，因此按"不是 gram 族"处理（fail-safe，与 R22 同因）。
+    // An index-level char_filter is wrapped around the reader by the writer itself
+    // (create_reader) and is invisible to the provider: once one exists, the stored term is no
+    // longer equal to GramExtractor.extract(raw column value), breaking the row invariant the
+    // query side (phase C) relies on, so this is treated as "not gram family" (fail-safe, for
+    // the same reason as R22).
     if (!_analyzer_config.char_filter_map.empty()) {
         _gram_scheme.reset();
     }
@@ -87,17 +91,18 @@ void SniiIndexColumnWriter::_apply_gram_family_scheme(
     if (!_gram_scheme.has_value() || !_has_positions) {
         return;
     }
-    // R15：命中 gram 族即强制退化为 docs-only（gram 索引不支持短语位置），且必须发生在
-    // SpimiTermBuffer 按 _has_positions 定型之前。
+    // R15: a gram-family hit forces a degradation to docs-only (the gram index does not support
+    // phrase positions), and it has to happen before SpimiTermBuffer is fixed by _has_positions.
     LOG(INFO) << "gram-family analyzer forces docs-only index, ignoring support_phrase for index "
               << _index_meta->index_id();
     _has_positions = false;
     _config = ::doris::snii::format::IndexConfig::kDocsOnly;
 }
 
-// 整条链路只创建一个 analyzer provider，且必须早于 SpimiTermBuffer 构造：term buffer 按
-// _has_positions 定型，而可能把 _has_positions 打回 false 的 gram 族判定只能从 provider
-// 得到。init() 后半段的 CommonGrams 校验复用这里创建出来的同一个 provider。
+// The whole path creates exactly one analyzer provider, and it must come before SpimiTermBuffer
+// is constructed: the term buffer is fixed by _has_positions, and the gram-family decision that
+// may reset _has_positions to false can only come from the provider. The CommonGrams validation
+// in the second half of init() reuses the very provider created here.
 Status SniiIndexColumnWriter::_create_analyzer_provider(
         inverted_index::AnalyzerProviderPtr* analyzer_provider) {
     try {
@@ -135,7 +140,8 @@ Status SniiIndexColumnWriter::init() {
     _analyzer_config.lower_case =
             get_parser_lowercase_from_properties<true>(_index_meta->properties());
     _analyzer_config.stop_words = get_parser_stopwords_from_properties(_index_meta->properties());
-    // reader / provider / gram 族判定全部在这里完成——都要早于下面的 term buffer 构造。
+    // Reader, provider and the gram-family decision all happen here -- all of them before the
+    // term buffer is constructed below.
     inverted_index::AnalyzerProviderPtr analyzer_provider;
     RETURN_IF_ERROR(_create_analyzer_provider(&analyzer_provider));
     auto ignore_above_value =

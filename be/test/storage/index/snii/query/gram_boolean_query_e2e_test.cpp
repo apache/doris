@@ -15,21 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// gram 布尔查询的端到端测试：把一批真实文本经 **写入侧** 的 gram 族 analyzer 写成一个
-// 真正的 SNII 段（SniiIndexColumnWriter -> IndexFileWriter -> .idx 文件），再用
-// LogicalIndexReader 打开它，对若干 LIKE / REGEXP 模式跑
-// 「RegexGramCompiler 编译 -> gram_boolean_query 求值」，并与暴力真值比对。
+// End-to-end test of the gram boolean query: a batch of real text is written through the **write
+// side** gram-family analyzer into a real SNII segment (SniiIndexColumnWriter -> IndexFileWriter
+// -> .idx file), reopened with LogicalIndexReader, and a set of LIKE / REGEXP patterns is run
+// through "RegexGramCompiler compilation -> gram_boolean_query evaluation" and compared against a
+// brute-force truth.
 //
-// 这是整条链路上唯一一个把 **阶段 B 的 docid 空间与词典键** 和 **阶段 C 的查找** 钉在
-// 一起的测试：
-//   * 词典键：写入侧由 GramTokenizer 产出 gram 词元并落成 SNII 词典 term；查询侧由
-//     RegexGramCompiler 用同一个 GramScheme 推出 gram 字面量再去词典里查。任何一侧的
-//     编码 / 大小写 / 哈希抽样口径漂移，都会让本测试出现「真值命中但位图未包含」的假阴性。
-//   * docid 空间：段里既有空串行也有 NULL 行，它们同样占用 docid。写入侧一旦漏记一行
-//     （例如 add_nulls 不推进 rid），后面所有行的 docid 都会整体错位，本测试同样会失败。
+// This is the only test on the whole path that pins **phase B's docid space and dictionary keys**
+// together with **phase C's lookups**:
+//   * dictionary keys: on the write side GramTokenizer produces gram tokens that become SNII
+//     dictionary terms; on the query side RegexGramCompiler derives gram literals with the same
+//     GramScheme and looks them up in that dictionary. Any drift in encoding, case folding or
+//     hash sampling on either side shows up here as a false negative ("the truth matches but the
+//     bitmap does not contain the row").
+//   * docid space: the segment holds both empty-string rows and NULL rows, and they occupy docids
+//     as well. If the write side ever loses a row (add_nulls not advancing rid, say), every later
+//     row's docid shifts and this test fails too.
 //
-// 断言方向只有一个：位图必须是真值集合的 **超集**（truth => candidate）。gram 索引只做
-// 候选收窄，多出来的候选行由上层表达式逐行复验，因此「多」是允许的、「漏」是致命的。
+// There is only one direction to assert: the bitmap must be a **superset** of the truth set
+// (truth => candidate). A gram index only narrows candidates, and the extra candidate rows are
+// re-verified row by row by the expression above it, so "too many" is allowed and "missing" is
+// fatal.
 
 #include <gtest/gtest.h>
 #include <re2/re2.h>
@@ -69,9 +75,10 @@ void assert_ok(const Status& status) {
     ASSERT_TRUE(status.ok()) << status.to_string();
 }
 
-// 注入两套 gram 族策略（sparse 与 dense），手法同 snii_writer_test.cpp 的
-// ScopedGramPolicies：替换 ExecEnv::_index_policy_mgr，析构时还原。id / name 为本文件专属。
-// IndexPolicyMgr 的名字空间不分策略类型，因此 tokenizer 与 analyzer 不能同名。
+// Inject two gram-family policy sets (sparse and dense), the same way as ScopedGramPolicies in
+// snii_writer_test.cpp: swap ExecEnv::_index_policy_mgr and restore it on destruction. The ids
+// and names are private to this file. IndexPolicyMgr's namespace is shared across policy types,
+// so a tokenizer and an analyzer cannot have the same name.
 class ScopedGramE2EPolicies {
 public:
     ScopedGramE2EPolicies() {
@@ -140,8 +147,9 @@ TabletIndex make_index_meta(const std::map<std::string, std::string>& properties
     return meta;
 }
 
-// 语料：约 30 行短文本，混合类日志的 ASCII 行、中文行、空串与 NULL。
-// nullopt 表示 NULL 行——它同样占一个 docid，是 docid 空间对齐的关键探针。
+// The corpus: about 30 short lines mixing log-like ASCII rows, CJK rows, empty strings and NULLs.
+// A nullopt marks a NULL row -- it occupies a docid too, and is the key probe for docid space
+// alignment.
 std::vector<std::optional<std::string>> build_corpus() {
     return {
             "rpc error: code = Unavailable desc = timeout",
@@ -177,9 +185,9 @@ std::vector<std::optional<std::string>> build_corpus() {
     };
 }
 
-// 把语料喂给一个真实的 SniiIndexColumnWriter，落成一个真正的 .idx 文件。
-// 连续的非 NULL 行合成一个 add_values 批次，连续的 NULL 行合成一个 add_nulls 批次，
-// 与生产上 SegmentWriter 的调用形态一致。
+// Feed the corpus to a real SniiIndexColumnWriter and produce a real .idx file. Consecutive
+// non-NULL rows form one add_values batch and consecutive NULL rows one add_nulls batch, matching
+// how SegmentWriter calls the writer in production.
 void write_segment(const std::string& path, const TabletIndex& index_meta,
                    const std::vector<std::optional<std::string>>& corpus) {
     io::FileWriterPtr file_writer;
@@ -216,7 +224,7 @@ void write_segment(const std::string& path, const TabletIndex& index_meta,
     assert_ok(index_file_writer.finish_close());
 }
 
-// 已展开转义的 LIKE 模式原子：% / _ / 普通字符三选一。
+// One atom of a LIKE pattern with escapes already expanded: % , _ , or an ordinary character.
 struct LikeAtom {
     bool any_seq = false; // %
     bool any_one = false; // _
@@ -242,10 +250,12 @@ std::vector<LikeAtom> parse_like_pattern(const std::string& pattern) {
     return atoms;
 }
 
-// LIKE 真值：整串匹配，支持 % / _ 与 \% \_ \\ 转义。经典的 O(n*m) 动态规划，
-// 刻意不复用被测代码的任何切分逻辑——它必须是一个独立的真值来源。
-// `_` 按单字节匹配：本文件的模式只在纯 ASCII 字面量之间使用 `_`，而 UTF-8 里两个
-// ASCII 字节之间不可能夹着多字节字符的续字节，因此这与「单字符」语义在本语料上等价。
+// LIKE truth: whole-string matching supporting % / _ and the \% \_ \\ escapes. A classic O(n*m)
+// dynamic program that deliberately reuses none of the split logic under test -- it has to be an
+// independent source of truth.
+// `_` matches a single byte: the patterns in this file only use `_` between pure ASCII literals,
+// and in UTF-8 no continuation byte of a multi-byte character can sit between two ASCII bytes, so
+// on this corpus that is equivalent to the "single character" semantics.
 bool like_match(const std::string& value, const std::string& pattern) {
     const std::vector<LikeAtom> atoms = parse_like_pattern(pattern);
     const size_t n = value.size();
@@ -296,7 +306,7 @@ const std::vector<PatternCase>& pattern_cases() {
     return cases;
 }
 
-// 暴力真值：对每一行独立判定模式是否匹配。NULL 行永不匹配。
+// Brute-force truth: decide the match for each row independently. A NULL row never matches.
 roaring::Roaring brute_force_truth(const std::vector<std::optional<std::string>>& corpus,
                                    const PatternCase& pattern_case) {
     roaring::Roaring truth;
@@ -325,8 +335,9 @@ roaring::Roaring full_range(uint32_t num_docs) {
     return full;
 }
 
-// 对一条模式跑「编译 -> 求值 -> 与真值比对」。抽成函数是为了压低 run_scheme() 的
-// 认知复杂度（clang-tidy readability-function-cognitive-complexity）。
+// Run "compile -> evaluate -> compare against the truth" for one pattern. Extracted into a
+// function to keep the cognitive complexity of run_scheme() down (clang-tidy
+// readability-function-cognitive-complexity).
 void check_pattern(const std::vector<std::optional<std::string>>& corpus,
                    const doris::snii::reader::LogicalIndexReader& index,
                    gram::RegexGramCompiler& compiler, const std::string& analyzer_name,
@@ -344,12 +355,13 @@ void check_pattern(const std::vector<std::optional<std::string>>& corpus,
             << pattern_case.pattern;
 
     if (query.is_all()) {
-        // ALL 必须原样放行整个 docid 空间，否则就是在毫无信息的情况下裁行。
+        // ALL has to let the entire docid space through, otherwise rows would be pruned with no
+        // information at all.
         EXPECT_TRUE(bitmap == full_range(num_docs)) << pattern_case.pattern;
     } else {
         ++(*indexable);
     }
-    // 候选集合永远落在 [0, num_docs) 内。
+    // The candidate set always stays within [0, num_docs).
     EXPECT_TRUE((bitmap - full_range(num_docs)).isEmpty()) << pattern_case.pattern;
 
     const roaring::Roaring truth = brute_force_truth(corpus, pattern_case);
@@ -360,7 +372,8 @@ void check_pattern(const std::vector<std::optional<std::string>>& corpus,
                                   << " missed=" << missed.toString();
 }
 
-// 对一套 gram 方案跑完整的「写段 -> 开段 -> 编译 -> 求值 -> 比对真值」。
+// Run the full "write segment -> open segment -> compile -> evaluate -> compare truth" for one
+// gram scheme.
 void run_scheme(const std::string& analyzer_name, const std::string& segment_name) {
     ScopedGramE2EPolicies policies;
     const auto properties = gram_index_properties(analyzer_name);
@@ -374,7 +387,8 @@ void run_scheme(const std::string& analyzer_name, const std::string& segment_nam
         return;
     }
 
-    // 查询侧完全按生产路径解析方案：只有索引属性 + 策略管理器。
+    // The query side resolves the scheme exactly as production does: index properties plus the
+    // policy manager, nothing else.
     const std::optional<gram::GramScheme> scheme =
             gram::resolve_gram_scheme(properties, &policies.manager());
     ASSERT_TRUE(scheme.has_value()) << analyzer_name;
@@ -386,7 +400,7 @@ void run_scheme(const std::string& analyzer_name, const std::string& segment_nam
     ASSERT_EQ(segment.n_logical_indexes(), 1U);
     doris::snii::reader::LogicalIndexReader index;
     assert_ok(segment.open_index(static_cast<uint64_t>(kIndexId), "", &index));
-    // docid 空间必须覆盖包括空串行与 NULL 行在内的每一行。
+    // The docid space must cover every row, empty-string and NULL rows included.
     ASSERT_EQ(index.stats().doc_count, num_docs);
 
     gram::RegexGramCompiler compiler(*scheme);
@@ -397,10 +411,12 @@ void run_scheme(const std::string& analyzer_name, const std::string& segment_nam
             return;
         }
     }
-    // 覆盖率保护：至少三分之一的模式真的产生了可用于裁剪的查询，否则本测试会退化成
-    // 「全是 ALL、什么都没验证」。阈值取三分之一而不是一半，是因为 SPARSE 方案按哈希抽样
-    // 保留 gram，短字面量能被稳定钉住的比例天然低于 DENSE（实测 sparse 5/12、dense 8/12）；
-    // 这里要挡的是「编译器或写入侧整体失效」，不是两种方案的裁剪力差异。
+    // Coverage guard: at least a third of the patterns must actually produce a query usable for
+    // pruning, otherwise this test degenerates into "everything is ALL and nothing is verified".
+    // The threshold is a third rather than a half because a SPARSE scheme keeps grams by hash
+    // sampling, so the share of short literals it can reliably pin down is naturally lower than
+    // DENSE's (measured: sparse 5/12, dense 8/12); what this guards against is "the compiler or
+    // the write side broke entirely", not the difference in pruning power between the two schemes.
     EXPECT_GE(indexable, static_cast<int>(pattern_cases().size()) / 3)
             << "analyzer=" << analyzer_name;
 }

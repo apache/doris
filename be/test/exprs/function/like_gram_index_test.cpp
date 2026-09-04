@@ -15,16 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// LIKE / REGEXP 下推 gram 布尔查询的 evaluate_inverted_index 测试：用一个假的
-// IndexIterator 验证「方案解析 -> 编译 -> 下发的 InvertedIndexParam -> 近似标记」全链路，
-// 不依赖真实索引文件。
+// evaluate_inverted_index tests for pushing a gram boolean query down from LIKE / REGEXP: a fake
+// IndexIterator verifies the whole chain "scheme resolution -> compilation -> the issued
+// InvertedIndexParam -> the approximate flag" without depending on real index files.
 //
-// 关于 reader：存储格式栅栏（Ruling R30）要求下推只发生在 SNII reader 上，所以“正常
-// 下推”的用例必须挂一个 **真的** SniiIndexReader（它是 final 类，无法派生桩类；好在
-// resolve_scheme 只用到基类的 get_index_properties()，而 read_from_index 被假 iterator
-// 直接截获，reader 的 query() 永远不会被调用，因此一个 IndexFileReader 为空的
-// SniiIndexReader 完全够用）。反面用例则挂一个 CLucene 语义的桩 reader，验证栅栏确实
-// 把它挡在外面。
+// About the reader: the storage-format fence (Ruling R30) requires push-down to happen only on a
+// SNII reader, so the "normal push-down" cases must carry a **real** SniiIndexReader (it is a
+// final class and cannot be subclassed for a stub; fortunately resolve_scheme only uses the base
+// class's get_index_properties(), and read_from_index is intercepted by the fake iterator, so the
+// reader's query() is never called and a SniiIndexReader with a null IndexFileReader is entirely
+// sufficient). The negative cases carry a CLucene-semantics stub reader instead, to verify that
+// the fence really keeps it out.
 
 #include <gtest/gtest.h>
 
@@ -54,10 +55,11 @@
 
 namespace doris {
 
-// 非 SNII 的桩 InvertedIndexReader：直接派生自 InvertedIndexReader，因此
-// dynamic_cast<SniiIndexReader*> 必然失败——这正是存储格式栅栏要拦下的形态（生产上对应
-// CLucene 格式段的 FullTextIndexReader / StringTypeInvertedIndexReader）。其余纯虚函数
-// 在本测试里永远不会被调用到，给出最简单的占位实现即可。
+// A non-SNII stub InvertedIndexReader: it derives directly from InvertedIndexReader, so
+// dynamic_cast<SniiIndexReader*> necessarily fails -- exactly the shape the storage-format fence
+// must stop (in production: FullTextIndexReader / StringTypeInvertedIndexReader over
+// CLucene-format segments). The remaining pure virtuals are never called in this test, so the
+// simplest placeholder implementations will do.
 class StubGramIndexReader : public segment_v2::InvertedIndexReader {
 public:
     explicit StubGramIndexReader(const TabletIndex& index_meta)
@@ -86,9 +88,10 @@ public:
     }
 };
 
-// 用注入的属性表构造一个最小可用的 TabletIndex：走真实的 TabletIndexPB ->
-// init_from_pb 链路（与 snii_writer_test.cpp 的 init_*_index_meta 系列同构），
-// 从而不必依赖 get_index_properties() 在非 BE_TEST 构建下不是虚函数这一细节。
+// Build a minimal usable TabletIndex from the injected property table, going through the real
+// TabletIndexPB -> init_from_pb path (the same shape as the init_*_index_meta family in
+// snii_writer_test.cpp), so we need not rely on the detail that get_index_properties() is not
+// virtual in a non-BE_TEST build.
 TabletIndex build_gram_index_meta(const std::map<std::string, std::string>& properties) {
     TabletIndexPB index_pb;
     index_pb.set_index_type(IndexType::INVERTED);
@@ -103,21 +106,21 @@ TabletIndex build_gram_index_meta(const std::map<std::string, std::string>& prop
     return index_meta;
 }
 
-// get_reader 返回的 reader 走哪一路：真正的 SNII reader（可下推）还是 CLucene 语义的
-// 桩 reader（应被存储格式栅栏挡下）。
+// Which reader get_reader returns: a real SNII reader (push-down possible) or a
+// CLucene-semantics stub reader (which the storage-format fence should stop).
 enum class FakeReaderKind { kSnii, kNonSnii };
 
-// 假 IndexIterator：get_reader 返回一个按 FakeReaderKind 选定的 reader（供 resolve_scheme
-// 判定类型并读属性）；read_from_index 直接截获下发的 InvertedIndexParam，按 inject_status
-// 返回注入的状态、或回填一个固定的命中集合，不经过真实的 SNII/CLucene 查询执行，从而只
-// 验证 evaluate_gram_index 自身的行为。
+// A fake IndexIterator: get_reader returns the reader chosen by FakeReaderKind (for
+// resolve_scheme to type-check and read properties from); read_from_index intercepts the issued
+// InvertedIndexParam directly and either returns the injected status or fills in a fixed hit set,
+// never running a real SNII/CLucene query, so only evaluate_gram_index's own behaviour is tested.
 class FakeGramIndexIterator : public segment_v2::IndexIterator {
 public:
     explicit FakeGramIndexIterator(std::map<std::string, std::string> properties,
                                    FakeReaderKind kind = FakeReaderKind::kSnii)
             : _index_meta(build_gram_index_meta(properties)) {
         if (kind == FakeReaderKind::kSnii) {
-            // IndexFileReader 传空指针即可：本测试从不触发 reader 的查询路径。
+            // A null IndexFileReader is fine: this test never triggers the reader's query path.
             _reader = segment_v2::SniiIndexReader::create_shared(
                     &_index_meta, /*index_file_reader=*/nullptr,
                     segment_v2::InvertedIndexReaderType::FULLTEXT, /*rows_of_segment=*/100,
@@ -154,10 +157,12 @@ public:
 
     Result<bool> has_null() override { return false; }
 
-    // 上一次 read_from_index 收到的完整参数，供断言 query_type / query_value 用。
+    // The full parameter set the last read_from_index received, for asserting on query_type /
+    // query_value.
     segment_v2::InvertedIndexParam last_param;
     std::vector<uint32_t> answer {3, 5};
-    // 非 OK 时 read_from_index 原样返回它，用于验证兜底降级（Ruling R29）。
+    // When not OK, read_from_index returns it verbatim, to verify the catch-all degradation
+    // (Ruling R29).
     Status inject_status = Status::OK();
     int read_from_index_calls = 0;
 
@@ -172,26 +177,28 @@ std::shared_ptr<FakeGramIndexIterator> make_gram_iterator(
     return std::make_shared<FakeGramIndexIterator>(std::move(properties), kind);
 }
 
-// 构造一个常量字符串参数列（ColumnConst(ColumnString) + DataTypeString），
-// 用于填充 evaluate_inverted_index 的 arguments 列表（pattern / 自定义 ESCAPE）。
+// Build a constant string argument column (ColumnConst(ColumnString) + DataTypeString) to fill
+// the arguments list of evaluate_inverted_index (pattern / custom ESCAPE).
 ColumnWithTypeAndName const_string_arg(const std::string& value) {
     auto col = ColumnString::create();
     col->insert_data(value.data(), value.size());
     return {ColumnConst::create(std::move(col), 1), std::make_shared<DataTypeString>(), "arg"};
 }
 
-// 同上，但**不**包一层 ColumnConst：用于构造“ESCAPE 是逐行变化的列”这一必须拒绝下推的形态。
+// As above, but **without** the ColumnConst wrapper: builds the "ESCAPE is a per-row column"
+// shape, which must not be pushed down.
 ColumnWithTypeAndName non_const_string_arg(const std::string& value) {
     auto col = ColumnString::create();
     col->insert_data(value.data(), value.size());
     return {std::move(col), std::make_shared<DataTypeString>(), "arg"};
 }
 
-// 注入一对 gram 族策略（tokenizer type=ngram mode=dense + analyzer 引用它），手法
-// 复制自 snii_writer_test.cpp 的 ScopedGramPolicies（替换再还原
-// ExecEnv::_index_policy_mgr）；id/name 为本文件专属，避免与其他测试文件的策略
-// 注册在同一进程内的策略管理器命名空间中打架（本类每次都换成自己的 IndexPolicyMgr
-// 实例，所以其实不会真的冲突，但独立取名便于排查失败输出）。
+// Inject a pair of gram-family policies (a tokenizer with type=ngram mode=dense plus an analyzer
+// referencing it), copying the approach of ScopedGramPolicies in snii_writer_test.cpp (swap
+// ExecEnv::_index_policy_mgr and restore it afterwards); the ids/names are private to this file
+// so that the policy registrations cannot clash with other test files inside the policy manager's
+// namespace in the same process (this class installs its own IndexPolicyMgr instance every time,
+// so a real clash is impossible, but separate names make failure output easier to read).
 class ScopedGramIndexPolicies {
 public:
     ScopedGramIndexPolicies() {
@@ -251,17 +258,18 @@ TEST(LikeGramIndexTest, UnindexableOrNonGramProducesNoResult) {
     std::vector<IndexFieldNameAndTypePair> names {{"msg", std::make_shared<DataTypeString>()}};
     auto fn = std::make_shared<FunctionRegexpLike>();
 
-    // gram 族索引，但模式串编译不出任何可裁剪的字面量（退化为 ALL）。
+    // A gram-family index, but the pattern compiles to no prunable literal at all (it degrades
+    // to ALL).
     {
         auto it = make_gram_iterator({{"analyzer", ScopedGramIndexPolicies::analyzer_name()}});
         segment_v2::InvertedIndexResultBitmap result;
         ColumnsWithTypeAndName args {const_string_arg("[0-9]{3}-[0-9]{4}")};
         ASSERT_TRUE(
                 fn->evaluate_inverted_index(args, names, {it.get()}, 100, nullptr, result).ok());
-        EXPECT_TRUE(result.is_empty()); // 未产生结果（is_empty = 无位图，不是基数为零）
+        EXPECT_TRUE(result.is_empty()); // no result produced (is_empty = no bitmap, not zero card)
     }
 
-    // 非 gram 族索引（内置 english parser，属性里没有 analyzer 字段）。
+    // A non-gram-family index (the built-in english parser, no analyzer field in the properties).
     {
         auto it = make_gram_iterator({{"parser", "english"}});
         segment_v2::InvertedIndexResultBitmap result;
@@ -295,7 +303,8 @@ TEST(LikeGramIndexTest, CustomEscapeIsNotPushedDown) {
     auto fn = std::make_shared<FunctionLike>();
     std::vector<IndexFieldNameAndTypePair> names {{"msg", std::make_shared<DataTypeString>()}};
 
-    // ESCAPE 子句不是默认的反斜杠：P0 不支持，必须不加速也不能报错。
+    // The ESCAPE clause is not the default backslash: unsupported in P0, so it must skip the
+    // acceleration without failing.
     {
         auto it = make_gram_iterator({{"analyzer", ScopedGramIndexPolicies::analyzer_name()}});
         segment_v2::InvertedIndexResultBitmap result;
@@ -306,7 +315,8 @@ TEST(LikeGramIndexTest, CustomEscapeIsNotPushedDown) {
         EXPECT_EQ(it->read_from_index_calls, 0);
     }
 
-    // ESCAPE 是一个非常量列：即便它此刻恰好装着反斜杠，逐行取值也可能不同，必须拒绝下推。
+    // ESCAPE is a non-constant column: even though it happens to hold a backslash right now, the
+    // per-row value may differ, so push-down must be refused.
     {
         auto it = make_gram_iterator({{"analyzer", ScopedGramIndexPolicies::analyzer_name()}});
         segment_v2::InvertedIndexResultBitmap result;
@@ -317,7 +327,7 @@ TEST(LikeGramIndexTest, CustomEscapeIsNotPushedDown) {
         EXPECT_EQ(it->read_from_index_calls, 0);
     }
 
-    // 参数个数超出 like 的 (pattern) / (pattern, escape) 两种形状：同样拒绝。
+    // More arguments than like's two shapes (pattern) / (pattern, escape): refused as well.
     {
         auto it = make_gram_iterator({{"analyzer", ScopedGramIndexPolicies::analyzer_name()}});
         segment_v2::InvertedIndexResultBitmap result;
@@ -329,7 +339,7 @@ TEST(LikeGramIndexTest, CustomEscapeIsNotPushedDown) {
         EXPECT_EQ(it->read_from_index_calls, 0);
     }
 
-    // 显式写出默认反斜杠 ESCAPE 且为常量：允许下推。
+    // The default backslash ESCAPE spelled out explicitly, as a constant: push-down is allowed.
     {
         auto it = make_gram_iterator({{"analyzer", ScopedGramIndexPolicies::analyzer_name()}});
         segment_v2::InvertedIndexResultBitmap result;
@@ -359,11 +369,13 @@ TEST(LikeGramIndexTest, ConfigDisabledSkipsPushDown) {
     EXPECT_TRUE(result.is_empty());
 }
 
-// 存储格式栅栏第 1 层（Ruling R30）：reader 不是 SNII reader 时一律不下推，且必须是
-// 「OK + 无结果」而不是报错——同一张表的旧段就是 CLucene 格式，报错会让整条查询失败。
+// Layer 1 of the storage-format fence (Ruling R30): when the reader is not a SNII reader nothing
+// is pushed down, and the outcome must be "OK with no result" rather than an error -- old
+// segments of the same table are in CLucene format, and an error would fail the whole query.
 TEST(LikeGramIndexTest, NonSniiReaderIsNotPushedDown) {
     ScopedGramIndexPolicies policies;
-    // 属性表与能下推的用例完全一致（同一个 gram 族 analyzer），唯一的差别是 reader 类型。
+    // The property table is identical to the push-down case (the same gram-family analyzer); the
+    // only difference is the reader type.
     auto it = make_gram_iterator({{"analyzer", ScopedGramIndexPolicies::analyzer_name()}},
                                  FakeReaderKind::kNonSnii);
     auto fn = std::make_shared<FunctionRegexpLike>();
@@ -374,18 +386,21 @@ TEST(LikeGramIndexTest, NonSniiReaderIsNotPushedDown) {
     ASSERT_TRUE(fn->evaluate_inverted_index(args, names, {it.get()}, 100, nullptr, result).ok());
 
     EXPECT_TRUE(result.is_empty());
-    // 关键：连 read_from_index 都不能发出去——CLucene reader 永远不应看到 GRAM_BOOLEAN_QUERY。
+    // The key point: read_from_index must not even be issued -- a CLucene reader must never see a
+    // GRAM_BOOLEAN_QUERY.
     EXPECT_EQ(it->read_from_index_calls, 0);
 }
 
-// 兜底降级（Ruling R29）：read_from_index 返回的任意错误都只能导致“不加速”。
+// Catch-all degradation (Ruling R29): any error returned by read_from_index may only lead to "no
+// acceleration".
 TEST(LikeGramIndexTest, ArbitraryIndexErrorDegradesToNoResult) {
     ScopedGramIndexPolicies policies;
     auto fn = std::make_shared<FunctionRegexpLike>();
     std::vector<IndexFieldNameAndTypePair> names {{"msg", std::make_shared<DataTypeString>()}};
     ColumnsWithTypeAndName args {const_string_arg("hello|world")};
 
-    // 一律关掉栈回溯（模板第二个参数）：这些错误是刻意注入的，打栈只会污染测试输出。
+    // Stack traces are switched off throughout (the second template parameter): these errors are
+    // injected on purpose, and a stack trace would only pollute the test output.
     const std::vector<Status> degradable {
             Status::InternalError<false>("boom"),
             Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>("not supported"),
@@ -404,7 +419,7 @@ TEST(LikeGramIndexTest, ArbitraryIndexErrorDegradesToNoResult) {
     }
 }
 
-// 唯一的例外：查询整体已经该终止的状态原样上抛。
+// The only exception: statuses meaning the query as a whole should already stop are rethrown.
 TEST(LikeGramIndexTest, CancellationAndMemoryErrorsPropagate) {
     ScopedGramIndexPolicies policies;
     auto fn = std::make_shared<FunctionRegexpLike>();
@@ -425,10 +440,11 @@ TEST(LikeGramIndexTest, CancellationAndMemoryErrorsPropagate) {
     }
 }
 
-// 存储格式栅栏第 2 层（Ruling R30）：CLucene 格式的 reader 自己也必须拒绝
-// GRAM_BOOLEAN_QUERY，而且要在任何分词 / 缓存查找之前就拒绝。两个 reader 都用空的
-// IndexFileReader 构造——栅栏是 query() 的第一条语句，走不到任何需要文件的地方；反过来
-// 说，如果有人把栅栏挪到后面，这个用例会立刻炸掉。
+// Layer 2 of the storage-format fence (Ruling R30): a CLucene-format reader must reject a
+// GRAM_BOOLEAN_QUERY itself, and it must do so before any tokenization or cache lookup. Both
+// readers are built with a null IndexFileReader -- the fence is the first statement of query(),
+// so nothing that needs a file is ever reached; conversely, if anyone moves the fence later, this
+// case blows up immediately.
 TEST(LikeGramIndexTest, CluceneReadersRejectGramBooleanQuery) {
     const TabletIndex index_meta = build_gram_index_meta({{"parser", "english"}});
     auto context = std::make_shared<segment_v2::IndexQueryContext>();

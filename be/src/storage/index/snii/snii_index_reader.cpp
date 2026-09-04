@@ -413,9 +413,11 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
         emitted_to_sink = true;
         break;
     case InvertedIndexQueryType::GRAM_BOOLEAN_QUERY: {
-        // search_str 是 gram::GramQuery::serialize() 的产物（见 _parse_query_terms
-        // 的原始串直通分支），不经分词直接解析回查询树。解析失败是真错误（不是「未
-        // 命中」），直接向上返回，让调用方放弃这段索引加速而不是返回错误结果。
+        // search_str is the output of gram::GramQuery::serialize() (see the raw-string
+        // passthrough branch of _parse_query_terms) and is parsed straight back into a query
+        // tree without tokenization. A parse failure is a real error (not a "no match"), so it
+        // is returned upwards, letting the caller give up this index acceleration rather than
+        // return a wrong result.
         gram::GramQuery gram_query;
         RETURN_IF_ERROR(gram::GramQuery::parse(search_str, &gram_query));
         ::doris::snii::query::LogicalIndexPostingSource gram_posting_source(logical_reader);
@@ -657,12 +659,14 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
             (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY && query_info.slop == 0) ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
     const bool common_grams_query_eligible = common_grams_phrase_shape && !actual_similarity;
-    // 「原始串直通」的查询类型：query_value 不是待分词的文本，而是一个自带语义的串
-    // （正则 / 通配符模式，或 gram::GramQuery::serialize() 的产物）。这三种查询与段内
-    // analyzer 契约无关，_parse_query_terms 也把它们整串直接塞进 term_infos（见
-    // :482-487），因此既不需要 maybe_rebuild_segment_analyzer_context 校验，也可以在打开
-    // 逻辑索引之前就走结果缓存——缓存 key 里的 raw_query_bytes 就是这个串本身
-    // （raw_semantic.raw_query_bytes = search_str），足以唯一标识这次查询。
+    // The "raw string passthrough" query types: query_value is not text to be tokenized but a
+    // string that carries its own semantics (a regex or wildcard pattern, or the output of
+    // gram::GramQuery::serialize()). None of these three depends on the segment's analyzer
+    // contract, and _parse_query_terms also puts the whole string straight into term_infos (see
+    // :482-487), so they need no maybe_rebuild_segment_analyzer_context validation and may use
+    // the result cache before the logical index is even opened -- raw_query_bytes in the cache
+    // key is that very string (raw_semantic.raw_query_bytes = search_str), which identifies the
+    // query uniquely.
     const bool raw_pattern_query = query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
                                    query_type == InvertedIndexQueryType::WILDCARD_QUERY ||
                                    query_type == InvertedIndexQueryType::GRAM_BOOLEAN_QUERY;

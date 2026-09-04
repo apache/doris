@@ -185,8 +185,9 @@ public:
     format::CommonGramsPostingPolicy common_grams_posting_policy() const {
         return core_.common_grams_posting_policy;
     }
-    // gram 族索引的分段方案，来自 core metadata。P0 写入侧从不设置这个字段，因此这里
-    // 恒为 nullopt；P1 的 mode=auto 按段自适应选型会消费这个访问器。
+    // The chunking scheme of a gram-family index, from the core metadata. The P0 write side
+    // never sets this field, so it is always nullopt here; P1's per-segment adaptive mode=auto
+    // will consume this accessor.
     const std::optional<segment_v2::gram::GramScheme>& gram_scheme() const {
         return core_.gram_scheme;
     }

@@ -139,14 +139,16 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     }
 
     /**
-     * 判断 {@code analyzerName} 是否为「gram 族」analyzer：tokenizer 为 ngram 且显式携带
-     * mode（sparse/auto/dense）。gram 族 analyzer 在 BE 侧只产出稀疏/稠密 gram 倒排项，只有
-     * SNII 存储格式能读取、且不带位置信息（不支持短语查询）；调用方（当前是
-     * {@code InvertedIndexUtil.checkAnalyzerName}）据此对索引属性做强制约束。
+     * Decides whether {@code analyzerName} is a "gram family" analyzer: an ngram tokenizer that
+     * explicitly carries mode (sparse/auto/dense). On the BE side a gram-family analyzer produces
+     * only sparse/dense gram postings, which only the SNII storage format can read and which carry
+     * no positions (no phrase queries); the caller (currently
+     * {@code InvertedIndexUtil.checkAnalyzerName}) uses this to constrain the index properties.
      *
-     * <p>不是自定义 analyzer（null、内置 analyzer 名、不存在、类型不对）、tokenizer 不是
-     * ngram、或 ngram 未带 mode（legacy min_gram/max_gram 用法）时返回 {@code Optional.empty()}。
-     * 命中时返回小写化的 mode 取值。
+     * <p>Returns {@code Optional.empty()} when this is not a custom analyzer (null, a built-in
+     * analyzer name, not found, wrong type), when the tokenizer is not ngram, or when the ngram
+     * carries no mode (the legacy min_gram/max_gram usage). On a hit it returns the lower-cased mode
+     * value.
      */
     public Optional<String> resolveGramTokenizerMode(String analyzerName) {
         if (analyzerName == null) {
@@ -168,7 +170,8 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             try {
                 tokenizer = resolveAnalyzerComponentLocked(tokenizerRef, IndexPolicyTypeEnum.TOKENIZER);
             } catch (DdlException e) {
-                // tokenizer 引用失效（比如被删除）不是本方法要报告的问题，交由其他校验路径处理。
+                // A dangling tokenizer reference (dropped, say) is not this method's problem to
+                // report; other validation paths handle it.
                 return Optional.empty();
             }
             if (!"ngram".equals(tokenizer.componentType)) {
@@ -345,17 +348,18 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             }
         }
 
-        // gram 族强约束（R31）：tokenizer 为 ngram 且带 mode（sparse/auto/dense，任意取值，
-        // 含 dense）时，analyzer 不允许再叠加任何 token filter —— gram 的切分边界必须完全由
-        // tokenizer 自己划定（大小写折叠等要靠 tokenizer 自带的 lower_case 属性，在切分之前
-        // 完成），否则叠加的 token filter 会在 gram 边界之后再变换 term，破坏稀疏/稠密 gram
-        // 索引的可复现语义。
+        // Gram-family constraint (R31): when the tokenizer is ngram and carries mode
+        // (sparse/auto/dense -- any value, dense included), the analyzer may not stack any token
+        // filter on top -- the gram split boundaries must be drawn entirely by the tokenizer itself
+        // (case folding and the like go through the tokenizer's own lower_case property and happen
+        // before the split), otherwise a stacked token filter would transform terms after the gram
+        // boundaries and break the reproducible semantics of a sparse/dense gram index.
         if ("ngram".equals(tokenizer.componentType)) {
             String gramMode = tokenizer.properties.get("mode");
             if (gramMode != null && !gramMode.isEmpty() && !tokenFilters.isEmpty()) {
-                // 只要链上出现任何 token filter 就拒绝；链里只要有一个是 lowercase，就优先给出
-                // 那条更具体的提示（哪怕它不是第一个），因为「改用 tokenizer 自带 lower_case」
-                // 是这类写法唯一正确的改法。
+                // Any token filter in the chain is rejected; if one of them is lowercase, prefer
+                // that more specific hint (even when it is not the first), because "use the
+                // tokenizer's own lower_case" is the only correct fix for that spelling.
                 boolean hasLowercaseFilter = tokenFilters.stream()
                         .anyMatch(filter -> "lowercase".equals(filter.componentType));
                 if (hasLowercaseFilter) {

@@ -33,10 +33,10 @@ using doris::Status;
 
 namespace {
 
-// GramPostingSource 的假实现：用一个 map 模拟 gram -> 有序 docid 列表的词典，
-// 不需要构造真实的 SNII 索引文件即可覆盖 gram_boolean_query 的 AND/OR/ALL/NONE
-// 求值逻辑。lookups 统计 df() 被调用的次数，用来验证「缺失 gram 只查 df、
-// 不读 posting」这条早退路径。
+// A fake GramPostingSource: a map standing in for the "gram -> sorted docid list" dictionary, so
+// the AND/OR/ALL/NONE evaluation logic of gram_boolean_query can be covered without building a
+// real SNII index file. lookups counts the df() calls, which verifies the early-exit path "a
+// missing gram costs only a df lookup and reads no posting".
 class MapPostingSource final : public query::GramPostingSource {
 public:
     std::map<std::string, std::vector<uint32_t>> lists;
@@ -105,8 +105,8 @@ TEST(GramBooleanQueryTest, MissingGramIsNoneAndEarlyExit) {
     auto q = GramQuery::and_(GramQuery::of_gram("abc"), GramQuery::of_gram("nope"));
     ASSERT_TRUE(query::gram_boolean_query(src, q, 10, &out).ok());
     EXPECT_TRUE(out.isEmpty());
-    // 缺失 gram 只走 df 查找就能确定整个 AND 为空，不应该再读取任何 posting：
-    // 两个 gram 各查一次 df，postings() 一次都不会被调用。
+    // A missing gram makes the whole AND empty after a df lookup alone, so no posting should be
+    // read: one df lookup per gram, and postings() is never called.
     EXPECT_EQ(src.lookups, 2);
 }
 

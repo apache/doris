@@ -1385,18 +1385,22 @@ DECLARE_mBool(enable_common_grams_index_build);
 DECLARE_mInt32(common_grams_plan_cost_ratio_percent);
 DECLARE_mInt32(common_grams_position_verify_factor);
 
-// LIKE/REGEXP 是否尝试把常量模式串编译为 gram 布尔查询下推到 gram 族倒排索引（总开关）；
-// 关闭时行为等价于该索引不存在——只是不加速，不影响查询结果。
+// Whether LIKE/REGEXP tries to compile a constant pattern into a gram boolean query pushed down
+// to a gram-family inverted index (master switch). Turning it off behaves as if the index did
+// not exist -- it only gives up the speedup, it never changes query results.
 //
-// 方案不变性（Ruling R28）：P0 不校验「查询时解析出的 gram 方案」与「段写入时使用的方案」
-// 是否一致，因为二者在 P0 一定相同——FE 没有任何 ALTER INDEX POLICY 语句（indexpolicy/ 下
-// 只有 CREATE / DROP / SHOW），而 IndexPolicyMgr.dropIndexPolicy
-// （fe/fe-core/src/main/java/org/apache/doris/indexpolicy/IndexPolicyMgr.java:566-600）会
-// 拒绝删除仍被引用的策略：analyzer 被索引引用时走 checkAnalyzerNotUsedByIndex（:612-634），
-// tokenizer / token_filter / char_filter 被 analyzer 或 normalizer 引用时走
-// checkPolicyNotReferenced（:670-699）与 checkFilterReference（:701-713）。因此「索引 ->
-// analyzer -> tokenizer」这条链只要索引还在就既改不了也删不掉。P1 会额外比对段内记录的
-// gram_scheme（Task 12 写入的 core 元数据），以覆盖未来引入 ALTER / 跨版本重建的情形。
+// Scheme invariance (Ruling R28): P0 does not check that the gram scheme resolved at query time
+// matches the one used when the segment was written, because in P0 the two are always identical
+// -- FE has no ALTER INDEX POLICY statement at all (indexpolicy/ only has CREATE / DROP / SHOW),
+// and IndexPolicyMgr.dropIndexPolicy
+// (fe/fe-core/src/main/java/org/apache/doris/indexpolicy/IndexPolicyMgr.java:566-600) refuses to
+// drop a policy that is still referenced: an analyzer referenced by an index goes through
+// checkAnalyzerNotUsedByIndex (:612-634); a tokenizer / token_filter / char_filter referenced by
+// an analyzer or a normalizer goes through checkPolicyNotReferenced (:670-699) and
+// checkFilterReference (:701-713). So the "index -> analyzer -> tokenizer" chain can be neither
+// modified nor dropped while the index still exists. P1 will additionally compare the
+// gram_scheme recorded in the segment (the core metadata written by Task 12), to cover future
+// ALTER or cross-version rebuild scenarios.
 DECLARE_mBool(enable_gram_index_regexp);
 
 // condition cache limit

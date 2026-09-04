@@ -107,10 +107,11 @@ TEST(RegexAstTest, FlagsAndErrors) {
     EXPECT_EQ(parse_dump("a\\"), "ERR");
 }
 
-// 覆盖修复轮 1 的 Important 1：类内以裸 '\' 结尾（`[a\` / `[a-\`）不得越界读
-// 输入之外的内存。用非 NUL 结尾的 string_view（从更长的缓冲区截出前缀，
-// 而不是像原型那样总传入 NUL 结尾的 std::string）验证解析器只依赖
-// string_view 自身的长度来判断输入结束，不依赖字符串是否 NUL 结尾。
+// Covers Important 1 of fix round 1: a bare '\' at the end of a class (`[a\` / `[a-\`) must not
+// read past the end of the input. A non-NUL-terminated string_view (a prefix cut out of a longer
+// buffer, rather than the NUL-terminated std::string the prototype always passed) verifies that
+// the parser relies solely on the string_view's own length to detect the end of input, not on the
+// string being NUL-terminated.
 TEST(RegexAstTest, ClassTrailingBackslashAtEof) {
     std::string buf1 = "[a\\XYZ";
     std::string_view view1 = std::string_view(buf1).substr(0, 3); // "[a\"
@@ -125,9 +126,10 @@ TEST(RegexAstTest, ClassTrailingBackslashAtEof) {
     EXPECT_FALSE(parse_regex(view2, &root2, &icase2).ok());
 }
 
-// 覆盖修复轮 1 的 Important 2：big_class=true 时 cls 必须为空（RegexNode
-// 注释的不变式）。(?i) 下小类展开可能把 ≤4 个原始码点翻倍到 >4 项而退化为
-// 大类，此时 cls 也必须被清空；未超过上限时仍应是正常的可枚举小类。
+// Covers Important 2 of fix round 1: cls must be empty whenever big_class=true (the invariant in
+// the RegexNode comment). Under (?i) the small-class expansion can double <= 4 original code
+// points to more than 4 items and degrade to a large class, and cls must then be cleared too;
+// below the cap it must still be an ordinary enumerable small class.
 TEST(RegexAstTest, IcaseClassBigClassInvariant) {
     std::unique_ptr<RegexNode> root;
     bool icase = false;
@@ -148,16 +150,18 @@ TEST(RegexAstTest, IcaseClassBigClassInvariant) {
     EXPECT_EQ(cls_node2->cls, (std::vector<std::string> {"A", "B", "a", "b"}));
 }
 
-// 覆盖 kMaxNestingDepth（64）分组嵌套上限的回归测试：纯左括号（未闭合）与配平的
-// 深嵌套括号都必须在超过上限时报错，而不是继续递归直至爆栈或产出畸形树。
+// Regression test for the kMaxNestingDepth (64) group nesting cap: both a run of bare (unclosed)
+// opening parentheses and a balanced deep nesting must error out past the cap, rather than keep
+// recursing until the stack overflows or a malformed tree is produced.
 TEST(RegexAstTest, NestingDepthCapped) {
     EXPECT_EQ(parse_dump(std::string(70, '(')), "ERR");
     EXPECT_EQ(parse_dump(std::string(70, '(') + "a" + std::string(70, ')')), "ERR");
 }
 
-// 覆盖 Ruling R12：`\x` 转义硬化。裸 `\xHH` 形式必须恰好两位十六进制数字，
-// 不足两位（到达串尾或遇到非十六进制字符）一律报错，与 RE2 拒绝 `\x4` 的
-// 行为对齐；`\x{...}` 形式必须有合法的十六进制内容且闭合，否则同样报错。
+// Covers Ruling R12: `\x` escape hardening. The bare `\xHH` form must have exactly two hex
+// digits, and fewer than two (end of string, or a non-hex character) is always an error, matching
+// RE2's rejection of `\x4`; the `\x{...}` form must have valid hex content and be closed, or it
+// is an error as well.
 TEST(RegexAstTest, HexEscapeHardening) {
     EXPECT_EQ(parse_dump("\\x4"), "ERR");
     EXPECT_EQ(parse_dump("\\x"), "ERR");

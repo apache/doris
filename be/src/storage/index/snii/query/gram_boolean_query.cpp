@@ -27,14 +27,15 @@
 
 namespace doris::snii::query {
 
-// R8/R24（Unity Build）：文件级辅助实现放在这个本文件专属的具名命名空间里，
-// 而不是裸的匿名命名空间，这样 Unity Build 下就不会与其他文件的符号冲突。
+// R8/R24 (unity build): file-level helper implementations live in this named namespace private
+// to the file rather than in a bare anonymous one, so they cannot clash with symbols of other
+// files under a unity build.
 namespace gram_boolean_query_detail {
 
-// 与 snii_index_reader.cpp 匿名命名空间里的 RoaringDocIdSink 行为完全一致
-// （非空批次走 addMany，非空区间走 addRange(first, last_exclusive)，
-// dedups()==true 使多 gram 的 OR/AND 可以把 posting 直接流式写入同一个
-// 位图）；那个类无法跨翻译单元复用，因此这里另外复制一份。
+// Behaves exactly like RoaringDocIdSink in the anonymous namespace of snii_index_reader.cpp (a
+// non-empty batch goes through addMany, a non-empty range through addRange(first,
+// last_exclusive), and dedups()==true lets a multi-gram OR/AND stream postings straight into the
+// same bitmap); that class cannot be reused across translation units, hence this copy.
 class RoaringSink final : public DocIdSink {
 public:
     explicit RoaringSink(roaring::Roaring* bitmap) : _bitmap(bitmap) {}
@@ -62,10 +63,11 @@ private:
 Status eval(GramPostingSource& src, const segment_v2::gram::GramQuery& q, uint32_t num_docs,
             roaring::Roaring* out);
 
-// AND：先对 gram 查 df，缺失的 gram 让整体直接短路为空，不读取任何
-// posting；剩余的 gram 叶子按 df 升序求交（最省成本的驱动项排最前面，
-// 交集一旦为空立即提前返回），随后以同样的「求交+提前返回」方式处理每个
-// 子查询。既无 gram 叶子也无子查询的 AND 视为 ALL。
+// AND: look up the df of every gram first -- a missing gram short-circuits the whole node to
+// empty without reading any posting -- then intersect the remaining gram leaves in ascending df
+// order (the cheapest driver first, returning early as soon as the intersection is empty), and
+// finally handle each sub-query with the same "intersect and return early" scheme. An AND with
+// neither gram leaves nor sub-queries counts as ALL.
 Status eval_and(GramPostingSource& src, const segment_v2::gram::GramQuery& q, uint32_t num_docs,
                 roaring::Roaring* out) {
     std::vector<std::pair<uint64_t, const std::string*>> order;
@@ -75,8 +77,8 @@ Status eval_and(GramPostingSource& src, const segment_v2::gram::GramQuery& q, ui
         uint64_t df = 0;
         RETURN_IF_ERROR(src.df(gram, &found, &df));
         if (!found) {
-            // 索引只产生超集候选：缺失的 gram 让整个 AND 分支确定为空，直接返回，
-            // 不再读取任何 posting。
+            // The index only produces a superset of candidates: a missing gram makes the whole
+            // AND branch definitively empty, so return right away without reading any posting.
             return Status::OK();
         }
         order.emplace_back(df, &gram);
@@ -113,7 +115,7 @@ Status eval_and(GramPostingSource& src, const segment_v2::gram::GramQuery& q, ui
         }
     }
     if (!has_acc) {
-        // 既无 gram 叶子也无子查询：AND 退化为 ALL。
+        // Neither gram leaves nor sub-queries: the AND degenerates to ALL.
         out->addRange(0, num_docs);
         return Status::OK();
     }
@@ -121,7 +123,8 @@ Status eval_and(GramPostingSource& src, const segment_v2::gram::GramQuery& q, ui
     return Status::OK();
 }
 
-// OR：对每个直属 gram 叶子的 postings 与每个子查询的求值结果求并。
+// OR: union the postings of every gram leaf held directly with the evaluation result of every
+// sub-query.
 Status eval_or(GramPostingSource& src, const segment_v2::gram::GramQuery& q, uint32_t num_docs,
                roaring::Roaring* out) {
     for (const auto& gram : q.grams) {
