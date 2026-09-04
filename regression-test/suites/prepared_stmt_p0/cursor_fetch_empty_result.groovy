@@ -15,11 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_cursor_fetch_empty_result") {
+suite("cursor_fetch_empty_result") {
     String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, "regression_test_prepared_stmt_p0") +
             "&useCursorFetch=true&defaultFetchSize=10000&socketTimeout=10000"
 
     connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
+        // With a positive defaultFetchSize Connector/J also converts a plain Statement into a
+        // server-prepared cursor execution, which is how BI tools commonly enter this path.
+        assertEquals(0, sql("SELECT 1 AS c WHERE 1 = 2").size())
+        assertEquals([[1]], sql("SELECT 1 AS c WHERE 1 = 1"))
+
         def emptyResult = prepareStatement "SELECT 1 AS c WHERE 1 = 2"
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, emptyResult.class)
         qe_empty_result emptyResult
