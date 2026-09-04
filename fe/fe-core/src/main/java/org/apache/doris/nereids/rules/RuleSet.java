@@ -148,8 +148,6 @@ public class RuleSet {
             .add(OuterJoinLAsscomProject.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
             .add(LogicalJoinSemiJoinTransposeProject.INSTANCE)
-            .add(PushDownProjectThroughInnerOuterJoin.INSTANCE)
-            .add(PushDownProjectThroughSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoinProject.INSTANCE)
             .addAll(new PushDownTopNThroughJoin().buildRules())
             .addAll(new PushDownLimitDistinctThroughJoin().buildRules())
