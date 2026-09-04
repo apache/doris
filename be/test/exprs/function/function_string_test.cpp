@@ -87,6 +87,7 @@ TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
     const DataSet list_data_set = {
             {{std::string("LIST"), std::string("edc_server2")}, std::string("pedc5fserver211")},
             {{std::string("LiSt"), std::string("edc_server2")}, std::string("pedc5fserver211")},
+            // Numeric list value: verifies normal (non-crashing) LIST handling, not a crash repro.
             {{std::string("LIST"), std::string("10")}, std::string("p102")},
     };
     for (const auto& data : list_data_set) {
@@ -108,10 +109,12 @@ TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
                             .ok());
     }
 
+    const InputTypeSet invalid_range_input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
+                                                    Consted {PrimitiveType::TYPE_VARCHAR}};
     const DataSet invalid_range_data_set = {
             {{std::string("RANGE"), std::string("DAY")}, std::string("")},
     };
-    ASSERT_FALSE(check_function<DataTypeString>("auto_partition_name", list_input_types,
+    ASSERT_FALSE(check_function<DataTypeString>("auto_partition_name", invalid_range_input_types,
                                                 invalid_range_data_set, -1, -1, true)
                          .ok());
 }
