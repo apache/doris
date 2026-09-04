@@ -64,8 +64,7 @@ InvertedIndexAnalyzerCtx analyzer_context_from_properties(
 std::vector<TermInfo> analyze_plain_query(const std::string& value,
                                           const InvertedIndexAnalyzerCtx& analyzer_ctx) {
     DORIS_CHECK(analyzer_ctx.analyzer_provider != nullptr);
-    auto analyzer = analyzer_ctx.analyzer_provider->get_analyzer(
-            inverted_index::AnalysisPurpose::kPlainQuery);
+    auto analyzer = analyzer_ctx.analyzer_provider->get_analyzer();
     auto reader =
             inverted_index::InvertedIndexAnalyzer::create_reader(analyzer_ctx.char_filter_map);
     reader->init(value.data(), static_cast<int32_t>(value.size()), true);
@@ -79,7 +78,6 @@ Status append_scoring_leaf(CollectInfo* collect_info, const std::vector<TermInfo
     leaf.clauses.reserve(term_infos.size());
     for (const auto& term_info : term_infos) {
         DORIS_CHECK(term_info.is_single_term());
-        DORIS_CHECK(term_info.key_kind == TermKeyKind::kPlain);
         const auto& term = term_info.get_single_term();
         auto [slot, inserted] = collect_info->unique_term_slots.try_emplace(
                 term, static_cast<uint32_t>(collect_info->unique_terms.size()));

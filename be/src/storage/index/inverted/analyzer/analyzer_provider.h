@@ -32,8 +32,7 @@ namespace doris::segment_v2::inverted_index {
 class AnalyzerProvider {
 public:
     virtual ~AnalyzerProvider() = default;
-    virtual std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
-            AnalysisPurpose purpose) const = 0;
+    virtual std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const = 0;
 };
 using AnalyzerProviderPtr = std::shared_ptr<const AnalyzerProvider>;
 

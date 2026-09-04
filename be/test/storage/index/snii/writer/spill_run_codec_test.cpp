@@ -267,7 +267,7 @@ TEST(SniiSpillRunCodec, MergeRunSourcesAccountsReadersAndReleasesOnSuccess) {
                             during_callback = reporter.current_bytes();
                             return doris::snii::writer::consume_streamed_term(std::move(streamed));
                         },
-                        {}, &reporter)
+                        &reporter)
                         .ok());
     EXPECT_GT(during_callback, static_cast<int64_t>(encoded_input_bytes));
     EXPECT_EQ(reporter.current_bytes(), 0);
@@ -295,7 +295,7 @@ TEST(SniiSpillRunCodec, RunReaderDocidReservationFailureReleasesAllCharges) {
             [](doris::snii::writer::StreamedTermPostings&& streamed) {
                 return doris::snii::writer::consume_streamed_term(std::move(streamed));
             },
-            {}, &reporter);
+            &reporter);
     EXPECT_TRUE(status.is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>()) << status;
     EXPECT_EQ(reporter.current_bytes(), 0);
 }

@@ -32,6 +32,12 @@
 // running the test and copying the "actual=" value from the failure message --
 // and say so loudly in the commit message.
 //
+// RE-HARVESTED (A2, CommonGrams removal) for the two ANALYZED lanes only: an analyzed
+// index with positions now always carries a BM25 norms section, so EnglishPhrase and
+// UnicodePhrase moved while KeywordDocsOnly (no analyzer, no norms) and the posting-shape
+// matrix (explicit inputs) stayed byte-identical -- which is what tells you the change
+// is confined to "analyzed + positions" segments.
+//
 // RE-HARVESTED when SniiStatsPB and SniiSectionRefsPB were renumbered back to the
 // field numbers the format shipped with. Protobuf tags are part of the image, so
 // EVERY digest moved -- including kGoldenKeywordDocsOnly, which is what tells you
@@ -311,8 +317,8 @@ private:
 // Whole-image digests re-harvested for the protobuf v1 metadata layout. They
 // still pin posting bytes together with every framing, directory, and metadata
 // byte, so future format changes remain explicit.
-constexpr uint64_t kGoldenEnglishPhrase = 0x192ab177120d7e47ULL;
-constexpr uint64_t kGoldenUnicodePhrase = 0xe7e0469ba9addeb2ULL;
+constexpr uint64_t kGoldenEnglishPhrase = 0x5866fd6c56d3a574ULL;
+constexpr uint64_t kGoldenUnicodePhrase = 0xb1a090bf81ba1839ULL;
 constexpr uint64_t kGoldenKeywordDocsOnly = 0x8335178784ee78b8ULL;
 
 TEST_F(SniiWriterGoldenBytes, EnglishPhrase) {

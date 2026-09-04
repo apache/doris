@@ -121,18 +121,11 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
     }
     std::vector<ResolvedQueryTerm> exact_terms;
     exact_terms.reserve(terms.size() - 1);
-    std::string physical_term_scratch;
     for (size_t i = 0; i + 1 < terms.size(); ++i) {
-        std::string_view physical_term;
-        bool representable = false;
-        RETURN_IF_ERROR(internal::route_plain_query_term_view(idx, terms[i], &physical_term_scratch,
-                                                              &physical_term, &representable));
-        if (!representable) {
-            return Status::OK();
-        }
+        RETURN_IF_ERROR(internal::check_term_outside_internal_namespace(terms[i]));
         ResolvedQueryTerm resolved;
         bool found = false;
-        RETURN_IF_ERROR(internal::resolve_query_term(idx, physical_term, &resolved, &found));
+        RETURN_IF_ERROR(internal::resolve_query_term(idx, terms[i], &resolved, &found));
         if (!found) {
             return Status::OK();
         }
