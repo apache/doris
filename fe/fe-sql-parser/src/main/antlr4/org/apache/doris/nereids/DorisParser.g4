@@ -498,6 +498,8 @@ alterStatement
         properties=propertyClause?                                                          #alterWorkloadPolicy
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?                       #alterSqlBlockRule
     | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL                   #alterCatalogComment
+    | ALTER STREAM name=multipartIdentifier
+        (SET | MODIFY) COMMENT comment=STRING_LITERAL                                       #alterStreamComment
     | ALTER DATABASE name=identifier RENAME newName=identifier                              #alterDatabaseRename
     | ALTER STORAGE POLICY name=identifierOrText
         properties=propertyClause                                                           #alterStoragePolicy
