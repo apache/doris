@@ -2397,7 +2397,6 @@ void BlockFileCache::run_background_monitor() {
                         (double)_no_warmup_num_read_blocks_1h->get_value());
             }
         }
-        _lru_recorder->update_shadow_queue_element_count_metrics();
     }
 }
 
