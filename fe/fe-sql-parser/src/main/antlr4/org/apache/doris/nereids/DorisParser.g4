@@ -49,6 +49,11 @@ options { tokenVocab = DorisLexer; }
                 ctx.getParent().getText(), ctx);
     }
 
+    private boolean isQueryOrganizationStart() {
+        int tokenType = _input.LA(1);
+        return tokenType == ORDER || tokenType == LIMIT;
+    }
+
     private boolean isTupleLambdaBody() {
         if (_input.LA(1) != LEFT_PAREN) {
             return false;
@@ -131,7 +136,7 @@ statementBase
 
 queryOrDmlStatement
     : explainContext=explain? cteContext=cte?
-        (queryTerm queryOrganization outFileClause?
+        (queryTerm organization=queryOrganization? outFileClause?
         | dmlStatementBody[$explainContext.ctx, $cteContext.ctx])    #explainableStatement
     | nonExplainableDmlStatement        #dmlStatementAlias
     | describeStatement                 #describeStatementAlias
@@ -326,12 +331,12 @@ dmlStatementBody[ExplainContext explainContext, CteContext cteContext]
         SET updateAssignmentSeq
         fromClause?
         whereClause?
-        queryOrganization                                              #update
+        organization=queryOrganization?                                #update
     | DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
         (USING relations)?
         whereClause?
-        queryOrganization                                              #delete
+        organization=queryOrganization?                                #delete
     | MERGE INTO targetTable=multipartIdentifier
         (AS? identifier)? USING srcRelation=relationPrimary
         ON expression
@@ -1496,7 +1501,7 @@ outFileClause
     ;
 
 query
-    : cte? queryTerm queryOrganization
+    : cte? queryTerm organization=queryOrganization?
     ;
 
 queryTerm
@@ -1524,7 +1529,8 @@ querySpecification
       aggClause?
       havingClause?
       qualifyClause?
-      ({!ansiSQLSyntax}? queryOrganization | {ansiSQLSyntax}?)         #regularQuerySpecification
+      ({!ansiSQLSyntax}? organization=queryOrganization
+      | {ansiSQLSyntax || !isQueryOrganizationStart()}?)                 #regularQuerySpecification
     ;
 
 cte
@@ -1660,7 +1666,8 @@ unnest:
     )?;
 
 queryOrganization
-    : sortClause? limitClause?
+    : sortClause (limitClause | {_input.LA(1) != LIMIT}?)
+    | limitClause
     ;
 
 sortClause

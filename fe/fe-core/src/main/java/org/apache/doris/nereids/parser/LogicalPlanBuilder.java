@@ -1241,7 +1241,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         LogicalPlan plan = ParserUtils.withOrigin(
                 ctx.cteContext != null ? ctx.cteContext : ctx.queryTerm(),
-                () -> withCte(buildQuery(ctx.queryTerm(), ctx.queryOrganization()), ctx.cteContext));
+                () -> withCte(buildQuery(ctx.queryTerm(), ctx.organization), ctx.cteContext));
         if (ctx.outFileClause() != null) {
             plan = withOutFile(plan, ctx.outFileClause());
         } else {
@@ -2144,7 +2144,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             query = withRelations(query, ((FromRelationsContext) ctx.fromClause()).relations().relation());
         }
         query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
-        query = withQueryOrganization(query, ctx.queryOrganization());
+        query = withQueryOrganization(query, ctx.organization);
         query = convertSortOrdinalsToUnboundSlot(query);
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
@@ -2176,9 +2176,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tableAlias = ctx.tableAlias().strictIdentifier().getText();
         }
 
-        boolean hasQueryOrganization = ctx.queryOrganization() != null
-                && (ctx.queryOrganization().sortClause() != null
-                        || ctx.queryOrganization().limitClause() != null);
+        boolean hasQueryOrganization = ctx.organization != null;
         Command deleteCommand;
         if (ctx.USING() == null && ctx.cteContext == null && !hasQueryOrganization) {
             query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
@@ -2190,7 +2188,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 query = withRelations(query, ctx.relations().relation());
             }
             query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
-            query = withQueryOrganization(query, ctx.queryOrganization());
+            query = withQueryOrganization(query, ctx.organization);
             query = convertSortOrdinalsToUnboundSlot(query);
             Optional<LogicalPlan> cte = Optional.empty();
             if (ctx.cteContext != null) {
@@ -2670,7 +2668,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitQuery(QueryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             // TODO: need to add withQueryResultClauses and withCTE
-            return withCte(buildQuery(ctx.queryTerm(), ctx.queryOrganization()), ctx.cte());
+            return withCte(buildQuery(ctx.queryTerm(), ctx.organization), ctx.cte());
         });
     }
 
@@ -2778,7 +2776,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     Optional.ofNullable(ctx.aggClause()),
                     Optional.ofNullable(ctx.havingClause()),
                     Optional.ofNullable(ctx.qualifyClause()));
-            selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
+            selectPlan = withQueryOrganization(selectPlan, ctx.organization);
             if ((selectHintMap == null) || selectHintMap.isEmpty()) {
                 return selectPlan;
             }
