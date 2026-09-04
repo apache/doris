@@ -25,6 +25,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** Alibaba Cloud OSS storage, which Lance reaches through its OpenDAL OSS provider. */
@@ -99,7 +100,12 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
             return result;
         }
         vendedOptions.forEach((key, value) -> {
-            String publicKey = PUBLIC_BY_ALIAS.getOrDefault(key, key);
+            // Look the alias up in lower case, the way the S3 adapter does. OpenDAL lower-cases
+            // every key before deserializing its config, so a vended ACCESS_KEY_ID reaches the
+            // store as a credential either way - but left unrecognized here it would not count as
+            // signing configuration, and the anonymous flag would be inferred as true beside it.
+            // An unrecognized key keeps its original spelling: only the store knows what it means.
+            String publicKey = PUBLIC_BY_ALIAS.getOrDefault(key.toLowerCase(Locale.ROOT), key);
             String previous = result.put(publicKey, value);
             if (previous != null && !previous.equals(value)) {
                 throw new IllegalArgumentException(
@@ -116,7 +122,13 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
         boolean hasSigningConfiguration = hasSigningConfiguration(effectiveOptions);
         String allowAnonymous = effectiveOptions.get(ALLOW_ANONYMOUS);
         if (allowAnonymous != null) {
-            if (Boolean.parseBoolean(allowAnonymous) && hasSigningConfiguration) {
+            Boolean anonymous = parseOpenDalBoolean(allowAnonymous);
+            if (anonymous == null) {
+                throw new IllegalArgumentException("Unrecognized value for OSS storage option '"
+                        + ALLOW_ANONYMOUS + "': '" + allowAnonymous
+                        + "'. Expected one of true, on, false, off");
+            }
+            if (anonymous && hasSigningConfiguration) {
                 throw new IllegalArgumentException(
                         "Conflicting OSS authentication: anonymous access is enabled but signing "
                                 + "credentials are also configured");
@@ -125,6 +137,28 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
         }
         inferred.put(ALLOW_ANONYMOUS, String.valueOf(!hasSigningConfiguration));
         return inferred;
+    }
+
+    /**
+     * Reads a flag the way the store will. OpenDAL deserializes its config with a boolean grammar
+     * of its own - {@code true|on} and {@code false|off}, anything else refused - so judging a
+     * vended value by Java's rules would let {@code on} through as "not anonymous" while the store
+     * reads it as anonymous and stops signing. Null for a value OpenDAL would reject, so it can be
+     * refused here rather than deep inside the operator build.
+     *
+     * <p>See {@code opendal-core/src/raw/serde_util.rs}, {@code Pair::deserialize_bool}.
+     */
+    private static Boolean parseOpenDalBoolean(String value) {
+        switch (value.toLowerCase(Locale.ROOT)) {
+            case "true":
+            case "on":
+                return Boolean.TRUE;
+            case "false":
+            case "off":
+                return Boolean.FALSE;
+            default:
+                return null;
+        }
     }
 
     private static boolean hasSigningConfiguration(Map<String, String> options) {
