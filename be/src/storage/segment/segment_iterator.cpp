@@ -1281,6 +1281,9 @@ Status SegmentIterator::_apply_index_expr() {
                 _row_bitmap &= *result->get_data_bitmap();
                 consumed_by_index.push_back(expr_ctx.get());
             }
+        } else {
+            // 近似结果走这里：只裁候选，不消费表达式。
+            _apply_approx_index_result(expr_ctx.get());
         }
     }
 
@@ -1364,6 +1367,25 @@ Status SegmentIterator::_apply_index_expr() {
     }
 
     return Status::OK();
+}
+
+void SegmentIterator::_apply_approx_index_result(VExprContext* expr_ctx) {
+    // 近似结果是候选超集：位图之外的行一定不匹配，位图之内的行未必匹配。所以这里只把
+    // _row_bitmap 收窄到候选集，绝不把表达式记入 consumed_by_index —— 它必须留在
+    // _common_expr_ctxs_push_down 里，由 _execute_common_expr 在候选行上逐行复验。
+    const auto* approx =
+            expr_ctx->get_index_context()->get_approx_index_result_for_expr(expr_ctx->root().get());
+    if (approx == nullptr || approx->get_data_bitmap() == nullptr) {
+        // InvertedIndexResultBitmap 允许 data bitmap 为空指针（默认构造的“无结果”形态）。
+        // 近似表里理论上只会存 is_empty() == false 的结果，但这里的解引用一旦碰上空指针
+        // 就是段错误，代价远大于多一次判空。
+        return;
+    }
+    const uint64_t before = _row_bitmap.cardinality();
+    _row_bitmap &= *approx->get_data_bitmap();
+    const uint64_t after = _row_bitmap.cardinality();
+    _opts.stats->gram_index_candidate_rows += static_cast<int64_t>(after);
+    _opts.stats->rows_gram_index_filtered += static_cast<int64_t>(before - after);
 }
 
 bool SegmentIterator::_count_on_index_fastpath_safe() const {

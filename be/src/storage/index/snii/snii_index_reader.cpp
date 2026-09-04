@@ -32,6 +32,7 @@
 #include <string_view>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -42,6 +43,7 @@
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/analyzer/segment_analyzer_context.h"
 #include "storage/index/inverted/common/single_flight.h"
+#include "storage/index/inverted/gram/gram_query.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/token_filter/common_grams_filter.h"
@@ -49,6 +51,7 @@
 #include "storage/index/snii/query/boolean_query.h"
 #include "storage/index/snii/query/count_query.h"
 #include "storage/index/snii/query/docid_sink.h"
+#include "storage/index/snii/query/gram_boolean_query.h"
 #include "storage/index/snii/query/internal/plain_term_routing.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/prefix_query.h"
@@ -350,7 +353,7 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
                           const InvertedIndexQueryInfo& query_info, std::string_view search_str,
                           const std::vector<std::string>& terms, int32_t max_expansions,
                           bool collect_phrase_frequency, SniiQueryExecutionResult* result,
-                          ::doris::snii::query::QueryProfile* profile) {
+                          ::doris::snii::query::QueryProfile* profile, uint64_t rows_of_segment) {
     result->bitmap = std::make_shared<roaring::Roaring>();
     result->phrase_matches.clear();
     DORIS_CHECK(!collect_phrase_frequency || uses_phrase_frequency_scoring(query_type, query_info));
@@ -409,6 +412,19 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
                                                     max_expansions);
         emitted_to_sink = true;
         break;
+    case InvertedIndexQueryType::GRAM_BOOLEAN_QUERY: {
+        // search_str 是 gram::GramQuery::serialize() 的产物（见 _parse_query_terms
+        // 的原始串直通分支），不经分词直接解析回查询树。解析失败是真错误（不是「未
+        // 命中」），直接向上返回，让调用方放弃这段索引加速而不是返回错误结果。
+        gram::GramQuery gram_query;
+        RETURN_IF_ERROR(gram::GramQuery::parse(search_str, &gram_query));
+        ::doris::snii::query::LogicalIndexPostingSource gram_posting_source(logical_reader);
+        status = ::doris::snii::query::gram_boolean_query(gram_posting_source, gram_query,
+                                                          cast_set<uint32_t>(rows_of_segment),
+                                                          result->bitmap.get());
+        emitted_to_sink = true;
+        break;
+    }
     case InvertedIndexQueryType::WILDCARD_QUERY:
         status = ::doris::snii::query::wildcard_query(logical_reader, search_str, &sink,
                                                       max_expansions);
@@ -464,7 +480,8 @@ Status SniiIndexReader::_parse_query_terms(
         std::optional<inverted_index::AnalysisPurpose> purpose_override) {
     DCHECK(query_info != nullptr);
     if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
-        query_type == InvertedIndexQueryType::WILDCARD_QUERY) {
+        query_type == InvertedIndexQueryType::WILDCARD_QUERY ||
+        query_type == InvertedIndexQueryType::GRAM_BOOLEAN_QUERY) {
         query_info->term_infos.emplace_back(search_str, 0);
         return Status::OK();
     }
@@ -640,8 +657,15 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
             (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY && query_info.slop == 0) ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
     const bool common_grams_query_eligible = common_grams_phrase_shape && !actual_similarity;
+    // 「原始串直通」的查询类型：query_value 不是待分词的文本，而是一个自带语义的串
+    // （正则 / 通配符模式，或 gram::GramQuery::serialize() 的产物）。这三种查询与段内
+    // analyzer 契约无关，_parse_query_terms 也把它们整串直接塞进 term_infos（见
+    // :482-487），因此既不需要 maybe_rebuild_segment_analyzer_context 校验，也可以在打开
+    // 逻辑索引之前就走结果缓存——缓存 key 里的 raw_query_bytes 就是这个串本身
+    // （raw_semantic.raw_query_bytes = search_str），足以唯一标识这次查询。
     const bool raw_pattern_query = query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
-                                   query_type == InvertedIndexQueryType::WILDCARD_QUERY;
+                                   query_type == InvertedIndexQueryType::WILDCARD_QUERY ||
+                                   query_type == InvertedIndexQueryType::GRAM_BOOLEAN_QUERY;
     // A physical keyword-lane index has no analyzer contract for the open below to validate:
     // SniiIndexColumnWriter::init() refuses a CommonGrams metadata seed whenever should_analyzer()
     // is false, so such a segment can never carry gram terms. Key this on the writer-side
@@ -996,9 +1020,10 @@ Status SniiIndexReader::_compute_query_bitmap(
                                   query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
     if (needs_prx_profile) {
         ::doris::snii::SniiPrxExecutionProfileScope execution_profile(*context->stats);
-        const Status execution_status = execute_snii_query(
-                *logical_reader, query_type, query_info, search_str, *terms, max_expansions,
-                phrase_matches != nullptr, &query_result, execution_profile.profile());
+        const Status execution_status =
+                execute_snii_query(*logical_reader, query_type, query_info, search_str, *terms,
+                                   max_expansions, phrase_matches != nullptr, &query_result,
+                                   execution_profile.profile(), _rows_of_segment);
         if (common_grams_plain_fallback != CommonGramsPlainFallback::kNone) {
             auto& plan_stats = execution_profile.profile()->phrase_query_stats;
             ++plan_stats.common_grams_candidate_queries;
@@ -1021,7 +1046,7 @@ Status SniiIndexReader::_compute_query_bitmap(
     } else {
         RETURN_IF_ERROR(execute_snii_query(*logical_reader, query_type, query_info, search_str,
                                            *terms, max_expansions, phrase_matches != nullptr,
-                                           &query_result, nullptr));
+                                           &query_result, nullptr, _rows_of_segment));
     }
     *out = std::move(query_result.bitmap);
     if (phrase_matches != nullptr) {

@@ -1027,9 +1027,16 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         return res;
     }
     if (!result_bitmap.is_empty()) {
-        index_context->set_index_result_for_expr(this, result_bitmap);
-        for (int column_id : column_ids) {
-            index_context->set_true_for_index_status(this, column_id);
+        if (result_bitmap.approximate()) {
+            // 近似（超集）结果：只进近似表，既不进精确结果表（否则 fast_execute 会拿候选
+            // 位图冒充函数结果），也不把列的索引状态置真（否则该列会被判定无需读数据，
+            // 表达式复验时无数据可读）。表达式保留在下推列表里，由行级路径复验。
+            index_context->set_approx_index_result_for_expr(this, result_bitmap);
+        } else {
+            index_context->set_index_result_for_expr(this, result_bitmap);
+            for (int column_id : column_ids) {
+                index_context->set_true_for_index_status(this, column_id);
+            }
         }
     }
     return Status::OK();

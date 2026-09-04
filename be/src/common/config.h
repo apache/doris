@@ -1385,6 +1385,20 @@ DECLARE_mBool(enable_common_grams_index_build);
 DECLARE_mInt32(common_grams_plan_cost_ratio_percent);
 DECLARE_mInt32(common_grams_position_verify_factor);
 
+// LIKE/REGEXP 是否尝试把常量模式串编译为 gram 布尔查询下推到 gram 族倒排索引（总开关）；
+// 关闭时行为等价于该索引不存在——只是不加速，不影响查询结果。
+//
+// 方案不变性（Ruling R28）：P0 不校验「查询时解析出的 gram 方案」与「段写入时使用的方案」
+// 是否一致，因为二者在 P0 一定相同——FE 没有任何 ALTER INDEX POLICY 语句（indexpolicy/ 下
+// 只有 CREATE / DROP / SHOW），而 IndexPolicyMgr.dropIndexPolicy
+// （fe/fe-core/src/main/java/org/apache/doris/indexpolicy/IndexPolicyMgr.java:566-600）会
+// 拒绝删除仍被引用的策略：analyzer 被索引引用时走 checkAnalyzerNotUsedByIndex（:612-634），
+// tokenizer / token_filter / char_filter 被 analyzer 或 normalizer 引用时走
+// checkPolicyNotReferenced（:670-699）与 checkFilterReference（:701-713）。因此「索引 ->
+// analyzer -> tokenizer」这条链只要索引还在就既改不了也删不掉。P1 会额外比对段内记录的
+// gram_scheme（Task 12 写入的 core 元数据），以覆盖未来引入 ALTER / 跨版本重建的情形。
+DECLARE_mBool(enable_gram_index_regexp);
+
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
 

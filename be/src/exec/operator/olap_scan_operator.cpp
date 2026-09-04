@@ -292,6 +292,10 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT, 1);
     _inverted_index_conjuncts_short_circuited_counter = ADD_COUNTER_WITH_LEVEL(
             _segment_profile, "InvertedIndexConjunctsShortCircuited", TUnit::UNIT, 1);
+    _gram_index_filter_counter =
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "RowsGramIndexFiltered", TUnit::UNIT, 1);
+    _gram_index_candidate_counter =
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "GramIndexCandidateRows", TUnit::UNIT, 1);
     _inverted_index_analyzer_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexAnalyzerTime", 1);
     _inverted_index_lookup_timer =

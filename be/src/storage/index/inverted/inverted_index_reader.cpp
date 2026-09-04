@@ -387,6 +387,18 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                                   InvertedIndexQueryType query_type,
                                   std::shared_ptr<roaring::Roaring>& bit_map,
                                   const InvertedIndexAnalyzerCtx* analyzer_ctx) {
+    // 存储格式栅栏（Ruling R30，第 2 层）：GRAM_BOOLEAN_QUERY 的 query_value 是一棵序列化
+    // 的 gram 布尔查询树，只有 SNII reader 认识。CLucene 格式的索引若继续往下走，会把这串
+    // 文本当作普通待分词文本喂给 QueryFactory，产生毫无意义甚至错误的命中集合。因此在任何
+    // 分词 / 缓存查找之前就拒绝，且必须是错误而不是 OK——返回 OK 会让调用方拿到一个未被
+    // 写过的空位图并当成“查询结果为空”。上游 LIKE/REGEXP 下推侧（like.cpp 的
+    // resolve_scheme）已经先做了一层 reader 类型判定，这里是独立于它的第二道栅栏。
+    if (query_type == InvertedIndexQueryType::GRAM_BOOLEAN_QUERY) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "GRAM_BOOLEAN_QUERY requires SNII storage format, but column {} is served by a "
+                "CLucene-format FullTextIndexReader",
+                column_name);
+    }
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
@@ -432,7 +444,13 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                     "token parser result is empty for query, "
                     "please check your query: '{}' and index parser: '{}'",
                     search_str, get_parser_string_from_properties(_index_meta.properties()));
-            if (is_match_query(query_type)) {
+            // is_match_query() 的宽容分支会在“分词结果为空”时返回 OK 且不写位图——对
+            // MATCH 语义这是正确的（空 token 集合等价于不筛选，由调用方按未命中处理）。
+            // GRAM_BOOLEAN_QUERY 绝不能走到这里（上面的栅栏已经拦下），这里再显式排除一次，
+            // 保证即使将来 is_match_query() 的定义扩大，它也不可能以 OK + 未写位图的形式
+            // 返回——那会被上层当成“该列没有候选行”，静默丢结果。
+            if (is_match_query(query_type) &&
+                query_type != InvertedIndexQueryType::GRAM_BOOLEAN_QUERY) {
                 LOG(WARNING) << msg;
                 return Status::OK();
             } else {
@@ -507,6 +525,15 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<roaring::Roaring>& bit_map,
                                             const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) {
+    // 存储格式栅栏（Ruling R30，第 2 层）：同 FullTextIndexReader::query 的说明——
+    // GRAM_BOOLEAN_QUERY 只有 SNII reader 认识，CLucene 格式的 keyword 索引必须在任何
+    // 查找之前就明确拒绝，而不是返回 OK + 空位图。
+    if (query_type == InvertedIndexQueryType::GRAM_BOOLEAN_QUERY) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "GRAM_BOOLEAN_QUERY requires SNII storage format, but column {} is served by a "
+                "CLucene-format StringTypeInvertedIndexReader",
+                column_name);
+    }
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();

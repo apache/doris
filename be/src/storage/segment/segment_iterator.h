@@ -155,6 +155,9 @@ private:
             bool* continue_apply);
     [[nodiscard]] Status _apply_ann_topn_predicate();
     [[nodiscard]] Status _apply_index_expr();
+    // 近似（超集）索引结果只用来裁剪 _row_bitmap：求交并记账两个 profile 计数，
+    // 表达式本身必须留在 _common_expr_ctxs_push_down 里由 _execute_common_expr 复验。
+    void _apply_approx_index_result(VExprContext* expr_ctx);
     // G02: true iff answering the single pushed-down MATCH predicate by its
     // match COUNT alone is indistinguishable from the row-accurate bitmap for
     // this COUNT_ON_INDEX scan (no deletes, no other filters, full row bitmap,

@@ -1342,6 +1342,9 @@ DEFINE_Validator(common_grams_plan_cost_ratio_percent, valid_common_grams_cost_r
 DEFINE_mInt32(common_grams_position_verify_factor, "0");
 DEFINE_Validator(common_grams_position_verify_factor, valid_common_grams_verify_factor);
 
+// LIKE/REGEXP 是否尝试把常量模式串编译为 gram 布尔查询下推到 gram 族倒排索引（总开关）。
+DEFINE_mBool(enable_gram_index_regexp, "true");
+
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
 

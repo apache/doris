@@ -124,6 +124,21 @@ public:
         return &iter->second;
     }
 
+    // 近似（超集）索引结果的专用入口，与上面的精确结果表严格分开。
+    void set_approx_index_result_for_expr(const VExpr* expr,
+                                          segment_v2::InvertedIndexResultBitmap bitmap) {
+        _approx_index_result_bitmap[expr] = std::move(bitmap);
+    }
+
+    const segment_v2::InvertedIndexResultBitmap* get_approx_index_result_for_expr(
+            const VExpr* expr) const {
+        auto iter = _approx_index_result_bitmap.find(expr);
+        if (iter == _approx_index_result_bitmap.end()) {
+            return nullptr;
+        }
+        return &iter->second;
+    }
+
     void set_index_result_column_for_expr(const VExpr* expr, ColumnPtr column) {
         _index_result_column[expr] = std::move(column);
     }
@@ -173,6 +188,17 @@ private:
 
     // A map of expressions to their corresponding result columns.
     std::unordered_map<const VExpr*, ColumnPtr> _index_result_column;
+
+    // 近似（超集）索引结果：位图之外的行一定不匹配，位图之内的行未必匹配，所以它只能
+    // 用来裁剪候选行，表达式必须留在下推列表里在候选行上复验。三条不变量：
+    // (a) 绝不写入 _index_result_bitmap / _index_result_column——否则 VExpr::fast_execute
+    //     会用候选位图冒充函数结果，_output_index_result_column 也会把它物化成结果列；
+    // (b) 绝不调用 set_true_for_index_status——否则该列会被判定 need_read_data=false，
+    //     复验时无列可读；
+    // (c) 只有当该表达式正好是 VExprContext 的根节点时才允许拿去与 _row_bitmap 求交
+    //     （顶层 AND 语境）；被 NOT/OR 包住时 VCompoundPred 看不到这张表，自然不生效。
+    std::unordered_map<const VExpr*, segment_v2::InvertedIndexResultBitmap>
+            _approx_index_result_bitmap;
 
     // Per-expression analyzer context for inverted index evaluation.
     std::unordered_map<const VExpr*, InvertedIndexAnalyzerCtxSPtr> _expr_analyzer_ctx;
