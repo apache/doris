@@ -24,7 +24,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
-import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
@@ -38,6 +37,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -58,6 +58,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 @Log4j2
 @Getter
@@ -175,8 +176,10 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         List<UnboundTVFRelation> tvfRelations = taskCommand.getAllTVFRelation();
         Preconditions.checkState(replacements.size() == 1 && tvfRelations.size() == 1,
                 "S3 streaming insert must contain exactly one TVF");
-        String rewrittenProperties = new DatasourcePrintableMap<>(
-                tvfRelations.get(0).getProperties().getMap(), "=", true, false, true).toString();
+        String rewrittenProperties = tvfRelations.get(0).getProperties().getMap().entrySet().stream()
+                .map(entry -> SqlLiteralUtils.quoteStringLiteral(entry.getKey()) + " = "
+                        + SqlLiteralUtils.quoteStringLiteral(entry.getValue()))
+                .collect(Collectors.joining(", "));
         Pair<Integer, Integer> tvfPropertiesRange = replacements.firstKey();
         replacements.replace(tvfPropertiesRange, rewrittenProperties);
         return BaseViewInfo.rewriteSql(replacements, sql);

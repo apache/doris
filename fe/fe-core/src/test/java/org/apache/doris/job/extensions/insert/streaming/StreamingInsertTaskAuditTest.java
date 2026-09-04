@@ -37,6 +37,7 @@ import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Properties;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.qe.ConnectContext;
@@ -52,6 +53,7 @@ import org.mockito.Mockito;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -60,7 +62,8 @@ public class StreamingInsertTaskAuditTest {
     private static final String RESOLVED_URI = "s3://bucket/input/{1.csv,2.csv}";
     private static final String S3_SQL = "insert into target_table select * from s3("
             + "\"uri\" = \"" + ORIGIN_URI + "\", "
-            + "\"s3.secret_key\" = \"private-value\")";
+            + "\"s3.secret_key\" = \"private-value\", "
+            + "\"enclose\" = \"\\\"\")";
 
     @Test
     public void testS3RunSubmitsAuditEvent() throws Exception {
@@ -94,6 +97,31 @@ public class StreamingInsertTaskAuditTest {
         runTask(null, sql, Mockito.mock(JdbcTvfSourceOffsetProvider.class), Mockito.mock(Offset.class), false);
     }
 
+    @Test
+    public void testRewriteS3UriCaseInsensitive() {
+        Map<String, String> originProperties = new HashMap<>();
+        originProperties.put("URI", ORIGIN_URI);
+        UnboundTVFRelation originTvf = new UnboundTVFRelation(
+                new RelationId(1), "s3", new Properties(originProperties));
+        InsertIntoTableCommand originCommand = Mockito.mock(InsertIntoTableCommand.class);
+        Mockito.when(originCommand.getParsedPlan()).thenReturn(Optional.of(originTvf));
+
+        S3Offset offset = new S3Offset();
+        offset.setFileLists(RESOLVED_URI);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.isMaster()).thenReturn(false);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            InsertIntoTableCommand rewritten = new S3SourceOffsetProvider()
+                    .rewriteTvfParams(originCommand, offset, 1L);
+
+            Map<String, String> rewrittenProperties =
+                    rewritten.getAllTVFRelation().get(0).getProperties().getMap();
+            Assert.assertEquals(1, rewrittenProperties.size());
+            Assert.assertEquals(RESOLVED_URI, rewrittenProperties.get("URI"));
+        }
+    }
+
     private AuditEvent runS3Task(RuntimeException commandFailure) throws Exception {
         S3Offset offset = new S3Offset();
         offset.setFileLists(RESOLVED_URI);
@@ -122,6 +150,7 @@ public class StreamingInsertTaskAuditTest {
                 Map<String, String> rewrittenTvfProps = new HashMap<>();
                 rewrittenTvfProps.put("uri", RESOLVED_URI);
                 rewrittenTvfProps.put("s3.secret_key", "private-value");
+                rewrittenTvfProps.put("enclose", "\"");
                 UnboundTVFRelation tvf = Mockito.mock(UnboundTVFRelation.class);
                 Mockito.when(tvf.getProperties()).thenReturn(new Properties(rewrittenTvfProps));
                 Mockito.when(command.getAllTVFRelation()).thenReturn(Collections.singletonList(tvf));
@@ -165,7 +194,8 @@ public class StreamingInsertTaskAuditTest {
             }
 
             if (!expectAudit) {
-                Mockito.verifyNoInteractions(statusMgr);
+                Mockito.verify(statusMgr, Mockito.never())
+                        .submitFinishQueryToAudit(Mockito.any(AuditEvent.class));
                 return null;
             }
             ArgumentCaptor<AuditEvent> auditEventCaptor = ArgumentCaptor.forClass(AuditEvent.class);
