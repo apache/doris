@@ -465,7 +465,8 @@ std::string ColumnDefinition::debug_string() const {
     } else {
         out << "unknown";
     }
-    out << ", is_partition_key=" << is_partition_key << "}";
+    out << ", is_partition_key=" << is_partition_key << ", is_synthesized=" << is_synthesized
+        << "}";
     return out.str();
 }
 
@@ -2248,7 +2249,7 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->table_type = table_column.type;
     mapping->variant_access_paths = table_column.variant_access_paths;
     const auto iceberg_metadata_type = [&] {
-        if (!_options.enable_iceberg_metadata_virtual_columns) {
+        if (!_options.enable_iceberg_metadata_virtual_columns || !table_column.is_synthesized) {
             return TableVirtualColumnType::INVALID;
         }
         if (iequal(table_column.name, BeConsts::ICEBERG_FILE_PATH_COL)) {
@@ -2260,7 +2261,7 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
         return TableVirtualColumnType::INVALID;
     }();
     const auto paimon_metadata_type = [&] {
-        if (!_options.enable_paimon_metadata_virtual_columns) {
+        if (!_options.enable_paimon_metadata_virtual_columns || !table_column.is_synthesized) {
             return TableVirtualColumnType::INVALID;
         }
         if (iequal(table_column.name, BeConsts::PAIMON_FILE_PATH_COL)) {
@@ -2278,12 +2279,13 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
                     ? row_lineage_virtual_column_type(table_column, _options.mode)
                     : TableVirtualColumnType::INVALID;
     if (iceberg_metadata_type != TableVirtualColumnType::INVALID) {
-        // Iceberg `_file` and `_pos` are metadata contracts and must never be resolved against a
-        // physical field with the same name. The connector rejects such schema collisions; keeping
-        // this branch first also makes the BE safe during an FE rolling upgrade.
+        // Iceberg `_file` and `_pos` are metadata contracts only when the current FE explicitly
+        // classifies the slot as synthesized. Old FE plans can still read physical fields with the
+        // same spelling during a rolling upgrade.
         mapping->virtual_column_type = iceberg_metadata_type;
     } else if (paimon_metadata_type != TableVirtualColumnType::INVALID) {
-        // Paimon metadata is carried by RawFile and is never a physical Parquet/ORC field.
+        // Paimon metadata is carried by RawFile. The explicit synthesized marker prevents a
+        // physical same-name field from being reinterpreted during a rolling upgrade.
         mapping->virtual_column_type = paimon_metadata_type;
     } else if (const auto* partition_value = find_partition_value(table_column, _partition_values);
                table_column.is_partition_key && partition_value != nullptr) {

@@ -1424,6 +1424,12 @@ ColumnDefinition make_table_column(int32_t id, const std::string& name, const Da
     return column;
 }
 
+ColumnDefinition make_synthesized_table_column(const std::string& name, const DataTypePtr& type) {
+    auto column = make_table_column(-1, name, type);
+    column.is_synthesized = true;
+    return column;
+}
+
 ColumnDefinition make_file_column(int32_t id, const std::string& name, const DataTypePtr& type) {
     ColumnDefinition field;
     field.identifier = Field::create_field<TYPE_INT>(id);
@@ -2117,10 +2123,10 @@ TEST(IcebergV2ReaderTest, IcebergRowidVirtualColumnUsesDataFilePosition) {
     projected_columns.push_back(
             make_table_column(-1, BeConsts::ICEBERG_ROWID_COL, make_iceberg_rowid_type()));
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
-    projected_columns.push_back(make_table_column(-1, BeConsts::ICEBERG_FILE_PATH_COL,
-                                                  std::make_shared<DataTypeString>()));
-    projected_columns.push_back(make_table_column(-1, BeConsts::ICEBERG_ROW_POSITION_COL,
-                                                  std::make_shared<DataTypeInt64>()));
+    projected_columns.push_back(make_synthesized_table_column(BeConsts::ICEBERG_FILE_PATH_COL,
+                                                              std::make_shared<DataTypeString>()));
+    projected_columns.push_back(make_synthesized_table_column(BeConsts::ICEBERG_ROW_POSITION_COL,
+                                                              std::make_shared<DataTypeInt64>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     doris::format::iceberg::IcebergTableReader reader;
@@ -2176,10 +2182,10 @@ TEST(IcebergV2ReaderTest, IcebergMetadataColumnsMaterializeForParquetAndOrc) {
 
         std::vector<ColumnDefinition> projected_columns;
         projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
-        projected_columns.push_back(make_table_column(-1, BeConsts::ICEBERG_FILE_PATH_COL,
-                                                      std::make_shared<DataTypeString>()));
-        projected_columns.push_back(make_table_column(-1, BeConsts::ICEBERG_ROW_POSITION_COL,
-                                                      std::make_shared<DataTypeInt64>()));
+        projected_columns.push_back(make_synthesized_table_column(
+                BeConsts::ICEBERG_FILE_PATH_COL, std::make_shared<DataTypeString>()));
+        projected_columns.push_back(make_synthesized_table_column(
+                BeConsts::ICEBERG_ROW_POSITION_COL, std::make_shared<DataTypeInt64>()));
 
         RuntimeState state {TQueryOptions(), TQueryGlobals()};
         doris::format::iceberg::IcebergTableReader reader;

@@ -1849,8 +1849,11 @@ TEST(ColumnMapperConstantTest, PartitionDefaultAndVirtualColumnsUseDedicatedBran
 }
 
 TEST(ColumnMapperConstantTest, IcebergFileMetadataColumnsAreNeverMappedToPhysicalFields) {
-    const std::vector<ColumnDefinition> table_schema = {name_col("_file", str()),
-                                                        name_col("_pos", i64())};
+    auto file_path = name_col("_file", str());
+    file_path.is_synthesized = true;
+    auto row_position = name_col("_pos", i64());
+    row_position.is_synthesized = true;
+    const std::vector<ColumnDefinition> table_schema = {file_path, row_position};
     const std::vector<ColumnDefinition> file_schema = {name_col("_file", str(), 0),
                                                        name_col("_pos", i64(), 1)};
 
@@ -1864,6 +1867,53 @@ TEST(ColumnMapperConstantTest, IcebergFileMetadataColumnsAreNeverMappedToPhysica
               TableVirtualColumnType::ICEBERG_ROW_POSITION);
     EXPECT_FALSE(mapper.mappings()[0].file_local_id.has_value());
     EXPECT_FALSE(mapper.mappings()[1].file_local_id.has_value());
+}
+
+TEST(ColumnMapperConstantTest, PaimonFileMetadataColumnsAreNeverMappedToPhysicalFields) {
+    auto file_path = name_col("__paimon_file_path", str());
+    file_path.is_synthesized = true;
+    auto row_position = name_col("__paimon_row_index", i64());
+    row_position.is_synthesized = true;
+    const std::vector<ColumnDefinition> table_schema = {file_path, row_position};
+    const std::vector<ColumnDefinition> file_schema = {name_col("__paimon_file_path", str(), 0),
+                                                       name_col("__paimon_row_index", i64(), 1)};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME,
+                              .enable_paimon_metadata_virtual_columns = true});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 2);
+    EXPECT_EQ(mapper.mappings()[0].virtual_column_type, TableVirtualColumnType::PAIMON_FILE_PATH);
+    EXPECT_EQ(mapper.mappings()[1].virtual_column_type,
+              TableVirtualColumnType::PAIMON_ROW_POSITION);
+    EXPECT_FALSE(mapper.mappings()[0].file_local_id.has_value());
+    EXPECT_FALSE(mapper.mappings()[1].file_local_id.has_value());
+}
+
+TEST(ColumnMapperConstantTest, PhysicalMetadataSpellingsRemainFileColumns) {
+    const std::vector<ColumnDefinition> iceberg_table_schema = {name_col("_file", str()),
+                                                                name_col("_pos", i64())};
+    const std::vector<ColumnDefinition> iceberg_file_schema = {name_col("_file", str(), 0),
+                                                               name_col("_pos", i64(), 1)};
+    TableColumnMapper iceberg_mapper({.mode = TableColumnMappingMode::BY_NAME,
+                                      .enable_iceberg_metadata_virtual_columns = true});
+    ASSERT_TRUE(iceberg_mapper.create_mapping(iceberg_table_schema, {}, iceberg_file_schema).ok());
+    ASSERT_EQ(iceberg_mapper.mappings().size(), 2);
+    expect_mapping(iceberg_mapper.mappings()[0], 0, "_file", 0, "_file", str(), str());
+    expect_mapping(iceberg_mapper.mappings()[1], 1, "_pos", 1, "_pos", i64(), i64());
+
+    const std::vector<ColumnDefinition> paimon_table_schema = {
+            name_col("__paimon_file_path", str()), name_col("__paimon_row_index", i64())};
+    const std::vector<ColumnDefinition> paimon_file_schema = {
+            name_col("__paimon_file_path", str(), 0), name_col("__paimon_row_index", i64(), 1)};
+    TableColumnMapper paimon_mapper({.mode = TableColumnMappingMode::BY_NAME,
+                                     .enable_paimon_metadata_virtual_columns = true});
+    ASSERT_TRUE(paimon_mapper.create_mapping(paimon_table_schema, {}, paimon_file_schema).ok());
+    ASSERT_EQ(paimon_mapper.mappings().size(), 2);
+    expect_mapping(paimon_mapper.mappings()[0], 0, "__paimon_file_path", 0, "__paimon_file_path",
+                   str(), str());
+    expect_mapping(paimon_mapper.mappings()[1], 1, "__paimon_row_index", 1, "__paimon_row_index",
+                   i64(), i64());
 }
 
 TEST(ColumnMapperConstantTest, PhysicalRowLineageFiltersStayFinalizeOnly) {

@@ -817,6 +817,8 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
                                          slot_info.slot_id);
         }
         auto column = _build_table_column(it->second);
+        column.is_synthesized =
+                slot_info.__isset.category && slot_info.category == TColumnCategory::SYNTHESIZED;
         _has_variant_projection = _has_variant_projection || contains_variant_type(column.type);
         build_context.slot_desc = it->second;
         if (column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {

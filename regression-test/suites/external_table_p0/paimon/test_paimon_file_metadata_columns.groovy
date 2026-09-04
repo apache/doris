@@ -123,21 +123,28 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
 
         sql """switch ${crossFileCatalogName}"""
         sql """use ${dbName}"""
+        def sparkCrossFileRows = spark_paimon """
+            select id, `__paimon_file_path`, `__paimon_row_index`
+            from paimon.${dbName}.${crossFileTable}
+            where id in (2, 3, 5, 6)
+            order by id
+        """
+        sparkCrossFileRows.each { row ->
+            assertTrue(row[1] != null && !row[1].toString().isEmpty())
+            assertTrue(row[2].toString().toLong() >= 0L)
+        }
+        assertTrue(sparkCrossFileRows.groupBy { it[1].toString() }.size() > 1,
+                "cross-file fixture must contain more than one Paimon data file")
+        assertTrue(sparkCrossFileRows.any { it[2].toString().toLong() > 0L },
+                "filtered fixture must retain at least one non-zero physical row position")
+
         def crossFileRows = sql """
             select id, `__paimon_file_path`, `__paimon_row_index`
             from ${crossFileTable}
             where id in (2, 3, 5, 6)
             order by id
         """
-        assertEquals(4, crossFileRows.size())
-        def rowsByFile = crossFileRows.groupBy { it[1].toString() }
-        assertEquals(2, rowsByFile.size())
-        rowsByFile.each { filePath, rows ->
-            assertTrue(filePath.contains("/data/"),
-                    "metadata columns must expose raw Paimon data-file paths")
-            assertEquals(2, rows.size())
-            assertEquals([1L, 2L], rows.collect { it[2].toString().toLong() }.sort())
-        }
+        assertSparkDorisResultEquals(sparkCrossFileRows, crossFileRows)
 
         sql """switch ${catalogName}"""
         sql """use db1"""
