@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import org.apache.arrow.memory.BufferAllocator;
@@ -33,7 +34,6 @@ import java.util.Map;
 /** Properties for a Lance directory namespace backed by a filesystem warehouse. */
 public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties {
     public static final String WAREHOUSE = "warehouse";
-    private static final String OSS_HDFS_MARKER = ".oss-dls.aliyuncs.com";
 
     @ConnectorProperty(
             names = {WAREHOUSE},
@@ -128,15 +128,11 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
      * the OSS-HDFS suffix routes there just the same, with a clean-looking warehouse.
      */
     private void rejectOssHdfs() {
-        for (Map.Entry<String, String> property : origProps.entrySet()) {
-            String value = property.getValue();
-            if (value != null && value.toLowerCase(Locale.ROOT).contains(OSS_HDFS_MARKER)) {
-                throw new IllegalArgumentException(
-                        "OSS-HDFS is not supported by the Lance catalog, but '"
-                                + property.getKey() + "' names it. Doris reads this form through "
-                                + "its HDFS-compatible properties, which carry no Lance OSS "
-                                + "storage options.");
-            }
+        if (OSSHdfsProperties.guessIsMe(origProps)) {
+            throw new IllegalArgumentException(
+                    "OSS-HDFS is not supported by the Lance catalog. Doris reads this form through "
+                            + "its HDFS-compatible properties, which carry no Lance OSS storage "
+                            + "options.");
         }
     }
 
