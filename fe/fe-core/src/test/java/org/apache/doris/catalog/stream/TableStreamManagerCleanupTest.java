@@ -28,7 +28,9 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
+import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -185,6 +187,87 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
 
         Map<Long, Long> replayedOffsets = Deencapsulation.getField(context.stream, "partitionOffset");
         Assertions.assertEquals(leaderOffsets, replayedOffsets);
+    }
+
+    @Test
+    public void testDropStreamDuringCleanupReplaysDeterministically() throws Exception {
+        StreamContext context = createStreamContext("cleanup_drop_race");
+        long keptPartitionId = context.baseTable.getPartition("p1").getId();
+        long removedPartitionId = context.baseTable.getPartition("p2").getId();
+        setPartitionState(context.stream, keptPartitionId, removedPartitionId);
+        alterTableSync("alter table test_stream_cleanup." + context.baseTable.getName() + " drop partition p2");
+
+        String debugPointName =
+                "TableStreamManager.cleanupStalePartitionOffsets.blockAfterPartitionSnapshot";
+        DebugPoint debugPoint = new DebugPoint();
+        debugPoint.executeLimit = Integer.MAX_VALUE;
+        debugPoint.params.put("value", String.valueOf(context.stream.getId()));
+        boolean debugPointsEnabled = Config.enable_debug_points;
+        Config.enable_debug_points = true;
+        DebugPointUtil.addDebugPoint(debugPointName, debugPoint);
+
+        List<Object> journalOrder = Collections.synchronizedList(new ArrayList<>());
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doAnswer(invocation -> {
+            journalOrder.add(invocation.getArgument(0));
+            return null;
+        }).when(spyEditLog).logDropTable(Mockito.any(DropInfo.class));
+        Mockito.doAnswer(invocation -> {
+            journalOrder.add(invocation.getArgument(0));
+            return Mockito.mock(EditLog.EditLogItem.class);
+        }).when(spyEditLog).logTableStreamCleanup(Mockito.any(TableStreamCleanupInfo.class));
+        Mockito.doAnswer(invocation -> {
+            journalOrder.add(invocation.getArgument(0));
+            return null;
+        }).when(spyEditLog).logRecoverTable(Mockito.any(RecoverInfo.class));
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<?> cleanup = executor.submit(
+                () -> Env.getCurrentEnv().getTableStreamManager().cleanupStalePartitionOffsets());
+        try {
+            try {
+                await(() -> debugPoint.executeNum.get() > 0);
+                Env.getCurrentInternalCatalog().dropTable(
+                        "test_stream_cleanup", context.stream.getName(), false, false, true,
+                        false, false, false);
+            } finally {
+                DebugPointUtil.removeDebugPoint(debugPointName);
+                Config.enable_debug_points = debugPointsEnabled;
+            }
+            cleanup.get(10, TimeUnit.SECONDS);
+            Env.getCurrentEnv().recoverTable(
+                    "test_stream_cleanup", context.stream.getName(), "", -1L);
+        } finally {
+            executor.shutdownNow();
+            try {
+                Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+            } finally {
+                Env.getCurrentEnv().setEditLog(editLog);
+            }
+        }
+
+        Map<Long, Long> leaderOffsets = new HashMap<>(
+                Deencapsulation.getField(context.stream, "partitionOffset"));
+        setPartitionState(context.stream, keptPartitionId, removedPartitionId);
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream_cleanup");
+        for (Object journal : journalOrder) {
+            if (journal instanceof DropInfo) {
+                DropInfo dropInfo = (DropInfo) journal;
+                Env.getCurrentEnv().replayDropTable(
+                        db, dropInfo.getTableId(), dropInfo.isForceDrop(), dropInfo.getRecycleTime());
+            } else if (journal instanceof TableStreamCleanupInfo) {
+                Env.getCurrentEnv().getTableStreamManager()
+                        .replayTableStreamCleanup((TableStreamCleanupInfo) journal);
+            } else {
+                Env.getCurrentEnv().replayRecoverTable((RecoverInfo) journal);
+            }
+        }
+
+        Map<Long, Long> replayedOffsets = Deencapsulation.getField(context.stream, "partitionOffset");
+        Assertions.assertEquals(leaderOffsets, replayedOffsets);
+        Assertions.assertTrue(replayedOffsets.containsKey(removedPartitionId));
     }
 
     @Test

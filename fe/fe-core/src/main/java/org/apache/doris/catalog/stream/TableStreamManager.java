@@ -237,9 +237,9 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                     == stream.getId()) {
                 LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
             }
-            if (!stream.tryWriteLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            if (!stream.tryWriteLockIfExist(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("skip cleaning stream {} because stream write lock is busy", stream.getName());
+                    LOG.debug("skip cleaning stream {} because it is busy or dropped", stream.getName());
                 }
                 return Optional.empty();
             }
