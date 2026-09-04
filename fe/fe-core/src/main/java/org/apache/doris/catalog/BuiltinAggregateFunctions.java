@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAggIf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
@@ -133,6 +134,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(AIAgg.class, "ai_agg"),
                 agg(AnyValue.class, "any", "any_value"),
                 agg(ArrayAgg.class, "array_agg"),
+                agg(ArrayAggIf.class, "array_agg_if"),
                 agg(Avg.class, "avg"),
                 agg(AvgMap.class, "avg_map"),
                 agg(AvgWeighted.class, "avg_weighted"),

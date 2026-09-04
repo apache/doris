@@ -3214,4 +3214,13 @@ suite("nereids_agg_fn") {
     qt_sql_array_agg_not_nullable '''
 		select id,array_agg(kint) from fn_test_not_nullable group by id order by id'''
 
+    qt_sql_array_agg_if '''
+		select id,array_agg_if(kbool,kint) from fn_test group by id order by id'''
+
+    qt_sql_array_agg_if_not_nullable '''
+		select id,array_agg_if(kbool,kint) from fn_test_not_nullable group by id order by id'''
+
+    qt_sql_array_agg_if_expr_cond '''
+		select id,array_agg_if(kint > 0,kint) from fn_test group by id order by id'''
+
 }

@@ -24,6 +24,7 @@
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
@@ -35,19 +36,19 @@
 namespace doris {
 class Arena;
 
-template <PrimitiveType T>
+template <PrimitiveType T, size_t ElemIdx = 0, bool NullableInput = true>
 struct AggregateFunctionArrayAggData {
     static constexpr PrimitiveType PType = T;
     static constexpr bool use_native_serde = false;
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using Self = AggregateFunctionArrayAggData<T>;
+    using Self = AggregateFunctionArrayAggData<T, ElemIdx, NullableInput>;
     MutableColumnPtr column_data;
     ColVecType* nested_column = nullptr;
     NullMap* null_map = nullptr;
 
     AggregateFunctionArrayAggData(const DataTypes& argument_types) {
-        DataTypePtr column_type = make_nullable(argument_types[0]);
+        DataTypePtr column_type = make_nullable(argument_types[ElemIdx]);
         column_data = column_type->create_column();
         null_map = &(assert_cast<ColumnNullable&>(*column_data).get_null_map_data());
         nested_column = assert_cast<ColVecType*>(
@@ -55,12 +56,21 @@ struct AggregateFunctionArrayAggData {
     }
 
     void add(const IColumn& column, size_t row_num) {
-        const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
-        const auto& vec =
-                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(col.get_nested_column())
-                        .get_data();
-        null_map->push_back(col.get_null_map_data()[row_num]);
-        nested_column->get_data().push_back(vec[row_num]);
+        if constexpr (NullableInput) {
+            const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                    column);
+            const auto& vec =
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                            col.get_nested_column())
+                            .get_data();
+            null_map->push_back(col.get_null_map_data()[row_num]);
+            nested_column->get_data().push_back(vec[row_num]);
+        } else {
+            const auto& vec =
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(column).get_data();
+            null_map->push_back(0);
+            nested_column->get_data().push_back(vec[row_num]);
+        }
         DCHECK(null_map->size() == nested_column->size());
     }
 
@@ -134,20 +144,20 @@ struct AggregateFunctionArrayAggData {
     }
 };
 
-template <PrimitiveType T>
+template <PrimitiveType T, size_t ElemIdx, bool NullableInput>
     requires(is_string_type(T))
-struct AggregateFunctionArrayAggData<T> {
+struct AggregateFunctionArrayAggData<T, ElemIdx, NullableInput> {
     static constexpr PrimitiveType PType = T;
     static constexpr bool use_native_serde = false;
     using ElementType = StringRef;
     using ColVecType = ColumnString;
-    using Self = AggregateFunctionArrayAggData<T>;
+    using Self = AggregateFunctionArrayAggData<T, ElemIdx, NullableInput>;
     MutableColumnPtr column_data;
     ColVecType* nested_column = nullptr;
     NullMap* null_map = nullptr;
 
     AggregateFunctionArrayAggData(const DataTypes& argument_types) {
-        DataTypePtr column_type = make_nullable(argument_types[0]);
+        DataTypePtr column_type = make_nullable(argument_types[ElemIdx]);
         column_data = column_type->create_column();
         null_map = &(assert_cast<ColumnNullable&>(*column_data).get_null_map_data());
         nested_column = assert_cast<ColVecType*>(
@@ -155,11 +165,19 @@ struct AggregateFunctionArrayAggData<T> {
     }
 
     void add(const IColumn& column, size_t row_num) {
-        const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
-        const auto& vec = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
-                col.get_nested_column());
-        null_map->push_back(col.get_null_map_data()[row_num]);
-        nested_column->insert_from(vec, row_num);
+        if constexpr (NullableInput) {
+            const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                    column);
+            const auto& vec = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                    col.get_nested_column());
+            null_map->push_back(col.get_null_map_data()[row_num]);
+            nested_column->insert_from(vec, row_num);
+        } else {
+            const auto& vec =
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(column);
+            null_map->push_back(0);
+            nested_column->insert_from(vec, row_num);
+        }
         DCHECK(null_map->size() == nested_column->size());
     }
 
@@ -229,18 +247,18 @@ struct AggregateFunctionArrayAggData<T> {
     }
 };
 
-template <PrimitiveType T>
+template <PrimitiveType T, size_t ElemIdx, bool NullableInput>
     requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
              !is_date_type(T) && !is_ip(T))
-struct AggregateFunctionArrayAggData<T> {
+struct AggregateFunctionArrayAggData<T, ElemIdx, NullableInput> {
     static constexpr PrimitiveType PType = T;
     static constexpr bool use_native_serde = true;
     using ElementType = StringRef;
-    using Self = AggregateFunctionArrayAggData<T>;
+    using Self = AggregateFunctionArrayAggData<T, ElemIdx, NullableInput>;
     MutableColumnPtr column_data;
 
     AggregateFunctionArrayAggData(const DataTypes& argument_types)
-            : column_data(argument_types[0]->create_column()) {}
+            : column_data(argument_types[ElemIdx]->create_column()) {}
 
     void add(const IColumn& column, size_t row_num) { column_data->insert_from(column, row_num); }
 
@@ -249,7 +267,16 @@ struct AggregateFunctionArrayAggData<T> {
         const auto& to_nested_col = to_arr.get_data();
         auto start = to_arr.get_offsets()[row_num - 1];
         auto end = start + to_arr.get_offsets()[row_num] - to_arr.get_offsets()[row_num - 1];
-        column_data->insert_range_from(to_nested_col, start, end - start);
+        if constexpr (NullableInput) {
+            column_data->insert_range_from(to_nested_col, start, end - start);
+        } else {
+            // Serialized state columns use the nullable result element type while raw-declared
+            // state stores plain rows; rows serialized this way are all non-null.
+            const auto& to_nested_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(to_nested_col);
+            column_data->insert_range_from(to_nested_nullable.get_nested_column(), start,
+                                           end - start);
+        }
     }
 
     void reset() { column_data->clear(); }
@@ -257,7 +284,18 @@ struct AggregateFunctionArrayAggData<T> {
     void insert_result_into(IColumn& to) const {
         auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& to_nested_col = to_arr.get_data();
-        to_nested_col.insert_range_from(*column_data, 0, column_data->size());
+        if constexpr (NullableInput) {
+            to_nested_col.insert_range_from(*column_data, 0, column_data->size());
+        } else {
+            // The state column stores raw (non-nullable) rows while the result array element
+            // column is always nullable; copy the raw rows and mark them all non-null.
+            auto& to_nested_nullable =
+                    assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to_nested_col);
+            to_nested_nullable.get_nested_column().insert_range_from(
+                    *column_data, 0, column_data->size());
+            to_nested_nullable.get_null_map_data().resize_fill(
+                    to_nested_nullable.get_nested_column().size(), 0);
+        }
         to_arr.get_offsets().push_back(to_nested_col.size());
     }
 
@@ -456,6 +494,226 @@ public:
     }
 
 private:
+    void check_array_nullable_string_column_type(const IColumn& column,
+                                                 bool is_result_column) const {
+        const auto* array_column = check_and_get_column<ColumnArray>(column);
+        if (UNLIKELY(array_column == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} {} type check failed: Column type {} is not "
+                    "ColumnArray",
+                    get_name(), is_result_column ? "result" : "argument", column.get_name()));
+        }
+
+        const auto& nested_column = array_column->get_data();
+        const auto* nullable_column = check_and_get_column<ColumnNullable>(nested_column);
+        if (UNLIKELY(nullable_column == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} {} type check failed: Column type {} is not "
+                    "ColumnNullable",
+                    get_name(), is_result_column ? "result" : "argument",
+                    nested_column.get_name()));
+        }
+        this->template check_result_column_type_as<ColumnString>(
+                nullable_column->get_nested_column());
+    }
+
+    DataTypePtr return_type;
+};
+
+/**
+ * Conditional variant of array_agg: array_agg_if(cond, elem).
+ *
+ * <p>Rows where {@code cond} is false (or NULL) are skipped entirely -- they contribute neither an
+ * element nor a NULL. Remaining rows follow array_agg semantics exactly (NULL elements are kept).
+ * Used by IVM to compute insert/delete delta arrays in one aggregate over signed change rows.
+ */
+template <typename Data>
+class AggregateFunctionArrayAggIf final
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAggIf<Data>, true>,
+          NotNullableAggregateFunction {
+public:
+    using Base = IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAggIf<Data>, true>;
+
+    AggregateFunctionArrayAggIf(const DataTypes& argument_types_)
+            : Base(argument_types_),
+              return_type(
+                      std::make_shared<DataTypeArray>(make_nullable(argument_types_[1]))) {}
+
+    std::string get_name() const override { return "array_agg_if"; }
+
+    DataTypePtr get_return_type() const override { return return_type; }
+
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
+             Arena& arena) const override {
+        if (!cond_true(columns[0], row_num)) {
+            return;
+        }
+        this->data(place).add(*columns[1], row_num);
+    }
+
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena& arena) const override {
+        this->data(place).merge(this->data(rhs));
+    }
+
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        if constexpr (Data::use_native_serde) {
+            this->data(place).write(buf, *this->argument_types[1], this->version);
+        } else {
+            this->data(place).write(buf);
+        }
+    }
+
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena&) const override {
+        if constexpr (Data::use_native_serde) {
+            this->data(place).read(buf, *this->argument_types[1], this->version);
+        } else {
+            this->data(place).read(buf);
+        }
+    }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
+        auto& to_nested_col = to_arr.get_data();
+        DCHECK(to_nested_col.is_nullable());
+        this->data(place).insert_result_into(to);
+    }
+
+    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+                                         IColumn& to) const override {
+        this->data(place).insert_result_into(to);
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena& arena,
+                                   const size_t num_rows) const override {
+        for (size_t i = 0; i != num_rows; ++i) {
+            this->data(places[i] + offset).deserialize_and_merge(*column, i);
+        }
+    }
+
+    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
+                                                 const IColumn& column, size_t begin, size_t end,
+                                                 Arena& arena) const override {
+        DCHECK(end <= column.size() && begin <= end)
+                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        for (size_t i = begin; i <= end; ++i) {
+            this->data(place).deserialize_and_merge(column, i);
+        }
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const IColumn* column,
+                                            Arena& arena, const size_t num_rows) const override {
+        for (size_t i = 0; i != num_rows; ++i) {
+            if (places[i]) {
+                this->data(places[i] + offset).deserialize_and_merge(*column, i);
+            }
+        }
+    }
+
+    void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
+                             MutableColumnPtr& dst, const size_t num_rows) const override {
+        for (size_t i = 0; i != num_rows; ++i) {
+            Data& data_ = this->data(places[i] + offset);
+            data_.insert_result_into(*dst);
+        }
+    }
+
+    void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
+                                           const size_t num_rows, Arena& arena) const override {
+        if constexpr (is_string_type(Data::PType)) {
+            check_array_nullable_string_column_type(*dst, true);
+        }
+        auto& to_arr = assert_cast<ColumnArray&>(*dst);
+        auto& to_nested_col = to_arr.get_data();
+        DCHECK(num_rows == columns[0]->size() && num_rows == columns[1]->size());
+        auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
+        const auto* nullable_elem =
+                check_and_get_column<ColumnNullable>(*columns[1]);
+
+        for (size_t i = 0; i < num_rows; ++i) {
+            if (!cond_true(columns[0], i)) {
+                to_arr.get_offsets().push_back(to_nested_col.size());
+                continue;
+            }
+            if (nullable_elem != nullptr) {
+                col_null->get_null_map_data().push_back(nullable_elem->get_null_map_data()[i]);
+            } else {
+                col_null->get_null_map_data().push_back(0);
+            }
+            const IColumn& elem_src = nullable_elem != nullptr ? nullable_elem->get_nested_column()
+                                                               : *columns[1];
+            if constexpr (is_string_type(Data::PType)) {
+                auto& vec = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(
+                        col_null->get_nested_column());
+                const auto& vec_src =
+                        assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(elem_src);
+                vec.insert_from(vec_src, i);
+            } else if constexpr (!is_string_type(Data::PType) && !is_int_or_bool(Data::PType) &&
+                                 !is_float_or_double(Data::PType) && !is_decimal(Data::PType) &&
+                                 !is_date_type(Data::PType) && !is_ip(Data::PType)) {
+                auto& vec = col_null->get_nested_column();
+                vec.insert_from(elem_src, i);
+            } else {
+                using ColVecType = typename PrimitiveTypeTraits<Data::PType>::ColumnType;
+                auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(
+                                    col_null->get_nested_column())
+                                    .get_data();
+                const auto& vec_src =
+                        assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(elem_src)
+                                .get_data();
+                vec.push_back(vec_src[i]);
+            }
+            to_arr.get_offsets().push_back(to_nested_col.size());
+        }
+    }
+
+    MutableColumnPtr create_serialize_column() const override {
+        return get_serialized_type()->create_column();
+    }
+
+    DataTypePtr get_serialized_type() const override { return return_type; }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        IAggregateFunction::check_input_columns_type(columns);
+        if constexpr (is_string_type(Data::PType)) {
+            const IColumn& elem_col = *columns[1];
+            if (const auto* nullable_column =
+                        check_and_get_column<ColumnNullable>(elem_col)) {
+                this->template check_argument_column_type<ColumnString>(
+                        &nullable_column->get_nested_column());
+            } else {
+                this->template check_argument_column_type<ColumnString>(&elem_col);
+            }
+        }
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        IAggregateFunction::check_result_column_type(to);
+        if constexpr (is_string_type(Data::PType)) {
+            check_array_nullable_string_column_type(to, true);
+        }
+    }
+
+private:
+    /** Returns whether the row passes the condition. NULL condition is treated as false. */
+    static bool cond_true(const IColumn* cond_column, size_t row_num) {
+        if (cond_column->is_nullable()) {
+            const auto& nullable_cond = assert_cast<const ColumnNullable&,
+                                                      TypeCheckOnRelease::DISABLE>(*cond_column);
+            if (nullable_cond.is_null_at(row_num)) {
+                return false;
+            }
+            cond_column = &nullable_cond.get_nested_column();
+        }
+        const auto& cond_data = assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
+                                        *cond_column)
+                                        .get_data();
+        return cond_data[row_num] != 0;
+    }
+
     void check_array_nullable_string_column_type(const IColumn& column,
                                                  bool is_result_column) const {
         const auto* array_column = check_and_get_column<ColumnArray>(column);

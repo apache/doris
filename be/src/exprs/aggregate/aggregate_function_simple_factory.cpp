@@ -64,6 +64,7 @@ void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactor
 void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_array_agg(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_array_agg_if(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory);
@@ -119,6 +120,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_orthogonal_bitmap(instance);
         register_aggregate_function_collect_list(instance);
         register_aggregate_function_array_agg(instance);
+        register_aggregate_function_array_agg_if(instance);
         register_aggregate_function_sequence_match(instance);
         register_aggregate_function_avg_weighted(instance);
         register_aggregate_function_histogram(instance);
