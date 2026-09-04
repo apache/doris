@@ -348,6 +348,9 @@ public class IcebergScanRange implements ConnectorScanRange {
             deleteFileDesc.setOriginalPath(positionDeleteOriginalPath);
             deleteFileDesc.setFileFormat(positionDeleteFileFormat);
             deleteFileDesc.setContent(positionDeleteContent);
+            if (rangeDesc.isSetFileSize()) {
+                deleteFileDesc.setFileSize(rangeDesc.getFileSize());
+            }
             if (positionDeleteContentOffset != null) {
                 deleteFileDesc.setContentOffset(positionDeleteContentOffset);
             }

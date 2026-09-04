@@ -1210,7 +1210,10 @@ TIcebergDeleteFileDesc make_iceberg_equality_delete_file(
     delete_file.__set_path(path);
     delete_file.__set_field_ids(field_ids);
     delete_file.__set_file_format(file_format);
-    delete_file.__set_file_size(file_size);
+    // Default callers emulate an old FE that sends no file_size.
+    if (file_size >= 0) {
+        delete_file.__set_file_size(file_size);
+    }
     return delete_file;
 }
 
@@ -5055,22 +5058,19 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizePropagatedToReader) {
                             })
                         .ok());
 
+    // A truncated size must break the read; a correct size is indistinguishable from the stat fallback.
     auto split_options = build_split_options(file_path);
     split_options.cache = &cache;
     split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
-            file_path,
-            {make_iceberg_equality_delete_file(
-                    delete_file_path, {0}, TFileFormatType::FORMAT_PARQUET, delete_file_size)}));
-    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {0},
+                                                          TFileFormatType::FORMAT_PARQUET,
+                                                          delete_file_size - 16)}));
 
+    const bool prepare_ok = reader.prepare_split(split_options).ok();
     Block block = build_table_block(projected_columns);
     bool eos = false;
-    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
-    ASSERT_FALSE(eos);
-    ASSERT_EQ(block.rows(), 2);
-    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
-    EXPECT_EQ(id_column.get_element(0), 1);
-    EXPECT_EQ(id_column.get_element(1), 3);
+    const bool read_ok = prepare_ok && reader.get_block(&block, &eos).ok();
+    ASSERT_FALSE(read_ok) << "truncated file_size must fail the delete-file read";
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
