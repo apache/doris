@@ -77,8 +77,11 @@ message SniiCoreMetadataPB {
     optional uint32 index_config = 1;
     optional SniiStatsPB stats = 2;
     optional SniiSectionRefsPB section_refs = 3;
-    optional SniiCommonGramsMetadataPB common_grams = 4;
-    optional uint32 common_grams_posting_policy = 5;
+    // 字段 4/5 曾是 CommonGrams 元数据（功能已删除）。字段号保留、类型降级成不透明
+    // 字节 / 整数：reader 只用它们识别"这段是用 CommonGrams 写出来的"并拒绝读取（墓碑），
+    // 不再解析内容。旧 reader（生产 4.1.7 系）本来就忽略这两个字段。
+    optional bytes legacy_common_grams = 4;
+    optional uint32 legacy_common_grams_posting_policy = 5;
 }
 
 // FIELD NUMBERS ARE ON DISK. The SNII format shipped before this message reached
@@ -112,17 +115,3 @@ message SniiSectionRefsPB {
     optional SniiRegionRefPB norms = 5;
 }
 
-message SniiCommonGramsMetadataPB {
-    optional uint32 plain_term_key_version = 1;
-    optional uint32 common_grams_coverage = 2;
-    optional uint32 common_grams_semantics_version = 3;
-    optional uint32 common_grams_key_version = 4;
-    optional bytes common_grams_dictionary_identity = 5;
-    optional bytes base_analyzer_fingerprint = 6;
-    optional bytes common_grams_fingerprint = 7;
-    optional uint32 scoring_coverage = 8;
-    optional uint32 scoring_stats_version = 9;
-    optional uint32 norm_semantics_version = 10;
-    optional uint64 scoring_doc_count = 11;
-    optional uint64 scoring_token_count = 12;
-}

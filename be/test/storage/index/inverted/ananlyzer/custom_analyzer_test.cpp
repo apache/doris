@@ -265,16 +265,15 @@ Settings whitespace_tokenizer_settings() {
 
 // "the" is a member of the built-in stop-word list, which is what default_word_set() resolves to
 // when no wordset file is installed -- the provider can no longer be handed a word list of its own.
-TEST_F(CustomAnalyzerTest, ProviderSharesOneAnalyzerAcrossPurposes) {
+TEST_F(CustomAnalyzerTest, ProviderReturnsOneSharedAnalyzer) {
     CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("char_group", whitespace_tokenizer_settings());
     builder.add_token_filter_config("lowercase", {});
     auto provider = std::make_shared<CustomAnalyzerProvider>(builder.build());
 
-    auto analyzer = provider->get_analyzer(AnalysisPurpose::kIndex);
-    EXPECT_EQ(provider->get_analyzer(AnalysisPurpose::kPlainQuery), analyzer);
-    EXPECT_EQ(provider->get_analyzer(AnalysisPurpose::kExactPhraseQuery), analyzer);
-    EXPECT_EQ(provider->get_analyzer(AnalysisPurpose::kPhrasePrefixQuery), analyzer);
+    auto analyzer = provider->get_analyzer();
+    ASSERT_NE(analyzer, nullptr);
+    EXPECT_EQ(provider->get_analyzer(), analyzer);
 }
 
 // TEST_F(CustomAnalyzerTest, test) {

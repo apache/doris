@@ -192,8 +192,8 @@ TEST_F(IndexPolicyMgrTest, TestTokenFilterProcessing) {
 TEST_F(IndexPolicyMgrTest, AnalyzerProviderPreservesPurposeInsensitiveNormalizers) {
     auto builtin = mgr.get_analyzer_provider_by_name("lowercase");
     auto builtin_analyzer =
-            builtin->get_analyzer(segment_v2::inverted_index::AnalysisPurpose::kPlainQuery);
-    EXPECT_EQ(builtin->get_analyzer(segment_v2::inverted_index::AnalysisPurpose::kIndex),
+            builtin->get_analyzer();
+    EXPECT_EQ(builtin->get_analyzer(),
               builtin_analyzer);
 
     TIndexPolicy normalizer;
@@ -205,8 +205,8 @@ TEST_F(IndexPolicyMgrTest, AnalyzerProviderPreservesPurposeInsensitiveNormalizer
 
     auto configured = mgr.get_analyzer_provider_by_name("test_normalizer");
     auto configured_analyzer =
-            configured->get_analyzer(segment_v2::inverted_index::AnalysisPurpose::kPlainQuery);
-    EXPECT_EQ(configured->get_analyzer(segment_v2::inverted_index::AnalysisPurpose::kIndex),
+            configured->get_analyzer();
+    EXPECT_EQ(configured->get_analyzer(),
               configured_analyzer);
 }
 

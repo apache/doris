@@ -71,7 +71,6 @@ using writer::TermPostings;
 using writer::StreamedTermPostings;
 using writer::TermPostingBuffer;
 using writer::TermPostingSource;
-namespace inverted_index = doris::segment_v2::inverted_index;
 
 static_assert(!std::is_move_constructible_v<SniiCompoundWriter>);
 static_assert(!std::is_move_assignable_v<SniiCompoundWriter>);
@@ -1132,8 +1131,11 @@ TEST(SniiStreamedWriterSessionTest, EncodedNormsAreLateBoundExactlyOnceBeforeFin
     SniiCompoundWriter compound(&file);
     SniiStreamedIndexSession* session = nullptr;
     SniiIndexInput input = empty_input(105, "late_norms", /*doc_count=*/2);
+    // norms 需要词频（BM25 的 tf 来自位置计数，存储上要求 freq 区存在）。
+    input.write_freq = true;
     input.write_norms = true;
     assert_ok(compound.begin_streamed_index(std::move(input), &session));
+    ASSERT_NE(session, nullptr);
     assert_ok(push_materialized(
             session, make_term("alpha", {{.docid = 0, .positions = {0, 1}}, {.docid = 1, .positions = {0}}})));
 
@@ -1163,8 +1165,10 @@ TEST(SniiStreamedWriterSessionTest, NormsRequiredFinishRejectsMissingNorms) {
     SniiCompoundWriter compound(&file);
     SniiStreamedIndexSession* session = nullptr;
     SniiIndexInput input = empty_input(106, "missing_norms", /*doc_count=*/1);
+    input.write_freq = true;
     input.write_norms = true;
     assert_ok(compound.begin_streamed_index(std::move(input), &session));
+    ASSERT_NE(session, nullptr);
     assert_ok(push_materialized(session, make_term("alpha", {{.docid = 0, .positions = {0}}})));
 
     EXPECT_TRUE(session->finish().is<ErrorCode::INVALID_ARGUMENT>());
@@ -1177,6 +1181,7 @@ TEST(SniiStreamedWriterSessionTest, SessionsWithoutNormsRejectLateBoundNorms) {
     SniiStreamedIndexSession* session = nullptr;
     assert_ok(compound.begin_streamed_index(empty_input(107, "no_norms", /*doc_count=*/1),
                                             &session));
+    ASSERT_NE(session, nullptr);
 
     EXPECT_TRUE(session->set_encoded_norms(writer::TrackedEncodedNorms({1}))
                         .is<ErrorCode::INVALID_ARGUMENT>());

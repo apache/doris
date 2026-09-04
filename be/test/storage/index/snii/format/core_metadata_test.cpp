@@ -26,7 +26,6 @@
 #include <vector>
 
 #include "gen_cpp/snii.pb.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/section_framer.h"
@@ -34,10 +33,6 @@
 namespace doris::snii::format {
 namespace {
 
-using segment_v2::inverted_index::CommonGramsCoverage;
-using segment_v2::inverted_index::CommonGramsSegmentMetadata;
-using segment_v2::inverted_index::PlainTermKeyVersion;
-using segment_v2::inverted_index::ScoringCoverage;
 
 CoreMetadata sample_core(IndexConfig index_config = IndexConfig::kDocsOnly) {
     CoreMetadata metadata;
@@ -49,40 +44,16 @@ CoreMetadata sample_core(IndexConfig index_config = IndexConfig::kDocsOnly) {
                       .null_count = 1};
     metadata.section_refs = {.dict_region = {.offset = 10, .length = 11},
                              .posting_region = {.offset = 21, .length = 22},
-                             .norms = {.offset = 31, .length = 32},
+                             .norms = {},
                              .null_bitmap = {.offset = 41, .length = 42},
                              .bsbf = {.offset = 51, .length = 52}};
+    // norms 只对带位置的段合法（BM25 的词频来自位置）；docs-only 样本不带 norms。
+    if (has_positions(index_config)) {
+        metadata.section_refs.norms = {.offset = 31, .length = 32};
+    }
     return metadata;
 }
 
-CommonGramsSegmentMetadata sample_common_grams(CommonGramsCoverage coverage,
-                                               ScoringCoverage scoring_coverage) {
-    CommonGramsSegmentMetadata metadata;
-    metadata.plain_term_key_version = PlainTermKeyVersion::kEscapedV1;
-    metadata.common_grams_coverage = coverage;
-    metadata.common_grams_semantics_version = 1;
-    metadata.common_grams_key_version = 1;
-    metadata.common_grams_dictionary_identity = std::string("dictionary\0id", 13);
-    metadata.base_analyzer_fingerprint = std::string("base\0fingerprint", 16);
-    metadata.common_grams_fingerprint = std::string("grams\0fingerprint", 17);
-    metadata.scoring_coverage = scoring_coverage;
-    metadata.scoring_stats_version = 1;
-    metadata.norm_semantics_version = 1;
-    metadata.scoring_doc_count = 20;
-    metadata.scoring_token_count = 123;
-    return metadata;
-}
-
-// 不含 gram、只借用载体存打分统计的形态（master 开发期数据）：墓碑放行。
-CommonGramsSegmentMetadata sample_plain_scoring_carrier() {
-    auto metadata = sample_common_grams(CommonGramsCoverage::kNone, ScoringCoverage::kComplete);
-    metadata.plain_term_key_version = PlainTermKeyVersion::kRawNoInternal;
-    metadata.common_grams_semantics_version = 0;
-    metadata.common_grams_key_version = 0;
-    metadata.common_grams_dictionary_identity.clear();
-    metadata.common_grams_fingerprint.clear();
-    return metadata;
-}
 std::vector<uint8_t> encode(const CoreMetadata& metadata) {
     ByteSink sink;
     EXPECT_TRUE(encode_core_metadata(metadata, &sink).ok());
@@ -137,8 +108,15 @@ void expect_core_eq(const CoreMetadata& expected, const CoreMetadata& actual) {
     EXPECT_EQ(expected.section_refs.null_bitmap.length, actual.section_refs.null_bitmap.length);
     EXPECT_EQ(expected.section_refs.bsbf.offset, actual.section_refs.bsbf.offset);
     EXPECT_EQ(expected.section_refs.bsbf.length, actual.section_refs.bsbf.length);
-    EXPECT_EQ(expected.common_grams_metadata, actual.common_grams_metadata);
-    EXPECT_EQ(expected.common_grams_posting_policy, actual.common_grams_posting_policy);
+}
+
+// docs-only 段不能带 norms（norms 需要位置）：这是 A2 之后 core 元数据的一条硬约束。
+TEST(SniiCoreMetadata, RejectsNormsOnDocsOnlyIndex) {
+    auto metadata = sample_core();
+    metadata.section_refs.norms = {.offset = 31, .length = 32};
+    ByteSink sink;
+    const auto status = encode_core_metadata(metadata, &sink);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
 }
 
 TEST(SniiCoreMetadata, RoundTripsDocsOnlyWithAllStatsAndRefs) {
@@ -155,32 +133,30 @@ TEST(SniiCoreMetadata, RoundTripsPositions) {
     expect_core_eq(expected, actual);
 }
 
-// CommonGrams 已删除：真正含 gram 的段（完整覆盖 + 键转义）是墓碑，必须重建索引。
-TEST(SniiCoreMetadata, RejectsCommonGramsSegmentAsUnsupported) {
-    auto expected = sample_core(IndexConfig::kDocsPositions);
-    expected.common_grams_metadata =
-            sample_common_grams(CommonGramsCoverage::kComplete, ScoringCoverage::kComplete);
-    ByteSink sink;
-    const auto encode_status = encode_core_metadata(expected, &sink);
-    EXPECT_TRUE(encode_status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << encode_status;
-}
+// CommonGrams 已删除：写过字段 4（CommonGrams 元数据）或字段 5（posting 策略）的段是墓碑，
+// 必须重建索引。生产 writer 从未写过这两个字段。
+TEST(SniiCoreMetadata, RejectsLegacyCommonGramsMetadataFieldAsUnsupported) {
+    auto payload = payload_of(encode(sample_core(IndexConfig::kDocsPositions)));
+    // 字段 4，length-delimited，任意内容。
+    payload.push_back(static_cast<uint8_t>((4u << 3) | 2u));
+    payload.push_back(3);
+    payload.insert(payload.end(), {'c', 'g', '1'});
 
-// 只借用载体存打分统计、不含 gram 的段（coverage=kNone、键原样）仍按普通段读取。
-TEST(SniiCoreMetadata, AcceptsScoringCarrierWithoutGrams) {
-    auto expected = sample_core(IndexConfig::kDocsPositions);
-    expected.common_grams_metadata = sample_plain_scoring_carrier();
     CoreMetadata actual;
-    ASSERT_TRUE(decode_core_metadata(Slice(encode(expected)), &actual).ok());
-    expect_core_eq(expected, actual);
+    const auto status = decode_core_metadata(Slice(frame_payload(payload)), &actual);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
+    EXPECT_NE(status.to_string().find("CommonGrams"), std::string::npos) << status;
 }
 
-TEST(SniiCoreMetadata, RejectsHybridCommonGramsAsUnsupported) {
-    auto expected = sample_core(IndexConfig::kDocsPositions);
-    expected.common_grams_metadata =
-            sample_common_grams(CommonGramsCoverage::kMixed, ScoringCoverage::kNone);
-    expected.common_grams_posting_policy = CommonGramsPostingPolicy::kHybridV1;
-    ByteSink sink;
-    const auto status = encode_core_metadata(expected, &sink);
+TEST(SniiCoreMetadata, RejectsLegacyCommonGramsPostingPolicyFieldAsUnsupported) {
+    auto payload = payload_of(encode(sample_core(IndexConfig::kDocsPositions)));
+    ByteSink field;
+    field.put_varint32((5u << 3) | 0u);
+    field.put_varint32(1);
+    payload.insert(payload.end(), field.buffer().begin(), field.buffer().end());
+
+    CoreMetadata actual;
+    const auto status = decode_core_metadata(Slice(frame_payload(payload)), &actual);
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
@@ -230,48 +206,6 @@ TEST(SniiCoreMetadata, RejectsLegacyScoringIndexConfigAsUnsupported) {
     CoreMetadata actual;
     const auto status = decode_core_metadata(Slice(frame_payload(payload)), &actual);
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
-}
-
-TEST(SniiCoreMetadata, RejectsUnsupportedPostingPolicy) {
-    auto payload = payload_of(encode(sample_core()));
-    ByteSink field;
-    field.put_varint32((5u << 3) | 0u);
-    field.put_varint32(9);
-    payload.insert(payload.end(), field.buffer().begin(), field.buffer().end());
-
-    CoreMetadata actual;
-    const auto status = decode_core_metadata(Slice(frame_payload(payload)), &actual);
-    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
-}
-
-TEST(SniiCoreMetadata, UnsupportedCommonGramsEnums) {
-    auto metadata = sample_core(IndexConfig::kDocsPositions);
-    metadata.common_grams_metadata = sample_plain_scoring_carrier();
-
-    for (const auto& mutation :
-         std::array<std::function<void(doris::snii::SniiCommonGramsMetadataPB*)>, 3> {
-                 [](auto* common_grams) { common_grams->set_plain_term_key_version(3); },
-                 [](auto* common_grams) { common_grams->set_common_grams_coverage(3); },
-                 [](auto* common_grams) { common_grams->set_scoring_coverage(2); }}) {
-        const auto payload = mutate_core_payload(
-                metadata, [&mutation](auto* core) { mutation(core->mutable_common_grams()); });
-        CoreMetadata actual;
-        const auto status = decode_core_metadata(Slice(frame_payload(payload)), &actual);
-        EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
-    }
-}
-
-TEST(SniiCoreMetadata, RejectsKnownButContradictoryCommonGramsEnumsAsCorruption) {
-    auto metadata = sample_core(IndexConfig::kDocsPositions);
-    metadata.common_grams_metadata = sample_plain_scoring_carrier();
-    // 键原样（kRawNoInternal）却声称有 gram 覆盖：自相矛盾，按损坏处理（早于墓碑判定）。
-    const auto payload = mutate_core_payload(metadata, [](auto* core) {
-        core->mutable_common_grams()->set_common_grams_coverage(
-                static_cast<uint32_t>(CommonGramsCoverage::kComplete));
-    });
-    CoreMetadata actual;
-    const auto status = decode_core_metadata(Slice(frame_payload(payload)), &actual);
-    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
 }
 
 // 已上线的生产 writer（selectdb-core 4.1.7 系）不写 stats.sum_total_term_freq 与
@@ -327,7 +261,7 @@ TEST(SniiCoreMetadata, RejectsMissingEachStatsField) {
 
 TEST(SniiCoreMetadata, RejectsMissingEachRegionRefOffsetOrLength) {
     using RegionGetter = doris::snii::SniiRegionRefPB* (doris::snii::SniiSectionRefsPB::*)();
-    const auto metadata = sample_core();
+    const auto metadata = sample_core(IndexConfig::kDocsPositions);
     for (const auto region :
          std::array<RegionGetter, 5> {&doris::snii::SniiSectionRefsPB::mutable_dict_region,
                                       &doris::snii::SniiSectionRefsPB::mutable_posting_region,
@@ -368,7 +302,6 @@ TEST(SniiCoreMetadata, RejectsBadFrameTypeCrcAndTruncation) {
 
 TEST(SniiCoreMetadata, ResetsOutputBeforeDecodeFailureAndNullOutputIsInvalid) {
     auto populated = sample_core(IndexConfig::kDocsPositions);
-    populated.common_grams_metadata = sample_plain_scoring_carrier();
     CoreMetadata reused;
     ASSERT_TRUE(decode_core_metadata(Slice(encode(populated)), &reused).ok());
 

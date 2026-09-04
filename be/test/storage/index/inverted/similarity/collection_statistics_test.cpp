@@ -45,6 +45,7 @@
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/util/string_helper.h"
+#include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/index/snii/stats/snii_stats_provider.h"
@@ -129,8 +130,7 @@ public:
     explicit FixedAnalyzerProvider(std::shared_ptr<lucene::analysis::Analyzer> analyzer)
             : _analyzer(std::move(analyzer)) {}
 
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
-            segment_v2::inverted_index::AnalysisPurpose) const override {
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
         return _analyzer;
     }
 
@@ -605,9 +605,10 @@ protected:
         return tablet_schema;
     }
 
+    // 落在 SNII 内部命名空间（\x1f 开头）里的词项，对 V3（CLucene）索引只是普通字节。
     VExprContextSPtrs create_reserved_exact_search_contexts() {
         return create_search_contexts(
-                "EXACT", std::string(segment_v2::inverted_index::CG_V1_MARKER) + "user");
+                "EXACT", std::string(snii::format::kPhraseBigramTermMarker) + "user");
     }
 
     void expect_no_collected_tokens(const std::wstring& field_name) {
@@ -830,7 +831,7 @@ TEST_F(CollectionStatisticsTest, LegacyReservedTermUsesRawV3Namespace) {
     expect_collected_stats(L"1", 1, 2);
     expect_collected_term(L"1",
                           segment_v2::inverted_index::StringHelper::to_wstring(
-                                  std::string(segment_v2::inverted_index::CG_V1_MARKER) + "user"),
+                                  std::string(snii::format::kPhraseBigramTermMarker) + "user"),
                           0);
 }
 

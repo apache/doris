@@ -615,7 +615,7 @@ TEST(FunctionMatchTest, custom_analyzer_handling) {
     analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
     analyzer_ctx.analyzer_provider = provider;
     analyzer_ctx.analyzer =
-            provider->get_analyzer(segment_v2::inverted_index::AnalysisPurpose::kPlainQuery);
+            provider->get_analyzer();
 
     auto query_tokens = match_any.analyse_query_str_token(&analyzer_ctx, "TEST QUERY", "test_col");
     ASSERT_EQ(query_tokens.size(), 1);

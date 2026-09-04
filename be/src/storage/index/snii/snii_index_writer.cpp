@@ -108,7 +108,7 @@ Status SniiIndexColumnWriter::init() {
             auto analyzer_provider =
                     inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(
                             &_analyzer_config);
-            _analyzer = analyzer_provider->get_analyzer(inverted_index::AnalysisPurpose::kIndex);
+            _analyzer = analyzer_provider->get_analyzer();
         }
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(

@@ -167,8 +167,7 @@ void expect_rejected(const Status& status, std::string_view reason) {
 
 class StubAnalyzerProvider final : public inverted_index::AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
-            inverted_index::AnalysisPurpose) const override {
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
         return nullptr;
     }
 };
