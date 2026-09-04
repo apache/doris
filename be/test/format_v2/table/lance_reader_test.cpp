@@ -933,6 +933,8 @@ TEST(LanceTableReaderVectorSearchTest, SearchesMultipleFragmentSplits) {
                                               "LanceExecutionIOOps",
                                               "LanceExecutionIORequests",
                                               "LanceExecutionIOBytesRead",
+                                              "LanceDataCacheBytesReadFromCache",
+                                              "LanceDataCacheBytesReadFromRemote",
                                               "LanceIndexPartitionCacheMissLoads",
                                               "LanceIndexComparisons",
                                               "LanceFragmentsScanned",
@@ -1055,7 +1057,9 @@ TEST(LanceTableReaderVectorSearchTest, ReturnsStableGlobalRowIdsAndFetchesPayloa
     EXPECT_NE(fetch_profile.get_counter("LanceRowIdFetchTotalTime"), nullptr);
     expect_lance_profile_hierarchy(&fetch_profile,
                                    {"LanceDatasetOpenTime", "LanceRowIdTakeReadTime",
-                                    "LanceArrowToDorisBlockTime", "LanceRowIdFetchTotalTime"});
+                                    "LanceArrowToDorisBlockTime", "LanceRowIdFetchTotalTime",
+                                    "LanceDataCacheBytesReadFromCache",
+                                    "LanceDataCacheBytesReadFromRemote"});
     EXPECT_TRUE(payload_reader.close().ok());
 }
 
