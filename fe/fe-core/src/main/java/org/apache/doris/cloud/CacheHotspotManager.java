@@ -1552,7 +1552,7 @@ public class CacheHotspotManager extends MasterDaemon {
 
         // Keep only the highest-priority jobs needed by this cycle. The reversed comparator keeps
         // the lowest-priority selected job at the heap top so it can be replaced during the scan.
-        PriorityQueue<CloudWarmUpJob> candidates = new PriorityQueue<>(availableSlots, schedulePriority.reversed());
+        PriorityQueue<CloudWarmUpJob> candidates = new PriorityQueue<>(schedulePriority.reversed());
         for (CloudWarmUpJob job : runnableCloudWarmUpJobs.values()) {
             if (job.shouldWait() || job.isDone() || activeCloudWarmUpJobs.containsKey(job.getJobId())) {
                 continue;
