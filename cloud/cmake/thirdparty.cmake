@@ -74,6 +74,7 @@ add_thirdparty(libz LIBNAME "lib/libz.a") # Required by google::protobuf
 add_thirdparty(curl)
 add_thirdparty(zstd LIB64)
 add_thirdparty(fmt)
+add_thirdparty(roaring)
 # begin aws libs
 add_thirdparty(aws-cpp-sdk-core LIB64)
 add_thirdparty(aws-cpp-sdk-s3 LIB64)

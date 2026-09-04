@@ -35,10 +35,12 @@
 #include <mutex>
 #include <numeric>
 #include <optional>
+#include <roaring/roaring.hh>
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/bvars.h"
@@ -1768,11 +1770,85 @@ int InstanceChecker::check_inverted_index_file_storage_format_v2(
     return 0;
 }
 
+static TxnErrorCode read_delete_bitmap_for_check(Transaction* txn, const std::string& key,
+                                                 roaring::Roaring& bitmap) {
+    ValueBuf value;
+    auto err = cloud::blob_get(txn, key, &value);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    const auto keys = value.keys();
+    if (keys.size() != 1 || keys.front() != key) {
+        // A missing/reordered blob chunk must not turn a corrupt bitmap into evidence of coverage.
+        for (size_t i = 0; i < keys.size(); ++i) {
+            if (keys[i] != encode_blob_key(key, value.ver, i)) {
+                LOG(WARNING) << "invalid delete bitmap blob sequence, key=" << hex(keys[i]);
+                return TxnErrorCode::TXN_INVALID_DATA;
+            }
+        }
+    }
+    auto serialized = value.value();
+    const auto size = roaring::api::roaring_bitmap_portable_deserialize_size(serialized.data(),
+                                                                             serialized.size());
+    if (size == 0 || size != serialized.size()) {
+        LOG(WARNING) << "malformed delete bitmap, key=" << hex(key);
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+    auto* raw_bitmap = roaring::api::roaring_bitmap_portable_deserialize_safe(serialized.data(),
+                                                                              serialized.size());
+    if (raw_bitmap == nullptr) {
+        LOG(WARNING) << "failed to deserialize delete bitmap, key=" << hex(key);
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+    bitmap = roaring::Roaring(raw_bitmap);
+    const char* reason = nullptr;
+    if (!roaring::api::roaring_bitmap_internal_validate(&bitmap.roaring, &reason)) {
+        LOG(WARNING) << "invalid delete bitmap, key=" << hex(key) << " reason=" << reason;
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+    return TxnErrorCode::TXN_OK;
+}
+
+// Return 1 only when both complete bitmaps were read in the same transaction and the old
+// bitmap is a subset of the aggregate; return 0 for missing/corrupt/uncovered bitmaps, -1 for
+// KV read errors. Merely finding a newer DBM key is not sufficient to ignore the old version.
+static int check_delete_bitmap_coverage(const std::shared_ptr<TxnKv>& txn_kv,
+                                        const std::string& old_key,
+                                        const std::string& aggregate_key) {
+    // Each candidate uses a short snapshot so a large scan batch cannot age the transaction
+    // through thousands of extra reads. Both bitmap reads still share one consistent snapshot.
+    std::unique_ptr<Transaction> txn;
+    auto err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create delete bitmap coverage transaction, err=" << err;
+        return -1;
+    }
+    roaring::Roaring old_bitmap;
+    roaring::Roaring aggregate_bitmap;
+    for (const auto& [key, bitmap] :
+         {std::pair {&old_key, &old_bitmap}, std::pair {&aggregate_key, &aggregate_bitmap}}) {
+        err = read_delete_bitmap_for_check(txn.get(), *key, *bitmap);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND || err == TxnErrorCode::TXN_INVALID_DATA) {
+            return 0;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to read delete bitmap for coverage check, key=" << hex(*key)
+                         << " err=" << err;
+            return -1;
+        }
+    }
+    return old_bitmap.isSubset(aggregate_bitmap) ? 1 : 0;
+}
+
 int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
         int64_t tablet_id, bool has_sequence_col,
         int64_t& rowsets_with_useless_delete_bitmap_version) {
-    // end_version: create_time
-    std::map<int64_t, int64_t> tablet_rowsets_map {};
+    struct VisibleRowset {
+        int64_t start_version;
+        int64_t creation_time;
+    };
+    // end_version: {start_version, creation_time}
+    std::map<int64_t, VisibleRowset> tablet_rowsets_map {};
     // rowset_id: {start_version, end_version}
     std::map<std::string, std::pair<int64_t, int64_t>> rowset_version_map;
     // Get all visible rowsets of this tablet
@@ -1781,7 +1857,7 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
             // ignore dummy rowset [0-1]
             return;
         }
-        tablet_rowsets_map[rowset.end_version()] = rowset.creation_time();
+        tablet_rowsets_map[rowset.end_version()] = {rowset.start_version(), rowset.creation_time()};
         rowset_version_map[rowset.rowset_id_v2()] =
                 std::make_pair(rowset.start_version(), rowset.end_version());
     };
@@ -1799,6 +1875,7 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
     auto end = meta_delete_bitmap_key({instance_id_, tablet_id + 1, "", 0, 0});
     std::string last_rowset_id = "";
     int64_t last_version = 0;
+    int64_t last_segment_id = -1;
     int64_t last_failed_version = 0;
     std::vector<int64_t> failed_versions;
     auto print_failed_versions = [&]() {
@@ -1875,12 +1952,14 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
             // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
             auto rowset_id = std::get<std::string>(std::get<0>(out[4]));
             auto version = std::get<std::int64_t>(std::get<0>(out[5]));
+            auto segment_id = std::get<std::int64_t>(std::get<0>(out[6]));
             if (!it->has_next()) {
                 begin = k;
                 begin.push_back('\x00'); // Update to next smallest key for iteration
             }
-            if (rowset_id == last_rowset_id && version == last_version) {
-                // skip the same rowset and version
+            if (rowset_id == last_rowset_id && version == last_version &&
+                segment_id == last_segment_id) {
+                // Skip blob chunks of the same logical DBM, but check every segment.
                 continue;
             }
             if (rowset_id != last_rowset_id && !failed_versions.empty()) {
@@ -1890,6 +1969,7 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
             }
             last_rowset_id = rowset_id;
             last_version = version;
+            last_segment_id = segment_id;
             if (tablet_rowsets_map.find(version) != tablet_rowsets_map.end()) {
                 continue;
             }
@@ -1898,7 +1978,10 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
                 // checked in do_delete_bitmap_inverted_check
                 continue;
             }
-            if (pending_delete_bitmaps.contains(std::string(k))) {
+            // Pending entries use logical DBM keys, while k may include a blob chunk suffix.
+            auto bitmap_key = meta_delete_bitmap_key(
+                    {instance_id_, tablet_id, rowset_id, version, segment_id});
+            if (pending_delete_bitmaps.contains(bitmap_key)) {
                 continue;
             }
             if (has_sequence_col && version >= version_it->second.first &&
@@ -1915,9 +1998,25 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
                 last_failed_version = version;
                 continue;
             }
-            if (rowset_it->second + config::delete_bitmap_storage_optimize_v2_check_skip_seconds >=
+            if (rowset_it->second.creation_time +
+                        config::delete_bitmap_storage_optimize_v2_check_skip_seconds >=
                 now) {
                 continue;
+            }
+            if (version_it->second.second < rowset_it->second.start_version &&
+                version >= rowset_it->second.start_version) {
+                // A delayed pre-rowset aggregation RPC can restore a DBM already removed by
+                // a later compaction. Ignore it only if that compaction's aggregate covers
+                // every deleted row in this segment. Keep reporting missing/corrupt aggregates.
+                auto aggregate_key = meta_delete_bitmap_key(
+                        {instance_id_, tablet_id, rowset_id, rowset_it->first, segment_id});
+                int covered = check_delete_bitmap_coverage(txn_kv_, bitmap_key, aggregate_key);
+                if (covered < 0) {
+                    return covered;
+                }
+                if (covered == 1) {
+                    continue;
+                }
             }
             if (version != last_failed_version) {
                 failed_versions.push_back(version);

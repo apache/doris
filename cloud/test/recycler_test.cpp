@@ -34,7 +34,9 @@
 #include <future>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <random>
+#include <roaring/roaring.hh>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -6730,7 +6732,7 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
                         {3, 5, {}, expire_time, 2, false}},
                        true /* skip_create_rowset */,
                        {1}});
-    // pending delete bitmap
+    // Pending entries use logical keys for every segment, including split-blob segments.
     Tablet tablet3 {{{{2, 2, {3, 4, 5}, expire_time, 2, false},
                       {3, 3, {4, 5}, expire_time, 1, false},
                       {4, 4, {5}, expire_time, 3, false}}}};
@@ -6774,11 +6776,12 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
             std::string pending_val;
             PendingDeleteBitmapPB delete_bitmap_keys;
             for (int j = 0; j < rowsets.size(); j++) {
-                MetaDeleteBitmapInfo key_info {instance_id, tablet_id, rowsets[j].rowset_id,
-                                               tablet.pending_delete_bitmap_version, 0};
-                std::string key;
-                meta_delete_bitmap_key(key_info, &key);
-                delete_bitmap_keys.add_delete_bitmap_keys(key);
+                for (int segment_id = 0; segment_id < rowsets[j].segment_num; ++segment_id) {
+                    auto key = meta_delete_bitmap_key({instance_id, tablet_id, rowsets[j].rowset_id,
+                                                       tablet.pending_delete_bitmap_version,
+                                                       segment_id});
+                    delete_bitmap_keys.add_delete_bitmap_keys(key);
+                }
             }
             delete_bitmap_keys.SerializeToString(&pending_val);
             txn->put(pending_key, pending_val);
@@ -6788,6 +6791,168 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
     ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 1);
     ASSERT_EQ(expected_abnormal_rowsets, real_abnormal_rowsets);
 }
+TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_replayed_bitmap_coverage) {
+    auto serialize_bitmap = [](const roaring::Roaring& bitmap) {
+        std::string value(bitmap.getSizeInBytes(), '\0');
+        bitmap.write(value.data());
+        return value;
+    };
+    const auto old_bitmap = serialize_bitmap(roaring::Roaring {92, 110, 163});
+    const auto aggregate_bitmap = serialize_bitmap(roaring::Roaring {92, 110, 163, 180});
+    roaring::Roaring large_bitmap;
+    for (uint32_t row_id = 0; row_id < 200000; row_id += 2) {
+        large_bitmap.add(row_id);
+    }
+    const auto large_value = serialize_bitmap(large_bitmap);
+    ASSERT_GT(large_value.size(), MIN_BLOB_SPLIT_SIZE);
+
+    struct TestCase {
+        const char* name;
+        std::string old_bitmap;
+        std::optional<std::string> aggregate_bitmap;
+        bool split = true;
+        bool aggregate_second_segment = true;
+        bool remove_aggregate_chunk = false;
+        int64_t compaction_start_version = 92;
+        int64_t old_version = 163;
+        int64_t aggregate_version = 180;
+        bool add_visible_aggregate_rowset = false;
+        bool ignored = false;
+    };
+    const std::vector<TestCase> cases {
+            {.name = "covered legacy bitmap",
+             .old_bitmap = old_bitmap,
+             .aggregate_bitmap = aggregate_bitmap,
+             .split = false,
+             .ignored = true},
+            {.name = "covered blob bitmap",
+             .old_bitmap = old_bitmap,
+             .aggregate_bitmap = aggregate_bitmap,
+             .ignored = true},
+            {.name = "covered multi-chunk bitmap",
+             .old_bitmap = large_value,
+             .aggregate_bitmap = large_value,
+             .ignored = true},
+            {.name = "missing aggregate bitmap",
+             .old_bitmap = old_bitmap,
+             .aggregate_bitmap = std::nullopt},
+            {.name = "aggregate does not cover all deleted rows",
+             .old_bitmap = old_bitmap,
+             .aggregate_bitmap = serialize_bitmap(roaring::Roaring {92, 110, 180})},
+            {.name = "only the first segment is covered",
+             .old_bitmap = old_bitmap,
+             .aggregate_bitmap = aggregate_bitmap,
+             .aggregate_second_segment = false},
+            {.name = "corrupt old bitmap",
+             .old_bitmap = "invalid bitmap",
+             .aggregate_bitmap = aggregate_bitmap},
+            {.name = "corrupt aggregate bitmap",
+             .old_bitmap = old_bitmap,
+             .aggregate_bitmap = "invalid bitmap"},
+            {.name = "truncated aggregate bitmap",
+             .old_bitmap = old_bitmap,
+             .aggregate_bitmap = aggregate_bitmap.substr(0, aggregate_bitmap.size() - 1)},
+            {.name = "aggregate bitmap with trailing bytes",
+             .old_bitmap = old_bitmap,
+             .aggregate_bitmap = aggregate_bitmap + "garbage"},
+            {.name = "missing aggregate blob chunk",
+             .old_bitmap = large_value,
+             .aggregate_bitmap = large_value,
+             .remove_aggregate_chunk = true},
+            {.name = "old version is outside the compaction interval",
+             .old_bitmap = old_bitmap,
+             .aggregate_bitmap = aggregate_bitmap,
+             .compaction_start_version = 170},
+            {.name = "old version exceeds all visible rowsets",
+             .old_bitmap = old_bitmap,
+             .aggregate_bitmap = aggregate_bitmap,
+             .old_version = 181},
+            {.name = "only a different aggregate version exists",
+             .old_bitmap = old_bitmap,
+             .aggregate_bitmap = aggregate_bitmap,
+             .aggregate_version = 181,
+             .add_visible_aggregate_rowset = true},
+            {.name = "bitmap belongs to the covering rowset itself",
+             .old_bitmap = old_bitmap,
+             .aggregate_bitmap = aggregate_bitmap,
+             .old_version = 89,
+             .aggregate_version = 90},
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.name);
+        auto txn_kv = std::make_shared<MemTxnKv>();
+        ASSERT_EQ(txn_kv->init(), 0);
+        InstanceInfoPB instance;
+        instance.set_instance_id(instance_id);
+        instance.add_obj_info()->set_id("1");
+        InstanceChecker checker(txn_kv, instance_id);
+        ASSERT_EQ(checker.init(instance), 0);
+        auto accessor = checker.accessor_map_.begin()->second;
+        constexpr int64_t table_id = 10000, index_id = 10001, partition_id = 10002;
+        constexpr int64_t tablet_id = 900031;
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        const auto creation_time =
+                current_time - config::delete_bitmap_storage_optimize_v2_check_skip_seconds - 1;
+        // Two pre-rowsets also exercise the checker's existing failure threshold (> 1).
+        const std::vector<std::string> pre_rowsets {"100090", "100091"};
+        ASSERT_EQ(0, create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1",
+                                                            tablet_id, 0, 90, pre_rowsets[0], false,
+                                                            2, creation_time));
+        ASSERT_EQ(0, create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1",
+                                                            tablet_id, 91, 91, pre_rowsets[1],
+                                                            false, 2, creation_time));
+        ASSERT_EQ(0, create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1",
+                                                            tablet_id,
+                                                            test_case.compaction_start_version, 180,
+                                                            "100180", false, 1, creation_time));
+        if (test_case.add_visible_aggregate_rowset) {
+            // Make the newer DBM version valid so its own warning cannot mask incorrectly
+            // ignoring the old DBM using an aggregate beyond the covering compaction's end.
+            ASSERT_EQ(0, create_committed_rowset_with_rowset_id(
+                                 txn_kv.get(), accessor.get(), "1", tablet_id,
+                                 test_case.aggregate_version, test_case.aggregate_version,
+                                 fmt::format("100{}", test_case.aggregate_version), false, 1,
+                                 creation_time));
+        }
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        auto put_bitmap = [&](const std::string& key, const std::string& value) {
+            if (test_case.split) {
+                cloud::blob_put(txn.get(), key, value, 0, MIN_BLOB_SPLIT_SIZE);
+            } else {
+                txn->put(key, value);
+            }
+        };
+        for (const auto& rowset_id : pre_rowsets) {
+            for (int64_t segment_id = 0; segment_id < 2; ++segment_id) {
+                put_bitmap(meta_delete_bitmap_key({instance_id, tablet_id, rowset_id,
+                                                   test_case.old_version, segment_id}),
+                           test_case.old_bitmap);
+                if (test_case.aggregate_bitmap.has_value() &&
+                    (segment_id == 0 || test_case.aggregate_second_segment)) {
+                    auto key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id,
+                                                       test_case.aggregate_version, segment_id});
+                    put_bitmap(key, *test_case.aggregate_bitmap);
+                    if (test_case.remove_aggregate_chunk) {
+                        txn->remove(encode_blob_key(key, 0, 0));
+                    }
+                }
+            }
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), test_case.ignored ? 0 : 1);
+        if (test_case.ignored) {
+            // Even fully covered DBMs must be reported as leaked after their owners disappear.
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            txn->remove(meta_rowset_key({instance_id, tablet_id, 90}));
+            txn->remove(meta_rowset_key({instance_id, tablet_id, 91}));
+            ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+            EXPECT_EQ(checker.do_delete_bitmap_inverted_check(), 1);
+        }
+    }
+}
+
 TEST(CheckerTest, meta_rowset_key_check_normal) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
