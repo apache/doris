@@ -2012,8 +2012,7 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
     if (cross_cluster) {
         id_set.push_back(DEFAULT_WORKLOAD_GROUP_ID);
         LOG_EVERY_N(INFO, 20) << "receive cross-cluster multiget_data_v2, remote cluster id: "
-                              << request->cluster_id()
-                              << ", local cluster id: " << local_cluster_id
+                              << request->cluster_id() << ", local cluster id: " << local_cluster_id
                               << ", fallback to default workload group";
     } else {
         id_set.push_back(request->wg_id());
