@@ -254,6 +254,9 @@ protected:
     // Returns the number of rowsets that were truncated
     size_t apply_txn_size_truncation_and_log(const std::string& compaction_name);
 
+    // Caller must hold the tablet header lock.
+    bool should_apply_cumulative_compaction_result(int64_t response_cumulative_compaction_cnt);
+
     CloudStorageEngine& _engine;
 
     std::string _uuid;
