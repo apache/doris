@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 
@@ -156,11 +157,7 @@ public class DefaultRemote extends RemoteBase {
              * https://github.com/aws/aws-sdk-java-v2/blob/master/docs/LaunchChangelog.md#133-client-override-configuration
              * There are several timeout configuration, please config if needed.
              */
-            String endpointStr = obj.getEndpoint();
-            if (!endpointStr.contains("://")) {
-                endpointStr = "http://" + endpointStr;
-            }
-            URI endpointUri = URI.create(endpointStr);
+            URI endpointUri = URI.create(S3Util.buildEndpointUrl(obj.getEndpoint()));
             s3Client = S3Client.builder().endpointOverride(endpointUri).credentialsProvider(getS3CredentialsProvider())
                     .region(Region.of(obj.getRegion()))
                     .serviceConfiguration(S3Configuration.builder().chunkedEncodingEnabled(false).build())
