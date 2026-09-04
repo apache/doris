@@ -58,10 +58,6 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
     public static final String PROP_TOKENIZER = "tokenizer";
     public static final String PROP_TOKEN_FILTER = "token_filter";
     public static final String PROP_CHAR_FILTER = "char_filter";
-    // Marks the token filter whose grams only SNII can read. The word list itself is a BE-local
-    // config, so no policy property names it -- this constant is only used to recognise the type.
-    public static final String COMMON_GRAMS_TYPE = "common_grams";
-
     public static final Set<String> BUILTIN_TOKENIZERS = ImmutableSet.of(
             "empty", "ngram", "edge_ngram", "keyword", "standard", "char_group", "basic", "icu", "pinyin");
 
@@ -127,13 +123,14 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
                 GsonUtils.GSON.toJson(this.properties));
     }
 
-    public boolean isInvalid() {
-        return false;
-    }
+    // 已从 BE 删除、但老版本镜像/edit log 里可能仍持久化着的 token filter 类型。
+    // 这类策略可以被加载（否则 FE 起不来），但不可再被 analyzer 引用。
+    public static final Set<String> LEGACY_UNSUPPORTED_TOKEN_FILTER_TYPES =
+            ImmutableSet.of("common_grams");
 
-    public boolean isCommonGramsPolicy() {
+    public boolean isInvalid() {
         return type == IndexPolicyTypeEnum.TOKEN_FILTER
                 && properties != null
-                && COMMON_GRAMS_TYPE.equals(properties.get(PROP_TYPE));
+                && LEGACY_UNSUPPORTED_TOKEN_FILTER_TYPES.contains(properties.get(PROP_TYPE));
     }
 }
