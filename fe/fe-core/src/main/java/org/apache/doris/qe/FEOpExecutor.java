@@ -259,6 +259,20 @@ public class FEOpExecutor {
         return result.packet;
     }
 
+    public boolean isClientDeprecatedEofApplied() {
+        return result != null && result.isSetClientDeprecatedEofApplied()
+                && result.isClientDeprecatedEofApplied();
+    }
+
+    public boolean hasQueryResultPackets() {
+        return result != null && result.isSetQueryResultBufList()
+                && !result.getQueryResultBufList().isEmpty();
+    }
+
+    public long getAffectedRows() {
+        return result != null && result.isSetAffectedRows() ? result.getAffectedRows() : 0;
+    }
+
     public TUniqueId getQueryId() {
         if (result != null && result.isSetQueryId()) {
             return result.getQueryId();
