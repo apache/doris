@@ -112,22 +112,6 @@ bool entry_has_positions(const format::DictEntry& entry) {
 
 
 
-namespace {
-
-
-} // namespace
-
-namespace {
-
-
-} // namespace
-
-
-namespace {
-
-} // namespace
-
-
 void append_resolved_phrase_clause(ResolvedQueryTerm term, uint32_t position_offset,
                                    internal::ResolvedPhrasePlan* plan) {
     const auto unique = std::ranges::find(plan->unique_terms, term.entry.term,

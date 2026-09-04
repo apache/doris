@@ -22,7 +22,6 @@
 #include <utility>
 #include <vector>
 
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
 #include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/snii/query/internal/docid_union.h"
@@ -46,18 +45,15 @@ Status legacy_raw_prefix_exists(const reader::LogicalIndexReader& idx, std::stri
             cache);
 }
 
-Status prove_legacy_raw_has_no_reserved_terms(const reader::LogicalIndexReader& idx,
-                                              reader::DictBlockCache* cache) {
+// 空前缀会枚举整个词典：段里若存在内部命名空间的词项（phrase-bigram 标记），枚举结果会混入
+// 内部词项，此时整条查询绕过 SNII。
+Status prove_no_internal_terms(const reader::LogicalIndexReader& idx,
+                               reader::DictBlockCache* cache) {
     bool exists = false;
-    RETURN_IF_ERROR(legacy_raw_prefix_exists(idx, segment_v2::inverted_index::CG_V1_MARKER, &exists,
-                                             cache));
-    if (!exists) {
-        RETURN_IF_ERROR(
-                legacy_raw_prefix_exists(idx, format::kPhraseBigramTermMarker, &exists, cache));
-    }
+    RETURN_IF_ERROR(legacy_raw_prefix_exists(idx, format::kPhraseBigramTermMarker, &exists, cache));
     if (exists) {
         return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                "SNII legacy raw expansion overlaps an existing internal term namespace");
+                "SNII raw expansion overlaps an existing internal term namespace");
     }
     return Status::OK();
 }
@@ -73,78 +69,27 @@ Status visit_expanded_plain_terms(const reader::LogicalIndexReader& idx,
                 "term_expansion: null matcher or visitor");
     }
 
-    std::string physical_prefix;
-    bool representable = false;
     reader::DictBlockCache dict_cache(/*max_entries=*/1);
-    const auto version = plain_term_key_version(idx);
-    if (version == segment_v2::inverted_index::PlainTermKeyVersion::kLegacyRaw &&
-        enum_prefix.empty()) {
-        RETURN_IF_ERROR(prove_legacy_raw_has_no_reserved_terms(idx, &dict_cache));
-        representable = true;
+    if (enum_prefix.empty()) {
+        RETURN_IF_ERROR(prove_no_internal_terms(idx, &dict_cache));
     } else {
-        RETURN_IF_ERROR(
-                route_plain_enumeration_prefix(idx, enum_prefix, &physical_prefix, &representable));
-    }
-    if (!representable) {
-        return Status::OK();
+        RETURN_IF_ERROR(check_enumeration_prefix_outside_internal_namespace(enum_prefix));
     }
 
     int32_t count = 0;
-    bool stop_expansion = false;
-    std::string decoded_scratch;
-    const auto visit_hit = [&](reader::LogicalIndexReader::PrefixHit&& hit, bool* stop) -> Status {
-        std::string_view logical_term;
-        if (version != segment_v2::inverted_index::PlainTermKeyVersion::kEscapedV1 ||
-            !hit.term.starts_with(segment_v2::inverted_index::PLAIN_ESCAPE_PREFIX)) {
-            if (version == segment_v2::inverted_index::PlainTermKeyVersion::kEscapedV1) {
-                DCHECK(!segment_v2::inverted_index::is_internal_term_key(hit.term));
-            }
-            logical_term = hit.term;
-            decoded_scratch.clear();
-        } else {
-            auto decoded = segment_v2::inverted_index::decode_plain_term_view(hit.term, version,
-                                                                              &decoded_scratch);
-            if (!decoded.has_value()) {
-                return std::move(decoded.error());
-            }
-            logical_term = *decoded;
-        }
-        if (!matches(logical_term)) {
-            return Status::OK();
-        }
-        if (!decoded_scratch.empty()) {
-            hit.term = decoded_scratch;
-        }
-        bool visitor_stop = false;
-        RETURN_IF_ERROR(visitor(std::move(hit), &visitor_stop));
-        ++count;
-        *stop = visitor_stop || (max_expansions > 0 && count >= max_expansions);
-        stop_expansion = *stop;
-        return Status::OK();
-    };
-
-    if (version == segment_v2::inverted_index::PlainTermKeyVersion::kEscapedV1 &&
-        physical_prefix.empty()) {
-        RETURN_IF_ERROR(idx.visit_term_range(
-                /*lower_inclusive=*/ {}, segment_v2::inverted_index::INTERNAL_TERM_NAMESPACE_BEGIN,
-                visit_hit, &dict_cache));
-        if (!stop_expansion && (max_expansions <= 0 || count < max_expansions)) {
-            RETURN_IF_ERROR(
-                    idx.visit_term_range(segment_v2::inverted_index::INTERNAL_TERM_NAMESPACE_END,
-                                         /*upper_exclusive=*/std::nullopt, visit_hit, &dict_cache));
-        }
-    } else {
-        RETURN_IF_ERROR(idx.visit_prefix_terms(
-                physical_prefix,
-                [&](reader::LogicalIndexReader::PrefixHit&& hit, bool* stop) -> Status {
-                    if (version == segment_v2::inverted_index::PlainTermKeyVersion::kEscapedV1) {
-                        DCHECK(!segment_v2::inverted_index::is_internal_term_key(hit.term));
-                    }
-                    return visit_hit(std::move(hit), stop);
-                },
-                &dict_cache));
-    }
-    return Status::OK();
+    return idx.visit_prefix_terms(
+            enum_prefix,
+            [&](reader::LogicalIndexReader::PrefixHit&& hit, bool* stop) -> Status {
+                if (!matches(hit.term)) {
+                    return Status::OK();
+                }
+                bool visitor_stop = false;
+                RETURN_IF_ERROR(visitor(std::move(hit), &visitor_stop));
+                ++count;
+                *stop = visitor_stop || (max_expansions > 0 && count >= max_expansions);
+                return Status::OK();
+            },
+            &dict_cache);
 }
 
 Status emit_expanded_docid_union(const reader::LogicalIndexReader& idx,

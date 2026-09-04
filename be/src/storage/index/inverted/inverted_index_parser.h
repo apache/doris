@@ -128,10 +128,9 @@ struct InvertedIndexAnalyzerCtx {
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
     segment_v2::inverted_index::AnalyzerProviderPtr analyzer_provider;
 
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
-            segment_v2::inverted_index::AnalysisPurpose purpose) const {
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const {
         if (analyzer_provider != nullptr) {
-            return analyzer_provider->get_analyzer(purpose);
+            return analyzer_provider->get_analyzer();
         }
         return analyzer;
     }

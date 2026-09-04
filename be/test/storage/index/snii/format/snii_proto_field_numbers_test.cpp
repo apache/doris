@@ -78,26 +78,8 @@ TEST(SniiProtoFieldNumbers, CoreMetadataMatchesTheShippedLayout) {
     expect_field_numbers(SniiCoreMetadataPB::descriptor(), {{"index_config", 1},
                                                             {"stats", 2},
                                                             {"section_refs", 3},
-                                                            {"common_grams", 4},
-                                                            {"common_grams_posting_policy", 5}});
-}
-
-// The CommonGrams block was APPENDED upstream (tags 8-12 were free in the
-// shipped layout), which is the shape every future addition must copy.
-TEST(SniiProtoFieldNumbers, CommonGramsMetadataAppendsRatherThanInserts) {
-    expect_field_numbers(SniiCommonGramsMetadataPB::descriptor(),
-                         {{"plain_term_key_version", 1},
-                          {"common_grams_coverage", 2},
-                          {"common_grams_semantics_version", 3},
-                          {"common_grams_key_version", 4},
-                          {"common_grams_dictionary_identity", 5},
-                          {"base_analyzer_fingerprint", 6},
-                          {"common_grams_fingerprint", 7},
-                          {"scoring_coverage", 8},
-                          {"scoring_stats_version", 9},
-                          {"norm_semantics_version", 10},
-                          {"scoring_doc_count", 11},
-                          {"scoring_token_count", 12}});
+                                                            {"legacy_common_grams", 4},
+                                                            {"legacy_common_grams_posting_policy", 5}});
 }
 
 } // namespace doris::snii

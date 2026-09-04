@@ -172,17 +172,12 @@ Status score_plain_term_candidates(const IndexQueryContextPtr& context,
     scoring_terms.reserve(query_info.term_infos.size());
     for (const auto& term_info : query_info.term_infos) {
         DORIS_CHECK(term_info.is_single_term());
-        std::string physical_term;
-        bool representable = false;
-        RETURN_IF_ERROR(::doris::snii::query::internal::route_query_term(
-                logical_reader, term_info, &physical_term, &representable));
-        if (!representable) {
-            continue;
-        }
         const std::string& logical_term = term_info.get_single_term();
+        RETURN_IF_ERROR(::doris::snii::query::internal::check_term_outside_internal_namespace(
+                logical_term));
         const double idf = context->collection_statistics->get_or_calculate_idf(
                 field_name, StringUtil::string_to_wstring(logical_term));
-        scoring_terms.push_back({.physical_term = std::move(physical_term), .idf = idf});
+        scoring_terms.push_back({.physical_term = logical_term, .idf = idf});
     }
     DORIS_CHECK(final_candidates.isEmpty() || !scoring_terms.empty());
 
@@ -469,17 +464,12 @@ Status SniiIndexReader::_parse_query_terms(
         parse_phrase_slop(&search_str, query_info);
     }
 
-    const bool actual_similarity =
-            context->collection_similarity &&
-            IndexReaderHelper::is_need_similarity_score(query_type, &_index_meta);
-    const auto purpose =
-            inverted_index::select_analysis_purpose(query_type, query_info->slop, actual_similarity);
     SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
     try {
         if (analyzer_ctx != nullptr && !analyzer_ctx->requires_analysis()) {
             query_info->term_infos.emplace_back(search_str);
         } else {
-            auto analyzer = analyzer_ctx == nullptr ? nullptr : analyzer_ctx->get_analyzer(purpose);
+            auto analyzer = analyzer_ctx == nullptr ? nullptr : analyzer_ctx->get_analyzer();
             if (analyzer != nullptr) {
                 auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
                         analyzer_ctx->char_filter_map);
@@ -488,7 +478,7 @@ Status SniiIndexReader::_parse_query_terms(
                         reader, analyzer.get());
             } else {
                 query_info->term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                        search_str, _index_meta.properties(), purpose);
+                        search_str, _index_meta.properties());
             }
         }
     } catch (const CLuceneError& e) {
@@ -800,16 +790,11 @@ Status SniiIndexReader::_compute_query_bitmap(
     case InvertedIndexQueryType::MATCH_ANY_QUERY:
     case InvertedIndexQueryType::MATCH_ALL_QUERY:
     case InvertedIndexQueryType::MATCH_PHRASE_QUERY: {
-        bool all_representable = false;
-        RETURN_IF_ERROR(::doris::snii::query::internal::route_query_terms(
-                *logical_reader, query_info, terms, &all_representable));
+        RETURN_IF_ERROR(
+                ::doris::snii::query::internal::check_query_terms_outside_internal_namespace(
+                        query_info));
         if (terms->empty() && (query_type == InvertedIndexQueryType::EQUAL_QUERY ||
                                query_type == InvertedIndexQueryType::MATCH_ANY_QUERY)) {
-            *out = std::make_shared<roaring::Roaring>();
-            return Status::OK();
-        }
-        if (!all_representable && (query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
-                                   query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY)) {
             *out = std::make_shared<roaring::Roaring>();
             return Status::OK();
         }
@@ -925,18 +910,11 @@ Status SniiIndexReader::_try_count_only_fastpath(
         return Status::OK();
     }
 
-    std::string physical_term_scratch;
-    std::string_view physical_term;
-    bool representable = false;
     DORIS_CHECK(query_info.term_infos.size() == 1);
-    RETURN_IF_ERROR(::doris::snii::query::internal::route_query_term_view(
-            *logical_reader, query_info.term_infos.front(), &physical_term_scratch, &physical_term,
-            &representable));
+    const std::string& term = query_info.term_infos.front().get_single_term();
+    RETURN_IF_ERROR(::doris::snii::query::internal::check_term_outside_internal_namespace(term));
     uint64_t count = 0;
-    if (representable) {
-        RETURN_IF_ERROR(
-                ::doris::snii::query::count_only_term_df(*logical_reader, physical_term, &count));
-    }
+    RETURN_IF_ERROR(::doris::snii::query::count_only_term_df(*logical_reader, term, &count));
     // df bounds the fabricated bitmap, so it has to be inside a document domain
     // that is itself real. Two steps, because they fail differently.
     const auto& stats = logical_reader->stats();

@@ -27,14 +27,13 @@
 namespace doris {
 namespace {
 
-class PurposeInsensitiveAnalyzerProvider final
+class SingleAnalyzerProvider final
         : public segment_v2::inverted_index::AnalyzerProvider {
 public:
-    explicit PurposeInsensitiveAnalyzerProvider(AnalyzerPtr analyzer)
+    explicit SingleAnalyzerProvider(AnalyzerPtr analyzer)
             : _analyzer(std::move(analyzer)) {}
 
-    AnalyzerPtr get_analyzer(
-            segment_v2::inverted_index::AnalysisPurpose /*purpose*/) const override {
+    AnalyzerPtr get_analyzer() const override {
         return _analyzer;
     }
 
@@ -144,8 +143,7 @@ AnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with type: " + name);
 }
 
-AnalyzerPtr IndexPolicyMgr::get_analyzer_by_name(
-        const std::string& name, segment_v2::inverted_index::AnalysisPurpose purpose) {
+AnalyzerPtr IndexPolicyMgr::get_analyzer_by_name(const std::string& name) {
     std::shared_lock lock(_mutex);
     const std::string normalized_name = normalize_name(name);
     auto name_it = _name_to_id.find(normalized_name);
@@ -162,7 +160,7 @@ AnalyzerPtr IndexPolicyMgr::get_analyzer_by_name(
     if (policy_it->second.type == TIndexPolicyType::ANALYZER) {
         return build_analyzer_provider_from_config(
                        build_analyzer_config_from_policy(policy_it->second), {})
-                ->get_analyzer(purpose);
+                ->get_analyzer();
     }
     if (policy_it->second.type == TIndexPolicyType::NORMALIZER) {
         return build_normalizer_from_policy(policy_it->second);
@@ -177,7 +175,7 @@ AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
     auto name_it = _name_to_id.find(normalized_name);
     if (name_it == _name_to_id.end()) {
         if (is_builtin_normalizer(normalized_name)) {
-            return std::make_shared<PurposeInsensitiveAnalyzerProvider>(
+            return std::make_shared<SingleAnalyzerProvider>(
                     build_builtin_normalizer(name));
         }
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
@@ -191,7 +189,7 @@ AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
                 build_analyzer_config_from_policy(policy_it->second), outer_char_filter_map);
     }
     if (policy_it->second.type == TIndexPolicyType::NORMALIZER) {
-        return std::make_shared<PurposeInsensitiveAnalyzerProvider>(
+        return std::make_shared<SingleAnalyzerProvider>(
                 build_normalizer_from_policy(policy_it->second));
     }
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Analyzer policy not found: " + name);
@@ -256,7 +254,7 @@ AnalyzerProviderPtr IndexPolicyMgr::build_analyzer_provider_from_config(
 AnalyzerPtr IndexPolicyMgr::build_analyzer_from_policy(const TIndexPolicy& index_policy_analyzer) {
     return build_analyzer_provider_from_config(
                    build_analyzer_config_from_policy(index_policy_analyzer), {})
-            ->get_analyzer(segment_v2::inverted_index::AnalysisPurpose::kIndex);
+            ->get_analyzer();
 }
 
 AnalyzerPtr IndexPolicyMgr::build_normalizer_from_policy(

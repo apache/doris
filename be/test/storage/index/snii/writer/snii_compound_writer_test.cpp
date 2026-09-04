@@ -1537,6 +1537,22 @@ void ExpectFixtureReadable(const std::vector<uint8_t>& file) {
 
 } // namespace
 
+// 夹具尺寸随格式演进漂移（core 元数据字段的增减就会改动几十字节）。从"跨 2*kMinPaddingLeverage
+// 个块"的导出值往下找第一个"确实要补齐、且补齐便宜（2*pad < block）"的块大小：块越小跨的块越多，
+// 阈值门只会更宽松，所以门不会成为这些用例的决定因素。
+int64_t CheapPaddingBlockSize(size_t unpadded) {
+    auto block = static_cast<int64_t>(unpadded / (2 * kMinPaddingLeverage));
+    while (block >= 2) {
+        const auto block_size = static_cast<size_t>(block);
+        const size_t pad = (block_size - unpadded % block_size) % block_size;
+        if (pad > 0 && 2 * pad < block_size) {
+            return block;
+        }
+        --block;
+    }
+    return block;
+}
+
 // A read confined to a file's last PARTIAL block costs a whole extra block: s_align_size clamps
 // the aligned window to the file end and back-pads by a full block when that clamp leaves it
 // short. Ending on a boundary makes the condition false.
@@ -1546,16 +1562,16 @@ void ExpectFixtureReadable(const std::vector<uint8_t>& file) {
 // how this test would rot into silently asserting the skipped branch instead.
 TEST(SniiCompoundWriter, PadsToBlockBoundaryWhenPaddingIsCheapRelativeToContainer) {
     const size_t unpadded = WriteFixtureAtBlockSize(0).size();
-    // At this block size the container spans 2*kMinPaddingLeverage blocks, comfortably clearing
-    // the floor, so the gate cannot be what decides this test.
-    const auto block = static_cast<int64_t>(unpadded / (2 * kMinPaddingLeverage));
+    // At this block size the container spans at least 2*kMinPaddingLeverage blocks, comfortably
+    // clearing the floor, so the gate cannot be what decides this test.
+    const auto block = CheapPaddingBlockSize(unpadded);
     ASSERT_GE(block, 2) << "fixture too small to derive a usable block size";
 
     // Without this the test can pass VACUOUSLY: if the fixture happens to be an exact multiple of
     // the derived block, pad is 0, the writer appends nothing, and "size % block == 0" is true for
-    // the wrong reason. The margin is thin -- at the current 1904 B fixture, +10 B or -19 B lands
-    // on such a multiple, and so does setting kMinPaddingLeverage to 64. Assert the padding was
-    // actually due, then assert its EXACT size so an over-pad (a whole spurious block) also fails.
+    // the wrong reason. CheapPaddingBlockSize already avoids that, but assert it (and the
+    // cheapness bound) rather than trusting the search, then assert the EXACT pad size so an
+    // over-pad (a whole spurious block) also fails.
     const auto block_size = static_cast<size_t>(block);
     const size_t pad = (block_size - unpadded % block_size) % block_size;
     ASSERT_GT(pad, 0U) << "fixture (" << unpadded << " B) is an exact multiple of block " << block
@@ -1602,7 +1618,7 @@ TEST(SniiCompoundWriter, SkipsPaddingWhenItWouldBeLargeRelativeToContainer) {
 // qualifies on every other count must still come out unpadded.
 TEST(SniiCompoundWriter, SkipsPaddingWhenTheFileCacheIsOff) {
     const size_t unpadded = WriteFixtureAtBlockSize(0).size();
-    const auto block = static_cast<int64_t>(unpadded / (2 * kMinPaddingLeverage));
+    const auto block = CheapPaddingBlockSize(unpadded);
     ASSERT_GE(block, 2) << "fixture too small to derive a usable block size";
     // Same block size the acceptance test uses, so the cache flag is the only difference.
     ASSERT_NE(WriteFixtureAtBlockSize(block, /*file_cache_on=*/true).size(), unpadded)

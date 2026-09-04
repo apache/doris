@@ -44,19 +44,17 @@
 namespace doris::segment_v2 {
 namespace {
 
-using inverted_index::AnalysisPurpose;
 using inverted_index::AnalyzerProvider;
 
 class RecordingFailingAnalyzerProvider final : public AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
-            AnalysisPurpose purpose) const override {
-        purposes.push_back(purpose);
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+        ++calls;
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "forced analyzer provider failure");
     }
 
-    mutable std::vector<AnalysisPurpose> purposes;
+    mutable uint32_t calls = 0;
 };
 
 
@@ -123,13 +121,12 @@ private:
 
 class RecordingPartialFailureAnalyzerProvider final : public AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
-            AnalysisPurpose purpose) const override {
-        purposes.push_back(purpose);
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+        ++calls;
         return std::make_shared<PartialFailureAnalyzer>(emitted_tokens);
     }
 
-    mutable std::vector<AnalysisPurpose> purposes;
+    mutable uint32_t calls = 0;
     std::shared_ptr<std::atomic<uint32_t>> emitted_tokens =
             std::make_shared<std::atomic<uint32_t>>(0);
 };
@@ -215,14 +212,6 @@ protected:
                                                          const std::shared_ptr<Provider>& provider,
                                                          int64_t expected_query_cache_lookups = 0,
                                                          int64_t expected_searcher_cache_hits = 1) {
-        // 用途只由查询类型/打分决定（CommonGrams 删除后不再有"强制 plain"的覆盖）。
-        int32_t slop = 0;
-        if (const auto tilde = query.rfind('~');
-            query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY && tilde != std::string::npos) {
-            slop = std::stoi(query.substr(tilde + 1));
-        }
-        const AnalysisPurpose expected_purpose =
-                inverted_index::select_analysis_purpose(query_type, slop, scoring);
         QueryExecutionContext execution(scoring);
         InvertedIndexAnalyzerCtx analyzer_ctx;
         analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
@@ -237,7 +226,7 @@ protected:
         EXPECT_NO_THROW(status = reader->query(execution.context, "content", query_value,
                                                query_type, bitmap, &analyzer_ctx));
         EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
-        EXPECT_EQ(provider->purposes, (std::vector<AnalysisPurpose> {expected_purpose}));
+        EXPECT_EQ(provider->calls, 1U);
         EXPECT_EQ(bitmap, original_bitmap);
         EXPECT_EQ(bitmap->cardinality(), 1);
         EXPECT_TRUE(bitmap->contains(999));
@@ -276,7 +265,7 @@ protected:
         const Status status = reader->query(execution.context, "content", query_value, query_type,
                                             bitmap, &analyzer_ctx);
         EXPECT_NE(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
-        EXPECT_TRUE(provider->purposes.empty());
+        EXPECT_EQ(provider->calls, 0U);
     }
 
     template <typename Reader, typename Provider>
@@ -311,7 +300,7 @@ protected:
                 reader->query(execution.context, "content", query_value,
                               InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap, &analyzer_ctx);
         EXPECT_TRUE(status.ok()) << status;
-        EXPECT_TRUE(provider->purposes.empty());
+        EXPECT_EQ(provider->calls, 0U);
         ASSERT_NE(bitmap, nullptr);
         EXPECT_EQ(bitmap->cardinality(), 1);
         EXPECT_TRUE(bitmap->contains(7));
@@ -425,7 +414,7 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest, DisabledResultCacheDoesNotLookupC
     EXPECT_EQ(execution.stats.inverted_index_query_cache_lookup, 1);
 }
 
-TEST_F(InvertedIndexReaderAnalysisPurposeTest, SniiSelectsPurposeAfterSegmentAdmission) {
+TEST_F(InvertedIndexReaderAnalysisPurposeTest, SniiAsksProviderOnlyAfterSegmentAdmission) {
     preload_legacy_searcher_cache_entries();
     expect_provider_failure_after_segment_admission(
             _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false, /*expected_query_cache_lookups=*/1);

@@ -2835,7 +2835,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsDslSuffixBefor
             {INVERTED_INDEX_ANALYZER_NAME_KEY, analyzer.name}};
     ASSERT_TRUE(inverted_index::InvertedIndexAnalyzer::should_analyzer(properties));
     auto raw_terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-            "fail*", properties, inverted_index::AnalysisPurpose::kPhrasePrefixQuery);
+            "fail*", properties);
     ASSERT_EQ(1, raw_terms.size());
     EXPECT_EQ("fail*", raw_terms[0].get_single_term());
 

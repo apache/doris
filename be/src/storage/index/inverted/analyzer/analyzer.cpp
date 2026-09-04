@@ -54,7 +54,7 @@ public:
                               : get_inverted_index_parser_type_from_string(config.analyzer_name),
                       config.parser_mode, config.lower_case, config.stop_words)) {}
 
-    AnalyzerPtr get_analyzer(AnalysisPurpose) const override { return _analyzer; }
+    AnalyzerPtr get_analyzer() const override { return _analyzer; }
 
 private:
     const AnalyzerPtr _analyzer;
@@ -166,11 +166,6 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
 }
 
 AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config) {
-    return create_analyzer(config, AnalysisPurpose::kPlainQuery);
-}
-
-AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config,
-                                                   AnalysisPurpose purpose) {
     DCHECK(config != nullptr);
     if (config->analyzer_name.empty() || is_builtin_analyzer(config->analyzer_name)) {
         const InvertedIndexParserType parser_type =
@@ -186,7 +181,7 @@ AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerCo
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "Index policy manager is not initialized");
     }
-    return index_policy_mgr->get_analyzer_by_name(config->analyzer_name, purpose);
+    return index_policy_mgr->get_analyzer_by_name(config->analyzer_name);
 }
 
 AnalyzerProviderPtr InvertedIndexAnalyzer::create_analyzer_provider(
@@ -219,7 +214,6 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
             t.term = std::string(token.termBuffer<char>(), token.termLength<char>());
             position += token.getPositionIncrement();
             t.position = position;
-            t.key_kind = TermKeyKind::kPlain;
             analyse_result.emplace_back(std::move(t));
         }
     }
@@ -233,12 +227,6 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
         const std::string& search_str, const std::map<std::string, std::string>& properties) {
-    return get_analyse_result(search_str, properties, AnalysisPurpose::kPlainQuery);
-}
-
-std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
-        const std::string& search_str, const std::map<std::string, std::string>& properties,
-        AnalysisPurpose purpose) {
     if (!should_analyzer(properties)) {
         // Keyword index: all strings (including empty) are valid tokens for exact match.
         // Empty string is a valid value in keyword index and should be matchable.
@@ -254,24 +242,10 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
     config.lower_case = get_parser_lowercase_from_properties(properties);
     config.stop_words = get_parser_stopwords_from_properties(properties);
     config.char_filter_map = get_parser_char_filter_map_from_properties(properties);
-    auto analyzer = create_analyzer(&config, purpose);
+    auto analyzer = create_analyzer(&config);
     auto reader = create_reader(config.char_filter_map);
     reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
     return get_analyse_result(reader, analyzer.get());
-}
-
-AnalysisPurpose select_analysis_purpose(InvertedIndexQueryType query_type, int32_t slop,
-                                        bool is_similarity) {
-    if (is_similarity) {
-        return AnalysisPurpose::kPlainQuery;
-    }
-    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY && slop == 0) {
-        return AnalysisPurpose::kExactPhraseQuery;
-    }
-    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
-        return AnalysisPurpose::kPhrasePrefixQuery;
-    }
-    return AnalysisPurpose::kPlainQuery;
 }
 
 bool InvertedIndexAnalyzer::should_analyzer(const std::map<std::string, std::string>& properties) {
