@@ -132,5 +132,25 @@ suite("hive_partition_prune") {
         sql "SELECT * FROM test_hive_partition WHERE p!=5 and p!=6"
         contains("partition=4/6")
     }
+
+    explain {
+        sql "select max(p) from test_hive_partition"
+        contains("constant exprs")
+        notContains("VPluginDrivenScanNode")
+    }
+
+    explain {
+        sql "select * from test_hive_partition where p = (select max(p) from test_hive_partition)"
+        contains("constant exprs")
+        contains("PREDICATES: (p")
+        contains("partition=1/6")
+    }
+
+    explain {
+        sql "select * from test_hive_partition where p = (select min(p) from test_hive_partition)"
+        contains("constant exprs")
+        contains("PREDICATES: (p")
+        contains("partition=1/6")
+    }
     sql "drop table if exists test_hive_partition "
 }
