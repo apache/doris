@@ -235,7 +235,7 @@ public class OlapTableSink extends DataSink {
                 partition.setTabletVersionGapBackends(gapBackends);
             }
         }
-        tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
+        tOlapTableLocationParams = initLocationParams(tSink);
 
         tSink.setTableId(dstTable.getId());
         tSink.setTupleId(tupleDescriptor.getId().asInt());
@@ -293,7 +293,7 @@ public class OlapTableSink extends DataSink {
                 partition.setTabletVersionGapBackends(gapBackends);
             }
         }
-        tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
+        tOlapTableLocationParams = initLocationParams(tSink);
 
         tSink.setTableId(dstTable.getId());
         tSink.setTupleId(tupleDescriptor.getId().asInt());
@@ -1121,6 +1121,15 @@ public class OlapTableSink extends DataSink {
                 tPartition.setIsDefaultPartition(partitionItem.isDefaultPartition());
             }
         }
+    }
+
+    // Hook for subclasses to control how the tablet location params are populated.
+    // Default behavior computes the full tablet -> backend mapping via createLocation,
+    // which under high-concurrency stream load on large tables is the dominant FE CPU
+    // cost. Subclasses whose BE counterpart does not consume TOlapTableSink.location
+    // (e.g. GroupCommitBlockSink) can override this hook to skip that work.
+    protected List<TOlapTableLocationParam> initLocationParams(TOlapTableSink tSink) throws UserException {
+        return createLocation(tSink.getDbId(), dstTable);
     }
 
     public List<TOlapTableLocationParam> createDummyLocation(OlapTable table) throws UserException {
