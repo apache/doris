@@ -54,10 +54,16 @@ Status HdfsFileHandle::init(int64_t file_size) {
         auto* file_info = SYNC_POINT_HOOK_RETURN_VALUE(hdfsGetPathInfo(_fs, _fname.c_str()),
                                                        "HdfsFileHandle::init::hdfsGetPathInfo");
         if (file_info == nullptr) {
-            return Status::InternalError("failed to get file size of {}: {}", _fname, hdfs_error());
+            std::string err_msg =
+                    SYNC_POINT_HOOK_RETURN_VALUE(hdfs_error(), "HdfsFileHandle::init::hdfs_error");
+            // invoker maybe just skip Status.NotFound and continue
+            // so we need distinguish between it and other kinds of errors
+            if (err_msg.find("No such file or directory") != std::string::npos) {
+                return Status::NotFound(err_msg);
+            }
+            return Status::InternalError("failed to get file size of {}: {}", _fname, err_msg);
         }
         _file_size = file_info->mSize;
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("HdfsFileHandle::init::hdfsFreeFileInfo", Status::OK());
         hdfsFreeFileInfo(file_info, 1);
     }
     return Status::OK();

@@ -21,13 +21,14 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
 #include "cpp/sync_point.h"
-#include "format/table/iceberg_delete_file_reader_helper.h"
 #include "gen_cpp/Status_types.h"
 #include "io/fs/hdfs_file_reader.h"
 
@@ -82,25 +83,36 @@ static void set_mock_return(const std::string& point, T value, SyncPoint::Callba
             guard);
 }
 
-// Mocks hdfsOpenFile/hdfsCloseFile/hdfsGetPathInfo/hdfsFreeFileInfo/hdfsUnbufferFile via SyncPoint to avoid JNI.
+// Enables SyncPoint processing for the enclosing scope only.
+struct SyncPointProcessingGuard {
+    SyncPointProcessingGuard() { SyncPoint::get_instance()->enable_processing(); }
+    ~SyncPointProcessingGuard() { SyncPoint::get_instance()->disable_processing(); }
+};
+
+// Mocks hdfsOpenFile/hdfsCloseFile/hdfsGetPathInfo/hdfsUnbufferFile via SyncPoint to avoid JNI.
 struct MockHandleGuard {
     SyncPoint::CallbackGuard open_guard;
     SyncPoint::CallbackGuard close_guard;
     SyncPoint::CallbackGuard info_guard;
-    SyncPoint::CallbackGuard free_guard;
     SyncPoint::CallbackGuard unbuffer_guard;
-    static inline hdfsFileInfo mock_info;
+    SyncPointProcessingGuard processing_guard;
     MockHandleGuard(hdfsFile mock_file, int64_t file_size = 4096) {
-        mock_info.mSize = file_size;
         auto* sp = SyncPoint::get_instance();
-        sp->enable_processing();
         set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", mock_file,
                                   &open_guard);
         set_mock_return<int>("HdfsFileHandle::close::hdfsCloseFile", 0, &close_guard);
-        set_mock_return<hdfsFileInfo*>("HdfsFileHandle::init::hdfsGetPathInfo", &mock_info,
-                                       &info_guard);
-        set_mock_return<Status>("HdfsFileHandle::init::hdfsFreeFileInfo", Status::OK(),
-                                &free_guard);
+        // Each hit allocates a fresh heap info so init()'s real hdfsFreeFileInfo can free it safely.
+        sp->set_call_back(
+                "HdfsFileHandle::init::hdfsGetPathInfo",
+                [file_size](auto&& args) {
+                    auto* ret = try_any_cast_ret<hdfsFileInfo*>(args);
+                    auto* info = static_cast<hdfsFileInfo*>(calloc(1, sizeof(hdfsFileInfo)));
+                    info->mSize = file_size;
+                    info->mName = strdup("/test/mock-file.parquet");
+                    ret->first = info;
+                    ret->second = true;
+                },
+                &info_guard);
         set_mock_return<int>("HdfsFileHandle::close::hdfsUnbufferFile", 0, &unbuffer_guard);
     }
 };
@@ -156,14 +168,33 @@ TEST(FileHandleCacheTest, InitFailsWhenGetPathInfoReturnsNull) {
     auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
     ExclusiveHdfsFileHandle handle(mock_fs, "/test/file.parquet", 12345);
 
-    auto* sp = SyncPoint::get_instance();
-    sp->enable_processing();
+    SyncPointProcessingGuard sp_guard;
     SyncPoint::CallbackGuard guard;
     set_mock_return<hdfsFileInfo*>("HdfsFileHandle::init::hdfsGetPathInfo", nullptr, &guard);
+    SyncPoint::CallbackGuard err_guard;
+    set_mock_return<std::string>("HdfsFileHandle::init::hdfs_error", "connection refused",
+                                 &err_guard);
 
     auto st = handle.init(-1);
     ASSERT_FALSE(st.ok());
     EXPECT_EQ(st.code(), TStatusCode::INTERNAL_ERROR);
+}
+
+// init(-1) returns NotFound when the file is missing.
+TEST(FileHandleCacheTest, InitReturnsNotFoundForMissingFile) {
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    ExclusiveHdfsFileHandle handle(mock_fs, "/test/missing.parquet", 12345);
+
+    SyncPointProcessingGuard sp_guard;
+    SyncPoint::CallbackGuard guard;
+    set_mock_return<hdfsFileInfo*>("HdfsFileHandle::init::hdfsGetPathInfo", nullptr, &guard);
+    SyncPoint::CallbackGuard err_guard;
+    set_mock_return<std::string>("HdfsFileHandle::init::hdfs_error", "No such file or directory",
+                                 &err_guard);
+
+    auto st = handle.init(-1);
+    ASSERT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), TStatusCode::NOT_FOUND);
 }
 
 // ensure_open() returns NotFound when error contains "No such file or directory".
@@ -172,8 +203,7 @@ TEST(FileHandleCacheTest, EnsureOpenReturnsNotFoundForMissingFile) {
     ExclusiveHdfsFileHandle handle(mock_fs, "/test/missing.parquet", 12345);
     ASSERT_TRUE(handle.init(4096).ok());
 
-    auto* sp = SyncPoint::get_instance();
-    sp->enable_processing();
+    SyncPointProcessingGuard sp_guard;
     SyncPoint::CallbackGuard open_guard;
     set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", nullptr, &open_guard);
     SyncPoint::CallbackGuard err_guard;
@@ -276,8 +306,8 @@ TEST(FileHandleCacheTest, OpenFailurePreservesStatusInsideCallOnce) {
     ExclusiveHdfsFileHandle handle(mock_fs, "/test/serial_fail.parquet", 12345);
     ASSERT_TRUE(handle.init(4096).ok());
 
+    SyncPointProcessingGuard sp_guard;
     auto* sp = SyncPoint::get_instance();
-    sp->enable_processing();
     SyncPoint::CallbackGuard open_guard;
     set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", nullptr, &open_guard);
     SyncPoint::CallbackGuard err_guard;
@@ -305,8 +335,8 @@ TEST(FileHandleCacheTest, ConcurrentOpenFailureReturnsSameStatusToAllCallers) {
     ExclusiveHdfsFileHandle handle(mock_fs, "/test/concurrent_fail.parquet", 12345);
     ASSERT_TRUE(handle.init(4096).ok());
 
+    SyncPointProcessingGuard sp_guard;
     auto* sp = SyncPoint::get_instance();
-    sp->enable_processing();
     SyncPoint::CallbackGuard open_guard;
     set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", nullptr, &open_guard);
 

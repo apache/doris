@@ -395,13 +395,21 @@ TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorReaderValidatesOpenedFileR
         const auto exact_status = exact_reader.open();
         EXPECT_TRUE(exact_status.ok()) << exact_status;
 
+        // Manifest-style range: exact file_size provided by the FE instead of -1.
+        TFileRangeDesc manifest_range = build_iceberg_delete_file_range(dv_path, dv_size);
+        manifest_range.start_offset = 4;
+        manifest_range.size = dv_size - manifest_range.start_offset;
+        DeletionVectorReader manifest_reader(&state, &profile, scan_params, manifest_range,
+                                             &io_context.io_ctx);
+        const auto manifest_status = manifest_reader.open();
+        EXPECT_TRUE(manifest_status.ok()) << manifest_status;
+
         TFileRangeDesc oversized_range = exact_range;
         oversized_range.size = MAX_ICEBERG_DELETION_VECTOR_BYTES;
         DeletionVectorReader oversized_reader(&state, &profile, scan_params, oversized_range,
                                               &io_context.io_ctx);
         const auto oversized_status = oversized_reader.open();
-        EXPECT_TRUE(oversized_status.template is<ErrorCode::DATA_QUALITY_ERROR>())
-                << oversized_status;
+        EXPECT_TRUE(oversized_status.is<ErrorCode::DATA_QUALITY_ERROR>()) << oversized_status;
         EXPECT_NE(oversized_status.to_string().find("range exceeds file size"), std::string::npos);
         EXPECT_NE(oversized_status.to_string().find(dv_path), std::string::npos);
     }
@@ -617,8 +625,6 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadMixedEncodingParquetPositionDeleteFi
     delete_file.path = kMixedPositionDeleteFile;
     delete_file.file_format = TFileFormatType::FORMAT_PARQUET;
     delete_file.__isset.file_format = true;
-    delete_file.__isset.file_size = true;
-    delete_file.file_size = -1;
 
     IcebergDeleteFileReaderOptions options;
     options.state = &runtime_state;

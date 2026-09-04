@@ -453,6 +453,31 @@ public class IcebergScanRangeTest {
         Assertions.assertFalse(rangeDesc.isSetColumnsFromPath());
     }
 
+    @Test
+    public void populateRangeParamsSysTableForwardsDeleteFileSize() {
+        // The sys-table delete descriptor must forward the range's file_size; BE keys on delete_files[0].file_size.
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("/puffin/delete-file.puffin")
+                .positionDeleteSysTableSplit(3, TFileFormatType.FORMAT_PARQUET, "/raw/delete.puffin")
+                .positionDeleteDeletionVector("/data/file.parquet", 4L, 100L)
+                .build();
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        rangeDesc.setFileSize(12345L);
+        populate(range, rangeDesc);
+
+        TIcebergFileDesc fd = rangeDesc.getTableFormatParams().getIcebergParams();
+        Assertions.assertTrue(fd.isSetDeleteFiles());
+        Assertions.assertEquals(1, fd.getDeleteFilesSize());
+        Assertions.assertEquals(12345L, fd.getDeleteFiles().get(0).getFileSize());
+
+        // isSet guard: an unset range size must not emit file_size on the delete descriptor.
+        TFileRangeDesc unsetDesc = populate(range, new TFileRangeDesc());
+        Assertions.assertFalse(
+                unsetDesc.getTableFormatParams().getIcebergParams().getDeleteFiles().get(0)
+                        .isSetFileSize());
+    }
+
     // ── commit-bridge supply (S4 part 2): getOriginalPath() key + rewritableDeleteDescs() non-equality filter ──
 
     @Test
