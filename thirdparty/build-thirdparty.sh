@@ -2104,8 +2104,22 @@ build_lance_c() {
         echo "failed to get cargo version for lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    if [[ "${cargo_version}" != "${required_rust_version}" ]]; then
-        echo "lance-c requires Rust/Cargo ${required_rust_version}, but found ${cargo_version}."
+    # Rust 1.91.0 is the minimum supported version. Allow newer toolchains when
+    # callers explicitly select one or rustup is unavailable on the system.
+    if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
+            split(required, r, ".");
+            split(actual, a, ".");
+            for (i = 1; i <= 3; i++) {
+                if ((a[i] + 0) > (r[i] + 0)) {
+                    exit 0;
+                }
+                if ((a[i] + 0) < (r[i] + 0)) {
+                    exit 1;
+                }
+            }
+            exit 0;
+        }'; then
+        echo "lance-c requires Rust/Cargo ${required_rust_version} or newer, but found ${cargo_version}."
         echo "Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
