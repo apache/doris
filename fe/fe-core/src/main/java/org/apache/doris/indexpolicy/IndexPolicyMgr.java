@@ -44,6 +44,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -132,6 +133,49 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         try {
             IndexPolicy analyzer = requireAnalyzerLocked(analyzerName);
             return validateAnalyzerGraphLocked(analyzer.getName(), analyzer.getProperties());
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     * 判断 {@code analyzerName} 是否为「gram 族」analyzer：tokenizer 为 ngram 且显式携带
+     * mode（sparse/auto/dense）。gram 族 analyzer 在 BE 侧只产出稀疏/稠密 gram 倒排项，只有
+     * SNII 存储格式能读取、且不带位置信息（不支持短语查询）；调用方（当前是
+     * {@code InvertedIndexUtil.checkAnalyzerName}）据此对索引属性做强制约束。
+     *
+     * <p>不是自定义 analyzer（null、内置 analyzer 名、不存在、类型不对）、tokenizer 不是
+     * ngram、或 ngram 未带 mode（legacy min_gram/max_gram 用法）时返回 {@code Optional.empty()}。
+     * 命中时返回小写化的 mode 取值。
+     */
+    public Optional<String> resolveGramTokenizerMode(String analyzerName) {
+        if (analyzerName == null) {
+            return Optional.empty();
+        }
+        String normalizedName = normalizeKey(analyzerName);
+        if (IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)) {
+            return Optional.empty();
+        }
+
+        readLock();
+        try {
+            IndexPolicy analyzer = nameToIndexPolicy.get(normalizedName);
+            if (analyzer == null || analyzer.getType() != IndexPolicyTypeEnum.ANALYZER) {
+                return Optional.empty();
+            }
+            String tokenizerRef = analyzer.getProperties().get(IndexPolicy.PROP_TOKENIZER);
+            ResolvedAnalyzerComponent tokenizer;
+            try {
+                tokenizer = resolveAnalyzerComponentLocked(tokenizerRef, IndexPolicyTypeEnum.TOKENIZER);
+            } catch (DdlException e) {
+                // tokenizer 引用失效（比如被删除）不是本方法要报告的问题，交由其他校验路径处理。
+                return Optional.empty();
+            }
+            if (!"ngram".equals(tokenizer.componentType)) {
+                return Optional.empty();
+            }
+            String mode = tokenizer.properties.get("mode");
+            return (mode == null || mode.isEmpty()) ? Optional.empty() : Optional.of(mode.toLowerCase());
         } finally {
             readUnlock();
         }
@@ -298,6 +342,28 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             for (String tokenFilterName : tokenFilterNames.split(",\\s*")) {
                 tokenFilters.add(resolveAnalyzerComponentLocked(
                         tokenFilterName, IndexPolicyTypeEnum.TOKEN_FILTER));
+            }
+        }
+
+        // gram 族强约束（R31）：tokenizer 为 ngram 且带 mode（sparse/auto/dense，任意取值，
+        // 含 dense）时，analyzer 不允许再叠加任何 token filter —— gram 的切分边界必须完全由
+        // tokenizer 自己划定（大小写折叠等要靠 tokenizer 自带的 lower_case 属性，在切分之前
+        // 完成），否则叠加的 token filter 会在 gram 边界之后再变换 term，破坏稀疏/稠密 gram
+        // 索引的可复现语义。
+        if ("ngram".equals(tokenizer.componentType)) {
+            String gramMode = tokenizer.properties.get("mode");
+            if (gramMode != null && !gramMode.isEmpty()) {
+                for (ResolvedAnalyzerComponent filter : tokenFilters) {
+                    if ("lowercase".equals(filter.componentType)) {
+                        throw new DdlException("lowercase token filter cannot be combined with ngram tokenizer mode="
+                                + gramMode.toLowerCase()
+                                + "; use the tokenizer's own lower_case=true "
+                                + "(folding must happen before gram boundaries)");
+                    }
+                    throw new DdlException("token filter '" + filter.referenceName
+                            + "' cannot be combined with ngram tokenizer mode=" + gramMode.toLowerCase()
+                            + " (gram-family analyzers must be tokenizer-only)");
+                }
             }
         }
 

@@ -38,6 +38,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class InvertedIndexUtil {
@@ -255,6 +256,7 @@ public class InvertedIndexUtil {
         }
 
         checkAnalyzerName(analyzerName, colType, invertedIndexFileStorageFormat, supportPhrase);
+        applyGramFamilyIndexDefaults(analyzerName, properties);
         checkNormalizerName(normalizerName, colType);
 
         if (parser != null
@@ -371,12 +373,67 @@ public class InvertedIndexUtil {
                 }
                 return;
             }
+            // gram 族 analyzer（ngram tokenizer 且带 mode，见 IndexPolicyMgr#resolveGramTokenizerMode）：
+            // BE 只在 SNII 上为它构建稀疏/稠密 gram 倒排项，且该倒排项不带位置信息，无法支持短语查询。
+            Optional<String> gramMode = indexPolicyMgr.resolveGramTokenizerMode(analyzerName);
+            if (gramMode.isPresent()) {
+                if (colType.isArrayType()) {
+                    throw new AnalysisException("gram tokenizer (mode=" + gramMode.get()
+                            + ") analyzer '" + analyzerName + "' does not support ARRAY columns");
+                }
+                if (!colType.isCharFamily()) {
+                    throw new AnalysisException("gram tokenizer (mode=" + gramMode.get()
+                            + ") analyzer '" + analyzerName
+                            + "' is supported only on scalar CHAR, VARCHAR, or STRING columns");
+                }
+                if (storageFormat != TInvertedIndexFileStorageFormat.SNII) {
+                    throw new AnalysisException("gram tokenizer (mode=" + gramMode.get()
+                            + ") requires inverted_index_storage_format = SNII");
+                }
+                if ("true".equals(supportPhrase)) {
+                    throw new AnalysisException(
+                            "gram tokenizer index does not support phrase (support_phrase must be false)");
+                }
+                return;
+            }
             if (!colType.isStringType() && !colType.isVariantType()) {
                 throw new AnalysisException("INVERTED index with analyzer: " + analyzerName
                         + " is not supported for column of type " + colType);
             }
         } catch (DdlException e) {
             throw new AnalysisException("Invalid custom analyzer: " + e.getMessage());
+        }
+    }
+
+    /**
+     * gram 族 analyzer（ngram tokenizer 携带 mode）在索引属性层面的强制约束：
+     * 1) 索引级 char_filter（char_filter_type/pattern/replacement）与 gram 切分边界语义冲突
+     *    （字符替换会发生在 tokenizer 已经按 gram 规则切分之后，破坏可复现性），直接拒绝；
+     * 2) support_phrase 未显式给出时缺省写为 "false"，覆盖 {@link Index} 构造函数「存在
+     *    analyzer 时默认 true」的通用规则 —— gram 索引在 BE 侧被强制 docs-only，没有位置信息
+     *    可供短语查询使用。
+     *
+     * <p>调用方（{@link #checkInvertedIndexProperties}）持有的 {@code properties} 与
+     * {@link IndexDefinition} 字段是同一个可变 Map 引用，因此这里写入的默认值会在
+     * {@code IndexDefinition#translateToCatalogStyle} 构造 {@link Index} 时被读到。
+     */
+    private static void applyGramFamilyIndexDefaults(String analyzerName, Map<String, String> properties)
+            throws AnalysisException {
+        if (analyzerName == null || analyzerName.isEmpty()) {
+            return;
+        }
+        Optional<String> gramMode = Env.getCurrentEnv().getIndexPolicyMgr().resolveGramTokenizerMode(analyzerName);
+        if (!gramMode.isPresent()) {
+            return;
+        }
+        if (properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE) != null
+                || properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN) != null
+                || properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT) != null) {
+            throw new AnalysisException("char_filter cannot be used with gram tokenizer (mode="
+                    + gramMode.get() + ")");
+        }
+        if (properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY) == null) {
+            properties.put(INVERTED_INDEX_SUPPORT_PHRASE_KEY, "false");
         }
     }
 

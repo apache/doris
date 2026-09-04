@@ -133,6 +133,69 @@ public class PolicyValidatorTests {
         validator.validate(props); // Should not throw
     }
 
+    // NGramTokenizerValidator gram-mode (auto/sparse/dense) Tests
+    @Test
+    public void testNGramValidator_GramModeSparse() throws DdlException {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "ngram");
+        props.put("mode", "sparse");
+        props.put("min_gram", "3");
+        props.put("max_gram", "16");
+        props.put("density", "0.25");
+        props.put("stop_gram_df", "0.10");
+        props.put("lower_case", "true");
+        validator.validate(props);   // 不抛
+    }
+
+    @Test
+    public void testNGramValidator_GramModeRejectsBadValues() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> bad = new HashMap<>();
+        bad.put("type", "ngram");
+        bad.put("mode", "fuzzy");
+        DdlException e1 = Assertions.assertThrows(DdlException.class, () -> validator.validate(bad));
+        Assertions.assertTrue(e1.getMessage().contains("mode must be one of"));
+
+        Map<String, String> noMode = new HashMap<>();
+        noMode.put("type", "ngram");
+        noMode.put("density", "0.25");
+        DdlException e2 = Assertions.assertThrows(DdlException.class, () -> validator.validate(noMode));
+        Assertions.assertTrue(e2.getMessage().contains("requires mode"));
+
+        Map<String, String> badDensity = new HashMap<>();
+        badDensity.put("type", "ngram");
+        badDensity.put("mode", "sparse");
+        badDensity.put("density", "1.5");
+        Assertions.assertTrue(Assertions.assertThrows(DdlException.class, () -> validator.validate(badDensity))
+                .getMessage().contains("density must be"));
+
+        Map<String, String> tokenChars = new HashMap<>();
+        tokenChars.put("type", "ngram");
+        tokenChars.put("mode", "dense");
+        tokenChars.put("token_chars", "letter");
+        Assertions.assertTrue(Assertions.assertThrows(DdlException.class, () -> validator.validate(tokenChars))
+                .getMessage().contains("token_chars cannot be used"));
+
+        Map<String, String> wideGap = new HashMap<>();   // mode 存在时允许 max-min>1
+        wideGap.put("type", "ngram");
+        wideGap.put("mode", "sparse");
+        wideGap.put("min_gram", "3");
+        wideGap.put("max_gram", "24");
+        Assertions.assertDoesNotThrow(() -> validator.validate(wideGap));
+    }
+
+    @Test
+    public void testNGramValidator_GramModeRejectsEmptyMode() {
+        // BE 将空 mode 当作 legacy 处理，但 FE 校验必须在 DDL 阶段就拒绝空字符串的 mode 取值。
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> emptyMode = new HashMap<>();
+        emptyMode.put("type", "ngram");
+        emptyMode.put("mode", "");
+        DdlException e = Assertions.assertThrows(DdlException.class, () -> validator.validate(emptyMode));
+        Assertions.assertTrue(e.getMessage().contains("mode must be one of"));
+    }
+
     // StandardTokenizerValidator Tests
     @Test
     public void testStandardTokenizerValidator_ValidProperties() throws Exception {
