@@ -216,7 +216,8 @@ private:
 
 class InvertedIndexQueryCacheHandle;
 
-inline constexpr uint32_t INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION = 1;
+// v2：结果缓存键不再携带 CommonGrams 查询计划开关位（该功能已删除）。
+inline constexpr uint32_t INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION = 2;
 
 // Stable identity shared by result-cache and row-accurate single-flight. It intentionally contains
 // no analyzer output or internal plan kind: those are segment-local implementation details below
@@ -228,7 +229,6 @@ struct InvertedIndexRawQuerySemantic {
     bool ordered = false;
     int32_t max_expansions = 0;
     uint32_t cache_semantics_version = INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION;
-    bool common_grams_query_plan_enabled = false;
 
     std::string encode() const;
 };

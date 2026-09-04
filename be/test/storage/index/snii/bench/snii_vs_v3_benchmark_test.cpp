@@ -346,11 +346,6 @@ private:
                 a.phrase_prefix_leading_candidate_docs - b.phrase_prefix_leading_candidate_docs;
         snii.phrase_prefix_tail_candidate_visits +=
                 a.phrase_prefix_tail_candidate_visits - b.phrase_prefix_tail_candidate_visits;
-        snii.common_grams_candidate_queries +=
-                a.common_grams_candidate_queries - b.common_grams_candidate_queries;
-        snii.common_grams_plain_plans += a.common_grams_plain_plans - b.common_grams_plain_plans;
-        snii.common_grams_gram_plans += a.common_grams_gram_plans - b.common_grams_gram_plans;
-        snii.common_grams_planning_ns += a.common_grams_planning_ns - b.common_grams_planning_ns;
     }
 };
 
@@ -1840,7 +1835,7 @@ protected:
         int64_t any = 0;
         for (const auto& p : snii) {
             any += p.snii.prx_fetch_ns + p.snii.prx_decode_ns + p.snii.prx_total_docs +
-                   p.snii.phrase_candidate_docs + p.snii.common_grams_candidate_queries;
+                   p.snii.phrase_candidate_docs;
         }
         if (any == 0) {
             std::cout << "\n(SNII " << phase
@@ -1868,8 +1863,7 @@ protected:
                       << per(s.prx_total_positions, snii_n) << std::setw(12)
                       << per(s.prx_selected_positions, snii_n) << std::setw(10)
                       << per(s.prx_streaming_frames, snii_n) << std::setw(10)
-                      << per(s.phrase_candidate_docs, snii_n) << std::setw(10)
-                      << per(s.common_grams_gram_plans, snii_n) << std::endl;
+                      << per(s.phrase_candidate_docs, snii_n) << std::endl;
         }
     }
 

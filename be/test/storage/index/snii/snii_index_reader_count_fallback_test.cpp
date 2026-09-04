@@ -127,9 +127,6 @@ void block_single_flight_leader_before_compute(void* opaque) noexcept {
     gate->release_leader.acquire();
 }
 
-void record_single_flight_leader(void* opaque) noexcept {
-    static_cast<std::atomic<uint32_t>*>(opaque)->fetch_add(1, std::memory_order_relaxed);
-}
 
 void record_searcher_open(void* opaque) noexcept {
     static_cast<std::atomic<uint32_t>*>(opaque)->fetch_add(1, std::memory_order_relaxed);
@@ -181,21 +178,7 @@ struct QueryExecutionContext {
     IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
 };
 
-struct CommonGramsCounterSnapshot {
-    int64_t candidate_queries = 0;
-    int64_t plain_plans = 0;
-    int64_t fallback_no_gram = 0;
-    int64_t fallback_incompatible = 0;
-    int64_t fallback_cost = 0;
-};
 
-CommonGramsCounterSnapshot common_grams_counter_snapshot(const OlapReaderStatistics& stats) {
-    return {.candidate_queries = stats.snii_stats.common_grams_candidate_queries,
-            .plain_plans = stats.snii_stats.common_grams_plain_plans,
-            .fallback_no_gram = stats.snii_stats.common_grams_fallback_no_gram,
-            .fallback_incompatible = stats.snii_stats.common_grams_fallback_incompatible,
-            .fallback_cost = stats.snii_stats.common_grams_fallback_cost};
-}
 
 void init_index_meta(TabletIndex* meta, int64_t index_id = kIndexId,
                      std::string parser = "english") {
@@ -253,15 +236,6 @@ void write_positional_segment() {
     assert_ok(file.finalize());
 }
 
-std::shared_ptr<inverted_index::CustomAnalyzerProvider> make_common_grams_provider() {
-    inverted_index::Settings tokenizer_settings;
-    tokenizer_settings.set("tokenize_on_chars", "[whitespace]");
-    inverted_index::CustomAnalyzerConfig::Builder builder;
-    builder.with_tokenizer_config("char_group", tokenizer_settings);
-    builder.add_token_filter_config("lowercase", {});
-    builder.add_token_filter_config("common_grams", {});
-    return std::make_shared<inverted_index::CustomAnalyzerProvider>(builder.build());
-}
 
 std::shared_ptr<inverted_index::CustomAnalyzerProvider> make_plain_provider() {
     inverted_index::Settings tokenizer_settings;
@@ -279,103 +253,9 @@ std::string encode_plain_test_term(std::string_view term) {
     return std::move(*encoded);
 }
 
-std::string encode_gram_test_term(std::string_view left, std::string_view right) {
-    auto encoded = inverted_index::encode_common_gram(left, right);
-    DORIS_CHECK(encoded.has_value());
-    return std::move(*encoded);
-}
 
-Status write_common_grams_segment(std::string_view index_path_prefix,
-                                  const inverted_index::CommonGramsQueryIdentity& analyzer_identity,
-                                  inverted_index::CommonGramsCoverage coverage, bool include_gram,
-                                  uint32_t dense_doc_count = 0, bool dense_common_pair = false) {
-    std::vector<PostingDoc> alpha_docs {{.docid = 1, .positions = {0}}};
-    std::vector<PostingDoc> beta_docs {{.docid = 1, .positions = {1}}};
-    std::vector<PostingDoc> the_docs {{.docid = 0, .positions = {0}}};
-    std::vector<PostingDoc> wolf_docs {{.docid = 0, .positions = {1}}};
-    if (dense_doc_count != 0) {
-        alpha_docs.clear();
-        beta_docs.clear();
-        alpha_docs.reserve(dense_doc_count);
-        beta_docs.reserve(dense_doc_count);
-        for (uint32_t docid = 0; docid < dense_doc_count; ++docid) {
-            alpha_docs.push_back({.docid = docid, .positions = {0}});
-            beta_docs.push_back({.docid = docid, .positions = {1}});
-        }
-        if (dense_common_pair) {
-            // Make "the wolf" an adjacent phrase in EVERY doc with dense postings
-            // for both terms, mirroring the dense alpha/beta shape whose plain
-            // execution provably reads postings through the adapter. This is the
-            // planning-entry variant: "the" is a common word, so the wordset
-            // pre-proof cannot rule gram usage out. Callers must combine this
-            // with include_gram=true: omitting the gram under kComplete coverage
-            // would let the planner prove the phrase authoritatively empty from
-            // the resident dictionary alone and skip posting IO entirely.
-            the_docs.clear();
-            wolf_docs.clear();
-            the_docs.reserve(dense_doc_count);
-            wolf_docs.reserve(dense_doc_count);
-            for (uint32_t docid = 0; docid < dense_doc_count; ++docid) {
-                the_docs.push_back({.docid = docid, .positions = {0}});
-                wolf_docs.push_back({.docid = docid, .positions = {1}});
-            }
-        }
-    }
-    std::vector<doris::snii::writer::TermPostings> terms {
-            make_term(encode_plain_test_term("alpha"), std::move(alpha_docs)),
-            make_term(encode_plain_test_term("beta"), std::move(beta_docs)),
-            make_term(encode_plain_test_term("the"), std::move(the_docs)),
-            make_term(encode_plain_test_term("wolf"), std::move(wolf_docs)),
-    };
-    if (include_gram) {
-        std::vector<PostingDoc> gram_docs {{.docid = 0, .positions = {0}}};
-        if (dense_doc_count != 0 && dense_common_pair) {
-            // Keep the gram postings consistent with the dense the@0/wolf@1
-            // docs above: the_wolf occurs at position 0 in every doc.
-            gram_docs.clear();
-            gram_docs.reserve(dense_doc_count);
-            for (uint32_t docid = 0; docid < dense_doc_count; ++docid) {
-                gram_docs.push_back({.docid = docid, .positions = {0}});
-            }
-        }
-        terms.push_back(make_term(encode_gram_test_term("the", "wolf"), std::move(gram_docs)));
-    }
-    std::ranges::sort(terms, [](const auto& lhs, const auto& rhs) { return lhs.term < rhs.term; });
 
-    inverted_index::CommonGramsSegmentMetadata metadata;
-    metadata.plain_term_key_version = inverted_index::PlainTermKeyVersion::kEscapedV1;
-    metadata.common_grams_coverage = coverage;
-    metadata.common_grams_semantics_version = inverted_index::COMMON_GRAMS_SEMANTICS_VERSION_V1;
-    metadata.common_grams_key_version = inverted_index::COMMON_GRAMS_KEY_VERSION_V1;
-    metadata.common_grams_dictionary_identity = analyzer_identity.common_grams_dictionary_identity;
-    metadata.base_analyzer_fingerprint = analyzer_identity.base_analyzer_fingerprint;
-    metadata.common_grams_fingerprint = analyzer_identity.common_grams_fingerprint;
-
-    doris::snii::writer::SniiIndexInput input;
-    input.index_id = kIndexId;
-    input.index_suffix = "";
-    input.config = doris::snii::format::IndexConfig::kDocsPositions;
-    input.doc_count = dense_doc_count == 0 ? 2 : dense_doc_count * 4;
-    input.terms = std::move(terms);
-    input.target_dict_block_bytes = 64;
-    input.common_grams_metadata = std::move(metadata);
-
-    MemoryFile memory_file;
-    doris::snii::writer::SniiCompoundWriter compound(&memory_file);
-    RETURN_IF_ERROR(compound.add_logical_index(input));
-    RETURN_IF_ERROR(compound.finish());
-
-    doris::snii::io::LocalFileWriter local_file;
-    RETURN_IF_ERROR(local_file.open(
-            InvertedIndexDescriptor::get_index_file_path_v2(std::string(index_path_prefix))));
-    RETURN_IF_ERROR(local_file.append(
-            doris::snii::Slice(memory_file.data().data(), memory_file.data().size())));
-    return local_file.finalize();
-}
-
-Status write_scoring_segment(std::string_view index_path_prefix,
-                             const inverted_index::CommonGramsQueryIdentity& analyzer_identity,
-                             bool corrupt_norms = false) {
+Status write_scoring_segment(std::string_view index_path_prefix, bool corrupt_norms = false) {
     std::vector<doris::snii::writer::TermPostings> terms {
             make_term(encode_plain_test_term("alpha"),
                       {{.docid = 0, .positions = {0, 1, 2, 3}}, {.docid = 1, .positions = {0, 2}}}),
@@ -384,9 +264,8 @@ Status write_scoring_segment(std::string_view index_path_prefix,
     };
     std::ranges::sort(terms, [](const auto& lhs, const auto& rhs) { return lhs.term < rhs.term; });
 
-    auto metadata = inverted_index::make_common_grams_segment_metadata(analyzer_identity);
-    metadata.scoring_doc_count = 3;
-    metadata.scoring_token_count = 10;
+    // 不含 gram 的打分载体：物理 ttf = alpha(4+2) + beta(2+2) = 10。
+    auto metadata = ::doris::snii::snii_test::make_plain_scoring_metadata(/*doc_count=*/3, /*token_count=*/10);
 
     doris::snii::writer::SniiIndexInput input;
     input.index_id = kIndexId;
@@ -997,11 +876,10 @@ TEST_F(SniiIndexReaderCountFallback, PublicBooleanQueryStillReturnsNotSupportedF
 }
 
 TEST_F(SniiIndexReaderCountFallback, PublicBooleanQueriesScoreOnlyFinalBitmapWithPlainTerms) {
-    const auto provider = make_common_grams_provider();
-    ASSERT_NE(provider->common_grams_identity(), nullptr);
+    const auto provider = make_plain_provider();
     constexpr std::string_view kPathPrefix =
             "./ut_dir/snii_index_reader_count_fallback_test/scoring_segment";
-    assert_ok(write_scoring_segment(kPathPrefix, *provider->common_grams_identity()));
+    assert_ok(write_scoring_segment(kPathPrefix));
     OpenedSniiIndex opened;
     assert_ok(open_snii_index(&_meta, std::string(kPathPrefix), &opened));
 
@@ -1044,12 +922,10 @@ TEST_F(SniiIndexReaderCountFallback, PublicBooleanQueriesScoreOnlyFinalBitmapWit
 }
 
 TEST_F(SniiIndexReaderCountFallback, PublicScoringZeroHitDoesNotLoadNorms) {
-    const auto provider = make_common_grams_provider();
-    ASSERT_NE(provider->common_grams_identity(), nullptr);
+    const auto provider = make_plain_provider();
     constexpr std::string_view kPathPrefix =
             "./ut_dir/snii_index_reader_count_fallback_test/scoring_zero_hit";
-    assert_ok(write_scoring_segment(kPathPrefix, *provider->common_grams_identity(),
-                                    /*corrupt_norms=*/true));
+    assert_ok(write_scoring_segment(kPathPrefix, /*corrupt_norms=*/true));
     OpenedSniiIndex opened;
     assert_ok(open_snii_index(&_meta, std::string(kPathPrefix), &opened));
     InvertedIndexAnalyzerCtx analyzer_ctx;
@@ -1071,11 +947,10 @@ TEST_F(SniiIndexReaderCountFallback, PublicScoringZeroHitDoesNotLoadNorms) {
 }
 
 TEST_F(SniiIndexReaderCountFallback, PublicPhraseQueriesScoreOccurrenceFrequencyWithPlainTerms) {
-    const auto provider = make_common_grams_provider();
-    ASSERT_NE(provider->common_grams_identity(), nullptr);
+    const auto provider = make_plain_provider();
     constexpr std::string_view kPathPrefix =
             "./ut_dir/snii_index_reader_count_fallback_test/scoring_phrase";
-    assert_ok(write_scoring_segment(kPathPrefix, *provider->common_grams_identity()));
+    assert_ok(write_scoring_segment(kPathPrefix));
     OpenedSniiIndex opened;
     assert_ok(open_snii_index(&_meta, std::string(kPathPrefix), &opened));
 
@@ -1159,7 +1034,6 @@ TEST_F(SniiIndexReaderCountFallback, CustomAnalyzerWithNoneParserRetainsAnalyzed
     builder.with_tokenizer_config("char_group", tokenizer_settings);
     builder.add_token_filter_config("lowercase", {});
     auto provider = std::make_shared<inverted_index::CustomAnalyzerProvider>(builder.build());
-    ASSERT_FALSE(provider->uses_common_grams());
 
     InvertedIndexAnalyzerCtx analyzer_ctx;
     analyzer_ctx.analyzer_name = "test_custom_analyzer";
@@ -1191,49 +1065,6 @@ TEST_F(SniiIndexReaderCountFallback, CustomAnalyzerWithNoneParserRetainsAnalyzed
     EXPECT_EQ(second.stats.inverted_index_query_cache_insert, 0);
 }
 
-TEST_F(SniiIndexReaderCountFallback,
-       CommonGramsAnalyzerContractIsValidatedBeforeColdAndWarmCacheLookup) {
-    const auto provider = make_common_grams_provider();
-    ASSERT_NE(provider->common_grams_identity(), nullptr);
-    constexpr std::string_view kPathPrefix =
-            "./ut_dir/snii_index_reader_count_fallback_test/analyzer_contract_cache";
-    assert_ok(write_common_grams_segment(kPathPrefix, *provider->common_grams_identity(),
-                                         inverted_index::CommonGramsCoverage::kComplete,
-                                         /*include_gram=*/true));
-    OpenedSniiIndex opened;
-    assert_ok(open_snii_index(&_meta, std::string(kPathPrefix), &opened));
-
-    const Field query_value = Field::create_field<TYPE_STRING>(std::string("alpha"));
-    QueryExecutionContext cold_missing_context(/*enable_query_cache=*/true);
-    std::shared_ptr<roaring::Roaring> cold_bitmap;
-    const Status cold_status = opened.index_reader->query(
-            cold_missing_context.context, "analyzer_contract_content", query_value,
-            InvertedIndexQueryType::MATCH_ANY_QUERY, cold_bitmap, nullptr);
-    EXPECT_EQ(cold_status.code(), ErrorCode::INVERTED_INDEX_BYPASS) << cold_status;
-    EXPECT_EQ(cold_missing_context.stats.inverted_index_query_cache_lookup, 0);
-
-    InvertedIndexAnalyzerCtx analyzer_ctx;
-    analyzer_ctx.analyzer_name = "test_common_grams";
-    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
-    analyzer_ctx.analyzer_provider = provider;
-    QueryExecutionContext admitted(/*enable_query_cache=*/true);
-    std::shared_ptr<roaring::Roaring> admitted_bitmap;
-    assert_ok(opened.index_reader->query(admitted.context, "analyzer_contract_content", query_value,
-                                         InvertedIndexQueryType::MATCH_ANY_QUERY, admitted_bitmap,
-                                         &analyzer_ctx));
-    ASSERT_NE(admitted_bitmap, nullptr);
-    EXPECT_EQ(bitmap_docids(*admitted_bitmap), (std::vector<uint32_t> {1}));
-    EXPECT_EQ(admitted.stats.inverted_index_query_cache_insert, 1);
-
-    QueryExecutionContext warm_missing_context(/*enable_query_cache=*/true);
-    std::shared_ptr<roaring::Roaring> warm_bitmap;
-    const Status warm_status = opened.index_reader->query(
-            warm_missing_context.context, "analyzer_contract_content", query_value,
-            InvertedIndexQueryType::MATCH_ANY_QUERY, warm_bitmap, nullptr);
-    EXPECT_EQ(warm_status.code(), ErrorCode::INVERTED_INDEX_BYPASS) << warm_status;
-    EXPECT_EQ(warm_missing_context.stats.inverted_index_query_cache_lookup, 0);
-    EXPECT_EQ(warm_missing_context.stats.inverted_index_query_cache_hit, 0);
-}
 
 TEST_F(SniiIndexReaderCountFallback, CustomKeywordAnalyzerWithNoneParserNormalizesSingleTerm) {
     inverted_index::CustomAnalyzerConfig::Builder builder;
@@ -1319,312 +1150,9 @@ TEST_F(SniiIndexReaderCountFallback, PublicQueryWithCacheDisabledDoesNotLookupOr
     EXPECT_EQ(enabled_hit.stats.inverted_index_query_cache_insert, 0);
 }
 
-TEST_F(SniiIndexReaderCountFallback,
-       AuthoritativeEmptyCacheIsBypassedWhenKillSwitchForcesPlainPlan) {
-    const bool original_enabled = config::enable_common_grams_query_plan;
-    Defer restore_config([original_enabled] {
-        EXPECT_TRUE(config::set_config("enable_common_grams_query_plan",
-                                       original_enabled ? "true" : "false",
-                                       /*need_persist=*/false)
-                            .ok());
-    });
-    ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "true",
-                                   /*need_persist=*/false)
-                        .ok());
 
-    const auto provider = make_common_grams_provider();
-    ASSERT_NE(provider->common_grams_identity(), nullptr);
-    constexpr std::string_view kPathPrefix =
-            "./ut_dir/snii_index_reader_count_fallback_test/authoritative_empty";
-    assert_ok(write_common_grams_segment(kPathPrefix, *provider->common_grams_identity(),
-                                         inverted_index::CommonGramsCoverage::kComplete,
-                                         /*include_gram=*/false));
-    OpenedSniiIndex opened;
-    assert_ok(open_snii_index(&_meta, std::string(kPathPrefix), &opened));
 
-    InvertedIndexAnalyzerCtx analyzer_ctx;
-    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-    analyzer_ctx.analyzer_provider = provider;
-    const Field query_value = Field::create_field<TYPE_STRING>(std::string("the wolf"));
 
-    QueryExecutionContext enabled_miss(/*enable_query_cache=*/true);
-    std::shared_ptr<roaring::Roaring> empty_bitmap;
-    assert_ok(opened.index_reader->query(enabled_miss.context, "authoritative_content", query_value,
-                                         InvertedIndexQueryType::MATCH_PHRASE_QUERY, empty_bitmap,
-                                         &analyzer_ctx));
-    ASSERT_NE(empty_bitmap, nullptr);
-    EXPECT_TRUE(empty_bitmap->isEmpty());
-    EXPECT_EQ(enabled_miss.stats.snii_stats.common_grams_candidate_queries, 1);
-    EXPECT_EQ(enabled_miss.stats.snii_stats.common_grams_gram_plans, 1);
-    EXPECT_EQ(enabled_miss.stats.snii_stats.common_grams_authoritative_empty, 1);
-    EXPECT_EQ(enabled_miss.stats.inverted_index_query_cache_insert, 1);
-
-    QueryExecutionContext enabled_hit(/*enable_query_cache=*/true);
-    std::shared_ptr<roaring::Roaring> cached_empty_bitmap;
-    assert_ok(opened.index_reader->query(enabled_hit.context, "authoritative_content", query_value,
-                                         InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                         cached_empty_bitmap, &analyzer_ctx));
-    ASSERT_NE(cached_empty_bitmap, nullptr);
-    EXPECT_TRUE(cached_empty_bitmap->isEmpty());
-    EXPECT_EQ(enabled_hit.stats.inverted_index_query_cache_hit, 1);
-    EXPECT_EQ(enabled_hit.stats.snii_stats.common_grams_candidate_queries, 0);
-
-    ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "false",
-                                   /*need_persist=*/false)
-                        .ok());
-    QueryExecutionContext disabled(/*enable_query_cache=*/true);
-    std::shared_ptr<roaring::Roaring> plain_bitmap;
-    assert_ok(opened.index_reader->query(disabled.context, "authoritative_content", query_value,
-                                         InvertedIndexQueryType::MATCH_PHRASE_QUERY, plain_bitmap,
-                                         &analyzer_ctx));
-    ASSERT_NE(plain_bitmap, nullptr);
-    EXPECT_EQ(bitmap_docids(*plain_bitmap), (std::vector<uint32_t> {0}));
-    EXPECT_EQ(disabled.stats.inverted_index_query_cache_lookup, 0);
-    EXPECT_EQ(disabled.stats.inverted_index_query_cache_hit, 0);
-    EXPECT_EQ(disabled.stats.inverted_index_query_cache_miss, 0);
-    EXPECT_EQ(disabled.stats.inverted_index_query_cache_insert, 0);
-    EXPECT_EQ(disabled.stats.snii_stats.common_grams_candidate_queries, 1);
-    EXPECT_EQ(disabled.stats.snii_stats.common_grams_plain_plans, 1);
-    EXPECT_EQ(disabled.stats.snii_stats.common_grams_fallback_kill_switch, 1);
-}
-
-TEST_F(SniiIndexReaderCountFallback, KillSwitchBypassesCachedGramResultBeforeSegmentAnalysis) {
-    const bool original_enabled = config::enable_common_grams_query_plan;
-    Defer restore_config([original_enabled] {
-        EXPECT_TRUE(config::set_config("enable_common_grams_query_plan",
-                                       original_enabled ? "true" : "false",
-                                       /*need_persist=*/false)
-                            .ok());
-    });
-    ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "true",
-                                   /*need_persist=*/false)
-                        .ok());
-
-    const auto provider = make_common_grams_provider();
-    ASSERT_NE(provider->common_grams_identity(), nullptr);
-    constexpr std::string_view kPathPrefix =
-            "./ut_dir/snii_index_reader_count_fallback_test/query_safety_fence";
-    assert_ok(write_common_grams_segment(kPathPrefix, *provider->common_grams_identity(),
-                                         inverted_index::CommonGramsCoverage::kComplete,
-                                         /*include_gram=*/false));
-    OpenedSniiIndex opened;
-    assert_ok(open_snii_index(&_meta, std::string(kPathPrefix), &opened));
-    std::atomic<uint32_t> single_flight_leader_calls {0};
-    opened.index_reader->set_single_flight_leader_before_compute_observer_for_test(
-            record_single_flight_leader, &single_flight_leader_calls);
-
-    InvertedIndexAnalyzerCtx analyzer_ctx;
-    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-    analyzer_ctx.analyzer_provider = provider;
-    const Field query_value = Field::create_field<TYPE_STRING>(std::string("the wolf"));
-
-    QueryExecutionContext admitted(/*enable_query_cache=*/true);
-    std::shared_ptr<roaring::Roaring> authoritative_empty;
-    assert_ok(opened.index_reader->query(admitted.context, "safety_content", query_value,
-                                         InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                         authoritative_empty, &analyzer_ctx));
-    ASSERT_NE(authoritative_empty, nullptr);
-    EXPECT_TRUE(authoritative_empty->isEmpty());
-    EXPECT_EQ(admitted.stats.inverted_index_query_cache_insert, 1);
-    EXPECT_EQ(admitted.stats.snii_stats.common_grams_gram_plans, 1);
-
-    const auto plain_provider = make_plain_provider();
-    ASSERT_EQ(plain_provider->base_analyzer_fingerprint(), provider->base_analyzer_fingerprint());
-    ASSERT_FALSE(plain_provider->uses_common_grams());
-    InvertedIndexAnalyzerCtx plain_analyzer_ctx = analyzer_ctx;
-    plain_analyzer_ctx.analyzer_provider = plain_provider;
-    // Disabling the BE switch selects a distinct cache-key mode and forces the plain path.
-    ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "false",
-                                   /*need_persist=*/false)
-                        .ok());
-
-    QueryExecutionContext analyzer_mismatch_disabled(/*enable_query_cache=*/true);
-    std::shared_ptr<roaring::Roaring> analyzer_mismatch_bitmap;
-    assert_ok(opened.index_reader->query(analyzer_mismatch_disabled.context, "safety_content",
-                                         query_value, InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                         analyzer_mismatch_bitmap, &plain_analyzer_ctx));
-    ASSERT_NE(analyzer_mismatch_bitmap, nullptr);
-    EXPECT_EQ(bitmap_docids(*analyzer_mismatch_bitmap), (std::vector<uint32_t> {0}));
-    EXPECT_EQ(analyzer_mismatch_disabled.stats.inverted_index_query_cache_lookup, 0);
-    EXPECT_EQ(analyzer_mismatch_disabled.stats.inverted_index_query_cache_insert, 0);
-
-    QueryExecutionContext forced_plain(/*enable_query_cache=*/true);
-    std::shared_ptr<roaring::Roaring> plain_bitmap;
-    assert_ok(opened.index_reader->query(forced_plain.context, "safety_content", query_value,
-                                         InvertedIndexQueryType::MATCH_PHRASE_QUERY, plain_bitmap,
-                                         &analyzer_ctx));
-    ASSERT_NE(plain_bitmap, nullptr);
-    EXPECT_EQ(bitmap_docids(*plain_bitmap), (std::vector<uint32_t> {0}));
-    EXPECT_EQ(forced_plain.stats.inverted_index_query_cache_lookup, 0);
-    EXPECT_EQ(forced_plain.stats.inverted_index_query_cache_insert, 0);
-    EXPECT_EQ(forced_plain.stats.snii_stats.common_grams_plain_plans, 1);
-    EXPECT_EQ(forced_plain.stats.snii_stats.common_grams_fallback_kill_switch, 1);
-    EXPECT_EQ(single_flight_leader_calls.load(std::memory_order_relaxed), 1);
-
-    ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "true",
-                                   /*need_persist=*/false)
-                        .ok());
-    QueryExecutionContext readmitted(/*enable_query_cache=*/true);
-    std::shared_ptr<roaring::Roaring> readmitted_bitmap;
-    assert_ok(opened.index_reader->query(readmitted.context, "safety_content", query_value,
-                                         InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                         readmitted_bitmap, &analyzer_ctx));
-    ASSERT_NE(readmitted_bitmap, nullptr);
-    EXPECT_TRUE(readmitted_bitmap->isEmpty());
-    EXPECT_EQ(readmitted.stats.inverted_index_query_cache_lookup, 1);
-    EXPECT_EQ(readmitted.stats.inverted_index_query_cache_hit, 1);
-    EXPECT_EQ(readmitted.stats.inverted_index_query_cache_miss, 0);
-    EXPECT_EQ(readmitted.stats.inverted_index_query_cache_insert, 0);
-    EXPECT_EQ(single_flight_leader_calls.load(std::memory_order_relaxed), 1);
-    opened.index_reader->set_single_flight_leader_before_compute_observer_for_test(nullptr,
-                                                                                   nullptr);
-}
-
-TEST_F(SniiIndexReaderCountFallback, PublicPlannerRecordsEveryPlainFallbackReason) {
-    const bool original_enabled = config::enable_common_grams_query_plan;
-    const int32_t original_ratio = config::common_grams_plan_cost_ratio_percent;
-    Defer restore_config([original_enabled, original_ratio] {
-        EXPECT_TRUE(config::set_config("enable_common_grams_query_plan",
-                                       original_enabled ? "true" : "false",
-                                       /*need_persist=*/false)
-                            .ok());
-        EXPECT_TRUE(config::set_config("common_grams_plan_cost_ratio_percent",
-                                       std::to_string(original_ratio),
-                                       /*need_persist=*/false)
-                            .ok());
-    });
-    ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "true",
-                                   /*need_persist=*/false)
-                        .ok());
-
-    const auto provider = make_common_grams_provider();
-    ASSERT_NE(provider->common_grams_identity(), nullptr);
-    InvertedIndexAnalyzerCtx analyzer_ctx;
-    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-    analyzer_ctx.analyzer_provider = provider;
-
-    const auto run_query = [&](std::string_view path_suffix,
-                               inverted_index::CommonGramsCoverage coverage, bool include_gram,
-                               std::string query, CommonGramsCounterSnapshot* counters,
-                               std::vector<uint32_t>* docids) -> Status {
-        const std::string path_prefix = std::string(kTestDir) + "/" + std::string(path_suffix);
-        RETURN_IF_ERROR(write_common_grams_segment(path_prefix, *provider->common_grams_identity(),
-                                                   coverage, include_gram));
-        OpenedSniiIndex opened;
-        RETURN_IF_ERROR(open_snii_index(&_meta, path_prefix, &opened));
-        QueryExecutionContext execution(/*enable_query_cache=*/false);
-        std::shared_ptr<roaring::Roaring> bitmap;
-        const Field query_value = Field::create_field<TYPE_STRING>(std::move(query));
-        RETURN_IF_ERROR(opened.index_reader->query(
-                execution.context, "fallback_content", query_value,
-                InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap, &analyzer_ctx));
-        DORIS_CHECK(bitmap != nullptr);
-        *counters = common_grams_counter_snapshot(execution.stats);
-        *docids = bitmap_docids(*bitmap);
-        return Status::OK();
-    };
-
-    CommonGramsCounterSnapshot no_gram;
-    std::vector<uint32_t> no_gram_docids;
-    assert_ok(run_query("no_gram", inverted_index::CommonGramsCoverage::kComplete,
-                        /*include_gram=*/false, "alpha beta", &no_gram, &no_gram_docids));
-    EXPECT_EQ(no_gram_docids, (std::vector<uint32_t> {1}));
-    EXPECT_EQ(no_gram.candidate_queries, 1);
-    EXPECT_EQ(no_gram.plain_plans, 1);
-    EXPECT_EQ(no_gram.fallback_no_gram, 1);
-    EXPECT_EQ(no_gram.fallback_incompatible, 0);
-    EXPECT_EQ(no_gram.fallback_cost, 0);
-
-    CommonGramsCounterSnapshot incompatible;
-    std::vector<uint32_t> incompatible_docids;
-    assert_ok(run_query("incompatible", inverted_index::CommonGramsCoverage::kMixed,
-                        /*include_gram=*/false, "the wolf", &incompatible, &incompatible_docids));
-    EXPECT_EQ(incompatible_docids, (std::vector<uint32_t> {0}));
-    EXPECT_EQ(incompatible.candidate_queries, 1);
-    EXPECT_EQ(incompatible.plain_plans, 1);
-    EXPECT_EQ(incompatible.fallback_no_gram, 0);
-    EXPECT_EQ(incompatible.fallback_incompatible, 1);
-    EXPECT_EQ(incompatible.fallback_cost, 0);
-
-    ASSERT_TRUE(config::set_config("common_grams_plan_cost_ratio_percent", "0",
-                                   /*need_persist=*/false)
-                        .ok());
-    CommonGramsCounterSnapshot cost;
-    std::vector<uint32_t> cost_docids;
-    assert_ok(run_query("cost", inverted_index::CommonGramsCoverage::kComplete,
-                        /*include_gram=*/true, "the wolf", &cost, &cost_docids));
-    EXPECT_EQ(cost_docids, (std::vector<uint32_t> {0}));
-    EXPECT_EQ(cost.candidate_queries, 1);
-    EXPECT_EQ(cost.plain_plans, 1);
-    EXPECT_EQ(cost.fallback_no_gram, 0);
-    EXPECT_EQ(cost.fallback_incompatible, 0);
-    EXPECT_EQ(cost.fallback_cost, 1);
-}
-
-TEST_F(SniiIndexReaderCountFallback, DebugForceGramCannotBypassProcessKillSwitch) {
-    const bool original_enabled = config::enable_common_grams_query_plan;
-    const bool original_enable_debug_points = config::enable_debug_points;
-    Defer restore_state([original_enabled, original_enable_debug_points] {
-        DebugPoints::instance()->remove("snii.common_grams.force_gram_plan");
-        config::enable_debug_points = original_enable_debug_points;
-        EXPECT_TRUE(config::set_config("enable_common_grams_query_plan",
-                                       original_enabled ? "true" : "false",
-                                       /*need_persist=*/false)
-                            .ok());
-    });
-    ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "true",
-                                   /*need_persist=*/false)
-                        .ok());
-
-    const auto provider = make_common_grams_provider();
-    ASSERT_NE(provider->common_grams_identity(), nullptr);
-    constexpr std::string_view kPathPrefix =
-            "./ut_dir/snii_index_reader_count_fallback_test/debug_plan_safety";
-    assert_ok(write_common_grams_segment(kPathPrefix, *provider->common_grams_identity(),
-                                         inverted_index::CommonGramsCoverage::kComplete,
-                                         /*include_gram=*/true));
-    OpenedSniiIndex opened;
-    assert_ok(open_snii_index(&_meta, std::string(kPathPrefix), &opened));
-    InvertedIndexAnalyzerCtx analyzer_ctx;
-    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-    analyzer_ctx.analyzer_provider = provider;
-
-    config::enable_debug_points = true;
-    DebugPoints::instance()->add("snii.common_grams.force_gram_plan");
-
-    const Field exact_query = Field::create_field<TYPE_STRING>(std::string("the wolf"));
-    const Field prefix_query = Field::create_field<TYPE_STRING>(std::string("the wo"));
-    const auto assert_forced_plain = [&]() {
-        QueryExecutionContext exact_execution(
-                /*enable_query_cache=*/false, /*count_on_index_fastpath=*/false);
-        std::shared_ptr<roaring::Roaring> exact_bitmap;
-        assert_ok(opened.index_reader->query(
-                exact_execution.context, "debug_safety_content", exact_query,
-                InvertedIndexQueryType::MATCH_PHRASE_QUERY, exact_bitmap, &analyzer_ctx));
-        ASSERT_NE(exact_bitmap, nullptr);
-        EXPECT_EQ(bitmap_docids(*exact_bitmap), (std::vector<uint32_t> {0}));
-        EXPECT_EQ(exact_execution.stats.snii_stats.common_grams_plain_plans, 1);
-        EXPECT_EQ(exact_execution.stats.snii_stats.common_grams_gram_plans, 0);
-        EXPECT_EQ(exact_execution.stats.snii_stats.common_grams_fallback_kill_switch, 1);
-
-        QueryExecutionContext prefix_execution(
-                /*enable_query_cache=*/false, /*count_on_index_fastpath=*/false);
-        std::shared_ptr<roaring::Roaring> prefix_bitmap;
-        assert_ok(opened.index_reader->query(
-                prefix_execution.context, "debug_safety_content", prefix_query,
-                InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, prefix_bitmap, &analyzer_ctx));
-        ASSERT_NE(prefix_bitmap, nullptr);
-        EXPECT_EQ(bitmap_docids(*prefix_bitmap), (std::vector<uint32_t> {0}));
-        EXPECT_EQ(prefix_execution.stats.snii_stats.common_grams_plain_plans, 1);
-        EXPECT_EQ(prefix_execution.stats.snii_stats.common_grams_gram_plans, 0);
-        EXPECT_EQ(prefix_execution.stats.snii_stats.common_grams_fallback_kill_switch, 1);
-    };
-
-    ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "false",
-                                   /*need_persist=*/false)
-                        .ok());
-    assert_forced_plain();
-}
 
 // A plain-only pair is proven gram-free by the wordset pre-proof, so the plan
 // decision cache is legitimately never consulted (miss stays 0) -- but the plain

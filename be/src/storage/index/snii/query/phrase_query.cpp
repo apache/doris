@@ -29,9 +29,6 @@
 #include <vector>
 
 #include "common/check.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_grams_query_cost.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/dict_entry.h"
@@ -64,16 +61,6 @@ using query::internal::ResolvedQueryTerm;
 using query::internal::TermPlan;
 using reader::LogicalIndexReader;
 
-CommonGramsPlanDebugOverride common_grams_plan_debug_override() {
-    CommonGramsPlanDebugOverride result = CommonGramsPlanDebugOverride::kNone;
-    DBUG_EXECUTE_IF(COMMON_GRAMS_FORCE_PLAIN_PLAN_DEBUG_POINT,
-                    { result = CommonGramsPlanDebugOverride::kForcePlain; });
-    DBUG_EXECUTE_IF(COMMON_GRAMS_FORCE_GRAM_PLAN_DEBUG_POINT, {
-        DORIS_CHECK(result != CommonGramsPlanDebugOverride::kForcePlain);
-        result = CommonGramsPlanDebugOverride::kForceCommonGrams;
-    });
-    return result;
-}
 
 using namespace phrase_impl; // NOLINT(google-build-using-namespace): module-internal impl namespace
 
@@ -224,40 +211,7 @@ Status phrase_query_with_frequencies(const LogicalIndexReader& idx,
                              matches, options);
 }
 
-Status planned_exact_phrase_query(
-        const LogicalIndexReader& idx, const segment_v2::InvertedIndexQueryInfo& plain_query_info,
-        const segment_v2::InvertedIndexQueryInfo& gram_query_info,
-        const segment_v2::inverted_index::CommonGramsQueryIdentity* common_grams_identity,
-        std::vector<uint32_t>* docids, QueryProfile* profile, ExactPhrasePlanKind* selected_plan,
-        segment_v2::inverted_index::CommonGramsPlanCostModel cost_model,
-        std::optional<CommonGramsPlanDebugOverride> debug_override) {
-    QueryProfileScope profile_scope(idx.reader(), profile);
-    format::PrxDecodeContext decode_context {
-            .stats = profile == nullptr ? nullptr : &profile->prx_decode_stats,
-            .query_stats = profile == nullptr ? nullptr : &profile->phrase_query_stats};
-    return planned_exact_phrase_query_impl(
-            idx, plain_query_info, gram_query_info, common_grams_identity, docids,
-            profile == nullptr ? nullptr : &decode_context, selected_plan, cost_model,
-            debug_override.has_value() ? *debug_override : common_grams_plan_debug_override());
-}
 
-Status planned_phrase_prefix_query(
-        const LogicalIndexReader& idx, const segment_v2::InvertedIndexQueryInfo& plain_query_info,
-        const segment_v2::InvertedIndexQueryInfo& gram_query_info,
-        const segment_v2::inverted_index::CommonGramsQueryIdentity* common_grams_identity,
-        std::vector<uint32_t>* docids, QueryProfile* profile, int32_t max_expansions,
-        PhrasePrefixPlanKind* selected_plan,
-        segment_v2::inverted_index::CommonGramsPlanCostModel cost_model,
-        std::optional<CommonGramsPlanDebugOverride> debug_override) {
-    QueryProfileScope profile_scope(idx.reader(), profile);
-    format::PrxDecodeContext decode_context {
-            .stats = profile == nullptr ? nullptr : &profile->prx_decode_stats,
-            .query_stats = profile == nullptr ? nullptr : &profile->phrase_query_stats};
-    return planned_phrase_prefix_query_impl(
-            idx, plain_query_info, gram_query_info, common_grams_identity, docids, max_expansions,
-            profile == nullptr ? nullptr : &decode_context, selected_plan, cost_model,
-            debug_override.has_value() ? *debug_override : common_grams_plan_debug_override());
-}
 
 Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
                            std::vector<uint32_t>* const docids, int32_t max_expansions) {
@@ -293,7 +247,7 @@ Status phrase_prefix_query_with_frequencies(const LogicalIndexReader& idx,
             .stats = profile == nullptr ? nullptr : &profile->prx_decode_stats,
             .query_stats = profile == nullptr ? nullptr : &profile->phrase_query_stats};
     return phrase_prefix_query_impl(idx, terms, nullptr, max_expansions,
-                                    profile == nullptr ? nullptr : &decode_context, nullptr,
+                                    profile == nullptr ? nullptr : &decode_context,
                                     matches);
 }
 

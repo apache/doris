@@ -204,6 +204,17 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
 
     RETURN_IF_ERROR(validate_posting_policy(input.common_grams_posting_policy(),
                                             &out->common_grams_posting_policy));
+    // 墓碑：CommonGrams 功能已删除。真正含 gram 词项的段（有 gram 覆盖、用过键转义、或
+    // 混合 posting 策略）不能再被读取，必须重建索引；只借用这个载体存打分统计而不含
+    // gram 的段（coverage=kNone、键原样）仍按普通段读取。
+    if ((out->common_grams_metadata.has_value() &&
+         (out->common_grams_metadata->common_grams_coverage != CommonGramsCoverage::kNone ||
+          out->common_grams_metadata->plain_term_key_version == PlainTermKeyVersion::kEscapedV1)) ||
+        out->common_grams_posting_policy != CommonGramsPostingPolicy::kNone) {
+        return unsupported(
+                "core metadata: segment was written with CommonGrams, which is no longer "
+                "supported; rebuild the index");
+    }
     if (out->common_grams_posting_policy == CommonGramsPostingPolicy::kHybridV1 &&
         (!out->common_grams_metadata.has_value() ||
          out->common_grams_metadata->common_grams_coverage != CommonGramsCoverage::kMixed)) {
