@@ -17,6 +17,7 @@
 
 #include "exec/sink/writer/paimon/ffi_paimon_write_backend.h"
 #include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
+#include "exec/sink/writer/paimon/native_paimon_write_backend.h"
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 
 namespace doris {
@@ -30,6 +31,9 @@ Status PaimonWriteBackendFactory::create(const TPaimonTableSink& sink,
     case PaimonBackendType::FFI:
         *backend = std::make_unique<FfiPaimonWriteBackend>();
         return Status::OK();
+    case PaimonBackendType::NATIVE:
+        *backend = std::make_unique<NativePaimonWriteBackend>();
+        return Status::OK();
     }
     return Status::InternalError("Unknown Paimon write backend");
 }
@@ -37,6 +41,9 @@ Status PaimonWriteBackendFactory::create(const TPaimonTableSink& sink,
 PaimonBackendType PaimonWriteBackendFactory::select_backend_type(const TPaimonTableSink& sink) {
     if (sink.__isset.backend_type && sink.backend_type == TPaimonWriteBackendType::FFI) {
         return PaimonBackendType::FFI;
+    }
+    if (sink.__isset.backend_type && sink.backend_type == TPaimonWriteBackendType::NATIVE) {
+        return PaimonBackendType::NATIVE;
     }
     return PaimonBackendType::JNI;
 }

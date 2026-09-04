@@ -31,14 +31,14 @@ class RuntimeState;
 class RuntimeProfile;
 
 enum class PaimonBackendType {
-    JNI, // Java via JNI (PaimonJniWriter)
-    FFI, // Rust via FFI (placeholder, not yet implemented)
+    JNI,    // Java via JNI (PaimonJniWriter)
+    FFI,    // Rust via FFI (placeholder, not yet implemented)
+    NATIVE, // Doris C++ data-file writer; FE commits metadata through Paimon Java
 };
 
-/// Writer contract implemented by one SDK writer adapter. Each
+/// Writer contract implemented by one backend writer adapter. Each
 /// PaimonTableWriter owns one IPaimonWriter, which delegates to the
-/// underlying Paimon SDK (Java JNI or Rust FFI). Partition and bucket
-/// routing happens inside the selected SDK backend.
+/// selected implementation (Java JNI, Rust FFI, or Doris native C++).
 ///
 /// Lifecycle: created by IPaimonWriteBackend::create_writer() after the
 /// backend is opened; used for the duration of one pipeline instance.
@@ -50,19 +50,20 @@ public:
     /// For the JNI path: Block → Arrow RecordBatch → Arrow C Data → Java.
     virtual Status write(RuntimeState* state, Block& block) = 0;
 
-    /// Flush all buffered data, close files, and collect serialized commit
-    /// messages (DPCM-framed). Called once at EOS.
+    /// Flush all buffered data, close files, and collect either DPCM-framed
+    /// SDK payloads or structured native file metadata. Called once at EOS.
     virtual Status prepare_commit(std::vector<TPaimonCommitMessage>& messages) = 0;
 
     /// Discard written data files on error. Called when write or prepare_commit fails.
     virtual Status abort() = 0;
 };
 
-/// Backend boundary for creating writers via JNI (Java) or FFI (Rust).
+/// Backend boundary for creating writers via JNI (Java), FFI (Rust), or Doris native C++.
 ///
 /// The backend owns the connection/session to the external runtime:
 /// - JNI: owns the JVM class reference, method IDs, and the Java writer object.
 /// - FFI: (future) owns the Rust FFI handle.
+/// - NATIVE: owns Doris file-system and Arrow Parquet writer state.
 ///
 /// Each backend creates one or more IPaimonWriter adapters that share the
 /// same underlying connection. Snapshot commit is deliberately excluded from
@@ -95,6 +96,7 @@ public:
 /// Backend selection is based on TPaimonTableSink.backend_type:
 /// - Default (unset or JNI): JniPaimonWriteBackend
 /// - FFI: FfiPaimonWriteBackend (placeholder for future Rust writer)
+/// - NATIVE: NativePaimonWriteBackend (phase-one append-only Parquet writer)
 class PaimonWriteBackendFactory {
 public:
     /// Create a backend instance based on the sink configuration.

@@ -807,6 +807,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
+    public static final String PAIMON_INSERT_MODE = "paimon_insert_mode";
+    public static final String PAIMON_INSERT_MODE_NATIVE = "native";
+    public static final String PAIMON_INSERT_MODE_JNI = "jni";
+
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
@@ -3049,6 +3053,17 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = {"强制使用 jni 方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
+
+    @VariableMgr.VarAttr(name = PAIMON_INSERT_MODE,
+            needForward = true,
+            fuzzy = true,
+            checker = "checkPaimonInsertMode",
+            setter = "setPaimonInsertMode",
+            description = {"Paimon 写入实现。native 优先使用原生写入，不支持时回退 JNI；jni 强制使用 JNI",
+                    "Paimon write implementation. native prefers native writing and falls back to JNI when "
+                            + "unsupported; jni forces JNI"},
+            options = {PAIMON_INSERT_MODE_NATIVE, PAIMON_INSERT_MODE_JNI})
+    private String paimonInsertMode = PAIMON_INSERT_MODE_NATIVE;
 
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
@@ -5444,6 +5459,21 @@ public class SessionVariable implements Serializable, Writable {
         parseInsertVisibleTimeoutReturnMode(mode);
     }
 
+    public void checkPaimonInsertMode(String mode) {
+        if (!PAIMON_INSERT_MODE_NATIVE.equalsIgnoreCase(mode)
+                && !PAIMON_INSERT_MODE_JNI.equalsIgnoreCase(mode)) {
+            UnsupportedOperationException exception = new UnsupportedOperationException(
+                    PAIMON_INSERT_MODE + " should be one of {'native', 'jni'}, but found " + mode);
+            LOG.warn("Check " + PAIMON_INSERT_MODE + " failed", exception);
+            throw exception;
+        }
+    }
+
+    public void setPaimonInsertMode(String mode) {
+        checkPaimonInsertMode(mode);
+        paimonInsertMode = mode.toLowerCase(Locale.ROOT);
+    }
+
     // Parse the stored string case-insensitively and expose the enum only to business logic.
     private InsertVisibleTimeoutReturnMode parseInsertVisibleTimeoutReturnMode(String mode) {
         if (StringUtils.isEmpty(mode)) {
@@ -6499,6 +6529,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isForceJniScanner() {
         return forceJniScanner;
+    }
+
+    public String getPaimonInsertMode() {
+        return paimonInsertMode;
+    }
+
+    public boolean isPaimonNativeInsertMode() {
+        return PAIMON_INSERT_MODE_NATIVE.equalsIgnoreCase(paimonInsertMode);
     }
 
     public String getIgnoreSplitType() {

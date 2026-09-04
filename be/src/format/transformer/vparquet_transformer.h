@@ -83,6 +83,8 @@ struct ParquetFileOptions {
     TParquetVersion::type parquet_version;
     bool parquet_disable_dictionary = false;
     bool enable_int96_timestamps = false;
+    // Paimon stores DECIMAL(1..9) as INT32 and DECIMAL(10..18) as INT64.
+    bool store_decimal_as_integer = false;
 };
 
 // a wrapper of parquet output stream
@@ -100,6 +102,13 @@ public:
                         std::vector<TParquetSchema> parquet_schemas, bool output_object_data,
                         const ParquetFileOptions& parquet_options,
                         const std::string* iceberg_schema_json = nullptr);
+
+    // Table formats may provide the exact Arrow schema when field ids and nested
+    // physical types cannot be derived from Doris expressions alone.
+    VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
+                        const VExprContextSPtrs& output_vexpr_ctxs,
+                        std::shared_ptr<arrow::Schema> arrow_schema, bool output_object_data,
+                        const ParquetFileOptions& parquet_options);
 
     ~VParquetTransformer() override = default;
 

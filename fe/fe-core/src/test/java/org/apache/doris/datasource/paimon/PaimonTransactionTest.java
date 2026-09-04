@@ -20,17 +20,23 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.thrift.TPaimonCommitMessage;
+import org.apache.doris.thrift.TPaimonNativeCommitData;
 
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.CompactIncrement;
+import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataIncrement;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
+import org.apache.paimon.manifest.FileSource;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.sink.CommitMessageImpl;
 import org.apache.paimon.table.sink.CommitMessageSerializer;
 import org.apache.paimon.table.sink.TableCommitImpl;
+import org.apache.paimon.types.DataTypes;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.SnapshotManager;
 import org.junit.Assert;
 import org.junit.Before;
@@ -42,6 +48,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.Callable;
 
 public class PaimonTransactionTest {
@@ -157,6 +164,63 @@ public class PaimonTransactionTest {
                 new TPaimonCommitMessage().setPayload(Arrays.copyOf(first, first.length))));
 
         Assert.assertEquals(2, transaction.getPayloadCount());
+    }
+
+    @Test
+    public void testBuildNativeCommitMessage() throws Exception {
+        RowType rowType = RowType.of(DataTypes.INT(), DataTypes.STRING());
+        TableSchema schema = Mockito.mock(TableSchema.class);
+        Mockito.when(table.rowType()).thenReturn(rowType);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(schema.id()).thenReturn(7L);
+
+        TPaimonNativeCommitData nativeFile = new TPaimonNativeCommitData()
+                .setFileName("data-writer-0.parquet")
+                .setFileSize(4096)
+                .setRowCount(10)
+                .setMinSequenceNumber(0)
+                .setMaxSequenceNumber(9)
+                .setSchemaId(7)
+                .setBucket(0)
+                .setTotalBuckets(-1);
+        List<CommitMessage> messages = PaimonTransaction.buildNativeCommitMessages(
+                binding, Collections.singletonList(nativeFile));
+
+        Assert.assertEquals(1, messages.size());
+        CommitMessageImpl message = (CommitMessageImpl) messages.get(0);
+        Assert.assertEquals(BinaryRow.EMPTY_ROW, message.partition());
+        Assert.assertEquals(0, message.bucket());
+        Assert.assertEquals(Integer.valueOf(-1), message.totalBuckets());
+        Assert.assertEquals(1, message.newFilesIncrement().newFiles().size());
+        DataFileMeta file = message.newFilesIncrement().newFiles().get(0);
+        Assert.assertEquals("data-writer-0.parquet", file.fileName());
+        Assert.assertEquals(4096, file.fileSize());
+        Assert.assertEquals(10, file.rowCount());
+        Assert.assertEquals(0, file.minSequenceNumber());
+        Assert.assertEquals(9, file.maxSequenceNumber());
+        Assert.assertEquals(7, file.schemaId());
+        Assert.assertEquals(FileSource.APPEND, file.fileSource().get());
+    }
+
+    @Test
+    public void testRejectInvalidNativeSequenceRange() {
+        TableSchema schema = Mockito.mock(TableSchema.class);
+        Mockito.when(table.rowType()).thenReturn(RowType.of(DataTypes.INT()));
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(schema.id()).thenReturn(7L);
+        TPaimonNativeCommitData nativeFile = new TPaimonNativeCommitData()
+                .setFileName("data-writer-0.parquet")
+                .setFileSize(4096)
+                .setRowCount(10)
+                .setMinSequenceNumber(0)
+                .setMaxSequenceNumber(8)
+                .setSchemaId(7)
+                .setBucket(0)
+                .setTotalBuckets(-1);
+
+        Assert.assertThrows(java.io.IOException.class,
+                () -> PaimonTransaction.buildNativeCommitMessages(
+                        binding, Collections.singletonList(nativeFile)));
     }
 
     @Test
