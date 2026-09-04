@@ -259,3 +259,18 @@ jobs:
       contents: read
       pull-requests: read
       statuses: write
+
+  sync-previous-head-status:
+    name: Sync previous review status
+    if: >
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'synchronize' &&
+      github.event.before != '' &&
+      github.event.before != github.event.pull_request.head.sha
+    uses: ./.github/workflows/code-review-aggregate-status.yml
+    with:
+      head_sha: ${{ github.event.before }}
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write

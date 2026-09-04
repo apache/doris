@@ -57,6 +57,21 @@ class ResolveCodeReviewStatusTest(unittest.TestCase):
         self.assertEqual("success", result.state)
         self.assertIn("2 open PR contexts", result.description)
 
+    def test_shared_head_recovers_after_another_pr_moves(self) -> None:
+        statuses = [status(1, pr_number=123)]
+        before = resolve_status(
+            [pull(123), pull(124, base=OTHER_BASE_SHA)],
+            statuses,
+            head_sha=HEAD_SHA,
+        )
+        after = resolve_status(
+            [pull(123), pull(124, head=OTHER_HEAD_SHA, base=OTHER_BASE_SHA)],
+            statuses,
+            head_sha=HEAD_SHA,
+        )
+        self.assertEqual("pending", before.state)
+        self.assertEqual("success", after.state)
+
     def test_does_not_reuse_a_source_after_base_changes(self) -> None:
         result = resolve_status(
             [pull(123, base=OTHER_BASE_SHA)], [status(1)], head_sha=HEAD_SHA
