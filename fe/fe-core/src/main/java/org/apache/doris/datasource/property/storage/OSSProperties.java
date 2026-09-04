@@ -21,6 +21,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
@@ -344,7 +345,8 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
      * @param uri the original URI string
      * @return the rewritten URI string, or the original URI if no rewrite is needed
      */
-    public static String rewriteOssBucketIfNecessary(String uri) {
+    @VisibleForTesting
+    protected static String rewriteOssBucketIfNecessary(String uri) {
         if (uri == null || uri.isEmpty()) {
             return uri;
         }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import org.apache.arrow.memory.BufferAllocator;
@@ -80,10 +79,7 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
                     "Missing required property 'warehouse' for Lance filesystem catalog");
         }
         rejectOssHdfs();
-        // Validate before normalizing: the rewrite collapses the authority at its first dot, which
-        // would strip the very marker that identifies an OSS-HDFS root.
         validateWarehouse(warehouse);
-        warehouse = normalizeWarehouse(warehouse);
         for (String key : origProps.keySet()) {
             if (key.startsWith("lance.rest.")) {
                 throw new IllegalArgumentException(
@@ -144,25 +140,4 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
         }
     }
 
-    /**
-     * Doris accepts an OSS URL that spells out the endpoint in its authority and normalizes it to
-     * the bare bucket. Lance takes the authority as the bucket verbatim, so a warehouse left in the
-     * qualified form would address {@code bucket.oss-<region>.aliyuncs.com.<endpoint>}. Apply the
-     * same normalization Doris applies elsewhere before the root reaches the namespace.
-     */
-    private static String normalizeWarehouse(String warehouse) {
-        if (StringUtils.isBlank(warehouse)) {
-            return warehouse;
-        }
-        URI uri;
-        try {
-            uri = URI.create(warehouse);
-        } catch (IllegalArgumentException e) {
-            return warehouse;
-        }
-        if (uri.getScheme() == null || !"oss".equals(uri.getScheme().toLowerCase(Locale.ROOT))) {
-            return warehouse;
-        }
-        return OSSProperties.rewriteOssBucketIfNecessary(warehouse);
-    }
 }
