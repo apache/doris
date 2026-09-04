@@ -133,12 +133,14 @@ pid_t get_current_tid() {
     return static_cast<pid_t>(syscall(SYS_gettid));
 }
 
+#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
 void append_frame(SignalContextCapture* capture, uintptr_t pc) {
     if (pc == 0 || capture->size >= capture->frame_pointers.size()) {
         return;
     }
     capture->frame_pointers[capture->size++] = reinterpret_cast<void*>(pc);
 }
+#endif
 
 void capture_signal_context_unwind(const ucontext_t* context, SignalContextCapture* capture) {
     *capture = SignalContextCapture {};

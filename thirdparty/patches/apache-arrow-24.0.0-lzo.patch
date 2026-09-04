@@ -1,3 +1,20 @@
+--- a/cpp/src/parquet/CMakeLists.txt
++++ b/cpp/src/parquet/CMakeLists.txt
+@@ -118,0 +119,14 @@
++find_path(DORIS_LZO_INCLUDE_DIR
++          NAMES lzo/lzo1x.h
++          PATHS "${CMAKE_INSTALL_PREFIX}/include"
++          NO_DEFAULT_PATH
++          NO_CACHE
++          REQUIRED)
++find_library(DORIS_LZO_LIBRARY
++             NAMES lzo2
++             PATHS "${CMAKE_INSTALL_PREFIX}/lib" "${CMAKE_INSTALL_PREFIX}/lib64"
++             NO_DEFAULT_PATH
++             NO_CACHE
++             REQUIRED)
++include_directories(SYSTEM "${DORIS_LZO_INCLUDE_DIR}")
++link_libraries("${DORIS_LZO_LIBRARY}")
 --- a/cpp/src/parquet/column_reader.cc
 +++ b/cpp/src/parquet/column_reader.cc
 @@ -29,6 +29,8 @@
