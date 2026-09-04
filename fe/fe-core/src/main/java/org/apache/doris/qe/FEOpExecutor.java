@@ -214,6 +214,7 @@ public class FEOpExecutor {
             if (null != ctx.getPrepareExecuteBuffer()) {
                 params.setPrepareExecuteBuffer(ctx.getPrepareExecuteBuffer());
             }
+            params.setCursorFetchRequested(ctx.isCursorFetchRequested());
         }
 
         ctx.getSessionContext().getDelegatedCredential().ifPresent((DelegatedCredential credential) -> {

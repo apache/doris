@@ -726,6 +726,8 @@ public abstract class ConnectProcessor {
         if (request.isSetClientDeprecatedEOF() && request.isClientDeprecatedEOF()) {
             ctx.getMysqlChannel().setClientDeprecatedEOF();
         }
+        ctx.setCursorFetchRequested(request.isSetCursorFetchRequested()
+                && request.isCursorFetchRequested());
 
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;

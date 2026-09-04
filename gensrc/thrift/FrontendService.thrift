@@ -441,6 +441,8 @@ struct TMasterOpRequest {
     1005: optional string delegated_credential_token
     1006: optional i64 delegated_credential_expires_at_millis
     1007: optional string delegated_credential_session_id
+    // Whether COM_STMT_EXECUTE requested CURSOR_TYPE_READ_ONLY.
+    1008: optional bool cursor_fetch_requested
 }
 
 struct TColumnDefinition {
