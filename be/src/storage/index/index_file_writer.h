@@ -125,7 +125,7 @@ public:
     // term buffer), the caller pushes pre-merged, lexicographically sorted
     // terms through *session and seals the index with (*session)->finish().
     // Write parameters resolve through the SAME helper as add_snii_index
-    // (write_freq / zstd levels / dict block size), always at the COMPACTION
+    // (zstd levels / dict block size), always at the COMPACTION
     // prx tier (a merge is never a direct load). CommonGrams T3 callers transfer
     // a precharged destination norm vector and a validated static metadata seed;
     // the streamed session late-binds semantic token_count before finish. Only ONE

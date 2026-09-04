@@ -78,11 +78,12 @@ PhraseTermMapping build_phrase_term_mapping(const std::vector<std::string>& term
 }
 
 namespace {
+// 只读帧头估算工作量，不校验 crc：解码时才校验，坏帧在那里被拦下并保留已解码帧的统计。
 Status accumulate_frame_position_work(Slice frames, uint64_t* work) {
     ByteSource source(frames);
     while (!source.eof()) {
         format::PrxFrameView frame;
-        RETURN_IF_ERROR(format::read_prx_frame(&source, &frame));
+        RETURN_IF_ERROR(format::read_prx_frame(&source, &frame, /*verify_crc=*/false));
         uint64_t frame_work = frame.uncompressed_length;
         if (frame.codec == format::PrxCodec::kPfor) {
             ByteSource payload(frame.payload);
@@ -106,9 +107,6 @@ Status populate_logical_position_work(const std::vector<TermPlan>& plans,
                                       std::vector<PosSource>* sources) {
     DORIS_CHECK_EQ(plans.size(), sources->size());
     for (size_t plan_index = 0; plan_index < plans.size(); ++plan_index) {
-        if (plans[plan_index].entry.term_stats_present) {
-            continue;
-        }
         for (const PosChunk& chunk : (*sources)[plan_index].chunks) {
             (*sources)[plan_index].logical_position_docs += chunk.prx_doc_count;
             RETURN_IF_ERROR(accumulate_frame_position_work(
@@ -366,7 +364,7 @@ Status decode_windowed_position_source(const LogicalIndexReader& idx, const Term
         reader::WindowAbsRange range;
         RETURN_IF_ERROR(reader::windowed_window_range(
                 idx, p.entry, p.frq_base, p.prx_base, p.prelude, doc_chunk.window,
-                /*want_positions=*/true, /*want_freq=*/false, &range));
+                /*want_positions=*/true, &range));
         chunk.windowed = true;
         chunk.window = doc_chunk.window;
         const size_t prx_handle = prx_fetcher->add(range.prx_off, range.prx_len);

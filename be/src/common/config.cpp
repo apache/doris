@@ -1336,13 +1336,6 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
-// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
-// regions. Freq bytes serve ONLY BM25 scoring, which the Doris integration
-// does not reach yet (scoring_query has no production caller), so the default
-// drops them (textbench: -2.2 GB index). Scoring-config indexes always write
-// freq regardless. Applies at segment build (write side only); existing
-// segments keep whatever layout they were written with (self-describing).
-DEFINE_mBool(snii_positions_index_write_freq, "false");
 // G16-h: zstd levels for the SNII dict-block compression and the .prx window
 // auto mode. Level 9 (vs the historical 3) shrinks the two largest compressed
 // sections -- textbench: index -457 MB (0.918x -> 0.891x V3) -- for an import

@@ -26,10 +26,10 @@
 
 // SniiStatsProvider -- exposes the native SNII scoring statistics required by
 // BM25, sourced directly from the on-disk structures of one logical index:
-//   - semantic segment-level counts from CommonGrams scoring metadata.
-//   - per-term df / ttf from the term's DictEntry (resolved through the reader's
-//     lookup flow). The LogicalIndexWriter stores ttf directly in ttf_delta for
-//     tier>=T2 entries, so total_term_freq returns entry.ttf_delta.
+//   - segment-level counts from the stats block (doc_count / indexed_doc_count /
+//     sum_total_term_freq).
+//   - per-term df from the term's DictEntry (resolved through the reader's
+//     lookup flow).
 //   - per-doc length normalization byte (encoded_norm) from the norms POD,
 //     lazily loaded and validated once by LogicalIndexReader, then shared by
 //     every stats provider for that cached logical index.
@@ -58,10 +58,6 @@ public:
 
     // Per-term document frequency. Absent term -> *df = 0 (OK status).
     Status doc_freq(std::string_view term, uint64_t* df) const;
-
-    // Per-term total term frequency (ttf = df + ttf_delta at tier>=T2). Absent
-    // term -> *ttf = 0 (OK status).
-    Status total_term_freq(std::string_view term, uint64_t* ttf) const;
 
     // 1-byte encoded doc-length norm for docid (raw byte from the norms POD).
     // Out-of-range docid -> InvalidArgument; index without norms -> InvalidArgument.

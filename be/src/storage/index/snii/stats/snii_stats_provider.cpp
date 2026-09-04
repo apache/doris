@@ -85,28 +85,6 @@ Status SniiStatsProvider::doc_freq(std::string_view term, uint64_t* df) const {
     return Status::OK();
 }
 
-Status SniiStatsProvider::total_term_freq(std::string_view term, uint64_t* ttf) const {
-    if (ttf == nullptr)
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("stats_provider: null ttf");
-    *ttf = 0;
-    bool found = false;
-    DictEntry entry;
-    RETURN_IF_ERROR(lookup_entry(*idx_, term, &found, &entry));
-    if (!found) return Status::OK();
-    // tier>=T2 entries carry the total term frequency directly in ttf_delta (the
-    // LogicalIndexWriter stores ttf there, not a delta from df). G16-f blocks
-    // (kNoTermStats: freq-dropped index) omit it -- fail with the semantic
-    // error instead of silently returning the default 0 (mixed old/new
-    // segments would otherwise disagree on the same term).
-    if (!entry.term_stats_present) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "snii_stats: ttf requested but the dict block carries no term stats "
-                "(freq-dropped index)");
-    }
-    *ttf = entry.ttf_delta;
-    return Status::OK();
-}
-
 Status SniiStatsProvider::encoded_norm(uint32_t docid, uint8_t* out) const {
     if (out == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("stats_provider: null out");

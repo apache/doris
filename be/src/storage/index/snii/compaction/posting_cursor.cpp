@@ -442,13 +442,8 @@ Status SniiPostingCursor::validate_entry_geometry() {
         if (entry_.enc != format::DictEntryEnc::kSlim) {
             return posting_corruption("inline entry is not slim", source_ordinal_);
         }
-        if (entry_.inline_dd_disk_len != entry_.dd_meta.disk_len ||
-            entry_.inline_dd_disk_len > entry_.frq_bytes.size()) {
+        if (entry_.dd_meta.disk_len != entry_.frq_bytes.size()) {
             return posting_corruption("inline dd geometry mismatch", source_ordinal_);
-        }
-        const uint64_t freq_len = entry_.frq_bytes.size() - entry_.inline_dd_disk_len;
-        if (entry_.freq_meta.disk_len != freq_len) {
-            return posting_corruption("inline freq geometry mismatch", source_ordinal_);
         }
         shape_ = Shape::kFlat;
         return Status::OK();
@@ -458,8 +453,7 @@ Status SniiPostingCursor::validate_entry_geometry() {
         return posting_corruption("unknown dictionary entry kind", source_ordinal_);
     }
     if (entry_.enc == format::DictEntryEnc::kWindowed) {
-        if (entry_.prelude_len == 0 || entry_.prelude_len > entry_.frq_docs_len ||
-            entry_.frq_docs_len > entry_.frq_len) {
+        if (entry_.prelude_len == 0 || entry_.prelude_len > entry_.frq_len) {
             return posting_corruption("invalid windowed frq geometry", source_ordinal_);
         }
         shape_ = Shape::kWindowed;
@@ -468,12 +462,8 @@ Status SniiPostingCursor::validate_entry_geometry() {
     if (entry_.enc != format::DictEntryEnc::kSlim) {
         return posting_corruption("unknown dictionary entry encoding", source_ordinal_);
     }
-    if (entry_.prelude_len != 0 || entry_.frq_docs_len != entry_.dd_meta.disk_len ||
-        entry_.frq_docs_len > entry_.frq_len) {
+    if (entry_.prelude_len != 0 || entry_.dd_meta.disk_len != entry_.frq_len) {
         return posting_corruption("invalid slim frq geometry", source_ordinal_);
-    }
-    if (entry_.freq_meta.disk_len != entry_.frq_len - entry_.frq_docs_len) {
-        return posting_corruption("slim freq geometry mismatch", source_ordinal_);
     }
     shape_ = Shape::kFlat;
     return Status::OK();
@@ -481,7 +471,7 @@ Status SniiPostingCursor::validate_entry_geometry() {
 
 Status SniiPostingCursor::prepare_flat_ranges() {
     if (entry_.kind == format::DictEntryKind::kInline) {
-        flat_dd_len_ = entry_.inline_dd_disk_len;
+        flat_dd_len_ = entry_.frq_bytes.size();
         flat_prx_len_ = entry_.prx_bytes.size();
         return Status::OK();
     }
@@ -491,7 +481,7 @@ Status SniiPostingCursor::prepare_flat_ranges() {
     if (frq_len != entry_.frq_len) {
         return posting_corruption("resolved slim frq length mismatch", source_ordinal_);
     }
-    flat_dd_len_ = entry_.frq_docs_len;
+    flat_dd_len_ = entry_.frq_len;
     if (term_has_positions_) {
         RETURN_IF_ERROR(
                 index_->resolve_prx_window(entry_, prx_base_, &flat_prx_abs_, &flat_prx_len_));
@@ -531,21 +521,14 @@ Status SniiPostingCursor::prepare_windowed() {
                                   source_ordinal_);
     }
 
-    uint64_t docs_prefix_len = 0;
-    RETURN_IF_ERROR(checked_add(entry_.prelude_len, workspace_->prelude.dd_block_len(),
-                                "posting_cursor: windowed docs prefix overflow", &docs_prefix_len));
-    if (docs_prefix_len != entry_.frq_docs_len) {
-        return posting_corruption("windowed docs prefix mismatch", source_ordinal_);
-    }
     uint64_t encoded_frq_len = 0;
-    RETURN_IF_ERROR(checked_add(docs_prefix_len, workspace_->prelude.freq_block_len(),
+    RETURN_IF_ERROR(checked_add(entry_.prelude_len, workspace_->prelude.dd_block_len(),
                                 "posting_cursor: windowed frq length overflow", &encoded_frq_len));
     if (encoded_frq_len != entry_.frq_len) {
-        return posting_corruption("windowed frq blocks do not tile entry", source_ordinal_);
+        return posting_corruption("windowed dd block does not tile entry", source_ordinal_);
     }
 
     uint64_t dd_bytes = 0;
-    uint64_t freq_bytes = 0;
     uint64_t prx_bytes = 0;
     uint64_t docs = 0;
     uint32_t previous_last_docid = 0;
@@ -553,8 +536,7 @@ Status SniiPostingCursor::prepare_windowed() {
     for (uint32_t window = 0; window < workspace_->prelude.n_windows(); ++window) {
         format::WindowMeta meta;
         RETURN_IF_ERROR(workspace_->prelude.window(window, &meta));
-        if (meta.doc_count == 0 || meta.dd_off != dd_bytes || meta.prx_off != prx_bytes ||
-            (workspace_->prelude.has_freq() && meta.freq_off != freq_bytes)) {
+        if (meta.doc_count == 0 || meta.dd_off != dd_bytes || meta.prx_off != prx_bytes) {
             return posting_corruption("non-contiguous window metadata", source_ordinal_);
         }
         if ((!has_previous_window && meta.win_base != 0) ||
@@ -567,8 +549,6 @@ Status SniiPostingCursor::prepare_windowed() {
         }
         RETURN_IF_ERROR(checked_add(dd_bytes, meta.dd_disk_len,
                                     "posting_cursor: window dd bytes overflow", &dd_bytes));
-        RETURN_IF_ERROR(checked_add(freq_bytes, meta.freq_disk_len,
-                                    "posting_cursor: window freq bytes overflow", &freq_bytes));
         RETURN_IF_ERROR(checked_add(prx_bytes, meta.prx_len,
                                     "posting_cursor: window prx bytes overflow", &prx_bytes));
         RETURN_IF_ERROR(checked_add(docs, meta.doc_count,
@@ -576,8 +556,7 @@ Status SniiPostingCursor::prepare_windowed() {
         previous_last_docid = meta.last_docid;
         has_previous_window = true;
     }
-    if (dd_bytes != workspace_->prelude.dd_block_len() ||
-        freq_bytes != workspace_->prelude.freq_block_len() || prx_bytes != entry_.prx_len ||
+    if (dd_bytes != workspace_->prelude.dd_block_len() || prx_bytes != entry_.prx_len ||
         docs != entry_.df) {
         return posting_corruption("window directory totals mismatch", source_ordinal_);
     }
@@ -626,7 +605,7 @@ Status SniiPostingCursor::init() {
     if (shape_ == Shape::kWindowed) {
         RETURN_IF_ERROR(prepare_windowed_ranges());
         docs_range.offset = flat_dd_abs_ - entry_.prelude_len;
-        docs_range.length = entry_.frq_docs_len;
+        docs_range.length = entry_.frq_len;
         prx_range.offset = flat_prx_abs_;
         prx_range.length = flat_prx_len_;
     } else {
@@ -725,10 +704,6 @@ Status SniiPostingCursor::load_flat_chunk() {
         return posting_corruption("dd/prx document shape mismatch", source_ordinal_);
     }
     decoded_docs_ = entry_.df;
-    if (term_has_positions_) {
-        decoded_total_freq_ = prx_shape.total_positions;
-        decoded_max_freq_ = prx_shape.max_frequency;
-    }
     flat_loaded_ = true;
     return Status::OK();
 }
@@ -740,7 +715,7 @@ Status SniiPostingCursor::load_windowed_chunk() {
     reader::WindowAbsRange range;
     RETURN_IF_ERROR(reader::windowed_window_range(
             *index_, entry_, frq_base_, prx_base_, workspace_->prelude, next_window_,
-            /*want_positions=*/term_has_positions_, /*want_freq=*/false, &range));
+            /*want_positions=*/term_has_positions_, &range));
 
     Slice dd_bytes;
     Slice prx_bytes;
@@ -781,22 +756,10 @@ Status SniiPostingCursor::load_windowed_chunk() {
          workspace_->position_offsets.back() != workspace_->positions_flat.size())) {
         return posting_corruption("dd/prx document shape mismatch", source_ordinal_);
     }
-    if (term_has_positions_ && entry_.term_stats_present &&
-        prx_shape.max_frequency != meta.max_freq) {
-        return posting_corruption("window max frequency mismatch", source_ordinal_);
-    }
     if (decoded_docs_ > entry_.df || meta.doc_count > entry_.df - decoded_docs_) {
         return posting_corruption("decoded document count exceeds df", source_ordinal_);
     }
     decoded_docs_ += meta.doc_count;
-    if (term_has_positions_) {
-        if (prx_shape.total_positions >
-            std::numeric_limits<uint64_t>::max() - decoded_total_freq_) {
-            return posting_corruption("total term frequency overflow", source_ordinal_);
-        }
-        decoded_total_freq_ += prx_shape.total_positions;
-        decoded_max_freq_ = std::max(decoded_max_freq_, prx_shape.max_frequency);
-    }
     ++next_window_;
     return Status::OK();
 }
@@ -827,10 +790,6 @@ Status SniiPostingCursor::load_next_chunk(bool* loaded) {
 Status SniiPostingCursor::finish_source() {
     if (decoded_docs_ != entry_.df) {
         return posting_corruption("decoded document count differs from df", source_ordinal_);
-    }
-    if (entry_.term_stats_present &&
-        (decoded_total_freq_ != entry_.ttf_delta || decoded_max_freq_ != entry_.max_freq)) {
-        return posting_corruption("decoded term statistics mismatch", source_ordinal_);
     }
     exhausted_ = true;
     term_lease_.reset();
