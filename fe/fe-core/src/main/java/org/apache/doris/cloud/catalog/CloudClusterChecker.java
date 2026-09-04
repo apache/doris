@@ -186,7 +186,7 @@ public class CloudClusterChecker extends MasterDaemon {
 
             if (status == Cloud.NodeStatusPB.NODE_STATUS_DECOMMISSIONING) {
                 if (!be.isDecommissioning()) {
-                    LOG.info("decommissioned backend: {} status: {}", be, status);
+                    LOG.info("decommissioning backend: {} status: {}", be, status);
                     try {
                         ((CloudEnv) Env.getCurrentEnv()).getCloudUpgradeMgr().registerWaterShedTxnId(be.getId());
                         be.setDecommissioning(true);
