@@ -86,6 +86,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -1540,19 +1541,34 @@ public class CacheHotspotManager extends MasterDaemon {
             return;
         }
 
-        List<CloudWarmUpJob> candidates = runnableCloudWarmUpJobs.values().stream()
-                .filter(job -> !job.shouldWait())
-                .filter(job -> !job.isDone())
-                .filter(job -> !activeCloudWarmUpJobs.containsKey(job.getJobId()))
-                .sorted(Comparator
-                        .comparingLong((CloudWarmUpJob job) ->
-                                cloudWarmUpJobLastScheduleSeq.getOrDefault(job.getJobId(), 0L))
-                        .thenComparingInt(job -> job.isOnce() ? 0 : 1)
-                        .thenComparingLong(CloudWarmUpJob::getCreateTimeMs)
-                        .thenComparingLong(CloudWarmUpJob::getJobId))
-                .collect(Collectors.toList());
+        // A smaller last-scheduled sequence has higher priority, and never-scheduled jobs use sequence 0.
+        // For the same sequence, prefer ONCE jobs, then earlier creation time, then smaller job ID.
+        Comparator<CloudWarmUpJob> schedulePriority = Comparator
+                .comparingLong((CloudWarmUpJob job) ->
+                        cloudWarmUpJobLastScheduleSeq.getOrDefault(job.getJobId(), 0L))
+                .thenComparingInt(job -> job.isOnce() ? 0 : 1)
+                .thenComparingLong(CloudWarmUpJob::getCreateTimeMs)
+                .thenComparingLong(CloudWarmUpJob::getJobId);
 
-        for (CloudWarmUpJob job : candidates) {
+        // Keep only the highest-priority jobs needed by this cycle. The reversed comparator keeps
+        // the lowest-priority selected job at the heap top so it can be replaced during the scan.
+        PriorityQueue<CloudWarmUpJob> candidates = new PriorityQueue<>(availableSlots, schedulePriority.reversed());
+        for (CloudWarmUpJob job : runnableCloudWarmUpJobs.values()) {
+            if (job.shouldWait() || job.isDone() || activeCloudWarmUpJobs.containsKey(job.getJobId())) {
+                continue;
+            }
+            if (candidates.size() < availableSlots) {
+                candidates.offer(job);
+            } else if (schedulePriority.compare(job, candidates.peek()) < 0) {
+                candidates.poll();
+                candidates.offer(job);
+            }
+        }
+
+        List<CloudWarmUpJob> jobsToSchedule = new ArrayList<>(candidates);
+        jobsToSchedule.sort(schedulePriority);
+
+        for (CloudWarmUpJob job : jobsToSchedule) {
             if (availableSlots <= 0) {
                 break;
             }
