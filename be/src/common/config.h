@@ -1249,6 +1249,14 @@ DECLARE_Bool(enable_debug_points);
 DECLARE_Int32(pipeline_executor_size);
 DECLARE_Int32(blocking_pipeline_executor_size);
 
+// Lance shared session and optional Foyer data-file cache.
+DECLARE_Int64(lance_index_cache_size_bytes);
+DECLARE_Int64(lance_metadata_cache_size_bytes);
+DECLARE_Bool(enable_lance_data_cache);
+DECLARE_String(lance_data_cache_path);
+DECLARE_Int64(lance_data_cache_disk_capacity_bytes);
+DECLARE_Int64(lance_data_cache_read_block_size_bytes);
+
 // block file cache
 DECLARE_Bool(enable_file_cache);
 DECLARE_mBool(enable_file_cache_write_from_s3_file_writer);

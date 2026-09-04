@@ -37,6 +37,7 @@
 #include "exec/common/endian.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "format_v2/lance/lance_runtime_filter_helper.h"
+#include "format_v2/lance/lance_session_manager.h"
 #include "runtime/file_scan_profile.h"
 #include "storage/utils.h"
 
@@ -113,6 +114,12 @@ Status LanceTableReader::init(TableReadOptions&& options) {
                                                        TUnit::UNIT, LANCE_READER_PROFILE, 1);
     _execution_bytes_read = ADD_CHILD_COUNTER_WITH_LEVEL(
             _scanner_profile, "LanceExecutionIOBytesRead", TUnit::BYTES, LANCE_READER_PROFILE, 1);
+    _data_cache_bytes_read_from_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _scanner_profile, "LanceDataCacheBytesReadFromCache", TUnit::BYTES,
+            LANCE_READER_PROFILE, 1);
+    _data_cache_bytes_read_from_remote = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _scanner_profile, "LanceDataCacheBytesReadFromRemote", TUnit::BYTES,
+            LANCE_READER_PROFILE, 1);
     _index_partition_cache_miss_loads =
             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceIndexPartitionCacheMissLoads",
                                          TUnit::UNIT, LANCE_READER_PROFILE, 1);
@@ -653,12 +660,10 @@ Status LanceTableReader::_open_dataset(const DatasetKey& key) {
 
     {
         SCOPED_TIMER(_dataset_open_time);
-        _dataset = lance_dataset_open(
-                key.uri.c_str(), key.storage_options.empty() ? nullptr : storage_option_ptrs.data(),
-                static_cast<uint64_t>(key.version));
-    }
-    if (_dataset == nullptr) {
-        return lance_error("open Lance dataset");
+        RETURN_IF_ERROR(LanceSessionManager::instance().open_dataset(
+                key.uri.c_str(),
+                key.storage_options.empty() ? nullptr : storage_option_ptrs.data(),
+                static_cast<uint64_t>(key.version), &_dataset));
     }
     return Status::OK();
 }
@@ -1073,9 +1078,40 @@ void LanceTableReader::_close_dataset() {
         _fts_query_context = nullptr;
     }
     if (_dataset != nullptr) {
+        _collect_data_cache_statistics();
         lance_dataset_close(_dataset);
         _dataset = nullptr;
     }
+}
+
+void LanceTableReader::_collect_data_cache_statistics() {
+    if (_dataset == nullptr) {
+        return;
+    }
+
+    LanceDataCacheStatistics statistics {};
+    if (lance_dataset_get_data_cache_statistics(_dataset, &statistics) != 0) {
+        const auto status = lance_error("get Lance data cache statistics");
+        LOG(WARNING) << "Failed to collect Lance data cache statistics: " << status.to_string();
+        return;
+    }
+
+    const auto set_counter = [](RuntimeProfile::Counter* counter, uint64_t value,
+                                std::string_view metric_name) {
+        if (counter == nullptr) {
+            return;
+        }
+        if (value > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            LOG(WARNING) << "Ignoring Lance data cache metric '" << metric_name << "' with value "
+                         << value << " because it exceeds INT64_MAX";
+            return;
+        }
+        COUNTER_SET(counter, static_cast<int64_t>(value));
+    };
+    set_counter(_data_cache_bytes_read_from_cache, statistics.bytes_read_from_cache,
+                "bytes_read_from_cache");
+    set_counter(_data_cache_bytes_read_from_remote, statistics.bytes_read_from_remote,
+                "bytes_read_from_remote");
 }
 
 Status LanceTableReader::_fill_block_from_lance_batch(LanceBatch* batch, Block* block,

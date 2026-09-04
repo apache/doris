@@ -91,6 +91,9 @@ private:
                                     const TLanceFileDesc& lance_params) const;
     Status _configure_full_text_search(LanceScanner* scanner,
                                        const TLanceFileDesc& lance_params) const;
+    // Collect the cumulative statistics owned by this dataset handle. The Lance-C API returns an
+    // absolute snapshot, so this method replaces rather than increments the profile counters.
+    void _collect_data_cache_statistics();
     // Keep lance-c's anonymous statistics typedef out of this header. _open_scanner installs the
     // strongly typed C callback adapter before forwarding the borrowed value here.
     static void _collect_scan_statistics(void* callback_ctx, const void* opaque_statistics);
@@ -123,6 +126,8 @@ private:
     RuntimeProfile::Counter* _execution_iops = nullptr;
     RuntimeProfile::Counter* _execution_requests = nullptr;
     RuntimeProfile::Counter* _execution_bytes_read = nullptr;
+    RuntimeProfile::Counter* _data_cache_bytes_read_from_cache = nullptr;
+    RuntimeProfile::Counter* _data_cache_bytes_read_from_remote = nullptr;
     RuntimeProfile::Counter* _index_partition_cache_miss_loads = nullptr;
     RuntimeProfile::Counter* _index_comparisons = nullptr;
     std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_count_metrics;
