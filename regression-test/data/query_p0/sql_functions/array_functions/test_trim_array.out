@@ -44,6 +44,9 @@
 -- !trim_null_array --
 \N
 
+-- !trim_null_array_invalid_size --
+\N
+
 -- !trim_null_size --
 \N
 
@@ -53,3 +56,14 @@
 3	[]
 4	\N
 5	\N
+
+-- !trim_const_array --
+1	[1, 2]
+2	[1, 2, 3, 4]
+3	[1, 2, 3, 4]
+4	[1, 2, 3, 4]
+
+-- !trim_const_size --
+1	[1, 2, 3]
+2	[5]
+4	\N

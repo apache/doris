@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_trim_array") {
+    testFoldConst("select trim_array([1, 2, 3, 4], 2)")
+
     qt_trim_two "select trim_array([1, 2, 3, 4], 2)"
     qt_trim_zero "select trim_array([1, 2, 3, 4], 0)"
     qt_trim_one "select trim_array([1, 2, 3, 4], 1)"
@@ -31,6 +33,7 @@ suite("test_trim_array") {
     qt_trim_decimal "select trim_array(cast([-99999999.99, 0.00, 99999999.99] as array<decimal(10, 2)>), 1)"
     qt_trim_date "select trim_array(cast(['0000-01-01', '2024-02-29', '9999-12-31'] as array<date>), 1)"
     qt_trim_null_array "select trim_array(cast(null as array<int>), 0)"
+    qt_trim_null_array_invalid_size "select trim_array(cast(null as array<int>), 9223372036854775807)"
     qt_trim_null_size "select trim_array([1, 2, 3], cast(null as bigint))"
 
     test {
@@ -68,4 +71,9 @@ suite("test_trim_array") {
             (5, [7, 8], null)
     """
     order_qt_trim_columns "select id, trim_array(items, trim_size) from trim_array_test"
+    order_qt_trim_const_array """
+        select id, trim_array([1, 2, 3, 4], trim_size)
+        from trim_array_test where trim_size is not null order by id
+    """
+    order_qt_trim_const_size "select id, trim_array(items, 1) from trim_array_test where id in (1, 2, 4) order by id"
 }
