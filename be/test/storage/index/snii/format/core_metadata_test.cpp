@@ -243,13 +243,48 @@ TEST(SniiCoreMetadata, RejectsKnownButContradictoryCommonGramsEnumsAsCorruption)
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
 }
 
+// 已上线的生产 writer（selectdb-core 4.1.7 系）不写 stats.sum_total_term_freq 与
+// section_refs.norms：这种形态必须能打开，缺失的统计按 0、norms 按空 region 处理。
+TEST(SniiCoreMetadata, AcceptsProductionShapeWithoutNormsAndTotalTermFreq) {
+    const auto metadata = sample_core(IndexConfig::kDocsPositions);
+    const auto payload = mutate_core_payload(metadata, [](auto* core) {
+        core->mutable_stats()->clear_sum_total_term_freq();
+        core->mutable_section_refs()->clear_norms();
+    });
+    CoreMetadata actual;
+    const auto status = decode_core_metadata(Slice(frame_payload(payload)), &actual);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(actual.stats.doc_count, metadata.stats.doc_count);
+    EXPECT_EQ(actual.stats.sum_total_term_freq, 0U);
+    EXPECT_EQ(actual.section_refs.norms.offset, 0U);
+    EXPECT_EQ(actual.section_refs.norms.length, 0U);
+    EXPECT_EQ(actual.section_refs.dict_region.offset, metadata.section_refs.dict_region.offset);
+    EXPECT_EQ(actual.section_refs.bsbf.length, metadata.section_refs.bsbf.length);
+}
+
+// 没有 norms 的段编码时不写 section_refs.norms（与生产 writer 的字节形态一致）。
+TEST(SniiCoreMetadata, OmitsEmptyNormsRefOnEncode) {
+    auto metadata = sample_core(IndexConfig::kDocsPositions);
+    metadata.section_refs.norms = {};
+    const auto framed = encode(metadata);
+    const auto payload = payload_of(framed);
+    doris::snii::SniiCoreMetadataPB core;
+    ASSERT_TRUE(core.ParseFromArray(payload.data(), static_cast<int>(payload.size())));
+    EXPECT_FALSE(core.section_refs().has_norms());
+    EXPECT_TRUE(core.stats().has_sum_total_term_freq());
+    CoreMetadata decoded;
+    ASSERT_TRUE(decode_core_metadata(Slice(framed), &decoded).ok());
+    EXPECT_EQ(decoded.section_refs.norms.length, 0U);
+    expect_core_eq(metadata, decoded);
+}
+
 TEST(SniiCoreMetadata, RejectsMissingEachStatsField) {
     const auto metadata = sample_core();
-    for (const auto clear : std::array<void (doris::snii::SniiStatsPB::*)(), 5> {
+    // sum_total_term_freq 是可选字段（生产 writer 不写），不在必填之列。
+    for (const auto clear : std::array<void (doris::snii::SniiStatsPB::*)(), 4> {
                  &doris::snii::SniiStatsPB::clear_doc_count,
                  &doris::snii::SniiStatsPB::clear_indexed_doc_count,
                  &doris::snii::SniiStatsPB::clear_term_count,
-                 &doris::snii::SniiStatsPB::clear_sum_total_term_freq,
                  &doris::snii::SniiStatsPB::clear_null_count}) {
         const auto payload = mutate_core_payload(
                 metadata, [clear](auto* core) { (core->mutable_stats()->*clear)(); });
