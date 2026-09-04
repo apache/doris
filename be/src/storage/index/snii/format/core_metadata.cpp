@@ -168,23 +168,31 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
 
     const auto& stats = input.stats();
     if (!stats.has_doc_count() || !stats.has_indexed_doc_count() || !stats.has_term_count() ||
-        !stats.has_sum_total_term_freq() || !stats.has_null_count()) {
+        !stats.has_null_count()) {
         return corrupted("core metadata: missing statistics field");
     }
+    // sum_total_term_freq（字段 5）与 norms（字段 5）是后加的可选字段：已上线的生产
+    // writer（selectdb-core 4.1.7 系）不写它们。缺失 = 该段没有打分统计 / 没有 norms，
+    // 只影响 BM25 打分是否可用，不影响任何过滤查询。
     out->stats = {.doc_count = stats.doc_count(),
                   .indexed_doc_count = stats.indexed_doc_count(),
                   .term_count = stats.term_count(),
-                  .sum_total_term_freq = stats.sum_total_term_freq(),
+                  .sum_total_term_freq =
+                          stats.has_sum_total_term_freq() ? stats.sum_total_term_freq() : 0,
                   .null_count = stats.null_count()};
 
     const auto& refs = input.section_refs();
-    if (!refs.has_dict_region() || !refs.has_posting_region() || !refs.has_norms() ||
-        !refs.has_null_bitmap() || !refs.has_bsbf()) {
+    if (!refs.has_dict_region() || !refs.has_posting_region() || !refs.has_null_bitmap() ||
+        !refs.has_bsbf()) {
         return corrupted("core metadata: missing section reference");
     }
     RETURN_IF_ERROR(decode_region_ref(refs.dict_region(), &out->section_refs.dict_region));
     RETURN_IF_ERROR(decode_region_ref(refs.posting_region(), &out->section_refs.posting_region));
-    RETURN_IF_ERROR(decode_region_ref(refs.norms(), &out->section_refs.norms));
+    if (refs.has_norms()) {
+        RETURN_IF_ERROR(decode_region_ref(refs.norms(), &out->section_refs.norms));
+    } else {
+        out->section_refs.norms = {};
+    }
     RETURN_IF_ERROR(decode_region_ref(refs.null_bitmap(), &out->section_refs.null_bitmap));
     RETURN_IF_ERROR(decode_region_ref(refs.bsbf(), &out->section_refs.bsbf));
 
@@ -236,7 +244,10 @@ Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out) {
     auto* refs = core.mutable_section_refs();
     encode_region_ref(metadata.section_refs.dict_region, refs->mutable_dict_region());
     encode_region_ref(metadata.section_refs.posting_region, refs->mutable_posting_region());
-    encode_region_ref(metadata.section_refs.norms, refs->mutable_norms());
+    // 没有 norms 的段不写字段 5：与生产 writer 的字节形态一致，老 reader 也无需感知。
+    if (metadata.section_refs.norms.length != 0) {
+        encode_region_ref(metadata.section_refs.norms, refs->mutable_norms());
+    }
     encode_region_ref(metadata.section_refs.null_bitmap, refs->mutable_null_bitmap());
     encode_region_ref(metadata.section_refs.bsbf, refs->mutable_bsbf());
     if (metadata.common_grams_metadata.has_value()) {
