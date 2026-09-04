@@ -1376,14 +1376,9 @@ DECLARE_Int32(inverted_index_query_cache_shards);
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
 
-// Process-wide emergency switch for CommonGrams query plans.
-DECLARE_mBool(enable_common_grams_query_plan);
 // Build-only CommonGrams kill switch. Logical index writers snapshot it at construction; changing
 // it affects only writers created after the transition and never changes query/cache semantics.
-DECLARE_mBool(enable_common_grams_index_build);
 // Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
-DECLARE_mInt32(common_grams_plan_cost_ratio_percent);
-DECLARE_mInt32(common_grams_position_verify_factor);
 
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);

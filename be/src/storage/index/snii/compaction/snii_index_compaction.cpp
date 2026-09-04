@@ -17,6 +17,8 @@
 
 #include "storage/index/snii/compaction/snii_index_compaction.h"
 
+#include "storage/index/snii/query/bm25_scorer.h"
+
 #include <algorithm>
 #include <limits>
 #include <memory>
@@ -26,7 +28,6 @@
 
 #include "common/check.h"
 #include "common/logging.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
 #include "storage/index/snii/compaction/eligibility.h"
 #include "storage/index/snii/compaction/posting_run_merger.h"
 #include "storage/index/snii/compaction/term_cursor.h"
@@ -47,41 +48,6 @@ Status index_compaction_merge_corruption(std::string_view reason) {
                                                                           reason);
 }
 
-bool is_well_formed_common_gram(std::string_view term) {
-    namespace inverted_index = segment_v2::inverted_index;
-    if (!term.starts_with(inverted_index::CG_V1_MARKER) ||
-        term.size() > inverted_index::COMMON_GRAM_MAX_ENCODED_BYTES) {
-        return false;
-    }
-    constexpr size_t kLengthBytes = 8;
-    const size_t length_offset = inverted_index::CG_V1_MARKER.size();
-    if (term.size() < length_offset + kLengthBytes + 1) {
-        return false;
-    }
-    uint32_t left_length = 0;
-    for (size_t i = 0; i < kLengthBytes; ++i) {
-        const char digit = term[length_offset + i];
-        if (!((digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f'))) {
-            return false;
-        }
-        left_length = (left_length << 4) |
-                      static_cast<uint32_t>(digit <= '9' ? digit - '0' : digit - 'a' + 10);
-    }
-    const size_t separator = length_offset + kLengthBytes;
-    if (term[separator] != ':') {
-        return false;
-    }
-    const std::string_view components = term.substr(separator + 1);
-    if (left_length > components.size()) {
-        return false;
-    }
-    return inverted_index::validate_common_grams_logical_term(components.substr(0, left_length),
-                                                              "left term")
-                   .ok() &&
-           inverted_index::validate_common_grams_logical_term(components.substr(left_length),
-                                                              "right term")
-                   .ok();
-}
 
 template <typename T>
 Status reserve_tracked_vector(std::vector<T>* values, size_t additional,
@@ -135,7 +101,6 @@ SniiPlainT2MergePlan::SniiPlainT2MergePlan(
           destination_norm_reservations_(std::move(destination_norm_reservations)),
           destination_encoded_norms_(std::move(destination_encoded_norms)),
           destination_encoded_norms_taken_(destination_encoded_norms_.size(), false),
-          destination_semantic_token_counts_(destination_segment_num_rows_.size(), 0),
           read_contexts_(std::move(read_contexts)) {}
 
 Status SniiPlainT2MergePlan::prepare(std::vector<const reader::LogicalIndexReader*> source_indexes,
@@ -152,7 +117,6 @@ Status SniiPlainT2MergePlan::prepare(std::vector<const reader::LogicalIndexReade
                                      std::shared_ptr<writer::MemoryReporter> memory_reporter,
                                      std::unique_ptr<SniiPlainT2MergePlan>* out) {
     SniiCompactionEligibility eligibility;
-    eligibility.kind = SniiStreamedMergeKind::kPlainT2;
     return prepare(std::move(source_indexes), rowid_conversion, eligibility,
                    total_read_ahead_budget_bytes, std::move(memory_reporter), out);
 }
@@ -281,8 +245,7 @@ Status SniiPlainT2MergePlan::prepare(std::vector<const reader::LogicalIndexReade
 
     std::vector<writer::MemoryReporter::Reservation> destination_norm_reservations;
     std::vector<std::vector<uint8_t>> destination_encoded_norms;
-    if (eligibility.kind == SniiStreamedMergeKind::kCommonGramsT3) {
-        DORIS_CHECK(eligibility.common_grams_metadata_seed.has_value());
+    if (eligibility.destination_writes_norms) {
         destination_norm_reservations.reserve(destination_segment_num_rows.size());
         destination_encoded_norms.resize(destination_segment_num_rows.size());
         for (size_t destination_ordinal = 0;
@@ -299,40 +262,6 @@ Status SniiPlainT2MergePlan::prepare(std::vector<const reader::LogicalIndexReade
             if (memory_reporter != nullptr) {
                 DORIS_CHECK_EQ(destination_norm_reservations.back().bytes(), norms.capacity());
             }
-        }
-        for (size_t source_ordinal = 0; source_ordinal < source_indexes.size(); ++source_ordinal) {
-            writer::MemoryReporter::Reservation source_norms_reservation =
-                    memory_reporter == nullptr ? writer::MemoryReporter::Reservation()
-                                               : memory_reporter->make_reservation();
-            if (memory_reporter != nullptr) {
-                RETURN_IF_ERROR(source_norms_reservation.set_bytes(
-                        source_indexes[source_ordinal]->compaction_norms_cache_charge()));
-            }
-            format::NormsPodReader source_norms;
-            RETURN_IF_ERROR(source_indexes[source_ordinal]->open_norms(&source_norms));
-            const auto source_mapping = rowid_conversion.source_mapping(source_ordinal);
-            // The norms POD is only CRC-self-consistent; nothing upstream ties its
-            // doc_count to the validated conversion, and the loop below indexes
-            // source_mapping by it. Reconcile loudly (once per source, cold path).
-            if (source_norms.doc_count() != source_mapping.size()) {
-                return index_compaction_merge_corruption(
-                        "norms doc count differs from validated row-id conversion");
-            }
-            for (uint32_t source_docid = 0; source_docid < source_norms.doc_count();
-                 ++source_docid) {
-                const auto [destination_segment, destination_docid] = source_mapping[source_docid];
-                const bool deleted = destination_segment == std::numeric_limits<uint32_t>::max();
-                DCHECK_EQ(deleted, destination_docid == std::numeric_limits<uint32_t>::max());
-                if (deleted) {
-                    continue;
-                }
-                DCHECK_LT(destination_segment, destination_encoded_norms.size());
-                DCHECK_LT(destination_docid, destination_encoded_norms[destination_segment].size());
-                destination_encoded_norms[destination_segment][destination_docid] =
-                        source_norms.encoded_norm(source_docid);
-            }
-            source_indexes[source_ordinal]->release_compaction_norms();
-            source_norms_reservation.reset();
         }
     }
 
@@ -371,14 +300,14 @@ writer::TrackedNullDocids SniiPlainT2MergePlan::take_destination_null_docids(
 
 const std::vector<uint8_t>& SniiPlainT2MergePlan::destination_encoded_norms(
         size_t destination_segment) const {
-    DORIS_CHECK(eligibility_.kind == SniiStreamedMergeKind::kCommonGramsT3);
+    DORIS_CHECK(eligibility_.destination_writes_norms);
     DORIS_CHECK_LT(destination_segment, destination_encoded_norms_.size());
     return destination_encoded_norms_[destination_segment];
 }
 
 writer::TrackedEncodedNorms SniiPlainT2MergePlan::take_destination_encoded_norms(
         size_t destination_segment) {
-    DORIS_CHECK(eligibility_.kind == SniiStreamedMergeKind::kCommonGramsT3);
+    DORIS_CHECK(eligibility_.destination_writes_norms);
     DORIS_CHECK_LT(destination_segment, destination_encoded_norms_.size());
     DORIS_CHECK(!destination_encoded_norms_taken_[destination_segment]);
     destination_encoded_norms_taken_[destination_segment] = true;
@@ -388,22 +317,7 @@ writer::TrackedEncodedNorms SniiPlainT2MergePlan::take_destination_encoded_norms
 }
 
 format::IndexConfig SniiPlainT2MergePlan::destination_index_config() const {
-    return eligibility_.kind == SniiStreamedMergeKind::kCommonGramsT3
-                   ? format::IndexConfig::kDocsPositionsScoring
-                   : format::IndexConfig::kDocsPositions;
-}
-
-std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata>
-SniiPlainT2MergePlan::destination_common_grams_metadata(size_t destination_segment) const {
-    if (eligibility_.kind == SniiStreamedMergeKind::kPlainT2) {
-        return std::nullopt;
-    }
-    DORIS_CHECK(eligibility_.common_grams_metadata_seed.has_value());
-    DORIS_CHECK_LT(destination_segment, destination_segment_num_rows_.size());
-    auto metadata = *eligibility_.common_grams_metadata_seed;
-    metadata.scoring_doc_count = destination_segment_num_rows_[destination_segment];
-    metadata.scoring_token_count = 0;
-    return metadata;
+    return format::IndexConfig::kDocsPositions;
 }
 
 Status SniiPlainT2MergePlan::poison(Status status) {
@@ -426,7 +340,7 @@ Status SniiPlainT2MergePlan::take_front_source(TermMergeFrontier* frontier, Curr
     }
 
     const bool source_has_positions = posting_entry_has_positions(entry);
-    if (!current->common_gram && !source_has_positions) {
+    if (!source_has_positions) {
         return index_compaction_merge_corruption("ordinary term has docs-only posting shape");
     }
     if (!current->has_positions.has_value()) {
@@ -448,16 +362,7 @@ Status SniiPlainT2MergePlan::take_current_term(TermMergeFrontier* frontier, Curr
     DCHECK(frontier != nullptr);
     DCHECK(current != nullptr);
     DCHECK(!frontier->empty());
-    const std::string_view group_term = frontier->front()->term();
     current->posting_cursors.reserve(source_indexes_.size());
-    if (eligibility_.kind == SniiStreamedMergeKind::kCommonGramsT3) {
-        current->common_gram = segment_v2::inverted_index::is_internal_term_key(group_term);
-        if (current->common_gram && !is_well_formed_common_gram(group_term)) {
-            return index_compaction_merge_corruption(
-                    "CommonGrams source contains an unknown internal term marker");
-        }
-        current->counts_as_semantic_token = !current->common_gram;
-    }
 
     do {
         RETURN_IF_ERROR(take_front_source(frontier, current));
@@ -468,10 +373,12 @@ Status SniiPlainT2MergePlan::take_current_term(TermMergeFrontier* frontier, Curr
 
 Status SniiPlainT2MergePlan::write_current_term(
         CurrentTerm current, std::span<writer::SniiStreamedIndexSession* const> sessions) {
-    MergedPostingRuns posting_source(std::move(current.posting_cursors), *current.has_positions,
-                                     current.counts_as_semantic_token,
-                                     destination_segment_num_rows_,
-                                     destination_semantic_token_counts_);
+    MergedPostingRuns posting_source(
+            std::move(current.posting_cursors), *current.has_positions,
+            destination_segment_num_rows_,
+            eligibility_.destination_writes_norms
+                    ? std::span<std::vector<uint8_t>>(destination_encoded_norms_)
+                    : std::span<std::vector<uint8_t>>());
     RETURN_IF_ERROR(posting_source.init());
     while (!posting_source.empty()) {
         const uint32_t destination = posting_source.next_destination();
@@ -506,11 +413,16 @@ Status SniiPlainT2MergePlan::merge_terms(
         RETURN_IF_ERROR(write_current_term(std::move(current), sessions));
     }
 
-    if (eligibility_.kind == SniiStreamedMergeKind::kCommonGramsT3) {
+    if (eligibility_.destination_writes_norms) {
+        // 累加的是原始长度（0..255 饱和）；encode_norm 把 0 映射成 1，与 writer 的
+        // encode_norm(len) = clamp(len, 1, 255) 一致。
         for (size_t destination_ordinal = 0; destination_ordinal < sessions.size();
              ++destination_ordinal) {
-            RETURN_IF_ERROR(sessions[destination_ordinal]->set_semantic_token_count(
-                    destination_semantic_token_counts_[destination_ordinal]));
+            for (uint8_t& value : destination_encoded_norms_[destination_ordinal]) {
+                value = query::encode_norm(value);
+            }
+            RETURN_IF_ERROR(sessions[destination_ordinal]->set_encoded_norms(
+                    take_destination_encoded_norms(destination_ordinal)));
         }
     }
     for (writer::SniiStreamedIndexSession* session : sessions) {

@@ -24,7 +24,6 @@
 #include <vector>
 
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/util/reader.h"
@@ -37,18 +36,13 @@ namespace lucene::analysis {
 class Analyzer;
 }
 
-namespace doris::segment_v2::inverted_index {
-class CommonGramsFilter;
-}
 
 namespace doris::segment_v2 {
 
 class SniiIndexColumnWriter final : public IndexColumnWriter {
 public:
     SniiIndexColumnWriter(IndexFileWriter* index_file_writer, const TabletIndex* index_meta,
-                          FieldType value_type,
-                          std::optional<inverted_index::CommonGramsSegmentMetadata>
-                                  common_grams_metadata_seed = std::nullopt);
+                          FieldType value_type);
     ~SniiIndexColumnWriter() override = default;
 
     Status init() override;
@@ -76,14 +70,8 @@ public:
         return _memory_reporter.get();
     }
     const std::vector<uint8_t>& encoded_norms_for_test() const { return _encoded_norms; }
-    uint64_t scoring_token_count_for_test() const { return _scoring_token_count; }
     ::doris::snii::format::IndexConfig config_for_test() const { return _config; }
-    bool has_common_grams_metadata_seed_for_test() const {
-        return _common_grams_metadata_seed.has_value();
-    }
-    inverted_index::CommonGramsSegmentMetadata common_grams_metadata_for_test() const {
-        return _build_common_grams_metadata();
-    }
+    bool writes_norms_for_test() const { return _writes_norms; }
     void set_analysis_for_test(inverted_index::ReaderPtr reader,
                                std::shared_ptr<lucene::analysis::Analyzer> analyzer) {
         _should_analyzer = true;
@@ -94,8 +82,7 @@ public:
 
 private:
     Status _add_value_tokens(const Slice& value, uint32_t docid, uint32_t position_base,
-                             uint32_t* max_position, uint32_t* semantic_length);
-    inverted_index::CommonGramsSegmentMetadata _build_common_grams_metadata() const;
+                             uint32_t* max_position, uint32_t* token_count);
     // Mirrors _null_docids' capacity into _memory_reporter (delta-charged);
     // release_all zeroes the charge (finish() handoff / close_on_error()).
     void _report_null_docids_capacity(bool release_all = false);
@@ -107,8 +94,8 @@ private:
     bool _should_analyzer = false;
     bool _has_positions = false;
     const bool _is_char;
-    const bool _common_grams_build_enabled;
-    bool _uses_common_grams = false;
+    // A2：分词 + 带位置的索引一律写 norms（与 CLucene 一致），供 BM25 使用。
+    bool _writes_norms = false;
     // Latch: set_direct_load() ran. The first call wins; a repeat or late call
     // is ignored (and logged) so one index keeps one stable compression-tier
     // decision.
@@ -124,13 +111,10 @@ private:
     InvertedIndexAnalyzerConfig _analyzer_config;
     inverted_index::ReaderPtr _char_string_reader;
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
-    inverted_index::CommonGramsFilter* _common_grams_filter = nullptr;
     std::unique_ptr<::doris::snii::writer::MemoryReporter> _memory_reporter;
     std::unique_ptr<::doris::snii::writer::SpimiTermBuffer> _term_buffer;
     std::vector<uint32_t> _null_docids;
     std::vector<uint8_t> _encoded_norms;
-    uint64_t _scoring_token_count = 0;
-    std::optional<inverted_index::CommonGramsSegmentMetadata> _common_grams_metadata_seed;
     // Bytes of _null_docids capacity currently mirrored into _memory_reporter
     // (and through it the SNII index-build observation tracker). Re-charged on
     // growth in add_nulls / add_array_nulls, released in finish() / close_on_error() --

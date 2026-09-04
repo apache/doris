@@ -35,14 +35,11 @@ TEST(SniiFormatConstants, MagicAndVersionStable) {
 TEST(SniiFormatConstants, ConfigToTierMapping) {
     EXPECT_EQ(tier_of(IndexConfig::kDocsOnly), IndexTier::kT1);
     EXPECT_EQ(tier_of(IndexConfig::kDocsPositions), IndexTier::kT2);
-    EXPECT_EQ(tier_of(IndexConfig::kDocsPositionsScoring), IndexTier::kT3);
 }
 
 TEST(SniiFormatConstants, CapabilityPredicates) {
     EXPECT_FALSE(has_positions(IndexConfig::kDocsOnly));
     EXPECT_TRUE(has_positions(IndexConfig::kDocsPositions));
-    EXPECT_TRUE(has_scoring(IndexConfig::kDocsPositionsScoring));
-    EXPECT_FALSE(has_scoring(IndexConfig::kDocsPositions));
 }
 
 TEST(SniiFormatConstants, DictFlagBitsDistinct) {

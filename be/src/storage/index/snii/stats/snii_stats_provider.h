@@ -48,13 +48,6 @@ public:
     // scoring metadata requires compatible semantic statistics and norms.
     static Status open(const reader::LogicalIndexReader* idx, SniiStatsProvider* out);
 
-#ifdef BE_TEST
-    // Legacy scorer fixtures predate semantic scoring metadata. Production
-    // callers must use open() and fail closed when the proof is absent.
-    static Status open_legacy_for_test(const reader::LogicalIndexReader* idx,
-                                       SniiStatsProvider* out);
-#endif
-
     // Segment-level semantic counts persisted by the SNII writer.
     uint64_t doc_count() const { return doc_count_; }
     uint64_t indexed_doc_count() const { return indexed_doc_count_; }
@@ -77,8 +70,6 @@ public:
     bool has_norms() const { return has_norms_; }
 
 private:
-    static Status open_impl(const reader::LogicalIndexReader* idx, SniiStatsProvider* out,
-                            bool require_semantic_metadata);
 
     const reader::LogicalIndexReader* idx_ = nullptr;
     uint64_t doc_count_ = 0;

@@ -34,7 +34,6 @@ using segment_v2::inverted_index::CommonGramsSegmentMetadata;
 using segment_v2::inverted_index::PlainTermKeyVersion;
 using segment_v2::inverted_index::ScoringCoverage;
 using segment_v2::inverted_index::validate_common_grams_segment_metadata;
-using segment_v2::inverted_index::validate_snii_scoring_metadata;
 
 Status corrupted(std::string_view message) {
     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
@@ -48,7 +47,6 @@ Status validate_index_config(uint32_t value, IndexConfig* out) {
     switch (value) {
     case static_cast<uint32_t>(IndexConfig::kDocsOnly):
     case static_cast<uint32_t>(IndexConfig::kDocsPositions):
-    case static_cast<uint32_t>(IndexConfig::kDocsPositionsScoring):
         *out = static_cast<IndexConfig>(value);
         return Status::OK();
     default:
@@ -220,19 +218,9 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
          out->common_grams_metadata->common_grams_coverage != CommonGramsCoverage::kMixed)) {
         return corrupted("core metadata: hybrid policy requires mixed CommonGrams metadata");
     }
-    const bool has_scoring_tier = out->index_config == IndexConfig::kDocsPositionsScoring;
-    if (has_scoring_tier) {
-        if (out->section_refs.norms.length == 0) {
-            return corrupted("core metadata: scoring index requires a norms region");
-        }
-    }
-    if (has_scoring_tier ||
-        (out->common_grams_metadata.has_value() &&
-         out->common_grams_metadata->scoring_coverage == ScoringCoverage::kComplete)) {
-        RETURN_IF_ERROR(validate_snii_scoring_metadata(
-                out->common_grams_metadata ? &*out->common_grams_metadata : nullptr,
-                out->stats.doc_count, out->stats.sum_total_term_freq, has_scoring_tier,
-                has_positions(out->index_config), out->section_refs.norms.length != 0));
+    // norms（每 doc 一字节的 BM25 文档长度）只对带位置的段有意义：打分的词频来自位置。
+    if (out->section_refs.norms.length != 0 && !has_positions(out->index_config)) {
+        return corrupted("core metadata: norms require positions");
     }
     return Status::OK();
 }

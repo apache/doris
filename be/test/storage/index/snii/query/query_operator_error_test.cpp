@@ -26,7 +26,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/io/file_reader.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/query/boolean_query.h"
@@ -128,22 +127,9 @@ void BuildIndexBytes(const Corpus& corpus, doris::snii::format::IndexConfig conf
     in.index_suffix = "body";
     in.config = config;
     in.doc_count = static_cast<uint32_t>(corpus.docs.size());
-    if (config == doris::snii::format::IndexConfig::kDocsPositionsScoring) {
+    if (config == doris::snii::format::IndexConfig::kDocsPositions) {
+        // 带位置的索引一并写 norms（A2），让打分查询在这些边界用例里也可用。
         in.encoded_norms.assign(corpus.docs.size(), 1);
-        doris::segment_v2::inverted_index::CommonGramsSegmentMetadata metadata;
-        metadata.plain_term_key_version =
-                doris::segment_v2::inverted_index::PlainTermKeyVersion::kRawNoInternal;
-        metadata.scoring_coverage = doris::segment_v2::inverted_index::ScoringCoverage::kComplete;
-        metadata.scoring_stats_version =
-                doris::segment_v2::inverted_index::COMMON_GRAMS_SCORING_STATS_VERSION_V1;
-        metadata.norm_semantics_version =
-                doris::segment_v2::inverted_index::COMMON_GRAMS_NORM_SEMANTICS_VERSION_V1;
-        metadata.base_analyzer_fingerprint = "query-operator-error-test";
-        metadata.scoring_doc_count = corpus.docs.size();
-        for (const auto& terms : corpus.docs) {
-            metadata.scoring_token_count += terms.size();
-        }
-        in.common_grams_metadata = std::move(metadata);
     }
     in.terms = buf.finalize_sorted();
     in.target_dict_block_bytes = 512;
@@ -202,7 +188,7 @@ TEST(SniiQueryOperatorBoundaries, RejectNullOutputPointers) {
 
 TEST(SniiQueryOperatorBoundaries, EmptyMissingAndSingleTermCasesAreWellDefined) {
     std::vector<uint8_t> bytes;
-    BuildIndexBytes(Corpus {}, doris::snii::format::IndexConfig::kDocsPositionsScoring, &bytes);
+    BuildIndexBytes(Corpus {}, doris::snii::format::IndexConfig::kDocsPositions, &bytes);
     FaultInjectingReader file(std::move(bytes));
     SniiSegmentReader segment;
     LogicalIndexReader idx = OpenIndex(&file, &segment);
@@ -267,7 +253,7 @@ TEST(SniiQueryOperatorIoErrors, PropagateUnderlyingReadFailures) {
     ::setenv("SNII_DICT_RESIDENT_MAX", "0", 1);
 
     std::vector<uint8_t> bytes;
-    BuildIndexBytes(Corpus {}, doris::snii::format::IndexConfig::kDocsPositionsScoring, &bytes);
+    BuildIndexBytes(Corpus {}, doris::snii::format::IndexConfig::kDocsPositions, &bytes);
     FaultInjectingReader file(std::move(bytes));
     SniiSegmentReader segment;
     LogicalIndexReader idx = OpenIndex(&file, &segment);

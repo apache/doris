@@ -24,7 +24,6 @@
 
 #include "common/status.h"
 #include "storage/index/inverted/analyzer/analyzer_provider.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/snii/format/core_metadata.h"
 
@@ -52,20 +51,11 @@ struct PlainT2CompactionSource {
 using AnalyzerProviderFactory = std::function<segment_v2::inverted_index::AnalyzerProviderPtr(
         const InvertedIndexAnalyzerConfig&)>;
 
-enum class SniiStreamedMergeKind : uint8_t {
-    kPlainT2,
-    kCommonGramsT3,
-};
-
-// Validated destination shape for one streamed merge. CommonGrams metadata is a
-// static identity seed: destination doc_count is bound when its session starts,
-// and semantic token_count is bound after the single postings pass.
 struct SniiCompactionEligibility {
-    SniiStreamedMergeKind kind = SniiStreamedMergeKind::kPlainT2;
-    std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata>
-            common_grams_metadata_seed;
-    format::CommonGramsPostingPolicy common_grams_posting_policy =
-            format::CommonGramsPostingPolicy::kNone;
+    // A2：目标索引是"分词 + 带位置"时，合并产物必须带 norms。norms 在合并 postings 的同一趟里
+    // 从各源的词频重建（每 doc Σfreq，clamp 到 1..255），所以老段（没有 norms 的 T2）也能
+    // 不重分词地升级成带 norms 的段。
+    bool destination_writes_norms = false;
 };
 
 // O(1) physical/semantic validation for one source. The merge planner may call

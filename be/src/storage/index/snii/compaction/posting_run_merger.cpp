@@ -167,15 +167,14 @@ bool MergedPostingRuns::FrontierBefore::operator()(size_t lhs, size_t rhs) const
 }
 
 MergedPostingRuns::MergedPostingRuns(std::vector<std::unique_ptr<SniiPostingCursor>> cursors,
-                                     bool retain_positions, bool counts_as_semantic_token,
+                                     bool retain_positions,
                                      std::span<const uint32_t> destination_doc_counts,
-                                     std::span<uint64_t> destination_semantic_token_counts)
+                                     std::span<std::vector<uint8_t>> destination_doc_lengths)
         : cursors_(std::move(cursors)),
           active_frontier_(FrontierBefore {.active_chunks = &active_chunks_}),
           retain_positions_(retain_positions),
-          counts_as_semantic_token_(counts_as_semantic_token),
           destination_doc_counts_(destination_doc_counts),
-          destination_semantic_token_counts_(destination_semantic_token_counts) {}
+          destination_doc_lengths_(destination_doc_lengths) {}
 
 Status MergedPostingRuns::init() {
     if (initialized_) {
@@ -184,9 +183,12 @@ Status MergedPostingRuns::init() {
     if (cursors_.empty() || destination_doc_counts_.empty()) {
         return invalid_source("source or destination set is empty");
     }
-    if (counts_as_semantic_token_ &&
-        destination_semantic_token_counts_.size() != destination_doc_counts_.size()) {
-        return invalid_source("semantic token counters differ from destination count");
+    if (!destination_doc_lengths_.empty() &&
+        destination_doc_lengths_.size() != destination_doc_counts_.size()) {
+        return invalid_source("norm accumulators differ from destination count");
+    }
+    if (!destination_doc_lengths_.empty() && !retain_positions_) {
+        return invalid_source("norms require per-document term frequencies (positions)");
     }
     active_chunks_.resize(cursors_.size());
     for (size_t cursor_ordinal = 0; cursor_ordinal < cursors_.size(); ++cursor_ordinal) {
@@ -360,12 +362,19 @@ Status MergedPostingRuns::select_run(ActivePostingChunk* active, size_t max_docs
             retain_positions_ ? active->chunk.positions_flat.subspan(position_begin, position_count)
                               : std::span<const uint32_t> {};
 
-    if (counts_as_semantic_token_) {
-        uint64_t& token_count = destination_semantic_token_counts_[*active_destination_];
-        if (position_count > std::numeric_limits<uint64_t>::max() - token_count) {
-            return merge_corruption("semantic token count overflows uint64");
+    if (!destination_doc_lengths_.empty()) {
+        // 重建 norms：每篇文档的长度 = 该文档在所有 term 上的词频之和（与 writer 的
+        // 词元计数逐字节一致，见 SniiIndexColumnWriter），按 u8 饱和累加，255 封顶。
+        std::vector<uint8_t>& lengths = destination_doc_lengths_[*active_destination_];
+        for (size_t i = 0; i < document_count; ++i) {
+            const uint32_t docid = run->docids[i];
+            if (docid >= lengths.size()) {
+                return merge_corruption("posting docid exceeds destination doc count");
+            }
+            const uint32_t freq = run->freqs[i];
+            const uint32_t next = static_cast<uint32_t>(lengths[docid]) + freq;
+            lengths[docid] = static_cast<uint8_t>(std::min<uint32_t>(next, 255));
         }
-        token_count += position_count;
     }
     previous_segment_ = active->chunk.destination_segment;
     previous_docid_ = docids[end - 1];

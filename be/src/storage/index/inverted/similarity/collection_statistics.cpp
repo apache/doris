@@ -41,25 +41,16 @@
 namespace doris {
 namespace collection_statistics_detail {
 
-Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(
-        const std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata>& metadata,
-        uint64_t index_doc_count, uint64_t physical_sum_total_term_freq, bool has_scoring_tier,
-        bool has_positions, bool has_semantic_norms) {
-    using namespace segment_v2::inverted_index;
-    const auto* metadata_ptr = metadata ? &*metadata : nullptr;
-    auto validation_status = validate_snii_scoring_metadata(
-            metadata_ptr, index_doc_count, physical_sum_total_term_freq, has_scoring_tier,
-            has_positions, has_semantic_norms);
-    if (!validation_status.ok()) {
-        return ResultError(std::move(validation_status));
+Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_count,
+                                                             uint64_t sum_total_term_freq,
+                                                             bool has_positions, bool has_norms) {
+    if (!has_positions || !has_norms) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "SNII scoring requires positions and norms; this segment was written without "
+                "norms -- rebuild the index or wait for compaction to rewrite it"));
     }
-    DORIS_CHECK(metadata_ptr != nullptr);
-
-    return SniiScoringSegmentStats {
-            .doc_count = metadata_ptr->scoring_doc_count,
-            .token_count = metadata_ptr->scoring_token_count,
-            .plain_term_key_version = metadata_ptr->plain_term_key_version,
-            .base_analyzer_fingerprint = metadata_ptr->base_analyzer_fingerprint};
+    return SniiScoringSegmentStats {.doc_count = index_doc_count,
+                                    .token_count = sum_total_term_freq};
 }
 
 void add_term_doc_frequency(
@@ -252,35 +243,18 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                 return status;
             }
             auto logical_reader = std::move(logical_reader_result.value());
-            const auto* common_grams_metadata = logical_reader->common_grams_metadata();
-            segment_v2::inverted_index::PlainTermKeyVersion key_version;
+            const uint64_t segment_doc_count = logical_reader->stats().doc_count;
             RETURN_IF_ERROR(admit_snii_scoring_segment(
-                    ws_field_name,
-                    common_grams_metadata == nullptr
-                            ? std::nullopt
-                            : std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata>(
-                                      *common_grams_metadata),
-                    collect_info.expected_base_analyzer_fingerprint,
-                    logical_reader->stats().doc_count, logical_reader->stats().sum_total_term_freq,
-                    logical_reader->tier() == ::doris::snii::format::IndexTier::kT3,
-                    logical_reader->has_positions(),
-                    logical_reader->section_refs().norms.length != 0, &key_version,
+                    ws_field_name, segment_doc_count, logical_reader->stats().sum_total_term_freq,
+                    logical_reader->has_positions(), logical_reader->has_norms(),
                     &segment_accumulator));
-            DORIS_CHECK(common_grams_metadata != nullptr);
 
             ::doris::snii::reader::DictBlockCache dict_block_cache;
             for (const auto& logical_term_bytes : collect_info.unique_terms) {
-                std::string physical_term;
-                const bool term_present =
-                        DORIS_TRY(segment_v2::inverted_index::try_encode_plain_term(
-                                logical_term_bytes, key_version, &physical_term));
+                // SNII 的 term 键就是分词后的原始字节，没有任何转义或版本。
+                const std::string& physical_term = logical_term_bytes;
                 const auto logical_term =
                         segment_v2::inverted_index::StringHelper::to_wstring(logical_term_bytes);
-                if (!term_present) {
-                    collection_statistics_detail::add_term_doc_frequency(
-                            &segment_accumulator.term_doc_freqs, ws_field_name, logical_term, 0);
-                    continue;
-                }
 
                 bool found = false;
                 ::doris::snii::format::DictEntry entry;
@@ -288,10 +262,10 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                 uint64_t prx_base = 0;
                 RETURN_IF_ERROR(logical_reader->lookup(physical_term, &found, &entry, &frq_base,
                                                        &prx_base, &dict_block_cache));
-                if (found && entry.df > common_grams_metadata->scoring_doc_count) {
+                if (found && entry.df > segment_doc_count) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
-                            "SNII term document frequency {} exceeds scoring document count {}",
-                            entry.df, common_grams_metadata->scoring_doc_count);
+                            "SNII term document frequency {} exceeds segment document count {}",
+                            entry.df, segment_doc_count);
                 }
                 collection_statistics_detail::add_term_doc_frequency(
                         &segment_accumulator.term_doc_freqs, ws_field_name, logical_term,
@@ -360,50 +334,15 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
 }
 
 Status CollectionStatistics::admit_snii_scoring_segment(
-        const std::wstring& field_name,
-        const std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata>& metadata,
-        std::string_view expected_base_analyzer_fingerprint, uint64_t index_doc_count,
-        uint64_t physical_sum_total_term_freq, bool has_scoring_tier, bool has_positions,
-        bool has_semantic_norms,
-        segment_v2::inverted_index::PlainTermKeyVersion* plain_term_key_version,
-        SniiScoringSegmentAccumulator* segment_accumulator) {
-    DORIS_CHECK(plain_term_key_version != nullptr);
+        const std::wstring& field_name, uint64_t index_doc_count, uint64_t sum_total_term_freq,
+        bool has_positions, bool has_norms, SniiScoringSegmentAccumulator* segment_accumulator) {
     DORIS_CHECK(segment_accumulator != nullptr);
     auto segment_stats = collection_statistics_detail::resolve_snii_scoring_segment(
-            metadata, index_doc_count, physical_sum_total_term_freq, has_scoring_tier,
-            has_positions, has_semantic_norms);
+            index_doc_count, sum_total_term_freq, has_positions, has_norms);
     if (!segment_stats.has_value()) {
         clear();
         return segment_stats.error();
     }
-
-    const auto& base_analyzer_fingerprint = segment_stats->base_analyzer_fingerprint;
-    if (base_analyzer_fingerprint != expected_base_analyzer_fingerprint) {
-        clear();
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "SNII scoring segment base analyzer does not match the request analyzer for field "
-                "{}",
-                StringHelper::to_string(field_name));
-    }
-    auto staged_fingerprint = segment_accumulator->base_analyzer_fingerprints.find(field_name);
-    if (staged_fingerprint != segment_accumulator->base_analyzer_fingerprints.end() &&
-        staged_fingerprint->second != base_analyzer_fingerprint) {
-        clear();
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "SNII scoring cannot combine segments with different base analyzers for field {}",
-                StringHelper::to_string(field_name));
-    }
-    auto collected_fingerprint = _snii_base_analyzer_fingerprints.find(field_name);
-    if (collected_fingerprint != _snii_base_analyzer_fingerprints.end() &&
-        collected_fingerprint->second != base_analyzer_fingerprint) {
-        clear();
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "SNII scoring cannot combine segments with different base analyzers for field {}",
-                StringHelper::to_string(field_name));
-    }
-    segment_accumulator->base_analyzer_fingerprints.insert_or_assign(field_name,
-                                                                     base_analyzer_fingerprint);
-
     if (!segment_accumulator->token_counts.empty() &&
         segment_accumulator->doc_count != segment_stats->doc_count) {
         clear();
@@ -413,18 +352,11 @@ Status CollectionStatistics::admit_snii_scoring_segment(
     }
     segment_accumulator->doc_count = segment_stats->doc_count;
     segment_accumulator->token_counts[field_name] += segment_stats->token_count;
-    *plain_term_key_version = segment_stats->plain_term_key_version;
     return Status::OK();
 }
 
 void CollectionStatistics::commit_snii_scoring_segment(
         SniiScoringSegmentAccumulator&& segment_accumulator) {
-    for (const auto& [field_name, base_analyzer_fingerprint] :
-         segment_accumulator.base_analyzer_fingerprints) {
-        auto [collected_fingerprint, inserted] =
-                _snii_base_analyzer_fingerprints.try_emplace(field_name, base_analyzer_fingerprint);
-        DORIS_CHECK(inserted || collected_fingerprint->second == base_analyzer_fingerprint);
-    }
     for (const auto& [field_name, token_count] : segment_accumulator.token_counts) {
         _total_num_tokens[field_name] += token_count;
     }
@@ -442,7 +374,6 @@ void CollectionStatistics::clear() {
     _total_num_docs = 0;
     _total_num_tokens.clear();
     _term_doc_freqs.clear();
-    _snii_base_analyzer_fingerprints.clear();
     _avg_dl_by_col.clear();
     _idf_by_col_term.clear();
 }

@@ -209,7 +209,7 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
     SniiIndexInput in;
     in.index_id = 1;
     in.index_suffix = "body";
-    in.config = IndexConfig::kDocsPositionsScoring; // positions (phrase) + norms (scoring)
+    in.config = IndexConfig::kDocsPositions; // positions (phrase) + norms (scoring)
     in.doc_count = c.doc_count;
     in.terms = std::move(terms);
     in.target_dict_block_bytes = 256;
@@ -218,11 +218,6 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
     for (uint32_t d = 0; d < c.doc_count; ++d) {
         in.encoded_norms[d] = doris::snii::query::encode_norm(c.doc_len[d]);
     }
-    uint64_t token_count = 0;
-    for (const auto& term : in.terms) {
-        token_count += term.positions_flat.size();
-    }
-    in.common_grams_metadata = snii_test::make_plain_scoring_metadata(in.doc_count, token_count);
 
     io::LocalFileWriter w;
     ASSERT_TRUE(w.open(path).ok());

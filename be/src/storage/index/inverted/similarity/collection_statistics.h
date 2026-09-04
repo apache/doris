@@ -30,7 +30,6 @@
 #include "common/be_mock_util.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_state.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/similarity/predicate_collector.h"
 #include "storage/olap_common.h"
@@ -75,7 +74,6 @@ private:
         uint64_t doc_count = 0;
         std::unordered_map<std::wstring, uint64_t> token_counts;
         std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>> term_doc_freqs;
-        std::unordered_map<std::wstring, std::string> base_analyzer_fingerprints;
     };
 
     Status extract_collect_info(RuntimeState* state,
@@ -85,14 +83,10 @@ private:
     Status process_segment(const RowsetSharedPtr& rowset, const RowsetSegmentView& seg,
                            const TabletSchema* tablet_schema, const CollectInfoMap& collect_infos,
                            io::IOContext* io_ctx);
-    Status admit_snii_scoring_segment(
-            const std::wstring& field_name,
-            const std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata>& metadata,
-            std::string_view expected_base_analyzer_fingerprint, uint64_t index_doc_count,
-            uint64_t physical_sum_total_term_freq, bool has_scoring_tier, bool has_positions,
-            bool has_semantic_norms,
-            segment_v2::inverted_index::PlainTermKeyVersion* plain_term_key_version,
-            SniiScoringSegmentAccumulator* segment_accumulator);
+    Status admit_snii_scoring_segment(const std::wstring& field_name, uint64_t index_doc_count,
+                                      uint64_t sum_total_term_freq, bool has_positions,
+                                      bool has_norms,
+                                      SniiScoringSegmentAccumulator* segment_accumulator);
     void commit_snii_scoring_segment(SniiScoringSegmentAccumulator&& segment_accumulator);
     void clear();
 
@@ -104,7 +98,6 @@ private:
     uint64_t _total_num_docs = 0;
     std::unordered_map<std::wstring, uint64_t> _total_num_tokens;
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>> _term_doc_freqs;
-    std::unordered_map<std::wstring, std::string> _snii_base_analyzer_fingerprints;
 
     std::unordered_map<std::wstring, float> _avg_dl_by_col;
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, float>> _idf_by_col_term;
@@ -124,15 +117,13 @@ namespace collection_statistics_detail {
 struct SniiScoringSegmentStats {
     uint64_t doc_count = 0;
     uint64_t token_count = 0;
-    segment_v2::inverted_index::PlainTermKeyVersion plain_term_key_version =
-            segment_v2::inverted_index::PlainTermKeyVersion::kLegacyRaw;
-    std::string base_analyzer_fingerprint;
 };
 
-Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(
-        const std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata>& metadata,
-        uint64_t index_doc_count, uint64_t physical_sum_total_term_freq, bool has_scoring_tier,
-        bool has_positions, bool has_semantic_norms);
+// 一个 SNII 段能参与打分的条件：带位置（词频来自位置）且带 norms（新版 writer 对分词 + 带位置
+// 的索引一律写出）。老段没有 norms → NOT_SUPPORTED，重建索引或等 compaction 补齐。
+Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_count,
+                                                             uint64_t sum_total_term_freq,
+                                                             bool has_positions, bool has_norms);
 
 void add_term_doc_frequency(
         std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>>*
