@@ -1999,14 +1999,32 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
                                         PMultiGetResponseV2* response,
                                         google::protobuf::Closure* done) {
     std::vector<uint64_t> id_set;
-    id_set.push_back(request->wg_id());
+    // Cross-cluster request (e.g. topn lazy materialization over a remote doris catalog):
+    // the wg_id belongs to the sender cluster's own id space and must not be resolved
+    // locally, so the request is always charged to the default(normal) workload group
+    // instead of failing. Id 1 is the common normal group id; if it does not exist under
+    // the new compute-group model, WorkloadGroupMgr::get_group falls back to the group
+    // named "normal" by name, so it always resolves.
+    constexpr uint64_t DEFAULT_WORKLOAD_GROUP_ID = 1;
+    int32_t local_cluster_id = ExecEnv::GetInstance()->cluster_info()->cluster_id;
+    bool cross_cluster = request->has_cluster_id() && request->cluster_id() != 0 &&
+                         local_cluster_id != 0 && request->cluster_id() != local_cluster_id;
+    if (cross_cluster) {
+        id_set.push_back(DEFAULT_WORKLOAD_GROUP_ID);
+        LOG_EVERY_N(INFO, 20) << "receive cross-cluster multiget_data_v2, remote cluster id: "
+                              << request->cluster_id()
+                              << ", local cluster id: " << local_cluster_id
+                              << ", fallback to default workload group";
+    } else {
+        id_set.push_back(request->wg_id());
+    }
     auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(id_set);
     Status st = Status::OK();
 
     if (!wg) [[unlikely]] {
         brpc::ClosureGuard closure_guard(done);
         st = Status::Error<TStatusCode::CANCELLED>("fail to find wg: wg id:" +
-                                                   std::to_string(request->wg_id()));
+                                                   std::to_string(id_set[0]));
         st.to_protobuf(response->mutable_status());
         return;
     }
