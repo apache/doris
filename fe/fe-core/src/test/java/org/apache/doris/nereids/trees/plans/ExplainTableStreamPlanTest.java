@@ -588,9 +588,9 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         // asserting every incremental scan range carries the composed start/end TSO for its partition.
         String startTs = "2026-05-25 20:51:28";
         String endTs = "2026-05-25 21:51:28";
-        // BE reads [startTso, endTso), so OlapScanNode shifts the composed bounds by +1.
-        long expectedStartTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(startTs)) + 1;
-        long expectedEndTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(endTs)) + 1;
+        // @incr is left-closed right-open [start, end): BE uses GE/LT on the composed bounds directly.
+        long expectedStartTso = TSOTimestamp.composeEmptyCounterTSO(OlapScanNode.parseChangeTimestamp(startTs));
+        long expectedEndTso = TSOTimestamp.composeEmptyCounterTSO(OlapScanNode.parseChangeTimestamp(endTs));
 
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");

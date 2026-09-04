@@ -74,7 +74,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -502,8 +502,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     /**
      * Build the time-travel (FOR VERSION/TIME AS OF) plan for an olap scan.
-     * dup: Filter(__DORIS_COMMIT_TSO_COL__ &lt;= targetTso).
-     * mow: base(survived rows, tso&lt;=t1) UNION ALL binlog(before-image of UPDATE_BEFORE/DELETE).
+     * dup: Filter(__DORIS_COMMIT_TSO_COL__ &lt; targetTso), targetTso being the exclusive upper bound.
+     * mow: base(survived rows, tso &lt; targetTso) UNION ALL binlog(before-image of UPDATE_BEFORE/DELETE).
      */
     private LogicalPlan buildTimeTravelPlan(LogicalOlapScan scan, OlapTable olapTable,
             TableSnapshot snapshot, UnboundRelation unboundRelation, List<String> qualifier,
@@ -541,8 +541,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     /**
-     * Add Filter(__DORIS_COMMIT_TSO_COL__ &lt;= targetTso) on top of {@code child}. The tso slot is
-     * resolved from {@code child} output; {@code child} must pass through the scan output slots.
+     * Add Filter(__DORIS_COMMIT_TSO_COL__ &lt; targetTso) on top of {@code child}, where targetTso is
+     * the right-open (exclusive) upper bound from resolveSnapshotTso. The tso slot is resolved from
+     * {@code child} output; {@code child} must pass through the scan output slots.
      */
     private LogicalPlan addCommitTsoFilter(LogicalPlan child, long targetTso, OlapTable olapTable) {
         Slot tsoSlot = null;
@@ -554,25 +555,28 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         Preconditions.checkArgument(tsoSlot != null,
                 "%s not found on table %s", Column.COMMIT_TSO_COL, olapTable.getQualifiedName());
-        Expression conjunct = new LessThanEqual(tsoSlot, new BigIntLiteral(targetTso));
+        Expression conjunct = new LessThan(tsoSlot, new BigIntLiteral(targetTso));
         return new LogicalFilter<>(ImmutableSet.of(conjunct), child);
     }
 
     /**
-     * Resolve a TableSnapshot to a target commit tso (inclusive upper bound).
-     * VERSION: the literal is the tso itself. TIME: wall-clock string -&gt; ms -&gt; tso upper bound.
+     * Resolve a TableSnapshot to the right-open (exclusive) commit-tso upper bound: the scan keeps
+     * rows with commit_tso &lt; the returned value. VERSION: literal tso + 1 (so the literal itself is
+     * included). TIME: start of the millisecond after the requested one (so the whole requested
+     * millisecond, all logical counters, is included). Used uniformly by the dup filter, the mow
+     * union left filter and the mow union right-branch lower bound.
      */
     private long resolveSnapshotTso(TableSnapshot snapshot) {
         if (snapshot.getType() == TableSnapshot.VersionType.VERSION) {
             try {
-                return Long.parseLong(snapshot.getValue().trim());
+                return Long.parseLong(snapshot.getValue().trim()) + 1;
             } catch (NumberFormatException e) {
                 throw new AnalysisException(
                         "Invalid version in FOR VERSION AS OF: " + snapshot.getValue());
             }
         }
         long ms = OlapScanNode.parseChangeTimestamp(snapshot.getValue());
-        return TSOTimestamp.composeFullTimestamp(ms);
+        return TSOTimestamp.composeEmptyCounterTSO(ms + 1);
     }
 
     /**
@@ -589,14 +593,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         || ((SlotReference) slot).isVisible())
                 .collect(Collectors.toList());
 
-        // left: base survived rows at t1 = delete_sign=0 AND commit_tso<=t1, projected to visible.
+        // left: base survived rows at t1 = delete_sign=0 AND commit_tso < targetTso, projected to visible.
         LogicalPlan left = checkAndAddDeleteSignFilter(baseScan, ConnectContext.get(), olapTable, true);
         left = projectFromOriginSlots(addCommitTsoFilter(left, targetTso, olapTable), visibleOutput);
 
-        // right: binlog MIN_DELTA over tso>t1, keep UPDATE_BEFORE/DELETE rows (before image),
+        // right: binlog MIN_DELTA over tso >= targetTso, keep UPDATE_BEFORE/DELETE rows (before image),
         // projected to the same visible schema. BE splits each change so UPDATE_BEFORE/DELETE rows
         // already carry the pre-change value in the (same-named) value columns.
         RowBinlogTableWrapper binlogTable = new RowBinlogTableWrapper(olapTable, CollectionUtils.isEmpty(partIds)
+                // targetTso is the exclusive upper bound; the right branch reads tso >= targetTso,
+                // seamlessly meeting the left branch's commit_tso < targetTso.
                 ? makeUniformedTimestampRangeMap(olapTable.getPartitionIds(), Pair.of(targetTso, null)) :
                 makeUniformedTimestampRangeMap(partIds, Pair.of(targetTso, null)));
         RelationId binlogRelationId = cascadesContext.getStatementContext().getNextRelationId();
@@ -709,13 +715,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private Pair<Long, Long> parseTimestampRange(TableScanParams scanParams) {
         Map<String, String> params = scanParams.getMapParams();
+        // @incr reads a left-closed right-open range [startTso, endTso): BE applies GE/LT directly.
+        // composeEmptyCounterTSO maps a millisecond to its start (logical counter 0), so GE includes
+        // the whole startMs and LT excludes the whole endMs. No +1 shift is needed here.
         Long startTimestamp = OlapScanNode.parseChangeTimestamp(
                 params.getOrDefault(OlapScanNode.OLAP_START_TIMESTAMP, "0"));
-        startTimestamp = TSOTimestamp.composeFullTimestamp(startTimestamp);
+        startTimestamp = TSOTimestamp.composeEmptyCounterTSO(startTimestamp);
         Long endTimestamp = null;
         if (params.containsKey((OlapScanNode.OLAP_END_TIMESTAMP))) {
             endTimestamp = OlapScanNode.parseChangeTimestamp(params.get(OlapScanNode.OLAP_END_TIMESTAMP));
-            endTimestamp = TSOTimestamp.composeFullTimestamp(endTimestamp);
+            endTimestamp = TSOTimestamp.composeEmptyCounterTSO(endTimestamp);
         }
         return Pair.of(startTimestamp, endTimestamp);
     }

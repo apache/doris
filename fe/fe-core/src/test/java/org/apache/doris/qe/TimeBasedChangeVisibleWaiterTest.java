@@ -61,7 +61,7 @@ public class TimeBasedChangeVisibleWaiterTest {
                 mockContext(), newChangeRelation(1, ImmutableMap.of()),
                 ImmutableMap.of(TABLE_QUALIFIER, table), DEFAULT_END_TS_MS);
 
-        Assertions.assertEquals(TSOTimestamp.composeFullTimestamp(DEFAULT_END_TS_MS),
+        Assertions.assertEquals(TSOTimestamp.composeEmptyCounterTSO(DEFAULT_END_TS_MS),
                 result.get(DB_ID).get(TABLE_ID));
     }
 
@@ -80,7 +80,7 @@ public class TimeBasedChangeVisibleWaiterTest {
                 mockContext(), plan, ImmutableMap.of(TABLE_QUALIFIER, table), DEFAULT_END_TS_MS);
 
         Assertions.assertEquals(
-                TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(endTimestamp2)),
+                TSOTimestamp.composeEmptyCounterTSO(OlapScanNode.parseChangeTimestamp(endTimestamp2)),
                 result.get(DB_ID).get(TABLE_ID));
     }
 
@@ -184,7 +184,7 @@ public class TimeBasedChangeVisibleWaiterTest {
         TransactionState txn = Mockito.mock(TransactionState.class);
         Mockito.when(txn.getTransactionStatus()).thenAnswer(invocation -> status.get());
         Mockito.when(txn.getTableIdList()).thenReturn(ImmutableList.of(TABLE_ID));
-        Mockito.when(txn.getCommitTSO()).thenReturn(TSOTimestamp.composeFullTimestamp(1L));
+        Mockito.when(txn.getCommitTSO()).thenReturn(TSOTimestamp.composeEmptyCounterTSO(1L));
         Mockito.doAnswer(invocation -> {
             status.set(TransactionStatus.VISIBLE);
             return null;
