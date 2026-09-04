@@ -359,8 +359,8 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 TPaloScanRange range = loc.getScanRange().getPaloScanRange();
                 long tabletId = range.getTabletId();
                 long pid = tabletIdToPartitionId.get(tabletId);
-                // BE reads [startTso, endTso), so OlapScanNode shifts the recorded offset by +1.
-                long expectedStart = stream.getStreamUpdate(pid).first + 1;
+                // BE reads [startTso, endTso), so the recorded offset is shifted to its next TSO.
+                long expectedStart = TSOTimestamp.nextTso(stream.getStreamUpdate(pid).first);
                 Assertions.assertEquals(expectedScanType, range.getBinlogScanType(),
                         "binlog scan type should match stream consume type");
                 Assertions.assertEquals(expectedStart, range.getStartTso(),
@@ -442,7 +442,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 TPaloScanRange range = loc.getScanRange().getPaloScanRange();
                 long pid = tabletIdToPartitionId.get(range.getTabletId());
                 // BE reads [startTso, endTso), so OlapScanNode shifts the recorded offset by +1.
-                Assertions.assertEquals(nextOffsets.get(pid) + 1, range.getStartTso(),
+                Assertions.assertEquals(TSOTimestamp.nextTso(nextOffsets.get(pid)), range.getStartTso(),
                         "after offset commit, new startTSO must equal the previously committed next TSO + 1");
                 assertedAtLeastOne = true;
             }
