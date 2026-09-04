@@ -24,6 +24,7 @@
 #include "storage/index/inverted/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/analyzer/custom_analyzer_config.h"
 #include "storage/index/inverted/char_filter/char_filter_factory.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/inverted/setting.h"
 #include "storage/index/inverted/token_filter/token_filter_factory.h"
 #include "storage/index/inverted/tokenizer/tokenizer_factory.h"
@@ -105,6 +106,12 @@ public:
         return _uses_common_grams ? _common_words.get() : nullptr;
     }
     const std::shared_ptr<const CommonWordSet>& common_words() const { return _common_words; }
+    // 由构造函数依据 analyzer 配置一次性算出并缓存：tokenizer 是 "ngram" 且带非空 "mode"
+    // 属性、且该 analyzer 不带任何 char filter / token filter 时有值，否则为 nullopt
+    // （R22 fail-safe：任何 filter 都会让"落库 term == GramExtractor.extract(原始列值)"
+    // 这条行不变式失效）。取值逻辑复用 NGramTokenizerFactory::parse_gram_scheme，
+    // 与 tokenizer 自身的属性解析保持唯一真源。
+    std::optional<gram::GramScheme> gram_scheme() const override { return _gram_scheme; }
 
     static std::string calculate_base_analyzer_fingerprint(
             const ImmutableCustomAnalyzerConfigPtr& config,
@@ -117,6 +124,7 @@ private:
     bool _uses_common_grams = false;
     std::optional<CommonGramsQueryIdentity> _common_grams_identity;
     std::array<std::shared_ptr<lucene::analysis::Analyzer>, 5> _analyzers;
+    std::optional<gram::GramScheme> _gram_scheme;
 };
 
 } // namespace doris::segment_v2::inverted_index

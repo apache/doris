@@ -22,6 +22,7 @@
 
 #include "common/status.h"
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/format/format_constants.h"
@@ -54,6 +55,9 @@ struct CoreMetadata {
     SectionRefs section_refs;
     std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata> common_grams_metadata;
     CommonGramsPostingPolicy common_grams_posting_policy = CommonGramsPostingPolicy::kNone;
+    // gram 族索引的分段方案，供 P1 的 mode=auto 按段自适应选型使用。P0 写入侧恒为
+    // nullopt：这里只预留字段与编解码，不改变任何既有段的编码字节。
+    std::optional<segment_v2::gram::GramScheme> gram_scheme;
 };
 
 Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out);

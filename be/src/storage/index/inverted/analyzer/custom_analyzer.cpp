@@ -26,6 +26,7 @@
 #include "storage/index/inverted/common_grams/common_word_set.h"
 #include "storage/index/inverted/token_filter/common_grams_filter_factory.h"
 #include "storage/index/inverted/token_stream.h"
+#include "storage/index/inverted/tokenizer/ngram/ngram_tokenizer_factory.h"
 #include "util/sha.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -297,6 +298,26 @@ CustomAnalyzerProvider::CustomAnalyzerProvider(
         // mismatched identity and falls back to the plain plan instead of trusting its grams.
         _common_grams_identity =
                 build_common_grams_identity(_common_words->identity(), _base_analyzer_fingerprint);
+    }
+    // gram 族识别：tokenizer 是 "ngram" 时，把它的 Settings 交给
+    // NGramTokenizerFactory::parse_gram_scheme 复用同一份属性映射（R16 DRY）。
+    // build_purpose_analyzers() 已经在上面成功构造出该 tokenizer（否则会抛异常中断构造），
+    // 因此这里重新解析同一份配置不会失败；解析失败时保持 nullopt 兜底，不重复上抛。
+    //
+    // R22（fail-safe）：带任何 char filter 或 token filter 的 analyzer 一律不算 gram 族。
+    // gram 族的全部价值建立在"落库 term == GramExtractor.extract(原始列值)"这条行不变式上，
+    // 查询侧（阶段 C）据此把正则改写成 gram 的合取式；char filter 会改写文本、token filter
+    // 会改写/增删 gram，任一存在都让该等式不再成立。宁可退回全表扫描，也不能凭一个不成立的
+    // 不变式漏行。
+    const bool has_filters = !_config->get_char_filter_configs().empty() ||
+                             !_config->get_token_filter_configs().empty();
+    if (const auto& tokenizer_config = _config->get_tokenizer_config();
+        !has_filters && tokenizer_config != nullptr && tokenizer_config->get_name() == "ngram") {
+        if (Status st = NGramTokenizerFactory::parse_gram_scheme(tokenizer_config->get_params(),
+                                                                 &_gram_scheme);
+            !st.ok()) {
+            _gram_scheme.reset();
+        }
     }
 }
 

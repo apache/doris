@@ -79,6 +79,10 @@ message SniiCoreMetadataPB {
     optional SniiSectionRefsPB section_refs = 3;
     optional SniiCommonGramsMetadataPB common_grams = 4;
     optional uint32 common_grams_posting_policy = 5;
+    // gram 族索引（ngram tokenizer 的 sparse/dense/auto 模式）的分段方案，供 P1 的
+    // mode=auto 按段自适应选型使用。P0 只预留这个字段与编解码：写入侧从不设置它，
+    // 因此不影响任何既有段的编码字节。只追加，不得改变前 5 个字段的编号。
+    optional SniiGramSchemePB gram_scheme = 6;
 }
 
 // FIELD NUMBERS ARE ON DISK. The SNII format shipped before this message reached
@@ -125,4 +129,17 @@ message SniiCommonGramsMetadataPB {
     optional uint32 norm_semantics_version = 10;
     optional uint64 scoring_doc_count = 11;
     optional uint64 scoring_token_count = 12;
+}
+
+// gram 族索引（ngram tokenizer 的 sparse/dense/auto 模式）的分段方案参数，是 GramExtractor /
+// RegexGramCompiler 等下游组件切 gram 的唯一真源。P1 的 mode=auto 按段落盘这份参数以便查询时
+// 还原出与写入时一致的切分方式；P0 只预留字段与编解码，写入侧从不设置这个消息。
+message SniiGramSchemePB {
+    optional uint32 mode = 1;              // GramMode 的 on-disk 编码：1 = dense，2 = sparse
+    optional uint32 min_len = 2;
+    optional uint32 max_len = 3;
+    optional uint32 density_permille = 4;
+    optional uint32 stop_df_permille = 5;
+    optional bool lower_case = 6;
+    optional uint32 hash_version = 7;
 }

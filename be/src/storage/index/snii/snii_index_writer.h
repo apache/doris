@@ -24,7 +24,11 @@
 #include <vector>
 
 #include "storage/index/index_writer.h"
+// AnalyzerProviderPtr 已经在 inverted_index_parser.h 的闭包里（那条路径几乎所有 TU 都会
+// 拉到），这里显式写出来只是让依赖可见，不增加任何前向闭包成本。
+#include "storage/index/inverted/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/util/reader.h"
@@ -78,6 +82,7 @@ public:
     const std::vector<uint8_t>& encoded_norms_for_test() const { return _encoded_norms; }
     uint64_t scoring_token_count_for_test() const { return _scoring_token_count; }
     ::doris::snii::format::IndexConfig config_for_test() const { return _config; }
+    const std::optional<gram::GramScheme>& gram_scheme_for_test() const { return _gram_scheme; }
     bool has_common_grams_metadata_seed_for_test() const {
         return _common_grams_metadata_seed.has_value();
     }
@@ -93,6 +98,12 @@ public:
 #endif
 
 private:
+    // init() 的前半段：建好 char filter reader 与（_should_analyzer 时）唯一的 analyzer
+    // provider，再由 _apply_gram_family_scheme 定下 gram 族判定。必须先于 SpimiTermBuffer
+    // 构造调用。抛出的 CLuceneError / Exception 统一转成 INVERTED_INDEX_ANALYZER_ERROR。
+    Status _create_analyzer_provider(inverted_index::AnalyzerProviderPtr* analyzer_provider);
+    // 从 provider 取 gram 方案，并施加 gram 族的后果（强制 docs-only）。
+    void _apply_gram_family_scheme(const inverted_index::AnalyzerProviderPtr& analyzer_provider);
     Status _add_value_tokens(const Slice& value, uint32_t docid, uint32_t position_base,
                              uint32_t* max_position, uint32_t* semantic_length);
     inverted_index::CommonGramsSegmentMetadata _build_common_grams_metadata() const;
@@ -121,6 +132,11 @@ private:
     uint32_t _ignore_above = 0;
     uint32_t _rid = 0;
     ::doris::snii::format::IndexConfig _config = ::doris::snii::format::IndexConfig::kDocsOnly;
+    // gram 族（ngram tokenizer + mode 属性）analyzer 的方案参数；由
+    // _apply_gram_family_scheme 在 term buffer 构造之前、从本写入器自己创建的 analyzer
+    // provider 上取得，一旦有值就强制 docs-only。内置 analyzer、带 filter 的 analyzer、
+    // 带索引级 char_filter 的索引一律为 nullopt（R21/R22）。
+    std::optional<gram::GramScheme> _gram_scheme;
     InvertedIndexAnalyzerConfig _analyzer_config;
     inverted_index::ReaderPtr _char_string_reader;
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer;

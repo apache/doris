@@ -185,6 +185,11 @@ public:
     format::CommonGramsPostingPolicy common_grams_posting_policy() const {
         return core_.common_grams_posting_policy;
     }
+    // gram 族索引的分段方案，来自 core metadata。P0 写入侧从不设置这个字段，因此这里
+    // 恒为 nullopt；P1 的 mode=auto 按段自适应选型会消费这个访问器。
+    const std::optional<segment_v2::gram::GramScheme>& gram_scheme() const {
+        return core_.gram_scheme;
+    }
     io::FileReader* reader() const { return reader_; }
 
     // Returns a reader over the validated norms section. The first call reads
