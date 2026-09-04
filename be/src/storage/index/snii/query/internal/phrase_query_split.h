@@ -30,9 +30,6 @@
 #include <vector>
 
 #include "common/check.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_grams_query_cost.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/dict_entry.h"
@@ -91,8 +88,6 @@ using query::internal::ResolvedQueryTerm;
 using query::internal::TermPlan;
 using reader::LogicalIndexReader;
 
-bool apply_common_grams_plan_debug_override(bool cost_prefers_gram,
-                                            CommonGramsPlanDebugOverride debug_override);
 
 bool should_use_streaming_exact_phrase(const std::vector<TermPlan>& plans,
                                        const std::vector<PosSource>& sources,
@@ -101,38 +96,6 @@ bool should_use_streaming_exact_phrase(const std::vector<TermPlan>& plans,
                                        const PhraseQueryOptions& options,
                                        internal::ExactPhrasePositionAccess position_access);
 
-class CommonGramsPlanningTimer {
-public:
-    explicit CommonGramsPlanningTimer(format::PhraseQueryExecutionStats* stats) : stats_(stats) {
-        if (stats_ != nullptr) {
-            start_ = std::chrono::steady_clock::now();
-        }
-    }
-
-    ~CommonGramsPlanningTimer() { finish(); }
-
-    CommonGramsPlanningTimer(const CommonGramsPlanningTimer&) = delete;
-    CommonGramsPlanningTimer& operator=(const CommonGramsPlanningTimer&) = delete;
-
-    void finish() {
-        if (finished_) {
-            return;
-        }
-        finished_ = true;
-        if (stats_ == nullptr) {
-            return;
-        }
-        const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                     std::chrono::steady_clock::now() - start_)
-                                     .count();
-        stats_->common_grams_planning_ns += static_cast<uint64_t>(std::max<int64_t>(1, elapsed));
-    }
-
-private:
-    format::PhraseQueryExecutionStats* stats_ = nullptr;
-    std::chrono::steady_clock::time_point start_;
-    bool finished_ = false;
-};
 
 size_t position_span_size(std::pair<const uint32_t*, const uint32_t*> span);
 
@@ -210,149 +173,6 @@ struct PhraseTermMapping {
     std::vector<size_t> phrase_plan_index;
 };
 
-struct PhysicalPhrasePlan {
-    std::vector<std::string> unique_terms;
-    std::vector<size_t> phrase_plan_index;
-    std::vector<uint32_t> position_offsets;
-    std::vector<uint8_t> common_gram_clauses;
-};
-
-bool has_common_grams_capability(
-        const LogicalIndexReader& idx,
-        const segment_v2::inverted_index::CommonGramsQueryIdentity* query_identity);
-
-bool entry_has_positions(const format::DictEntry& entry);
-
-Status build_physical_phrase_plan_prefix(const LogicalIndexReader& idx,
-                                         const segment_v2::InvertedIndexQueryInfo& query_info,
-                                         size_t clause_count, bool allow_common_grams,
-                                         PhysicalPhrasePlan* plan, bool* all_representable);
-
-Status build_physical_phrase_plan(const LogicalIndexReader& idx,
-                                  const segment_v2::InvertedIndexQueryInfo& query_info,
-                                  bool allow_common_grams, PhysicalPhrasePlan* plan,
-                                  bool* all_representable);
-
-size_t resolved_batch_index(const std::vector<std::string>& batch_terms, std::string_view term);
-
-bool all_plan_terms_present(const PhysicalPhrasePlan& plan,
-                            const std::vector<std::string>& batch_terms,
-                            const std::vector<uint8_t>& found);
-
-uint64_t plan_visible_posting_bytes(const format::DictEntry& entry, bool need_positions);
-
-segment_v2::inverted_index::CommonGramsPlanRawCost phrase_plan_raw_cost(
-        const PhysicalPhrasePlan& plan, const std::vector<std::string>& batch_terms,
-        const std::vector<ResolvedQueryTerm>& resolved, const std::vector<uint8_t>& found,
-        bool need_positions);
-
-segment_v2::inverted_index::CommonGramsPlanRawCost alternative_clause_raw_cost(
-        const std::vector<ResolvedQueryTerm>& terms, bool need_positions);
-
-void append_alternative_clause_cost(
-        const segment_v2::inverted_index::CommonGramsPlanRawCost& clause,
-        segment_v2::inverted_index::CommonGramsPlanRawCost* plan);
-
-segment_v2::inverted_index::CommonGramsPlanRawCost hybrid_verification_raw_cost(
-        const segment_v2::inverted_index::CommonGramsPlanRawCost& prefilter_cost,
-        const segment_v2::inverted_index::CommonGramsPlanRawCost& verification_cost);
-
-internal::ResolvedPhrasePlan materialize_resolved_phrase_plan(
-        const PhysicalPhrasePlan& plan, const std::vector<std::string>& batch_terms,
-        std::vector<ResolvedQueryTerm>* resolved);
-
-internal::ResolvedPhrasePlan copy_resolved_phrase_plan(
-        const PhysicalPhrasePlan& plan, const std::vector<std::string>& batch_terms,
-        const std::vector<ResolvedQueryTerm>& resolved);
-
-bool physical_phrase_plan_has_docs_only_term(const PhysicalPhrasePlan& plan,
-                                             const std::vector<std::string>& batch_terms,
-                                             const std::vector<ResolvedQueryTerm>& resolved);
-
-void append_physical_phrase_clause(const PhysicalPhrasePlan& source, size_t clause,
-                                   uint32_t position_offset, PhysicalPhrasePlan* target);
-
-struct HybridPositionedCover {
-    PhysicalPhrasePlan candidate_prefilter;
-    PhysicalPhrasePlan verification;
-};
-
-struct HybridExactPlanArtifact {
-    std::optional<HybridPositionedCover> positioned_cover;
-};
-
-HybridExactPlanArtifact build_hybrid_exact_plan_artifact(
-        const PhysicalPhrasePlan& plain_plan, const PhysicalPhrasePlan& gram_plan,
-        const std::vector<std::string>& batch_terms,
-        const std::vector<ResolvedQueryTerm>& resolved);
-
-struct ResolvedMappedTail {
-    size_t batch_index = 0;
-    uint32_t expansion_ordinal = 0;
-};
-
-struct HybridPrefixMappedTails {
-    std::vector<size_t> positioned_indices;
-    std::vector<size_t> docs_only_indices;
-    std::vector<uint32_t> docs_only_ordinals;
-};
-
-struct HybridPrefixPlanArtifact {
-    HybridPositionedCover plain_tail_cover;
-    HybridPrefixMappedTails mapped_tail_split;
-    std::optional<PhysicalPhrasePlan> positioned_tail_verification;
-    uint32_t plain_tail_position_offset = 0;
-    bool maps_tail_to_gram = false;
-};
-
-std::optional<HybridPrefixPlanArtifact> try_build_hybrid_prefix_plan_artifact(
-        const PhysicalPhrasePlan& plain_leading, const PhysicalPhrasePlan& gram_leading,
-        const std::vector<std::string>& batch_terms, const std::vector<ResolvedQueryTerm>& resolved,
-        const std::vector<ResolvedMappedTail>& mapped_tails, bool maps_tail_to_gram);
-
-struct HybridPrefixCandidateSet {
-    bool active = false;
-    std::vector<uint32_t> docs;
-};
-
-Status build_hybrid_leading_candidates(const LogicalIndexReader& idx,
-                                       const PhysicalPhrasePlan& candidate_prefilter,
-                                       const std::vector<std::string>& batch_terms,
-                                       const std::vector<ResolvedQueryTerm>& resolved,
-                                       HybridPrefixCandidateSet* candidates);
-
-Status build_hybrid_docs_only_tail_candidates(const LogicalIndexReader& idx,
-                                              const std::vector<ResolvedQueryTerm>& resolved,
-                                              const std::vector<size_t>& gram_tail_indices,
-                                              const HybridPrefixCandidateSet& leading_candidates,
-                                              std::vector<uint32_t>* candidates);
-
-Status execute_hybrid_exact_phrase_plan(
-        const LogicalIndexReader& idx, const PhysicalPhrasePlan& gram_plan,
-        const std::vector<std::string>& batch_terms, const HybridExactPlanArtifact& artifact,
-        std::vector<ResolvedQueryTerm>* resolved, std::vector<uint32_t>* docids,
-        format::PrxDecodeContext* decode_context, bool* candidate_intersection_empty = nullptr);
-
-void append_resolved_phrase_clause(ResolvedQueryTerm term, uint32_t position_offset,
-                                   internal::ResolvedPhrasePlan* plan);
-
-internal::ResolvedPhrasePlan build_resolved_phrase_plan(
-        std::vector<ResolvedQueryTerm> resolved_terms);
-
-Status resolve_and_execute_physical_phrase_plan(const LogicalIndexReader& idx,
-                                                const PhysicalPhrasePlan& plan,
-                                                std::vector<uint32_t>* docids,
-                                                format::PrxDecodeContext* decode_context,
-                                                CommonGramsPlanningTimer& planning_timer);
-
-Status planned_exact_phrase_query_impl(
-        const LogicalIndexReader& idx, const segment_v2::InvertedIndexQueryInfo& plain_query_info,
-        const segment_v2::InvertedIndexQueryInfo& gram_query_info,
-        const segment_v2::inverted_index::CommonGramsQueryIdentity* common_grams_identity,
-        std::vector<uint32_t>* docids, format::PrxDecodeContext* decode_context,
-        ExactPhrasePlanKind* selected_plan,
-        segment_v2::inverted_index::CommonGramsPlanCostModel cost_model,
-        CommonGramsPlanDebugOverride debug_override);
 
 PhraseTermMapping build_phrase_term_mapping(const std::vector<std::string>& terms);
 
@@ -547,23 +367,6 @@ Status execute_resolved_phrase_prefix_terms(
         std::vector<PhraseMatch>* matches = nullptr,
         const std::vector<uint32_t>* candidate_prefilter = nullptr);
 
-Status execute_hybrid_phrase_prefix_plan(
-        const LogicalIndexReader& idx, const HybridPrefixPlanArtifact& artifact,
-        const std::vector<std::string>& batch_terms, const std::vector<ResolvedQueryTerm>& resolved,
-        const std::vector<ResolvedQueryTerm>& plain_tail_terms, std::vector<uint32_t>* docids,
-        format::PrxDecodeContext* decode_context, CommonGramsPlanningTimer& planning_timer,
-        bool* candidate_intersection_empty);
-
-struct HybridPrefixCostEstimate {
-    segment_v2::inverted_index::CommonGramsPlanRawCost raw_cost;
-    uint64_t estimated_cost = 0;
-};
-
-HybridPrefixCostEstimate estimate_hybrid_prefix_plan_cost(
-        const HybridPrefixPlanArtifact& artifact, const std::vector<std::string>& batch_terms,
-        const std::vector<ResolvedQueryTerm>& resolved, const std::vector<uint8_t>& found,
-        const std::vector<ResolvedQueryTerm>& plain_tail_terms, uint32_t position_verify_factor);
-
 Status phrase_query_impl(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
                          std::vector<uint32_t>* const docids,
                          format::PrxDecodeContext* decode_context,
@@ -573,39 +376,9 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
                                 const std::vector<std::string>& terms,
                                 std::vector<uint32_t>* const docids, int32_t max_expansions,
                                 format::PrxDecodeContext* decode_context,
-                                CommonGramsPlanningTimer* planning_timer,
                                 std::vector<PhraseMatch>* matches = nullptr);
 
-Status planned_phrase_prefix_query_impl(
-        const LogicalIndexReader& idx, const segment_v2::InvertedIndexQueryInfo& plain_query_info,
-        const segment_v2::InvertedIndexQueryInfo& gram_query_info,
-        const segment_v2::inverted_index::CommonGramsQueryIdentity* common_grams_identity,
-        std::vector<uint32_t>* docids, int32_t max_expansions,
-        format::PrxDecodeContext* decode_context, PhrasePrefixPlanKind* selected_plan,
-        segment_v2::inverted_index::CommonGramsPlanCostModel cost_model,
-        CommonGramsPlanDebugOverride debug_override);
 
-template <typename Index>
-segment_v2::inverted_index::CommonGramsPlanRawCost alternative_clause_raw_cost(
-        const std::vector<ResolvedQueryTerm>& terms, const std::vector<Index>& indices,
-        bool need_positions) {
-    segment_v2::inverted_index::CommonGramsPlanRawCost cost;
-    unsigned __int128 posting_bytes = 0;
-    unsigned __int128 candidate_df = 0;
-    for (size_t index : indices) {
-        DORIS_CHECK_LT(index, terms.size());
-        posting_bytes += plan_visible_posting_bytes(terms[index].entry, need_positions);
-        candidate_df += terms[index].entry.df;
-    }
-    cost.posting_bytes_or_df_sum = posting_bytes > std::numeric_limits<uint64_t>::max()
-                                           ? std::numeric_limits<uint64_t>::max()
-                                           : static_cast<uint64_t>(posting_bytes);
-    cost.estimated_candidate_df = candidate_df > std::numeric_limits<uint64_t>::max()
-                                          ? std::numeric_limits<uint64_t>::max()
-                                          : static_cast<uint64_t>(candidate_df);
-    cost.clause_count = 1;
-    return cost;
-}
 
 } // namespace doris::snii::query::phrase_impl
 

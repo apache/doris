@@ -34,10 +34,8 @@
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/index/inverted/token_filter/common_grams_filter.h"
 #include "storage/index/snii/snii_index_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/defer_op.h"
@@ -61,29 +59,6 @@ public:
     mutable std::vector<AnalysisPurpose> purposes;
 };
 
-class IdentityFailingAnalyzerProvider final : public AnalyzerProvider {
-public:
-    explicit IdentityFailingAnalyzerProvider(inverted_index::CommonGramsQueryIdentity identity)
-            : _identity(std::move(identity)) {}
-
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
-            AnalysisPurpose purpose) const override {
-        purposes.push_back(purpose);
-        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
-                        "forced analyzer provider failure");
-    }
-
-    bool uses_common_grams() const override { return true; }
-
-    const inverted_index::CommonGramsQueryIdentity* common_grams_identity() const override {
-        return &_identity;
-    }
-
-    mutable std::vector<AnalysisPurpose> purposes;
-
-private:
-    inverted_index::CommonGramsQueryIdentity _identity;
-};
 
 class PartialFailureTokenStream final : public lucene::analysis::TokenStream {
 public:
@@ -159,93 +134,8 @@ public:
             std::make_shared<std::atomic<uint32_t>>(0);
 };
 
-class GeneratedTokenStream final : public lucene::analysis::TokenStream {
-public:
-    GeneratedTokenStream(std::string term, bool mark_common_gram)
-            : _term(std::move(term)), _mark_common_gram(mark_common_gram) {}
 
-    lucene::analysis::Token* next(lucene::analysis::Token* token) override {
-        if (_emitted) {
-            return nullptr;
-        }
-        _emitted = true;
-        token->clear();
-        token->setTextNoCopy(_term.data(), static_cast<int32_t>(_term.size()));
-        token->setPositionIncrement(1);
-        if (_mark_common_gram) {
-            token->setType(inverted_index::COMMON_GRAM_TOKEN_TYPE);
-        }
-        return token;
-    }
 
-    void close() override {}
-    void reset() override { _emitted = false; }
-
-private:
-    std::string _term;
-    bool _mark_common_gram = false;
-    bool _emitted = false;
-};
-
-class GeneratedTokenAnalyzer final : public lucene::analysis::Analyzer {
-public:
-    GeneratedTokenAnalyzer(std::string term, bool mark_common_gram)
-            : _term(std::move(term)), _mark_common_gram(mark_common_gram) {}
-
-    bool isSDocOpt() override { return true; }
-
-    lucene::analysis::TokenStream* tokenStream(const TCHAR*, lucene::util::Reader*) override {
-        return new GeneratedTokenStream(_term, _mark_common_gram);
-    }
-
-    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
-                                                       lucene::util::Reader*) override {
-        _reusable = std::make_unique<GeneratedTokenStream>(_term, _mark_common_gram);
-        return _reusable.get();
-    }
-
-    lucene::analysis::TokenStream* tokenStream(const TCHAR*,
-                                               const inverted_index::ReaderPtr&) override {
-        return new GeneratedTokenStream(_term, _mark_common_gram);
-    }
-
-    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
-                                                       const inverted_index::ReaderPtr&) override {
-        _reusable = std::make_unique<GeneratedTokenStream>(_term, _mark_common_gram);
-        return _reusable.get();
-    }
-
-private:
-    std::string _term;
-    bool _mark_common_gram = false;
-    std::unique_ptr<GeneratedTokenStream> _reusable;
-};
-
-class GeneratedGramAnalyzerProvider final : public AnalyzerProvider {
-public:
-    GeneratedGramAnalyzerProvider()
-            : _gram(*inverted_index::encode_common_gram("the", "history")),
-              _identity {.common_grams_dictionary_identity = "builtin-stopwords:v1",
-                         .base_analyzer_fingerprint = "base:v1",
-                         .common_grams_fingerprint = "grams:v1"} {}
-
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
-            AnalysisPurpose purpose) const override {
-        purposes.push_back(purpose);
-        return std::make_shared<GeneratedTokenAnalyzer>(_gram, true);
-    }
-
-    bool uses_common_grams() const override { return true; }
-    const inverted_index::CommonGramsQueryIdentity* common_grams_identity() const override {
-        return &_identity;
-    }
-
-    mutable std::vector<AnalysisPurpose> purposes;
-
-private:
-    std::string _gram;
-    inverted_index::CommonGramsQueryIdentity _identity;
-};
 
 struct QueryExecutionContext {
     explicit QueryExecutionContext(bool scoring) {
@@ -322,10 +212,17 @@ protected:
     void expect_analysis_failure_after_segment_admission(const std::shared_ptr<Reader>& reader,
                                                          InvertedIndexQueryType query_type,
                                                          std::string query, bool scoring,
-                                                         AnalysisPurpose expected_purpose,
                                                          const std::shared_ptr<Provider>& provider,
                                                          int64_t expected_query_cache_lookups = 0,
                                                          int64_t expected_searcher_cache_hits = 1) {
+        // 用途只由查询类型/打分决定（CommonGrams 删除后不再有"强制 plain"的覆盖）。
+        int32_t slop = 0;
+        if (const auto tilde = query.rfind('~');
+            query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY && tilde != std::string::npos) {
+            slop = std::stoi(query.substr(tilde + 1));
+        }
+        const AnalysisPurpose expected_purpose =
+                inverted_index::select_analysis_purpose(query_type, slop, scoring);
         QueryExecutionContext execution(scoring);
         InvertedIndexAnalyzerCtx analyzer_ctx;
         analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
@@ -356,42 +253,14 @@ protected:
     void expect_provider_failure_after_segment_admission(const std::shared_ptr<Reader>& reader,
                                                          InvertedIndexQueryType query_type,
                                                          std::string query, bool scoring,
-                                                         AnalysisPurpose expected_purpose,
                                                          int64_t expected_query_cache_lookups = 0,
                                                          int64_t expected_searcher_cache_hits = 1) {
         expect_analysis_failure_after_segment_admission(
-                reader, query_type, std::move(query), scoring, expected_purpose,
+                reader, query_type, std::move(query), scoring,
                 std::make_shared<RecordingFailingAnalyzerProvider>(), expected_query_cache_lookups,
                 expected_searcher_cache_hits);
     }
 
-    template <typename Reader>
-    void expect_generated_gram_bypass_after_segment_admission(
-            const std::shared_ptr<Reader>& reader) {
-        QueryExecutionContext execution(/*scoring=*/false);
-        auto provider = std::make_shared<GeneratedGramAnalyzerProvider>();
-        InvertedIndexAnalyzerCtx analyzer_ctx;
-        analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-        analyzer_ctx.analyzer_provider = provider;
-        auto original_bitmap = std::make_shared<roaring::Roaring>();
-        original_bitmap->add(999);
-        std::shared_ptr<roaring::Roaring> bitmap = original_bitmap;
-        const Field query_value = Field::create_field<TYPE_STRING>("the history");
-
-        const Status status =
-                reader->query(execution.context, "content", query_value,
-                              InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap, &analyzer_ctx);
-        EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_BYPASS) << status;
-        EXPECT_EQ(provider->purposes,
-                  (std::vector<AnalysisPurpose> {AnalysisPurpose::kPlainQuery}));
-        EXPECT_EQ(bitmap, original_bitmap);
-        EXPECT_EQ(execution.stats.inverted_index_query_cache_hit, 0);
-        EXPECT_EQ(execution.stats.inverted_index_query_cache_miss, 1);
-        EXPECT_EQ(execution.stats.inverted_index_query_cache_lookup, 1);
-        EXPECT_EQ(execution.stats.inverted_index_query_cache_insert, 0);
-        EXPECT_EQ(execution.stats.inverted_index_searcher_cache_hit, 1);
-        EXPECT_EQ(execution.stats.inverted_index_searcher_cache_miss, 0);
-    }
 
     template <typename Reader>
     void expect_raw_query_bypasses_analyzer(const std::shared_ptr<Reader>& reader,
@@ -414,7 +283,7 @@ protected:
     void expect_raw_cache_hit_after_segment_admission(
             const std::shared_ptr<Reader>& reader,
             const std::shared_ptr<IndexFileReader>& file_reader,
-            const std::shared_ptr<Provider>& provider, bool common_grams_query_plan_enabled) {
+            const std::shared_ptr<Provider>& provider) {
         QueryExecutionContext execution(/*scoring=*/false);
         InvertedIndexAnalyzerCtx analyzer_ctx;
         analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
@@ -427,8 +296,7 @@ protected:
                 .slop = 0,
                 .ordered = false,
                 .max_expansions =
-                        execution.runtime_state.query_options().inverted_index_max_expansions,
-                .common_grams_query_plan_enabled = common_grams_query_plan_enabled};
+                        execution.runtime_state.query_options().inverted_index_max_expansions};
         const InvertedIndexQueryCache::CacheKey key {
                 file_reader->get_index_file_cache_key(&_meta), "content",
                 InvertedIndexQueryType::MATCH_PHRASE_QUERY, semantic.encode()};
@@ -451,7 +319,8 @@ protected:
         EXPECT_EQ(execution.stats.inverted_index_query_cache_miss, 0);
         EXPECT_EQ(execution.stats.inverted_index_query_cache_lookup, 1);
         EXPECT_EQ(execution.stats.inverted_index_query_cache_insert, 0);
-        EXPECT_EQ(execution.stats.inverted_index_searcher_cache_hit, 1);
+        // 命中发生在打开 logical reader 之前：searcher cache 完全没有被触碰。
+        EXPECT_EQ(execution.stats.inverted_index_searcher_cache_hit, 0);
         EXPECT_EQ(execution.stats.inverted_index_searcher_cache_miss, 0);
     }
 
@@ -471,12 +340,10 @@ TEST(InvertedIndexRawQuerySemanticTest, EncodesOnlyRawSemanticDimensionsWithoutD
                                         .slop = 2,
                                         .ordered = true,
                                         .max_expansions = 50,
-                                        .cache_semantics_version = 3,
-                                        .common_grams_query_plan_enabled = true};
+                                        .cache_semantics_version = 3};
     const std::string encoded = base.encode();
     constexpr size_t kFixedEncodedBytes = sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint32_t) +
-                                          sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) +
-                                          sizeof(uint8_t);
+                                          sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t);
     EXPECT_EQ(encoded.size(), kFixedEncodedBytes + raw_query.size());
 
     auto changed = base;
@@ -498,8 +365,6 @@ TEST(InvertedIndexRawQuerySemanticTest, EncodesOnlyRawSemanticDimensionsWithoutD
     changed.cache_semantics_version = 4;
     EXPECT_NE(changed.encode(), encoded);
     changed = base;
-    changed.common_grams_query_plan_enabled = false;
-    EXPECT_NE(changed.encode(), encoded);
 }
 
 TEST(InvertedIndexRawQuerySemanticTest, CacheEnvelopeSeparatesSlashAndNulBoundaries) {
@@ -516,80 +381,16 @@ TEST(InvertedIndexRawQuerySemanticTest, CacheEnvelopeSeparatesSlashAndNulBoundar
     EXPECT_NE(nul_left.encode(), nul_right.encode());
 }
 
-TEST(InvertedIndexRawQuerySemanticTest, CommonGramsQueryPlanIsDisabledByDefault) {
-    EXPECT_FALSE(config::enable_common_grams_query_plan);
-}
 
-TEST(InvertedIndexRawQuerySemanticTest, CostModelConfigUpdatesValues) {
-    const int32_t original_ratio = config::common_grams_plan_cost_ratio_percent;
-    const int32_t original_factor = config::common_grams_position_verify_factor;
-    const int32_t changed_ratio = original_ratio == 84 ? 85 : 84;
-    const int32_t changed_factor = original_factor == 7 ? 8 : 7;
 
-    ASSERT_TRUE(config::set_config("common_grams_plan_cost_ratio_percent",
-                                   std::to_string(changed_ratio))
-                        .ok());
-    ASSERT_TRUE(config::set_config("common_grams_position_verify_factor",
-                                   std::to_string(changed_factor))
-                        .ok());
-    EXPECT_EQ(config::common_grams_plan_cost_ratio_percent, changed_ratio);
-    EXPECT_EQ(config::common_grams_position_verify_factor, changed_factor);
 
-    ASSERT_TRUE(config::set_config("common_grams_plan_cost_ratio_percent",
-                                   std::to_string(original_ratio))
-                        .ok());
-    ASSERT_TRUE(config::set_config("common_grams_position_verify_factor",
-                                   std::to_string(original_factor))
-                        .ok());
-}
 
-TEST(InvertedIndexRawQuerySemanticTest, InvalidCostModelConfigDoesNotMutateValues) {
-    const int32_t before_ratio = config::common_grams_plan_cost_ratio_percent;
-    const int32_t before_factor = config::common_grams_position_verify_factor;
-
-    for (const auto& [field, value] : std::vector<std::pair<std::string, std::string>> {
-                 {"common_grams_plan_cost_ratio_percent", "-1"},
-                 {"common_grams_plan_cost_ratio_percent", "101"},
-                 {"common_grams_position_verify_factor", "-1"}}) {
-        EXPECT_FALSE(config::set_config(field, value).ok());
-        EXPECT_EQ(config::common_grams_plan_cost_ratio_percent, before_ratio);
-        EXPECT_EQ(config::common_grams_position_verify_factor, before_factor);
-    }
-}
-
-TEST(InvertedIndexAnalyzerCtxTest, UsesProviderCommonGramsIdentityWithoutCopyingIt) {
-    auto provider = std::make_shared<GeneratedGramAnalyzerProvider>();
-    InvertedIndexAnalyzerCtx analyzer_ctx;
-    analyzer_ctx.analyzer_provider = provider;
-    EXPECT_EQ(analyzer_ctx.get_common_grams_identity(), provider->common_grams_identity());
-}
-
-TEST_F(InvertedIndexReaderAnalysisPurposeTest,
-       SniiRawCacheLookupIsIndependentOfRequestAnalyzerIdentity) {
+// 结果缓存的键只有 (索引文件, 列, 查询类型, 原始查询字节)：命中发生在打开 segment 与
+// 任何分词之前，所以即使 analyzer provider 会失败，缓存命中也照常返回。
+TEST_F(InvertedIndexReaderAnalysisPurposeTest, SniiRawCacheHitHappensBeforeSegmentOpenAndAnalysis) {
     preload_legacy_searcher_cache_entries();
-    const bool original = config::enable_common_grams_query_plan;
-    Defer restore([original] {
-        EXPECT_TRUE(config::set_config("enable_common_grams_query_plan",
-                                       original ? "true" : "false", /*need_persist=*/false)
-                            .ok());
-    });
-    ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "true",
-                                   /*need_persist=*/false)
-                        .ok());
-    const inverted_index::CommonGramsQueryIdentity complete_identity {
-            .common_grams_dictionary_identity = "dictionary:complete",
-            .base_analyzer_fingerprint = "base:complete",
-            .common_grams_fingerprint = "grams:complete"};
-    const inverted_index::CommonGramsQueryIdentity empty_identity;
-    for (const auto& identity : {complete_identity, empty_identity}) {
-        expect_raw_cache_hit_after_segment_admission(
-                _snii_reader, _snii_file_reader,
-                std::make_shared<IdentityFailingAnalyzerProvider>(identity),
-                config::enable_common_grams_query_plan);
-    }
     expect_raw_cache_hit_after_segment_admission(
-            _snii_reader, _snii_file_reader, std::make_shared<RecordingFailingAnalyzerProvider>(),
-            config::enable_common_grams_query_plan);
+            _snii_reader, _snii_file_reader, std::make_shared<RecordingFailingAnalyzerProvider>());
 }
 
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, DisabledResultCacheDoesNotLookupCountOrInsert) {
@@ -627,42 +428,23 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest, DisabledResultCacheDoesNotLookupC
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, SniiSelectsPurposeAfterSegmentAdmission) {
     preload_legacy_searcher_cache_entries();
     expect_provider_failure_after_segment_admission(
-            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false,
-            AnalysisPurpose::kPlainQuery, /*expected_query_cache_lookups=*/1);
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false, /*expected_query_cache_lookups=*/1);
     expect_provider_failure_after_segment_admission(
-            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history ~2", false,
-            AnalysisPurpose::kPlainQuery, /*expected_query_cache_lookups=*/1);
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history ~2", false, /*expected_query_cache_lookups=*/1);
     expect_provider_failure_after_segment_admission(
-            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "the hist", false,
-            AnalysisPurpose::kPlainQuery, /*expected_query_cache_lookups=*/1);
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "the hist", false, /*expected_query_cache_lookups=*/1);
     expect_provider_failure_after_segment_admission(
-            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", true,
-            AnalysisPurpose::kPlainQuery);
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", true);
 }
 
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, PartialAnalysisFailureDoesNotPublishState) {
     preload_legacy_searcher_cache_entries();
     auto snii_provider = std::make_shared<RecordingPartialFailureAnalyzerProvider>();
     expect_analysis_failure_after_segment_admission(
-            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false,
-            AnalysisPurpose::kPlainQuery, snii_provider, /*expected_query_cache_lookups=*/1);
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false, snii_provider, /*expected_query_cache_lookups=*/1);
     EXPECT_EQ(snii_provider->emitted_tokens->load(std::memory_order_relaxed), 1);
 }
 
-TEST_F(InvertedIndexReaderAnalysisPurposeTest,
-       SniiGeneratedGramBypassesAfterSegmentAdmissionBeforeSearch) {
-    preload_legacy_searcher_cache_entries();
-    const bool original = config::enable_common_grams_query_plan;
-    Defer restore([original] {
-        EXPECT_TRUE(config::set_config("enable_common_grams_query_plan",
-                                       original ? "true" : "false", /*need_persist=*/false)
-                            .ok());
-    });
-    ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "true",
-                                   /*need_persist=*/false)
-                        .ok());
-    expect_generated_gram_bypass_after_segment_admission(_snii_reader);
-}
 
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, RegexpAndWildcardBypassAnalyzer) {
     for (const auto query_type :

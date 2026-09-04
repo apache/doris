@@ -73,6 +73,16 @@ CommonGramsSegmentMetadata sample_common_grams(CommonGramsCoverage coverage,
     return metadata;
 }
 
+// 不含 gram、只借用载体存打分统计的形态（master 开发期数据）：墓碑放行。
+CommonGramsSegmentMetadata sample_plain_scoring_carrier() {
+    auto metadata = sample_common_grams(CommonGramsCoverage::kNone, ScoringCoverage::kComplete);
+    metadata.plain_term_key_version = PlainTermKeyVersion::kRawNoInternal;
+    metadata.common_grams_semantics_version = 0;
+    metadata.common_grams_key_version = 0;
+    metadata.common_grams_dictionary_identity.clear();
+    metadata.common_grams_fingerprint.clear();
+    return metadata;
+}
 std::vector<uint8_t> encode(const CoreMetadata& metadata) {
     ByteSink sink;
     EXPECT_TRUE(encode_core_metadata(metadata, &sink).ok());
@@ -145,25 +155,33 @@ TEST(SniiCoreMetadata, RoundTripsPositions) {
     expect_core_eq(expected, actual);
 }
 
-TEST(SniiCoreMetadata, RoundTripsScoringWithBinaryCommonGramsStrings) {
+// CommonGrams 已删除：真正含 gram 的段（完整覆盖 + 键转义）是墓碑，必须重建索引。
+TEST(SniiCoreMetadata, RejectsCommonGramsSegmentAsUnsupported) {
     auto expected = sample_core(IndexConfig::kDocsPositionsScoring);
     expected.common_grams_metadata =
             sample_common_grams(CommonGramsCoverage::kComplete, ScoringCoverage::kComplete);
+    ByteSink sink;
+    const auto encode_status = encode_core_metadata(expected, &sink);
+    EXPECT_TRUE(encode_status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << encode_status;
+}
 
+// 只借用载体存打分统计、不含 gram 的段（coverage=kNone、键原样）仍按普通段读取。
+TEST(SniiCoreMetadata, AcceptsScoringCarrierWithoutGrams) {
+    auto expected = sample_core(IndexConfig::kDocsPositionsScoring);
+    expected.common_grams_metadata = sample_plain_scoring_carrier();
     CoreMetadata actual;
     ASSERT_TRUE(decode_core_metadata(Slice(encode(expected)), &actual).ok());
     expect_core_eq(expected, actual);
 }
 
-TEST(SniiCoreMetadata, RoundTripsHybridCommonGrams) {
+TEST(SniiCoreMetadata, RejectsHybridCommonGramsAsUnsupported) {
     auto expected = sample_core(IndexConfig::kDocsPositions);
     expected.common_grams_metadata =
             sample_common_grams(CommonGramsCoverage::kMixed, ScoringCoverage::kNone);
     expected.common_grams_posting_policy = CommonGramsPostingPolicy::kHybridV1;
-
-    CoreMetadata actual;
-    ASSERT_TRUE(decode_core_metadata(Slice(encode(expected)), &actual).ok());
-    expect_core_eq(expected, actual);
+    ByteSink sink;
+    const auto status = encode_core_metadata(expected, &sink);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
 TEST(SniiCoreMetadata, AcceptsUnknownOptionalPbField) {
@@ -214,8 +232,7 @@ TEST(SniiCoreMetadata, RejectsUnsupportedPostingPolicy) {
 
 TEST(SniiCoreMetadata, UnsupportedCommonGramsEnums) {
     auto metadata = sample_core(IndexConfig::kDocsPositionsScoring);
-    metadata.common_grams_metadata =
-            sample_common_grams(CommonGramsCoverage::kComplete, ScoringCoverage::kComplete);
+    metadata.common_grams_metadata = sample_plain_scoring_carrier();
 
     for (const auto& mutation :
          std::array<std::function<void(doris::snii::SniiCommonGramsMetadataPB*)>, 3> {
@@ -231,12 +248,12 @@ TEST(SniiCoreMetadata, UnsupportedCommonGramsEnums) {
 }
 
 TEST(SniiCoreMetadata, RejectsKnownButContradictoryCommonGramsEnumsAsCorruption) {
-    auto metadata = sample_core(IndexConfig::kDocsPositions);
-    metadata.common_grams_metadata =
-            sample_common_grams(CommonGramsCoverage::kComplete, ScoringCoverage::kNone);
-
+    auto metadata = sample_core(IndexConfig::kDocsPositionsScoring);
+    metadata.common_grams_metadata = sample_plain_scoring_carrier();
+    // 键原样（kRawNoInternal）却声称有 gram 覆盖：自相矛盾，按损坏处理（早于墓碑判定）。
     const auto payload = mutate_core_payload(metadata, [](auto* core) {
-        core->mutable_common_grams()->set_plain_term_key_version(2);
+        core->mutable_common_grams()->set_common_grams_coverage(
+                static_cast<uint32_t>(CommonGramsCoverage::kComplete));
     });
     CoreMetadata actual;
     const auto status = decode_core_metadata(Slice(frame_payload(payload)), &actual);
@@ -336,10 +353,8 @@ TEST(SniiCoreMetadata, RejectsBadFrameTypeCrcAndTruncation) {
 }
 
 TEST(SniiCoreMetadata, ResetsOutputBeforeDecodeFailureAndNullOutputIsInvalid) {
-    auto populated = sample_core(IndexConfig::kDocsPositions);
-    populated.common_grams_metadata =
-            sample_common_grams(CommonGramsCoverage::kMixed, ScoringCoverage::kNone);
-    populated.common_grams_posting_policy = CommonGramsPostingPolicy::kHybridV1;
+    auto populated = sample_core(IndexConfig::kDocsPositionsScoring);
+    populated.common_grams_metadata = sample_plain_scoring_carrier();
     CoreMetadata reused;
     ASSERT_TRUE(decode_core_metadata(Slice(encode(populated)), &reused).ok());
 
