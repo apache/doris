@@ -53,6 +53,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class StmtExecutorTest extends TestWithFeService {
@@ -338,26 +339,49 @@ public class StmtExecutorTest extends TestWithFeService {
 
     @Test
     public void testCursorFetchMetadataTerminatorDependsOnConnectorJVersion() throws IOException {
-        List<byte[]> connector82Packets = sendEmptyCursorResultSet("8.2.0");
+        List<byte[]> connector82Packets = sendEmptyResultSet(true, "MySQL Connector/J", "8.2.0");
         Assertions.assertEquals(3, connector82Packets.size());
         Assertions.assertEquals(0xFE, Byte.toUnsignedInt(connector82Packets.get(2)[0]));
         Assertions.assertTrue(connector82Packets.get(2).length > 5);
 
-        List<byte[]> connector95Packets = sendEmptyCursorResultSet("9.5.0");
-        Assertions.assertEquals(2, connector95Packets.size());
+        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector/J", "9.4.0").size());
+        Assertions.assertEquals(2, sendEmptyResultSet(true, "MySQL Connector/J", "9.5.0").size());
+        Assertions.assertEquals(2, sendEmptyResultSet(false, "MySQL Connector/J", "8.2.0").size());
+        Assertions.assertEquals(2, sendEmptyResultSet(true, "MariaDB Connector/J", "3.5.6").size());
+        Assertions.assertEquals(2, sendEmptyResultSet(true, Collections.emptyMap()).size());
+
+        List<byte[]> legacyEofPackets = sendEmptyResultSet(true, "MySQL Connector/J", "8.2.0", false);
+        Assertions.assertEquals(3, legacyEofPackets.size());
+        Assertions.assertEquals(5, legacyEofPackets.get(2).length);
     }
 
-    private List<byte[]> sendEmptyCursorResultSet(String connectorVersion) throws IOException {
+    private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested, String clientName,
+            String clientVersion) throws IOException {
+        return sendEmptyResultSet(cursorFetchRequested, clientName, clientVersion, true);
+    }
+
+    private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested, String clientName,
+            String clientVersion, boolean clientDeprecatedEof) throws IOException {
+        return sendEmptyResultSet(cursorFetchRequested, ImmutableMap.of(
+                "_client_name", clientName, "_client_version", clientVersion), clientDeprecatedEof);
+    }
+
+    private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested,
+            Map<String, String> connectAttributes) throws IOException {
+        return sendEmptyResultSet(cursorFetchRequested, connectAttributes, true);
+    }
+
+    private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested,
+            Map<String, String> connectAttributes, boolean clientDeprecatedEof) throws IOException {
         ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
         MysqlChannel channel = Mockito.mock(MysqlChannel.class);
         Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
         Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
         Mockito.when(mockCtx.getState()).thenReturn(new QueryState());
         Mockito.when(mockCtx.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
-        Mockito.when(mockCtx.isCursorFetchRequested()).thenReturn(true);
-        Mockito.when(mockCtx.getConnectAttributes()).thenReturn(ImmutableMap.of(
-                "_client_name", "MySQL Connector/J", "_client_version", connectorVersion));
-        Mockito.when(channel.clientDeprecatedEOF()).thenReturn(true);
+        Mockito.when(mockCtx.isCursorFetchRequested()).thenReturn(cursorFetchRequested);
+        Mockito.when(mockCtx.getConnectAttributes()).thenReturn(connectAttributes);
+        Mockito.when(channel.clientDeprecatedEOF()).thenReturn(clientDeprecatedEof);
         Mockito.when(channel.getSerializer()).thenReturn(MysqlSerializer.newInstance());
 
         List<byte[]> packets = new ArrayList<>();
