@@ -108,7 +108,8 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
     }
 
     @Override
-    public Map<String, String> fromDorisProperties(List<StorageProperties> storageProperties) {
+    public Map<String, String> normalizeDorisStorageOptions(
+            List<StorageProperties> storageProperties) {
         Map<String, String> result = new HashMap<>();
         AbstractS3CompatibleProperties properties = selectS3Compatible(storageProperties);
         if (properties == null) {
@@ -125,12 +126,6 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
             result.put(VIRTUAL_HOSTED_STYLE, String.valueOf(!Boolean.parseBoolean(usePathStyle)));
         }
 
-        // Lance refuses a plain-HTTP endpoint unless this is set, and Doris configures one for
-        // MinIO. It describes the endpoint just mapped, so it is derived from the same properties.
-        String endpoint = properties.getEndpoint();
-        if (endpoint != null && endpoint.startsWith("http://")) {
-            result.put(ALLOW_HTTP, "true");
-        }
         return result;
     }
 
@@ -166,7 +161,8 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
     }
 
     @Override
-    public Map<String, String> normalizeVended(Map<String, String> vendedOptions) {
+    public Map<String, String> normalizeVendedStorageOptions(
+            Map<String, String> vendedOptions) {
         Map<String, String> result = new HashMap<>();
         if (vendedOptions == null) {
             return result;
@@ -183,6 +179,20 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
             }
         });
         return result;
+    }
+
+    @Override
+    public Map<String, String> inferStorageOptions(Map<String, String> effectiveOptions) {
+        Map<String, String> inferred = new HashMap<>();
+        if (effectiveOptions.containsKey(ALLOW_HTTP)) {
+            return inferred;
+        }
+        String endpoint = effectiveOptions.get(ENDPOINT);
+        if (endpoint != null && endpoint.startsWith("http://")) {
+            // object_store rejects a plain-HTTP endpoint unless this client option is enabled.
+            inferred.put(ALLOW_HTTP, "true");
+        }
+        return inferred;
     }
 
     private static void putIfNotEmpty(Map<String, String> target, String key, String value) {

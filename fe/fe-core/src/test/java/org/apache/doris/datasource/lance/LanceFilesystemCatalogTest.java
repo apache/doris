@@ -98,6 +98,9 @@ public class LanceFilesystemCatalogTest {
         String accessKey = "sentinel-access-key";
         String secretKey = "sentinel-secret-key";
         String sessionToken = "sentinel-session-token";
+        String ossAccessKey = "sentinel-oss-access-key";
+        String ossSecretKey = "sentinel-oss-secret-key";
+        String ossSecurityToken = "sentinel-oss-security-token";
         String datasetUri = "s3://sentinel-user:sentinel-password@bucket/private/table.lance";
 
         Map<String, String> catalogProperties = new HashMap<>();
@@ -110,9 +113,14 @@ public class LanceFilesystemCatalogTest {
         runtimeStorageOptions.put("aws_access_key_id", accessKey);
         runtimeStorageOptions.put("aws_secret_access_key", secretKey);
         runtimeStorageOptions.put("aws_session_token", sessionToken);
+        runtimeStorageOptions.put("oss_access_key_id", ossAccessKey);
+        runtimeStorageOptions.put("oss_secret_access_key", ossSecretKey);
+        runtimeStorageOptions.put("oss_security_token", ossSecurityToken);
         String providerMessage = "provider failure\nuri=" + datasetUri
                 + " bearer=" + bearerToken + " api-key=" + apiKey
-                + " access=" + accessKey + " secret=" + secretKey + " session=" + sessionToken;
+                + " access=" + accessKey + " secret=" + secretKey + " session=" + sessionToken
+                + " oss-access=" + ossAccessKey + " oss-secret=" + ossSecretKey
+                + " oss-token=" + ossSecurityToken;
 
         RuntimeException providerFailure = new RuntimeException(providerMessage);
         RuntimeException exposed = catalog.indexMetadataLoadFailure(
@@ -121,7 +129,7 @@ public class LanceFilesystemCatalogTest {
         exposed.printStackTrace(new PrintWriter(stackTrace));
 
         for (String sentinel : Arrays.asList(bearerToken, apiKey, accessKey, secretKey,
-                sessionToken, datasetUri)) {
+                sessionToken, ossAccessKey, ossSecretKey, ossSecurityToken, datasetUri)) {
             Assert.assertFalse(exposed.getMessage().contains(sentinel));
             Assert.assertFalse(exposed.getCause().getMessage().contains(sentinel));
             Assert.assertFalse(stackTrace.toString().contains(sentinel));
