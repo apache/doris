@@ -15,16 +15,13 @@ END_MARKER = "<!-- doris-repo-review:v1:end -->"
 SCHEMA = "doris-repo-review/v1"
 MAX_BASE_LAG = dt.timedelta(hours=48)
 
-ALLOWED_MODELS = frozenset(
-    {
-        "claude-opus-5",
-        "claude-opus-5[1m]",
-        "claude-fable-5",
-        "claude-fable-5[1m]",
-        "gpt-5.6-sol",
-    }
-)
-ALLOWED_EFFORTS = frozenset({"xhigh", "max", "ultra"})
+ALLOWED_EFFORTS_BY_MODEL = {
+    "claude-opus-5": frozenset({"xhigh", "max"}),
+    "claude-opus-5[1m]": frozenset({"xhigh", "max"}),
+    "claude-fable-5": frozenset({"xhigh", "max"}),
+    "claude-fable-5[1m]": frozenset({"xhigh", "max"}),
+    "gpt-5.6-sol": frozenset({"xhigh", "max", "ultra"}),
+}
 ALLOWED_AUTHOR_PERMISSIONS = frozenset({"write", "admin"})
 EXPECTED_FIELDS = (
     "schema",
@@ -143,10 +140,13 @@ def validate_comment(
         raise ValidationError("reviewer does not match the GitHub comment author")
     if comment_author_permission not in ALLOWED_AUTHOR_PERMISSIONS:
         raise ValidationError("comment author does not have write permission")
-    if fields["model"] not in ALLOWED_MODELS:
+    allowed_efforts = ALLOWED_EFFORTS_BY_MODEL.get(str(fields["model"]))
+    if allowed_efforts is None:
         raise ValidationError(f"model is not allowed: {fields['model']}")
-    if fields["effort"] not in ALLOWED_EFFORTS:
-        raise ValidationError(f"effort must be xhigh or higher: {fields['effort']}")
+    if fields["effort"] not in allowed_efforts:
+        raise ValidationError(
+            f"effort {fields['effort']} is not allowed for model {fields['model']}"
+        )
 
     blocker, major, _minor, _nit = fields["findings"]
     if blocker != 0 or major != 0:

@@ -1,0 +1,85 @@
+name: Aggregate Code Review Status
+
+on:
+  workflow_call:
+    inputs:
+      head_sha:
+        description: Commit whose PR/base-specific review sources should be aggregated.
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: code-review-status-${{ inputs.head_sha }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Mark aggregate status as pending
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+            -X POST \
+            -f state='pending' \
+            -f context='code-review' \
+            -f description="Recalculating code review for ${HEAD_SHA:0:12}." \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Checkout trusted status resolver
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts/resolve_code_review_status.py
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve review status across open PR contexts
+        id: resolution
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          pull_pages="$RUNNER_TEMP/code-review-pull-pages.json"
+          pulls="$RUNNER_TEMP/code-review-pulls.json"
+          status_pages="$RUNNER_TEMP/code-review-status-pages.json"
+          statuses="$RUNNER_TEMP/code-review-statuses.json"
+
+          gh api --paginate --slurp \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/${REPO}/pulls?state=open&per_page=100" > "$pull_pages"
+          jq '[.[][]]' "$pull_pages" > "$pulls"
+
+          gh api --paginate --slurp \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/${REPO}/commits/${HEAD_SHA}/statuses?per_page=100" > "$status_pages"
+          jq '[.[][]]' "$status_pages" > "$statuses"
+
+          python3 .github/scripts/resolve_code_review_status.py \
+            --pulls-file "$pulls" \
+            --statuses-file "$statuses" \
+            --head-sha "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Publish aggregate code-review status
+        env:
+          DESCRIPTION: ${{ steps.resolution.outputs.description }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REPO: ${{ github.repository }}
+          STATE: ${{ steps.resolution.outputs.state }}
+        run: |
+          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+            -X POST \
+            -f state="$STATE" \
+            -f context='code-review' \
+            -f description="$DESCRIPTION" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

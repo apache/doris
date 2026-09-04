@@ -66,21 +66,38 @@ def validate(comment: str, **overrides: object) -> dict[str, object]:
 
 
 class ValidateReviewPassCommentTest(unittest.TestCase):
-    def test_accepts_allowed_models_at_xhigh_or_higher(self) -> None:
+    def test_accepts_allowed_model_effort_combinations(self) -> None:
         combinations = (
             ("claude-opus-5", "xhigh"),
+            ("claude-opus-5", "max"),
+            ("claude-opus-5[1m]", "xhigh"),
             ("claude-opus-5[1m]", "max"),
-            ("claude-fable-5", "ultra"),
+            ("claude-fable-5", "xhigh"),
+            ("claude-fable-5", "max"),
             ("claude-fable-5[1m]", "xhigh"),
+            ("claude-fable-5[1m]", "max"),
             ("gpt-5.6-sol", "xhigh"),
+            ("gpt-5.6-sol", "max"),
+            ("gpt-5.6-sol", "ultra"),
         )
         for model, effort in combinations:
             with self.subTest(model=model, effort=effort):
                 fields = validate(make_comment(model=model, effort=effort))
                 self.assertEqual(model, fields["model"])
 
-    def test_rejects_high_effort(self) -> None:
-        with self.assertRaisesRegex(ValidationError, "xhigh or higher"):
+    def test_rejects_ultra_for_claude_models(self) -> None:
+        for model in (
+            "claude-opus-5",
+            "claude-opus-5[1m]",
+            "claude-fable-5",
+            "claude-fable-5[1m]",
+        ):
+            with self.subTest(model=model):
+                with self.assertRaisesRegex(ValidationError, "is not allowed for model"):
+                    validate(make_comment(model=model, effort="ultra"))
+
+    def test_rejects_effort_below_xhigh(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "is not allowed for model"):
             validate(make_comment(effort="high"))
 
     def test_rejects_unlisted_model(self) -> None:
