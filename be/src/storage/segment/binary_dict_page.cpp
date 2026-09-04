@@ -265,6 +265,18 @@ void BinaryDictPageDecoder::set_dict_decoder(uint32_t num_dict_items, StringRef*
     _dict_word_info = dict_word_info;
 };
 
+Status BinaryDictPageDecoder::_validate_dict_codes(const int32_t* codes, size_t start_index,
+                                                   size_t count) const {
+    for (size_t i = 0; i < count; ++i) {
+        int32_t code = codes[start_index + i];
+        if (UNLIKELY(code < 0 || std::cmp_greater_equal(code, _num_dict_items))) {
+            return Status::Corruption("Invalid dictionary code {} at index {}, dictionary size {}",
+                                      code, start_index + i, _num_dict_items);
+        }
+    }
+    return Status::OK();
+}
+
 Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
     if (!is_dict_encoding()) {
         dst = dst->convert_to_predicate_column_if_dictionary();
@@ -281,7 +293,9 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
 
     size_t max_fetch = std::min(*n, static_cast<size_t>(_bit_shuffle_ptr->_num_elements -
                                                         _bit_shuffle_ptr->_cur_index));
-    *n = max_fetch;
+    const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
+    size_t start_index = _bit_shuffle_ptr->_cur_index;
+    RETURN_IF_ERROR(_validate_dict_codes(data_array, start_index, max_fetch));
 
     if (_options.only_read_offsets) {
         // OFFSET_ONLY mode: resolve dict codes to get real string lengths
@@ -290,8 +304,6 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
         // it to a predicate column (ColumnString) first. This is a no-op for
         // non-dictionary columns and for ColumnNullable it converts the nested column.
         dst = dst->convert_to_predicate_column_if_dictionary();
-        const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
-        size_t start_index = _bit_shuffle_ptr->_cur_index;
         // Reuse _buffer (int32_t vector) to store uint32_t lengths.
         // int32_t and uint32_t have the same size/alignment, and string
         // lengths are always non-negative, so the bit patterns are identical.
@@ -303,13 +315,11 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
         dst->insert_offsets_from_lengths(reinterpret_cast<const uint32_t*>(_buffer.data()),
                                          max_fetch);
     } else {
-        const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
-        size_t start_index = _bit_shuffle_ptr->_cur_index;
-
         dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch,
                                    _num_dict_items);
     }
 
+    *n = max_fetch;
     _bit_shuffle_ptr->_cur_index += max_fetch;
 
     return Status::OK();
@@ -330,33 +340,6 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     }
 
     auto total = *n;
-
-    if (_options.only_read_offsets) {
-        // OFFSET_ONLY mode: resolve dict codes to get real string lengths
-        // without copying actual char data. This allows length() to work correctly.
-        // ColumnDictI32 does not implement insert_offsets_from_lengths, so convert
-        // it to a predicate column (ColumnString) first.
-        dst = dst->convert_to_predicate_column_if_dictionary();
-        const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
-        size_t read_count = 0;
-        _buffer.resize(total);
-        for (size_t i = 0; i < total; ++i) {
-            ordinal_t ord = rowids[i] - page_first_ordinal;
-            if (ord >= _bit_shuffle_ptr->_num_elements) [[unlikely]] {
-                break;
-            }
-            int32_t codeword = data_array[ord];
-            _buffer[read_count] = static_cast<int32_t>(_dict_word_info[codeword].size);
-            read_count++;
-        }
-        if (read_count > 0) {
-            dst->insert_offsets_from_lengths(reinterpret_cast<const uint32_t*>(_buffer.data()),
-                                             read_count);
-        }
-        *n = read_count;
-        return Status::OK();
-    }
-
     const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
     size_t read_count = 0;
     _buffer.resize(total);
@@ -368,8 +351,22 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
 
         _buffer[read_count++] = data_array[ord];
     }
+    RETURN_IF_ERROR(_validate_dict_codes(_buffer.data(), 0, read_count));
 
-    if (LIKELY(read_count > 0)) {
+    if (_options.only_read_offsets) {
+        // OFFSET_ONLY mode: resolve dict codes to get real string lengths
+        // without copying actual char data. This allows length() to work correctly.
+        // ColumnDictI32 does not implement insert_offsets_from_lengths, so convert
+        // it to a predicate column (ColumnString) first.
+        dst = dst->convert_to_predicate_column_if_dictionary();
+        for (size_t i = 0; i < read_count; ++i) {
+            _buffer[i] = static_cast<int32_t>(_dict_word_info[_buffer[i]].size);
+        }
+        if (read_count > 0) {
+            dst->insert_offsets_from_lengths(reinterpret_cast<const uint32_t*>(_buffer.data()),
+                                             read_count);
+        }
+    } else if (LIKELY(read_count > 0)) {
         dst->insert_many_dict_data(_buffer.data(), 0, _dict_word_info, read_count, _num_dict_items);
     }
     *n = read_count;
