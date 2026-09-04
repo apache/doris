@@ -162,7 +162,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
 
     def buildAlternatingCase = { String join1, String join2, String join3, String tag ->
         String stage1Sql = """
-            SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+            SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                    a.k1,
                    CAST(SUM(a.v1 + b.v2) AS BIGINT) AS metric_a,
                    CAST(MAX(a.v1) AS BIGINT) AS metric_b,
@@ -240,7 +240,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
         String joinCond = joinCfg.tag == "shuffle" ? "mid_q.k1 = rhs.k1" : "mid_q.k1 = rhs.k1"
         String metricCExpr = joinCfg.tag == "shuffle" ? "CAST(rhs.flag_value AS BIGINT)" : "CAST(rhs.flag AS BIGINT)"
         return """
-            SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+            SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                    final_q.k1,
                    SUM(final_q.metric_a) AS total_metric_a,
                    MAX(final_q.metric_b) AS max_metric_b,
@@ -268,7 +268,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
         [
             tag: "bucket_shuffle_broadcast",
             rawSql: """
-                SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+                SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                        ab.k1,
                        CAST(ab.bucket_metric AS BIGINT) AS metric_a,
                        CAST(c1.v3 AS BIGINT) AS metric_b,
@@ -292,7 +292,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
         [
             tag: "shuffle_broadcast_broadcast",
             rawSql: """
-                SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+                SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                        a.k1,
                        CAST(a.v1 AS BIGINT) AS metric_a,
                        CAST(c1.v3 + d1.flag AS BIGINT) AS metric_b,
@@ -312,7 +312,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
         [
             tag: "bucket_broadcast_shuffle",
             rawSql: """
-                SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+                SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                        abd.k1,
                        CAST(abd.bucket_metric AS BIGINT) AS metric_a,
                        CAST(c1.shuffle_metric AS BIGINT) AS metric_b,
@@ -370,7 +370,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     }
 
     checkCase("bucket_broadcast_agg", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                x.k1, SUM(x.bucket_sum) AS total_sum, MAX(d.flag) AS max_flag
         FROM (
             SELECT a.k1, SUM(a.v1 + b.v2) AS bucket_sum
@@ -386,7 +386,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("partitioned_broadcast_agg", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                x.k1, SUM(x.shuffle_sum) AS total_sum, MAX(d.flag) AS max_flag
         FROM (
             SELECT a.k1, SUM(a.v1 + c.v3) AS shuffle_sum
@@ -402,7 +402,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("bucket_partitioned_agg", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                t.k1, SUM(t.metric1) AS total_metric1, MAX(t.metric2) AS max_metric2
         FROM (
             SELECT a.k1,
@@ -420,7 +420,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("all_three_multilevel_agg", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                z.k1, SUM(z.metric) AS total_metric, MAX(z.flag) AS max_flag
         FROM (
             SELECT y.k1,
@@ -445,7 +445,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("agg_join_agg_mix", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                l.k1, l.sa, r.sb, MAX(d.flag) AS max_flag
         FROM (
             SELECT a.k1, SUM(a.v1) AS sa
@@ -467,7 +467,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("double_broadcast_after_bucket", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                z.k1, SUM(z.metric) AS total_metric, MAX(z.flag_sum) AS max_flag_sum
         FROM (
             SELECT x.k1,
@@ -491,7 +491,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("partitioned_join_between_two_aggs_then_broadcast", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                m.k1, SUM(m.left_sum + m.right_sum) AS total_metric, MAX(d.flag) AS max_flag
         FROM (
             SELECT l.k1, l.left_sum, r.right_sum
@@ -514,7 +514,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("bucket_shuffle_broadcast_two_stage_agg", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                q.k1, SUM(q.metric_a) AS total_a, SUM(q.metric_b) AS total_b, MAX(q.flag) AS max_flag
         FROM (
             SELECT y.k1,
@@ -541,7 +541,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("left_join_null_preserving_with_multilevel_agg", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                s.k1, SUM(s.left_metric) AS total_left_metric, SUM(s.right_metric) AS total_right_metric
         FROM (
             SELECT a.k1,
@@ -563,7 +563,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("seven_layer_bucket_shuffle_broadcast", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                o.k1, SUM(o.final_metric) AS total_metric, MAX(o.final_flag) AS max_flag
         FROM (
             SELECT n.k1,
@@ -612,7 +612,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("eight_layer_mixed_join_agg_chain", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                q.k1, SUM(q.metric_a) AS total_a, SUM(q.metric_b) AS total_b, MAX(q.metric_c) AS max_c
         FROM (
             SELECT p.k1,
@@ -661,7 +661,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("seven_layer_left_join_mix", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                z.k1, SUM(z.left_total) AS total_left, SUM(z.right_total) AS total_right, MAX(z.flag_metric) AS max_flag_metric
         FROM (
             SELECT y.k1,
@@ -703,7 +703,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("broadcast_shuffle_broadcast_nested_agg", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                z.k1,
                SUM(z.m1) AS total_m1,
                SUM(z.m2) AS total_m2,
@@ -752,7 +752,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("window_union_join_agg", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                q.k1,
                SUM(q.metric_a) AS total_metric_a,
                MAX(q.metric_b) AS max_metric_b
@@ -779,7 +779,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("window_except_join_agg", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                t.k1,
                SUM(t.rn) AS total_rn,
                MAX(t.flag_metric) AS max_flag_metric
@@ -800,7 +800,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("window_intersect_shuffle_agg", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                x.k1,
                SUM(x.metric_a) AS total_metric_a,
                MAX(x.metric_b) AS max_metric_b
@@ -821,7 +821,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("window_union_except_broadcast_agg", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                final_q.k1,
                SUM(final_q.metric_a) AS total_metric_a,
                SUM(final_q.metric_b) AS total_metric_b,
@@ -852,7 +852,7 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
     """)
 
     checkCase("window_setop_join_agg_chain", """
-        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0) */
+        SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0) */
                outer_q.k1,
                SUM(outer_q.metric_a) AS total_metric_a,
                MAX(outer_q.metric_b) AS max_metric_b,

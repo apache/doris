@@ -365,7 +365,6 @@ suite("test_local_shuffle_rqg_bugs") {
                               enable_local_shuffle_planner=true,
                               disable_join_reorder=true,
                               disable_colocate_plan=true,
-                              auto_broadcast_join_threshold=-1,
                               broadcast_row_count_limit=0,
                               query_timeout=60)*/
                 count(a.pk) AS cnt, a.col_int_undef_signed
@@ -401,7 +400,6 @@ suite("test_local_shuffle_rqg_bugs") {
                               enable_local_shuffle_planner=true,
                               disable_join_reorder=true,
                               disable_colocate_plan=true,
-                              auto_broadcast_join_threshold=-1,
                               broadcast_row_count_limit=0,
                               query_timeout=60)*/
                 a.col_int_undef_signed, MAX(a.pk) AS mx
@@ -484,7 +482,6 @@ suite("test_local_shuffle_rqg_bugs") {
                           enable_local_shuffle_planner=true,
                           disable_join_reorder=true,
                           disable_colocate_plan=true,
-                          auto_broadcast_join_threshold=-1,
                           broadcast_row_count_limit=0)*/
             a.col_int_undef_signed, MAX(a.pk) AS mx
         FROM rqg_t1 a LEFT JOIN rqg_t1 b ON b.col_int_undef_signed < b.col_int_undef_signed
@@ -498,7 +495,6 @@ suite("test_local_shuffle_rqg_bugs") {
                           enable_local_shuffle_planner=false,
                           disable_join_reorder=true,
                           disable_colocate_plan=true,
-                          auto_broadcast_join_threshold=-1,
                           broadcast_row_count_limit=0)*/
             a.col_int_undef_signed, MAX(a.pk) AS mx
         FROM rqg_t1 a LEFT JOIN rqg_t1 b ON b.col_int_undef_signed < b.col_int_undef_signed
