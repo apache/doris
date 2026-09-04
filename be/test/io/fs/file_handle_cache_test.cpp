@@ -31,6 +31,7 @@
 #include "cpp/sync_point.h"
 #include "gen_cpp/Status_types.h"
 #include "io/fs/hdfs_file_reader.h"
+#include "util/defer_op.h"
 
 namespace doris::io {
 
@@ -83,21 +84,15 @@ static void set_mock_return(const std::string& point, T value, SyncPoint::Callba
             guard);
 }
 
-// Enables SyncPoint processing for the enclosing scope only.
-struct SyncPointProcessingGuard {
-    SyncPointProcessingGuard() { SyncPoint::get_instance()->enable_processing(); }
-    ~SyncPointProcessingGuard() { SyncPoint::get_instance()->disable_processing(); }
-};
-
 // Mocks hdfsOpenFile/hdfsCloseFile/hdfsGetPathInfo/hdfsUnbufferFile via SyncPoint to avoid JNI.
 struct MockHandleGuard {
     SyncPoint::CallbackGuard open_guard;
     SyncPoint::CallbackGuard close_guard;
     SyncPoint::CallbackGuard info_guard;
     SyncPoint::CallbackGuard unbuffer_guard;
-    SyncPointProcessingGuard processing_guard;
     MockHandleGuard(hdfsFile mock_file, int64_t file_size = 4096) {
         auto* sp = SyncPoint::get_instance();
+        sp->enable_processing();
         set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", mock_file,
                                   &open_guard);
         set_mock_return<int>("HdfsFileHandle::close::hdfsCloseFile", 0, &close_guard);
@@ -115,6 +110,7 @@ struct MockHandleGuard {
                 &info_guard);
         set_mock_return<int>("HdfsFileHandle::close::hdfsUnbufferFile", 0, &unbuffer_guard);
     }
+    ~MockHandleGuard() { SyncPoint::get_instance()->disable_processing(); }
 };
 
 // ensure_open() succeeds via SyncPoint mock.
@@ -168,7 +164,8 @@ TEST(FileHandleCacheTest, InitFailsWhenGetPathInfoReturnsNull) {
     auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
     ExclusiveHdfsFileHandle handle(mock_fs, "/test/file.parquet", 12345);
 
-    SyncPointProcessingGuard sp_guard;
+    SyncPoint::get_instance()->enable_processing();
+    Defer defer {[&]() { SyncPoint::get_instance()->disable_processing(); }};
     SyncPoint::CallbackGuard guard;
     set_mock_return<hdfsFileInfo*>("HdfsFileHandle::init::hdfsGetPathInfo", nullptr, &guard);
     SyncPoint::CallbackGuard err_guard;
@@ -185,7 +182,8 @@ TEST(FileHandleCacheTest, InitReturnsNotFoundForMissingFile) {
     auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
     ExclusiveHdfsFileHandle handle(mock_fs, "/test/missing.parquet", 12345);
 
-    SyncPointProcessingGuard sp_guard;
+    SyncPoint::get_instance()->enable_processing();
+    Defer defer {[&]() { SyncPoint::get_instance()->disable_processing(); }};
     SyncPoint::CallbackGuard guard;
     set_mock_return<hdfsFileInfo*>("HdfsFileHandle::init::hdfsGetPathInfo", nullptr, &guard);
     SyncPoint::CallbackGuard err_guard;
@@ -203,7 +201,8 @@ TEST(FileHandleCacheTest, EnsureOpenReturnsNotFoundForMissingFile) {
     ExclusiveHdfsFileHandle handle(mock_fs, "/test/missing.parquet", 12345);
     ASSERT_TRUE(handle.init(4096).ok());
 
-    SyncPointProcessingGuard sp_guard;
+    SyncPoint::get_instance()->enable_processing();
+    Defer defer {[&]() { SyncPoint::get_instance()->disable_processing(); }};
     SyncPoint::CallbackGuard open_guard;
     set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", nullptr, &open_guard);
     SyncPoint::CallbackGuard err_guard;
@@ -306,8 +305,9 @@ TEST(FileHandleCacheTest, OpenFailurePreservesStatusInsideCallOnce) {
     ExclusiveHdfsFileHandle handle(mock_fs, "/test/serial_fail.parquet", 12345);
     ASSERT_TRUE(handle.init(4096).ok());
 
-    SyncPointProcessingGuard sp_guard;
     auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    Defer defer {[&]() { sp->disable_processing(); }};
     SyncPoint::CallbackGuard open_guard;
     set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", nullptr, &open_guard);
     SyncPoint::CallbackGuard err_guard;
@@ -335,8 +335,9 @@ TEST(FileHandleCacheTest, ConcurrentOpenFailureReturnsSameStatusToAllCallers) {
     ExclusiveHdfsFileHandle handle(mock_fs, "/test/concurrent_fail.parquet", 12345);
     ASSERT_TRUE(handle.init(4096).ok());
 
-    SyncPointProcessingGuard sp_guard;
     auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    Defer defer {[&]() { sp->disable_processing(); }};
     SyncPoint::CallbackGuard open_guard;
     set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", nullptr, &open_guard);
 
