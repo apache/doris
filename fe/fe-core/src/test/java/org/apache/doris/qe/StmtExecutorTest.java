@@ -37,6 +37,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
@@ -49,6 +50,8 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -331,6 +334,45 @@ public class StmtExecutorTest extends TestWithFeService {
 
         StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
         executor.sendBinaryResultRow(resultSet);
+    }
+
+    @Test
+    public void testCursorFetchMetadataTerminatorDependsOnConnectorJVersion() throws IOException {
+        List<byte[]> connector82Packets = sendEmptyCursorResultSet("8.2.0");
+        Assertions.assertEquals(3, connector82Packets.size());
+        Assertions.assertEquals(0xFE, Byte.toUnsignedInt(connector82Packets.get(2)[0]));
+        Assertions.assertTrue(connector82Packets.get(2).length > 5);
+
+        List<byte[]> connector95Packets = sendEmptyCursorResultSet("9.5.0");
+        Assertions.assertEquals(2, connector95Packets.size());
+    }
+
+    private List<byte[]> sendEmptyCursorResultSet(String connectorVersion) throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        Mockito.when(mockCtx.getState()).thenReturn(new QueryState());
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
+        Mockito.when(mockCtx.isCursorFetchRequested()).thenReturn(true);
+        Mockito.when(mockCtx.getConnectAttributes()).thenReturn(ImmutableMap.of(
+                "_client_name", "MySQL Connector/J", "_client_version", connectorVersion));
+        Mockito.when(channel.clientDeprecatedEOF()).thenReturn(true);
+        Mockito.when(channel.getSerializer()).thenReturn(MysqlSerializer.newInstance());
+
+        List<byte[]> packets = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            ByteBuffer packet = invocation.getArgument(0);
+            byte[] copy = new byte[packet.remaining()];
+            packet.duplicate().get(copy);
+            packets.add(copy);
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        List<Column> columns = Collections.singletonList(new Column("c", PrimitiveType.INT));
+        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), Collections.emptyList());
+        new StmtExecutor(mockCtx, new OriginStatement("", 0), true).sendResultSet(resultSet);
+        return packets;
     }
 
     @Test
