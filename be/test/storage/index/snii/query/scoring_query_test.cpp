@@ -165,7 +165,7 @@ SniiIndexInput ToInput(const Corpus& c) {
     SniiIndexInput in;
     in.index_id = 1;
     in.index_suffix = "body";
-    in.config = IndexConfig::kDocsPositionsScoring;
+    in.config = IndexConfig::kDocsPositions;
     in.doc_count = c.doc_count;
     in.target_dict_block_bytes = 1; // one block per term
 
@@ -186,11 +186,6 @@ SniiIndexInput ToInput(const Corpus& c) {
         }
         in.terms.push_back(std::move(tp));
     }
-    uint64_t token_count = 0;
-    for (const auto& term : in.terms) {
-        token_count += term.positions_flat.size();
-    }
-    in.common_grams_metadata = snii_test::make_plain_scoring_metadata(in.doc_count, token_count);
     return in;
 }
 
@@ -538,7 +533,7 @@ TEST(SniiScoringQuery, CandidatesReadOnlyCoveredFrequencyWindows) {
     SniiIndexInput input;
     input.index_id = 1;
     input.index_suffix = "body";
-    input.config = IndexConfig::kDocsPositionsScoring;
+    input.config = IndexConfig::kDocsPositions;
     input.doc_count = kDocCount;
     input.target_dict_block_bytes = 1;
     input.encoded_norms.reserve(kDocCount);
@@ -566,12 +561,6 @@ TEST(SniiScoringQuery, CandidatesReadOnlyCoveredFrequencyWindows) {
     }
     input.terms.push_back(std::move(posting));
     input.terms.push_back(std::move(leading_posting));
-    uint64_t token_count = 0;
-    for (const auto& term : input.terms) {
-        token_count += term.positions_flat.size();
-    }
-    input.common_grams_metadata =
-            snii_test::make_plain_scoring_metadata(input.doc_count, token_count);
     {
         io::LocalFileWriter writer;
         ASSERT_TRUE(writer.open(path).ok());

@@ -32,7 +32,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "storage/index/inverted/analyzer/analyzer_provider.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/compaction/eligibility.h"
@@ -83,10 +82,6 @@ private:
 struct IndexShape {
     format::IndexTier tier = format::IndexTier::kT2;
     bool has_norms = false;
-    bool has_common_grams_metadata = false;
-    std::optional<inverted_index::CommonGramsSegmentMetadata> common_grams_metadata = std::nullopt;
-    format::CommonGramsPostingPolicy common_grams_posting_policy =
-            format::CommonGramsPostingPolicy::kNone;
     format::StatsBlock stats {
             .doc_count = 8,
             .indexed_doc_count = 6,
@@ -104,7 +99,7 @@ struct OpenedIndex {
 std::unique_ptr<OpenedIndex> open_index(const IndexShape& shape) {
     std::vector<uint8_t> file_bytes;
     format::SectionRefs refs;
-    if (shape.has_norms || shape.tier == format::IndexTier::kT3) {
+    if (shape.has_norms) {
         format::NormsPodWriter norms;
         for (uint64_t doc = 0; doc < shape.stats.doc_count; ++doc) {
             norms.add(1);
@@ -124,21 +119,9 @@ std::unique_ptr<OpenedIndex> open_index(const IndexShape& shape) {
 
     format::CoreMetadata core;
     core.index_config = shape.tier == format::IndexTier::kT1 ? format::IndexConfig::kDocsOnly
-                        : shape.tier == format::IndexTier::kT2
-                                ? format::IndexConfig::kDocsPositions
-                                : format::IndexConfig::kDocsPositionsScoring;
+                                                              : format::IndexConfig::kDocsPositions;
     core.stats = shape.stats;
     core.section_refs = refs;
-    if (shape.common_grams_metadata.has_value()) {
-        core.common_grams_metadata = *shape.common_grams_metadata;
-    } else if (shape.has_common_grams_metadata) {
-        inverted_index::CommonGramsSegmentMetadata metadata;
-        metadata.plain_term_key_version = inverted_index::PlainTermKeyVersion::kRawNoInternal;
-        core.common_grams_metadata = metadata;
-    }
-    if (shape.common_grams_posting_policy != format::CommonGramsPostingPolicy::kNone) {
-        core.common_grams_posting_policy = shape.common_grams_posting_policy;
-    }
     ByteSink core_frame;
     const Status core_status = format::encode_core_metadata(core, &core_frame);
     EXPECT_TRUE(core_status.ok()) << core_status.to_string();
@@ -172,31 +155,6 @@ std::map<std::string, std::string> plain_properties() {
     return {{"lower_case", "true"}, {"parser", "standard"}, {"support_phrase", "true"}};
 }
 
-std::map<std::string, std::string> common_grams_properties() {
-    return {{"analyzer", "common_grams_analyzer"}, {"support_phrase", "true"}};
-}
-
-inverted_index::CommonGramsQueryIdentity common_grams_identity(std::string dictionary = "dict-a") {
-    return {.common_grams_dictionary_identity = std::move(dictionary),
-            .base_analyzer_fingerprint = "base-a",
-            .common_grams_fingerprint = "grams-a"};
-}
-
-inverted_index::CommonGramsSegmentMetadata complete_common_grams_metadata(
-        const inverted_index::CommonGramsQueryIdentity& identity = common_grams_identity()) {
-    auto metadata = inverted_index::make_common_grams_segment_metadata(identity);
-    metadata.scoring_doc_count = 8;
-    metadata.scoring_token_count = 0;
-    return metadata;
-}
-
-inverted_index::CommonGramsSegmentMetadata hybrid_common_grams_metadata(
-        const inverted_index::CommonGramsQueryIdentity& identity = common_grams_identity()) {
-    auto metadata = complete_common_grams_metadata(identity);
-    metadata.common_grams_coverage = inverted_index::CommonGramsCoverage::kMixed;
-    return metadata;
-}
-
 compaction::PlainT2CompactionSource source(const OpenedIndex& index,
                                            const TabletIndex& index_meta) {
     return {.reader = std::cref(index.reader), .index_meta = std::cref(index_meta)};
@@ -209,32 +167,10 @@ void expect_rejected(const Status& status, std::string_view reason) {
 
 class StubAnalyzerProvider final : public inverted_index::AnalyzerProvider {
 public:
-    explicit StubAnalyzerProvider(
-            bool uses_common_grams,
-            std::optional<inverted_index::CommonGramsQueryIdentity> identity = std::nullopt)
-            : uses_common_grams_(uses_common_grams), identity_(std::move(identity)) {}
-
     std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
             inverted_index::AnalysisPurpose) const override {
         return nullptr;
     }
-    bool uses_common_grams() const override { return uses_common_grams_; }
-    const inverted_index::CommonGramsQueryIdentity* common_grams_identity() const override {
-        return identity_ ? &*identity_ : nullptr;
-    }
-
-private:
-    bool uses_common_grams_ = false;
-    std::optional<inverted_index::CommonGramsQueryIdentity> identity_;
-};
-
-class CommonGramsBuildSwitchGuard {
-public:
-    CommonGramsBuildSwitchGuard() : saved_(doris::config::enable_common_grams_index_build) {}
-    ~CommonGramsBuildSwitchGuard() { doris::config::enable_common_grams_index_build = saved_; }
-
-private:
-    bool saved_;
 };
 
 TEST(SniiCompactionEligibilityTest, AcceptsIdenticalPlainT2SourcesAndDestination) {
@@ -246,117 +182,6 @@ TEST(SniiCompactionEligibilityTest, AcceptsIdenticalPlainT2SourcesAndDestination
     std::vector sources {source(*first, *first_meta), source(*second, *second_meta)};
 
     EXPECT_TRUE(compaction::validate_plain_t2_compaction_eligibility(sources, *destination).ok());
-}
-
-TEST(SniiCompactionEligibilityTest, AcceptsHomogeneousCompleteCommonGramsT3Sources) {
-    CommonGramsBuildSwitchGuard guard;
-    doris::config::enable_common_grams_index_build = true;
-    const auto identity = common_grams_identity();
-    IndexShape shape {.tier = format::IndexTier::kT3,
-                      .has_norms = true,
-                      .common_grams_metadata = complete_common_grams_metadata(identity)};
-    auto first = open_index(shape);
-    auto second = open_index(shape);
-    auto first_meta = make_index(common_grams_properties());
-    auto second_meta = make_index(common_grams_properties());
-    auto destination = make_index(common_grams_properties());
-    std::vector sources {source(*first, *first_meta), source(*second, *second_meta)};
-    compaction::AnalyzerProviderFactory factory = [identity](const auto&) {
-        return std::make_shared<StubAnalyzerProvider>(true, identity);
-    };
-
-    compaction::SniiCompactionEligibility eligibility;
-    ASSERT_TRUE(compaction::validate_snii_compaction_eligibility(sources, *destination,
-                                                                 &eligibility, factory)
-                        .ok());
-    EXPECT_EQ(eligibility.kind, compaction::SniiStreamedMergeKind::kCommonGramsT3);
-    ASSERT_TRUE(eligibility.common_grams_metadata_seed.has_value());
-    EXPECT_TRUE(inverted_index::common_grams_identity_matches(
-            *eligibility.common_grams_metadata_seed, identity));
-    EXPECT_EQ(eligibility.common_grams_metadata_seed->scoring_doc_count, 0U);
-    EXPECT_EQ(eligibility.common_grams_metadata_seed->scoring_token_count, 0U);
-    EXPECT_EQ(eligibility.common_grams_posting_policy, format::CommonGramsPostingPolicy::kNone);
-}
-
-TEST(SniiCompactionEligibilityTest, AcceptsHomogeneousHybridCommonGramsT3Sources) {
-    CommonGramsBuildSwitchGuard guard;
-    doris::config::enable_common_grams_index_build = true;
-    const auto identity = common_grams_identity();
-    IndexShape shape {.tier = format::IndexTier::kT3,
-                      .has_norms = true,
-                      .common_grams_metadata = hybrid_common_grams_metadata(identity),
-                      .common_grams_posting_policy = format::CommonGramsPostingPolicy::kHybridV1};
-    auto first = open_index(shape);
-    auto second = open_index(shape);
-    auto first_meta = make_index(common_grams_properties());
-    auto second_meta = make_index(common_grams_properties());
-    auto destination = make_index(common_grams_properties());
-    const std::vector sources {source(*first, *first_meta), source(*second, *second_meta)};
-    compaction::AnalyzerProviderFactory factory = [identity](const auto&) {
-        return std::make_shared<StubAnalyzerProvider>(true, identity);
-    };
-
-    compaction::SniiCompactionEligibility eligibility;
-    ASSERT_TRUE(compaction::validate_snii_compaction_eligibility(sources, *destination,
-                                                                 &eligibility, factory)
-                        .ok());
-    EXPECT_EQ(eligibility.kind, compaction::SniiStreamedMergeKind::kCommonGramsT3);
-    ASSERT_TRUE(eligibility.common_grams_metadata_seed.has_value());
-    EXPECT_EQ(eligibility.common_grams_metadata_seed->common_grams_coverage,
-              inverted_index::CommonGramsCoverage::kMixed);
-    EXPECT_EQ(eligibility.common_grams_posting_policy, format::CommonGramsPostingPolicy::kHybridV1);
-    EXPECT_TRUE(compaction::validate_snii_source_eligibility(first->reader,
-                                                             /*source_ordinal=*/0, eligibility)
-                        .ok());
-}
-
-TEST(SniiCompactionEligibilityTest, RejectsMixedMismatchedAndBuildDisabledCommonGramsSources) {
-    CommonGramsBuildSwitchGuard guard;
-    doris::config::enable_common_grams_index_build = true;
-    const auto identity = common_grams_identity();
-    IndexShape common_shape {.tier = format::IndexTier::kT3,
-                             .has_norms = true,
-                             .common_grams_metadata = complete_common_grams_metadata(identity)};
-    auto common = open_index(common_shape);
-    auto plain = open_index({});
-    auto first_meta = make_index(common_grams_properties());
-    auto second_meta = make_index(common_grams_properties());
-    auto destination = make_index(common_grams_properties());
-    compaction::AnalyzerProviderFactory factory = [identity](const auto&) {
-        return std::make_shared<StubAnalyzerProvider>(true, identity);
-    };
-    compaction::SniiCompactionEligibility eligibility;
-
-    std::vector mixed {source(*common, *first_meta), source(*plain, *second_meta)};
-    expect_rejected(compaction::validate_snii_compaction_eligibility(mixed, *destination,
-                                                                     &eligibility, factory),
-                    "homogeneous");
-
-    const auto other_identity = common_grams_identity("dict-b");
-    common_shape.common_grams_metadata = complete_common_grams_metadata(other_identity);
-    auto mismatched = open_index(common_shape);
-    std::vector mismatch_sources {source(*common, *first_meta), source(*mismatched, *second_meta)};
-    expect_rejected(compaction::validate_snii_compaction_eligibility(mismatch_sources, *destination,
-                                                                     &eligibility, factory),
-                    "identity");
-
-    IndexShape hybrid_shape {
-            .tier = format::IndexTier::kT3,
-            .has_norms = true,
-            .common_grams_metadata = hybrid_common_grams_metadata(identity),
-            .common_grams_posting_policy = format::CommonGramsPostingPolicy::kHybridV1};
-    auto hybrid = open_index(hybrid_shape);
-    std::vector policy_mismatch_sources {source(*common, *first_meta),
-                                         source(*hybrid, *second_meta)};
-    expect_rejected(compaction::validate_snii_compaction_eligibility(
-                            policy_mismatch_sources, *destination, &eligibility, factory),
-                    "homogeneous");
-
-    doris::config::enable_common_grams_index_build = false;
-    std::vector disabled_sources {source(*common, *first_meta)};
-    expect_rejected(compaction::validate_snii_compaction_eligibility(disabled_sources, *destination,
-                                                                     &eligibility, factory),
-                    "disabled");
 }
 
 TEST(SniiCompactionEligibilityTest, ExposesReusableSourceShapeValidation) {
@@ -378,7 +203,6 @@ TEST(SniiCompactionEligibilityTest, RejectsPhysicalShapesOutsidePlainT2) {
     };
     std::vector<Case> cases;
     cases.push_back({IndexShape {.tier = format::IndexTier::kT1}, "T2"});
-    cases.push_back({IndexShape {.has_norms = true}, "norms"});
 
     for (const auto& test_case : cases) {
         auto index = open_index(test_case.shape);
@@ -390,13 +214,41 @@ TEST(SniiCompactionEligibilityTest, RejectsPhysicalShapesOutsidePlainT2) {
     }
 }
 
-TEST(SniiCompactionEligibilityTest, RejectsCompanionMetadata) {
-    auto index = open_index(IndexShape {.has_common_grams_metadata = true});
-    auto source_meta = make_index(plain_properties());
+// 带 norms 的段（新 writer 对分词 + 带位置索引的产物）与不带 norms 的老段都是合法的 T2 源。
+TEST(SniiCompactionEligibilityTest, AcceptsSourcesWithOrWithoutNorms) {
+    auto with_norms = open_index(IndexShape {.has_norms = true});
+    auto without_norms = open_index({});
+    auto first_meta = make_index(plain_properties());
+    auto second_meta = make_index(plain_properties());
     auto destination = make_index(plain_properties());
-    std::vector sources {source(*index, *source_meta)};
-    expect_rejected(compaction::validate_plain_t2_compaction_eligibility(sources, *destination),
-                    "CommonGrams");
+    std::vector sources {source(*with_norms, *first_meta), source(*without_norms, *second_meta)};
+
+    EXPECT_TRUE(compaction::validate_plain_t2_compaction_eligibility(sources, *destination).ok());
+}
+
+// A2：目标索引分词就写 norms（哪怕所有源都是没有 norms 的老段——合并时从 postings 重建）；
+// 不分词的 keyword 索引不写。
+TEST(SniiCompactionEligibilityTest, DestinationWritesNormsExactlyWhenAnalyzed) {
+    auto legacy = open_index({});
+
+    auto analyzed_source_meta = make_index(plain_properties());
+    auto analyzed_destination = make_index(plain_properties());
+    std::vector analyzed_sources {source(*legacy, *analyzed_source_meta)};
+    compaction::SniiCompactionEligibility analyzed;
+    ASSERT_TRUE(compaction::validate_snii_compaction_eligibility(analyzed_sources,
+                                                                 *analyzed_destination, &analyzed)
+                        .ok());
+    EXPECT_TRUE(analyzed.destination_writes_norms);
+
+    const std::map<std::string, std::string> keyword_properties {{"support_phrase", "true"}};
+    auto keyword_source_meta = make_index(keyword_properties);
+    auto keyword_destination = make_index(keyword_properties);
+    std::vector keyword_sources {source(*legacy, *keyword_source_meta)};
+    compaction::SniiCompactionEligibility keyword;
+    ASSERT_TRUE(compaction::validate_snii_compaction_eligibility(keyword_sources,
+                                                                 *keyword_destination, &keyword)
+                        .ok());
+    EXPECT_FALSE(keyword.destination_writes_norms);
 }
 
 TEST(SniiCompactionEligibilityTest, RejectsLegacyBigramMarkerBeforeMergeExecution) {
@@ -496,29 +348,6 @@ TEST(SniiCompactionEligibilityTest, RequiresInvertedPhraseDestination) {
                     "inverted index");
 }
 
-TEST(SniiCompactionEligibilityTest, RejectsDestinationThatWouldBuildCommonGrams) {
-    CommonGramsBuildSwitchGuard guard;
-    doris::config::enable_common_grams_index_build = true;
-    auto index = open_index({});
-    auto properties = plain_properties();
-    properties.erase("parser");
-    properties["analyzer"] = "common_grams_analyzer";
-    auto source_meta = make_index(properties);
-    auto destination = make_index(properties);
-    std::vector sources {source(*index, *source_meta)};
-
-    compaction::AnalyzerProviderFactory factory = [](const doris::InvertedIndexAnalyzerConfig&) {
-        return std::make_shared<StubAnalyzerProvider>(true);
-    };
-    expect_rejected(
-            compaction::validate_plain_t2_compaction_eligibility(sources, *destination, factory),
-            "CommonGrams");
-
-    doris::config::enable_common_grams_index_build = false;
-    EXPECT_TRUE(compaction::validate_plain_t2_compaction_eligibility(sources, *destination, factory)
-                        .ok());
-}
-
 TEST(SniiCompactionEligibilityTest, ResolvesDestinationProviderFromWriterAnalyzerConfig) {
     auto index = open_index({});
     auto properties = plain_properties();
@@ -536,7 +365,7 @@ TEST(SniiCompactionEligibilityTest, ResolvesDestinationProviderFromWriterAnalyze
     compaction::AnalyzerProviderFactory factory =
             [&](const doris::InvertedIndexAnalyzerConfig& config) {
                 captured = config;
-                return std::make_shared<StubAnalyzerProvider>(false);
+                return std::make_shared<StubAnalyzerProvider>();
             };
     ASSERT_TRUE(compaction::validate_plain_t2_compaction_eligibility(sources, *destination, factory)
                         .ok());

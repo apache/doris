@@ -374,15 +374,10 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
     SniiIndexInput in;
     in.index_id = 1;
     in.index_suffix = "body";
-    in.config = doris::snii::format::IndexConfig::kDocsPositionsScoring;
+    in.config = doris::snii::format::IndexConfig::kDocsPositions;
     in.doc_count = static_cast<uint32_t>(c.docs.size());
     in.encoded_norms.assign(c.docs.size(), 1);
     in.terms = buf.finalize_sorted();
-    uint64_t token_count = 0;
-    for (const auto& term : in.terms) {
-        token_count += term.positions_flat.size();
-    }
-    in.common_grams_metadata = snii_test::make_plain_scoring_metadata(in.doc_count, token_count);
     in.target_dict_block_bytes = 2048;
 
     io::LocalFileWriter writer;
@@ -396,16 +391,10 @@ void WritePostings(SpimiTermBuffer* buffer, uint32_t doc_count, const std::strin
     SniiIndexInput input;
     input.index_id = 1;
     input.index_suffix = "body";
-    input.config = doris::snii::format::IndexConfig::kDocsPositionsScoring;
+    input.config = doris::snii::format::IndexConfig::kDocsPositions;
     input.doc_count = doc_count;
     input.encoded_norms.assign(doc_count, 1);
     input.terms = buffer->finalize_sorted();
-    uint64_t token_count = 0;
-    for (const auto& term : input.terms) {
-        token_count += term.positions_flat.size();
-    }
-    input.common_grams_metadata =
-            snii_test::make_plain_scoring_metadata(input.doc_count, token_count);
     input.target_dict_block_bytes = 256;
 
     io::LocalFileWriter writer;

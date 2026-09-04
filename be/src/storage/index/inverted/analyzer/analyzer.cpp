@@ -41,7 +41,6 @@
 #include "storage/index/inverted/analyzer/ik/IKAnalyzer.h"
 #include "storage/index/inverted/analyzer/kuromoji/KuromojiAnalyzer.h"
 #include "storage/index/inverted/char_filter/char_replace_char_filter_factory.h"
-#include "storage/index/inverted/token_filter/common_grams_filter.h"
 
 namespace doris::segment_v2::inverted_index {
 namespace {
@@ -220,8 +219,7 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
             t.term = std::string(token.termBuffer<char>(), token.termLength<char>());
             position += token.getPositionIncrement();
             t.position = position;
-            t.key_kind = is_common_gram_token_type(token.type()) ? TermKeyKind::kCommonGram
-                                                                 : TermKeyKind::kPlain;
+            t.key_kind = TermKeyKind::kPlain;
             analyse_result.emplace_back(std::move(t));
         }
     }

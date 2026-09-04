@@ -142,9 +142,9 @@ TEST(SniiDictEntry, PodRefSlimFrqDocsLenExceedsFrqLenRejected) {
     EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
 }
 
-TEST(SniiDictEntry, PodRefSlimTier3RoundTrip) {
+TEST(SniiDictEntry, PodRefSlimTier2WithStatsRoundTrip) {
     DictEntry in = MakePodRefSlim("cherry", 500);
-    DictEntry out = RoundTrip(in, "", IndexTier::kT3);
+    DictEntry out = RoundTrip(in, "", IndexTier::kT2);
     ExpectCommon(in, out);
     EXPECT_EQ(out.ttf_delta, in.ttf_delta);
     EXPECT_EQ(out.max_freq, in.max_freq);
@@ -208,9 +208,9 @@ TEST(SniiDictEntry, InlineTier2RoundTrip) {
     EXPECT_EQ(out.max_freq, in.max_freq);
 }
 
-TEST(SniiDictEntry, InlineTier3RoundTrip) {
+TEST(SniiDictEntry, InlineTier2WithStatsRoundTrip) {
     DictEntry in = MakeInline("honeydew", 12);
-    DictEntry out = RoundTrip(in, "", IndexTier::kT3);
+    DictEntry out = RoundTrip(in, "", IndexTier::kT2);
     ExpectCommon(in, out);
     EXPECT_EQ(out.frq_bytes, in.frq_bytes);
     EXPECT_EQ(out.prx_bytes, in.prx_bytes);

@@ -29,8 +29,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/compaction/posting_cursor.h"
 #include "storage/index/snii/format/core_metadata.h"
 #include "storage/index/snii/format/dict_entry.h"
@@ -96,46 +94,6 @@ Status build_source(std::vector<writer::TermPostings> terms, uint32_t doc_count,
     RETURN_IF_ERROR(compound.finish());
     RETURN_IF_ERROR(reader::SniiSegmentReader::open(&fixture->file, &fixture->segment));
     return fixture->segment.open_index(kIndexId, kIndexSuffix, &fixture->index);
-}
-
-Status build_hybrid_source(std::vector<writer::TermPostings> terms, uint32_t doc_count,
-                           SourceFixture* fixture) {
-    namespace inverted_index = doris::segment_v2::inverted_index;
-    inverted_index::CommonGramsQueryIdentity identity {.common_grams_dictionary_identity = "dict-a",
-                                                       .base_analyzer_fingerprint = "base-a",
-                                                       .common_grams_fingerprint = "grams-a"};
-    auto metadata = inverted_index::make_common_grams_segment_metadata(identity);
-    metadata.common_grams_coverage = inverted_index::CommonGramsCoverage::kMixed;
-    metadata.scoring_doc_count = doc_count;
-    metadata.scoring_token_count = 1;
-
-    terms.push_back(make_term("plain", {{.docid = 0, .positions = {0}}}));
-    std::ranges::sort(terms, [](const auto& lhs, const auto& rhs) { return lhs.term < rhs.term; });
-    writer::SniiIndexInput input;
-    input.index_id = kIndexId;
-    input.index_suffix = kIndexSuffix;
-    input.config = format::IndexConfig::kDocsPositionsScoring;
-    input.doc_count = doc_count;
-    input.write_freq = true;
-    input.encoded_norms.assign(doc_count, 1);
-    input.common_grams_metadata = std::move(metadata);
-    input.common_grams_posting_policy = format::CommonGramsPostingPolicy::kHybridV1;
-    input.terms = std::move(terms);
-
-    writer::SniiCompoundWriter compound(&fixture->file);
-    RETURN_IF_ERROR(compound.add_logical_index(input));
-    RETURN_IF_ERROR(compound.finish());
-    RETURN_IF_ERROR(reader::SniiSegmentReader::open(&fixture->file, &fixture->segment));
-    return fixture->segment.open_index(kIndexId, kIndexSuffix, &fixture->index);
-}
-
-writer::TermPostings make_docs_only_gram(std::string left, std::string right,
-                                         std::vector<uint32_t> docids) {
-    writer::TermPostings term;
-    term.term = doris::segment_v2::inverted_index::encode_common_gram(left, right).value();
-    term.docids = std::move(docids);
-    term.retain_positions = false;
-    return term;
 }
 
 std::vector<writer::TermPostings> posting_shapes() {
@@ -618,51 +576,6 @@ TEST(SniiPostingCursorTest, UsesChunkLevelNoDeletionFastPath) {
     EXPECT_EQ(chunk.positions_flat.size(), 3U);
     assert_ok(cursor.next_chunk(&chunk, &has_chunk));
     EXPECT_FALSE(has_chunk);
-}
-
-TEST(SniiPostingCursorTest, DecodesFlatAndWindowedDocsOnlyWithoutInventingPayloads) {
-    constexpr uint32_t kWideDocs = format::kSlimDfThreshold;
-    std::vector<uint32_t> wide_docids(kWideDocs);
-    std::iota(wide_docids.begin(), wide_docids.end(), 0);
-    SourceFixture source;
-    assert_ok(build_hybrid_source({make_docs_only_gram("a", "of", {0, 4}),
-                                   make_docs_only_gram("z", "of", std::move(wide_docids))},
-                                  kWideDocs, &source));
-
-    const TermRef flat_ref = lookup_term(
-            source.index, doris::segment_v2::inverted_index::encode_common_gram("a", "of").value());
-    const TermRef windowed_ref = lookup_term(
-            source.index, doris::segment_v2::inverted_index::encode_common_gram("z", "of").value());
-    ASSERT_EQ(flat_ref.entry.enc, format::DictEntryEnc::kSlim);
-    ASSERT_EQ(windowed_ref.entry.enc, format::DictEntryEnc::kWindowed);
-
-    auto trans = deleted_map(kWideDocs);
-    trans[0] = {0, 1};
-    trans[4] = {0, 5};
-    {
-        auto read_context = make_read_context(&source.index);
-        SniiPostingCursor cursor =
-                make_cursor(read_context.get(), flat_ref, trans, kDestinationRows10);
-        assert_ok(cursor.init());
-        EXPECT_FALSE(cursor.has_positions());
-        std::vector<PostingCopy> got;
-        assert_ok(drain(&cursor, &got));
-        EXPECT_EQ(got, (std::vector<PostingCopy> {{0, 0, 0, {}}, {0, 1, 0, {}}}));
-    }
-
-    trans = deleted_map(kWideDocs);
-    trans[0] = {0, 0};
-    trans[kWideDocs - 1] = {0, 9};
-    {
-        auto read_context = make_read_context(&source.index);
-        SniiPostingCursor cursor =
-                make_cursor(read_context.get(), windowed_ref, trans, kDestinationRows10);
-        assert_ok(cursor.init());
-        EXPECT_FALSE(cursor.has_positions());
-        std::vector<PostingCopy> got;
-        assert_ok(drain(&cursor, &got));
-        EXPECT_EQ(got, (std::vector<PostingCopy> {{0, 0, 0, {}}, {0, 1, 0, {}}}));
-    }
 }
 
 TEST(SniiPostingCursorTest, RejectsOverflowAndOutOfFilePostingRegions) {

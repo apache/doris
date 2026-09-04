@@ -335,34 +335,14 @@ void SniiCompoundWriter::release_all_blob_sources() {
     }
 }
 
-SniiIndexInput SniiStreamedIndexSession::attach_encoded_norms(SniiIndexInput in,
-                                                              TrackedEncodedNorms* encoded_norms,
-                                                              uint64_t reserved_bytes) {
-    DORIS_CHECK(encoded_norms != nullptr);
-    DORIS_CHECK(in.encoded_norms.empty());
-    if (in.mem_reporter != nullptr) {
-        DORIS_CHECK_EQ(reserved_bytes, encoded_norms->norms_.capacity());
-    } else {
-        DORIS_CHECK_EQ(reserved_bytes, 0);
-    }
-    in.encoded_norms = std::move(encoded_norms->norms_);
-    return in;
-}
-
 SniiStreamedIndexSession::SniiStreamedIndexSession(SniiCompoundWriter* owner, SniiIndexInput in,
-                                                   TrackedNullDocids null_docids,
-                                                   TrackedEncodedNorms encoded_norms)
+                                                   TrackedNullDocids null_docids)
         : owner_(owner),
-          encoded_norms_reservation_(std::move(encoded_norms.reservation_)),
-          input_(attach_encoded_norms(std::move(in), &encoded_norms,
-                                      encoded_norms_reservation_.bytes())),
+          input_(std::move(in)),
           // input_ (a member, initialized above) owns the vectors the writer
           // keeps references into -- NOT the caller's already-moved-from `in`.
           writer_(new LogicalIndexWriter(input_, std::move(null_docids))),
-          semantic_token_count_required_(
-                  input_.common_grams_metadata.has_value() &&
-                  input_.common_grams_metadata->scoring_coverage ==
-                          segment_v2::inverted_index::ScoringCoverage::kComplete) {}
+          norms_required_(input_.write_norms) {}
 
 Status SniiStreamedIndexSession::push_term(StreamedTermPostings&& tp) {
     if (!owner_->failed_.ok()) return owner_->failed_;
@@ -375,25 +355,29 @@ Status SniiStreamedIndexSession::push_term(StreamedTermPostings&& tp) {
     return Status::OK();
 }
 
-Status SniiStreamedIndexSession::set_semantic_token_count(uint64_t token_count) {
+Status SniiStreamedIndexSession::set_encoded_norms(TrackedEncodedNorms encoded_norms) {
     if (!owner_->failed_.ok()) return owner_->failed_;
     if (finished_) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "compound: semantic token count on a finished streamed index session");
+                "compound: norms on a finished streamed index session");
     }
-    if (!semantic_token_count_required_) {
+    if (!norms_required_) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "compound: streamed index session has no complete semantic scoring metadata");
+                "compound: streamed index session did not declare norms");
     }
-    if (semantic_token_count_set_) {
+    if (norms_set_) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "compound: semantic token count was already set");
+                "compound: norms were already set");
     }
-    DORIS_CHECK(input_.common_grams_metadata.has_value());
-    DORIS_CHECK(writer_->common_grams_metadata_.has_value());
-    input_.common_grams_metadata->scoring_token_count = token_count;
-    writer_->common_grams_metadata_->scoring_token_count = token_count;
-    semantic_token_count_set_ = true;
+    if (encoded_norms.size() != input_.doc_count) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "compound: norms length {} differs from doc_count {}", encoded_norms.size(),
+                input_.doc_count);
+    }
+    // writer_ 持有 input_.encoded_norms 的引用：就地移入即可，finalize 时按引用读取。
+    encoded_norms_reservation_ = std::move(encoded_norms.reservation_);
+    input_.encoded_norms = std::move(encoded_norms.norms_);
+    norms_set_ = true;
     return Status::OK();
 }
 
@@ -403,9 +387,9 @@ Status SniiStreamedIndexSession::finish() {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "compound: finish on an already-finished streamed index session");
     }
-    if (semantic_token_count_required_ && !semantic_token_count_set_) {
+    if (norms_required_ && !norms_set_) {
         return owner_->poison(Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "compound: semantic token count must be set before streamed index finish"));
+                "compound: norms must be set before streamed index finish"));
     }
     return owner_->finish_streamed_index(this);
 }
@@ -433,23 +417,6 @@ Status SniiCompoundWriter::begin_streamed_index(SniiIndexInput in,
 
 Status SniiCompoundWriter::begin_streamed_index(SniiIndexInput in, TrackedNullDocids null_docids,
                                                 SniiStreamedIndexSession** session) {
-    std::vector<uint8_t> encoded_norms;
-    encoded_norms.swap(in.encoded_norms);
-    MemoryReporter::Reservation encoded_norms_reservation =
-            in.mem_reporter == nullptr ? MemoryReporter::Reservation()
-                                       : in.mem_reporter->make_reservation();
-    if (in.mem_reporter != nullptr) {
-        RETURN_IF_ERROR(encoded_norms_reservation.set_bytes(encoded_norms.capacity()));
-    }
-    return begin_streamed_index(
-            std::move(in), std::move(null_docids),
-            TrackedEncodedNorms(std::move(encoded_norms_reservation), std::move(encoded_norms)),
-            session);
-}
-
-Status SniiCompoundWriter::begin_streamed_index(SniiIndexInput in, TrackedNullDocids null_docids,
-                                                TrackedEncodedNorms encoded_norms,
-                                                SniiStreamedIndexSession** session) {
     if (session == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "compound: null session out parameter");
@@ -476,8 +443,8 @@ Status SniiCompoundWriter::begin_streamed_index(SniiIndexInput in, TrackedNullDo
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "compound: tracked streamed norms must not also be present in input");
     RETURN_IF_ERROR(ensure_bootstrap());
-    auto s = std::unique_ptr<SniiStreamedIndexSession>(new SniiStreamedIndexSession(
-            this, std::move(in), std::move(null_docids), std::move(encoded_norms)));
+    auto s = std::unique_ptr<SniiStreamedIndexSession>(
+            new SniiStreamedIndexSession(this, std::move(in), std::move(null_docids)));
     s->post_off_ = out_->bytes_written();
     RETURN_IF_ERROR(s->writer_->begin_streamed(out_));
     sessions_.push_back(std::move(s));

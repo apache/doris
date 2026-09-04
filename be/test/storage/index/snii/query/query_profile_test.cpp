@@ -205,25 +205,11 @@ void WriteCorpus(const Corpus& c, const std::string& path, int prx_zstd_level = 
     SniiIndexInput in;
     in.index_id = 1;
     in.index_suffix = "body";
-    in.config = write_freq ? doris::snii::format::IndexConfig::kDocsPositionsScoring
-                           : doris::snii::format::IndexConfig::kDocsPositions;
+    in.config = doris::snii::format::IndexConfig::kDocsPositions;
     in.doc_count = static_cast<uint32_t>(c.docs.size());
     if (write_freq) {
+        // 写 freq 的索引同时带 norms（A2：分词 + 带位置 ⇒ norms），这样才能打分。
         in.encoded_norms.assign(c.docs.size(), 1);
-        doris::segment_v2::inverted_index::CommonGramsSegmentMetadata metadata;
-        metadata.plain_term_key_version =
-                doris::segment_v2::inverted_index::PlainTermKeyVersion::kRawNoInternal;
-        metadata.scoring_coverage = doris::segment_v2::inverted_index::ScoringCoverage::kComplete;
-        metadata.scoring_stats_version =
-                doris::segment_v2::inverted_index::COMMON_GRAMS_SCORING_STATS_VERSION_V1;
-        metadata.norm_semantics_version =
-                doris::segment_v2::inverted_index::COMMON_GRAMS_NORM_SEMANTICS_VERSION_V1;
-        metadata.base_analyzer_fingerprint = "query-profile-test";
-        metadata.scoring_doc_count = c.docs.size();
-        for (const auto& terms : c.docs) {
-            metadata.scoring_token_count += terms.size();
-        }
-        in.common_grams_metadata = std::move(metadata);
     }
     in.terms = buf.finalize_sorted();
     in.target_dict_block_bytes = 512;
