@@ -40,6 +40,7 @@ public class MysqlResultSetEndPacket extends MysqlPacket {
 
     public MysqlResultSetEndPacket(QueryState state) {
         this.serverStatus = state.serverStatus;
+        this.warningCount = state.getWarningRows();
     }
 
     @Override

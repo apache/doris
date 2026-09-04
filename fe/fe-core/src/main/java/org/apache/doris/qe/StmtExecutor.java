@@ -74,6 +74,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlCursorFetchCompatibility;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -191,10 +192,6 @@ public class StmtExecutor {
     private static Set<String> blockSqlAstNames = Sets.newHashSet();
 
     private static final Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
-    private static final Set<String> MYSQL_CONNECTOR_J_CLIENT_NAMES = Sets.newHashSet(
-            "MySQL Connector/J", "MySQL Connector Java");
-    private static final Pattern CONNECTOR_J_CONSUMES_CURSOR_METADATA_TERMINATOR =
-            Pattern.compile("^(?:(?:5|6|8)\\.|9\\.[0-4](?:\\.|$))");
     private ConnectContext context;
     private StatementContext statementContext;
     private MysqlSerializer serializer;
@@ -507,6 +504,18 @@ public class StmtExecutor {
         } else {
             return masterOpExecutor.getOutputPacket();
         }
+    }
+
+    public boolean isForwardedClientDeprecatedEofApplied() {
+        return masterOpExecutor != null && masterOpExecutor.isClientDeprecatedEofApplied();
+    }
+
+    public boolean hasForwardedQueryResultPackets() {
+        return masterOpExecutor != null && masterOpExecutor.hasQueryResultPackets();
+    }
+
+    public long getForwardedAffectedRows() {
+        return masterOpExecutor == null ? 0 : masterOpExecutor.getAffectedRows();
     }
 
     /**
@@ -2003,16 +2012,9 @@ public class StmtExecutor {
     }
 
     private boolean connectorJConsumesCursorMetadataTerminator() {
-        if (!context.isCursorFetchRequested()) {
-            return false;
-        }
-        Map<String, String> connectAttributes = context.getConnectAttributes();
-        if (!MYSQL_CONNECTOR_J_CLIENT_NAMES.contains(connectAttributes.get("_client_name"))) {
-            return false;
-        }
-        String clientVersion = connectAttributes.get("_client_version");
-        return clientVersion != null
-                && CONNECTOR_J_CONSUMES_CURSOR_METADATA_TERMINATOR.matcher(clientVersion).find();
+        return context.isCursorFetchRequested()
+                && MysqlCursorFetchCompatibility.resolve(context.getConnectAttributes())
+                        == MysqlCursorFetchCompatibility.Behavior.CONSUMES_METADATA_TERMINATOR;
     }
 
     public void sendResultSet(ResultSet resultSet) throws IOException {

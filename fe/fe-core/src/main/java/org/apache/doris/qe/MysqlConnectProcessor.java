@@ -29,6 +29,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlCursorFetchCompatibility;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -212,6 +213,14 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         ctx.setCursorFetchRequested((flags & CURSOR_TYPE_READ_ONLY) != 0);
         // iteration_count always 1,
         packetBuf.getInt();
+        if (ctx.isCursorFetchRequested() && ctx.getMysqlChannel().clientDeprecatedEOF()
+                && MysqlCursorFetchCompatibility.resolve(ctx.getConnectAttributes())
+                        == MysqlCursorFetchCompatibility.Behavior.UNKNOWN) {
+            ctx.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET,
+                    "Cannot safely execute cursor fetch because the client did not provide identifiable "
+                            + "connection attributes. Enable connection attributes or set useCursorFetch=false");
+            return;
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("execute prepared statement {}", stmtId);
         }

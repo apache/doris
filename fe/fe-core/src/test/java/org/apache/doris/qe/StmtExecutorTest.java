@@ -357,6 +357,36 @@ public class StmtExecutorTest extends TestWithFeService {
         Assertions.assertEquals(5, legacyEofPackets.get(2).length);
     }
 
+    @Test
+    public void testPrepareMetadataTerminatorsFollowNegotiatedCapability() throws IOException {
+        Assertions.assertEquals(3, sendPrepareMetadata(false).size());
+        Assertions.assertEquals(2, sendPrepareMetadata(true).size());
+    }
+
+    private List<byte[]> sendPrepareMetadata(boolean clientDeprecatedEof) throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        Mockito.when(mockCtx.getState()).thenReturn(new QueryState());
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(channel.clientDeprecatedEOF()).thenReturn(clientDeprecatedEof);
+        Mockito.when(channel.getSerializer()).thenReturn(MysqlSerializer.newInstance());
+
+        List<byte[]> packets = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            ByteBuffer packet = invocation.getArgument(0);
+            byte[] copy = new byte[packet.remaining()];
+            packet.duplicate().get(copy);
+            packets.add(copy);
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        new StmtExecutor(mockCtx, new OriginStatement("", 0), true).sendStmtPrepareOK(
+                1, Collections.singletonList("p"), Collections.emptyList());
+        return packets;
+    }
+
     private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested, String clientName,
             String clientVersion) throws IOException {
         return sendEmptyResultSet(cursorFetchRequested, clientName, clientVersion, true);
