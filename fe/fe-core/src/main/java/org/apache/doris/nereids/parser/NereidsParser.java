@@ -275,6 +275,10 @@ public class NereidsParser {
         return parse(sql, logicalPlanBuilder, DorisParser::singleStatement);
     }
 
+    public LogicalPlan parseQuery(String sql) {
+        return parse(sql, DorisParser::query);
+    }
+
     public List<Pair<LogicalPlan, StatementContext>> parseMultiple(String sql) {
         return parseMultiple(sql, null);
     }

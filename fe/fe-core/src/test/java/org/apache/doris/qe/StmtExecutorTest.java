@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
@@ -577,6 +578,20 @@ public class StmtExecutorTest extends TestWithFeService {
         Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
         getStmtForLoggingBeforeParse.setAccessible(true);
         Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLoggingBeforeParse.invoke(executor));
+    }
+
+    @Test
+    public void testCancelForwardsToCancelDelegate() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        AtomicInteger forwarded = new AtomicInteger();
+        stmtExecutor.setCancelDelegate(status -> forwarded.incrementAndGet());
+        stmtExecutor.cancel(Status.CANCELLED, false);
+        Assertions.assertEquals(1, forwarded.get());
+        // The delegate is scoped to the nested work only: once cleared, later
+        // cancellations on this executor must not reach it again.
+        stmtExecutor.clearCancelDelegate();
+        stmtExecutor.cancel(Status.CANCELLED, false);
+        Assertions.assertEquals(1, forwarded.get());
     }
 
     private void createResource(String sql) throws Exception {

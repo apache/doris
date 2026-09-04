@@ -200,7 +200,7 @@ killStatementDispatch
 createMaterializedViewStatement
     : CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
-        (REFRESH refreshMethod? refreshTrigger?)?
+        (REFRESH refreshPolicy? refreshTrigger?)?
         ((DUPLICATE)? KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
         (PARTITION BY LEFT_PAREN mvPartition RIGHT_PAREN)?
@@ -211,12 +211,17 @@ createMaterializedViewStatement
     ;
 
 refreshMaterializedViewStatement
-    : REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE | AUTO)    #refreshMTMV
+    : explain REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
+        explainRefreshPolicy                                                                     #explainRefreshMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier INCREMENTAL WITH DRY RUN
+        limitClause?                                                                              #refreshMTMVDryRun
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
+        (partitionSpec | refreshPolicy)                                                           #refreshMTMV
     ;
 
 alterMaterializedViewStatement
     : ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME renameNewName=multipartIdentifier)
-        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
+        | (REFRESH (refreshPolicy | refreshTrigger | refreshPolicy refreshTrigger))
         | REPLACE WITH MATERIALIZED VIEW replaceNewName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
     ;
@@ -1332,8 +1337,21 @@ refreshSchedule
     : EVERY INTEGER_VALUE refreshUnit = identifier (STARTS STRING_LITERAL)?
     ;
 
+refreshPolicy
+    : refreshMethod refreshFallback?
+    ;
+
+explainRefreshPolicy
+    : INCREMENTAL (WITH ALL STREAMS)?
+    | COMPLETE
+    ;
+
+refreshFallback
+    : FALLBACK
+    ;
+
 refreshMethod
-    : COMPLETE | AUTO
+    : COMPLETE | AUTO | INCREMENTAL | PARTITIONS
     ;
 
 mvPartition
@@ -2341,6 +2359,7 @@ nonReserved
     | DORIS_INTERNAL_TABLE_ID
     | DOW
     | DOY
+    | DRY
     | DUAL
     | DYNAMIC
     | E
@@ -2360,6 +2379,7 @@ nonReserved
     | EXPIRED
     | EXTERNAL
     | BLOOMFILTER
+    | FALLBACK
     | FAILED_LOGIN_ATTEMPTS
     | FAST
     | FEATURE
@@ -2544,6 +2564,7 @@ nonReserved
     | ROTATE
     | ROUTINE
     | RULE
+    | RUN
     | S3
     | SAMPLE
     | SAN

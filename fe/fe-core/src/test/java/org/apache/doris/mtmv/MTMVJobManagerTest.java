@@ -29,6 +29,7 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -67,7 +68,7 @@ public class MTMVJobManagerTest {
             ctx.setThreadLocalInfo();
 
             RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
-                    Lists.newArrayList("p1"), false);
+                    Lists.newArrayList("p1"), RefreshMode.AUTO);
             new MTMVJobManager().refreshMTMV(info);
 
             ArgumentCaptor<MTMVTaskContext> captor = ArgumentCaptor.forClass(MTMVTaskContext.class);
