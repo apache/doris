@@ -352,18 +352,21 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         // 索引的可复现语义。
         if ("ngram".equals(tokenizer.componentType)) {
             String gramMode = tokenizer.properties.get("mode");
-            if (gramMode != null && !gramMode.isEmpty()) {
-                for (ResolvedAnalyzerComponent filter : tokenFilters) {
-                    if ("lowercase".equals(filter.componentType)) {
-                        throw new DdlException("lowercase token filter cannot be combined with ngram tokenizer mode="
-                                + gramMode.toLowerCase()
-                                + "; use the tokenizer's own lower_case=true "
-                                + "(folding must happen before gram boundaries)");
-                    }
-                    throw new DdlException("token filter '" + filter.referenceName
-                            + "' cannot be combined with ngram tokenizer mode=" + gramMode.toLowerCase()
-                            + " (gram-family analyzers must be tokenizer-only)");
+            if (gramMode != null && !gramMode.isEmpty() && !tokenFilters.isEmpty()) {
+                // 只要链上出现任何 token filter 就拒绝；链里只要有一个是 lowercase，就优先给出
+                // 那条更具体的提示（哪怕它不是第一个），因为「改用 tokenizer 自带 lower_case」
+                // 是这类写法唯一正确的改法。
+                boolean hasLowercaseFilter = tokenFilters.stream()
+                        .anyMatch(filter -> "lowercase".equals(filter.componentType));
+                if (hasLowercaseFilter) {
+                    throw new DdlException("lowercase token filter cannot be combined with ngram tokenizer mode="
+                            + gramMode.toLowerCase()
+                            + "; use the tokenizer's own lower_case=true "
+                            + "(folding must happen before gram boundaries)");
                 }
+                throw new DdlException("token filter '" + tokenFilters.get(0).referenceName
+                        + "' cannot be combined with ngram tokenizer mode=" + gramMode.toLowerCase()
+                        + " (gram-family analyzers must be tokenizer-only)");
             }
         }
 

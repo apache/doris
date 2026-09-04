@@ -474,6 +474,30 @@ public class IndexDefinition {
                 comment);
     }
 
+    /**
+     * 把（可能已被 {@link #checkColumn} 补齐缺省值的）索引属性同步回一个已经物化的 {@link Index}。
+     *
+     * <p>ADD INDEX / 独立 CREATE INDEX 路径上，{@code CreateIndexOp#validate} 早于
+     * {@code checkColumn} 就用 {@link #translateToCatalogStyle()} 物化了 {@link Index}，
+     * 而 gram 族的 {@code support_phrase=false} 等缺省值要到 {@code checkColumn}
+     * （{@code InvertedIndexUtil#applyGramFamilyIndexDefaults}）才写进 IndexDefinition 的属性里，
+     * 不回填就会丢在最终落盘的索引之外。CREATE TABLE 路径先 checkColumn 再 translate，不受影响。
+     *
+     * <p>合并规则：IndexDefinition 侧存在的 key 覆盖 Index 侧，Index 侧独有的 key 保留 ——
+     * 后者是 {@link Index} 构造函数按通用规则补出的缺省值（例如 parser 索引的
+     * {@code lower_case=true}），不能因为这次回填而丢失。就地修改传入的实例，
+     * 因为调用方可能已经持有同一个 Index 引用。
+     */
+    public void applyPropertiesTo(Index index) {
+        if (index == null || properties == null || properties.isEmpty()) {
+            return;
+        }
+        Map<String, String> merged = index.getProperties() == null
+                ? new HashMap<>() : new HashMap<>(index.getProperties());
+        merged.putAll(properties);
+        index.setProperties(merged);
+    }
+
     public List<String> getPartitionNames() {
         return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
     }

@@ -193,7 +193,92 @@ public class PolicyValidatorTests {
         emptyMode.put("type", "ngram");
         emptyMode.put("mode", "");
         DdlException e = Assertions.assertThrows(DdlException.class, () -> validator.validate(emptyMode));
-        Assertions.assertTrue(e.getMessage().contains("mode must be one of"));
+        Assertions.assertTrue(e.getMessage().contains("mode must be one of"), e.getMessage());
+        // 空取值必须在报错信息里可辨认，不能只留下一个空白的 "got: "
+        Assertions.assertTrue(e.getMessage().contains("got: '' (empty)"), e.getMessage());
+    }
+
+    private static Map<String, String> sparseGramProps() {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "ngram");
+        props.put("mode", "sparse");
+        return props;
+    }
+
+    private static String assertGramPropRejected(Map<String, String> props) {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        return Assertions.assertThrows(DdlException.class, () -> validator.validate(props)).getMessage();
+    }
+
+    /**
+     * gram 族参数的取值域必须与 BE `gram_scheme.cpp::from_properties` 一致：
+     * min_gram ∈ [1, 64]、max_gram ∈ [1, 256]、density ∈ [0.001, 1]、stop_gram_df ∈ [0, 1]。
+     * FE 放过越界值只会把错误推迟到写入时的 BE InvalidArgument。
+     */
+    @Test
+    public void testNGramValidator_GramModeValueDomainsMirrorBe() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+
+        Map<String, String> maxGramTooBig = sparseGramProps();
+        maxGramTooBig.put("max_gram", "257");                     // BE 上界是 256
+        String maxGramMessage = assertGramPropRejected(maxGramTooBig);
+        Assertions.assertTrue(maxGramMessage.contains("max_gram must be an integer in [1, 256]"), maxGramMessage);
+
+        Map<String, String> minGramTooBig = sparseGramProps();
+        minGramTooBig.put("min_gram", "65");                      // BE 上界是 64
+        String minGramMessage = assertGramPropRejected(minGramTooBig);
+        Assertions.assertTrue(minGramMessage.contains("min_gram must be an integer in [1, 64]"), minGramMessage);
+
+        Map<String, String> gramAtBound = sparseGramProps();      // 边界值本身仍必须被接受
+        gramAtBound.put("min_gram", "64");
+        gramAtBound.put("max_gram", "256");
+        Assertions.assertDoesNotThrow(() -> validator.validate(gramAtBound));
+
+        Map<String, String> densityTooSmall = sparseGramProps();
+        densityTooSmall.put("density", "0.0005");                 // BE 下界是 0.001（千分比取整）
+        String densityMessage = assertGramPropRejected(densityTooSmall);
+        Assertions.assertTrue(densityMessage.contains("density must be in [0.001, 1]"), densityMessage);
+
+        Map<String, String> densityAtBound = sparseGramProps();
+        densityAtBound.put("density", "0.001");
+        Assertions.assertDoesNotThrow(() -> validator.validate(densityAtBound));
+
+        Map<String, String> stopGramDfTooBig = sparseGramProps();
+        stopGramDfTooBig.put("stop_gram_df", "1.5");
+        String stopGramDfMessage = assertGramPropRejected(stopGramDfTooBig);
+        Assertions.assertTrue(stopGramDfMessage.contains("stop_gram_df must be in [0, 1]"), stopGramDfMessage);
+
+        Map<String, String> badLowerCase = sparseGramProps();
+        badLowerCase.put("lower_case", "yes");
+        String lowerCaseMessage = assertGramPropRejected(badLowerCase);
+        Assertions.assertTrue(lowerCaseMessage.contains("lower_case must be true or false"), lowerCaseMessage);
+
+        Map<String, String> inverted = sparseGramProps();         // 带 mode 时同样要守 min <= max
+        inverted.put("min_gram", "5");
+        inverted.put("max_gram", "4");
+        String invertedMessage = assertGramPropRejected(inverted);
+        Assertions.assertTrue(invertedMessage.contains("min_gram (5) must be <= max_gram (4)"), invertedMessage);
+    }
+
+    /**
+     * mode 取值不做 trim、也不折叠大小写：BE `from_properties` 做的是精确字符串比较，
+     * FE 若接受 " Sparse " 就会原样落盘、写入时才在 BE 报 InvalidArgument。
+     * 这里锁定「FE 直接拒绝」这一裁决（另一种可选实现是 FE 归一化后再落盘，本实现不采用）。
+     */
+    @Test
+    public void testNGramValidator_GramModeRejectsUntrimmedAndMixedCase() {
+        Map<String, String> padded = new HashMap<>();
+        padded.put("type", "ngram");
+        padded.put("mode", " Sparse ");
+        String message = assertGramPropRejected(padded);
+        Assertions.assertTrue(message.contains("mode must be one of"), message);
+        Assertions.assertTrue(message.contains("got: ' Sparse '"), message);
+
+        Map<String, String> upper = new HashMap<>();
+        upper.put("type", "ngram");
+        upper.put("mode", "SPARSE");
+        String upperMessage = assertGramPropRejected(upper);
+        Assertions.assertTrue(upperMessage.contains("mode must be one of"), upperMessage);
     }
 
     // StandardTokenizerValidator Tests

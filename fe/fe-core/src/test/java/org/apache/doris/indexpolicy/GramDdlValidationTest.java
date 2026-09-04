@@ -18,12 +18,19 @@
 package org.apache.doris.indexpolicy;
 
 import org.apache.doris.analysis.InvertedIndexUtil;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -95,6 +102,19 @@ public class GramDdlValidationTest {
         UserException e = Assertions.assertThrows(UserException.class,
                 () -> manager.createIndexPolicy(false, "bad_analyzer2", IndexPolicyTypeEnum.ANALYZER, props));
         Assertions.assertTrue(e.getMessage().contains("cannot be combined"), e.getMessage());
+    }
+
+    @Test
+    public void testLowercaseFilterRejectedWhenNotFirstInChain() {
+        // lowercase 不在链首时，报错信息仍必须是那条更具体的 lowercase 提示：
+        // 用户要改的是「换用 tokenizer 自带的 lower_case」，而不是先去掉 asciifolding。
+        Map<String, String> props = new HashMap<>();
+        props.put("tokenizer", "gram_sparse_tok");
+        props.put("token_filter", "asciifolding,lowercase");
+        UserException e = Assertions.assertThrows(UserException.class,
+                () -> manager.createIndexPolicy(false, "bad_analyzer4", IndexPolicyTypeEnum.ANALYZER, props));
+        Assertions.assertTrue(e.getMessage().contains("lowercase token filter cannot be combined"),
+                e.getMessage());
     }
 
     @Test
@@ -173,6 +193,63 @@ public class GramDdlValidationTest {
             Assertions.assertTrue(e.getMessage().contains("char_filter cannot be used with gram tokenizer"),
                     e.getMessage());
         });
+    }
+
+    /**
+     * ADD INDEX / 独立 CREATE INDEX 路径：{@code CreateIndexOp#validate} 先物化 Index，
+     * {@code SchemaChangeHandler#processAddIndex} 之后才做 {@code checkColumn}。gram 族的
+     * support_phrase=false 缺省值是 checkColumn 阶段写进 IndexDefinition 的，必须经
+     * {@code IndexDefinition#applyPropertiesTo} 回填，落盘的 Index 才带得上。
+     *
+     * <p>{@code processAddIndex} 需要完整的 Env/OlapTable 才能跑，这里按它的调用顺序
+     * （translateToCatalogStyle → checkColumn → applyPropertiesTo）驱动同样的三步来断言。
+     */
+    @Test
+    public void testAddIndexPathKeepsGramSupportPhraseDefault() throws Exception {
+        IndexPolicyMgr mockMgr = gramAnalyzerManager();
+        Map<String, String> props = new HashMap<>();
+        props.put("analyzer", "gram_sparse");
+        IndexDefinition indexDef = new IndexDefinition("idx_g", false, Lists.newArrayList("msg"),
+                "INVERTED", props, "");
+        CreateIndexOp createIndexOp = new CreateIndexOp(null, indexDef, true);
+        withIndexPolicyManager(mockMgr, () -> {
+            Assertions.assertDoesNotThrow(() -> createIndexOp.validate(null));
+            Index index = createIndexOp.getIndex();
+            // 物化发生在 checkColumn 之前，此时 Index 构造函数按「有 analyzer 就支持短语」补了 true
+            Assertions.assertEquals("true", index.getProperties().get("support_phrase"));
+
+            // processAddIndex 里的 checkColumn：gram 族缺省值只写进了 IndexDefinition
+            indexDef.checkColumn(new Column("msg", PrimitiveType.STRING), KeysType.DUP_KEYS, false,
+                    TInvertedIndexFileStorageFormat.SNII);
+            Assertions.assertEquals("false", indexDef.getProperties().get("support_phrase"));
+
+            // 回填之后，真正落盘的 Index 才带上 support_phrase=false
+            indexDef.applyPropertiesTo(index);
+            Assertions.assertEquals("false", index.getProperties().get("support_phrase"));
+            // 回填必须就地改同一个实例：processAddIndex 的调用方已经持有这个引用
+            Assertions.assertSame(index, createIndexOp.getIndex());
+        });
+    }
+
+    /**
+     * 回填只覆盖 IndexDefinition 里存在的 key：Index 构造函数按通用规则补出的、
+     * IndexDefinition 侧没有的缺省值（如 parser 索引的 lower_case=true）必须原样保留。
+     */
+    @Test
+    public void testApplyPropertiesToKeepsIndexOnlyDefaults() {
+        Map<String, String> props = new HashMap<>();
+        props.put("parser", "english");
+        IndexDefinition indexDef = new IndexDefinition("idx_p", false, Lists.newArrayList("msg"),
+                "INVERTED", props, "");
+        Index index = new Index(1L, "idx_p", Lists.newArrayList("msg"),
+                IndexType.INVERTED, props, "");
+        Assertions.assertEquals("true", index.getProperties().get("lower_case"));
+        Assertions.assertEquals("true", index.getProperties().get("support_phrase"));
+
+        indexDef.applyPropertiesTo(index);
+        Assertions.assertEquals("english", index.getProperties().get("parser"));
+        Assertions.assertEquals("true", index.getProperties().get("lower_case"));
+        Assertions.assertEquals("true", index.getProperties().get("support_phrase"));
     }
 
     private static IndexPolicyMgr gramAnalyzerManager() throws Exception {

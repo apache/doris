@@ -34,8 +34,19 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
     private static final Set<String> VALID_TOKEN_CHARS = ImmutableSet.of(
             "letter", "digit", "whitespace", "punctuation", "symbol", "custom");
 
-    // gram 族（稀疏/稠密 gram 索引）支持的 mode 取值，大小写不敏感
+    // gram 族（稀疏/稠密 gram 索引）支持的 mode 取值。
+    // 取值必须与 BE 端 `gram_scheme.cpp::GramScheme::from_properties` 完全一致：BE 做的是
+    // 精确字符串比较（既不 trim 也不折叠大小写），因此 FE 也只接受严格小写、不带空白的
+    // 字面量：" Sparse " / "SPARSE" 一律在 DDL 阶段就拒掉，而不是让 DDL 通过、写入时才在
+    // BE 上报 InvalidArgument（FE 不做隐式归一化，否则落盘的策略属性会与用户写的不一致）。
     private static final Set<String> VALID_MODES = ImmutableSet.of("auto", "sparse", "dense");
+
+    // gram 族参数的取值域，逐条对齐 BE `gram_scheme.cpp::from_properties`。
+    private static final int MIN_GRAM_LOWER_BOUND = 1;
+    private static final int MIN_GRAM_UPPER_BOUND = 64;
+    private static final int MAX_GRAM_LOWER_BOUND = 1;
+    private static final int MAX_GRAM_UPPER_BOUND = 256;
+    private static final double MIN_DENSITY = 0.001;
 
     public NGramTokenizerValidator() {
         super(ALLOWED_PROPS);
@@ -126,20 +137,25 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
      * 校验 gram 族（auto/sparse/dense）参数：mode 本身的取值范围、min/max_gram 的默认值与顺序关系、
      * density/stop_gram_df/lower_case 的取值范围，以及 token_chars 系列与 mode 的互斥关系。
      * 空字符串 mode（未在白名单校验阶段被拦截）也会在这里因不属于 VALID_MODES 而被拒绝。
+     *
+     * <p>所有取值域与 BE 端 `gram_scheme.cpp::GramScheme::from_properties` 逐条对齐：
+     * min_gram ∈ [1, 64]、max_gram ∈ [1, 256]、density ∈ [0.001, 1]、stop_gram_df ∈ [0, 1]。
+     * FE 先拦住越界值，避免 DDL 通过但 BE 解析 gram 方案时才报 InvalidArgument。
      */
     private void validateGramMode(Map<String, String> props, String mode) throws DdlException {
-        if (!VALID_MODES.contains(mode.toLowerCase())) {
-            throw new DdlException("ngram tokenizer mode must be one of " + VALID_MODES + ", got: " + mode);
+        if (!VALID_MODES.contains(mode)) {
+            throw new DdlException("ngram tokenizer mode must be one of " + VALID_MODES
+                    + ", got: '" + mode + "'" + (mode.isEmpty() ? " (empty)" : ""));
         }
-        int minGram = parsePositiveInt(props, "min_gram", 3);
-        int maxGram = parsePositiveInt(props, "max_gram", 16);
+        int minGram = parseIntInRange(props, "min_gram", 3, MIN_GRAM_LOWER_BOUND, MIN_GRAM_UPPER_BOUND);
+        int maxGram = parseIntInRange(props, "max_gram", 16, MAX_GRAM_LOWER_BOUND, MAX_GRAM_UPPER_BOUND);
         if (minGram > maxGram) {
             throw new DdlException("min_gram (" + minGram + ") must be <= max_gram (" + maxGram + ")");
         }
         if (props.containsKey("density")) {
             double density = parseDouble(props.get("density"), "density");
-            if (!(density > 0.0 && density <= 1.0)) {
-                throw new DdlException("density must be in (0, 1], got: " + props.get("density"));
+            if (!(density >= MIN_DENSITY && density <= 1.0)) {
+                throw new DdlException("density must be in [0.001, 1], got: " + props.get("density"));
             }
         }
         if (props.containsKey("stop_gram_df")) {
@@ -157,20 +173,23 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
     }
 
     /**
-     * 解析正整数属性；属性未设置时返回默认值 {@code dflt}。
+     * 解析取值范围为 {@code [lo, hi]} 的整数属性；属性未设置时返回默认值 {@code dflt}。
+     * 与 BE 端 `gram_scheme.cpp::parse_uint` 同范围，越界与非数字统一报同一条信息。
      */
-    private static int parsePositiveInt(Map<String, String> props, String key, int dflt) throws DdlException {
+    private static int parseIntInRange(Map<String, String> props, String key, int dflt, int lo, int hi)
+            throws DdlException {
         if (!props.containsKey(key)) {
             return dflt;
         }
+        String raw = props.get(key);
         try {
-            int value = Integer.parseInt(props.get(key));
-            if (value <= 0) {
-                throw new DdlException(key + " must be a positive integer, got: " + props.get(key));
+            int value = Integer.parseInt(raw);
+            if (value < lo || value > hi) {
+                throw new DdlException(key + " must be an integer in [" + lo + ", " + hi + "], got: " + raw);
             }
             return value;
         } catch (NumberFormatException e) {
-            throw new DdlException(key + " must be a positive integer, got: " + props.get(key));
+            throw new DdlException(key + " must be an integer in [" + lo + ", " + hi + "], got: " + raw);
         }
     }
 

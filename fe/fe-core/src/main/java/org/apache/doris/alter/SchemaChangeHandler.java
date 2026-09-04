@@ -3314,6 +3314,11 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
+        // CreateIndexOp#validate 在 checkColumn 之前就把 IndexDefinition 物化成了 alterIndex，
+        // 因此 checkColumn 阶段才补进 IndexDefinition 属性的缺省值（当前是 gram 族的
+        // support_phrase=false）必须在这里回填，否则落盘与下发 BE 的索引会丢掉它们。
+        indexDef.applyPropertiesTo(alterIndex);
+
         // the column name in CreateIndexClause is not check case sensitivity,
         // when send index description to BE, there maybe cannot find column by name,
         // so here update column name in CreateIndexClause after checkColumn for indexDef,
