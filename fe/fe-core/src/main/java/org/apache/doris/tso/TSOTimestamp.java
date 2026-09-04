@@ -116,6 +116,17 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
     }
 
     /**
+     * The next discrete TSO after {@code tso}. TSO values are dense integers, so this converts an
+     * inclusive bound into the equivalent right-open (exclusive) bound: {@code x <= tso} is the same
+     * row set as {@code x < nextTso(tso)}, and a lower bound that excludes {@code tso} itself is
+     * {@code x >= nextTso(tso)}. Callers should use this instead of a bare {@code + 1} so the TSO
+     * interval arithmetic stays in one place.
+     */
+    public static long nextTso(long tso) {
+        return tso + 1;
+    }
+
+    /**
      * Extract physical time (milliseconds) from TSO timestamp
      *
      * @param timestamp 64-bit TSO timestamp

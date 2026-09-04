@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -339,8 +340,8 @@ public class OlapTableStreamWrapper extends OlapTable {
                     // bounds only in this scan-facing read view. outputUpdateMap and the offset
                     // commit path (toOlapTableStreamUpdate) stay on the real-TSO coordinate system.
                     Pair<Long, Long> v = s.getValue();
-                    return Pair.of(v.first == null ? null : v.first + 1,
-                                   v.second == null ? null : v.second + 1);
+                    return Pair.of(v.first == null ? null : TSOTimestamp.nextTso(v.first),
+                                   v.second == null ? null : TSOTimestamp.nextTso(v.second));
                 }));
     }
 
@@ -350,7 +351,8 @@ public class OlapTableStreamWrapper extends OlapTable {
                 .filter(s -> selectedPartitionIds.contains(s.getKey()))
                 // historicalTso is an inclusive upper bound; shift to the half-open exclusive end.
                 .collect(Collectors.toMap(Map.Entry::getKey,
-                        s -> Pair.of(null, s.getValue().first == null ? null : s.getValue().first + 1)));
+                        s -> Pair.of(null, s.getValue().first == null
+                                ? null : TSOTimestamp.nextTso(s.getValue().first))));
     }
 
     public List<Long> filterNormalSnapshotPartitionIds(List<Long> partitionIds) {

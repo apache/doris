@@ -100,6 +100,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSortInfo;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -588,8 +589,8 @@ public class OlapScanNode extends ScanNode {
                     if (update.second != null) {
                         paloRange.setEndTso(update.second);
                     } else {
-                        // If no end recorded: use current committed TSO + 1 as the exclusive bound.
-                        paloRange.setEndTso(partition.getTso() + 1);
+                        // If no end recorded: use current committed TSO's next value as the exclusive bound.
+                        paloRange.setEndTso(TSOTimestamp.nextTso(partition.getTso()));
                     }
                 }
                 if (binlogScanType != TBinlogScanType.NONE) {

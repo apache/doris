@@ -569,7 +569,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private long resolveSnapshotTso(TableSnapshot snapshot) {
         if (snapshot.getType() == TableSnapshot.VersionType.VERSION) {
             try {
-                return Long.parseLong(snapshot.getValue().trim()) + 1;
+                return TSOTimestamp.nextTso(Long.parseLong(snapshot.getValue().trim()));
             } catch (NumberFormatException e) {
                 throw new AnalysisException(
                         "Invalid version in FOR VERSION AS OF: " + snapshot.getValue());
