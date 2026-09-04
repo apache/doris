@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands.call;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 
 import java.util.Objects;
 
@@ -40,6 +42,18 @@ public class CallProcedure extends CallFunc {
      * Create a CallFunc
      */
     public static CallFunc create(ConnectContext ctx, String source) {
+        // The PL/SQL interpreter is wired to the session's MySQL channel: PlSqlOperation.execute()
+        // ends with ctx.getMysqlChannel().reset(), PlsqlResult writes rows with
+        // MysqlChannel.sendOnePacket(), and PlsqlQueryExecutor runs every inner statement on a
+        // ConnectContext.cloneContext() whose connect type is always MYSQL. On an Arrow Flight SQL
+        // connection getMysqlChannel() throws, but only after the procedure body has already run,
+        // so a CALL carrying DML reports an error to the client while its side effect is applied.
+        // Refuse the statement here -- create() runs before run(), so nothing has executed yet.
+        if (ctx.getConnectType() != ConnectType.MYSQL) {
+            throw new AnalysisException("Stored procedure is only supported on the MySQL protocol,"
+                    + " but the current connection type is " + ctx.getConnectType()
+                    + ". Please run CALL over a MySQL protocol connection.");
+        }
         PlSqlOperation plSqlOperation = ctx.getPlSqlOperation();
         return new CallProcedure(plSqlOperation, ctx, source);
     }
