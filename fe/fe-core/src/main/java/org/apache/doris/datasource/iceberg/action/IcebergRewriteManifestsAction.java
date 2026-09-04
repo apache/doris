@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteManifestExecutor;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -66,9 +65,8 @@ public class IcebergRewriteManifestsAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
+    protected List<String> executeIcebergAction(TableIf table, Table icebergTable) throws UserException {
         try {
-            Table icebergTable = ((IcebergExternalTable) table).getWritableIcebergTable();
             Snapshot current = icebergTable.currentSnapshot();
             if (current == null) {
                 // No current snapshot means the table is empty, no manifests to rewrite

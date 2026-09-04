@@ -139,8 +139,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any()))
-                    .thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.of("payload"), column, ColumnPosition.FIRST, 1L);
         }
@@ -167,8 +166,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any()))
-                    .thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("variant_col"),
                             new Column("variant_col", Type.STRING, true), null, 1L),
@@ -195,10 +193,16 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(
-                    Mockito.eq(dorisTable), Mockito.eq(ops))).thenReturn(icebergTable);
+            IcebergExternalMetaCache.WritableTableLease lease =
+                    Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
+            ExecutionAuthenticator authenticator = dorisCatalog.getExecutionAuthenticator();
+            Mockito.when(lease.getTable()).thenReturn(icebergTable);
+            Mockito.when(lease.getAuthenticator()).thenReturn(authenticator);
+            mockedIcebergUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable, ops))
+                    .thenReturn(lease);
 
             ops.updateTableProperties(dorisTable, properties, 123L);
+            Mockito.verify(lease).close();
         }
 
         Mockito.verify(updateProperties).set("write.target-file-size-bytes", "134217728");
@@ -219,15 +223,51 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(
-                    Mockito.eq(dorisTable), Mockito.eq(ops))).thenReturn(icebergTable);
+            IcebergExternalMetaCache.WritableTableLease lease =
+                    Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
+            ExecutionAuthenticator authenticator = dorisCatalog.getExecutionAuthenticator();
+            Mockito.when(lease.getTable()).thenReturn(icebergTable);
+            Mockito.when(lease.getAuthenticator()).thenReturn(authenticator);
+            mockedIcebergUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable, ops))
+                    .thenReturn(lease);
 
             assertUserException(() -> ops.updateTableProperties(
                             dorisTable, Collections.singletonMap("write.target-file-size-bytes", "134217728"), 123L),
                     "commit failed");
+            Mockito.verify(lease).close();
         }
 
         Mockito.verify(dorisCatalog, Mockito.never()).getDbForReplay(Mockito.anyString());
+    }
+
+    @Test
+    public void testSchemaMutationRetainsWritableGenerationThroughCommit() throws Exception {
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(icebergTable.schema()).thenReturn(new Schema());
+        Mockito.when(icebergTable.properties()).thenReturn(Collections.emptyMap());
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        AtomicBoolean leaseClosed = new AtomicBoolean();
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            IcebergExternalMetaCache.WritableTableLease lease =
+                    mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
+            Mockito.doAnswer(invocation -> {
+                leaseClosed.set(true);
+                return null;
+            }).when(lease).close();
+            Mockito.doAnswer(invocation -> {
+                Assert.assertFalse("writable generation closed before schema commit", leaseClosed.get());
+                return null;
+            }).when(updateSchema).commit();
+
+            ops.addColumn(dorisTable, new Column("new_col", Type.INT, true), null, 123L);
+
+            Assert.assertTrue(leaseClosed.get());
+        }
     }
 
     @Test
@@ -346,7 +386,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.addColumn(dorisTable, ColumnPath.fromDotName("info.new_field"),
                             new Column("new_field", Type.LARGEINT, true), null, 1L),
@@ -380,7 +420,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.child"),
                     new Column("child", new StructType(new StructField("value", Type.BIGINT)), true), null, 1L);
@@ -415,7 +455,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.payload"), column, null, 1L);
         }
@@ -443,7 +483,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"),
                     new Column("metric", Type.BIGINT, true), null, 1L);
@@ -485,7 +525,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.payload"),
                     new Column("payload", payloadType, true), null, 1L);
@@ -515,7 +555,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"),
                     new Column("metric", Type.BIGINT, true), null, 1L);
@@ -541,7 +581,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.of("id"),
                     new Column("id", Type.BIGINT, true), null, 1L);
@@ -567,7 +607,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("a.b"),
                             new Column("a.b", Type.BIGINT, true), null, 1L),
@@ -589,7 +629,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.of("a.b"),
                     new Column("a.b", Type.BIGINT, true), null, 1L);
@@ -620,7 +660,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.of("top_uuid"), topUuid, ColumnPosition.FIRST, 1L);
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.uuid_value"), nestedUuid,
@@ -652,10 +692,11 @@ public class IcebergMetadataOpsValidationTest {
         Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
         Mockito.when(dorisCatalog.getEnableMappingVarbinary()).thenReturn(true);
         Mockito.when(dorisCatalog.getEnableMappingTimestampTz()).thenReturn(true);
+        ops = new IcebergMetadataOps(dorisCatalog, ops.getCatalog());
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.of("top_uuid"),
                     new Column("top_uuid", ScalarType.createVarbinaryType(16), true), null, 1L);
@@ -682,10 +723,11 @@ public class IcebergMetadataOpsValidationTest {
         Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
         Mockito.when(dorisCatalog.getEnableMappingVarbinary()).thenReturn(true);
         Mockito.when(dorisCatalog.getEnableMappingTimestampTz()).thenReturn(true);
+        ops = new IcebergMetadataOps(dorisCatalog, ops.getCatalog());
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("outer.payload"),
                     new Column("payload", mappedPayloadDorisType(Type.BIGINT, 8,
@@ -710,10 +752,11 @@ public class IcebergMetadataOpsValidationTest {
         Mockito.when(icebergTable.schema()).thenReturn(schema);
         Mockito.when(dorisCatalog.getEnableMappingVarbinary()).thenReturn(true);
         Mockito.when(dorisCatalog.getEnableMappingTimestampTz()).thenReturn(true);
+        ops = new IcebergMetadataOps(dorisCatalog, ops.getCatalog());
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("outer.payload"),
                             new Column("payload", mappedPayloadDorisType(Type.LARGEINT, 8,
@@ -744,7 +787,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             // Iceberg schema columns are represented as keys in Doris, so the legacy API must not
             // interpret isKey as an explicit KEY clause.
@@ -775,7 +818,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, column, null, 1L);
         }
@@ -809,7 +852,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.of("info"), topLevelColumn, null, 1L);
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"), nestedColumn, null, 1L);
@@ -862,7 +905,8 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(staleTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, staleTable, conflictOps,
+                    conflictDorisCatalog.getExecutionAuthenticator());
 
             try {
                 conflictOps.modifyColumn(dorisTable, ColumnPath.of("info"),
@@ -913,7 +957,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.renameColumn(dorisTable, ColumnPath.fromDotName("root.child.id"), "renamed_id", 1L);
             icebergTable.refresh();
@@ -963,7 +1007,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.renameColumn(dorisTable, "a", "renamed", 1L);
             icebergTable.refresh();
@@ -992,7 +1036,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.addColumn(dorisTable, ColumnPath.fromDotName("s.new_col"),
                             nestedAddDefaultColumn, null, 1L),
@@ -1023,7 +1067,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.modifyColumn(dorisTable, defaultColumn, null, 1L),
                     "Modifying default values is not supported for Iceberg columns: id");
@@ -1054,7 +1098,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.modifyColumn(
                             dorisTable, ColumnPath.of("info"), new Column("info", Type.INT, true), null, 1L),
@@ -1087,7 +1131,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.addColumn(dorisTable, keyColumn, null, 1L),
                     "KEY is not supported for Iceberg ADD/MODIFY COLUMN");
@@ -1134,7 +1178,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.modifyColumn(
                             dorisTable, new Column("info", infoType, true), null, 1L),
@@ -1210,7 +1254,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.addColumn(
                             dorisTable, new Column("id", Type.STRING, true), null, 1L),
@@ -1246,7 +1290,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.reorderColumns(dorisTable, Arrays.asList("label", "id"), 1L);
         }
@@ -1268,7 +1312,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("arr.element"),
                     new Column("element", Type.BIGINT, true), null, 1L);
@@ -1291,7 +1335,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("arr.element"),
                             new Column("element", Type.BIGINT, true), ColumnPosition.FIRST, 1L),
@@ -1322,7 +1366,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumnComment(dorisTable, ColumnPath.fromDotName("info.metric"),
                     "struct comment", 1L);
@@ -1348,7 +1392,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.modifyColumnComment(
                             dorisTable, ColumnPath.fromDotName("arr.element"), "array element comment", 1L),
@@ -1388,7 +1432,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
+            mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             assertUserException(() -> ops.addColumn(dorisTable,
                             new Column("_row_id", Type.BIGINT, true), null, 1L),
@@ -1444,10 +1488,8 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(v3DorisTable), Mockito.any()))
-                    .thenReturn(v3IcebergTable);
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(v2DorisTable), Mockito.any()))
-                    .thenReturn(v2IcebergTable);
+            mockWritableTableLease(mockedIcebergUtils, v3DorisTable, v3IcebergTable);
+            mockWritableTableLease(mockedIcebergUtils, v2DorisTable, v2IcebergTable);
 
             ops.addColumn(v3DorisTable, ColumnPath.fromDotName("s._last_updated_sequence_number"),
                     new Column("_last_updated_sequence_number", Type.BIGINT, true), null, 1L);
@@ -1536,6 +1578,24 @@ public class IcebergMetadataOpsValidationTest {
         } catch (InvocationTargetException e) {
             throw e.getCause();
         }
+    }
+
+    private IcebergExternalMetaCache.WritableTableLease mockWritableTableLease(
+            MockedStatic<IcebergUtils> mockedIcebergUtils, ExternalTable dorisTable, Table icebergTable) {
+        return mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable, ops,
+                dorisCatalog.getExecutionAuthenticator());
+    }
+
+    private IcebergExternalMetaCache.WritableTableLease mockWritableTableLease(
+            MockedStatic<IcebergUtils> mockedIcebergUtils, ExternalTable dorisTable, Table icebergTable,
+            IcebergMetadataOps expectedOps, ExecutionAuthenticator authenticator) {
+        IcebergExternalMetaCache.WritableTableLease lease =
+                Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
+        Mockito.when(lease.getTable()).thenReturn(icebergTable);
+        Mockito.when(lease.getAuthenticator()).thenReturn(authenticator);
+        mockedIcebergUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable, expectedOps))
+                .thenReturn(lease);
+        return lease;
     }
 
     private void assertUserException(ThrowingRunnable runnable, String expectedMessage) {

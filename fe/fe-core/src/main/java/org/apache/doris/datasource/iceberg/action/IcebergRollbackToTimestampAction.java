@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -95,9 +94,7 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = ((IcebergExternalTable) table).getWritableIcebergTable();
-
+    protected List<String> executeIcebergAction(TableIf table, Table icebergTable) throws UserException {
         String timestampStr = namedArguments.getString(TIMESTAMP);
 
         Snapshot previousSnapshot = icebergTable.currentSnapshot();

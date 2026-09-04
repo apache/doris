@@ -21,6 +21,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
@@ -87,6 +88,7 @@ public class IcebergTransaction implements Transaction {
 
     private final IcebergMetadataOps ops;
     private Table table;
+    private IcebergExternalMetaCache.WritableTableLease writableTableLease;
 
     private org.apache.iceberg.Transaction transaction;
     private final List<TIcebergCommitData> commitDataList = Lists.newArrayList();
@@ -148,7 +150,8 @@ public class IcebergTransaction implements Transaction {
         this.writeSchemaContext = insertCtx == null
                 ? Optional.empty() : insertCtx.getWriteSchemaContext();
         try {
-            ops.getExecutionAuthenticator().execute(() -> {
+            acquireWritableTableLease(dorisTable);
+            writableTableLease.getAuthenticator().execute(() -> {
                 // Planning, BE serialization, and commit must share one Iceberg metadata
                 // generation even if the catalog refreshes between those phases.
                 this.table = createTransactionTable(dorisTable, targetTable);
@@ -176,6 +179,7 @@ public class IcebergTransaction implements Transaction {
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
             });
         } catch (Exception e) {
+            releaseWritableTableLease();
             throw new UserException("Failed to begin insert for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
         }
@@ -184,11 +188,17 @@ public class IcebergTransaction implements Transaction {
 
     /** Begin an insert when no statement-retained table is available. */
     public void beginInsert(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
-        beginInsert(dorisTable, IcebergUtils.getWritableIcebergTable(dorisTable), ctx);
+        beginInsert(dorisTable, null, ctx);
     }
 
     /** Begin a rewrite against the same retained table used by every rewrite task. */
     public void beginRewrite(ExternalTable dorisTable, Table targetTable) throws UserException {
+        beginRewrite(dorisTable, targetTable, null);
+    }
+
+    /** Begin a rewrite using the generation already retained by the enclosing action. */
+    public void beginRewrite(ExternalTable dorisTable, Table targetTable,
+            IcebergExternalMetaCache.WritableTableLease retainedLease) throws UserException {
         // For rewrite operations, we work directly on the main table
         this.branchName = null;
         this.isRewriteMode = true;
@@ -196,7 +206,16 @@ public class IcebergTransaction implements Transaction {
         this.writeSchemaContext = Optional.empty();
 
         try {
-            ops.getExecutionAuthenticator().execute(() -> {
+            if (retainedLease == null) {
+                acquireWritableTableLease(dorisTable);
+            } else {
+                Preconditions.checkState(writableTableLease == null,
+                        "Writable Iceberg table lease is already acquired for %s", dorisTable.getName());
+                Preconditions.checkState(retainedLease.getOps() == ops,
+                        "Iceberg catalog runtime changed before rewrite transaction started");
+                writableTableLease = retainedLease;
+            }
+            writableTableLease.getAuthenticator().execute(() -> {
                 // A rewrite group must not silently switch to refreshed metadata mid-transaction.
                 this.table = targetTable;
                 this.baseSnapshotId = null;
@@ -213,6 +232,7 @@ public class IcebergTransaction implements Transaction {
                 return null;
             });
         } catch (Exception e) {
+            releaseWritableTableLease();
             throw new UserException("Failed to begin rewrite for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
         }
@@ -223,16 +243,13 @@ public class IcebergTransaction implements Transaction {
      * API
      */
     public void finishRewrite() {
-        // TODO: refactor IcebergTransaction to make code cleaner
-        convertCommitDataListToDataFilesToAdd();
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Finishing rewrite with {} files to delete and {} files to add",
-                    filesToDelete.size(), filesToAdd.size());
-        }
-
         try {
-            ops.getExecutionAuthenticator().execute(() -> {
+            writableAuthenticator().execute(() -> {
+                convertCommitDataListToDataFilesToAdd();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Finishing rewrite with {} files to delete and {} files to add",
+                            filesToDelete.size(), filesToAdd.size());
+                }
                 updateManifestAfterRewrite();
                 return null;
             });
@@ -304,7 +321,8 @@ public class IcebergTransaction implements Transaction {
         this.isRewriteMode = false;
         this.hasStagedUpdates = false;
         try {
-            ops.getExecutionAuthenticator().execute(() -> {
+            acquireWritableTableLease(dorisTable);
+            writableTableLease.getAuthenticator().execute(() -> {
                 // RowDelta's validation base must match the generation used to select row IDs;
                 // reloading the live table here could silently include a concurrent commit.
                 this.table = createTransactionTable(dorisTable, targetTable);
@@ -322,16 +340,22 @@ public class IcebergTransaction implements Transaction {
                 LOG.info("Started delete transaction for table: {}", dorisTable.getName());
             });
         } catch (Exception e) {
+            releaseWritableTableLease();
             throw new UserException("Failed to begin delete for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
         }
     }
 
     public void beginDelete(ExternalTable dorisTable) throws UserException {
-        beginDelete(dorisTable, IcebergUtils.getWritableIcebergTable(dorisTable));
+        beginDelete(dorisTable, null);
     }
 
     private Table createTransactionTable(ExternalTable dorisTable, Table retainedTable) {
+        Preconditions.checkState(writableTableLease != null,
+                "Writable Iceberg table lease is not acquired for %s", dorisTable.getName());
+        if (retainedTable == null) {
+            return writableTableLease.getTable();
+        }
         if (!IcebergSnapshotCacheValue.isRetainedGeneration(retainedTable)) {
             return retainedTable;
         }
@@ -342,7 +366,26 @@ public class IcebergTransaction implements Transaction {
         // generation's table here would splice it with the retained ops/authenticator this
         // transaction keeps using for begin/update/commit.
         return IcebergSnapshotCacheValue.createWritableTable(
-                retainedTable, IcebergUtils.getWritableIcebergTable(dorisTable, ops));
+                retainedTable, writableTableLease.getTable());
+    }
+
+    private void acquireWritableTableLease(ExternalTable dorisTable) {
+        Preconditions.checkState(writableTableLease == null,
+                "Writable Iceberg table lease is already acquired for %s", dorisTable.getName());
+        writableTableLease = IcebergUtils.acquireWritableIcebergTable(dorisTable, ops);
+    }
+
+    private void releaseWritableTableLease() {
+        if (writableTableLease != null) {
+            writableTableLease.close();
+            writableTableLease = null;
+        }
+    }
+
+    private ExecutionAuthenticator writableAuthenticator() {
+        Preconditions.checkState(writableTableLease != null,
+                "Writable Iceberg table lease is not acquired");
+        return writableTableLease.getAuthenticator();
     }
 
     /** Begin UPDATE/MERGE against the metadata generation retained by the merge sink. */
@@ -354,12 +397,12 @@ public class IcebergTransaction implements Transaction {
      * Begin merge operation for Iceberg UPDATE (single scan RowDelta).
      */
     public void beginMerge(ExternalTable dorisTable) throws UserException {
-        beginMerge(dorisTable, IcebergUtils.getWritableIcebergTable(dorisTable), Optional.empty());
+        beginMerge(dorisTable, null, Optional.empty());
     }
 
     /** Begin a merge transaction after validating its statement-pinned write schema. */
     public void beginMerge(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
-        beginMerge(dorisTable, IcebergUtils.getWritableIcebergTable(dorisTable), ctx);
+        beginMerge(dorisTable, null, ctx);
     }
 
     /** Begin a merge against retained metadata and a statement-pinned write schema. */
@@ -369,7 +412,8 @@ public class IcebergTransaction implements Transaction {
         this.writeSchemaContext = insertCtx == null
                 ? Optional.empty() : insertCtx.getWriteSchemaContext();
         try {
-            ops.getExecutionAuthenticator().execute(() -> {
+            acquireWritableTableLease(dorisTable);
+            writableTableLease.getAuthenticator().execute(() -> {
                 this.branchName = null;
                 this.isRewriteMode = false;
                 // Keep row binding, partition routing, writer schema, and commit on one generation.
@@ -393,6 +437,7 @@ public class IcebergTransaction implements Transaction {
                 return null;
             });
         } catch (Exception e) {
+            releaseWritableTableLease();
             throw new UserException("Failed to begin merge for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
         }
@@ -406,7 +451,7 @@ public class IcebergTransaction implements Transaction {
             LOG.debug("iceberg table {} delete operation finished!", nameMapping.getFullLocalName());
         }
         try {
-            ops.getExecutionAuthenticator().execute(() -> {
+            writableAuthenticator().execute(() -> {
                 updateManifestAfterDelete();
             });
         } catch (Exception e) {
@@ -423,7 +468,7 @@ public class IcebergTransaction implements Transaction {
             LOG.debug("iceberg table {} merge operation finished!", nameMapping.getFullLocalName());
         }
         try {
-            ops.getExecutionAuthenticator().execute(() -> {
+            writableAuthenticator().execute(() -> {
                 updateManifestAfterMerge();
             });
         } catch (Exception e) {
@@ -583,7 +628,7 @@ public class IcebergTransaction implements Transaction {
             LOG.info("iceberg table {} insert table finished!", nameMapping.getFullLocalName());
         }
         try {
-            ops.getExecutionAuthenticator().execute(() -> {
+            writableAuthenticator().execute(() -> {
                 //create and start the iceberg transaction
                 TUpdateMode updateMode = TUpdateMode.APPEND;
                 if (insertCtx != null) {
@@ -633,12 +678,24 @@ public class IcebergTransaction implements Transaction {
 
     @Override
     public void commit() throws UserException {
-        // Empty overwrites may intentionally stage no Iceberg update, so validate once more even
-        // when commitTransaction() has no metadata CAS to invoke the atomic operations fence.
-        if (!hasStagedUpdates) {
-            validatePinnedWriterMetadata();
+        try {
+            Preconditions.checkState(writableTableLease != null,
+                    "Writable Iceberg table lease was released before commit");
+            writableTableLease.getAuthenticator().execute(() -> {
+                // Empty overwrites may intentionally stage no Iceberg update, so validate once more even
+                // when commitTransaction() has no metadata CAS to invoke the atomic operations fence.
+                if (!hasStagedUpdates) {
+                    validatePinnedWriterMetadata();
+                }
+                transaction.commitTransaction();
+            });
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new UserException("Failed to commit Iceberg transaction: " + e.getMessage(), e);
+        } finally {
+            releaseWritableTableLease();
         }
-        transaction.commitTransaction();
     }
 
     /**
@@ -770,17 +827,21 @@ public class IcebergTransaction implements Transaction {
 
     @Override
     public void rollback() {
-        if (isRewriteMode) {
-            // Clear the collected files for rewrite mode
-            synchronized (filesToDelete) {
-                filesToDelete.clear();
+        try {
+            if (isRewriteMode) {
+                // Clear the collected files for rewrite mode
+                synchronized (filesToDelete) {
+                    filesToDelete.clear();
+                }
+                synchronized (filesToAdd) {
+                    filesToAdd.clear();
+                }
+                LOG.info("Rewrite transaction rolled back");
             }
-            synchronized (filesToAdd) {
-                filesToAdd.clear();
-            }
-            LOG.info("Rewrite transaction rolled back");
+            // For insert mode, do nothing as original implementation
+        } finally {
+            releaseWritableTableLease();
         }
-        // For insert mode, do nothing as original implementation
     }
 
     public long getUpdateCnt() {

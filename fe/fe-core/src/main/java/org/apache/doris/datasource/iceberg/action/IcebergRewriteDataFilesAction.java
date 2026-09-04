@@ -22,8 +22,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache.WritableTableLease;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileExecutor;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFilePlanner;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataGroup;
@@ -168,10 +168,9 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
+    protected List<String> executeIcebergAction(TableIf table, WritableTableLease lease) throws UserException {
+        Table icebergTable = lease.getTable();
         try {
-            Table icebergTable = IcebergUtils.getIcebergTable((IcebergExternalTable) table);
-
             if (icebergTable.currentSnapshot() == null) {
                 LOG.info("Table {} has no data, skipping rewrite", table.getName());
                 // return empty result
@@ -196,7 +195,8 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
             RewriteDataFileExecutor executor = new RewriteDataFileExecutor(
                     (IcebergExternalTable) table, connectContext);
             long targetFileSizeBytes = namedArguments.getLong(TARGET_FILE_SIZE_BYTES);
-            RewriteResult totalResult = executor.executeGroupsConcurrently(groupsList, targetFileSizeBytes);
+            RewriteResult totalResult = executor.executeGroupsConcurrently(
+                    groupsList, targetFileSizeBytes, lease);
             return totalResult.toStringList();
         } catch (Exception e) {
             LOG.warn("Failed to rewrite data files for table: " + table.getName(), e);

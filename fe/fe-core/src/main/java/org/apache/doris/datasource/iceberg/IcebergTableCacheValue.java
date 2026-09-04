@@ -27,23 +27,114 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.SupportsStorageCredentials;
 
+import java.io.Closeable;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 public class IcebergTableCacheValue {
     private volatile Table icebergTable;
+    @Nullable
+    private final ThreadPoolExecutor planningExecutor;
+    private TableCleanupOwner tableCleanupOwner;
+    private final Runnable cleanup;
+    private final AtomicInteger references;
+    private final AtomicBoolean cacheReferenceReleased = new AtomicBoolean();
+    private final AtomicBoolean loaderReferenceReleased;
     // The execution authenticator active when this generation was loaded; see the Paimon
     // counterpart for the concurrent catalog-reset rationale.
     @Nullable
     private volatile org.apache.doris.common.security.authentication.ExecutionAuthenticator authenticator;
+    @Nullable
+    private volatile IcebergRuntimeContext runtimeContext;
+    private volatile boolean enableMappingVarbinary;
+    private volatile boolean enableMappingTimestampTz;
     private String retainedCurrentSnapshotJson;
     private volatile boolean queryIsolationPrepared;
     private long retainedTablePayloadBytes;
     private MetaCacheSizeEstimate sizeEstimate;
 
     public IcebergTableCacheValue(Table icebergTable) {
+        this(icebergTable, null, () -> null, () -> { }, false);
+    }
+
+    IcebergTableCacheValue(Table icebergTable, Supplier<IcebergSnapshotCacheValue> ignoredSnapshotSupplier,
+            Runnable cleanup) {
+        this(icebergTable, null, ignoredSnapshotSupplier, cleanup, true);
+    }
+
+    IcebergTableCacheValue(Table icebergTable, ThreadPoolExecutor planningExecutor,
+            Supplier<IcebergSnapshotCacheValue> ignoredSnapshotSupplier, Runnable cleanup) {
+        this(icebergTable, planningExecutor, ignoredSnapshotSupplier, cleanup, true);
+    }
+
+    private IcebergTableCacheValue(Table icebergTable, @Nullable ThreadPoolExecutor planningExecutor,
+            Supplier<IcebergSnapshotCacheValue> ignoredSnapshotSupplier, Runnable cleanup, boolean loading) {
+        this(icebergTable, planningExecutor, ignoredSnapshotSupplier, () -> { }, cleanup, loading);
+    }
+
+    IcebergTableCacheValue(Table icebergTable, @Nullable ThreadPoolExecutor planningExecutor,
+            Supplier<IcebergSnapshotCacheValue> ignoredSnapshotSupplier,
+            Runnable tableCleanup, Runnable cleanup) {
+        this(icebergTable, planningExecutor, ignoredSnapshotSupplier, tableCleanup, cleanup, true);
+    }
+
+    private IcebergTableCacheValue(Table icebergTable, @Nullable ThreadPoolExecutor planningExecutor,
+            Supplier<IcebergSnapshotCacheValue> ignoredSnapshotSupplier,
+            Runnable tableCleanup, Runnable cleanup, boolean loading) {
         this.icebergTable = IcebergSnapshotCacheValue.retainTableGeneration(icebergTable);
+        this.planningExecutor = planningExecutor;
+        this.tableCleanupOwner = new TableCleanupOwner(
+                Objects.requireNonNull(tableCleanup, "table cleanup"));
+        this.cleanup = Objects.requireNonNull(cleanup, "cleanup");
+        Objects.requireNonNull(ignoredSnapshotSupplier, "snapshot supplier");
+        this.references = new AtomicInteger(loading ? 2 : 1);
+        this.loaderReferenceReleased = new AtomicBoolean(!loading);
+    }
+
+    Lease tryAcquire() {
+        int current = references.get();
+        while (current != 0) {
+            if (references.compareAndSet(current, current + 1)) {
+                return new Lease(this);
+            }
+            current = references.get();
+        }
+        return null;
+    }
+
+    void releaseCacheReference() {
+        if (cacheReferenceReleased.compareAndSet(false, true)) {
+            release();
+        }
+    }
+
+    void releaseLoaderReference() {
+        if (loaderReferenceReleased.compareAndSet(false, true)) {
+            release();
+        }
+    }
+
+    void retire() {
+        releaseCacheReference();
+        releaseLoaderReference();
+    }
+
+    private void release() {
+        int remaining = references.decrementAndGet();
+        if (remaining == 0) {
+            try {
+                tableCleanupOwner.release();
+            } finally {
+                cleanup.run();
+            }
+        } else if (remaining < 0) {
+            throw new IllegalStateException("Iceberg table cache value released too many times");
+        }
     }
 
     void bindAuthenticator(
@@ -51,9 +142,83 @@ public class IcebergTableCacheValue {
         this.authenticator = authenticator;
     }
 
+    void bindRuntimeContext(IcebergRuntimeContext runtimeContext) {
+        this.runtimeContext = runtimeContext;
+    }
+
+    void bindSchemaMappingOptions(boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        this.enableMappingVarbinary = enableMappingVarbinary;
+        this.enableMappingTimestampTz = enableMappingTimestampTz;
+    }
+
+    boolean shareTableCleanupWith(IcebergTableCacheValue currentValue) {
+        TableCleanupOwner shared = currentValue.tableCleanupOwner;
+        if (shared.tryRetain()) {
+            tableCleanupOwner.abandon();
+            tableCleanupOwner = shared;
+            return true;
+        }
+        return false;
+    }
+
+    void abandonTableCleanup() {
+        tableCleanupOwner.abandon();
+        tableCleanupOwner = new TableCleanupOwner(() -> { });
+    }
+
     @Nullable
     org.apache.doris.common.security.authentication.ExecutionAuthenticator getAuthenticator() {
         return authenticator;
+    }
+
+    @Nullable
+    IcebergRuntimeContext getRuntimeContext() {
+        return runtimeContext;
+    }
+
+    boolean isEnableMappingVarbinary() {
+        return enableMappingVarbinary;
+    }
+
+    boolean isEnableMappingTimestampTz() {
+        return enableMappingTimestampTz;
+    }
+
+    /** One exact closeable shared by every cache generation that publishes the same FileIO. */
+    private static final class TableCleanupOwner {
+        private final Runnable cleanup;
+        private final AtomicInteger owners = new AtomicInteger(1);
+
+        private TableCleanupOwner(Runnable cleanup) {
+            this.cleanup = cleanup;
+        }
+
+        private boolean tryRetain() {
+            int current = owners.get();
+            while (current != 0) {
+                if (owners.compareAndSet(current, current + 1)) {
+                    return true;
+                }
+                current = owners.get();
+            }
+            return false;
+        }
+
+        private void abandon() {
+            int remaining = owners.decrementAndGet();
+            if (remaining != 0) {
+                throw new IllegalStateException("unpublished Iceberg table cleanup has multiple owners");
+            }
+        }
+
+        private void release() {
+            int remaining = owners.decrementAndGet();
+            if (remaining == 0) {
+                cleanup.run();
+            } else if (remaining < 0) {
+                throw new IllegalStateException("Iceberg table cleanup released too many times");
+            }
+        }
     }
 
     public Table getIcebergTable() {
@@ -160,11 +325,17 @@ public class IcebergTableCacheValue {
         // and projections frozen on the old context would fail the planning fence forever
         // instead of being rebuilt.
         return isSamePhysicalGeneration(other) && sharesOperationalResources(other.icebergTable)
-                && authenticator == other.authenticator;
+                && authenticator == other.authenticator
+                && enableMappingVarbinary == other.enableMappingVarbinary
+                && enableMappingTimestampTz == other.enableMappingTimestampTz;
     }
 
     boolean sharesOperationalResources(Table table) {
         return sharesOperationalResources(icebergTable, table);
+    }
+
+    boolean sharesFileIoIdentity(Table table) {
+        return table != null && icebergTable.io() == table.io();
     }
 
     /** True when both tables read and write through the same FileIO, encryption and locations. */
@@ -227,5 +398,42 @@ public class IcebergTableCacheValue {
         Table retainedTable = icebergTable;
         return retainedTable instanceof HasTableOperations
                 ? ((HasTableOperations) retainedTable).operations().current() : null;
+    }
+
+    static final class Lease implements Closeable {
+        private final IcebergTableCacheValue value;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private Lease(IcebergTableCacheValue value) {
+            this.value = value;
+        }
+
+        Table getIcebergTable() {
+            return value.getIcebergTable();
+        }
+
+        @Nullable
+        ThreadPoolExecutor getPlanningExecutor() {
+            return value.planningExecutor;
+        }
+
+        IcebergTableCacheValue getValue() {
+            return value;
+        }
+
+        Lease retain() {
+            Lease retained = value.tryAcquire();
+            if (retained == null) {
+                throw new IllegalStateException("Iceberg table cache generation was already retired");
+            }
+            return retained;
+        }
+
+        @Override
+        public void close() {
+            if (closed.compareAndSet(false, true)) {
+                value.release();
+            }
+        }
     }
 }
