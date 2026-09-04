@@ -87,6 +87,9 @@ Status HdfsFileReader::close() {
 
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* io_ctx) {
+    if (closed()) [[unlikely]] {
+        return Status::InternalError("read closed file: {}", _path.native());
+    }
     if (_handle == nullptr) [[unlikely]] {
         return Status::InternalError("cached hdfs file handle has been destroyed: {}",
                                      _path.native());
@@ -103,15 +106,6 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 #ifdef USE_HADOOP_HDFS
 Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                        const IOContext* /*io_ctx*/) {
-    if (closed()) [[unlikely]] {
-        return Status::InternalError("read closed file: {}", _path.native());
-    }
-
-    if (_handle == nullptr) [[unlikely]] {
-        return Status::InternalError("cached hdfs file handle has been destroyed: {}",
-                                     _path.native());
-    }
-
     if (offset > _handle->file_size()) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
                                offset, _handle->file_size(), _path.native());
@@ -169,10 +163,6 @@ Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* byte
 // TODO: rethink here to see if there are some difference between hdfsPread() and hdfsRead()
 Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                        const IOContext* /*io_ctx*/) {
-    if (closed()) [[unlikely]] {
-        return Status::InternalError("read closed file: ", _path.native());
-    }
-
     if (offset > _handle->file_size()) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
                                offset, _handle->file_size(), _path.native());

@@ -375,6 +375,29 @@ TEST(FileHandleCacheTest, ConcurrentOpenFailureReturnsSameStatusToAllCallers) {
     }
 }
 
+// A read after close must fail before lazy open: no hdfsOpenFile call is allowed.
+TEST(FileHandleCacheTest, ReadAfterCloseSkipsLazyOpen) {
+    MockHandleGuard mg(reinterpret_cast<hdfsFile>(static_cast<uintptr_t>(0xdeadbeef)));
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    auto cache = make_test_cache();
+    const std::string fname = "/test/close_before_read.parquet";
+    constexpr int64_t mtime = 12345;
+
+    bool cache_hit = false;
+    FileHandleCache::Accessor accessor;
+    get_handle(*cache, mock_fs, fname, mtime, &accessor, &cache_hit);
+    auto reader = std::make_shared<HdfsFileReader>(Path(fname), "hdfs", std::move(accessor), mtime);
+
+    ASSERT_TRUE(reader->close().ok());
+    char buf[16];
+    size_t bytes_read = 0;
+    auto st = reader->read_at(0, {buf, sizeof(buf)}, &bytes_read, nullptr);
+    ASSERT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), TStatusCode::INTERNAL_ERROR);
+    // "read closed file" proves the closed guard fired before lazy open.
+    EXPECT_NE(st.to_string().find("read closed file"), std::string::npos);
+}
+
 // Second read_at after a failed read must not dereference null _handle.
 TEST(FileHandleCacheTest, SecondReadAfterFailureDoesNotCrash) {
     MockHandleGuard mg(reinterpret_cast<hdfsFile>(static_cast<uintptr_t>(0xdeadbeef)));
