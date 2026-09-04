@@ -1206,6 +1206,15 @@ DEFINE_Validator(variant_max_json_key_length,
 DEFINE_Validator(variant_storage_parse_mode,
                  [](const int config) -> bool { return config >= 0 && config <= 2; });
 
+// Lance uses one BE-wide session so metadata/index caches and the optional Foyer data-file cache
+// can be shared by all Lance dataset readers.
+DEFINE_Int64(lance_index_cache_size_bytes, "6442450944"); // 6GB
+DEFINE_Int64(lance_metadata_cache_size_bytes, "1073741824"); // 1GB
+DEFINE_Bool(enable_lance_data_cache, "true");
+DEFINE_String(lance_data_cache_path, "${DORIS_HOME}/lance_data_cache");
+DEFINE_Int64(lance_data_cache_disk_capacity_bytes, "107374182400"); // 100GB
+DEFINE_Int64(lance_data_cache_read_block_size_bytes, "1048576"); // 1MB
+
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
 // ATTENTION: For test only. Keep this enabled in production.
