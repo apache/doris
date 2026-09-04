@@ -322,9 +322,10 @@ public class MysqlSerializer {
             case VARBINARY: {
                 return type.getLength();
             }
-            // todo:It needs to be obtained according to the field length set during the actual creation,
-            // todo:which is not supported for the time being.default is 255
-            // CHAR,VARCHAR:
+            case VARCHAR:
+            case CHAR:
+            case STRING:
+                return type.getLength();
             default:
                 return 255;
         }
