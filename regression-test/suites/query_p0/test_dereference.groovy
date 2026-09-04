@@ -84,7 +84,9 @@ suite("test_dereference") {
         create table test_correlated_dereference_inner_scalar(
           id int,
           t1 int,
-          t struct<value:int>
+          t struct<value:int>,
+          `${context.dbName}` struct<test_correlated_dereference_outer:struct<value:int>>,
+          internal struct<`${context.dbName}`:struct<test_correlated_dereference_outer:struct<value:int>>>
         )
         distributed by hash(id)
         properties('replication_num'='1');
@@ -99,7 +101,9 @@ suite("test_dereference") {
         insert into test_correlated_dereference_outer values
             (1, 10, 'blocked', struct(1), array(struct(1), struct(2))),
             (2, 20, 'kept', struct(2), array(struct(3)));
-        insert into test_correlated_dereference_inner_scalar values (1, 0, struct(1));
+        insert into test_correlated_dereference_inner_scalar values
+            (1, 0, struct(1), struct(struct(0)), struct(struct(struct(0)))),
+            (1, 0, struct(2), struct(struct(0)), struct(struct(struct(0))));
         insert into test_correlated_dereference_inner_struct values (1, struct(10));
         """
 
@@ -121,6 +125,26 @@ suite("test_dereference") {
                 where outer_alias.value = 10
             )
             order by outer_alias.id
+            """
+
+    order_qt_correlated_db_table_qualifier """
+            select test_correlated_dereference_outer.id
+            from test_correlated_dereference_outer
+            where not exists (
+                select 1 from test_correlated_dereference_inner_scalar inner_alias
+                where `${context.dbName}`.`test_correlated_dereference_outer`.value = 10
+            )
+            order by test_correlated_dereference_outer.id
+            """
+
+    order_qt_correlated_catalog_db_table_qualifier """
+            select test_correlated_dereference_outer.id
+            from test_correlated_dereference_outer
+            where not exists (
+                select 1 from test_correlated_dereference_inner_scalar inner_alias
+                where internal.`${context.dbName}`.`test_correlated_dereference_outer`.value = 20
+            )
+            order by test_correlated_dereference_outer.id
             """
 
     order_qt_lambda_alias """
@@ -180,6 +204,18 @@ suite("test_dereference") {
                 select 1
                 from test_correlated_dereference_inner_scalar t
                 where t.value = 1
+            )
+            order by t.id
+            """
+
+    order_qt_group_by_inner_nested_field """
+            select t.id
+            from test_correlated_dereference_outer t
+            where not exists (
+                select 1
+                from test_correlated_dereference_inner_scalar t
+                group by t.value
+                having count(*) > 1
             )
             order by t.id
             """

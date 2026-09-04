@@ -5,6 +5,12 @@
 -- !correlated_complex_alias --
 2	20
 
+-- !correlated_db_table_qualifier --
+2
+
+-- !correlated_catalog_db_table_qualifier --
+1
+
 -- !lambda_alias --
 1	[1, 2]
 2	[3]
@@ -25,6 +31,10 @@
 2
 
 -- !filter_inner_nested_field --
+1
+2
+
+-- !group_by_inner_nested_field --
 1
 2
 
