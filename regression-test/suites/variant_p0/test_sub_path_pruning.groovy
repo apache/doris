@@ -17,7 +17,6 @@
 
 suite("test_sub_path_pruning", "variant_type"){
 
-    def enableVariantV2 = true
     def variantV2Function = "parse_to_variant"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_max_sparse_column_statistics_size = 10000 """
@@ -181,11 +180,7 @@ suite("test_sub_path_pruning", "variant_type"){
     order_qt_sql """select id, cast(c1['a'] as text) from (select ${variantV2Function}('{"a":1}') as c1, 0 as id union all select ${variantV2Function}('{"a":1}') as c1, 2 as id) tmp order by id limit 100;"""
     order_qt_sql """select c1['a'] from (select id, c1 from (select ${variantV2Function}('{"a":1}') as c1, 0 as id union all select ${variantV2Function}('{"a":1}') as c1, 2 as id) tmp order by id limit 100) tmp order by id;"""
     order_qt_sql """select cast(c2['b'] as text) from (select id, c1['a'] as c2 from (select ${variantV2Function}('{"a":{"b":1}}') as c1, 0 as id union all select ${variantV2Function}('{"a":{"b":1}}') as c1, 2 as id) tmp order by id limit 100) tmp order by id;"""
-    // This union/subquery path currently loses the nested value in V2. Preserve the
-    // original V1 assertion without masking the unsupported V2 behavior.
-    if (!enableVariantV2) {
-        order_qt_const_nested_subpath_v1 """select c2['a']['b'] = 1 from (select id, c1 as c2 from (select ${variantV2Function}('{"a":{"b":1}}') as c1, 0 as id union all select ${variantV2Function}('{"a":{"b":1}}') as c1, 2 as id) tmp order by id limit 100) tmp order by id;"""
-    }
+    order_qt_const_nested_subpath """select c2['a']['b'] = 1 from (select id, c1 as c2 from (select ${variantV2Function}('{"a":{"b":1}}') as c1, 0 as id union all select ${variantV2Function}('{"a":{"b":1}}') as c1, 2 as id) tmp order by id limit 100) tmp order by id;"""
 
 
     // join

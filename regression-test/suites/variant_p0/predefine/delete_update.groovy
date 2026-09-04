@@ -19,7 +19,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
     def variantV2Function = "parse_to_variant"
-    def enableVariantV2 = true
     sql "set default_variant_enable_doc_mode=false;"
     // MOR
     def table_name = "var_delete_update"
@@ -102,10 +101,6 @@ suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
     sql "sync"
 
     sql "set enable_unique_key_partial_update=false;"
-    // Row-store partial update still uses the legacy Variant SerDe.
-    if (enableVariantV2) {
-        return
-    }
      // case 1: concurrent partial update
     def tableName = "test_primary_key_partial_update_parallel"
     sql """ DROP TABLE IF EXISTS ${tableName} """

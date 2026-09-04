@@ -113,8 +113,9 @@ suite("test_cast") {
     check_fold_consistency "cast(cast('11:11:11' as time) as string);"
     check_fold_consistency "cast(cast('11:11:11' as time) as text);"
     check_fold_consistency "cast(cast('11:11:11' as time) as varchar);"
-    if (!enableVariantV2) {
-        check_fold_consistency "cast(cast('11:11:11' as time) as variant);"
+    test {
+        sql "select cast(cast('11:11:11' as time) as variant)"
+        exception "Conversion from TimeV2(0) to Variant V2 is not supported"
     }
 
     qt_sql8 "select cast('-01:00:00' as time);"

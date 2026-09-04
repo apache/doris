@@ -69,7 +69,7 @@ suite("test_compaction_variant") {
             create_table.call(tableName, "1", key_types[i])
             def insert = {
                 sql """insert into ${tableName} values (1,  ${variantV2Function}('{"x" : [1]}')),(13,  ${variantV2Function}('{"a" : 1}'));"""
-                sql """insert into ${tableName} values (2,  ${variantV2Function}('{"a" : "1"}')),(14,  ${variantV2Function}('{"a" : [1, 2, 3]}'));"""
+                sql """insert into ${tableName} values (2,  ${variantV2Function}('{"a" : "1"}')),(14,  ${variantV2Function}('{"a" : [[[1]]]}'));"""
                 sql """insert into ${tableName} values (3,  ${variantV2Function}('{"x" : [3]}')),(15,  ${variantV2Function}('{"a" : 1}'))"""
                 sql """insert into ${tableName} values (4,  ${variantV2Function}('{"y": 1}')),(16,  ${variantV2Function}('{"a" : "1223"}'));"""
                 sql """insert into ${tableName} values (5,  ${variantV2Function}('{"z" : 2.0}')),(17,  ${variantV2Function}('{"a" : [1]}'));"""
@@ -111,7 +111,7 @@ suite("test_compaction_variant") {
             qt_after_compaction_full_variant "SELECT k, cast(v as json) FROM ${tableName} ORDER BY k, cast(v as string); "
             qt_sql_22 "select k, cast(v['a'] as array<int>) from  ${tableName} where  size(cast(v['a'] as array<int>)) > 0 order by k"
             qt_sql_33 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
-            qt_sql_55 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' or cast(v['b'] as string) != '{}' order by k desc, 1, 2 limit 10;"
+            qt_sql_55 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) != '{}' order by k desc, 1, 2 limit 10;"
         }
 
     } finally {

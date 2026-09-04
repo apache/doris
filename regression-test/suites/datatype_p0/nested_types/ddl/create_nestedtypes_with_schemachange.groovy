@@ -92,8 +92,7 @@ suite("create_nestedtypes_with_schemachange", "p0") {
         // insert data
         sql """ INSERT INTO $testTablex VALUES (1, 2, array(1, 2), map(1, 2), named_struct('f1', 1), ${variantV2Function}('{"a": [1,2,3]}'))"""
         // select
-        qt_sql_before """select col0, col2, col3, col4, col5,
-            concat('{"a":', cast(cast(col6['a'] as array<int>) as string), '}')
+        qt_sql_before """select col0, col2, col3, col4, col5, cast(col6 as json)
             from $testTablex"""
 
         if (notNull2Null) {
@@ -111,8 +110,7 @@ suite("create_nestedtypes_with_schemachange", "p0") {
         }
         // desc table
         qt_master_sql "DESC $testTablex"
-        qt_sql_after """select col0, col2, col3, col4, col5,
-            concat('{"a":', cast(cast(col6['a'] as array<int>) as string), '}')
+        qt_sql_after """select col0, col2, col3, col4, col5, cast(col6 as json)
             from $testTablex"""
     }
 

@@ -73,27 +73,6 @@ void append_collected_value(CollectedArrayNode* node, VariantRef value, bool for
     node->offsets.push_back(node->child->size());
 }
 
-bool array_dimensions_match(VariantRef value, const CollectedArrayNode& target) {
-    if (value.is_null()) {
-        // Doris permits null-literal ARRAY leaves to adapt to a deeper target dimension.
-        return true;
-    }
-    if (target.child == nullptr) {
-        // ARRAY<VariantV2> deliberately keeps arbitrary Variant values as leaves.
-        return target.type->get_primitive_type() == TYPE_VARIANT ||
-               value.basic_type() != VariantBasicType::ARRAY;
-    }
-    if (value.basic_type() != VariantBasicType::ARRAY) {
-        return false;
-    }
-    for (uint32_t element = 0; element < value.num_elements(); ++element) {
-        if (!array_dimensions_match(value.array_at(element), *target.child)) {
-            return false;
-        }
-    }
-    return true;
-}
-
 ColumnPtr variant_column_from_refs(std::span<const VariantRef> values, ForcedNulls nulls) {
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = values.size()});
     for (size_t row_index = 0; row_index < values.size(); ++row_index) {
@@ -174,10 +153,8 @@ Status cast_variant_to_array(FunctionContext* context, const ColumnVariantV2& so
     }
     std::unique_ptr<CollectedArrayNode> root = make_collected_node(target_type);
     for (size_t row_index = 0; row_index < rows; ++row_index) {
-        const VariantRef value = source.get_value_ref(row_index);
-        const bool row_is_null = (!forced_nulls.empty() && forced_nulls[row_index] != 0) ||
-                                 !array_dimensions_match(value, *root);
-        append_collected_value(root.get(), value, row_is_null);
+        append_collected_value(root.get(), source.get_value_ref(row_index),
+                               !forced_nulls.empty() && forced_nulls[row_index] != 0);
     }
     ColumnPtr direct;
     RETURN_IF_ERROR(finalize_collected_node(context, *root, &direct));
