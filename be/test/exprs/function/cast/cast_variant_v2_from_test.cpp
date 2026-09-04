@@ -567,7 +567,7 @@ TEST(CastVariantV2FromTest, ArrayCastReusesNonStrictStringParser) {
               (PaddedPODArray<uint8_t> {0, 1, 1}));
 }
 
-TEST(CastVariantV2FromTest, ArrayDimensionMismatchNullsTheWholeRowLikeLegacyVariant) {
+TEST(CastVariantV2FromTest, ArrayDimensionMismatchNullsTheElement) {
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 3});
     {
         auto row = builder.begin_row();
@@ -599,13 +599,36 @@ TEST(CastVariantV2FromTest, ArrayDimensionMismatchNullsTheWholeRowLikeLegacyVari
     ASSERT_TRUE(cast.status.ok()) << cast.status;
 
     const auto& top_nullable = nullable_result(cast.column);
-    EXPECT_EQ(top_nullable.get_null_map_data(), (PaddedPODArray<uint8_t> {1, 0, 0}));
+    EXPECT_EQ(top_nullable.get_null_map_data(), (PaddedPODArray<uint8_t> {0, 0, 0}));
     const auto& top = assert_cast<const ColumnArray&>(top_nullable.get_nested_column());
-    EXPECT_EQ(top.size_at(0), 0);
+    EXPECT_EQ(top.size_at(0), 1);
     EXPECT_EQ(top.size_at(1), 1);
     EXPECT_EQ(top.size_at(2), 1);
     const auto& inner_nullable = assert_cast<const ColumnNullable&>(top.get_data());
-    EXPECT_EQ(inner_nullable.get_null_map_data(), (PaddedPODArray<uint8_t> {1, 0}));
+    EXPECT_EQ(inner_nullable.get_null_map_data(), (PaddedPODArray<uint8_t> {1, 1, 0}));
+}
+
+TEST(CastVariantV2FromTest, DeeperArrayElementMismatchNullsTheElement) {
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
+    auto row = builder.begin_row();
+    auto outer = row.start_array();
+    auto middle = row.start_array();
+    auto inner = row.start_array();
+    row.add_int(1);
+    inner.finish();
+    middle.finish();
+    outer.finish();
+    row.finish();
+
+    auto target = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    CastResult cast = execute_from_variant(finish(&builder), target);
+    ASSERT_TRUE(cast.status.ok()) << cast.status;
+
+    const auto& outer_nullable = nullable_result(cast.column);
+    EXPECT_EQ(outer_nullable.get_null_map_data(), (PaddedPODArray<uint8_t> {0}));
+    const auto& array = assert_cast<const ColumnArray&>(outer_nullable.get_nested_column());
+    ASSERT_EQ(array.size_at(0), 1);
+    EXPECT_EQ(assert_cast<const ColumnNullable&>(array.get_data()).get_null_map_data()[0], 1);
 }
 
 TEST(CastVariantV2FromTest, TypedArrayExtractionWithoutFunctionContextRemainsNull) {

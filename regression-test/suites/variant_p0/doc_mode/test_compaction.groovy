@@ -118,7 +118,7 @@ suite("compaction_variant_doc_value", "p0") {
                 qt_sql_11 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
                 qt_sql_22 "select k, cast(v['a'] as array<int>) from ${tableName} where size(cast(v['a'] as array<int>)) > 0 order by k"
             }
-            qt_sql_11_supported "SELECT k, cast(cast(v as json) as string) FROM ${tableName} where k != 18 ORDER BY k, cast(v as string); "
+            qt_sql_11_supported "SELECT k, cast(cast(v as json) as string) FROM ${tableName} ORDER BY k, cast(v as string); "
             qt_sql_22_supported "select k, cast(v['a'] as array<int>) from ${tableName} where size(array_filter(x -> x is not null, cast(v['a'] as array<int>))) > 0 order by k"
             qt_sql_33 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
         }

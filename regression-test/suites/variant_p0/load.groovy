@@ -18,7 +18,6 @@
 suite("regression_test_variant", "p0"){
     def enableVariantV2 = true
     def variantV2Function = "parse_to_variant"
-    // ColumnVariantV2 intentionally does not support nested arrays yet.
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -98,13 +97,9 @@ suite("regression_test_variant", "p0"){
             sql """insert into ${table_name} values (10,  ${variantV2Function}('1000000')),(1,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'));"""
             sql """insert into ${table_name} values (11,  ${variantV2Function}('[123.1]')),(1999,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}')),(19921,  ${variantV2Function}('{"a" : 1, "b" : 10}'));"""
             sql """insert into ${table_name} values (12,  ${variantV2Function}('[123.2]')),(1022,  ${variantV2Function}('{"a" : 1, "b" : 10}')),(1029,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'));"""
-            if (!enableVariantV2) {
-                qt_sql1 "select k, cast(v['a'] as array<int>) from ${table_name} where size(cast(v['a'] as array<int>)) > 0 order by k, cast(v['a'] as string) asc"
-                qt_sql3 "select k, v from ${table_name} order by k, cast(v as string) limit 5"
-            }
-            qt_sql1_supported "select k, cast(v['a'] as array<int>) from ${table_name} where size(cast(v['a'] as array<int>)) > 0 and cast(v['a'] as string) != '[[[1]]]' order by k, cast(v['a'] as string) asc"
+            qt_sql1_supported "select k, cast(v['a'] as array<int>) from ${table_name} where size(cast(v['a'] as array<int>)) > 0 order by k, cast(v['a'] as string) asc"
             qt_sql2 "select k, cast(v['b'] as string) from  ${table_name} where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "
-            qt_sql3_supported "select k, v from ${table_name} where k not in (4, 6, 9) order by k, cast(v as string) limit 5"
+            qt_sql3_supported "select k, v from ${table_name} order by k, cast(v as string) limit 5"
             qt_sql4 "select v['b'], v['b']['c'] from  ${table_name} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,cast(v as string) desc limit 10000;"
             qt_sql5 "select v['b'] from ${table_name} where cast(v['b'] as int) > 0;"
             qt_sql6 "select cast(v['b'] as string) from ${table_name} where  cast(v['b'] as string) != 'null' and cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,  cast(v['b'] as string) "
