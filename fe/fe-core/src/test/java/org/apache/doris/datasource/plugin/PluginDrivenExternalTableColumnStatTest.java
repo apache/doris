@@ -20,7 +20,7 @@ package org.apache.doris.datasource.plugin;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.connector.spi.ConnectorColumnStatistics;
-import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatistic;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
