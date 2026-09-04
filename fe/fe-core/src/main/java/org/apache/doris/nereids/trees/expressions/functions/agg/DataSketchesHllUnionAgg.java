@@ -125,7 +125,7 @@ public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
     @Override
     public DataSketchesHllUnionAgg withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        return new DataSketchesHllUnionAgg(getFunctionParams(distinct, children));
+        return new DataSketchesHllUnionAgg(getFunctionParams(false, children));
     }
 
     @Override

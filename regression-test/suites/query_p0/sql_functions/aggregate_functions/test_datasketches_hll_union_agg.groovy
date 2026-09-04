@@ -67,6 +67,15 @@ suite("test_datasketches_hll_union_agg") {
         FROM ${tableName}
     """
 
+    order_qt_default_typed_state_merge """SELECT
+            CAST(ROUND(datasketches_hll_union_agg_merge(sk_state)) AS BIGINT)
+        FROM (
+            SELECT datasketches_hll_union_agg_state(sk) AS sk_state
+            FROM ${tableName}
+            WHERE id IN (1, 2)
+        ) states
+    """
+
     order_qt_typed_state_merge """SELECT
             CAST(ROUND(datasketches_hll_union_agg_merge(sk_state)) AS BIGINT)
         FROM (
@@ -220,6 +229,45 @@ suite("test_datasketches_hll_union_agg") {
         sql """SELECT datasketches_hll_union_agg(sk, id) FROM ${tableName}"""
         exception "requires lg_max_k to be a constant integer"
     }
+
+    ["datasketches_hll_union_agg", "ds_hll_estimate", "datasketches_hll_estimate"].each { functionName ->
+        test {
+            sql """SELECT ${functionName}_state(sk, 6) FROM ${tableName}"""
+            exception "requires lg_max_k to be between 7 and 21"
+        }
+        test {
+            sql """SELECT ${functionName}_state(sk, 22) FROM ${tableName} WHERE id = 3"""
+            exception "requires lg_max_k to be between 7 and 21"
+        }
+    }
+    test {
+        sql """SELECT datasketches_hll_union_agg_state(sk, id) FROM ${tableName}"""
+        exception "requires lg_max_k to be a constant integer"
+    }
+
+    sql "DROP TABLE IF EXISTS test_datasketches_hll_union_agg_state_tbl"
+    sql """
+        CREATE TABLE test_datasketches_hll_union_agg_state_tbl (
+            id INT,
+            sk_state AGG_STATE<datasketches_hll_union_agg(STRING, INT NOT NULL)> GENERIC
+        )
+        AGGREGATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    sql """INSERT INTO test_datasketches_hll_union_agg_state_tbl
+        SELECT 1, ds_hll_estimate_state(sk, 21) FROM ${tableName} WHERE id = 2"""
+    sql """INSERT INTO test_datasketches_hll_union_agg_state_tbl
+        SELECT 1, datasketches_hll_estimate_state(sk, 7) FROM ${tableName} WHERE id = 1"""
+    order_qt_persisted_state """SELECT
+            id,
+            CAST(ROUND(datasketches_hll_union_agg_merge(sk_state)) AS BIGINT)
+        FROM test_datasketches_hll_union_agg_state_tbl
+        GROUP BY id
+        ORDER BY id
+    """
 
     // Empty string is a valid STRING value, but it is an invalid serialized DataSketches HLL sketch.
     // It should not fail at INSERT time; it should fail when the aggregate function reads it.

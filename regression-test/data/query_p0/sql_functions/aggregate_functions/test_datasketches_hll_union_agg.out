@@ -8,6 +8,9 @@
 -- !explicit_lg_max_k --
 18	17	17	17
 
+-- !default_typed_state_merge --
+17
+
 -- !typed_state_merge --
 17
 
@@ -44,3 +47,6 @@
 
 -- !empty_input --
 0
+
+-- !persisted_state --
+1	18

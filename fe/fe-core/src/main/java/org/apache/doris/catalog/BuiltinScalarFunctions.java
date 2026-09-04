@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnionAggState;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AIClassify;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AIExtract;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AIFilter;
@@ -735,6 +736,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(CutToFirstSignificantSubdomain.class, "cut_to_first_significant_subdomain"),
             scalar(DamerauLevenshteinDistance.class, "damerau_levenshtein_distance"),
             scalar(Database.class, "database", "schema", "current_database"),
+            scalar(DataSketchesHllUnionAggState.class, "datasketches_hll_union_agg_state",
+                    "ds_hll_estimate_state", "datasketches_hll_estimate_state"),
             scalar(Date.class, "date"),
             scalar(DateDiff.class, "datediff"),
             scalar(DateFormat.class, "date_format"),

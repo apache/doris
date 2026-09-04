@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionComb
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 
@@ -59,10 +60,13 @@ class DataSketchesHllUnionAggTest {
         DataSketchesHllUnionAgg twoArguments =
                 new DataSketchesHllUnionAgg(true, SKETCH, new IntegerLiteral(8));
 
-        Assertions.assertFalse(oneArgument.isDistinct());
-        Assertions.assertFalse(twoArguments.isDistinct());
-        Assertions.assertTrue(oneArgument.getDistinctArguments().isEmpty());
-        Assertions.assertTrue(twoArguments.getDistinctArguments().isEmpty());
+        for (DataSketchesHllUnionAgg function : ImmutableList.of(oneArgument, twoArguments)) {
+            DataSketchesHllUnionAgg rewritten = function.withDistinctAndChildren(true, function.children());
+            Assertions.assertFalse(function.isDistinct());
+            Assertions.assertFalse(rewritten.isDistinct());
+            Assertions.assertTrue(function.getDistinctArguments().isEmpty());
+            Assertions.assertTrue(rewritten.getDistinctArguments().isEmpty());
+        }
     }
 
     @Test
@@ -103,21 +107,65 @@ class DataSketchesHllUnionAggTest {
         FunctionRegistry functionRegistry = new FunctionRegistry();
         for (String functionName : ImmutableList.of(
                 "datasketches_hll_union_agg", "ds_hll_estimate", "datasketches_hll_estimate")) {
-            String stateName = functionName + "_state";
-            List<Expression> stateArguments = ImmutableList.of(SKETCH, new IntegerLiteral(8));
-            FunctionBuilder stateBuilder = functionRegistry.findFunctionBuilder(stateName, stateArguments);
-            StateCombinator state = (StateCombinator) stateBuilder.build(stateName, stateArguments).first;
-            SlotReference stateSlot = new SlotReference("state", state.getDataType(), false);
+            for (DataSketchesHllUnionAggState state : ImmutableList.of(
+                    buildState(functionRegistry, functionName + "_state", SKETCH),
+                    buildState(functionRegistry, functionName + "_state", SKETCH, new IntegerLiteral(8)))) {
+                Assertions.assertDoesNotThrow(state::checkLegalityAfterRewrite);
+                SlotReference stateSlot = new SlotReference("state", state.getDataType(), false);
 
-            String mergeName = functionName + "_merge";
-            FunctionBuilder mergeBuilder = functionRegistry.findFunctionBuilder(mergeName, stateSlot);
-            MergeCombinator merge = (MergeCombinator) mergeBuilder.build(mergeName, stateSlot).first;
-            Assertions.assertDoesNotThrow(merge::checkLegalityBeforeTypeCoercion);
+                String mergeName = functionName + "_merge";
+                FunctionBuilder mergeBuilder = functionRegistry.findFunctionBuilder(mergeName, stateSlot);
+                MergeCombinator merge = (MergeCombinator) mergeBuilder.build(mergeName, stateSlot).first;
+                Assertions.assertDoesNotThrow(merge::checkLegalityBeforeTypeCoercion);
 
-            String unionName = functionName + "_union";
-            FunctionBuilder unionBuilder = functionRegistry.findFunctionBuilder(unionName, stateSlot);
-            UnionCombinator union = (UnionCombinator) unionBuilder.build(unionName, stateSlot).first;
-            Assertions.assertDoesNotThrow(union::checkLegalityBeforeTypeCoercion);
+                String unionName = functionName + "_union";
+                FunctionBuilder unionBuilder = functionRegistry.findFunctionBuilder(unionName, stateSlot);
+                UnionCombinator union = (UnionCombinator) unionBuilder.build(unionName, stateSlot).first;
+                Assertions.assertDoesNotThrow(union::checkLegalityBeforeTypeCoercion);
+            }
         }
+    }
+
+    @Test
+    void testStateCombinatorValidatesLgMaxKAfterRewrite() {
+        FunctionRegistry functionRegistry = new FunctionRegistry();
+        for (String functionName : ImmutableList.of(
+                "datasketches_hll_union_agg", "ds_hll_estimate", "datasketches_hll_estimate")) {
+            String stateName = functionName + "_state";
+            for (int value : new int[] {7, 21}) {
+                StateCombinator state = buildState(functionRegistry, stateName, SKETCH, new IntegerLiteral(value));
+                Assertions.assertDoesNotThrow(state::checkLegalityAfterRewrite);
+            }
+            for (Expression invalidLgMaxK : ImmutableList.of(
+                    new IntegerLiteral(6),
+                    new IntegerLiteral(22),
+                    SlotReference.of("lg_max_k", IntegerType.INSTANCE))) {
+                StateCombinator state = buildState(functionRegistry, stateName, SKETCH, invalidLgMaxK);
+                Assertions.assertThrows(AnalysisException.class, state::checkLegalityAfterRewrite);
+            }
+        }
+    }
+
+    @Test
+    void testStateCombinatorRewritesAllChildren() {
+        FunctionRegistry functionRegistry = new FunctionRegistry();
+        DataSketchesHllUnionAggState state = buildState(
+                functionRegistry, "datasketches_hll_union_agg_state", SKETCH, new IntegerLiteral(8));
+        StateCombinator rewritten = (StateCombinator) state.accept(new DefaultExpressionRewriter<Void>() {
+            @Override
+            public Expression visitIntegerLiteral(IntegerLiteral integerLiteral, Void context) {
+                return new IntegerLiteral(22);
+            }
+        }, null);
+
+        Assertions.assertEquals(2, state.arity());
+        Assertions.assertThrows(AnalysisException.class, rewritten::checkLegalityAfterRewrite);
+    }
+
+    private static DataSketchesHllUnionAggState buildState(
+            FunctionRegistry functionRegistry, String stateName, Expression... stateArguments) {
+        List<Expression> arguments = ImmutableList.copyOf(stateArguments);
+        FunctionBuilder stateBuilder = functionRegistry.findFunctionBuilder(stateName, arguments);
+        return (DataSketchesHllUnionAggState) stateBuilder.build(stateName, arguments).first;
     }
 }
