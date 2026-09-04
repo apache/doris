@@ -36,7 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.roaringbitmap.RoaringBitmap;

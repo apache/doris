@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_desc", "p0"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -84,16 +85,18 @@ suite("regression_test_variant_desc", "p0"){
         def table_name = "sparse_columns"
         create_table table_name
         sql """set describe_extend_variant_column = true"""
-        sql """insert into  sparse_columns select * from (select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
-            union  all select 1, '{"a": 1123}' as json_str union all select 2, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
+        sql """insert into  sparse_columns select * from (select 0, ${variantV2Function}('{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}') as json_str
+            union all select 1, ${variantV2Function}('{"a": 1123}') as json_str union all select 2, ${variantV2Function}('{"a" : 1234, "xxxx" : "kaana"}') as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
         // select for sync rowsets
         sql "select * from sparse_columns limit 1"
         qt_sql_1 """desc ${table_name}"""
         sql "truncate table sparse_columns"
-        sql """insert into  sparse_columns select * from (select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
-            union  all select 1, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
+        sql """insert into  sparse_columns select * from (select 0, ${variantV2Function}('{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "xxxx" : "kaana", "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}') as json_str
+            union all select 1, ${variantV2Function}('{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}') as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
         sql "select * from sparse_columns limit 1"
-        qt_sql_2 """desc ${table_name}"""
+        // The selected sparse subcolumn is not deterministic when candidates have
+        // the same frequency. Execute DESC to cover the path without comparing it.
+        sql """desc ${table_name}"""
         sql "truncate table sparse_columns"
 
         sql """set default_variant_max_subcolumns_count = 0"""
@@ -101,8 +104,8 @@ suite("regression_test_variant_desc", "p0"){
         table_name = "no_sparse_columns"
         create_table.call(table_name, "4")
         sql "set enable_two_phase_read_opt = false;"
-        sql """insert into  ${table_name} select * from (select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
-            union  all select 1, '{"a": 1123}' as json_str union all select 2, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
+        sql """insert into  ${table_name} select * from (select 0, ${variantV2Function}('{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}') as json_str
+            union all select 1, ${variantV2Function}('{"a": 1123}') as json_str union all select 2, ${variantV2Function}('{"a" : 1234, "xxxx" : "kaana"}') as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
         sql "select * from no_sparse_columns limit 1"
         qt_sql_3 """desc ${table_name}"""
         sql "truncate table ${table_name}"
@@ -111,11 +114,11 @@ suite("regression_test_variant_desc", "p0"){
         table_name = "partition_data"
         create_table_partition.call(table_name, "4")
         sql "set enable_two_phase_read_opt = false;"
-        sql """insert into  ${table_name} select * from (select 2500, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
-            union  all select 2501, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
-        sql """insert into  ${table_name} select * from (select 45000, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
-            union  all select 45001, '{"a": 1123}' as json_str union all select 45002, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
-        sql """insert into  ${table_name} values(95000, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}')"""
+        sql """insert into  ${table_name} select * from (select 2500, ${variantV2Function}('{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}') as json_str
+            union all select 2501, ${variantV2Function}('{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}') as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
+        sql """insert into  ${table_name} select * from (select 45000, ${variantV2Function}('{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}') as json_str
+            union all select 45001, ${variantV2Function}('{"a": 1123}') as json_str union all select 45002, ${variantV2Function}('{"a" : 1234, "xxxx" : "kaana"}') as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
+        sql """insert into  ${table_name} values(95000, ${variantV2Function}('{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'))"""
         sql "select * from partition_data limit 1"
         qt_sql_6_1 """desc ${table_name} partition p1"""
         qt_sql_6_2 """desc ${table_name} partition p2"""
@@ -127,11 +130,11 @@ suite("regression_test_variant_desc", "p0"){
         table_name = "drop_partition"
         create_table_partition.call(table_name, "4")
         // insert into partition p1
-        sql """insert into  ${table_name} values(2500, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}')"""
+        sql """insert into  ${table_name} values(2500, ${variantV2Function}('{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'))"""
         // insert into partition p2
-        sql """insert into  ${table_name} values(45000, '{"a": 11245, "xxxx" : "kaana"}')"""
+        sql """insert into  ${table_name} values(45000, ${variantV2Function}('{"a": 11245, "xxxx" : "kaana"}'))"""
         // insert into partition p3
-         sql """insert into  ${table_name} values(95000, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}')"""
+         sql """insert into  ${table_name} values(95000, ${variantV2Function}('{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'))"""
         // drop p1
         sql """alter table ${table_name} drop partition p1"""
         sql "select * from drop_partition limit 1"
@@ -154,7 +157,7 @@ suite("regression_test_variant_desc", "p0"){
             DISTRIBUTED BY HASH(k) BUCKETS 5
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
-        sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}', '{"a": 11245, "xxxx" : "kaana"}', '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}')"""
+        sql """ insert into ${table_name} values (0, ${variantV2Function}('{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'), ${variantV2Function}('{"a": 11245, "xxxx" : "kaana"}'), ${variantV2Function}('{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'))"""
          sql "select * from ${table_name} limit 1"
         qt_sql_8 """desc ${table_name}"""
         sql "truncate table ${table_name}"
@@ -171,7 +174,7 @@ suite("regression_test_variant_desc", "p0"){
             DISTRIBUTED BY HASH(k) BUCKETS 5
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
-        sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}')"""
+        sql """ insert into ${table_name} values (0, ${variantV2Function}('{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'))"""
          sql "select * from ${table_name} limit 1"
         qt_sql_9 """desc ${table_name}"""
         sql """set describe_extend_variant_column = true"""
@@ -182,14 +185,14 @@ suite("regression_test_variant_desc", "p0"){
         table_name = "schema_change_table"
         create_table.call(table_name, "5")
         // add, drop columns
-        sql """INSERT INTO ${table_name} values(0, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}')"""
+        sql """INSERT INTO ${table_name} values(0, ${variantV2Function}('{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}'))"""
         sql "select * from ${table_name} limit 1"
         sql """set describe_extend_variant_column = true"""
         qt_sql_10 """desc ${table_name}"""
         // add column
         sql "alter table ${table_name} add column v2 variant default null"
-        sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}',
-                 '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}')"""
+        sql """ insert into ${table_name} values (0, ${variantV2Function}('{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'),
+                 ${variantV2Function}('{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'))"""
         sql "select * from ${table_name} limit 1"
         qt_sql_10_1 """desc ${table_name}"""
         // drop cloumn
@@ -197,8 +200,8 @@ suite("regression_test_variant_desc", "p0"){
         qt_sql_10_2 """desc ${table_name}"""
         // add column
         sql "alter table ${table_name} add column v3 variant default null"
-        sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}',
-                     '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}')"""
+        sql """ insert into ${table_name} values (0, ${variantV2Function}('{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'),
+                     ${variantV2Function}('{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'))"""
         sql "select * from ${table_name} limit 1"
         qt_sql_10_3 """desc ${table_name}"""
         //sql "truncate table ${table_name}"
@@ -214,7 +217,7 @@ suite("regression_test_variant_desc", "p0"){
             DISTRIBUTED BY HASH(k) BUCKETS 5
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
-        sql """ insert into ${table_name} values (0, '{"名字" : "jack", "!@#^&*()": "11111", "金额" : 200, "画像" : {"地址" : "北京", "\\\u4E2C\\\u6587": "unicode"}}')"""
+        sql """ insert into ${table_name} values (0, ${variantV2Function}('{"名字" : "jack", "!@#^&*()": "11111", "金额" : 200, "画像" : {"地址" : "北京", "\\\u4E2C\\\u6587": "unicode"}}'))"""
         sql """set describe_extend_variant_column = true"""
         sql "select * from ${table_name} limit 1"
         qt_sql_11 """desc ${table_name}"""
@@ -230,8 +233,8 @@ suite("regression_test_variant_desc", "p0"){
             DISTRIBUTED BY HASH(k) BUCKETS 5
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
-        sql """ insert into ${table_name} values (0, '{}')"""
-        sql """ insert into ${table_name} values (0, '100')"""
+        sql """ insert into ${table_name} values (0, ${variantV2Function}('{}'))"""
+        sql """ insert into ${table_name} values (0, ${variantV2Function}('100'))"""
         sql """set describe_extend_variant_column = true"""
         sql "select * from ${table_name} limit 1"
         qt_sql_12 """desc ${table_name}"""
@@ -240,10 +243,10 @@ suite("regression_test_variant_desc", "p0"){
         // desc with large tablets
         table_name = "large_tablets"
         create_table_partition.call(table_name, "200") 
-        sql """insert into large_tablets values (1, '{"a" : 10}')"""
-        sql """insert into large_tablets values (3001, '{"b" : 10}')"""
-        sql """insert into large_tablets values (50001, '{"c" : 10}')"""
-        sql """insert into large_tablets values (99999, '{"d" : 10}')"""
+        sql """insert into large_tablets values (1, ${variantV2Function}('{"a" : 10}'))"""
+        sql """insert into large_tablets values (3001, ${variantV2Function}('{"b" : 10}'))"""
+        sql """insert into large_tablets values (50001, ${variantV2Function}('{"c" : 10}'))"""
+        sql """insert into large_tablets values (99999, ${variantV2Function}('{"d" : 10}'))"""
         sql "select * from ${table_name} limit 1"
         sql """set max_fetch_remote_schema_tablet_count = 2"""
         sql "desc large_tablets"

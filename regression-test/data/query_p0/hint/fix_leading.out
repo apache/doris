@@ -243,6 +243,12 @@ Used: leading(t1 t2 t3 )
 UnUsed:
 SyntaxError:
 
+-- !select4_4 --
+1
+
+-- !select4_6 --
+1
+
 -- !select6_1 --
 PhysicalResultSink
 --hashAgg[GLOBAL]

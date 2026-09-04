@@ -65,8 +65,21 @@ std::string FileScanRequest::debug_string() const {
         }
         out << column_id << ":" << block_position;
     }
+    out << "}, non_predicate_positions={";
+    position_idx = 0;
+    for (const auto& [column_id, block_position] : non_predicate_positions) {
+        if (position_idx++ > 0) {
+            out << ", ";
+        }
+        out << column_id << ":" << block_position;
+    }
     out << "}, conjunct_count=" << conjuncts.size()
-        << ", delete_conjunct_count=" << delete_conjuncts.size()
+        << ", metadata_pruning_safe_conjunct_count=" << metadata_pruning_safe_conjunct_count
+        << ", constant_pruning_safe_table_filter_count=" << constant_pruning_safe_table_filter_count
+        << ", delete_conjunct_count=" << delete_conjuncts.size() << ", variant_schema_overrides="
+        << join_debug_strings(
+                   variant_schema_overrides,
+                   [](const LocalColumnIndex& projection) { return projection.debug_string(); })
         << ", count_star_placeholder_columns={";
     const char* delimiter = "";
     for (const auto column_id : count_star_placeholder_columns) {

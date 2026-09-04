@@ -17,13 +17,16 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsFalse;
@@ -31,11 +34,17 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.IsTrue;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -132,5 +141,97 @@ public class ExpressionAnalyzerTest {
         Expression isNotFalse = analyzer.analyze(new Not(new IsFalse(slot)));
         Assertions.assertInstanceOf(Not.class, isNotFalse);
         Assertions.assertInstanceOf(And.class, isNotFalse.child(0));
+    }
+
+    @Test
+    public void testStructElementAtCanonicalizesUnicodeSelector() {
+        StructType structType = new StructType(ImmutableList.of(
+                new StructField("Σ", "Σ", IntegerType.INSTANCE, true, "", false),
+                new StructField("ẞ", "ẞ", IntegerType.INSTANCE, true, "", false)));
+        SlotReference payload = new SlotReference(
+                new ExprId(1), "payload", structType, true, ImmutableList.of());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()),
+                null, true, true);
+
+        Expression analyzedSigma = analyzer.analyze(new ElementAt(payload, new StringLiteral("Σ")));
+        Expression analyzedSharpS = analyzer.analyze(new ElementAt(payload, new StringLiteral("ẞ")));
+
+        Assertions.assertInstanceOf(ElementAt.class, analyzedSigma);
+        Assertions.assertInstanceOf(ElementAt.class, analyzedSharpS);
+        // The BE receives the ROOT-normalized thrift name and cannot Unicode-fold the displayed spelling.
+        Assertions.assertEquals("σ", ((StringLikeLiteral) analyzedSigma.child(1)).getStringValue());
+        Assertions.assertEquals("ß", ((StringLikeLiteral) analyzedSharpS.child(1)).getStringValue());
+    }
+
+    @Test
+    public void testStructElementAtFunctionCanonicalizesUnicodeSelector() {
+        StructType structType = new StructType(ImmutableList.of(
+                new StructField("Σ", "Σ", IntegerType.INSTANCE, true, "", false)));
+        SlotReference payload = new SlotReference(
+                new ExprId(1), "payload", structType, true, ImmutableList.of());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()),
+                null, true, true);
+
+        Expression analyzed = analyzer.analyze(new UnboundFunction("element_at",
+                ImmutableList.of(payload, new StringLiteral("Σ"))));
+
+        Assertions.assertInstanceOf(ElementAt.class, analyzed);
+        Assertions.assertEquals("σ", ((StringLikeLiteral) analyzed.child(1)).getStringValue());
+    }
+
+    @Test
+    public void testStructDereferenceCanonicalizesUnicodeSelector() {
+        StructType structType = new StructType(ImmutableList.of(
+                new StructField("Σ", "Σ", IntegerType.INSTANCE, true, "", false)));
+        SlotReference payload = new SlotReference(
+                new ExprId(1), "payload", structType, true, ImmutableList.of());
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+        try {
+            CascadesContext cascadesContext = CascadesContext.initTempContext();
+            ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of(payload)),
+                    cascadesContext, true, true);
+
+            Expression analyzed = analyzer.analyze(new UnboundSlot("payload", "Σ"));
+
+            Assertions.assertInstanceOf(Alias.class, analyzed);
+            Assertions.assertInstanceOf(ElementAt.class, analyzed.child(0));
+            Assertions.assertEquals("σ", ((StringLikeLiteral) analyzed.child(0).child(1)).getStringValue());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testComputedStructDereferenceCanonicalizesUnicodeSelector() {
+        StructType structType = new StructType(ImmutableList.of(
+                new StructField("Σ", "Σ", IntegerType.INSTANCE, true, "", false)));
+        SlotReference payload = new SlotReference(
+                new ExprId(1), "payload", structType, true, ImmutableList.of());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()),
+                null, true, true);
+
+        Expression analyzed = analyzer.analyze(new DereferenceExpression(
+                new Cast(payload, structType), new StringLiteral("Σ")));
+
+        Assertions.assertInstanceOf(ElementAt.class, analyzed);
+        Assertions.assertEquals("σ", ((StringLikeLiteral) analyzed.child(1)).getStringValue());
+    }
+
+    @Test
+    public void testLegacyStructFieldCollisionRejectsAmbiguousSelector() {
+        org.apache.doris.catalog.StructType catalogType = new org.apache.doris.catalog.StructType(
+                new org.apache.doris.catalog.StructField(
+                        "ı", null, org.apache.doris.catalog.Type.INT, "", true, false),
+                new org.apache.doris.catalog.StructField(
+                        "i", null, org.apache.doris.catalog.Type.BIGINT, "", true, false));
+        StructType structType = (StructType) org.apache.doris.nereids.types.DataType.fromCatalogType(catalogType);
+        SlotReference payload = new SlotReference(
+                new ExprId(1), "payload", structType, true, ImmutableList.of());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()),
+                null, true, true);
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> analyzer.analyze(new ElementAt(payload, new StringLiteral("I"))));
     }
 }

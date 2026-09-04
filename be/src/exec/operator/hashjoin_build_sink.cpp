@@ -25,6 +25,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
+#include "exec/common/hash_table/hash_map_util.h"
 #include "exec/common/template_helpers.hpp"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/operator.h"
@@ -56,6 +57,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _task_idx = info.task_idx;
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
+    custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
 
     _build_expr_ctxs.resize(p._build_expr_ctxs.size());
     for (size_t i = 0; i < _build_expr_ctxs.size(); i++) {
@@ -111,8 +113,9 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
     _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelper>(
             _should_build_hash_table, p._is_broadcast_join);
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->init(
-            state, _build_expr_ctxs, p._runtime_filter_descs, p._child->row_desc()));
+    RETURN_IF_ERROR(
+            _runtime_filter_producer_helper->init(state, _build_expr_ctxs, p._runtime_filter_descs,
+                                                  p._child->operator_row_desc_after_projection()));
     return Status::OK();
 }
 
@@ -811,13 +814,16 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
             }
         }
     };
-    init_keep_column_flags(row_desc().tuple_descriptors(), _should_keep_column_flags);
-    RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, _child->row_desc()));
+    init_keep_column_flags(_child->operator_row_desc_after_projection().tuple_descriptors(),
+                           _should_keep_column_flags);
+    RETURN_IF_ERROR(
+            VExpr::prepare(_build_expr_ctxs, state, _child->operator_row_desc_after_projection()));
     // Prepare ASOF build-side expression against build child's row_desc directly.
     // match_condition is bound on input tuples, so child(1) references build child's slots.
     if (is_asof_join(_join_op)) {
         DORIS_CHECK(_asof_build_side_expr);
-        RETURN_IF_ERROR(_asof_build_side_expr->prepare(state, _child->row_desc()));
+        RETURN_IF_ERROR(_asof_build_side_expr->prepare(
+                state, _child->operator_row_desc_after_projection()));
         RETURN_IF_ERROR(_asof_build_side_expr->open(state));
     }
     return VExpr::open(_build_expr_ctxs, state);
@@ -833,8 +839,8 @@ Status HashJoinBuildSinkOperatorX::sink_impl(RuntimeState* state, Block* in_bloc
         // data from probe side.
 
         if (local_state._build_side_mutable_block.empty()) {
-            auto tmp_build_block =
-                    VectorizedUtils::create_empty_columnswithtypename(_child->row_desc());
+            auto tmp_build_block = VectorizedUtils::create_empty_columnswithtypename(
+                    _child->operator_row_desc_after_projection());
             tmp_build_block = *(tmp_build_block.create_same_struct_block(1, false));
             local_state._build_col_ids.resize(_build_expr_ctxs.size());
             RETURN_IF_ERROR(local_state._do_evaluate(tmp_build_block, local_state._build_expr_ctxs,

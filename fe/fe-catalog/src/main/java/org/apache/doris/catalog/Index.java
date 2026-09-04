@@ -43,6 +43,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Internal representation of index, including index type, name, columns and comments.
@@ -169,23 +170,25 @@ public class Index implements Writable {
     public boolean isLightIndexChangeSupported() {
         return indexType == IndexType.INVERTED
                 || indexType == IndexType.NGRAM_BF
+                || indexType == IndexType.BLOOMFILTER
                 || indexType == IndexType.ANN;
     }
 
     // Whether the index can be added in light mode
-    // cloud mode supports light add for ngram_bf index and non-tokenized inverted index (parser="none")
-    // local mode supports light add for inverted index, ann index and ngram_bf index
+    // cloud mode supports light add for bf index, ngram_bf index and non-tokenized inverted index (parser="none")
+    // local mode supports light add for bf index, inverted index, ann index and ngram_bf index
     // the rest of the index types do not support light add
     public boolean isLightAddIndexSupported(boolean enableAddIndexForNewData) {
         if (Config.isCloudMode()) {
             if (indexType == IndexType.INVERTED) {
                 return isInvertedIndexParserNone() && enableAddIndexForNewData;
-            } else if (indexType == IndexType.NGRAM_BF) {
+            } else if (indexType == IndexType.NGRAM_BF || indexType == IndexType.BLOOMFILTER) {
                 return enableAddIndexForNewData;
             }
             return false;
         }
-        return (indexType == IndexType.NGRAM_BF && enableAddIndexForNewData)
+        return ((indexType == IndexType.NGRAM_BF || indexType == IndexType.BLOOMFILTER)
+                && enableAddIndexForNewData)
                 || (indexType == IndexType.INVERTED) || (indexType == IndexType.ANN);
     }
 
@@ -272,30 +275,44 @@ public class Index implements Writable {
         return columnUniqueIds;
     }
 
-    public static void checkConflict(Collection<Index> indices, Set<String> bloomFilters) throws AnalysisException {
+    public static Set<String> getBfIndexColumns(Collection<Index> indexes) {
+        Set<String> bfIndexColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        if (indexes == null) {
+            return bfIndexColumns;
+        }
+        for (Index index : indexes) {
+            if (index.getIndexType() != IndexType.BLOOMFILTER) {
+                continue;
+            }
+            bfIndexColumns.addAll(index.getColumns());
+        }
+        return bfIndexColumns;
+    }
+
+    public static void checkConflict(Collection<Index> indices, Set<String> bfColumns) throws AnalysisException {
         indices = indices == null ? Collections.emptyList() : indices;
-        bloomFilters = bloomFilters == null ? Collections.emptySet() : bloomFilters;
-        Set<String> bfColumns = new HashSet<>();
+        bfColumns = bfColumns == null ? Collections.emptySet() : bfColumns;
+        Set<String> bfIndexColumns = new HashSet<>();
         for (Index index : indices) {
             if (IndexType.NGRAM_BF == index.getIndexType()
                     || IndexType.BLOOMFILTER == index.getIndexType()) {
                 for (String column : index.getColumns()) {
                     column = column.toLowerCase();
-                    if (bfColumns.contains(column)) {
+                    if (bfIndexColumns.contains(column)) {
                         throw new AnalysisException(column + " should have only one ngram bloom filter index or bloom "
                                 + "filter index");
                     }
-                    bfColumns.add(column);
+                    bfIndexColumns.add(column);
                 }
             }
         }
-        for (String column : bloomFilters) {
+        for (String column : bfColumns) {
             column = column.toLowerCase();
-            if (bfColumns.contains(column)) {
+            if (bfIndexColumns.contains(column)) {
                 throw new AnalysisException(column + " should have only one ngram bloom filter index or bloom "
                         + "filter index");
             }
-            bfColumns.add(column);
+            bfIndexColumns.add(column);
         }
     }
 

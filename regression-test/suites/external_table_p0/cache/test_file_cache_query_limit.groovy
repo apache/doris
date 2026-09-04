@@ -51,9 +51,23 @@ suite("test_file_cache_query_limit", "p0,external,nonConcurrent") {
     sql """set enable_file_cache=true"""
     sql """set disable_file_cache=false"""
 
-    // Check backend configuration prerequisites
     // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent
     // to testing with multiple backends having identical configurations, but simpler in logic.
+    // The assumption is load-bearing rather than cosmetic: the HTTP calls below clear and inspect one backend's
+    // file cache while the queries are served by the whole cluster, so with several backends the inspected cache
+    // never reflects what the query actually cached. Skip instead of reporting a false failure.
+    def aliveBackends = sql_return_maparray("show backends").findAll {
+        it.Alive.toString().equalsIgnoreCase("true")
+    }
+    if (aliveBackends.size() != 1) {
+        logger.info("skip test_file_cache_query_limit: it assumes a single backend, found ${aliveBackends.size()}")
+        return
+    }
+    // The backend HTTP/brpc endpoints must be addressed by the backend's own host. externalEnvIp is the
+    // third-party docker host (hive/es/...), which in a multi-host deployment runs no backend at all.
+    String beHost = aliveBackends[0].Host
+
+    // Check backend configuration prerequisites
     def enableFileCacheResult = sql """show backend config like 'enable_file_cache';"""
     logger.info("enable_file_cache configuration: " + enableFileCacheResult)
     assertFalse(enableFileCacheResult.size() == 0 || !enableFileCacheResult[0][3].equalsIgnoreCase("true"),
@@ -136,7 +150,7 @@ suite("test_file_cache_query_limit", "p0,external,nonConcurrent") {
     String brpc_port = brpcPortResult[0][3]
 
     // Search file cache capacity
-    def command = ["curl", "-X", "POST", "${externalEnvIp}:${brpc_port}/vars"]
+    def command = ["curl", "-X", "POST", "${beHost}:${brpc_port}/vars"]
     def stringCommand = command.collect{it.toString()}
     def process = new ProcessBuilder(stringCommand as String[]).redirectErrorStream(true).start()
 
@@ -161,7 +175,7 @@ suite("test_file_cache_query_limit", "p0,external,nonConcurrent") {
     logger.info("========================= Start running file cache base test ========================")
 
     // Clear file cache
-    command = ["curl", "-X", "POST", "${externalEnvIp}:${webserver_port}/api/file_cache?op=clear&sync=true"]
+    command = ["curl", "-X", "POST", "${beHost}:${webserver_port}/api/file_cache?op=clear&sync=true"]
     stringCommand = command.collect{it.toString()}
     process = new ProcessBuilder(stringCommand as String[]).redirectErrorStream(true).start()
 

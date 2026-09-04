@@ -219,11 +219,11 @@ suite("paimon_system_table", "p0,external") {
 
         test {
             sql """select * from ${tableName}\$snapshots FOR VERSION AS OF 1"""
-            exception "Paimon system tables do not support time travel"
+            exception "system tables do not support time travel"
         }
         test {
             sql """select * from ${tableName}\$snapshots FOR TIME AS OF "2024-07-11 16:01:57.425" """
-            exception "Paimon system tables do not support time travel"
+            exception "system tables do not support time travel"
         }
 
     } catch (Exception e) {

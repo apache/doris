@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.AnalysisException;
@@ -107,17 +108,12 @@ public abstract class ShowCommand extends Command implements Redirect {
             return Lists.newArrayList();
         }
 
-        long offsetValue = offset == -1L ? 0 : offset;
-        if (offsetValue >= showResult.size()) {
-            showResult = Lists.newArrayList();
-        } else if (limit != -1L) {
-            if ((limit + offsetValue) < showResult.size()) {
-                showResult = showResult.subList((int) offsetValue, (int) (limit + offsetValue));
-            } else {
-                showResult = showResult.subList((int) offsetValue, showResult.size());
-            }
+        if (limit == -1L) {
+            return showResult;
         }
-        return showResult;
+        // offset and limit are 64-bit; LimitElement.applyTo saturates the window in long before
+        // narrowing, so a value above Integer.MAX_VALUE cannot wrap into a bogus sub-list range.
+        return new LimitElement(offset == -1L ? 0 : offset, limit).applyTo(showResult);
     }
 
     @Override

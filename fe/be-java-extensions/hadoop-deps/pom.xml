@@ -67,10 +67,8 @@ under the License.
             <groupId>org.apache.hadoop.thirdparty</groupId>
             <artifactId>hadoop-shaded-protobuf_3_25</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.huaweicloud</groupId>
-            <artifactId>hadoop-huaweicloud</artifactId>
-        </dependency>
+        <!-- Huawei OBS: hadoop-huaweicloud lives in the `obs` profile below;
+             disabled via -Ddisable.obs=true (build.sh exclude-obs-dependencies flag). -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-client</artifactId>
@@ -95,16 +93,61 @@ under the License.
         </dependency>
     </dependencies>
 
-    <repositories>
-        <!-- for huawei obs sdk -->
-        <repository>
-            <id>huawei-obs-sdk</id>
-            <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
-        </repository>
-    </repositories>
+    <!-- Huawei OBS support. Active by default; disabled by -Ddisable.obs=true
+         (build.sh exclude-obs-dependencies flag), which drops the hadoop-huaweicloud dependency
+         and the Huawei Maven repository so nothing from com.huaweicloud is resolved or bundled. -->
+    <profiles>
+        <profile>
+            <id>obs</id>
+            <activation>
+                <property>
+                    <name>!disable.obs</name>
+                </property>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.huaweicloud</groupId>
+                    <artifactId>hadoop-huaweicloud</artifactId>
+                </dependency>
+            </dependencies>
+            <repositories>
+                <!-- for huawei obs sdk -->
+                <repository>
+                    <id>huawei-obs-sdk</id>
+                    <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+                </repository>
+            </repositories>
+        </profile>
+    </profiles>
 
     <build>
         <plugins>
+            <plugin>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-hadoop-version-for-patched-filesystem</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireProperty>
+                                    <property>hadoop.version</property>
+                                    <regex>3\.4\.2</regex>
+                                    <regexMessage>
+                                        hadoop-deps ships a patched copy of org.apache.hadoop.fs.FileSystem
+                                        (src/main/java/org/apache/hadoop/fs/FileSystem.java) taken verbatim from
+                                        hadoop-common 3.4.2 sources. Before upgrading hadoop.version, re-copy
+                                        FileSystem.java from the new hadoop-common sources jar and re-apply the
+                                        DORIS-PATCH hunks (grep for DORIS-PATCH), then update this enforcer regex.
+                                    </regexMessage>
+                                </requireProperty>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <artifactId>maven-jar-plugin</artifactId>
                 <configuration>

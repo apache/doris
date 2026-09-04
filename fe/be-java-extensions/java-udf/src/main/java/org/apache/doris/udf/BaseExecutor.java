@@ -109,8 +109,8 @@ public abstract class BaseExecutor {
             if (request.getFn().isSetExpirationTime()) {
                 expirationTime = request.getFn().getExpirationTime();
             }
-            objCache = getClassCache(jarPath, request.getFn().getSignature(), expirationTime,
-                    funcRetType, parameterTypes);
+            objCache = getClassCache(jarPath, request.getFn().getSignature(), request.getFn().getId(),
+                    expirationTime, funcRetType, parameterTypes);
             Constructor<?> ctor = objCache.udfClass.getConstructor();
             udf = ctor.newInstance();
         } catch (MalformedURLException e) {
@@ -131,13 +131,13 @@ public abstract class BaseExecutor {
     }
 
 
-    public UdfClassCache getClassCache(String jarPath, String signature, long expirationTime,
-            Type funcRetType, Type... parameterTypes)
+    public UdfClassCache getClassCache(String jarPath, String functionSignature, long functionId,
+            long expirationTime, Type funcRetType, Type... parameterTypes)
             throws MalformedURLException, FileNotFoundException, ClassNotFoundException, InternalException,
             UdfRuntimeException {
         UdfClassCache cache = null;
         if (isStaticLoad) {
-            cache = ScannerLoader.getUdfClassLoader(signature);
+            cache = ScannerLoader.getUdfClassLoader(functionId);
             if (cache != null) {
                 // Reuse the cached classLoader to ensure dependent classes can be loaded.
                 // NOTE: cache.classLoader may be null when the UDF was originally loaded via
@@ -166,7 +166,8 @@ public abstract class BaseExecutor {
             cache.classLoader = classLoader;
             checkAndCacheUdfClass(cache, funcRetType, parameterTypes);
             if (isStaticLoad) {
-                UdfClassCache effective = ScannerLoader.cacheClassLoader(signature, cache, expirationTime);
+                UdfClassCache effective = ScannerLoader.cacheClassLoader(
+                        functionSignature, functionId, cache, expirationTime);
                 if (effective != cache) {
                     // Another thread won the publish race. Our locally-built cache (and its
                     // URLClassLoader) was already closed inside cacheClassLoader(); switch to

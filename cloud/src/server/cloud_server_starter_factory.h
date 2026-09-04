@@ -30,6 +30,7 @@ namespace doris::cloud {
 class ICloudServerStarter {
 public:
     virtual ~ICloudServerStarter() = default;
+    virtual bool validate_config() = 0;
     virtual bool start() = 0;
     virtual void stop() = 0;
     virtual void join() = 0;

@@ -17,13 +17,15 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorProvider;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Static factory providing access to the {@link ConnectorPluginManager}.
@@ -74,6 +76,39 @@ public final class ConnectorFactory {
         return mgr.createConnector(catalogType, properties, context);
     }
 
+    /**
+     * Creates a connector to back a standalone catalog. Same as {@link #createConnector} except that a
+     * sibling-only connector (one declaring {@code isStandaloneCatalogType() == false}) is not eligible.
+     * Use this on every path that builds a catalog; use {@link #createConnector} for sibling lookup.
+     *
+     * @return a ready-to-use Connector, or {@code null} if no provider claims the type as a standalone catalog
+     */
+    public static Connector createStandaloneCatalogConnector(
+            String catalogType, Map<String, String> properties, ConnectorContext context) {
+        ConnectorPluginManager mgr = pluginManager;
+        if (mgr == null) {
+            LOG.debug("ConnectorPluginManager not initialized, returning null for type: {}",
+                    catalogType);
+            return null;
+        }
+        return mgr.createStandaloneCatalogConnector(catalogType, properties, context);
+    }
+
+    /**
+     * Finds the provider that would back a catalog of this type, without creating (and therefore without
+     * initializing) a connector. Empty when the plugin manager is not initialized yet or no provider matches.
+     *
+     * @see ConnectorPluginManager#findProvider
+     */
+    public static Optional<ConnectorProvider> findProvider(
+            String catalogType, Map<String, String> properties) {
+        ConnectorPluginManager mgr = pluginManager;
+        if (mgr == null) {
+            return Optional.empty();
+        }
+        return mgr.findProvider(catalogType, properties);
+    }
+
     /** Returns true if the plugin manager has been initialized. */
     public static boolean isInitialized() {
         return pluginManager != null;
@@ -88,6 +123,15 @@ public final class ConnectorFactory {
         return mgr.getRegisteredTypes();
     }
 
+    /** Returns the registered types that can be named by {@code CREATE CATALOG}, sorted. */
+    public static java.util.List<String> getStandaloneCatalogTypes() {
+        ConnectorPluginManager mgr = pluginManager;
+        if (mgr == null) {
+            return java.util.Collections.emptyList();
+        }
+        return mgr.getStandaloneCatalogTypes();
+    }
+
     /**
      * Validates catalog properties using the matching provider.
      * Does nothing if no provider matches or plugin manager is not initialized.
@@ -99,6 +143,15 @@ public final class ConnectorFactory {
         ConnectorPluginManager mgr = pluginManager;
         if (mgr != null) {
             mgr.validateProperties(catalogType, properties);
+        }
+    }
+
+    /** Validates an ALTER candidate through the matching connector provider. */
+    public static void validatePropertiesForUpdate(String catalogType,
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        ConnectorPluginManager mgr = pluginManager;
+        if (mgr != null) {
+            mgr.validatePropertiesForUpdate(catalogType, currentProperties, updatedProperties);
         }
     }
 

@@ -17,9 +17,11 @@
 
 package org.apache.doris.service.arrowflight.sessions;
 
+import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectPoolMgr;
+import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -55,10 +57,26 @@ public class FlightSqlConnectPoolMgr extends ConnectPoolMgr {
 
     @Override
     public void unregisterConnection(ConnectContext ctx) {
+        // All Flight SQL session teardown paths (idle/query timeout, bearer token expiry, and
+        // explicit CloseSession) reach here. Release channel-cached Arrow results before removing
+        // the context from the pool.
+        FlightSqlChannel flightSqlChannel = ctx.getFlightSqlChannel();
+        if (flightSqlChannel != null) {
+            try {
+                flightSqlChannel.close();
+            } catch (Throwable t) {
+                // RootAllocator.close() marks the allocator closed before it reports outstanding
+                // bytes. The error is actionable, but session teardown must still release the
+                // coordinator, transaction and pool/token bookkeeping below.
+                // For an Arrow Flight SQL connection the peer identity IS the bearer token, so it is
+                // logged as a masked id, the same one FlightTokenManagerImpl uses.
+                LOG.warn("failed to close Flight SQL channel while unregistering connection {}, peer identity {}",
+                        ctx.getConnectionId(), TokenMasker.tokenId(ctx.getPeerIdentity()), t);
+            }
+        }
         // Finalize any Arrow Flight query whose coordinator was kept alive across the
         // GetFlightInfo -> DoGet phases (see #62259), releasing its resources (e.g. external-table
-        // batch SplitSources and the query queue slot) when the connection is torn down: idle/query
-        // timeout, bearer token expiry, or explicit CloseSession all reach here.
+        // batch SplitSources and the query queue slot).
         ctx.closeFlightSqlDeferredExecutors();
         ctx.closeTxn();
         if (connectionMap.remove(ctx.getConnectionId()) != null) {

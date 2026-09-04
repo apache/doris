@@ -77,13 +77,27 @@ auto date_time_add(const typename PrimitiveTypeTraits<ArgType>::DataType::FieldT
                    IntervalType delta) {
     // e.g.: for DatatypeDatetimeV2, cast from u64 to DateV2Value<DateTimeV2ValueType>
     auto ts_value = t;
-    TimeInterval interval(unit, std::abs(delta), delta < 0);
-    if (!(ts_value.template date_add_interval<unit>(interval))) [[unlikely]] {
-        throw_out_of_bound_date_int(get_time_unit_name(unit), t, delta);
-    }
+    if constexpr ((unit == TimeUnit::DAY || unit == TimeUnit::WEEK) &&
+                  is_date_v2_or_datetime_v2(ArgType)) {
+        // DAY / WEEK only move the date part. `date_add_days` is inline, so the whole per-row
+        // computation folds into the caller's loop: no TimeInterval, no second-level arithmetic,
+        // just two L1-resident dictionary lookups. The input comes from a column and is already
+        // a valid date, so the per-row validity pre-check is skipped (DCHECK'd in debug builds);
+        // the result is still range-checked.
+        const int64_t days = static_cast<int64_t>(delta) * (unit == TimeUnit::WEEK ? 7 : 1);
+        if (!ts_value.template date_add_days<false>(days)) [[unlikely]] {
+            throw_out_of_bound_date_int(get_time_unit_name(unit), t, delta);
+        }
+        return ts_value;
+    } else {
+        TimeInterval interval(unit, std::abs(delta), delta < 0);
+        if (!(ts_value.template date_add_interval<unit>(interval))) [[unlikely]] {
+            throw_out_of_bound_date_int(get_time_unit_name(unit), t, delta);
+        }
 
-    // here DateValueType = ResultDateValueType
-    return ts_value;
+        // here DateValueType = ResultDateValueType
+        return ts_value;
+    }
 }
 
 #define ADD_TIME_FUNCTION_IMPL(CLASS, NAME, UNIT)                                                 \

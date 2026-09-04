@@ -111,10 +111,16 @@ public class TabletSchedulerStat {
     public AtomicLong counterReplicaMissingForTagErr = new AtomicLong(0L);
     @StatField("num of balance scheduled")
     public AtomicLong counterBalanceSchedule = new AtomicLong(0L);
+    @StatField("num of BE balance rejected for zero data size")
+    public AtomicLong counterBalanceRejectByZeroDataSize = new AtomicLong(0L);
     @StatField("num of colocate replica mismatch")
     public AtomicLong counterReplicaColocateMismatch = new AtomicLong(0L);
     @StatField("num of colocate replica redundant")
     public AtomicLong counterReplicaColocateRedundant = new AtomicLong(0L);
+    @StatField("num of row binlog replica mismatch")
+    public AtomicLong counterReplicaRowBinlogMismatch = new AtomicLong(0L);
+    @StatField("num of row binlog replica redundant")
+    public AtomicLong counterReplicaRowBinlogRedundant = new AtomicLong(0L);
 
     private TabletSchedulerStat lastSnapshot = null;
 

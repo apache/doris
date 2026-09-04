@@ -348,7 +348,7 @@ suite("test_iceberg_rewrite_manifests", "p0,external") {
             ALTER TABLE ${catalog_name}.${db_name}.${table_name}
             EXECUTE rewrite_manifests() WHERE id > 0
         """
-        exception "Action 'rewrite_manifests' does not support WHERE condition"
+        exception "WHERE condition is not supported for this EXECUTE action"
     }
 
     // Test on non-existent table

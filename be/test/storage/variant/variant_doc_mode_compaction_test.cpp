@@ -250,7 +250,7 @@ protected:
         EXPECT_TRUE(res.has_value()) << res.error();
         auto rowset_writer = std::move(res).value();
 
-        Block block = tablet_schema->create_block();
+        Block block = tablet_schema->create_storage_block();
         auto columns = std::move(block).mutate_columns();
         auto* variant_col = assert_cast<ColumnVariant*>(columns[1].get());
         auto raw_json_column = ColumnString::create();
@@ -427,11 +427,13 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
             input_reader_context.tablet_schema = tablet_schema;
             input_reader_context.need_ordered_result = false;
             std::vector<uint32_t> input_return_columns = {1};
-            input_reader_context.return_columns = &input_return_columns;
+            auto input_read_schema = std::make_shared<ReadSchema>(
+                    project_columns_by_ordinal(tablet_schema->columns(), input_return_columns));
+            input_reader_context.read_schema = input_read_schema;
             RowsetReaderSharedPtr input_rs_reader;
             create_and_init_rowset_reader(rowset.get(), input_reader_context, &input_rs_reader);
 
-            Block input_block = tablet_schema->create_block_by_cids(input_return_columns);
+            Block input_block = input_read_schema->create_read_block();
             auto st = input_rs_reader->next_batch(&input_block);
             ASSERT_TRUE(st.ok()) << st.to_json();
             ASSERT_EQ(1, input_block.columns());
@@ -474,14 +476,16 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
     reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
     std::vector<uint32_t> return_columns = {0};
-    reader_context.return_columns = &return_columns;
+    auto read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+    reader_context.read_schema = read_schema;
     RowsetReaderSharedPtr output_rs_reader;
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
     int64_t total_rows = 0;
     Status s = Status::OK();
     while (s.ok()) {
-        Block output_block = tablet_schema->create_block_by_cids(return_columns);
+        Block output_block = read_schema->create_read_block();
         s = output_rs_reader->next_batch(&output_block);
         if (s.ok()) {
             total_rows += output_block.rows();

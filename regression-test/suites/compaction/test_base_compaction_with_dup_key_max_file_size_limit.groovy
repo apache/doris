@@ -109,6 +109,13 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
             return out
         }
 
+        def getBaseCompactionStatus = { be_host, be_http_port, tablet_id ->
+            def (statusCode, statusOut, statusErr) = be_show_tablet_status(be_host, be_http_port, tablet_id)
+            logger.info("Show compaction status: code=" + statusCode + ", out=" + statusOut + ", err=" + statusErr)
+            assertEquals(0, statusCode)
+            return parseJson(statusOut.trim())["last base status"].toString()
+        }
+
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -183,9 +190,24 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         //      [0-3] 2G nooverlapping
         //      [4-4] 1G nooverlapping
         // cp: 5
-        // WHAT: replace with plugin and handle fail?
-        assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
-                    "base", tablet_id).contains("E-808"));
+        String trigger_backend_host = backendId_to_backendIP[trigger_backend_id]
+        String trigger_backend_http_port = backendId_to_backendHttpPort[trigger_backend_id]
+        def baseCompactionResult = triggerCompaction(trigger_backend_host, trigger_backend_http_port,
+                    "base", tablet_id)
+        String lastBaseStatus = baseCompactionResult
+        if (!baseCompactionResult.contains("E-808")) {
+            // Manual compaction may return success after its 2s async wait before
+            // the background task records BE_NO_SUITABLE_VERSION.
+            for (int i = 0; i < 300; i++) {
+                lastBaseStatus = getBaseCompactionStatus(trigger_backend_host, trigger_backend_http_port, tablet_id)
+                if (lastBaseStatus.contains("E-808")) {
+                    break
+                }
+                sleep(1000)
+            }
+        }
+        assertTrue(lastBaseStatus.contains("E-808"),
+                "base compaction result does not contain E-808, result=${baseCompactionResult}, lastBaseStatus=${lastBaseStatus}");
 
         def rowCount = sql "select count(*) from ${tableName}"
         assertTrue(rowCount[0][0] != rows)

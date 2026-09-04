@@ -118,7 +118,9 @@ struct StructImpl {
     static void check_number_of_arguments(size_t number_of_arguments) {}
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return std::make_shared<DataTypeStruct>(make_nullable(arguments));
+        // FE plans the same child-nullability contract, so widening fields here makes the
+        // serialized plan disagree with BE's inferred result type.
+        return std::make_shared<DataTypeStruct>(arguments);
     }
 };
 
@@ -139,7 +141,8 @@ struct NamedStructImpl {
             data_types[i] = arguments[even_idx];
             even_idx += 2;
         }
-        return std::make_shared<DataTypeStruct>(make_nullable(data_types));
+        // Preserve value nullability just like struct(); field-name arguments do not affect it.
+        return std::make_shared<DataTypeStruct>(data_types);
     }
 };
 

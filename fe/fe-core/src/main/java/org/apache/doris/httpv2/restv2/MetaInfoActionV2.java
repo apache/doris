@@ -29,6 +29,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -83,7 +84,9 @@ public class MetaInfoActionV2 extends RestBaseController {
             method = {RequestMethod.GET})
     public Object getAllCatalogs(
             HttpServletRequest request, HttpServletResponse response) {
-        checkWithCookie(request, response, false);
+        // Authenticate; the per-object SHOW filters below authorize. See checkInstanceOverdueIfCloud.
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkInstanceOverdueIfCloud(authInfo.userIdentity);
 
         // 1. get all catalogs with privilege
         List<CatalogIf> ctls = Env.getCurrentEnv().getCatalogMgr()
@@ -117,7 +120,9 @@ public class MetaInfoActionV2 extends RestBaseController {
     public Object getAllDatabases(
             @PathVariable(value = NS_KEY) String ns,
             HttpServletRequest request, HttpServletResponse response) {
-        checkWithCookie(request, response, false);
+        // Authenticate; the per-object SHOW filters below authorize. See checkInstanceOverdueIfCloud.
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkInstanceOverdueIfCloud(authInfo.userIdentity);
 
         String catalogName = ns.equalsIgnoreCase("default_cluster") ? InternalCatalog.INTERNAL_CATALOG_NAME : ns;
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
@@ -131,7 +136,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         for (String fullName : dbNames) {
             final String db = fullName;
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullName,
+                    .checkDbPriv(ConnectContext.get(), catalogName, fullName,
                             PrivPredicate.SHOW)) {
                 continue;
             }
@@ -162,7 +167,9 @@ public class MetaInfoActionV2 extends RestBaseController {
     public Object getTables(
             @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response) {
-        checkWithCookie(request, response, false);
+        // Authenticate; the per-object SHOW filters below authorize. See checkInstanceOverdueIfCloud.
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkInstanceOverdueIfCloud(authInfo.userIdentity);
 
         String catalogName = ns.equalsIgnoreCase("default_cluster") ? InternalCatalog.INTERNAL_CATALOG_NAME : ns;
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
@@ -182,7 +189,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         try {
             for (TableIf tbl : db.getTables()) {
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                        .checkTblPriv(ConnectContext.get(), catalogName, dbName,
                                 tbl.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
@@ -234,7 +241,9 @@ public class MetaInfoActionV2 extends RestBaseController {
             @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tblName,
             HttpServletRequest request, HttpServletResponse response) throws UserException {
-        checkWithCookie(request, response, false);
+        // Authenticate; the per-object SHOW filters below authorize. See checkInstanceOverdueIfCloud.
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkInstanceOverdueIfCloud(authInfo.userIdentity);
 
         String catalogName = ns.equalsIgnoreCase("default_cluster") ? InternalCatalog.INTERNAL_CATALOG_NAME : ns;
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);

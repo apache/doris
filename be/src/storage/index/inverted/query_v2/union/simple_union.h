@@ -62,4 +62,9 @@ auto make_simple_union(std::vector<TDocSet> docsets) {
     return SimpleUnion<TDocSet>::create(std::move(docsets));
 }
 
+/// Instantiated once in simple_union.cpp; suppresses per-TU implicit instantiation.
+extern template class SimpleUnion<MockDocSetPtr>;
+extern template class SimpleUnion<PostingsPtr>;
+extern template class SimpleUnion<SegmentPostingsPtr>;
+
 } // namespace doris::segment_v2::inverted_index::query_v2

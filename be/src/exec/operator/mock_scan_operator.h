@@ -102,5 +102,10 @@ public:
 private:
     std::list<Block> _output_blocks;
 };
+
+/// Instantiated once in scan_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class ScanOperatorX<MockScanLocalState>;
+extern template class ScanLocalState<MockScanLocalState>;
+
 } // namespace doris
 #endif

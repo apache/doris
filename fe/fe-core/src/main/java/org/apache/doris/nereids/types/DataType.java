@@ -467,9 +467,9 @@ public abstract class DataType {
 
         if (type.isStructType()) {
             List<StructField> structFields = ((org.apache.doris.catalog.StructType) (type)).getFields().stream()
-                    .map(cf -> new StructField(cf.getName(), fromCatalogType(cf.getType()),
+                    .map(cf -> new StructField(cf.getName(), cf.getOriginalName(), fromCatalogType(cf.getType()),
                             cf.getContainsNull(), cf.getComment() == null ? "" : cf.getComment(),
-                            cf.isCommentSpecified()))
+                            cf.isCommentSpecified(), !cf.hasOriginalName()))
                     .collect(ImmutableList.toImmutableList());
             return new StructType(structFields);
         } else if (type.isMapType()) {
@@ -481,6 +481,11 @@ public abstract class DataType {
         } else if (type.isVariantType()) {
             // In the past, variant metadata used the ScalarType type.
             // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+            if (type instanceof org.apache.doris.datasource.connector.converter.ConnectorComputeVariantType) {
+                // The execution marker is recursive through complex-type conversion and must survive
+                // catalog -> Nereids -> tuple translation independently of the storage format default.
+                return ConnectorComputeVariantType.INSTANCE;
+            }
             if (type instanceof org.apache.doris.catalog.VariantType) {
                 List<VariantField> variantFields = ((org.apache.doris.catalog.VariantType) type)
                         .getPredefinedFields().stream()

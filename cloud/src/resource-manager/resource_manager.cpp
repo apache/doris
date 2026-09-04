@@ -109,6 +109,9 @@ int ResourceManager::init() {
 
     std::unique_lock l(mtx_);
     for (auto& [inst_id, inst] : instances) {
+        if (inst.status() == InstanceInfoPB::DELETED) {
+            continue;
+        }
         for (auto& c : inst.clusters()) {
             add_cluster_to_index_no_lock(inst_id, c);
         }
@@ -193,12 +196,22 @@ bool ResourceManager::validate_nodes(const ClusterPB& cluster, std::string* err,
         // check here cloud_unique_id
         std::string cloud_unique_id = n.cloud_unique_id();
         auto [is_degrade_format, instance_id] = get_instance_id_by_cloud_unique_id(cloud_unique_id);
-        if (config::enable_check_instance_id && is_degrade_format &&
-            !is_instance_id_registered(instance_id)) {
-            ss << "node=" << n.DebugString()
-               << " cloud_unique_id use degrade format, but check instance failed";
-            *err = ss.str();
-            return false;
+        if (config::enable_check_instance_id && is_degrade_format) {
+            InstanceInfoPB instance;
+            auto [code, msg] = get_instance(nullptr, instance_id, &instance);
+            { TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &code); }
+            if (code == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                *err = "node=" + n.DebugString() +
+                       " cloud_unique_id use degrade format, but instance is not registered";
+                LOG(WARNING) << *err << ", cloud_unique_id=" << cloud_unique_id;
+                return false;
+            }
+            if (instance.has_status() && instance.status() == InstanceInfoPB::DELETED) {
+                *err = "instance status has been set delete, plz check it, recycle_state=" +
+                       InstanceRecycleState_Name(instance.recycle_state());
+                LOG(WARNING) << *err << ", cloud_unique_id=" << cloud_unique_id;
+                return false;
+            }
         }
         if (ClusterPB::SQL == cluster.type() && n.has_edit_log_port() && n.edit_log_port() &&
             n.has_node_type() &&
@@ -371,7 +384,7 @@ bool ResourceManager::is_instance_id_registered(const std::string& instance_id) 
         LOG(WARNING) << "failed to check instance instance_id=" << instance_id
                      << ", code=" << format_as(c0) << ", info=" + m0;
     }
-    return c0 == TxnErrorCode::TXN_OK;
+    return c0 != TxnErrorCode::TXN_KEY_NOT_FOUND;
 }
 
 /**
@@ -1427,6 +1440,12 @@ void ResourceManager::refresh_instance(const std::string& instance_id,
         } else {
             ++i;
         }
+    }
+
+    if (instance.status() == InstanceInfoPB::DELETED) {
+        instance_multi_version_status_.erase(instance_id);
+        instance_source_snapshot_info_.erase(instance_id);
+        return;
     }
 
     // If successor_instance_id is set, it means this instance has a successor instance,

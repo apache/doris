@@ -61,8 +61,9 @@ public class AccessControllerManager {
     private Auth auth;
     // Default access controller instance used for handling cases where no specific controller is specified
     private CatalogAccessController defaultAccessController;
-    // Map that stores the mapping between catalogs and their corresponding access controllers
-    private Map<String, CatalogAccessController> ctlToCtlAccessController = Maps.newConcurrentMap();
+    // A catalog name can be reused after DROP. Keep the catalog id next to the controller so cleanup from
+    // an old catalog generation can never remove or close the replacement generation's controller.
+    private Map<String, CatalogAccessControllerEntry> ctlToCtlAccessController = Maps.newConcurrentMap();
     // Cache of loaded access controller factories for quick creation of new access controllers
     private ConcurrentHashMap<String, AccessControllerFactory> accessControllerFactoriesCache
             = new ConcurrentHashMap<>();
@@ -74,7 +75,24 @@ public class AccessControllerManager {
         loadAccessControllerPlugins();
         String accessControllerName = Config.access_controller_type;
         this.defaultAccessController = loadAccessControllerOrThrow(accessControllerName);
-        ctlToCtlAccessController.put(InternalCatalog.INTERNAL_CATALOG_NAME, defaultAccessController);
+        ctlToCtlAccessController.put(InternalCatalog.INTERNAL_CATALOG_NAME,
+                new CatalogAccessControllerEntry(
+                        InternalCatalog.INTERNAL_CATALOG_ID, defaultAccessController, false));
+    }
+
+    private static final class CatalogAccessControllerEntry {
+        private final long catalogId;
+        private final CatalogAccessController accessController;
+        // The default controller is shared with the internal catalog. Catalog aliases must detach it but never
+        // close it when an external catalog is reset or dropped.
+        private final boolean owned;
+
+        private CatalogAccessControllerEntry(
+                long catalogId, CatalogAccessController accessController, boolean owned) {
+            this.catalogId = catalogId;
+            this.accessController = accessController;
+            this.owned = owned;
+        }
     }
 
     private CatalogAccessController loadAccessControllerOrThrow(String accessControllerName) {
@@ -116,26 +134,66 @@ public class AccessControllerManager {
     }
 
     public CatalogAccessController getAccessControllerOrDefault(String ctl) {
-        CatalogAccessController catalogAccessController = ctlToCtlAccessController.get(ctl);
-        if (catalogAccessController != null) {
-            return catalogAccessController;
+        if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctl)) {
+            return defaultAccessController;
         }
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctl);
         if (catalog != null && catalog instanceof ExternalCatalog) {
+            CatalogAccessControllerEntry entry = ctlToCtlAccessController.get(ctl);
+            if (entry != null && entry.catalogId == catalog.getId()) {
+                return entry.accessController;
+            }
             lazyLoadCtlAccessController((ExternalCatalog) catalog);
-            return ctlToCtlAccessController.get(ctl);
+            entry = ctlToCtlAccessController.get(ctl);
+            if (entry != null && entry.catalogId == catalog.getId()) {
+                return entry.accessController;
+            }
         }
 
         return defaultAccessController;
     }
 
-    private synchronized void lazyLoadCtlAccessController(ExternalCatalog catalog) {
-        if (ctlToCtlAccessController.containsKey(catalog.getName())) {
+    private void lazyLoadCtlAccessController(ExternalCatalog catalog) {
+        CatalogAccessControllerEntry staleEntry = null;
+        synchronized (this) {
+            if (!isCurrentCatalog(catalog)) {
+                return;
+            }
+            CatalogAccessControllerEntry entry = ctlToCtlAccessController.get(catalog.getName());
+            if (entry != null && entry.catalogId == catalog.getId()) {
+                return;
+            }
+            if (entry != null && ctlToCtlAccessController.remove(catalog.getName(), entry)) {
+                staleEntry = entry;
+            }
+        }
+        closeEntry(catalog.getName(), staleEntry);
+
+        catalog.initAccessController(false);
+
+        CatalogAccessControllerEntry displaced = null;
+        boolean stillCurrent;
+        synchronized (this) {
+            stillCurrent = isCurrentCatalog(catalog);
+            if (stillCurrent) {
+                CatalogAccessControllerEntry entry = ctlToCtlAccessController.get(catalog.getName());
+                if (entry == null || entry.catalogId != catalog.getId()) {
+                    displaced = ctlToCtlAccessController.put(catalog.getName(),
+                            new CatalogAccessControllerEntry(catalog.getId(), defaultAccessController, false));
+                }
+            }
+        }
+        closeEntry(catalog.getName(), displaced);
+        if (!stillCurrent) {
+            // A DROP can complete while initAccessController() is constructing the plugin. The custom
+            // publication path performs the same post-publication check; this also covers the fallback path.
+            removeAccessController(catalog.getName(), catalog.getId());
             return;
         }
-        catalog.initAccessController(false);
-        if (!ctlToCtlAccessController.containsKey(catalog.getName())) {
-            ctlToCtlAccessController.put(catalog.getName(), defaultAccessController);
+        // If DROP won immediately after the synchronized publication, its onClose() removes this id. If DROP
+        // already completed before publication, this final identity check removes the orphan ourselves.
+        if (!isCurrentCatalog(catalog)) {
+            removeAccessController(catalog.getName(), catalog.getId());
         }
     }
 
@@ -143,15 +201,43 @@ public class AccessControllerManager {
         return ctlToCtlAccessController.containsKey(ctl);
     }
 
-    public void createAccessController(String ctl, String acFactoryClassName, Map<String, String> prop,
+    public void createAccessController(ExternalCatalog catalog, String acFactoryClassName, Map<String, String> prop,
                                        boolean isDryRun) {
         String pluginIdentifier = getPluginIdentifierForAccessController(acFactoryClassName);
         CatalogAccessController accessController = accessControllerFactoriesCache.get(pluginIdentifier)
                 .createAccessController(prop);
-        if (!isDryRun) {
-            ctlToCtlAccessController.put(ctl, accessController);
-            LOG.info("create access controller {} for catalog {}", acFactoryClassName, ctl);
+        if (isDryRun) {
+            closeAccessController(catalog.getName(), accessController);
+            return;
         }
+
+        CatalogAccessControllerEntry displaced = null;
+        boolean installed = false;
+        synchronized (this) {
+            if (isCurrentCatalog(catalog)) {
+                CatalogAccessControllerEntry current = ctlToCtlAccessController.get(catalog.getName());
+                if (current == null || current.catalogId != catalog.getId()) {
+                    displaced = ctlToCtlAccessController.put(catalog.getName(),
+                            new CatalogAccessControllerEntry(catalog.getId(), accessController, true));
+                    installed = true;
+                }
+            }
+        }
+        closeEntry(catalog.getName(), displaced);
+        if (!installed) {
+            closeAccessController(catalog.getName(), accessController);
+            return;
+        }
+        LOG.info("create access controller {} for catalog {}:{}",
+                acFactoryClassName, catalog.getName(), catalog.getId());
+        if (!isCurrentCatalog(catalog)) {
+            removeAccessController(catalog.getName(), catalog.getId());
+        }
+    }
+
+    private boolean isCurrentCatalog(ExternalCatalog catalog) {
+        CatalogIf currentCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalog.getName());
+        return currentCatalog == catalog && currentCatalog.getId() == catalog.getId();
     }
 
     private String getPluginIdentifierForAccessController(String acClassName) {
@@ -168,14 +254,41 @@ public class AccessControllerManager {
         return pluginIdentifier;
     }
 
-    public void removeAccessController(String ctl) {
+    public void removeAccessController(String ctl, long catalogId) {
+        detachAccessController(ctl, catalogId).run();
+    }
+
+    /**
+     * Atomically detach the controller owned by one catalog generation. The returned cleanup can be executed
+     * after the caller releases CatalogMgr's global lock, so a slow plugin close never blocks unrelated DDL.
+     */
+    public Runnable detachAccessController(String ctl, long catalogId) {
         if (StringUtils.isBlank(ctl)) {
+            return () -> { };
+        }
+        CatalogAccessControllerEntry entry = ctlToCtlAccessController.get(ctl);
+        if (entry == null || entry.catalogId != catalogId || !ctlToCtlAccessController.remove(ctl, entry)) {
+            return () -> { };
+        }
+        LOG.info("detach access controller for catalog {}:{}", ctl, catalogId);
+        return () -> closeEntry(ctl, entry);
+    }
+
+    private void closeEntry(String ctl, CatalogAccessControllerEntry entry) {
+        if (entry == null || !entry.owned || entry.accessController == defaultAccessController) {
             return;
         }
-        if (ctlToCtlAccessController.containsKey(ctl)) {
-            ctlToCtlAccessController.remove(ctl);
+        closeAccessController(ctl, entry.accessController);
+    }
+
+    private void closeAccessController(String ctl, CatalogAccessController accessController) {
+        try {
+            accessController.close();
+        } catch (Throwable e) {
+            // Access-controller plugins are external code. A faulty cleanup must not prevent the catalog
+            // lifecycle from releasing its own resources.
+            LOG.warn("Failed to close access controller for catalog {}", ctl, e);
         }
-        LOG.info("remove access controller for catalog {}", ctl);
     }
 
     public Auth getAuth() {

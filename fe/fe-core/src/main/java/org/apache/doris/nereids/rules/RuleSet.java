@@ -67,20 +67,16 @@ import org.apache.doris.nereids.rules.implementation.LogicalConnectorTableSinkTo
 import org.apache.doris.nereids.rules.implementation.LogicalDictionarySinkToPhysicalDictionarySink;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
+import org.apache.doris.nereids.rules.implementation.LogicalExternalRowLevelDeleteSinkToPhysicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.rules.implementation.LogicalExternalRowLevelMergeSinkToPhysicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.rules.implementation.LogicalFileScanToPhysicalFileScan;
 import org.apache.doris.nereids.rules.implementation.LogicalFileSinkToPhysicalFileSink;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalGenerateToPhysicalGenerate;
-import org.apache.doris.nereids.rules.implementation.LogicalHiveTableSinkToPhysicalHiveTableSink;
-import org.apache.doris.nereids.rules.implementation.LogicalHudiScanToPhysicalHudiScan;
-import org.apache.doris.nereids.rules.implementation.LogicalIcebergDeleteSinkToPhysicalIcebergDeleteSink;
-import org.apache.doris.nereids.rules.implementation.LogicalIcebergMergeSinkToPhysicalIcebergMergeSink;
-import org.apache.doris.nereids.rules.implementation.LogicalIcebergTableSinkToPhysicalIcebergTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalIntersectToPhysicalIntersect;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
-import org.apache.doris.nereids.rules.implementation.LogicalMaxComputeTableSinkToPhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalOdbcScanToPhysicalOdbcScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapTableSinkToPhysicalOlapTableSink;
@@ -200,7 +196,6 @@ public class RuleSet {
             .add(new LogicalJoinToNestedLoopJoin())
             .add(new LogicalOlapScanToPhysicalOlapScan())
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
-            .add(new LogicalHudiScanToPhysicalHudiScan())
             .add(new LogicalFileScanToPhysicalFileScan())
             .add(new LogicalOdbcScanToPhysicalOdbcScan())
             .add(new LogicalWorkTableReferenceToPhysicalWorkTableReference())
@@ -226,11 +221,8 @@ public class RuleSet {
             .add(new LogicalIntersectToPhysicalIntersect())
             .add(new LogicalGenerateToPhysicalGenerate())
             .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
-            .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
-            .add(new LogicalIcebergTableSinkToPhysicalIcebergTableSink())
-            .add(new LogicalMaxComputeTableSinkToPhysicalMaxComputeTableSink())
-            .add(new LogicalIcebergDeleteSinkToPhysicalIcebergDeleteSink())
-            .add(new LogicalIcebergMergeSinkToPhysicalIcebergMergeSink())
+            .add(new LogicalExternalRowLevelDeleteSinkToPhysicalExternalRowLevelDeleteSink())
+            .add(new LogicalExternalRowLevelMergeSinkToPhysicalExternalRowLevelMergeSink())
             .add(new LogicalConnectorTableSinkToPhysicalConnectorTableSink())
             .add(new LogicalFileSinkToPhysicalFileSink())
             .add(new LogicalResultSinkToPhysicalResultSink())
@@ -249,7 +241,6 @@ public class RuleSet {
             .add(new LogicalJoinToNestedLoopJoin())
             .add(new LogicalOlapScanToPhysicalOlapScan())
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
-            .add(new LogicalHudiScanToPhysicalHudiScan())
             .add(new LogicalFileScanToPhysicalFileScan())
             .add(new LogicalOdbcScanToPhysicalOdbcScan())
             .add(new LogicalWorkTableReferenceToPhysicalWorkTableReference())
@@ -274,11 +265,8 @@ public class RuleSet {
             .add(new LogicalIntersectToPhysicalIntersect())
             .add(new LogicalGenerateToPhysicalGenerate())
             .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
-            .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
-            .add(new LogicalIcebergTableSinkToPhysicalIcebergTableSink())
-            .add(new LogicalMaxComputeTableSinkToPhysicalMaxComputeTableSink())
-            .add(new LogicalIcebergDeleteSinkToPhysicalIcebergDeleteSink())
-            .add(new LogicalIcebergMergeSinkToPhysicalIcebergMergeSink())
+            .add(new LogicalExternalRowLevelDeleteSinkToPhysicalExternalRowLevelDeleteSink())
+            .add(new LogicalExternalRowLevelMergeSinkToPhysicalExternalRowLevelMergeSink())
             .add(new LogicalConnectorTableSinkToPhysicalConnectorTableSink())
             .add(new LogicalFileSinkToPhysicalFileSink())
             .add(new LogicalResultSinkToPhysicalResultSink())

@@ -61,6 +61,31 @@ under the License.
             <artifactId>paimon-format</artifactId>
         </dependency>
 
+        <!--
+          Paimon OSS/S3 FileIO plugins. These register org.apache.paimon.fs.FileIOLoader
+          service providers (paimon-s3 -> S3Loader, paimon-jindo -> JindoLoader) used to read
+          object-store-backed Paimon tables (e.g. DLF REST catalogs over OSS). They MUST be
+          bundled here, alongside the FileIOLoader interface that lives in paimon-common: when a
+          BE-side read resolves the latest snapshot from the filesystem, RESTTokenFileIO.fileIO()
+          calls FileIO.get() -> ServiceLoader.load(FileIOLoader.class, FileIOLoader's classloader),
+          which eagerly instantiates every registered provider. A provider and the FileIOLoader
+          interface it implements must be reachable from the same classloader. These plugins used
+          to sit on the shared preload-extensions (JVM app) classpath, which does NOT carry
+          paimon-common's FileIOLoader; since JniScannerClassLoader is parent-first, the app-loaded
+          S3Loader/JindoLoader could not resolve the child-only interface -> NoClassDefFoundError:
+          FileIOLoader. Co-locating them here keeps the whole FileIO SPI in one classloader; the
+          assembly's metaInf-services handler merges their service files with paimon-common's
+          (local/hadoop) into one complete provider list.
+        -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-jindo</artifactId>
+        </dependency>
+
     </dependencies>
 
     <build>

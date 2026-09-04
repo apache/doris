@@ -60,6 +60,7 @@
 #include "util/algorithm_util.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
+#include "util/s3_rate_limiter_manager.h"
 #include "util/time.h"
 
 namespace doris {
@@ -582,6 +583,18 @@ void Daemon::calculate_workload_group_metrics_thread() {
     }
 }
 
+void Daemon::s3_rate_limiter_refresh_thread() {
+    // Single trigger for dynamic rate limiter changes: picks up both mutable
+    // s3_{get,put}_* config updates and cgroup CPU quota changes (serverless BEs can
+    // be resized in place). refresh() is idempotent and compares against the buckets'
+    // own parameters, so quiet iterations are cheap no-ops.
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
+        if (config::enable_s3_rate_limiter) {
+            S3RateLimiterManager::instance().refresh();
+        }
+    }
+}
+
 void Daemon::start() {
     Status st;
     st = Thread::create(
@@ -603,6 +616,10 @@ void Daemon::start() {
                 [this]() { this->calculate_metrics_thread(); }, &_threads.emplace_back());
         CHECK(st.ok()) << st;
     }
+    st = Thread::create(
+            "Daemon", "s3_rate_limiter_refresh_thread",
+            [this]() { this->s3_rate_limiter_refresh_thread(); }, &_threads.emplace_back());
+    CHECK(st.ok()) << st;
     st = Thread::create(
             "Daemon", "je_reset_dirty_decay_thread",
             [this]() { this->je_reset_dirty_decay_thread(); }, &_threads.emplace_back());

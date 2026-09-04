@@ -62,6 +62,8 @@ public:
     // Return true if cached tablet meta is found (without triggering RPC) and filled.
     bool peek_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta);
 
+    std::shared_ptr<CloudTablet> get_tablet_if_cached(int64_t tablet_id);
+
     void erase_tablet(int64_t tablet_id);
 
     void vacuum_stale_rowsets(const CountDownLatch& stop_latch);
@@ -79,13 +81,13 @@ public:
      * @param filter_out a filter takes a tablet and return bool to check
      *                   whether skipping the tablet, true for skip
      * @param tablets output param
-     * @param max_score output param, max score of existed tablets
+     * @param score_stats output param, max scores of existed tablets
      * @return status of this call
      */
     Status get_topn_tablets_to_compact(int n, CompactionType compaction_type,
                                        const std::function<bool(CloudTablet*)>& filter_out,
                                        std::vector<std::shared_ptr<CloudTablet>>* tablets,
-                                       int64_t* max_score);
+                                       CompactionScoreStats* score_stats);
 
     /**
      * Gets tablets info and total tablet num that are reported

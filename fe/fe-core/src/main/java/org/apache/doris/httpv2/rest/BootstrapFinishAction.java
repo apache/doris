@@ -60,7 +60,21 @@ public class BootstrapFinishAction extends RestBaseController {
 
     @RequestMapping(path = "/api/bootstrap", method = RequestMethod.GET)
     public ResponseEntity execute(HttpServletRequest request, HttpServletResponse response) {
-        if (Config.enable_all_http_auth) {
+        String clusterIdStr = request.getParameter(CLUSTER_ID);
+        String token = request.getParameter(TOKEN);
+        // A caller that presents the cluster id and token is an FE joining or probing this cluster;
+        // that pair is its credential, so do not also demand a user password from it. Callers that
+        // present neither are anonymous and must authenticate.
+        //
+        // Note the asymmetry, which is deliberate: the pair is only *verified* on the ready path
+        // below. While this FE is not ready it is accepted unverified, so any caller that supplies
+        // two non-empty strings can learn that this node is not ready. That is the entire
+        // disclosure -- the not-ready path returns nothing else. Validating the pair here instead
+        // would mean calling getClusterId()/getToken() before the cluster is established, where
+        // they are not yet meaningful, and would turn "not ready" into "invalid cluster id" for a
+        // legitimately joining FE. Keep the check where the values it compares against exist.
+        boolean presentsToken = !Strings.isNullOrEmpty(clusterIdStr) && !Strings.isNullOrEmpty(token);
+        if (Config.enable_all_http_auth && !presentsToken) {
             ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
             checkAdminAuth(authInfo.userIdentity);
         }
@@ -70,9 +84,7 @@ public class BootstrapFinishAction extends RestBaseController {
         // to json response
         BootstrapResult result = new BootstrapResult();
         if (isReady) {
-            String clusterIdStr = request.getParameter(CLUSTER_ID);
-            String token = request.getParameter(TOKEN);
-            if (!Strings.isNullOrEmpty(clusterIdStr) && !Strings.isNullOrEmpty(token)) {
+            if (presentsToken) {
                 // cluster id or token is provided, return more info
                 int clusterId = 0;
                 try {

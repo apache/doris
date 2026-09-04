@@ -33,13 +33,26 @@ class ScheamEncryptionKeysScannerTest : public testing::Test {
 TEST_F(ScheamEncryptionKeysScannerTest, test_get_next_block_internal) {
     SchemaEncryptionKeysScanner scanner;
     auto& keys = scanner._master_keys;
-    EncryptionKeyPB key;
-    keys.push_back(key);
+    keys.emplace_back();
+    EncryptionKeyPB key_with_sensitive_values;
+    key_with_sensitive_values.set_iv_base64("sensitive iv");
+    key_with_sensitive_values.set_ciphertext_base64("sensitive cipher");
+    keys.push_back(key_with_sensitive_values);
 
     auto data_block = Block::create_unique();
     scanner._init_block(data_block.get());
 
     auto st = scanner._fill_block_impl(data_block.get());
+    ASSERT_EQ(Status::OK(), st);
+    ASSERT_EQ(2, data_block->rows());
+
+    const auto& iv_column = data_block->safe_get_by_position(6).column;
+    EXPECT_EQ("", (*iv_column)[0].get<TYPE_STRING>());
+    EXPECT_EQ("******", (*iv_column)[1].get<TYPE_STRING>());
+
+    const auto& cipher_column = data_block->safe_get_by_position(7).column;
+    EXPECT_EQ("", (*cipher_column)[0].get<TYPE_STRING>());
+    EXPECT_EQ("******", (*cipher_column)[1].get<TYPE_STRING>());
 }
 
 } // namespace doris

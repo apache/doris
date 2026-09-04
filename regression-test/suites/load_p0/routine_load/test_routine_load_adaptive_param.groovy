@@ -65,31 +65,33 @@ suite("test_routine_load_adaptive_param","nonConcurrent") {
                 );
             """
 
-            def injection = "RoutineLoadTaskInfo.judgeEof"
+            def eofInjection = "RoutineLoadTaskInfo.judgeEof"
+            def adaptiveBatchInjection = "KafkaTaskInfo.shouldUseAdaptiveBatch"
             try {
-                GetDebugPoint().enableDebugPointForAllFEs(injection)
+                GetDebugPoint().enableDebugPointForAllFEs(eofInjection)
+                GetDebugPoint().enableDebugPointForAllFEs(adaptiveBatchInjection)
 
                 RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
                 RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 0)
                 
                 logger.info("---test adaptively increase---")
                 RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
-                // Drive data each round so an isEof=false task keeps being scheduled. The converged
-                // adaptive timeout (3600) lives on the renewed idle task (txnId == -1), so both checks
+                // Drive data each round so a task keeps being scheduled. The converged adaptive timeout
+                // (3600) lives on the renewed idle task (txnId == -1), so both checks
                 // poll by value (task timeout col, and the committed txn's persisted timeout looked up
                 // by task-UUID label) instead of racing a sub-second running task.
                 RoutineLoadTestUtils.checkTaskTimeoutWithData(runSql, producer, kafkaCsvTpoics, job, "3600")
                 RoutineLoadTestUtils.checkTxnTimeoutMatchesTaskTimeout(runSql, producer, kafkaCsvTpoics, job, "3600000")
                 RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 2)
             } finally {
-                GetDebugPoint().disableDebugPointForAllFEs(injection)
+                GetDebugPoint().disableDebugPointForAllFEs(adaptiveBatchInjection)
+                GetDebugPoint().disableDebugPointForAllFEs(eofInjection)
             }
 
             logger.info("---test restore adaptively---")
             RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
             RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 4)
-            // After EOF the adaptive timeout only converges when an isEof task is scheduled with
-            // data, so keep feeding small batches until the task timeout restores to the job timeout.
+            // Keep feeding small batches until the low task lag restores the timeout to the job timeout.
             RoutineLoadTestUtils.checkTaskTimeoutWithData(runSql, producer, kafkaCsvTpoics, job, "100")
         } finally {
             sql "stop routine load for ${job}"

@@ -107,9 +107,10 @@ class DataSketchesHllUnionAggTest {
         FunctionRegistry functionRegistry = new FunctionRegistry();
         for (String functionName : ImmutableList.of(
                 "datasketches_hll_union_agg", "ds_hll_estimate", "datasketches_hll_estimate")) {
-            for (DataSketchesHllUnionAggState state : ImmutableList.of(
+            for (StateCombinator state : ImmutableList.of(
                     buildState(functionRegistry, functionName + "_state", SKETCH),
                     buildState(functionRegistry, functionName + "_state", SKETCH, new IntegerLiteral(8)))) {
+                Assertions.assertEquals(StateCombinator.class, state.getClass());
                 Assertions.assertDoesNotThrow(state::checkLegalityAfterRewrite);
                 SlotReference stateSlot = new SlotReference("state", state.getDataType(), false);
 
@@ -149,7 +150,7 @@ class DataSketchesHllUnionAggTest {
     @Test
     void testStateCombinatorRewritesAllChildren() {
         FunctionRegistry functionRegistry = new FunctionRegistry();
-        DataSketchesHllUnionAggState state = buildState(
+        StateCombinator state = buildState(
                 functionRegistry, "datasketches_hll_union_agg_state", SKETCH, new IntegerLiteral(8));
         StateCombinator rewritten = (StateCombinator) state.accept(new DefaultExpressionRewriter<Void>() {
             @Override
@@ -162,10 +163,10 @@ class DataSketchesHllUnionAggTest {
         Assertions.assertThrows(AnalysisException.class, rewritten::checkLegalityAfterRewrite);
     }
 
-    private static DataSketchesHllUnionAggState buildState(
+    private static StateCombinator buildState(
             FunctionRegistry functionRegistry, String stateName, Expression... stateArguments) {
         List<Expression> arguments = ImmutableList.copyOf(stateArguments);
         FunctionBuilder stateBuilder = functionRegistry.findFunctionBuilder(stateName, arguments);
-        return (DataSketchesHllUnionAggState) stateBuilder.build(stateName, arguments).first;
+        return (StateCombinator) stateBuilder.build(stateName, arguments).first;
     }
 }

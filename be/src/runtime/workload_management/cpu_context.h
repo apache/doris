@@ -19,7 +19,6 @@
 
 #include "common/factory_creator.h"
 #include "runtime/runtime_profile.h"
-#include "runtime/workload_group/workload_group.h"
 
 namespace doris {
 

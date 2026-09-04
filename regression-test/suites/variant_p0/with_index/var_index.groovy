@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_var_index", "p0, nonConcurrent"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def table_name = "var_index"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
@@ -31,132 +32,27 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
 
-    sql """insert into var_index values(1, '{"a" : 123, "b" : "xxxyyy", "c" : 111999111}')"""
-    sql """insert into var_index values(2, '{"a" : 18811, "b" : "hello world", "c" : 1181111}')"""
-    sql """insert into var_index values(3, '{"a" : 18811, "b" : "hello wworld", "c" : 11111}')"""
-    sql """insert into var_index values(4, '{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}')"""
+    sql """insert into var_index values(1, ${variantV2Function}('{"a" : 123, "b" : "xxxyyy", "c" : 111999111}'))"""
+    sql """insert into var_index values(2, ${variantV2Function}('{"a" : 18811, "b" : "hello world", "c" : 1181111}'))"""
+    sql """insert into var_index values(3, ${variantV2Function}('{"a" : 18811, "b" : "hello wworld", "c" : 11111}'))"""
+    sql """insert into var_index values(4, ${variantV2Function}('{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}'))"""
     qt_sql """select * from var_index where cast(v["a"] as smallint) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 1024 order by k"""
     trigger_and_wait_compaction(table_name, "full", 1800)
     sql """ set enable_segment_limit_pushdown = true """
     sql """set enable_match_without_inverted_index = false"""
     qt_sql """select * from var_index where cast(v["a"] as smallint) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 1024 order by k"""
     sql """set enable_match_without_inverted_index = true"""
-    sql """insert into var_index values(5, '{"a" : 123456789, "b" : 123456, "c" : 8181111}')"""
+    sql """insert into var_index values(5, ${variantV2Function}('{"a" : 123456789, "b" : 123456, "c" : 8181111}'))"""
     qt_sql """select * from var_index where cast(v["a"] as int) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 11111 order by k"""
     // insert double/float/array/json
-    sql """insert into var_index values(6, '{"timestamp": 1713283200.060359}')"""
-    sql """insert into var_index values(7, '{"timestamp": 17.0}')"""
-    sql """insert into var_index values(8, '{"arr": [123]}')"""
-    sql """insert into var_index values(9, '{"timestamp": 17.0}'),(10, '{"timestamp": "17.0"}')"""
-    sql """insert into var_index values(11, '{"nested": [{"a" : 1}]}'),(11, '{"nested": [{"b" : "1024"}]}')"""
+    sql """insert into var_index values(6, ${variantV2Function}('{"timestamp": 1713283200.060359}'))"""
+    sql """insert into var_index values(7, ${variantV2Function}('{"timestamp": 17.0}'))"""
+    sql """insert into var_index values(8, ${variantV2Function}('{"arr": [123]}'))"""
+    sql """insert into var_index values(9, ${variantV2Function}('{"timestamp": 17.0}')),(10, ${variantV2Function}('{"timestamp": "17.0"}'))"""
+    sql """insert into var_index values(11, ${variantV2Function}('{"nested": [{"a" : 1}]}')),(11, ${variantV2Function}('{"nested": [{"b" : "1024"}]}'))"""
     trigger_and_wait_compaction(table_name, "full", 1800)
     qt_sql "select * from var_index order by k limit 15"
 
-    sql "DROP TABLE IF EXISTS var_index"
-    boolean findException = false
-    try {
-        sql """
-            CREATE TABLE IF NOT EXISTS var_index (
-                k bigint,
-                v variant,
-                INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
-            )
-            DUPLICATE KEY(`k`)
-            DISTRIBUTED BY HASH(k) BUCKETS 1
-            properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
-        """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
-        findException = true
-    }
-    assertTrue(findException)
-
-    findException = false
-    sql """
-        CREATE TABLE IF NOT EXISTS var_index (
-            k bigint,
-            v variant
-        )
-        DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
-    """
-
-    try {
-        sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
-        findException = true
-    }
-    assertTrue(findException)
-
-    setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
-        if (isCloudMode()) {
-            sql "DROP TABLE IF EXISTS var_index"
-            try {
-                sql """
-                    CREATE TABLE IF NOT EXISTS var_index (
-                        k bigint,
-                        v variant,
-                        INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
-                    )
-                    DUPLICATE KEY(`k`)
-                    DISTRIBUTED BY HASH(k) BUCKETS 1
-                    properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
-                """
-            } catch (Exception e) {
-                log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
-            }
-
-            sql """
-                CREATE TABLE IF NOT EXISTS var_index (
-                    k bigint,
-                    v variant
-                )
-                DUPLICATE KEY(`k`)
-                DISTRIBUTED BY HASH(k) BUCKETS 1
-                properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
-            """
-
-            try {
-                sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
-            } catch (Exception e) {
-                log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
-            }
-        } else {
-            sql """
-            CREATE TABLE IF NOT EXISTS var_index (
-                    k bigint,
-                    v variant,
-                    INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
-                )
-                DUPLICATE KEY(`k`)
-                DISTRIBUTED BY HASH(k) BUCKETS 1
-                properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
-            """
-
-            sql "DROP TABLE IF EXISTS var_index"
-            sql """
-                CREATE TABLE IF NOT EXISTS var_index (
-                    k bigint,
-                    v variant
-                )
-                DUPLICATE KEY(`k`)
-                DISTRIBUTED BY HASH(k) BUCKETS 1
-                properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
-            """
-            sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
-            test {
-                sql """ build index idx_var on var_index"""
-                exception "The idx_var index can not be built on the v column, because it is a variant type column"
-            }
-        }
-
-    }
 
     sql """ DROP TABLE IF EXISTS ${table_name} """
     sql """
@@ -171,7 +67,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
 
-    sql """insert into var_index values(1, '{"name": "张三", "age": 18}')"""
+    sql """insert into var_index values(1, ${variantV2Function}('{"name": "张三", "age": 18}'))"""
     sql """ select * from var_index """
 
     def timeout = 60000
@@ -228,7 +124,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
 
     sql """ drop index idx_var2 on ${table_name} """
     wait_for_latest_op_on_table_finish(table_name, timeout)
-    sql """ insert into ${table_name} values(2, '{"name": "李四", "age": 20}') """
+    sql """ insert into ${table_name} values(2, ${variantV2Function}('{"name": "李四", "age": 20}')) """
     sql """ select * from ${table_name} """
     if (isCloudMode()) {
         assertEquals(4, get_indeces_count())
@@ -237,9 +133,9 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     }
 
 
-    sql """ insert into ${table_name} values(2, '{"name": "李四", "age": 20}') """
-    sql """ insert into ${table_name} values(2, '{"name": "李四", "age": 20}') """
-    sql """ insert into ${table_name} values(2, '{"name": "李四", "age": 20}') """
+    sql """ insert into ${table_name} values(2, ${variantV2Function}('{"name": "李四", "age": 20}')) """
+    sql """ insert into ${table_name} values(2, ${variantV2Function}('{"name": "李四", "age": 20}')) """
+    sql """ insert into ${table_name} values(2, ${variantV2Function}('{"name": "李四", "age": 20}')) """
     sql """ select * from ${table_name} """
     if (isCloudMode()) {
         assertEquals(10, get_indeces_count())
@@ -249,7 +145,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
 
     sql """ drop index idx_var on ${table_name} """
     wait_for_latest_op_on_table_finish(table_name, timeout)
-    sql """ insert into ${table_name} values(2, '{"name": "李四", "age": 20}') """
+    sql """ insert into ${table_name} values(2, ${variantV2Function}('{"name": "李四", "age": 20}')) """
     sql """ select * from ${table_name} """
     trigger_and_wait_compaction(table_name, "full", 1800)
     assertEquals(0, get_indeces_count())

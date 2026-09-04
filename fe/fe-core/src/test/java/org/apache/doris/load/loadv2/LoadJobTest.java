@@ -156,6 +156,15 @@ public class LoadJobTest {
     }
 
     @Test
+    public void testRetryStateCannotReturnToLoading() {
+        LoadJob loadJob = new BrokerLoadJob();
+        Deencapsulation.setField(loadJob, "state", JobState.RETRY);
+
+        Assert.assertFalse(loadJob.updateState(JobState.LOADING));
+        Assert.assertEquals(JobState.RETRY, loadJob.getState());
+    }
+
+    @Test
     public void testUpdateStateToFinished() {
         try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
             Env env = Mockito.mock(Env.class);

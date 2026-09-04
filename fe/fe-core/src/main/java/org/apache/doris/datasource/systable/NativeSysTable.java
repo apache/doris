@@ -32,8 +32,6 @@ import org.apache.doris.datasource.ExternalTable;
  *
  * <p>Subclasses must implement {@link #createSysExternalTable(ExternalTable)} to create
  * the appropriate system external table instance (e.g., PaimonSysExternalTable).
- *
- * @see PaimonSysTable
  */
 public abstract class NativeSysTable extends SysTable {
 

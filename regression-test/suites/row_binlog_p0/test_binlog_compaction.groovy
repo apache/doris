@@ -59,7 +59,7 @@ suite("test_binlog_compaction", "nonConcurrent") {
         """
 
         // Round 1: Level0 [0-1], [2-2], [3-3] -> Level1 [0-3].
-        trigger_and_wait_compaction("test_binlog_compaction_dup", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_dup", "cumulative")
 
         qt_dup_binlog_compaction """
             SELECT __DORIS_BINLOG_OP__ AS op,
@@ -100,7 +100,7 @@ suite("test_binlog_compaction", "nonConcurrent") {
                 (1, 11, 'a1')
         """
         // Round 1: Level0 [0-1], [2-2], [3-3] -> Level1 [0-3].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "cumulative")
 
         sql """
             INSERT INTO test_binlog_compaction_mow_historical VALUES
@@ -111,9 +111,9 @@ suite("test_binlog_compaction", "nonConcurrent") {
                 (3, 30, 'c')
         """
         // Round 2: Level0 [4-4], [5-5] -> Level1 [4-5].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "cumulative")
         // Round 3: Level1 [0-3], [4-5] -> Level2 [0-5].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "cumulative")
 
         sql """
             INSERT INTO test_binlog_compaction_mow_historical VALUES
@@ -124,7 +124,7 @@ suite("test_binlog_compaction", "nonConcurrent") {
                 (1, 13, 'a3')
         """
         // Round 4: Level0 [6-6], [7-7] -> Level1 [6-7].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "cumulative")
 
         sql """
             INSERT INTO test_binlog_compaction_mow_historical VALUES
@@ -132,11 +132,11 @@ suite("test_binlog_compaction", "nonConcurrent") {
         """
         sql "DELETE FROM test_binlog_compaction_mow_historical WHERE k1 = 3"
         // Round 5: Level0 [8-8], [9-9] -> Level1 [8-9].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "cumulative")
         // Round 6: Level1 [6-7], [8-9] -> Level2 [6-9].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "cumulative")
         // Round 7: Level2 [0-5], [6-9] -> [0-9].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_historical", "cumulative")
 
         qt_mow_historical_binlog_compaction """
             SELECT __DORIS_BINLOG_OP__ AS op,
@@ -185,7 +185,7 @@ suite("test_binlog_compaction", "nonConcurrent") {
                 (1, 90, 'a0', 1)
         """
         // Round 1: Level0 [0-1], [2-2], [3-3] -> Level1 [0-3].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_seq_historical", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_seq_historical", "cumulative")
 
         sql """
             INSERT INTO test_binlog_compaction_mow_seq_historical(k1, v1, v2, __DORIS_SEQUENCE_COL__)
@@ -194,9 +194,9 @@ suite("test_binlog_compaction", "nonConcurrent") {
         """
         sql "DELETE FROM test_binlog_compaction_mow_seq_historical WHERE k1 = 2"
         // Round 2: Level0 [4-4], [5-5] -> Level1 [4-5].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_seq_historical", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_seq_historical", "cumulative")
         // Round 3: Level1 [0-3], [4-5] -> Level2 [0-5].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_seq_historical", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_seq_historical", "cumulative")
 
         qt_mow_seq_historical_binlog_compaction """
             SELECT __DORIS_BINLOG_OP__ AS op,
@@ -243,7 +243,7 @@ suite("test_binlog_compaction", "nonConcurrent") {
                 (1, 120, 'a2')
         """
         // Round 1: Level0 [0-1], [2-2], [3-3], [4-4] -> Level1 [0-4].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_historical_long_chain", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_historical_long_chain", "cumulative")
 
         sql """
             INSERT INTO test_binlog_compaction_mow_historical_long_chain VALUES
@@ -255,9 +255,9 @@ suite("test_binlog_compaction", "nonConcurrent") {
         """
         sql "DELETE FROM test_binlog_compaction_mow_historical_long_chain WHERE k1 = 2"
         // Round 2: Level0 [5-5], [6-6], [7-7] -> Level1 [5-7].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_historical_long_chain", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_historical_long_chain", "cumulative")
         // Round 3: Level1 [0-4], [5-7] -> Level2 [0-7].
-        trigger_and_wait_compaction("test_binlog_compaction_mow_historical_long_chain", "binlog")
+        trigger_and_wait_compaction("test_binlog_compaction_mow_historical_long_chain", "cumulative")
 
         qt_mow_historical_long_chain_binlog_compaction """
             SELECT __DORIS_BINLOG_OP__ AS op,

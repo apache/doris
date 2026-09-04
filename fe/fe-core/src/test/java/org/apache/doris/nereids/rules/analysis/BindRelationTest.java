@@ -107,8 +107,14 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
                 () -> PlanChecker.from(connectContext)
                         .analyze("SELECT * FROM db1.t@options('scan.snapshot-id'='1')"));
 
+        // WHY the wording differs from upstream ("only supported for Paimon tables"): post-cutover the gate
+        // is a CONNECTOR CAPABILITY (SUPPORTS_SCAN_PARAM_OPTIONS), not a table class, so any connector may
+        // declare it and naming paimon would be wrong. The rejection itself is what matters and must stay:
+        // @options only reaches a connector through the MVCC pin path, so a table that never enters it would
+        // silently drop the clause and answer a historical query with latest data.
+        // MUTATION: dropping validateOptionsTarget -> no exception -> red.
         Assertions.assertEquals(
-                "OPTIONS scan params are only supported for Paimon tables.", exception.getMessage());
+                "OPTIONS scan params are not supported for table t.", exception.getMessage());
     }
 
     @Test

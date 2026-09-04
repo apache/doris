@@ -123,12 +123,9 @@ std::shared_ptr<AndBlockColumnPredicate> make_commit_tso_gt_predicate(int32_t co
     return predicates;
 }
 
-SchemaSPtr make_read_schema(const TabletSchemaSPtr& tablet_schema) {
-    std::vector<ColumnId> read_column_ids(tablet_schema->num_columns());
-    for (uint32_t cid = 0; cid < read_column_ids.size(); ++cid) {
-        read_column_ids[cid] = cid;
-    }
-    return std::make_shared<Schema>(tablet_schema->columns(), read_column_ids);
+// Read schema covers all tablet columns in order, so ordinal == tablet cid.
+ReadSchemaSPtr make_read_schema(const TabletSchemaSPtr& tablet_schema) {
+    return std::make_shared<ReadSchema>(tablet_schema->columns());
 }
 
 } // namespace

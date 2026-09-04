@@ -77,4 +77,14 @@ inline constexpr bool IsDataTypeFloat<DataTypeFloat32> = true;
 template <>
 inline constexpr bool IsDataTypeFloat<DataTypeFloat64> = true;
 
+/// Instantiated once in data_type_number_base.cpp; suppresses per-TU implicit instantiation.
+extern template class DataTypeNumber<TYPE_BOOLEAN>;
+extern template class DataTypeNumber<TYPE_TINYINT>;
+extern template class DataTypeNumber<TYPE_SMALLINT>;
+extern template class DataTypeNumber<TYPE_INT>;
+extern template class DataTypeNumber<TYPE_BIGINT>;
+extern template class DataTypeNumber<TYPE_LARGEINT>;
+extern template class DataTypeNumber<TYPE_FLOAT>;
+extern template class DataTypeNumber<TYPE_DOUBLE>;
+
 } // namespace doris

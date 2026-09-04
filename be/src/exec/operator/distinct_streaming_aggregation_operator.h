@@ -161,4 +161,7 @@ private:
     bool _is_streaming_preagg = false;
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StatefulOperatorX<DistinctStreamingAggLocalState>;
+
 } // namespace doris

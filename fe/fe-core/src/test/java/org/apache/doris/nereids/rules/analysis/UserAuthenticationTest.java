@@ -25,8 +25,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -50,8 +50,8 @@ public class UserAuthenticationTest {
     private TableIf table = Mockito.mock(TableIf.class);
     private DatabaseIf db = Mockito.mock(DatabaseIf.class);
     private CatalogIf catalog = Mockito.mock(CatalogIf.class);
-    private IcebergSysExternalTable icebergSysTable = Mockito.mock(IcebergSysExternalTable.class);
-    private IcebergExternalTable icebergSourceTable = Mockito.mock(IcebergExternalTable.class);
+    private PluginDrivenSysExternalTable icebergSysTable = Mockito.mock(PluginDrivenSysExternalTable.class);
+    private PluginDrivenExternalTable icebergSourceTable = Mockito.mock(PluginDrivenExternalTable.class);
 
     private String originalMinPrivilege;
 

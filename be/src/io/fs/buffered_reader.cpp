@@ -35,7 +35,9 @@
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "runtime/workload_management/resource_context.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 namespace doris {

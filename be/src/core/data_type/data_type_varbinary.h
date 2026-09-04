@@ -32,6 +32,7 @@
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 #include "core/field.h"
 #include "core/string_view.h"
+#include "storage/field_type.h"
 
 namespace doris {
 class BufferWritable;
@@ -81,9 +82,7 @@ public:
         return std::make_shared<DataTypeVarbinarySerDe>(nesting_level);
     };
 
-    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
-        scalar_type->set_len(_len);
-    }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
 
     int len() const { return _len; }
 

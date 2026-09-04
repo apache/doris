@@ -59,7 +59,7 @@ public:
     size_t field_count() const { return _fields.size(); }
 
     const TabletColumn* column(uint32_t cid) const { return _schema->column(cid); }
-    const Schema* schema() const { return _schema.get(); }
+    const ReadSchema* schema() const { return _schema.get(); }
 
     // Returns a deep copy of this RowCursor with the same schema and field values.
     RowCursor clone() const;
@@ -97,7 +97,7 @@ private:
     void _encode_column_value(const TabletColumn* column, const Field& value, bool full_encode,
                               std::string* buf) const;
 
-    std::unique_ptr<Schema> _schema;
+    std::unique_ptr<ReadSchema> _schema;
     std::vector<Field> _fields;
 };
 } // namespace doris

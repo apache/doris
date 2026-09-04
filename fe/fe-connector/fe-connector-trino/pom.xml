@@ -46,10 +46,10 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- connector-api provides SPI interfaces -->
+        <!-- For @ConnectorProperty + ConnectorPropertiesUtils (typed-holder binding; D-004). -->
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-api</artifactId>
+            <artifactId>fe-foundation</artifactId>
             <version>${project.version}</version>
         </dependency>
 
@@ -61,10 +61,11 @@ under the License.
             <scope>provided</scope>
         </dependency>
 
-        <!-- fe-common for shared types (TrinoColumnMetadata) -->
+        <!-- Shared Trino plugin bootstrap types (TrinoColumnMetadata, TrinoConnectorPluginManager,
+             TrinoConnectorServicesProvider), moved out of fe-common so fe-common no longer needs trino. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>fe-common</artifactId>
+            <artifactId>fe-trino-connector-common</artifactId>
             <version>${project.version}</version>
         </dependency>
 

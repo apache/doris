@@ -17,6 +17,7 @@
 
 // test array types with predicate
 suite("regression_test_variant_array_with_predicate", "p0"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql "DROP TABLE IF EXISTS array_with_predicate"
     sql """
         CREATE TABLE IF NOT EXISTS array_with_predicate (
@@ -27,9 +28,9 @@ suite("regression_test_variant_array_with_predicate", "p0"){
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
-    sql """insert into array_with_predicate values (1, '{"arr" : ["1", "2", "3", "4"]}')"""
-    sql """insert into array_with_predicate values (1, '{"arr" : "[]"}')"""
-    sql """insert into array_with_predicate values (1, '{"arr1" : "[]"}')"""
+    sql """insert into array_with_predicate values (1, ${variantV2Function}('{"arr" : ["1", "2", "3", "4"]}'))"""
+    sql """insert into array_with_predicate values (1, ${variantV2Function}('{"arr" : "[]"}'))"""
+    sql """insert into array_with_predicate values (1, ${variantV2Function}('{"arr1" : "[]"}'))"""
     qt_sql """select count() from array_with_predicate where cast(v['arr'] as array<text>) is not null"""
     qt_sql """select count() from array_with_predicate where cast(v['arr'] as text) is not null"""
     qt_sql """select count() from array_with_predicate where cast(v['arr'] as array<text>) is null"""

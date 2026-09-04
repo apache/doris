@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>

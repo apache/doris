@@ -95,11 +95,33 @@ static void create_and_refresh_instance(MetaServiceProxy* service, std::string i
 namespace {
 const std::string instance_id = "MetaServiceJobTest";
 
+struct DeleteRowsetRecycleConfigGuard {
+    DeleteRowsetRecycleConfigGuard()
+            : original_enable_mark_delete_rowset_before_recycle(
+                      config::enable_mark_delete_rowset_before_recycle),
+              original_enable_abort_txn_and_job_for_delete_rowset_before_recycle(
+                      config::enable_abort_txn_and_job_for_delete_rowset_before_recycle) {
+        config::enable_mark_delete_rowset_before_recycle = true;
+        config::enable_abort_txn_and_job_for_delete_rowset_before_recycle = true;
+    }
+
+    ~DeleteRowsetRecycleConfigGuard() {
+        config::enable_mark_delete_rowset_before_recycle =
+                original_enable_mark_delete_rowset_before_recycle;
+        config::enable_abort_txn_and_job_for_delete_rowset_before_recycle =
+                original_enable_abort_txn_and_job_for_delete_rowset_before_recycle;
+    }
+
+    bool original_enable_mark_delete_rowset_before_recycle;
+    bool original_enable_abort_txn_and_job_for_delete_rowset_before_recycle;
+};
+
 void start_compaction_job(MetaService* meta_service, int64_t tablet_id, const std::string& job_id,
                           const std::string& initiator, int base_compaction_cnt,
                           int cumu_compaction_cnt, TabletCompactionJobPB::CompactionType type,
                           StartTabletJobResponse& res,
-                          std::pair<int64_t, int64_t> input_version = {0, 0}) {
+                          std::pair<int64_t, int64_t> input_version = {0, 0},
+                          bool check_input_versions_range = true) {
     brpc::Controller cntl;
     StartTabletJobRequest req;
     req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
@@ -115,7 +137,7 @@ void start_compaction_job(MetaService* meta_service, int64_t tablet_id, const st
     if (input_version.second > 0) {
         compaction->add_input_versions(input_version.first);
         compaction->add_input_versions(input_version.second);
-        compaction->set_check_input_versions_range(true);
+        compaction->set_check_input_versions_range(check_input_versions_range);
     }
     meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
 };
@@ -151,6 +173,45 @@ void finish_compaction_job(MetaService* meta_service, int64_t tablet_id, const s
         compaction->add_txn_id(txn_id);
     }
     compaction->add_output_rowset_ids(next_rowset_id());
+    meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
+}
+
+void finish_rowset_compaction_job(
+        MetaService* meta_service, int64_t tablet_id, const std::string& job_id,
+        TabletCompactionJobPB::CompactionType type, const doris::RowsetMetaCloudPB& output_rowset,
+        int num_input_rowsets, int64_t output_cumulative_point, FinishTabletJobResponse& res,
+        int64_t proposal_base_compaction_cnt = 0, int64_t proposal_cumulative_compaction_cnt = 0,
+        bool include_proposal_snapshot = true) {
+    brpc::Controller cntl;
+    FinishTabletJobRequest req;
+    req.set_action(FinishTabletJobRequest::COMMIT);
+    req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+    auto* compaction = req.mutable_job()->add_compaction();
+    compaction->set_id(job_id);
+    compaction->set_initiator("BE1");
+    compaction->set_type(type);
+    if (include_proposal_snapshot) {
+        compaction->set_base_compaction_cnt(proposal_base_compaction_cnt);
+        compaction->set_cumulative_compaction_cnt(proposal_cumulative_compaction_cnt);
+    }
+    compaction->add_input_versions(output_rowset.start_version());
+    compaction->add_input_versions(output_rowset.end_version());
+    compaction->add_output_versions(output_rowset.end_version());
+    compaction->add_txn_id(output_rowset.txn_id());
+    compaction->add_output_rowset_ids(output_rowset.rowset_id_v2());
+    compaction->set_output_cumulative_point(output_cumulative_point);
+    compaction->set_num_input_rows(num_input_rowsets * 100);
+    compaction->set_num_output_rows(output_rowset.num_rows());
+    compaction->set_size_input_rowsets(num_input_rowsets * 10000);
+    compaction->set_size_output_rowsets(output_rowset.total_disk_size());
+    compaction->set_num_input_segments(num_input_rowsets);
+    compaction->set_num_output_segments(output_rowset.num_segments());
+    compaction->set_num_input_rowsets(num_input_rowsets);
+    compaction->set_num_output_rowsets(1);
+    compaction->set_index_size_input_rowsets(num_input_rowsets * 5000);
+    compaction->set_segment_size_input_rowsets(num_input_rowsets * 5000);
+    compaction->set_index_size_output_rowsets(output_rowset.index_disk_size());
+    compaction->set_segment_size_output_rowsets(output_rowset.data_disk_size());
     meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
 }
 
@@ -707,6 +768,8 @@ TEST(MetaServiceJobTest, ProcessCompactionArguments) {
 
     // Prepare job kv
     recorded_compaction->set_expiration(::time(nullptr) + 10);
+    recorded_compaction->set_base_compaction_cnt(0);
+    recorded_compaction->set_cumulative_compaction_cnt(0);
     job_val = recorded_job.SerializeAsString();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->put(job_key, job_val);
@@ -733,6 +796,12 @@ TEST(MetaServiceJobTest, ProcessCompactionArguments) {
             << res.status().msg();
 
     compaction->set_type(TabletCompactionJobPB::EMPTY_CUMULATIVE);
+    compaction->set_base_compaction_cnt(0);
+    meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+    EXPECT_NE(res.status().msg().find("incomplete compaction counters"), std::string::npos)
+            << res.status().msg();
+    compaction->clear_base_compaction_cnt();
     meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 }
@@ -967,8 +1036,8 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         req.mutable_job()->mutable_idx()->set_index_id(index_id);
         req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
         req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
-        compaction->set_base_compaction_cnt(10);
-        compaction->set_cumulative_compaction_cnt(20);
+        compaction->set_base_compaction_cnt(9);
+        compaction->set_cumulative_compaction_cnt(19);
         // Action is not set
         meta_service->finish_tablet_job(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                         &req, &res, nullptr);
@@ -1024,8 +1093,8 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         compaction->set_segment_size_output_rowsets(dist(rng));
         compaction->set_type(type);
 
-        tablet_stats_pb.set_cumulative_compaction_cnt(dist(rng));
-        tablet_stats_pb.set_base_compaction_cnt(dist(rng));
+        tablet_stats_pb.set_cumulative_compaction_cnt(19);
+        tablet_stats_pb.set_base_compaction_cnt(9);
         tablet_stats_pb.set_cumulative_point(tablet_meta_pb.cumulative_layer_point());
         // MUST let data stats be larger than input data size
         tablet_stats_pb.set_num_rows(dist(rng) + compaction->num_input_rows());
@@ -1047,7 +1116,9 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         ASSERT_NE(res.status().msg().find("invalid input"), std::string::npos);
 
         // Provide input and output rowset info
-        int64_t input_version_start = dist(rng);
+        int64_t input_version_start = type == TabletCompactionJobPB::BASE
+                                              ? tablet_meta_pb.cumulative_layer_point()
+                                              : dist(rng);
         int64_t input_version_end = input_version_start + 100;
         compaction->add_input_versions(input_version_start);
         compaction->add_input_versions(input_version_end);
@@ -1812,8 +1883,8 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         compaction->set_size_output_rowsets(dist(rng));
         compaction->set_type(type);
 
-        tablet_stats_pb.set_cumulative_compaction_cnt(dist(rng));
-        tablet_stats_pb.set_base_compaction_cnt(dist(rng));
+        tablet_stats_pb.set_cumulative_compaction_cnt(19);
+        tablet_stats_pb.set_base_compaction_cnt(9);
         tablet_stats_pb.set_cumulative_point(tablet_meta_pb.cumulative_layer_point());
         // MUST let data stats be larger than input data size
         tablet_stats_pb.set_num_rows(dist(rng) + compaction->num_input_rows());
@@ -3377,8 +3448,8 @@ void testCompactionJobWithMoWTest(int lock_version) {
         compaction->set_size_output_rowsets(dist(rng));
         compaction->set_type(type);
 
-        tablet_stats_pb.set_cumulative_compaction_cnt(dist(rng));
-        tablet_stats_pb.set_base_compaction_cnt(dist(rng));
+        tablet_stats_pb.set_cumulative_compaction_cnt(19);
+        tablet_stats_pb.set_base_compaction_cnt(9);
         tablet_stats_pb.set_cumulative_point(tablet_meta_pb.cumulative_layer_point());
         // MUST let data stats be larger than input data size
         tablet_stats_pb.set_num_rows(dist(rng) + compaction->num_input_rows());
@@ -4283,6 +4354,8 @@ TEST(MetaServiceJobTest, ConcurrentCompactionTest) {
         compaction->set_id("job5");
         compaction->set_initiator("BE2");
         compaction->set_type(TabletCompactionJobPB::CUMULATIVE);
+        compaction->set_base_compaction_cnt(0);
+        compaction->set_cumulative_compaction_cnt(0);
         compaction->add_input_versions(5);
         compaction->add_input_versions(10);
         compaction->add_txn_id(output_rowset.txn_id());
@@ -4608,6 +4681,276 @@ TEST(MetaServiceJobTest, ParallelCumuCompactionTest) {
     start_compaction_job(meta_service.get(), tablet_id, "job14", "BE1", 0, 0,
                          TabletCompactionJobPB::CUMULATIVE, res, {11, 11});
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+}
+
+TEST(MetaServiceJobTest, LegacyParallelCumuFinishValidatesCurrentInputRange) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    auto run_case = [&](int64_t tablet_id, bool higher_first, int64_t lower_proposal,
+                        int64_t expected_final_point) {
+        constexpr int64_t table_id = 1;
+        constexpr int64_t index_id = 2;
+        constexpr int64_t partition_id = 3;
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                              tablet_id, false));
+
+        std::vector<doris::RowsetMetaCloudPB> input_rowsets;
+        for (int64_t version = 2; version <= 7; ++version) {
+            input_rowsets.push_back(create_rowset(tablet_id, version, version));
+        }
+        insert_rowsets(meta_service->txn_kv().get(), table_id, index_id, partition_id, tablet_id,
+                       input_rowsets);
+
+        StartTabletJobResponse start_res;
+        start_compaction_job(meta_service.get(), tablet_id, "lower", "BE1", 0, 0,
+                             TabletCompactionJobPB::CUMULATIVE, start_res, {2, 4});
+        ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK);
+        start_res.Clear();
+        start_compaction_job(meta_service.get(), tablet_id, "higher", "BE1", 0, 0,
+                             TabletCompactionJobPB::CUMULATIVE, start_res, {5, 7});
+        ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK);
+
+        auto lower_output = create_rowset(tablet_id, 2, 4);
+        auto higher_output = create_rowset(tablet_id, 5, 7);
+        for (const auto* output : {&lower_output, &higher_output}) {
+            CreateRowsetResponse rowset_res;
+            prepare_rowset(meta_service.get(), *output, rowset_res);
+            ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+            commit_rowset(meta_service.get(), *output, rowset_res);
+            ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+        }
+
+        // Legacy regular and index-change cumulative compactions omit counters from FINISH.
+        FinishTabletJobResponse finish_res;
+        auto finish = [&](const std::string& job_id, const auto& output, int64_t proposal,
+                          int64_t expected_point) {
+            finish_res.Clear();
+            finish_rowset_compaction_job(meta_service.get(), tablet_id, job_id,
+                                         TabletCompactionJobPB::CUMULATIVE, output, 3, proposal,
+                                         finish_res, 0, 0, false);
+            ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
+            EXPECT_EQ(finish_res.stats().cumulative_point(), expected_point);
+        };
+        if (higher_first) {
+            finish("higher", higher_output, 8, 2);
+            finish("lower", lower_output, lower_proposal, expected_final_point);
+        } else {
+            finish("lower", lower_output, lower_proposal, 5);
+            finish("higher", higher_output, 8, expected_final_point);
+        }
+
+        TabletStatsPB stats;
+        get_tablet_stats(meta_service.get(), tablet_id, stats);
+        EXPECT_EQ(stats.cumulative_point(), expected_final_point);
+    };
+
+    run_case(40001, false, 5, 8);
+    run_case(40004, true, 5, 5);
+    run_case(40005, true, 6, 2);
+}
+
+TEST(MetaServiceJobTest, ParallelCumuCompactionUsesPointProposalSnapshot) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 1;
+    constexpr int64_t index_id = 2;
+    constexpr int64_t partition_id = 3;
+    auto run_case = [&](int64_t tablet_id, int64_t lower_proposal_cumu_cnt,
+                        int64_t expected_cumulative_point) {
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                              tablet_id, false));
+
+        std::vector<doris::RowsetMetaCloudPB> input_rowsets;
+        for (int64_t version = 2; version <= 7; ++version) {
+            input_rowsets.push_back(create_rowset(tablet_id, version, version));
+        }
+        insert_rowsets(meta_service->txn_kv().get(), table_id, index_id, partition_id, tablet_id,
+                       input_rowsets);
+
+        StartTabletJobResponse start_res;
+        start_compaction_job(meta_service.get(), tablet_id, "lower", "BE1", 0, 0,
+                             TabletCompactionJobPB::CUMULATIVE, start_res, {2, 4});
+        ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK);
+        start_res.Clear();
+        start_compaction_job(meta_service.get(), tablet_id, "higher", "BE1", 0, 0,
+                             TabletCompactionJobPB::CUMULATIVE, start_res, {5, 7});
+        ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK);
+
+        auto lower_output = create_rowset(tablet_id, 2, 4);
+        auto higher_output = create_rowset(tablet_id, 5, 7);
+        for (const auto* output : {&lower_output, &higher_output}) {
+            CreateRowsetResponse rowset_res;
+            prepare_rowset(meta_service.get(), *output, rowset_res);
+            ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+            commit_rowset(meta_service.get(), *output, rowset_res);
+            ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+        }
+
+        FinishTabletJobResponse finish_res;
+        finish_rowset_compaction_job(meta_service.get(), tablet_id, "higher",
+                                     TabletCompactionJobPB::CUMULATIVE, higher_output, 3, 2,
+                                     finish_res);
+        ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
+        EXPECT_EQ(finish_res.stats().cumulative_point(), 2);
+
+        finish_res.Clear();
+        finish_rowset_compaction_job(meta_service.get(), tablet_id, "lower",
+                                     TabletCompactionJobPB::CUMULATIVE, lower_output, 3, 6,
+                                     finish_res, 0, lower_proposal_cumu_cnt);
+        ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
+        EXPECT_EQ(finish_res.stats().cumulative_point(), expected_cumulative_point);
+
+        TabletStatsPB stats;
+        get_tablet_stats(meta_service.get(), tablet_id, stats);
+        EXPECT_EQ(stats.cumulative_point(), expected_cumulative_point);
+    };
+
+    // Both jobs calculated from the START layout: reject the lower job's stale proposal.
+    run_case(40002, 0, 2);
+    // The lower job recalculated after applying the higher result: accept its fresh proposal.
+    run_case(40003, 1, 6);
+}
+
+TEST(MetaServiceJobTest, SerialCumuPointAdvanceIgnoresUnrelatedBaseCounterChange) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 1;
+    constexpr int64_t index_id = 2;
+    constexpr int64_t partition_id = 3;
+    constexpr int64_t tablet_id = 40006;
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false));
+
+    std::vector<doris::RowsetMetaCloudPB> input_rowsets;
+    for (int64_t version = 2; version <= 4; ++version) {
+        input_rowsets.push_back(create_rowset(tablet_id, version, version));
+    }
+    insert_rowsets(meta_service->txn_kv().get(), table_id, index_id, partition_id, tablet_id,
+                   input_rowsets);
+
+    StartTabletJobResponse start_res;
+    start_compaction_job(meta_service.get(), tablet_id, "cumu", "BE1", 0, 0,
+                         TabletCompactionJobPB::CUMULATIVE, start_res, {2, 4}, false);
+    ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK);
+    start_res.Clear();
+    start_compaction_job(meta_service.get(), tablet_id, "base", "BE1", 0, 0,
+                         TabletCompactionJobPB::BASE, start_res, {0, 1}, false);
+    ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK);
+
+    auto cumu_output = create_rowset(tablet_id, 2, 4);
+    auto base_output = create_rowset(tablet_id, 0, 1);
+    for (const auto* output : {&cumu_output, &base_output}) {
+        CreateRowsetResponse rowset_res;
+        prepare_rowset(meta_service.get(), *output, rowset_res);
+        ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+        commit_rowset(meta_service.get(), *output, rowset_res);
+        ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+    }
+
+    FinishTabletJobResponse finish_res;
+    finish_rowset_compaction_job(meta_service.get(), tablet_id, "base", TabletCompactionJobPB::BASE,
+                                 base_output, 1, 2, finish_res);
+    ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(finish_res.stats().base_compaction_cnt(), 1);
+    ASSERT_EQ(finish_res.stats().cumulative_point(), 2);
+
+    finish_res.Clear();
+    finish_rowset_compaction_job(meta_service.get(), tablet_id, "cumu",
+                                 TabletCompactionJobPB::CUMULATIVE, cumu_output, 3, 5, finish_res);
+    ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(finish_res.stats().cumulative_point(), 5);
+}
+
+TEST(MetaServiceJobTest, BaseCompactionAdvancesPointPastOutput) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 1;
+    constexpr int64_t index_id = 2;
+    constexpr int64_t partition_id = 3;
+    constexpr int64_t tablet_id = 40003;
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false));
+
+    std::vector<doris::RowsetMetaCloudPB> input_rowsets = {create_rowset(tablet_id, 2, 4),
+                                                           create_rowset(tablet_id, 5, 7)};
+    insert_rowsets(meta_service->txn_kv().get(), table_id, index_id, partition_id, tablet_id,
+                   input_rowsets);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    auto stats_key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string stats_value;
+    ASSERT_EQ(txn->get(stats_key, &stats_value), TxnErrorCode::TXN_OK);
+    TabletStatsPB stats;
+    ASSERT_TRUE(stats.ParseFromString(stats_value));
+    stats.set_cumulative_point(6);
+    txn->put(stats_key, stats.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    StartTabletJobResponse start_res;
+    start_compaction_job(meta_service.get(), tablet_id, "base", "BE1", 0, 0,
+                         TabletCompactionJobPB::BASE, start_res, {2, 7});
+    ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK);
+
+    auto output_rowset = create_rowset(tablet_id, 2, 7);
+    CreateRowsetResponse rowset_res;
+    prepare_rowset(meta_service.get(), output_rowset, rowset_res);
+    ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+    commit_rowset(meta_service.get(), output_rowset, rowset_res);
+    ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+
+    FinishTabletJobResponse finish_res;
+    finish_rowset_compaction_job(meta_service.get(), tablet_id, "base", TabletCompactionJobPB::BASE,
+                                 output_rowset, 2, 6, finish_res);
+    ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(finish_res.stats().cumulative_point(), 8);
+
+    get_tablet_stats(meta_service.get(), tablet_id, stats);
+    EXPECT_EQ(stats.cumulative_point(), 8);
 }
 
 // Plan A regression test: EMPTY_CUMULATIVE must be considered the same conflict family as
@@ -5177,8 +5520,8 @@ TEST(MetaServiceJobTest, IdempotentCompactionJob) {
         compaction->set_segment_size_output_rowsets(dist(rng));
         compaction->set_type(type);
 
-        tablet_stats_pb.set_cumulative_compaction_cnt(dist(rng));
-        tablet_stats_pb.set_base_compaction_cnt(dist(rng));
+        tablet_stats_pb.set_cumulative_compaction_cnt(19);
+        tablet_stats_pb.set_base_compaction_cnt(9);
         tablet_stats_pb.set_cumulative_point(tablet_meta_pb.cumulative_layer_point());
         // MUST let data stats be larger than input data size
         tablet_stats_pb.set_num_rows(dist(rng) + compaction->num_input_rows());
@@ -5753,6 +6096,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
 
 // Test: Complete flow - begin_txn -> prepare_rowset -> recycle x 2 -> abort -> verify commit fails
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest1) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -5882,6 +6226,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest1) {
 
 // Test: Complete flow - start job -> prepare_rowset -> recycle x 2 -> abort job -> verify
 TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest1) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6009,6 +6354,7 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest1) {
 
 // Test: Complete flow - begin_txn -> prepare_rowset -> commit_rowset -> recycle x 2 -> abort -> verify commit fails
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest2) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6134,6 +6480,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest2) {
 
 // Test: Complete flow - start compaction job -> prepare_rowset -> commit_rowset -> recycle x 2 -> abort job -> verify
 TEST(MetaServiceJobTest, AbortCompactionJobForRelatedRowsetTest2) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6270,6 +6617,7 @@ TEST(MetaServiceJobTest, AbortCompactionJobForRelatedRowsetTest2) {
 
 // Test: Complete flow - start schema change job -> prepare_rowset -> commit_rowset -> recycle x 2 -> abort job -> verify
 TEST(MetaServiceJobTest, AbortSchemaChangeJobForRelatedRowsetTest2) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6455,6 +6803,7 @@ TEST(MetaServiceJobTest, AbortSchemaChangeJobForRelatedRowsetTest2) {
 
 // Test: Complete flow - begin_txn -> prepare_rowset -> recycle x 1 -> commit_rowset -> commit_txn -> verify commit fails
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6565,6 +6914,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
 
 // Test: Complete flow - start job -> prepare_rowset -> recycle x 1 -> commit_rowset -> finish job -> verify
 TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest3) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6689,6 +7039,7 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest3) {
 
 // Test: Complete flow - begin_txn -> prepare_rowset -> commit_rowset -> recycle x 1 -> commit_txn -> verify commit fails
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest4) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6812,6 +7163,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest4) {
 
 // Test: Complete flow - start job -> prepare_rowset -> commit_rowset -> recycle x 1 -> finish job -> verify
 TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest4) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {

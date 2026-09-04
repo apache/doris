@@ -18,12 +18,15 @@
 #include "core/data_type_serde/data_type_number_serde.h"
 
 #include <arrow/builder.h>
+#include <arrow/util/float16.h>
 
 #include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <type_traits>
+#include <vector>
 
 #include "common/config.h"
 #include "common/exception.h"
@@ -35,6 +38,7 @@
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/packed_int128.h"
 #include "core/types.h"
@@ -42,8 +46,6 @@
 #include "exprs/function/cast/cast_to_basic_number_common.h"
 #include "exprs/function/cast/cast_to_boolean.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "storage/olap_common.h"
-#include "storage/types.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
@@ -53,6 +55,95 @@
 
 namespace doris {
 namespace {
+
+template <typename SourceType>
+void fill_selected_values(const SourceType* source_values, size_t rows,
+                          const std::vector<size_t>* selected_rows,
+                          std::vector<SourceType>* selected_values) {
+    DORIS_CHECK(source_values != nullptr);
+    DORIS_CHECK(selected_values != nullptr);
+    const auto output_rows = orc_serde_utils::orc_decode_row_count(rows, selected_rows);
+    selected_values->resize(output_rows);
+    for (size_t row = 0; row < output_rows; ++row) {
+        (*selected_values)[row] =
+                source_values[orc_serde_utils::orc_source_row_at(row, selected_rows)];
+    }
+}
+
+template <typename OrcBatchType, typename SourceType>
+Status decode_fixed_orc_values(const DataTypeSerDe& serde, IColumn& column,
+                               const OrcDecodedColumnView& orc_view, DecodedValueKind value_kind) {
+    const auto* orc_batch = dynamic_cast<const OrcBatchType*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC scalar batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto view = orc_serde_utils::make_orc_decoded_view(orc_view, value_kind);
+    NullMap null_map;
+    orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                               orc_view.selected_rows, &null_map);
+    view.null_map = null_map.empty() ? nullptr : null_map.data();
+    std::vector<SourceType> selected_values;
+    if (orc_view.selected_rows == nullptr) {
+        view.values = reinterpret_cast<const uint8_t*>(orc_batch->data.data());
+    } else {
+        fill_selected_values(orc_batch->data.data(), orc_view.rows, orc_view.selected_rows,
+                             &selected_values);
+        view.values = reinterpret_cast<const uint8_t*>(selected_values.data());
+    }
+    RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+    return Status::OK();
+}
+
+Status decode_float_orc_values(const DataTypeSerDe& serde, IColumn& column,
+                               const OrcDecodedColumnView& orc_view) {
+    const auto* orc_batch = dynamic_cast<const ::orc::DoubleVectorBatch*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC float batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto view = orc_serde_utils::make_orc_decoded_view(orc_view, DecodedValueKind::FLOAT);
+    NullMap null_map;
+    orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                               orc_view.selected_rows, &null_map);
+    view.null_map = null_map.empty() ? nullptr : null_map.data();
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    std::vector<float> float_values;
+    float_values.resize(output_rows);
+    for (size_t row = 0; row < output_rows; ++row) {
+        float_values[row] = static_cast<float>(
+                orc_batch->data[orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows)]);
+    }
+    view.values = reinterpret_cast<const uint8_t*>(float_values.data());
+    RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+    return Status::OK();
+}
+
+Status decode_boolean_orc_values(const DataTypeSerDe& serde, IColumn& column,
+                                 const OrcDecodedColumnView& orc_view) {
+    const auto* orc_batch = dynamic_cast<const ::orc::LongVectorBatch*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC boolean batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto view = orc_serde_utils::make_orc_decoded_view(orc_view, DecodedValueKind::BOOL);
+    NullMap null_map;
+    orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                               orc_view.selected_rows, &null_map);
+    view.null_map = null_map.empty() ? nullptr : null_map.data();
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    std::unique_ptr<bool[]> bool_values = std::make_unique<bool[]>(output_rows);
+    for (size_t row = 0; row < output_rows; ++row) {
+        bool_values[row] =
+                orc_batch->data[orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows)] !=
+                0;
+    }
+    view.values = reinterpret_cast<const uint8_t*>(bool_values.get());
+    RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+    return Status::OK();
+}
 
 float parquet_half_to_float(uint16_t half) {
     const uint32_t sign = (half & 0x8000U) << 16;
@@ -250,6 +341,28 @@ Status read_integer_decoded_values(IColumn& column, const DecodedColumnView& vie
     }
 }
 
+template <PrimitiveType DorisType, typename ArrowArrayType>
+Status read_widened_arrow_integer_values(IColumn& column, const arrow::Array* arrow_array,
+                                         int64_t start, int64_t end) {
+    const auto* source = dynamic_cast<const ArrowArrayType*>(arrow_array);
+    if (source == nullptr) {
+        return Status::InvalidArgument("Expected a compatible Arrow numeric array for {}, got {}",
+                                       column.get_name(), arrow_array->type()->name());
+    }
+    if (config::enable_arrow_input_validation) {
+        check_arrow_fixed_width_buffer(*source, sizeof(typename ArrowArrayType::value_type));
+    }
+
+    auto& data =
+            assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column).get_data();
+    for (int64_t row = start; row < end; ++row) {
+        using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+        data.push_back(source->IsNull(row) ? DorisCppType()
+                                           : static_cast<DorisCppType>(source->Value(row)));
+    }
+    return Status::OK();
+}
+
 template <typename DorisCppType, typename SourceType>
 Status append_parquet_number(PaddedPODArray<DorisCppType>& data, const uint8_t* values,
                              size_t num_values, const ParquetDecodeContext& context,
@@ -388,9 +501,11 @@ public:
 
     NumberParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
                           ParquetMaterializationState* state = nullptr)
-            : _data(assert_cast<ColumnType&>(column).get_data()),
-              _context(context),
-              _state(state) {}
+            : NumberParquetConsumer(assert_cast<ColumnType&>(column).get_data(), context, state) {}
+
+    NumberParquetConsumer(PaddedPODArray<DorisCppType>& data, const ParquetDecodeContext& context,
+                          ParquetMaterializationState* state = nullptr)
+            : _data(data), _context(context), _state(state) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         return consume_impl(values, num_values, value_width);
@@ -470,6 +585,43 @@ public:
     }
 };
 
+template <PrimitiveType DorisType>
+class NumberPredicateParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+
+    NumberPredicateParquetConsumer(const ParquetDecodeContext& context, bool enable_strict_mode,
+                                   ParquetLogicalValueConsumer& consumer,
+                                   PaddedPODArray<DorisCppType>& logical_values,
+                                   IColumn::Filter& conversion_nulls)
+            : _context(context),
+              _enable_strict_mode(enable_strict_mode),
+              _consumer(consumer),
+              _logical_values(logical_values),
+              _conversion_nulls(conversion_nulls) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        _logical_values.clear();
+        _conversion_nulls.clear();
+        _conversion_nulls.resize_fill(num_values, 0);
+        ParquetMaterializationState state;
+        state.enable_strict_mode = _enable_strict_mode;
+        state.conversion_failure_null_map = &_conversion_nulls;
+        NumberParquetConsumer<DorisType> converter(_logical_values, _context, &state);
+        RETURN_IF_ERROR(converter.consume(values, num_values, value_width));
+        DORIS_CHECK_EQ(_logical_values.size(), num_values);
+        return _consumer.consume(reinterpret_cast<const uint8_t*>(_logical_values.data()),
+                                 num_values, sizeof(DorisCppType), _conversion_nulls.data());
+    }
+
+private:
+    const ParquetDecodeContext& _context;
+    bool _enable_strict_mode;
+    ParquetLogicalValueConsumer& _consumer;
+    PaddedPODArray<DorisCppType>& _logical_values;
+    IColumn::Filter& _conversion_nulls;
+};
+
 } // namespace
 // Basic structure of the type map.
 template <typename Key, typename Value, typename... Rest>
@@ -544,12 +696,12 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
     } else if constexpr (T == TYPE_LARGEINT) {
         auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t i = start; i < end; ++i) {
-            auto& data_value = col_data[i];
-            std::string value_str = fmt::format("{}", data_value);
             if (null_map && (*null_map)[i]) {
                 RETURN_IF_ERROR(
                         checkArrowStatus(string_builder.AppendNull(), column, *array_builder));
             } else {
+                const auto& data_value = col_data[i];
+                std::string value_str = fmt::format("{}", data_value);
                 RETURN_IF_ERROR(checkArrowStatus(
                         string_builder.Append(value_str.data(),
                                               cast_set<int, size_t, false>(value_str.length())),
@@ -668,6 +820,46 @@ Status DataTypeNumberSerDe<T>::read_column_from_parquet(IColumn& column,
 }
 
 template <PrimitiveType T>
+bool DataTypeNumberSerDe<T>::supports_parquet_raw_predicate(
+        const ParquetDecodeContext& context) const {
+    if (context.encoding == ParquetValueEncoding::DICTIONARY) {
+        return false;
+    }
+    if constexpr (T == TYPE_BOOLEAN) {
+        return context.physical_type == ParquetPhysicalType::BOOLEAN;
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                         T == TYPE_BIGINT || T == TYPE_LARGEINT) {
+        return context.physical_type == ParquetPhysicalType::INT32 ||
+               context.physical_type == ParquetPhysicalType::INT64;
+    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        return context.physical_type == ParquetPhysicalType::FLOAT ||
+               context.physical_type == ParquetPhysicalType::DOUBLE || context.logical_float16;
+    }
+    return false;
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_parquet_raw_predicate(
+        ParquetDecodeSource& source, const ParquetDecodeContext& context, size_t num_values,
+        bool enable_strict_mode, ParquetLogicalValueConsumer& consumer) const {
+    if constexpr (!(T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                    T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT ||
+                    T == TYPE_DOUBLE)) {
+        return Status::NotSupported("Unsupported Parquet raw predicate conversion for {}",
+                                    get_name());
+    } else {
+        if (!supports_parquet_raw_predicate(context)) {
+            return Status::NotSupported("Unsupported Parquet raw predicate conversion for {}",
+                                        get_name());
+        }
+        NumberPredicateParquetConsumer<T> predicate_consumer(context, enable_strict_mode, consumer,
+                                                             _parquet_predicate_values,
+                                                             _parquet_predicate_nulls);
+        return source.decode_fixed_values(num_values, predicate_consumer);
+    }
+}
+
+template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions& options) const {
     auto& column_data = reinterpret_cast<ColumnType&>(column);
@@ -760,6 +952,51 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
             col_data.emplace_back(concrete_array->Value(bool_i));
         }
         return Status::OK();
+    }
+
+    if constexpr (T == TYPE_FLOAT) {
+        if (arrow_array->type_id() == arrow::Type::HALF_FLOAT) {
+            const auto* concrete_array = dynamic_cast<const arrow::HalfFloatArray*>(arrow_array);
+            if (concrete_array == nullptr) {
+                return Status::InvalidArgument("Expected Arrow HalfFloatArray, got {}",
+                                               arrow_array->type()->name());
+            }
+            if (config::enable_arrow_input_validation) {
+                check_arrow_fixed_width_buffer(*concrete_array,
+                                               sizeof(arrow::HalfFloatArray::value_type));
+            }
+            for (int64_t i = start; i < end; ++i) {
+                const auto value =
+                        concrete_array->IsNull(i)
+                                ? 0.0F
+                                : arrow::util::Float16::FromBits(concrete_array->Value(i))
+                                          .ToFloat();
+                col_data.emplace_back(value);
+            }
+            return Status::OK();
+        }
+    }
+
+    if constexpr (T == TYPE_SMALLINT) {
+        if (arrow_array->type_id() == arrow::Type::UINT8) {
+            return read_widened_arrow_integer_values<TYPE_SMALLINT, arrow::UInt8Array>(
+                    column, arrow_array, start, end);
+        }
+    } else if constexpr (T == TYPE_INT) {
+        if (arrow_array->type_id() == arrow::Type::UINT16) {
+            return read_widened_arrow_integer_values<TYPE_INT, arrow::UInt16Array>(
+                    column, arrow_array, start, end);
+        }
+    } else if constexpr (T == TYPE_BIGINT) {
+        if (arrow_array->type_id() == arrow::Type::UINT32) {
+            return read_widened_arrow_integer_values<TYPE_BIGINT, arrow::UInt32Array>(
+                    column, arrow_array, start, end);
+        }
+    } else if constexpr (T == TYPE_LARGEINT) {
+        if (arrow_array->type_id() == arrow::Type::UINT64) {
+            return read_widened_arrow_integer_values<TYPE_LARGEINT, arrow::UInt64Array>(
+                    column, arrow_array, start, end);
+        }
     }
 
     // only for largeint(int128) type
@@ -1330,18 +1567,10 @@ std::string DataTypeNumberSerDe<T>::to_olap_string(const Field& field) const {
         char buf[8] = {'\0'};
         snprintf(buf, sizeof(buf), "%d", field.get<T>());
         return std::string(buf);
-    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
-        auto v = field.get<T>();
-        // inf/nan are stored as zone-map flags, not in min/max strings; route them
-        // through CastToString to keep the "Infinity"/"NaN" spelling used elsewhere.
-        if (std::isinf(v) || std::isnan(v)) {
-            return CastToString::from_number(v);
-        }
-        // CastToString uses digits10 + 1 significant digits, which may lose precision.
-        // ZoneMap bounds must round-trip exactly, so use fmt's shortest round-trippable form.
-        return fmt::format("{}", v);
     } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
-                         T == TYPE_BIGINT) {
+                         T == TYPE_BIGINT || T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        // Floating number to string is now handled correctly by CastToString::from_number
+        // in PR https://github.com/apache/doris/pull/65609, special handing here is not necessary now.
         return CastToString::from_number(field.get<T>());
     } else if constexpr (T == TYPE_LARGEINT) {
         auto value = field.get<T>();
@@ -1432,10 +1661,6 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
     const auto size = str.size();
     column.resize(size);
 
-    size_t current_offset = 0;
-    const ColumnString::Chars* chars = &str.get_chars();
-    const IColumn::Offsets* offsets = &str.get_offsets();
-
     auto& column_to = assert_cast<ColumnType&>(column);
     auto& vec_to = column_to.get_data();
     CastParameters params;
@@ -1444,16 +1669,10 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
         if (null_map && null_map[i]) {
             continue;
         }
-        size_t next_offset = (*offsets)[i];
-        size_t string_size = next_offset - current_offset;
-
-        StringRef str_ref(&(*chars)[current_offset], string_size);
+        const auto str_ref = str.get_data_at(i);
         if (!try_parse_impl<T, true>(vec_to[i], str_ref, params)) {
-            return Status::InvalidArgument(
-                    "parse number fail, string: '{}'",
-                    std::string((char*)&(*chars)[current_offset], string_size));
+            return Status::InvalidArgument("parse number fail, string: '{}'", str_ref.to_string());
         }
-        current_offset = next_offset;
     }
     return Status::OK();
 }
@@ -1507,6 +1726,9 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_
     } else if constexpr (T == TYPE_IPV6) {
         col.insert_value(unaligned_load<Int128>(data));
         data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        col.insert_value(unaligned_load<VecDateTimeValue>(data));
+        data += sizeof(VecDateTimeValue);
     } else if constexpr (T == TYPE_DATEV2) {
         col.insert_value(unaligned_load<UInt32>(data));
         data += sizeof(UInt32);
@@ -1569,6 +1791,10 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         auto v = pack.value;
         field = Field::create_field<TYPE_IPV6>(v);
         data += sizeof(PackedUInt128);
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        const auto value = unaligned_load<VecDateTimeValue>(data);
+        field = Field::create_field<T>(value);
+        data += sizeof(VecDateTimeValue);
     } else if constexpr (T == TYPE_DATEV2) {
         UInt32 v = unaligned_load<UInt32>(data);
         field = Field::create_field<TYPE_DATEV2>(v);
@@ -1674,6 +1900,42 @@ void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString
         value_to_string<T>(data[i], bw, scale, options);
         bw.commit();
     }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_column_from_orc(IColumn& column,
+                                                    const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+
+    if constexpr (T == TYPE_BOOLEAN) {
+        DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::BOOLEAN);
+        return decode_boolean_orc_values(*this, column, view);
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                         T == TYPE_BIGINT) {
+        if constexpr (T == TYPE_TINYINT) {
+            DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::BYTE);
+        } else if constexpr (T == TYPE_SMALLINT) {
+            DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::SHORT);
+        } else if constexpr (T == TYPE_INT) {
+            DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::INT);
+        } else {
+            DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::LONG);
+        }
+        return decode_fixed_orc_values<::orc::LongVectorBatch, int64_t>(*this, column, view,
+                                                                        DecodedValueKind::INT64);
+    } else if constexpr (T == TYPE_FLOAT) {
+        DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::FLOAT);
+        return decode_float_orc_values(*this, column, view);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::DOUBLE);
+        return decode_fixed_orc_values<::orc::DoubleVectorBatch, double>(*this, column, view,
+                                                                         DecodedValueKind::DOUBLE);
+    }
+    return DataTypeSerDe::read_column_from_orc(column, view);
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

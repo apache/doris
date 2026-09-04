@@ -656,4 +656,9 @@ public:
 
 using ColumnString = ColumnStr<UInt32>;
 using ColumnString64 = ColumnStr<UInt64>;
+
+/// Instantiated once in column_string.cpp; suppresses per-TU implicit instantiation.
+extern template class ColumnStr<UInt32>;
+extern template class ColumnStr<UInt64>;
+
 } // namespace doris

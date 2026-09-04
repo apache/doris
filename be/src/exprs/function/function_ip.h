@@ -49,6 +49,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
 #include "storage/index/index_reader_helper.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
 
 namespace doris {
 

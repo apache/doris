@@ -19,26 +19,43 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.mtmv.ivm.IvmInfo;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgrTest.SubTransactionInfo;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.tso.TSOService;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.After;
@@ -51,12 +68,15 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 
 public class DatabaseTransactionMgrTest {
     private static final Logger LOG = LogManager.getLogger(DatabaseTransactionMgrTest.class);
@@ -235,6 +255,230 @@ public class DatabaseTransactionMgrTest {
     }
 
     @Test
+    public void testResourceGroupSuccessQuorum() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        String[] originalResourceGroupSuccQuorum = Config.resource_group_load_success_quorum;
+        Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
+        Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
+        Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
+        Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
+        Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
+        Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        ReplicaAllocation originalAllocation = table.getPartitionInfo()
+                .getReplicaAllocation(CatalogTestUtil.testPartitionId1);
+        table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1,
+                new ReplicaAllocation(ImmutableMap.of(
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group1"), (short) 2,
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 1)));
+
+        try {
+            Config.resource_group_load_success_quorum = new String[] {"group1:2", "group2:1"};
+            long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_failure",
+                    transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3));
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assert.fail();
+            } catch (TabletQuorumFailedException e) {
+                Assert.assertTrue(e.getMessage().contains("resource group success quorum failed for group1"));
+            }
+
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_group2_failure",
+                    transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2));
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assert.fail();
+            } catch (TabletQuorumFailedException e) {
+                Assert.assertTrue(e.getMessage().contains("resource group success quorum failed for group2"));
+            }
+
+            backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
+            table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1,
+                    new ReplicaAllocation(ImmutableMap.of(
+                            Tag.createNotCheck(Tag.TYPE_LOCATION, "group1"), (short) 1,
+                            Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 2)));
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_clamp", transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2));
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    transactionId, commitInfos, null);
+
+            // Invalid items are ignored. The parse result is cached, so only the first commit after
+            // a config change may warn; later commits on the hot path must stay silent.
+            Config.resource_group_load_success_quorum = new String[] {"invalid", "group1:not-a-number"};
+            try (TestLogAppender appender = TestLogAppender.attach(DatabaseTransactionMgr.class, Level.WARN)) {
+                transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                        Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_invalid_0",
+                        transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assert.assertTrue(appender.contains(Level.WARN, "Invalid resource_group_load_success_quorum item"));
+            }
+            try (TestLogAppender appender = TestLogAppender.attach(DatabaseTransactionMgr.class, Level.WARN)) {
+                transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                        Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_invalid_1",
+                        transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assert.assertFalse(appender.contains(Level.WARN, "Invalid resource_group_load_success_quorum item"));
+            }
+
+        } finally {
+            Config.resource_group_load_success_quorum = originalResourceGroupSuccQuorum;
+            table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1, originalAllocation);
+            backend1.setTagMap(backend1TagMap);
+            backend2.setTagMap(backend2TagMap);
+            backend3.setTagMap(backend3TagMap);
+        }
+    }
+
+    @Test
+    public void testResourceGroupSuccessQuorumDoesNotShrinkAfterReplicaBecomesUnavailable() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        String[] originalResourceGroupSuccQuorum = Config.resource_group_load_success_quorum;
+        Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
+        Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
+        Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
+        Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
+        Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
+        Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        ReplicaAllocation originalAllocation = table.getPartitionInfo()
+                .getReplicaAllocation(CatalogTestUtil.testPartitionId1);
+        table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1,
+                new ReplicaAllocation(ImmutableMap.of(
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group1"), (short) 2,
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 1)));
+        Replica backend2Replica = table.getPartition(CatalogTestUtil.testPartitionId1)
+                .getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1)
+                .getReplicaByBackendId(CatalogTestUtil.testBackendId2);
+
+        try {
+            Config.resource_group_load_success_quorum = new String[] {"group1:2"};
+            List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId3));
+            long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_dead_after_begin",
+                    transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            backend2.setAlive(false);
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assert.fail();
+            } catch (TabletQuorumFailedException e) {
+                Assert.assertTrue(e.getMessage().contains("resource group success quorum failed for group1"));
+            }
+            backend2.setAlive(true);
+
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_bad_after_begin",
+                    transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            backend2Replica.setBad(true);
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assert.fail();
+            } catch (TabletQuorumFailedException e) {
+                Assert.assertTrue(e.getMessage().contains("resource group success quorum failed for group1"));
+            }
+        } finally {
+            Config.resource_group_load_success_quorum = originalResourceGroupSuccQuorum;
+            backend2.setAlive(true);
+            backend2Replica.setBad(false);
+            table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1, originalAllocation);
+            backend1.setTagMap(backend1TagMap);
+            backend2.setTagMap(backend2TagMap);
+            backend3.setTagMap(backend3TagMap);
+        }
+    }
+
+    @Test
+    public void testResourceGroupSuccessQuorumIgnoresExtraReplicaBeyondAllocation() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        String[] originalResourceGroupSuccQuorum = Config.resource_group_load_success_quorum;
+        Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
+        Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
+        Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
+        Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
+        Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
+        Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
+
+        long extraBackendId = CatalogTestUtil.testBackendId3 + 100;
+        Backend extraBackend = CatalogTestUtil.createBackend(extraBackendId, "extra-host", 123, 124, 125);
+        extraBackend.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        masterEnv.getCurrentSystemInfo().addBackend(extraBackend);
+
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        ReplicaAllocation originalAllocation = table.getPartitionInfo()
+                .getReplicaAllocation(CatalogTestUtil.testPartitionId1);
+        table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1,
+                new ReplicaAllocation(ImmutableMap.of(
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group1"), (short) 1,
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 2)));
+        Tablet tablet = table.getPartition(CatalogTestUtil.testPartitionId1)
+                .getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
+        Replica extraReplica = new LocalReplica(CatalogTestUtil.testReplicaId3 + 100,
+                extraBackendId, Replica.ReplicaState.NORMAL,
+                CatalogTestUtil.testStartVersion, CatalogTestUtil.testSchemaHash1);
+        tablet.addReplica(extraReplica);
+
+        try {
+            Assert.assertEquals(3, table.getPartitionInfo()
+                    .getReplicaAllocation(CatalogTestUtil.testPartitionId1).getTotalReplicaNum());
+            Assert.assertEquals(4, tablet.getReplicas().size());
+            Assert.assertEquals(Replica.ReplicaState.NORMAL,
+                    tablet.getReplicaByBackendId(extraBackendId).getState());
+
+            Config.resource_group_load_success_quorum = new String[] {"group1:2"};
+            long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_ignore_extra_replica",
+                    transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2));
+
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    transactionId, commitInfos, null);
+        } finally {
+            tablet.deleteReplica(extraReplica);
+            masterEnv.getCurrentSystemInfo().dropBackend(extraBackendId);
+            Config.resource_group_load_success_quorum = originalResourceGroupSuccQuorum;
+            table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1, originalAllocation);
+            backend1.setTagMap(backend1TagMap);
+            backend2.setTagMap(backend2TagMap);
+            backend3.setTagMap(backend3TagMap);
+        }
+    }
+
+    @Test
     public void testAbortTransaction() throws UserException {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
 
@@ -259,6 +503,81 @@ public class DatabaseTransactionMgrTest {
         expectedEx.expect(UserException.class);
         expectedEx.expectMessage("transaction not found");
         masterDbTransMgr.abortTransaction(txnId1, "test abort transaction", null);
+    }
+
+    @Test
+    public void testUpdateCatalogAfterCommittedAdvancesIvmRefreshVersionForNormalCommitAndReplay()
+            throws Exception {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Database masterDb = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        IvmInfo normalCommitIvmInfo = new IvmInfo();
+        BaseTableStream normalCommitStream = mockStreamTable(masterDb, 10001L, "stream_refresh_version_commit");
+        long normalCommitStreamId = normalCommitStream.getId();
+        injectTable(masterDb, mockIvmTable(10000L, "mv_refresh_version_commit", normalCommitIvmInfo));
+
+        TransactionState normalCommitTxn = buildStreamRefreshTransaction(
+                masterDb.getId(), 9000L, 10000L, normalCommitStreamId, 123L);
+
+        Method method = DatabaseTransactionMgr.class.getDeclaredMethod(
+                "updateCatalogAfterCommitted", TransactionState.class, Database.class, boolean.class);
+        method.setAccessible(true);
+        method.invoke(masterDbTransMgr, normalCommitTxn, masterDb, false);
+
+        Assert.assertEquals(1L, normalCommitIvmInfo.getRefreshVersion());
+        Mockito.verify(normalCommitStream).unprotectedUpdateStreamUpdate(
+                normalCommitTxn.getStreamUpdateInfos().get(0).getUpdate(), normalCommitTxn.getCommitTime());
+
+        DatabaseTransactionMgr slaveDbTransMgr = slaveTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Database slaveDb = slaveEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        IvmInfo replayIvmInfo = new IvmInfo();
+        BaseTableStream replayStream = mockStreamTable(slaveDb, 10003L, "stream_refresh_version_replay");
+        long replayStreamId = replayStream.getId();
+        injectTable(slaveDb, mockIvmTable(10002L, "mv_refresh_version_replay", replayIvmInfo));
+
+        TransactionState replayTxn = buildStreamRefreshTransaction(
+                slaveDb.getId(), 9001L, 10002L, replayStreamId, 456L);
+        method.invoke(slaveDbTransMgr, replayTxn, slaveDb, true);
+
+        Assert.assertEquals(1L, replayIvmInfo.getRefreshVersion());
+        Mockito.verify(replayStream).unprotectedUpdateStreamUpdate(
+                replayTxn.getStreamUpdateInfos().get(0).getUpdate(), replayTxn.getCommitTime());
+    }
+
+    private TransactionState buildStreamRefreshTransaction(long dbId, long txnId, long ivmTableId, long streamId,
+            long commitTime) {
+        TransactionState transactionState = new TransactionState(dbId, Lists.newArrayList(ivmTableId), txnId,
+                "ut_ivm_refresh_" + txnId, new TUniqueId(txnId, txnId),
+                LoadJobSourceType.FRONTEND, transactionSource, -1L,
+                Config.stream_load_default_timeout_second * 1000L);
+        transactionState.setCommitTime(commitTime);
+        transactionState.setStreamUpdateInfos(Collections.singletonList(
+                new TableStreamUpdateInfo(dbId, streamId, Mockito.mock(AbstractTableStreamUpdate.class))));
+        return transactionState;
+    }
+
+    private MTMV mockIvmTable(long tableId, String tableName, IvmInfo ivmInfo) {
+        MTMV ivm = Mockito.mock(MTMV.class);
+        Mockito.when(ivm.getId()).thenReturn(tableId);
+        Mockito.when(ivm.getName()).thenReturn(tableName);
+        Mockito.when(ivm.isIvm()).thenReturn(true);
+        Mockito.when(ivm.getIvmInfo()).thenReturn(ivmInfo);
+        return ivm;
+    }
+
+    private BaseTableStream mockStreamTable(Database db, long streamId, String streamName) {
+        BaseTableStream stream = Mockito.mock(BaseTableStream.class);
+        Mockito.when(stream.getId()).thenReturn(streamId);
+        Mockito.when(stream.getName()).thenReturn(streamName);
+        injectTable(db, stream);
+        return stream;
+    }
+
+    private void injectTable(Database db, Table table) {
+        Map<Long, Table> idToTable = Deencapsulation.getField(db, "idToTable");
+        @SuppressWarnings("unchecked")
+        ConcurrentMap<String, Table> nameToTable = Deencapsulation.getField(db, "nameToTable");
+        idToTable.put(table.getId(), table);
+        nameToTable.put(table.getName(), table);
     }
 
     @Test

@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include <brpc/controller.h>
-#include <bthread/countdown_event.h>
-#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <condition_variable>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <semaphore>
 #include <utility>
 #include <vector>
@@ -31,13 +31,12 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
 #include "storage/id_manager.h"
-#include "storage/tablet_info.h" // DorisNodesInfo
 
 namespace doris {
 
-class DorisNodesInfo;
 class RuntimeState;
 class TupleDescriptor;
+class ScannerScheduler;
 namespace io {
 enum class FileCacheMissPolicy : uint8_t;
 }
@@ -50,40 +49,7 @@ struct IteratorKey;
 struct IteratorItem;
 struct HashOfIteratorKey;
 
-inline void fetch_callback(bthread::CountdownEvent* counter) {
-    Defer __defer([&] { counter->signal(); });
-}
-
-template <typename T>
-class ColumnStr;
-using ColumnString = ColumnStr<UInt32>;
 class MutableBlock;
-
-// fetch rows by global rowid
-// tablet_id/rowset_name/segment_id/ordinal_id
-
-struct FetchOption {
-    TupleDescriptor* desc = nullptr;
-    RuntimeState* runtime_state = nullptr;
-    TFetchOption t_fetch_opt;
-};
-
-class RowIDFetcher {
-public:
-    RowIDFetcher(FetchOption fetch_opt) : _fetch_option(std::move(fetch_opt)) {}
-    Status init();
-    Status fetch(const ColumnPtr& row_ids, Block* block);
-
-private:
-    PMultiGetRequest _init_fetch_request(const ColumnString& row_ids) const;
-    Status _merge_rpc_results(const PMultiGetRequest& request,
-                              const std::vector<PMultiGetResponse>& rsps,
-                              const std::vector<brpc::Controller>& cntls, Block* output_block,
-                              std::vector<PRowLocation>* rows_id) const;
-
-    std::vector<std::shared_ptr<PBackendService_Stub>> _stubs;
-    FetchOption _fetch_option;
-};
 
 struct RowStoreReadStruct {
     RowStoreReadStruct(std::string& buffer) : row_store_buffer(buffer) {};
@@ -112,7 +78,6 @@ public:
     static const std::string TopNLazyMaterializationSecondPhaseRowsRead;
     static const std::string TopNLazyMaterializationSecondPhaseSegmentsRead;
 
-    static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
 
 private:
@@ -145,15 +110,23 @@ private:
     static Status read_external_row_from_file_mapping(
             size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
             const std::shared_ptr<FileMapping>& file_mapping,
-            const std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
+            const std::vector<SlotDescriptor>& scan_slots, const TUniqueId& query_id,
             const std::shared_ptr<RuntimeState>& runtime_state, std::vector<Block>& scan_blocks,
             std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
             std::vector<ExternalFetchStatistics>& fetch_statistics,
             const TFileScanRangeParams& rpc_scan_params,
             const std::unordered_map<std::string, int>& colname_to_slot_id,
-            std::atomic<int>& producer_count, size_t scan_rows_count,
-            std::counting_semaphore<>& semaphore, std::condition_variable& cv, std::mutex& mtx,
-            TupleDescriptor& tuple_desc);
+            std::counting_semaphore<>& semaphore, TupleDescriptor& tuple_desc);
+
+    static std::string source_column_key(const SlotDescriptor& slot, uint32_t column_idx);
+
+    friend class RowIdStorageReaderTest;
+
+    static Status submit_external_scan_tasks(ScannerScheduler* scheduler,
+                                             std::counting_semaphore<>& semaphore,
+                                             size_t task_count,
+                                             const std::function<std::string(size_t)>& make_task_id,
+                                             const std::function<Status(size_t)>& run_task);
 
     struct ExternalFetchStatistics {
         int64_t init_reader_ms = 0;

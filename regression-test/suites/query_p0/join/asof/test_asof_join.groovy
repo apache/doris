@@ -1251,6 +1251,30 @@ suite("test_asof_join", "query_p0") {
         sql """
         SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
         FROM asof_precision_left l
+        ASOF INNER JOIN asof_precision_right r
+        MATCH_CONDITION(l.ts >= r.ts)
+        ON l.grp <=> r.grp
+        ORDER BY l.id
+        """
+        exception "ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts"
+    }
+
+    test {
+        sql """
+        SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
+        FROM asof_precision_left l
+        ASOF LEFT JOIN asof_precision_right r
+        MATCH_CONDITION(l.ts >= r.ts)
+        ON l.grp <=> r.grp
+        ORDER BY l.id
+        """
+        exception "ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts"
+    }
+
+    test {
+        sql """
+        SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
+        FROM asof_precision_left l
         LEFT JOIN asof_precision_right r
         MATCH_CONDITION(l.ts >= r.ts)
         ON l.grp = r.grp

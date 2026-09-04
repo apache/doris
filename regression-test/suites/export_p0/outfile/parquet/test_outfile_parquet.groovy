@@ -114,7 +114,9 @@ suite("test_outfile_parquet") {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
         sql """
-            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFilePath}/" FORMAT AS PARQUET;
+            SELECT * FROM ${tableName} t ORDER BY user_id
+            INTO OUTFILE "file://${outFilePath}/"
+            FORMAT AS PARQUET;
         """
 
         File[] files = path.listFiles()

@@ -129,6 +129,15 @@ public class LdapManager {
                 || Objects.isNull(passwd)) {
             return false;
         }
+
+        // Reject an empty password here, before the cached-password comparison and the LDAP bind
+        // below: an empty password would otherwise reach the server as an unauthenticated bind,
+        // which LDAP reports as success. Opt out with ldap_allow_empty_pass = true.
+        if (passwd.isEmpty() && !LdapConfig.ldap_allow_empty_pass) {
+            LOG.warn("Rejected LDAP login with empty password, user={}, ldapAllowEmptyPass=false", fullName);
+            return false;
+        }
+
         LdapUserInfo ldapUserInfo = getUserInfo(fullName);
         if (Objects.isNull(ldapUserInfo) || !ldapUserInfo.isExists()) {
             long elapsed = System.currentTimeMillis() - start;

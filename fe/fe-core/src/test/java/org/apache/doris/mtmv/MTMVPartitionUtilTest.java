@@ -68,7 +68,8 @@ public class MTMVPartitionUtilTest {
 
         mtmvUtilStatic = Mockito.mockStatic(MTMVUtil.class);
         refreshContextStatic = Mockito.mockStatic(MTMVRefreshContext.class);
-        refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(Mockito.any(MTMV.class))).thenReturn(context);
+        refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(Mockito.any(MTMV.class), Mockito.anyMap()))
+                .thenReturn(context);
 
         Mockito.when(mtmv.getRelation()).thenReturn(relation);
 
@@ -253,6 +254,34 @@ public class MTMVPartitionUtilTest {
     }
 
     @Test
+    public void testGetBaseVersionsUsesMappedPartitions() throws AnalysisException {
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings = Maps.newHashMap();
+        partitionMappings.put("mv1", pctMapping("p1"));
+
+        assertFetchedPartitionNames(partitionMappings, Sets.newHashSet("p1", "p2", "p3"),
+                Sets.newHashSet("p1"));
+    }
+
+    @Test
+    public void testGetBaseVersionsDeduplicatesMappedPartitions() throws AnalysisException {
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings = Maps.newHashMap();
+        partitionMappings.put("mv1", pctMapping("p1", "p2"));
+        partitionMappings.put("mv2", pctMapping("p2", "p3"));
+
+        assertFetchedPartitionNames(partitionMappings, Sets.newHashSet("p1", "p2", "p3", "p4"),
+                Sets.newHashSet("p1", "p2", "p3"));
+    }
+
+    @Test
+    public void testGetBaseVersionsUsesAllFullyMappedPartitions() throws AnalysisException {
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings = Maps.newHashMap();
+        partitionMappings.put("mv1", pctMapping("p1", "p2", "p3"));
+
+        assertFetchedPartitionNames(partitionMappings, Sets.newHashSet("p1", "p2", "p3"),
+                Sets.newHashSet("p1", "p2", "p3"));
+    }
+
+    @Test
     public void testGetTableSnapshotFromContext() throws AnalysisException {
         Map<BaseTableInfo, MTMVSnapshotIf> cache = Maps.newHashMap();
         Mockito.when(context.getBaseTableSnapshotCache()).thenReturn(cache);
@@ -260,5 +289,52 @@ public class MTMVPartitionUtilTest {
         MTMVPartitionUtil.getTableSnapshotFromContext(baseOlapTable, context);
         Assert.assertEquals(1, cache.size());
         Assert.assertEquals(baseSnapshotIf, cache.values().iterator().next());
+    }
+
+    private Map<MTMVRelatedTableIf, Set<String>> pctMapping(String... partitionNames) {
+        Map<MTMVRelatedTableIf, Set<String>> mapping = Maps.newHashMap();
+        mapping.put(baseOlapTable, Sets.newHashSet(partitionNames));
+        return mapping;
+    }
+
+    private void assertFetchedPartitionNames(
+            Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings,
+            Set<String> allPartitionNames, Set<String> expectedPartitionNames) throws AnalysisException {
+        Mockito.when(mtmv.getRelation()).thenReturn(null);
+        Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        Mockito.when(mtmvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet(baseOlapTable));
+
+        Map<String, Partition> partitions = Maps.newHashMap();
+        long visibleVersion = 1;
+        for (String partitionName : allPartitionNames) {
+            Partition partition = Mockito.mock(Partition.class);
+            Mockito.when(partition.getName()).thenReturn(partitionName);
+            Mockito.when(partition.getVisibleVersion()).thenReturn(visibleVersion++);
+            Mockito.when(baseOlapTable.getPartitionOrAnalysisException(partitionName)).thenReturn(partition);
+            partitions.put(partitionName, partition);
+        }
+        Mockito.when(baseOlapTable.getPartitions()).thenReturn(partitions.values());
+
+        List<Set<String>> versionRequests = Lists.newArrayList();
+        try (MockedStatic<Partition> partitionStatic = Mockito.mockStatic(Partition.class, Mockito.CALLS_REAL_METHODS)) {
+            partitionStatic.when(() -> Partition.getVisibleVersions(Mockito.anyList())).thenAnswer(invocation -> {
+                List<? extends Partition> requestedPartitions = invocation.getArgument(0);
+                Set<String> requestedPartitionNames = Sets.newHashSet();
+                List<Long> visibleVersions = Lists.newArrayList();
+                for (Partition partition : requestedPartitions) {
+                    requestedPartitionNames.add(partition.getName());
+                    visibleVersions.add(partition.getVisibleVersion());
+                }
+                versionRequests.add(requestedPartitionNames);
+                return visibleVersions;
+            });
+
+            Assert.assertEquals(expectedPartitionNames,
+                    MTMVPartitionUtil.getBaseVersions(mtmv, partitionMappings)
+                            .getPartitionVersions(baseOlapTable).keySet());
+        }
+        Assert.assertEquals(1, versionRequests.size());
+        Assert.assertEquals(expectedPartitionNames, versionRequests.get(0));
+        Mockito.verify(baseOlapTable, Mockito.never()).getPartitions();
     }
 }

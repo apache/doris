@@ -19,6 +19,7 @@
 
 #include <ctype.h>
 #include <gen_cpp/data.pb.h>
+#include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <string.h>
 
@@ -148,4 +149,13 @@ const char* DataTypeMap::deserialize(const char* buf, MutableColumnPtr* column,
     map_column->get_values_ptr() = std::move(nested_values_column);
     return buf;
 }
+
+void DataTypeMap::to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const {
+    node->set_type(TTypeNodeType::MAP);
+    node->add_contains_nulls(key_type->is_nullable());
+    node->add_contains_nulls(value_type->is_nullable());
+    key_type->to_protobuf(ptype);
+    value_type->to_protobuf(ptype);
+}
+
 } // namespace doris

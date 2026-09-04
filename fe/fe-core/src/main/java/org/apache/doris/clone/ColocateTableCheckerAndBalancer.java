@@ -31,7 +31,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletChecker.CheckerCounter;
-import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -519,9 +518,11 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     for (Partition partition : olapTable.getPartitions()) {
                         short replicationNum = replicaAlloc.getTotalReplicaNum();
                         long visibleVersion = partition.getVisibleVersion();
-                        // Here we only get VISIBLE indexes. All other indexes are not queryable.
-                        // So it does not matter if tablets of other indexes are not matched.
-                        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        // Colocate tables are skipped by TabletChecker, so row-binlog companion tablets
+                        // must also be checked here. Their locality follows the base tablet instead of
+                        // the colocate group layout.
+                        for (MaterializedIndex index
+                                : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
                                     backendBucketsSeq.size() + " vs. " + index.getTablets().size());
                             List<Long> tabletIdsInOrder = index.getTabletIdsInOrder();
@@ -532,21 +533,30 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                 Preconditions.checkState(bucketsSeq.size() == replicationNum,
                                         bucketsSeq.size() + " vs. " + replicationNum);
                                 Tablet tablet = index.getTablet(tabletId);
-                                TabletHealth tabletHealth = tablet.getColocateHealth(
-                                        visibleVersion, replicaAlloc, bucketsSeq);
+                                RowBinlogTabletLocality.RowBinlogHealthResult rowBinlogHealthResult = null;
+                                TabletHealth tabletHealth;
+                                if (index.isRowBinlog()) {
+                                    rowBinlogHealthResult = RowBinlogTabletLocality.getRowBinlogHealth(
+                                            partition, tablet, replicaAlloc, visibleVersion);
+                                    tabletHealth = rowBinlogHealthResult.getTabletHealth();
+                                } else {
+                                    tabletHealth = tablet.getColocateHealth(visibleVersion, replicaAlloc, bucketsSeq);
+                                }
                                 if (tabletHealth.status != TabletStatus.HEALTHY) {
                                     counter.unhealthyTabletNum++;
-                                    unstableReason = String.format("get unhealthy tablet %d in colocate table."
-                                            + " status: %s", tablet.getId(), tabletHealth.status);
-                                    if (LOG.isDebugEnabled()) {
-                                        LOG.debug(unstableReason);
+                                    if (!index.isRowBinlog()) {
+                                        unstableReason = String.format("get unhealthy tablet %d in colocate table."
+                                                + " status: %s", tablet.getId(), tabletHealth.status);
+                                        if (LOG.isDebugEnabled()) {
+                                            LOG.debug(unstableReason);
+                                        }
                                     }
 
                                     if (tabletHealth.status == TabletStatus.UNRECOVERABLE) {
                                         continue;
                                     }
 
-                                    if (!tablet.readyToBeRepaired(infoService, Priority.NORMAL)) {
+                                    if (!tablet.readyToBeRepaired(infoService, tabletHealth.priority)) {
                                         counter.tabletNotReady++;
                                         continue;
                                     }
@@ -557,6 +567,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                             replicaAlloc, System.currentTimeMillis());
                                     // the tablet status will be set again when being scheduled
                                     tabletCtx.setTabletHealth(tabletHealth);
+                                    if (rowBinlogHealthResult != null) {
+                                        rowBinlogHealthResult.applyTo(tabletCtx);
+                                    }
                                     tabletCtx.setTabletOrderIdx(idx);
                                     tabletCtx.setIsUniqKeyMergeOnWrite(isUniqKeyMergeOnWrite);
 

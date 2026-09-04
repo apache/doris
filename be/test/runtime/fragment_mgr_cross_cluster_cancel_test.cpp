@@ -18,10 +18,15 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
+#include "common/config.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/frontend_info.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "storage/id_manager.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -181,6 +186,43 @@ TEST(FragmentMgrDelayDeleteMapTest, ClearShouldNotAbortWhenReleasingLastQueryCon
     exec_env->_fragment_mgr->stop();
     delete exec_env->_fragment_mgr;
     exec_env->_fragment_mgr = previous_fragment_mgr;
+}
+
+TEST(FragmentMgrRerunnableParamsTest, StopReleasesLastQueryContextRefOutsideLock) {
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_fragment_mgr = exec_env->_fragment_mgr;
+    auto* fragment_mgr = new FragmentMgr(exec_env);
+    exec_env->_fragment_mgr = fragment_mgr;
+
+    TUniqueId query_id;
+    query_id.__set_hi(303);
+    query_id.__set_lo(404);
+
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::SELECT);
+    query_options.__set_execution_timeout(60);
+    query_options.__set_mem_limit(64L * 1024 * 1024);
+
+    TNetworkAddress fe_addr;
+    fe_addr.hostname = "127.0.0.1";
+    fe_addr.port = 9030;
+
+    auto query_ctx =
+            QueryContext::create(query_id, exec_env, query_options, fe_addr,
+                                 /*is_nereids*/ true, fe_addr, QuerySource::INTERNAL_FRONTEND);
+    std::weak_ptr<QueryContext> weak_query_ctx = query_ctx;
+    {
+        std::lock_guard<std::mutex> lock(fragment_mgr->_rerunnable_params_lock);
+        fragment_mgr->_rerunnable_params_map[{query_id, 1}].query_ctx = query_ctx;
+    }
+    query_ctx.reset();
+
+    EXPECT_FALSE(weak_query_ctx.expired());
+    fragment_mgr->stop();
+    EXPECT_TRUE(weak_query_ctx.expired());
+
+    exec_env->_fragment_mgr = previous_fragment_mgr;
+    delete fragment_mgr;
 }
 
 } // namespace doris

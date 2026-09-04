@@ -18,18 +18,24 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -38,7 +44,10 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -62,13 +71,16 @@ import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -129,6 +141,162 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
+    public void testVariantToJsonImplicitCastRequiresExplicitCast() {
+        Assertions.assertTrue(TypeCoercionUtils.implicitCast(
+                VariantType.INSTANCE, JsonType.INSTANCE).isEmpty());
+    }
+
+    @Test
+    public void testVariantToJsonFunctionSignatureRequiresExplicitCast() {
+        Assertions.assertFalse(ExplicitlyCastableSignature.isExplicitlyCastable(
+                JsonType.INSTANCE, VariantType.INSTANCE));
+    }
+
+    @Test
+    public void testVariantExistingImplicitCastsArePreserved() {
+        Assertions.assertEquals(IntegerType.INSTANCE,
+                TypeCoercionUtils.implicitCast(VariantType.INSTANCE, IntegerType.INSTANCE).get());
+        Assertions.assertEquals(StringType.INSTANCE,
+                TypeCoercionUtils.implicitCast(VariantType.INSTANCE, StringType.INSTANCE).get());
+        Assertions.assertEquals(JsonType.INSTANCE,
+                TypeCoercionUtils.implicitCast(JsonType.INSTANCE, JsonType.INSTANCE).get());
+        Assertions.assertEquals(JsonType.INSTANCE,
+                TypeCoercionUtils.implicitCast(StringType.INSTANCE, JsonType.INSTANCE).get());
+    }
+
+    @Test
+    public void testVariantCommonTypeRequiresSameStorageProperties() {
+        VariantType v1 = new VariantType(100);
+        VariantType anotherV1 = new VariantType(200);
+
+        Assertions.assertTrue(
+                TypeCoercionUtils.findWiderTypeForTwo(v1, anotherV1, false, true).isEmpty());
+        Assertions.assertTrue(TypeCoercionUtils.findWiderTypeForTwo(
+                ArrayType.of(v1), ArrayType.of(anotherV1), false, true).isEmpty());
+
+        Assertions.assertTrue(
+                TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(v1, anotherV1).isEmpty());
+        Assertions.assertTrue(TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
+                ImmutableList.of(ArrayType.of(v1), ArrayType.of(anotherV1))).isEmpty());
+
+        Assertions.assertEquals(v1,
+                TypeCoercionUtils.findWiderTypeForTwo(v1, new VariantType(100), false, true).get());
+    }
+
+    @Test
+    public void testCoalesceCastsRequiredStructFieldsToNullableLayout() {
+        StructType nullableStruct = new StructType(ImmutableList.of(
+                new StructField("name", VarcharType.createVarcharType(10), true, ""),
+                new StructField("age", IntegerType.INSTANCE, true, "")));
+        SlotReference nullableStructSlot = new SlotReference("value", nullableStruct, true);
+        StructLiteral requiredStruct = new StructLiteral(ImmutableList.of(
+                new StringLiteral("Charlie"), new IntegerLiteral(18)));
+
+        Expression coerced = TypeCoercionUtils.processBoundFunction(
+                new Coalesce(nullableStructSlot, requiredStruct));
+
+        Assertions.assertInstanceOf(Cast.class, coerced.child(1));
+        StructType castType = (StructType) coerced.child(1).getDataType();
+        Assertions.assertTrue(castType.getFields().get(0).isNullable());
+        Assertions.assertTrue(castType.getFields().get(1).isNullable());
+    }
+
+    @Test
+    public void testLegacyCaseWhenUnionsStructFieldNullabilityInBothOrders() {
+        StructType required = new StructType(ImmutableList.of(
+                new StructField("event_time", DateTimeV2Type.of(3), false, "")));
+        StructType nullable = new StructType(ImmutableList.of(
+                new StructField("event_time", DateTimeV2Type.of(6), true, "")));
+
+        StructType leftRequired = (StructType) TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
+                ImmutableList.of(required, nullable)).orElseThrow();
+        StructType leftNullable = (StructType) TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
+                ImmutableList.of(nullable, required)).orElseThrow();
+
+        Assertions.assertTrue(leftRequired.getFields().get(0).isNullable());
+        Assertions.assertTrue(leftNullable.getFields().get(0).isNullable());
+    }
+
+    @Test
+    public void testLegacySetOperationIncludesCastNullability() {
+        boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        GlobalVariable.enableNewTypeCoercionBehavior = false;
+        try {
+            StructType millis = new StructType(ImmutableList.of(
+                    new StructField("event_time", DateTimeV2Type.of(3), false, "")));
+            StructType micros = new StructType(ImmutableList.of(
+                    new StructField("event_time", DateTimeV2Type.of(6), false, "")));
+
+            StructType common = (StructType) org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation
+                    .getAssignmentCompatibleType(millis, micros);
+
+            Assertions.assertTrue(common.getFields().get(0).isNullable());
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
+        }
+    }
+
+    @Test
+    public void testStrictStructCommonTypesKeepRequiredFields() {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().enableStrictCast = true;
+        connectContext.setThreadLocalInfo();
+        boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        try {
+            StructType millis = new StructType(ImmutableList.of(
+                    new StructField("event_time", DateTimeV2Type.of(3), false, "")));
+            StructType micros = new StructType(ImmutableList.of(
+                    new StructField("event_time", DateTimeV2Type.of(6), false, "")));
+
+            StructType wider = (StructType) TypeCoercionUtils.findWiderCommonType(
+                    ImmutableList.of(millis, micros), false, false).orElseThrow();
+            StructType caseWhen = (StructType) TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
+                    ImmutableList.of(millis, micros)).orElseThrow();
+            StructType implicit = (StructType) TypeCoercionUtils.implicitCast(millis, micros).orElseThrow();
+            Assertions.assertFalse(wider.getFields().get(0).isNullable());
+            Assertions.assertFalse(caseWhen.getFields().get(0).isNullable());
+            Assertions.assertFalse(implicit.getFields().get(0).isNullable());
+            Assertions.assertTrue(CheckCast.check(wider, millis, true),
+                    "a strict CASE/common result must remain consumable by a required target");
+            Assertions.assertTrue(CheckCast.check(caseWhen, millis, true),
+                    "a strict CASE result must remain consumable by a required target");
+
+            for (boolean newBehavior : new boolean[] {false, true}) {
+                GlobalVariable.enableNewTypeCoercionBehavior = newBehavior;
+                StructType setOperation = (StructType) org.apache.doris.nereids.trees.plans.logical
+                        .LogicalSetOperation.getAssignmentCompatibleType(millis, micros);
+                Assertions.assertFalse(setOperation.getFields().get(0).isNullable(),
+                        "strict set-operation casts abort instead of producing a nullable child");
+                Assertions.assertTrue(CheckCast.check(setOperation, millis, true),
+                        "a strict UNION result must remain consumable by a required target");
+            }
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testInPredicateStructCastKeepsNullableCastResult() {
+        StructLiteral stringStruct = new StructLiteral(ImmutableList.of(
+                new IntegerLiteral(1), new StringLiteral("2")));
+        StructLiteral integerStruct = new StructLiteral(ImmutableList.of(
+                new IntegerLiteral(1), new IntegerLiteral(3)));
+        InPredicate predicate = new InPredicate(stringStruct,
+                ImmutableList.of(integerStruct, NullLiteral.INSTANCE));
+
+        InPredicate coerced = (InPredicate) TypeCoercionUtils.processInPredicate(predicate);
+
+        StructType commonType = (StructType) coerced.getCompareExpr().getDataType();
+        Assertions.assertTrue(commonType.getFields().get(1).isNullable(),
+                "String-to-decimal coercion can produce NULL inside the struct field");
+    }
+
+    @Test
     public void testHasCharacterType() {
         Assertions.assertFalse(TypeCoercionUtils.hasCharacterType(NullType.INSTANCE));
         Assertions.assertFalse(TypeCoercionUtils.hasCharacterType(BooleanType.INSTANCE));
@@ -161,7 +329,6 @@ public class TypeCoercionUtilsTest {
                 TypeCoercionUtils.castIfNotSameType(new CharLiteral("char", 4), VarcharType.createVarcharType(100)));
         Assertions.assertEquals(new StringLiteral("string"),
                 TypeCoercionUtils.castIfNotSameType(new StringLiteral("string"), VarcharType.createVarcharType(100)));
-
     }
 
     @Test
@@ -248,6 +415,49 @@ public class TypeCoercionUtilsTest {
         );
         datetimeDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(datetimeDowngrade);
         Assertions.assertEquals(DateTimeType.INSTANCE, datetimeDowngrade.left().getDataType());
+    }
+
+    @Test
+    public void testVariantComparisonRequiresExplicitCast() {
+        SlotReference variant = new SlotReference("v", VariantType.INSTANCE);
+        SlotReference anotherVariant = new SlotReference("v2", VariantType.INSTANCE);
+        SlotReference integer = new SlotReference("i", IntegerType.INSTANCE);
+        ElementAt variantSubpath = new ElementAt(variant, new StringLiteral("c"));
+        ElementAt anotherVariantSubpath = new ElementAt(anotherVariant, new StringLiteral("c"));
+
+        AnalysisException equality = Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, anotherVariant)));
+        Assertions.assertTrue(equality.getMessage().contains("CAST to a concrete type first"));
+
+        AnalysisException nullSafeEquality = Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processComparisonPredicate(new NullSafeEqual(variant, anotherVariant)));
+        Assertions.assertTrue(nullSafeEquality.getMessage().contains("CAST to a concrete type first"));
+
+        AnalysisException mixedType = Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processComparisonPredicate(new GreaterThan(variant, integer)));
+        Assertions.assertTrue(mixedType.getMessage().contains("could not used in ComparisonPredicate"));
+        Assertions.assertTrue(mixedType.getMessage().contains("CAST to a concrete type first"));
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processComparisonPredicate(
+                        new GreaterThan(variant, anotherVariant)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, integer)));
+
+        Expression subpathComparison = TypeCoercionUtils.processComparisonPredicate(
+                new EqualTo(variantSubpath, integer));
+        Assertions.assertTrue(subpathComparison instanceof EqualTo);
+        Assertions.assertTrue(subpathComparison.child(0) instanceof Cast);
+        Assertions.assertFalse(subpathComparison.child(0).getDataType().isVariantType());
+        Assertions.assertEquals(subpathComparison.child(0).getDataType(),
+                subpathComparison.child(1).getDataType());
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processComparisonPredicate(
+                        new EqualTo(variantSubpath, anotherVariantSubpath)));
+
+        Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
+                new GreaterThan(new Cast(variant, IntegerType.INSTANCE), integer)));
     }
 
     @Test

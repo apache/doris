@@ -33,6 +33,7 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -96,6 +97,11 @@ public class BackendTest {
 
         // check alive
         Assert.assertTrue(backend.isAlive());
+    }
+
+    @Test
+    public void testLocationTagIsSafelyPublished() throws NoSuchFieldException {
+        Assert.assertTrue(Modifier.isVolatile(Backend.class.getDeclaredField("locationTag").getModifiers()));
     }
 
     @Test

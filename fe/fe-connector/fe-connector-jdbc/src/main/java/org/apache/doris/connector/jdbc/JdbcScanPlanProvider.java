@@ -17,14 +17,15 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.PassthroughQueryTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,36 +49,21 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
     private static final Logger LOG = LogManager.getLogger(JdbcScanPlanProvider.class);
 
     private final JdbcDbType dbType;
-    private final Map<String, String> catalogProperties;
+    private final JdbcCatalogProperties props;
     private final long catalogId;
 
-    public JdbcScanPlanProvider(JdbcDbType dbType, Map<String, String> catalogProperties, long catalogId) {
+    public JdbcScanPlanProvider(JdbcDbType dbType, JdbcCatalogProperties props, long catalogId) {
         this.dbType = dbType;
-        this.catalogProperties = catalogProperties;
+        this.props = props;
         this.catalogId = catalogId;
     }
 
     @Override
-    public ConnectorScanRangeType getScanRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
-    }
-
-    @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter) {
-        return planScan(session, handle, columns, filter, -1);
-    }
-
-    @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit) {
+    public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        ConnectorTableHandle handle = request.getTableHandle();
+        List<ConnectorColumnHandle> columns = request.getColumns();
+        Optional<ConnectorExpression> filter = request.getFilter();
+        long limit = request.getLimit();
         String querySql;
         if (handle instanceof PassthroughQueryTableHandle) {
             // Query passthrough from TVF — use the raw SQL directly
@@ -89,8 +75,7 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
 
             // Build function pushdown config from catalog properties + session
             Map<String, String> sessionProps = session.getSessionProperties();
-            String functionRulesJson = catalogProperties.getOrDefault(
-                    JdbcConnectorProperties.FUNCTION_RULES, "");
+            String functionRulesJson = props.getFunctionRules();
             boolean extFuncPushdown = Boolean.parseBoolean(
                     sessionProps.getOrDefault("enable_ext_func_pred_pushdown", "true"));
             JdbcFunctionPushdownConfig functionConfig = JdbcFunctionPushdownConfig.create(
@@ -105,28 +90,18 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         // Build the scan range with all JDBC connection parameters
-        String jdbcUrl = getProperty(JdbcConnectorProperties.JDBC_URL, "");
-        String user = getProperty(JdbcConnectorProperties.USER, "");
-        String password = getProperty(JdbcConnectorProperties.PASSWORD, "");
-        String driverClass = getProperty(JdbcConnectorProperties.DRIVER_CLASS, "");
-        String driverUrl = getProperty(JdbcConnectorProperties.DRIVER_URL, "");
-        String checksum = getProperty("checksum", "");
+        String jdbcUrl = props.getJdbcUrl();
+        String user = props.getUser();
+        String password = props.getPassword();
+        String driverClass = props.getDriverClass();
+        String driverUrl = props.getDriverUrl();
+        String checksum = props.getDriverChecksum();
 
-        int poolMinSize = JdbcConnectorProperties.getInt(
-                catalogProperties, JdbcConnectorProperties.CONNECTION_POOL_MIN_SIZE,
-                JdbcConnectorProperties.DEFAULT_POOL_MIN_SIZE);
-        int poolMaxSize = JdbcConnectorProperties.getInt(
-                catalogProperties, JdbcConnectorProperties.CONNECTION_POOL_MAX_SIZE,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_SIZE);
-        int poolMaxWaitTime = JdbcConnectorProperties.getInt(
-                catalogProperties, JdbcConnectorProperties.CONNECTION_POOL_MAX_WAIT_TIME,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_WAIT_TIME);
-        int poolMaxLifeTime = JdbcConnectorProperties.getInt(
-                catalogProperties, JdbcConnectorProperties.CONNECTION_POOL_MAX_LIFE_TIME,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_LIFE_TIME);
-        boolean poolKeepAlive = Boolean.parseBoolean(
-                getProperty(JdbcConnectorProperties.CONNECTION_POOL_KEEP_ALIVE,
-                        String.valueOf(JdbcConnectorProperties.DEFAULT_POOL_KEEP_ALIVE)));
+        int poolMinSize = props.getConnectionPoolMinSize();
+        int poolMaxSize = props.getConnectionPoolMaxSize();
+        int poolMaxWaitTime = props.getConnectionPoolMaxWaitTime();
+        int poolMaxLifeTime = props.getConnectionPoolMaxLifeTime();
+        boolean poolKeepAlive = props.isConnectionPoolKeepAlive();
 
         JdbcScanRange scanRange = new JdbcScanRange.Builder()
                 .querySql(querySql)
@@ -149,15 +124,6 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
-    public long estimateScanRangeCount(ConnectorSession session, ConnectorTableHandle handle) {
-        return 1;
-    }
-
-    private String getProperty(String key, String defaultValue) {
-        return catalogProperties.getOrDefault(key, defaultValue);
-    }
-
-    @Override
     public Map<String, String> getScanNodeProperties(
             ConnectorSession session,
             ConnectorTableHandle handle,
@@ -170,8 +136,7 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
         } else {
             JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
             Map<String, String> sessionProps = session.getSessionProperties();
-            String functionRulesJson = catalogProperties.getOrDefault(
-                    JdbcConnectorProperties.FUNCTION_RULES, "");
+            String functionRulesJson = props.getFunctionRules();
             boolean extFuncPushdown = Boolean.parseBoolean(
                     sessionProps.getOrDefault("enable_ext_func_pred_pushdown", "true"));
             JdbcFunctionPushdownConfig functionConfig = JdbcFunctionPushdownConfig.create(
@@ -182,7 +147,7 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
                     columns, filter, -1);
         }
         Map<String, String> props = new HashMap<>();
-        props.put("query", querySql);
+        props.put(ScanNodePropertyKeys.REMOTE_QUERY, querySql);
         return props;
     }
 }

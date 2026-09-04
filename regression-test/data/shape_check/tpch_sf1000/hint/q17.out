@@ -6,17 +6,19 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecGather]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------filter((cast(lineitem.l_quantity as DECIMALV3(38, 5)) < (0.2 * avg(l_quantity) OVER(PARTITION BY p_partkey))))
---------------PhysicalWindow
-----------------PhysicalQuickSort[LOCAL_SORT]
-------------------PhysicalDistribute[DistributionSpecHash]
+------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((lineitem.l_partkey = part.p_partkey)) otherCondition=((cast(lineitem.l_quantity as DECIMALV3(38, 5)) < (0.2 * avg(l_quantity))))
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[lineitem]
+------------------PhysicalProject
+--------------------filter((part.p_brand = 'Brand#23') and (part.p_container = 'MED BOX'))
+----------------------PhysicalOlapScan[part]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[lineitem]
-------------------------PhysicalProject
---------------------------filter((part.p_brand = 'Brand#23') and (part.p_container = 'MED BOX'))
-----------------------------PhysicalOlapScan[part]
+----------------------PhysicalOlapScan[lineitem]
 
 Hint log:
 Used: leading(lineitem broadcast part )

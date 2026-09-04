@@ -64,6 +64,9 @@ public abstract class Rebalancer {
     protected Map<Long, PathSlot> backendsWorkingSlots;
     protected TabletInvertedIndex invertedIndex;
     protected SystemInfoService infoService;
+    // Owned by TabletScheduler, which injects itself via setSchedulerStat() after construction.
+    // Defaults to a standalone instance so that unit tests can build a Rebalancer on its own.
+    protected TabletSchedulerStat schedulerStat = new TabletSchedulerStat();
     // be id -> end time of prio
     protected Map<Long, Long> prioBackends = Maps.newConcurrentMap();
 
@@ -123,11 +126,15 @@ public abstract class Rebalancer {
         if (!FeConstants.runningUnitTest) {
             recycleBin = Env.getCurrentRecycleBin();
         }
+        // The metadata flag rejects the companion without a catalog lookup. The dynamic check below
+        // is still required to reject its paired base tablet.
         return tabletMeta != null
+                && !tabletMeta.isRowBinlog()
                 && !alterTableIds.contains(tabletMeta.getTableId())
                 && (canBalanceColocateTable || !colocateTableIndex.isColocateTable(tabletMeta.getTableId()))
                 && (recycleBin == null || !recycleBin.isRecyclePartition(tabletMeta.getDbId(),
-                        tabletMeta.getTableId(), tabletMeta.getPartitionId()));
+                        tabletMeta.getTableId(), tabletMeta.getPartitionId()))
+                && RowBinlogTabletLocality.canMoveTabletIndependently(tabletMeta);
     }
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)
@@ -161,6 +168,10 @@ public abstract class Rebalancer {
 
     public void updateLoadStatistic(Map<Tag, LoadStatisticForTag> statisticMap) {
         this.statisticMap = statisticMap;
+    }
+
+    public void setSchedulerStat(TabletSchedulerStat schedulerStat) {
+        this.schedulerStat = schedulerStat;
     }
 
     public void updateAlterTableIds(Set<Long> alterTableIds) {

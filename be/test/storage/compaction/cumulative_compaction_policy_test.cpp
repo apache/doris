@@ -329,6 +329,32 @@ public:
         rs_metas->push_back(ptr5);
     }
 
+    std::vector<RowsetMetaSharedPtr> create_rs_meta_max_score_trim(bool include_stranded_head) {
+        std::vector<RowsetMetaSharedPtr> rs_metas;
+        auto add_rowset = [&](int64_t start_version, int64_t end_version, int num_segments,
+                              bool overlapping, int64_t total_disk_size) {
+            RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+            init_rs_meta(rowset_meta, start_version, end_version);
+            rowset_meta->set_num_segments(num_segments);
+            rowset_meta->set_segments_overlap(overlapping ? OVERLAPPING : NONOVERLAPPING);
+            rowset_meta->set_total_disk_size(total_disk_size);
+            rs_metas.push_back(rowset_meta);
+        };
+
+        add_rowset(0, include_stranded_head ? 12 : 56, 1, false, 1024L * 1024 * 1024);
+        if (include_stranded_head) {
+            add_rowset(13, 56, 0, false, 0);
+        }
+        add_rowset(57, 57, 192, true, 256L * 1024 * 1024);
+        add_rowset(58, 58, 0, false, 0);
+        add_rowset(59, 59, 0, false, 0);
+        add_rowset(60, 60, 150, true, 256L * 1024 * 1024);
+        for (int64_t version = 61; version <= 67; ++version) {
+            add_rowset(version, version, 1, false, 1024L * 1024);
+        }
+        return rs_metas;
+    }
+
 protected:
     std::string _json_rowset_meta;
     TabletMetaSharedPtr _tablet_meta;
@@ -478,6 +504,53 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
     EXPECT_EQ(9, compaction_score);
     EXPECT_EQ(-1, last_delete_version.first);
     EXPECT_EQ(-1, last_delete_version.second);
+}
+
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_notready_keeps_latest_versions) {
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+
+    RowsetMetaSharedPtr base_rowset(new RowsetMeta());
+    init_rs_meta(base_rowset, 0, 1);
+    base_rowset->set_total_disk_size(kGiB);
+    base_rowset->set_segments_overlap(NONOVERLAPPING);
+    rs_metas.push_back(base_rowset);
+
+    for (int64_t version = 2; version <= 20; ++version) {
+        RowsetMetaSharedPtr rowset(new RowsetMeta());
+        init_rs_meta(rowset, version, version);
+        rowset->set_total_disk_size(kMiB);
+        rowset->set_num_segments(1);
+        rowset->set_segments_overlap(OVERLAPPING);
+        rs_metas.push_back(rowset);
+    }
+
+    for (const auto& rowset : rs_metas) {
+        ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset).ok());
+    }
+
+    TabletSharedPtr tablet(
+            new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    ASSERT_TRUE(tablet->init().ok());
+    ASSERT_TRUE(tablet->set_tablet_state(TABLET_NOTREADY).ok());
+    tablet->calculate_cumulative_point();
+
+    EXPECT_EQ(2, tablet->cumulative_layer_point());
+    auto candidate_rowsets = tablet->pick_candidate_rowsets_to_cumulative_compaction();
+    ASSERT_EQ(19, candidate_rowsets.size());
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    auto picked_size = tablet->_cumulative_compaction_policy->pick_input_rowsets(
+            tablet.get(), candidate_rowsets, 100, 5, &input_rowsets, &last_delete_version,
+            &compaction_score, config::enable_delete_when_cumu_compaction);
+
+    EXPECT_EQ(9, picked_size);
+    ASSERT_EQ(9, input_rowsets.size());
+    EXPECT_EQ(9, compaction_score);
+    EXPECT_EQ(2, input_rowsets.front()->start_version());
+    EXPECT_EQ(10, input_rowsets.back()->end_version());
+    EXPECT_EQ(Version(-1, -1), last_delete_version);
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_big_base) {
@@ -1299,6 +1372,64 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy,
 
     EXPECT_TRUE(input_rowsets.empty());
     EXPECT_EQ(0, compaction_score);
+}
+
+TEST_F(TestSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_restores_successor_for_non_overlapping_singleton) {
+    auto rs_metas = create_rs_meta_max_score_trim(true);
+    for (auto& rowset : rs_metas) {
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
+    }
+
+    TabletSharedPtr tablet(
+            new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    static_cast<void>(tablet->init());
+    tablet->calculate_cumulative_point();
+    EXPECT_EQ(13, tablet->cumulative_layer_point());
+    EXPECT_EQ(64L * 1024 * 1024, tablet->cumulative_promotion_size());
+
+    auto candidate_rowsets = tablet->pick_candidate_rowsets_to_cumulative_compaction();
+    ASSERT_EQ(12, candidate_rowsets.size());
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    tablet->_cumulative_compaction_policy->pick_input_rowsets(
+            tablet.get(), candidate_rowsets, 100, 5, &input_rowsets, &last_delete_version,
+            &compaction_score, config::enable_delete_when_cumu_compaction);
+
+    ASSERT_EQ(2, input_rowsets.size());
+    EXPECT_EQ(Version(13, 56), input_rowsets[0]->version());
+    EXPECT_EQ(Version(57, 57), input_rowsets[1]->version());
+    EXPECT_EQ(193, compaction_score);
+}
+
+TEST_F(TestSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_keeps_single_overlapping_rowset_after_trim) {
+    auto rs_metas = create_rs_meta_max_score_trim(false);
+    for (auto& rowset : rs_metas) {
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
+    }
+
+    TabletSharedPtr tablet(
+            new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    static_cast<void>(tablet->init());
+    tablet->calculate_cumulative_point();
+    EXPECT_EQ(57, tablet->cumulative_layer_point());
+
+    auto candidate_rowsets = tablet->pick_candidate_rowsets_to_cumulative_compaction();
+    ASSERT_EQ(11, candidate_rowsets.size());
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    tablet->_cumulative_compaction_policy->pick_input_rowsets(
+            tablet.get(), candidate_rowsets, 100, 5, &input_rowsets, &last_delete_version,
+            &compaction_score, config::enable_delete_when_cumu_compaction);
+
+    // The tail was trimmed, but the overlapping head remains mergeable by itself.
+    ASSERT_EQ(1, input_rowsets.size());
+    EXPECT_GT(candidate_rowsets.size(), input_rowsets.size());
+    EXPECT_EQ(Version(57, 57), input_rowsets.front()->version());
+    EXPECT_EQ(192, compaction_score);
 }
 
 // Test case: Trim with varying scores (high score rowsets at tail)

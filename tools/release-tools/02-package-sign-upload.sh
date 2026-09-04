@@ -92,6 +92,22 @@ if [[ "$bin_count" -gt 0 ]]; then
   echo
 fi
 
+# The signatures above stay local. Remind the RM to publish them, on every
+# successful exit - including the paths below that stop before the SVN commit.
+bin_upload_reminder() {
+  [[ "${bin_count:-0}" -gt 0 ]] || return 0
+  local base="${BIN_DOWNLOAD_BASE%/}" b
+  echo
+  warn "the binary .asc signatures are NOT uploaded by this script."
+  echo "Upload each binary together with its .asc and .sha512 to ${base}/ :"
+  for b in "${BIN_FILES[@]}"; do
+    b="$(basename "$b")"
+    echo "  $b  $b.asc  $b.sha512"
+  done
+  echo "03-vote-mail.sh advertises them under ${base}/, so upload them BEFORE sending the vote email."
+}
+trap 'rc=$?; if [[ "$rc" -eq 0 ]]; then bin_upload_reminder; fi; exit "$rc"' EXIT
+
 # 5. upload to dev SVN (two confirmations; nothing public happens before them)
 echo "Target dev SVN folder: ${DEV_SVN_DIR}/"
 confirm "Checkout + add these 3 files for the above SVN URL?" || { warn "stopping before SVN."; exit 0; }

@@ -28,11 +28,15 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TResultFileSinkOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Field;
 
 public class OutFileTest extends TestWithFeService implements PlanPatternMatchSupported {
     private final NereidsParser parser = new NereidsParser();
@@ -76,6 +80,21 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
                 + ")";
         Assertions.assertTrue(getOutputFragment(sql).getExplainString(TExplainLevel.BRIEF)
                 .contains("FILE SINK"));
+    }
+
+    @Test
+    public void testHdfsOutFileCarriesDefaultFs() throws Exception {
+        // The BE connects with the fs.defaultFS extracted from the outfile path; losing it makes
+        // the BE-side hdfs client fail with "Expected authority at index 7: hdfs://".
+        String sql = "select * from T1 into outfile 'hdfs://127.0.0.1:8020/tmp/outfile_test_'\n"
+                + " format as csv\n"
+                + " properties (\"hadoop.username\" = \"doris\")";
+        PlanFragment fragment = getOutputFragment(sql);
+        Assertions.assertTrue(fragment.getSink() instanceof ResultFileSink);
+        Field field = ResultFileSink.class.getDeclaredField("fileSinkOptions");
+        field.setAccessible(true);
+        TResultFileSinkOptions sinkOptions = (TResultFileSinkOptions) field.get(fragment.getSink());
+        Assertions.assertEquals("hdfs://127.0.0.1:8020", sinkOptions.getBrokerProperties().get("fs.defaultFS"));
     }
 
     private PlanFragment getOutputFragment(String sql) throws Exception {

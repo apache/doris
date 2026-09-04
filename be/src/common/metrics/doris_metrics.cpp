@@ -195,6 +195,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(process_fd_num_limit_soft, MetricUnit::NOUNIT
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(process_fd_num_limit_hard, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_cumulative_max_compaction_score, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_size_based_max_compaction_score, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_time_series_max_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_base_max_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_binlog_max_compaction_score, MetricUnit::NOUNIT);
 
@@ -202,7 +204,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_rowsets_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_segments_num, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_used_permits, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(binlog_compaction_used_permits, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_waitting_permits, MetricUnit::NOUNIT);
 
 DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(tablet_version_num_distribution, MetricUnit::NOUNIT);
@@ -393,6 +394,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, process_fd_num_limit_hard);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_cumulative_max_compaction_score);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_size_based_max_compaction_score);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_time_series_max_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_base_max_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_binlog_max_compaction_score);
 
@@ -400,7 +403,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, all_segments_num);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_used_permits);
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, binlog_compaction_used_permits);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_waitting_permits);
 
     HISTOGRAM_METRIC_REGISTER(_server_metric_entity, tablet_version_num_distribution);

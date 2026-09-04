@@ -25,3 +25,11 @@ file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 add_library(InformationSchema STATIC ${SRC_FILES})
 
 pch_reuse(InformationSchema)
+
+# Unity build: these schema scanners are homogeneous glue code whose per-TU
+# cost is dominated by re-parsing the same header closure once per file.
+# Batch size 0 merges all sources into a single unity TU (~10x faster than
+# compiling them individually). A new file whose file-scope symbols clash
+# inside the unity TU can opt out via SKIP_UNITY_BUILD_INCLUSION.
+set_target_properties(InformationSchema PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
+                                                   UNITY_BUILD_BATCH_SIZE 0)

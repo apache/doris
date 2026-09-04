@@ -220,4 +220,16 @@ class FileSystemDefaultMethodsTest {
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> fs.globListWithLimit(Location.of("s3://b/*"), null, 0, 0));
     }
+
+    // --- forLocation ---
+
+    @Test
+    void forLocationDefaultReturnsThis() throws IOException {
+        // A plain (non-routing) filesystem is its own per-location filesystem. This contract lets
+        // callers resolve the concrete impl (e.g. for an instanceof ObjFileSystem check) uniformly,
+        // whether the handle is a single-backend FS or a scheme-routing facade.
+        StubFileSystem fs = new StubFileSystem(List.of());
+        Assertions.assertSame(fs, fs.forLocation(Location.of("s3://b/dir/a.csv")));
+        Assertions.assertSame(fs, fs.forLocation(Location.of("hdfs://ns/user/a")));
+    }
 }

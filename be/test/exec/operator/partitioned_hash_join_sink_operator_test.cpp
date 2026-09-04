@@ -330,19 +330,20 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
 
     RowDescriptor row_desc(_helper.runtime_state->desc_tbl(), {1});
     child->_row_descriptor = row_desc;
-    EXPECT_EQ(child->row_desc().num_slots(), 1);
+    EXPECT_EQ(child->operator_row_desc_after_projection().num_slots(), 1);
 
     const auto& tnode = sink_operator->_tnode;
     // prepare and set partitioner
     auto partitioner = std::make_unique<SpillPartitionerType>(sink_operator->_partition_count);
     auto status = partitioner->init({tnode.hash_join_node.eq_join_conjuncts[0].right});
     ASSERT_TRUE(status.ok()) << "Init partitioner failed: " << status.to_string();
-    status = partitioner->prepare(_helper.runtime_state.get(), sink_operator->_child->row_desc());
+    status = partitioner->prepare(_helper.runtime_state.get(),
+                                  sink_operator->_child->operator_row_desc_after_projection());
     ASSERT_TRUE(status.ok()) << "Prepare partitioner failed: " << status.to_string();
     sink_state->_partitioner = std::move(partitioner);
     sink_state->_shared_state->_is_spilled = false;
 
-    DCHECK_GE(sink_operator->_child->row_desc().get_column_id(1), 0);
+    DCHECK_GE(sink_operator->_child->operator_row_desc_after_projection().get_column_id(1), 0);
 
     for (uint32_t i = 0; i != sink_operator->_partition_count; ++i) {
         auto& spilling_file = sink_state->_shared_state->_spilled_build_groups[i];
@@ -414,7 +415,8 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemoryMultipleCycles) {
     auto partitioner = std::make_unique<SpillPartitionerType>(sink_operator->_partition_count);
     auto status = partitioner->init({tnode.hash_join_node.eq_join_conjuncts[0].right});
     ASSERT_TRUE(status.ok());
-    status = partitioner->prepare(_helper.runtime_state.get(), sink_operator->_child->row_desc());
+    status = partitioner->prepare(_helper.runtime_state.get(),
+                                  sink_operator->_child->operator_row_desc_after_projection());
     ASSERT_TRUE(status.ok());
     sink_state->_partitioner = std::move(partitioner);
     sink_state->_shared_state->_is_spilled = false;

@@ -71,8 +71,7 @@ public:
             return entry->data.iterator->next_batch(n, entry->data.column, &has_null);
         }));
         // then read sparse column
-        return _process_batch([&]() { return _sparse_column_cache->next_batch(n, has_null); }, *n,
-                              dst);
+        return _process_batch([&]() { return _sparse_column_cache->next_batch(n, has_null); }, dst);
     }
 
     // RowID-based read using template method
@@ -84,7 +83,7 @@ public:
         }));
         // then read sparse column
         return _process_batch([&]() { return _sparse_column_cache->read_by_rowids(rowids, count); },
-                              count, dst);
+                              dst);
     }
 
     Status seek_to_ordinal(ordinal_t ord) override;

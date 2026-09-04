@@ -140,6 +140,12 @@ public:
      */
     static std::string get_jni_type_with_different_string(const DataTypePtr& data_type);
 
+    /** Encodes every list element independently so schema delimiters remain unambiguous. */
+    static std::string encode_schema_values(const std::vector<std::string>& values);
+
+    /** Encodes STRUCT field names inside a JNI type descriptor. */
+    static std::string get_jni_type_with_encoded_struct_fields(const DataTypePtr& data_type);
+
 private:
     // Column fill helpers for various types
     static Status _fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,

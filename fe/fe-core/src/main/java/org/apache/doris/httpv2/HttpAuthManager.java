@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.httpv2.security.CsrfTokenUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
@@ -26,6 +27,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 // We simulate a simplified session here: only store user-name of clients who already logged in,
@@ -41,6 +43,11 @@ public final class HttpAuthManager {
     public static class SessionValue {
         public UserIdentity currentUser;
         public String password;
+        public final String csrfToken = CsrfTokenUtils.newCsrfToken();
+        // Stable, non-secret identifier for this browser session. Web SQL sessions are scoped to
+        // it so that signing out of one browser does not close the sessions another browser --
+        // or another operator sharing the same Doris account -- still has open.
+        public final String httpSessionId = UUID.randomUUID().toString();
     }
 
     // session_id => session value

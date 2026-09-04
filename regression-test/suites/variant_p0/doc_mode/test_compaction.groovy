@@ -19,7 +19,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
 suite("compaction_variant_doc_value", "p0") {
-     sql """ set default_variant_enable_doc_mode = true; """
+    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    // ColumnVariantV2 intentionally does not support nested arrays yet.
+    sql """ set default_variant_enable_doc_mode = true; """
     try {
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -67,23 +70,27 @@ suite("compaction_variant_doc_value", "p0") {
             // 1. simple cases
             create_table.call(tableName, "1", key_types[i])
             def insert = {
-                sql """insert into ${tableName} values (1,  '{"x" : [1]}'),(13,  '{"a" : 1}');"""
-                sql """insert into ${tableName} values (2,  '{"a" : "1"}'),(14,  '{"a" : [[[1]]]}');"""
-                sql """insert into ${tableName} values (3,  '{"x" : [3]}'),(15,  '{"a" : 1}')"""
-                sql """insert into ${tableName} values (4,  '{"y": 1}'),(16,  '{"a" : "1223"}');"""
-                sql """insert into ${tableName} values (5,  '{"z" : 2.0}'),(17,  '{"a" : [1]}');"""
-                sql """insert into ${tableName} values (6,  '{"x" : 111}'),(18,  '{"a" : ["1", 2, 1.1]}');"""
-                sql """insert into ${tableName} values (7,  '{"m" : 1}'),(19,  '{"a" : 1, "b" : {"c" : 1}}');"""
-                sql """insert into ${tableName} values (8,  '{"l" : 2}'),(20,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-                sql """insert into ${tableName} values (9,  '{"g" : 1.11}'),(21,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-                sql """insert into ${tableName} values (10, '{"z" : 1.1111}'),(22,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-                sql """insert into ${tableName} values (11, '{"sala" : 0}'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
-                sql """insert into ${tableName} values (12, '{"dddd" : 0.1}'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
+                sql """insert into ${tableName} values (1,  ${variantV2Function}('{"x" : [1]}')),(13,  ${variantV2Function}('{"a" : 1}'));"""
+                sql """insert into ${tableName} values (2,  ${variantV2Function}('{"a" : "1"}')),(14,  ${variantV2Function}('{"a" : [[[1]]]}'));"""
+                sql """insert into ${tableName} values (3,  ${variantV2Function}('{"x" : [3]}')),(15,  ${variantV2Function}('{"a" : 1}'))"""
+                sql """insert into ${tableName} values (4,  ${variantV2Function}('{"y": 1}')),(16,  ${variantV2Function}('{"a" : "1223"}'));"""
+                sql """insert into ${tableName} values (5,  ${variantV2Function}('{"z" : 2.0}')),(17,  ${variantV2Function}('{"a" : [1]}'));"""
+                sql """insert into ${tableName} values (6,  ${variantV2Function}('{"x" : 111}')),(18,  ${variantV2Function}('{"a" : ["1", 2, 1.1]}'));"""
+                sql """insert into ${tableName} values (7,  ${variantV2Function}('{"m" : 1}')),(19,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'));"""
+                sql """insert into ${tableName} values (8,  ${variantV2Function}('{"l" : 2}')),(20,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'));"""
+                sql """insert into ${tableName} values (9,  ${variantV2Function}('{"g" : 1.11}')),(21,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'));"""
+                sql """insert into ${tableName} values (10, ${variantV2Function}('{"z" : 1.1111}')),(22,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'));"""
+                sql """insert into ${tableName} values (11, ${variantV2Function}('{"sala" : 0}')),(1999,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}')),(19921,  ${variantV2Function}('{"a" : 1, "b" : 10}'));"""
+                sql """insert into ${tableName} values (12, ${variantV2Function}('{"dddd" : 0.1}')),(1022,  ${variantV2Function}('{"a" : 1, "b" : 10}')),(1029,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'));"""
             }
             insert.call();
             insert.call();
-            qt_sql_1 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
-            qt_sql_2 "select k, cast(v['a'] as array<int>) from  ${tableName} where  size(cast(v['a'] as array<int>)) > 0 order by k"
+            if (!enableVariantV2) {
+                qt_sql_1 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
+                qt_sql_2 "select k, cast(v['a'] as array<int>) from ${tableName} where size(cast(v['a'] as array<int>)) > 0 order by k"
+            }
+            qt_sql_1_supported "SELECT k, cast(cast(v as json) as string) FROM ${tableName} ORDER BY k, cast(v as string); "
+            qt_sql_2_supported "select k, cast(v['a'] as array<int>) from ${tableName} where size(array_filter(x -> x is not null, cast(v['a'] as array<int>))) > 0 order by k"
             qt_sql_3 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
             qt_sql_5 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != null or cast(v['b'] as string) != '{}' order by k desc, 1, 2 limit 10;"
 
@@ -107,8 +114,12 @@ suite("compaction_variant_doc_value", "p0") {
                 }
             }
             // assert (rowCount < 8)
-            qt_sql_11 "SELECT * FROM ${tableName} where k != 18 ORDER BY k, cast(v as string); "
-            qt_sql_22 "select k, cast(v['a'] as array<int>) from  ${tableName} where  size(cast(v['a'] as array<int>)) > 0 order by k"
+            if (!enableVariantV2) {
+                qt_sql_11 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
+                qt_sql_22 "select k, cast(v['a'] as array<int>) from ${tableName} where size(cast(v['a'] as array<int>)) > 0 order by k"
+            }
+            qt_sql_11_supported "SELECT k, cast(cast(v as json) as string) FROM ${tableName} where k != 18 ORDER BY k, cast(v as string); "
+            qt_sql_22_supported "select k, cast(v['a'] as array<int>) from ${tableName} where size(array_filter(x -> x is not null, cast(v['a'] as array<int>))) > 0 order by k"
             qt_sql_33 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
         }
 

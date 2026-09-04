@@ -17,10 +17,14 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <vector>
 
 #include "core/arena.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_string.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/aggregate/aggregate_function_foreach.h"
 
 namespace doris {
 
@@ -31,14 +35,17 @@ struct TrackingAggregateState {
     static void reset_counters() {
         construct_count = 0;
         destroy_count = 0;
+        merge_count = 0;
     }
 
     static int construct_count;
     static int destroy_count;
+    static int merge_count;
 };
 
 int TrackingAggregateState::construct_count = 0;
 int TrackingAggregateState::destroy_count = 0;
+int TrackingAggregateState::merge_count = 0;
 
 class ThrowOnDeserializeAggregateFunction final
         : public IAggregateFunctionDataHelper<TrackingAggregateState,
@@ -69,6 +76,34 @@ public:
             throw Exception(ErrorCode::INTERNAL_ERROR, "mock deserialize failure");
         }
     }
+
+    void insert_result_into(ConstAggregateDataPtr, IColumn&) const override {}
+};
+
+class ThrowOnSecondMergeAggregateFunction final
+        : public IAggregateFunctionDataHelper<TrackingAggregateState,
+                                              ThrowOnSecondMergeAggregateFunction> {
+public:
+    ThrowOnSecondMergeAggregateFunction()
+            : IAggregateFunctionDataHelper<TrackingAggregateState,
+                                           ThrowOnSecondMergeAggregateFunction>(
+                      DataTypes {std::make_shared<DataTypeString>()}) {}
+
+    String get_name() const override { return "throw_on_second_merge"; }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
+
+    void add(AggregateDataPtr, const IColumn**, ssize_t, Arena&) const override {}
+
+    void merge(AggregateDataPtr, ConstAggregateDataPtr, Arena&) const override {
+        if (++TrackingAggregateState::merge_count == 2) {
+            throw Exception(ErrorCode::MEM_ALLOC_FAILED, "mock merge allocation failure");
+        }
+    }
+
+    void serialize(ConstAggregateDataPtr, BufferWritable&) const override {}
+
+    void deserialize(AggregateDataPtr, BufferReadable&, Arena&) const override {}
 
     void insert_result_into(ConstAggregateDataPtr, IColumn&) const override {}
 };
@@ -156,6 +191,39 @@ TEST_F(AggregateFunctionExceptionTest,
     EXPECT_EQ(TrackingAggregateState::destroy_count - destroy_count_before_call, 2);
 
     function.destroy(place);
+    EXPECT_EQ(TrackingAggregateState::construct_count, TrackingAggregateState::destroy_count);
+}
+
+TEST_F(AggregateFunctionExceptionTest, ForEachGrowthPreservesOldStatesWhenMergeThrows) {
+    auto nested_function = std::make_shared<ThrowOnSecondMergeAggregateFunction>();
+    auto input_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+    AggregateFunctionForEach foreach_function(nested_function, DataTypes {input_type});
+    auto input_column = input_type->create_column();
+    input_column->insert(
+            Field::create_field<TYPE_ARRAY>(Array {Field::create_field<TYPE_STRING>(String("a")),
+                                                   Field::create_field<TYPE_STRING>(String("b"))}));
+    input_column->insert(
+            Field::create_field<TYPE_ARRAY>(Array {Field::create_field<TYPE_STRING>(String("c")),
+                                                   Field::create_field<TYPE_STRING>(String("d")),
+                                                   Field::create_field<TYPE_STRING>(String("e"))}));
+    const IColumn* columns[] = {input_column.get()};
+
+    {
+        AggregateFunctionGuard state(&foreach_function);
+        foreach_function.add(state.data(), columns, 0, arena);
+
+        try {
+            foreach_function.add(state.data(), columns, 1, arena);
+            FAIL() << "Expected doris::Exception";
+        } catch (const doris::Exception& e) {
+            EXPECT_EQ(e.code(), doris::ErrorCode::MEM_ALLOC_FAILED);
+        }
+
+        EXPECT_EQ(TrackingAggregateState::merge_count, 2);
+        EXPECT_EQ(TrackingAggregateState::construct_count, 5);
+        EXPECT_EQ(TrackingAggregateState::destroy_count, 3);
+    }
+
     EXPECT_EQ(TrackingAggregateState::construct_count, TrackingAggregateState::destroy_count);
 }
 

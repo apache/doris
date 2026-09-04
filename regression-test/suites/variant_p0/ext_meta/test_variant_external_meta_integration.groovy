@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_external_meta_integration", "nonConcurrent") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -46,9 +47,9 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
 
-    sql """insert into test_inverted_index_extracted values (1, '{"name": "Alice Smith", "age": 25}')"""
-    sql """insert into test_inverted_index_extracted values (2, '{"name": "Bob Johnson", "age": 30}')"""
-    sql """insert into test_inverted_index_extracted values (3, '{"name": "Charlie Smith", "age": 35}')"""
+    sql """insert into test_inverted_index_extracted values (1, ${variantV2Function}('{"name": "Alice Smith", "age": 25}'))"""
+    sql """insert into test_inverted_index_extracted values (2, ${variantV2Function}('{"name": "Bob Johnson", "age": 30}'))"""
+    sql """insert into test_inverted_index_extracted values (3, ${variantV2Function}('{"name": "Charlie Smith", "age": 35}'))"""
 
     // Test inverted index on name field (should work with external meta)
     qt_inverted_1 "select k, v['name'] from test_inverted_index_extracted where v['name'] match 'Smith' order by k"
@@ -74,9 +75,9 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
 
-    sql """insert into test_parent_index values (1, '{"title": "Hello World", "content": "This is a test"}')"""
-    sql """insert into test_parent_index values (2, '{"title": "Test Document", "content": "Another test here"}')"""
-    sql """insert into test_parent_index values (3, '{"title": "World News", "content": "Breaking news today"}')"""
+    sql """insert into test_parent_index values (1, ${variantV2Function}('{"title": "Hello World", "content": "This is a test"}'))"""
+    sql """insert into test_parent_index values (2, ${variantV2Function}('{"title": "Test Document", "content": "Another test here"}'))"""
+    sql """insert into test_parent_index values (3, ${variantV2Function}('{"title": "World News", "content": "Breaking news today"}'))"""
 
     // Query with inherited inverted index
     qt_parent_idx_1 "select k, v['title'] from test_parent_index where v['title'] match 'World' order by k"
@@ -96,9 +97,9 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
 
-    sql """insert into test_multiple_variants values (1, '{"a": 1, "b": 2}', '{"x": 10, "y": 20}')"""
-    sql """insert into test_multiple_variants values (2, '{"a": 100, "c": 300}', '{"x": 1000, "z": 3000}')"""
-    sql """insert into test_multiple_variants values (3, '{"d": 4}', '{"w": 40}')"""
+    sql """insert into test_multiple_variants values (1, ${variantV2Function}('{"a": 1, "b": 2}'), ${variantV2Function}('{"x": 10, "y": 20}'))"""
+    sql """insert into test_multiple_variants values (2, ${variantV2Function}('{"a": 100, "c": 300}'), ${variantV2Function}('{"x": 1000, "z": 3000}'))"""
+    sql """insert into test_multiple_variants values (3, ${variantV2Function}('{"d": 4}'), ${variantV2Function}('{"w": 40}'))"""
 
     // Both variant columns should use external meta independently
     qt_multi_var_1 "select k, v1['a'], v2['x'] from test_multiple_variants order by k"
@@ -124,10 +125,10 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
         properties("replication_num" = "1", "disable_auto_compaction" = "false", "storage_format" = "V3");
     """
 
-    sql """insert into test_aggregation values (1, 'A', '{"value": 100, "count": 1}')"""
-    sql """insert into test_aggregation values (2, 'A', '{"value": 200, "count": 2}')"""
-    sql """insert into test_aggregation values (3, 'B', '{"value": 150, "count": 1}')"""
-    sql """insert into test_aggregation values (4, 'B', '{"value": 250, "count": 3}')"""
+    sql """insert into test_aggregation values (1, 'A', ${variantV2Function}('{"value": 100, "count": 1}'))"""
+    sql """insert into test_aggregation values (2, 'A', ${variantV2Function}('{"value": 200, "count": 2}'))"""
+    sql """insert into test_aggregation values (3, 'B', ${variantV2Function}('{"value": 150, "count": 1}'))"""
+    sql """insert into test_aggregation values (4, 'B', ${variantV2Function}('{"value": 250, "count": 3}'))"""
 
     qt_agg_1 "select category, sum(cast(v['value'] as int)) from test_aggregation group by category order by category"
     qt_agg_2 "select category, avg(cast(v['count'] as double)) from test_aggregation group by category order by category"
@@ -157,12 +158,12 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
         properties("replication_num" = "1", "disable_auto_compaction" = "false", "storage_format" = "V3");
     """
 
-    sql """insert into test_join_left values (1, '{"name": "Alice", "dept_id": 10}')"""
-    sql """insert into test_join_left values (2, '{"name": "Bob", "dept_id": 20}')"""
-    sql """insert into test_join_left values (3, '{"name": "Charlie", "dept_id": 10}')"""
+    sql """insert into test_join_left values (1, ${variantV2Function}('{"name": "Alice", "dept_id": 10}'))"""
+    sql """insert into test_join_left values (2, ${variantV2Function}('{"name": "Bob", "dept_id": 20}'))"""
+    sql """insert into test_join_left values (3, ${variantV2Function}('{"name": "Charlie", "dept_id": 10}'))"""
 
-    sql """insert into test_join_right values (10, '{"dept_name": "Engineering", "location": "Building A"}')"""
-    sql """insert into test_join_right values (20, '{"dept_name": "Sales", "location": "Building B"}')"""
+    sql """insert into test_join_right values (10, ${variantV2Function}('{"dept_name": "Engineering", "location": "Building A"}'))"""
+    sql """insert into test_join_right values (20, ${variantV2Function}('{"dept_name": "Sales", "location": "Building B"}'))"""
 
     qt_join_1 """
         select l.k, l.v['name'], r.v['dept_name']
@@ -202,11 +203,11 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
         properties("replication_num" = "1", "disable_auto_compaction" = "false", "storage_format" = "V3");
     """
 
-    sql """insert into test_union_1 values (1, '{"source": "table1", "value": 100}')"""
-    sql """insert into test_union_1 values (2, '{"source": "table1", "value": 200}')"""
+    sql """insert into test_union_1 values (1, ${variantV2Function}('{"source": "table1", "value": 100}'))"""
+    sql """insert into test_union_1 values (2, ${variantV2Function}('{"source": "table1", "value": 200}'))"""
 
-    sql """insert into test_union_2 values (3, '{"source": "table2", "value": 150}')"""
-    sql """insert into test_union_2 values (4, '{"source": "table2", "value": 250}')"""
+    sql """insert into test_union_2 values (3, ${variantV2Function}('{"source": "table2", "value": 150}'))"""
+    sql """insert into test_union_2 values (4, ${variantV2Function}('{"source": "table2", "value": 250}'))"""
 
     qt_union_1 """
         select k, v['source'], v['value'] from test_union_1
@@ -239,7 +240,7 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
     """
 
     for (int i = 1; i <= 10; i++) {
-        sql """insert into test_subquery values (${i}, '{"score": ${i * 10}, "grade": "${i > 5 ? 'A' : 'B'}"}')"""
+        sql """insert into test_subquery values (${i}, ${variantV2Function}('{"score": ${i * 10}, "grade": "${i > 5 ? 'A' : 'B'}"}'))"""
     }
 
     qt_subquery_1 """
@@ -270,11 +271,11 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
         properties("replication_num" = "1", "disable_auto_compaction" = "false", "storage_format" = "V3");
     """
 
-    sql """insert into test_having values (1, 'A', '{"amount": 100}')"""
-    sql """insert into test_having values (2, 'A', '{"amount": 200}')"""
-    sql """insert into test_having values (3, 'A', '{"amount": 300}')"""
-    sql """insert into test_having values (4, 'B', '{"amount": 50}')"""
-    sql """insert into test_having values (5, 'B', '{"amount": 60}')"""
+    sql """insert into test_having values (1, 'A', ${variantV2Function}('{"amount": 100}'))"""
+    sql """insert into test_having values (2, 'A', ${variantV2Function}('{"amount": 200}'))"""
+    sql """insert into test_having values (3, 'A', ${variantV2Function}('{"amount": 300}'))"""
+    sql """insert into test_having values (4, 'B', ${variantV2Function}('{"amount": 50}'))"""
+    sql """insert into test_having values (5, 'B', ${variantV2Function}('{"amount": 60}'))"""
 
     qt_having_1 """
         select category, sum(cast(v['amount'] as int)) as total
@@ -297,7 +298,7 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
     """
 
     for (int i = 1; i <= 20; i++) {
-        sql """insert into test_order_limit values (${i}, '{"priority": ${20 - i}, "name": "item_${i}"}')"""
+        sql """insert into test_order_limit values (${i}, ${variantV2Function}('{"priority": ${20 - i}, "name": "item_${i}"}'))"""
     }
 
     qt_order_limit_1 """
@@ -327,10 +328,10 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
         properties("replication_num" = "1", "disable_auto_compaction" = "false", "storage_format" = "V3");
     """
 
-    sql """insert into test_distinct values (1, '{"category": "A", "value": 100}')"""
-    sql """insert into test_distinct values (2, '{"category": "B", "value": 200}')"""
-    sql """insert into test_distinct values (3, '{"category": "A", "value": 150}')"""
-    sql """insert into test_distinct values (4, '{"category": "C", "value": 100}')"""
+    sql """insert into test_distinct values (1, ${variantV2Function}('{"category": "A", "value": 100}'))"""
+    sql """insert into test_distinct values (2, ${variantV2Function}('{"category": "B", "value": 200}'))"""
+    sql """insert into test_distinct values (3, ${variantV2Function}('{"category": "A", "value": 150}'))"""
+    sql """insert into test_distinct values (4, ${variantV2Function}('{"category": "C", "value": 100}'))"""
 
     qt_distinct_1 "select distinct cast(v['category'] as string) from test_distinct order by cast(v['category'] as string)"
     qt_distinct_2 "select distinct cast(v['value'] as int) from test_distinct order by cast(v['value'] as int)"
@@ -351,5 +352,3 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_distinct"
 
 }
-
-

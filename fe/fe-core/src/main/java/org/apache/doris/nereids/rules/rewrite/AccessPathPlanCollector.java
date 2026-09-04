@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMap;
@@ -249,6 +250,12 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                     List<String> outerPath = outerSlotAccessPath.getPath();
                     List<String> replaceSlotNamePath = new ArrayList<>();
                     replaceSlotNamePath.add(innerSlot.getName());
+                    if (outerPath.size() == 1 && innerSlot instanceof SlotReference
+                            && ((SlotReference) innerSlot).hasSubColPath()) {
+                        // A whole access to a derived subcolumn slot is whole only relative to that
+                        // slot; preserve its physical leaf path when propagating to the scan slot.
+                        replaceSlotNamePath.addAll(((SlotReference) innerSlot).getSubPath());
+                    }
                     replaceSlotNamePath.addAll(outerPath.subList(1, outerPath.size()));
                     allSlotToAccessPaths.put(
                             innerSlot.getExprId().asInt(),

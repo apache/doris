@@ -76,6 +76,7 @@ suite("test_group_commit_replay_wal", "nonConcurrent") {
 
     // load fail and abort fail, wal should not be deleted and retry
     try {
+        GetDebugPoint().enableDebugPointForAllBEs("WalWriter.append_blocks.write_incomplete_tail", [execute: 1])
         GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.load_error")
         GetDebugPoint().enableDebugPointForAllFEs("FrontendServiceImpl.loadTxnRollback.error")
         streamLoad {

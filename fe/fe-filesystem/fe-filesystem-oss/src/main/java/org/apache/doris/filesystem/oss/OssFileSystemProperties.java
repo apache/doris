@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
@@ -251,6 +252,12 @@ public final class OssFileSystemProperties
         kv.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
         kv.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
         kv.put("use_path_style", usePathStyle);
+        // Mirror fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // anonymous access (no static credentials) emits ANONYMOUS; otherwise the key is omitted so
+        // BE uses SimpleAWSCredentialsProvider. OSS never configures a provider type explicitly.
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            kv.put("AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS");
+        }
         return Collections.unmodifiableMap(kv);
     }
 
@@ -259,8 +266,10 @@ public final class OssFileSystemProperties
         Map<String, String> cfg = new HashMap<>();
         cfg.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         cfg.put("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        cfg.put("fs.s3.impl.disable.cache", "true");
-        cfg.put("fs.s3a.impl.disable.cache", "true");
+        // No blanket cache disabling: the Doris-patched FileSystem keys its cache by the
+        // per-scheme credential fingerprint below, so different credentials never share an
+        // instance and merging this map with another storage's loses neither.
+        FsCacheKeys.putFsCacheKeys(cfg, this);
         cfg.put("fs.s3a.endpoint", endpoint);
         cfg.put("fs.s3a.endpoint.region", region);
         if (StringUtils.isNotBlank(accessKey)) {

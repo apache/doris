@@ -20,9 +20,16 @@
 
 #include <gtest/gtest.h>
 
+#include <vector>
+
 #include "storage/index/inverted/tokenizer/keyword/keyword_tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
+
+namespace lower_case_testing {
+uint64_t unicode_path_count();
+void reset_unicode_path_count();
+} // namespace lower_case_testing
 
 TokenStreamPtr create_lowercase_filter(const std::string& text, Settings settings = Settings()) {
     ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
@@ -43,6 +50,32 @@ TokenStreamPtr create_lowercase_filter(const std::string& text, Settings setting
 struct ExpectedToken {
     std::string term;
     int pos_inc;
+};
+
+class ScriptedLowercaseInput final : public TokenStream {
+public:
+    explicit ScriptedLowercaseInput(std::vector<std::string> terms) : _terms(std::move(terms)) {}
+
+    Token* next(Token* token) override {
+        if (_next == _terms.size()) {
+            return nullptr;
+        }
+        const auto& term = _terms[_next++];
+        token->clear();
+        token->setTextNoCopy(term.data(), static_cast<int32_t>(term.size()));
+        token->setPositionIncrement(3);
+        token->setStartOffset(7);
+        token->setEndOffset(19);
+        token->setType(_T("scripted"));
+        return token;
+    }
+
+    void close() override {}
+    void reset() override { _next = 0; }
+
+private:
+    std::vector<std::string> _terms;
+    size_t _next = 0;
 };
 
 class LowerCaseFilterTest : public ::testing::Test {
@@ -75,8 +108,71 @@ TEST_F(LowerCaseFilterTest, HandlesMixedCase) {
     assert_filter_output("HeLLo WoRLd", {{"hello world", 1}});
 }
 
+TEST_F(LowerCaseFilterTest, ASCIIBypassesUnicodeConversion) {
+    lower_case_testing::reset_unicode_path_count();
+    assert_filter_output("already lowercase", {{"already lowercase", 1}});
+    assert_filter_output("ASCII UPPER", {{"ascii upper", 1}});
+    EXPECT_EQ(lower_case_testing::unicode_path_count(), 0);
+
+    assert_filter_output(
+            "\xC3\x9C"
+            "BER",
+            {{"\xC3\xBC"
+              "ber",
+              1}});
+    EXPECT_EQ(lower_case_testing::unicode_path_count(), 1);
+}
+
+TEST_F(LowerCaseFilterTest, ASCIIPreservesMetadataAndEmbeddedNul) {
+    auto input = std::make_shared<ScriptedLowercaseInput>(
+            std::vector<std::string> {std::string("A\0B", 3), "already lower"});
+    LowerCaseFilterFactory factory;
+    factory.initialize({});
+    auto filter = factory.create(input);
+    filter->reset();
+
+    Token token;
+    ASSERT_NE(filter->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()),
+              std::string("a\0b", 3));
+    EXPECT_EQ(token.getPositionIncrement(), 3);
+    EXPECT_EQ(token.startOffset(), 7);
+    EXPECT_EQ(token.endOffset(), 19);
+    EXPECT_EQ(std::wstring(token.type()), L"scripted");
+
+    ASSERT_NE(filter->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "already lower");
+    EXPECT_EQ(token.getPositionIncrement(), 3);
+    EXPECT_EQ(token.startOffset(), 7);
+    EXPECT_EQ(token.endOffset(), 19);
+    EXPECT_EQ(std::wstring(token.type()), L"scripted");
+}
+
 TEST_F(LowerCaseFilterTest, ConvertsUnicodeCharacters) {
     assert_filter_output("ÜBER ΜΈΓΑ", {{"über μέγα", 1}});
+}
+
+TEST_F(LowerCaseFilterTest, RetriesUnicodeExpansionWithRequiredBufferSize) {
+    assert_filter_output("\xC4\xB0", {{"i\xCC\x87", 1}});
+}
+
+TEST_F(LowerCaseFilterTest, RejectsInvalidUtf8WithAnalyzerError) {
+    auto input = std::make_shared<ScriptedLowercaseInput>(
+            std::vector<std::string> {"VALID", std::string(1, static_cast<char>(0xFF))});
+    LowerCaseFilterFactory factory;
+    factory.initialize({});
+    auto filter = factory.create(input);
+    filter->reset();
+
+    Token token;
+    ASSERT_NE(filter->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "valid");
+    try {
+        filter->next(&token);
+        FAIL() << "expected malformed UTF-8 to fail analysis";
+    } catch (const Exception& error) {
+        EXPECT_EQ(error.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+    }
 }
 
 TEST_F(LowerCaseFilterTest, HandlesNumbersAndSymbols) {

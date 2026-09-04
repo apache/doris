@@ -81,6 +81,56 @@ TEST(TabletMetaTest, SaveAsBufferAndParse) {
     }
 }
 
+TEST(TabletMetaTest, TopLevelInvertedIndexFormatOverridesSharedSchemaFormat) {
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta_pb.set_table_id(1);
+    tablet_meta_pb.set_index_id(2);
+    tablet_meta_pb.set_partition_id(3);
+    tablet_meta_pb.set_tablet_id(4);
+    tablet_meta_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    tablet_meta_pb.mutable_schema()->set_schema_version(7);
+    tablet_meta_pb.mutable_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    TabletMeta tablet_meta;
+    tablet_meta.init_from_pb(tablet_meta_pb);
+
+    ASSERT_TRUE(tablet_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, tablet_meta.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              tablet_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    TabletMetaPB serialized;
+    tablet_meta.to_meta_pb(&serialized, false);
+    ASSERT_TRUE(serialized.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, serialized.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              serialized.schema().inverted_index_storage_format());
+}
+
+TEST(TabletMetaTest, LegacySchemaInvertedIndexFormatIsFallback) {
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta_pb.set_table_id(1);
+    tablet_meta_pb.set_index_id(2);
+    tablet_meta_pb.set_partition_id(3);
+    tablet_meta_pb.set_tablet_id(4);
+    tablet_meta_pb.mutable_schema()->set_schema_version(7);
+    tablet_meta_pb.mutable_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    TabletMeta tablet_meta;
+    tablet_meta.init_from_pb(tablet_meta_pb);
+
+    EXPECT_FALSE(tablet_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3, tablet_meta.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3,
+              tablet_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    TabletMetaPB serialized;
+    tablet_meta.to_meta_pb(&serialized, false);
+    EXPECT_FALSE(serialized.has_inverted_index_storage_format());
+}
+
 TEST(TabletMetaTest, SerializeToMemoryWithSmallBuffer) {
     TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
                                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
@@ -383,13 +433,13 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
         ASSERT_EQ(bm->cardinality(), 100 * (version + 1));
     }
 
-    std::vector<std::pair<RowsetId, int64_t>> rowset_ids;
+    std::vector<DeleteBitmap::RowsetIdWithSegmentIds> rowsets;
     auto rowset_id1 = RowsetId {2, 0, 1, 0};
     auto rowset_id2 = RowsetId {2, 0, 1, 1};
-    rowset_ids.emplace_back(std::make_pair(rowset_id1, 2));
-    rowset_ids.emplace_back(std::make_pair(rowset_id2, 2));
+    rowsets.emplace_back(rowset_id1, std::vector<DeleteBitmap::SegmentId> {0, 1});
+    rowsets.emplace_back(rowset_id2, std::vector<DeleteBitmap::SegmentId> {0, 1});
     DeleteBitmap subset_delete_map(10086);
-    dbmp->subset_and_agg(rowset_ids, 5, 9, &subset_delete_map);
+    dbmp->subset_and_agg(rowsets, 5, 9, &subset_delete_map);
     ASSERT_EQ(subset_delete_map.delete_bitmap.size(), 4);
 
     roaring::Roaring d;
@@ -401,6 +451,31 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
     EXPECT_EQ(d.cardinality(), 500);
     subset_delete_map.get({rowset_id2, 1, 9}, &d);
     EXPECT_EQ(d.cardinality(), 500);
+}
+
+TEST(TabletMetaTest, TestDeleteBitmapSubsetAndAggWithSegmentList) {
+    DeleteBitmap delete_bitmap(10086);
+    RowsetId rowset_id {2, 0, 1, 0};
+    delete_bitmap.add({rowset_id, 0, 5}, 100);
+    delete_bitmap.add({rowset_id, 10, 5}, 101);
+    delete_bitmap.add({rowset_id, 10, 9}, 102);
+    delete_bitmap.add({rowset_id, 12, 7}, 103);
+
+    std::vector<DeleteBitmap::RowsetIdWithSegmentIds> rowsets;
+    rowsets.emplace_back(rowset_id, std::vector<DeleteBitmap::SegmentId> {10, 12});
+    DeleteBitmap subset_delete_map(10086);
+    delete_bitmap.subset_and_agg(rowsets, 5, 9, &subset_delete_map);
+
+    ASSERT_EQ(subset_delete_map.delete_bitmap.size(), 2);
+    roaring::Roaring segment_delete_bitmap;
+    ASSERT_EQ(subset_delete_map.get({rowset_id, 10, 9}, &segment_delete_bitmap), 0);
+    EXPECT_EQ(segment_delete_bitmap.cardinality(), 2);
+    EXPECT_TRUE(segment_delete_bitmap.contains(101));
+    EXPECT_TRUE(segment_delete_bitmap.contains(102));
+    ASSERT_EQ(subset_delete_map.get({rowset_id, 12, 9}, &segment_delete_bitmap), 0);
+    EXPECT_EQ(segment_delete_bitmap.cardinality(), 1);
+    EXPECT_TRUE(segment_delete_bitmap.contains(103));
+    EXPECT_NE(subset_delete_map.get({rowset_id, 0, 9}, &segment_delete_bitmap), 0);
 }
 
 } // namespace doris

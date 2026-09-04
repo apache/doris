@@ -28,15 +28,12 @@
 #include "storage/segment/column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 
-// Use #define private public to access private members for testing
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
-#define private public
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
-#undef private
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -100,14 +97,12 @@ VExprContextSPtr make_mock_ctx(Status eval_status, bool with_index_context = tru
     expr->set_evaluate_status(std::move(eval_status));
     auto ctx = std::make_shared<VExprContext>(expr);
     if (with_index_context) {
-        std::vector<ColumnId> col_ids;
         std::vector<std::unique_ptr<IndexIterator>> index_iters;
         std::vector<IndexFieldNameAndTypePair> storage_types;
         std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
         ColumnIteratorOptions column_iter_opts;
-        auto index_ctx =
-                std::make_shared<IndexExecContext>(col_ids, index_iters, storage_types, status_map,
-                                                   nullptr, nullptr, column_iter_opts);
+        auto index_ctx = std::make_shared<IndexExecContext>(index_iters, storage_types, status_map,
+                                                            nullptr, nullptr, column_iter_opts);
         ctx->set_index_context(index_ctx);
     }
     return ctx;
@@ -121,11 +116,8 @@ protected:
         _tablet_schema = make_tablet_schema();
         _segment = make_stub_segment(100, _tablet_schema);
 
-        std::vector<ColumnId> read_column_ids(_tablet_schema->num_columns());
-        for (uint32_t cid = 0; cid < read_column_ids.size(); ++cid) {
-            read_column_ids[cid] = cid;
-        }
-        _read_schema = std::make_shared<Schema>(_tablet_schema->columns(), read_column_ids);
+        // Read schema covers all tablet columns in order, so ordinal == tablet cid.
+        _read_schema = std::make_shared<ReadSchema>(_tablet_schema->columns());
         _iter = std::make_unique<SegmentIterator>(_segment, _read_schema);
 
         // Set up RuntimeState with fallback enabled so _downgrade_without_index works
@@ -139,7 +131,7 @@ protected:
 
     std::shared_ptr<Segment> _segment;
     std::shared_ptr<TabletSchema> _tablet_schema;
-    SchemaSPtr _read_schema;
+    ReadSchemaSPtr _read_schema;
     std::unique_ptr<SegmentIterator> _iter;
     RuntimeState _runtime_state;
     OlapReaderStatistics _stats;

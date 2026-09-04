@@ -110,19 +110,19 @@ VALUES
     thisDb = thisDb[0][0];
     logger.info("current database is ${thisDb}");
 
-    logger.info("start delete local flink-doris-case.jar....")
-    def delete_local_flink_jar = "rm -rf flink-doris-case.jar".execute()
-    logger.info("start download regression/flink-doris-case.jar ....")
-    logger.info("getS3Url: ${getS3Url()}")
-    def download_flink_jar = "wget --quiet --continue --tries=5 ${getS3Url()}/regression/flink-doris-case.jar".execute().getText()
+    def jarName = "flink-doris-regression-case-flink-connector-type.jar"
 
-    def file = new File('flink-doris-case.jar')
+    logger.info("start download regression/flink-doris-regression-case.jar ....")
+    logger.info("getS3Url: ${getS3Url()}")
+    def download_flink_jar = "wget --quiet --tries=5 --output-document=${jarName} ${getS3Url()}/regression/flink-doris-regression-case.jar".execute().getText()
+
+    def file = new File(jarName)
     if (file.exists()) {
         def fileSize = file.length()
-        logger.info("finish download flink-doris-case.jar, size " + fileSize)
+        logger.info("finish download flink-doris-regression-case.jar, size " + fileSize)
     } else {
-        logger.info("flink-doris-case.jar download failed")
-        throw new Exception("File flink-doris-case.jar download failed.")
+        logger.info("flink-doris-regression-case.jar download failed")
+        throw new Exception("File flink-doris-regression-case.jar download failed.")
     }
     def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
     logger.info("System java path: ${systemJavaPath}")
@@ -139,8 +139,15 @@ VALUES
         addOpens = "--add-opens=java.base/java.nio=ALL-UNNAMED  --add-opens=java.base/java.lang=ALL-UNNAMED"
     }
 
-    def run_cmd = "${javaPath} ${addOpens} -cp flink-doris-case.jar org.apache.doris.FlinkConnectorTypeCase $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"
-    logger.info("run_cmd : $run_cmd")
+    def run_cmd = [javaPath]
+    run_cmd.addAll(addOpens.tokenize())
+    run_cmd.addAll(["-cp", jarName, "org.apache.doris.FlinkConnectorTypeCase",
+            "--doris-fe-address", context.config.feHttpAddress,
+            "--doris-database", "regression_test_flink_connector_p0",
+            "--doris-user", context.config.feHttpUser,
+            "--doris-password", context.config.feHttpPassword])
+    run_cmd.addAll(getDorisConnectorTlsArgs())
+    logger.info("run_cmd : ${run_cmd.join(' ')}")
     def run_flink_jar = run_cmd.execute().getText()
     logger.info("result: $run_flink_jar")
     // The publish in the commit phase is asynchronous

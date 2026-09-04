@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_column_reorder") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def tableName = "variant_column_reorder"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
@@ -27,7 +28,7 @@ suite("test_column_reorder") {
         DISTRIBUTED BY HASH(k) BUCKETS 4
         properties("replication_num" = "1");
     """
-    sql """INSERT INTO ${tableName} SELECT *, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}' FROM numbers("number" = "1")"""
+    sql """INSERT INTO ${tableName} SELECT *, ${variantV2Function}('{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}') FROM numbers("number" = "1")"""
     sql """alter table ${tableName} add column t2 datetime default null"""
     sql """alter table ${tableName} modify column v variant  after t2"""
 

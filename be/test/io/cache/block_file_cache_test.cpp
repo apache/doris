@@ -21,7 +21,9 @@
 #include <butil/iobuf.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <future>
+#include <mutex>
 
 #include "io/cache/block_file_cache_test_common.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"

@@ -22,6 +22,7 @@
 
 #include "common/exception.h"
 #include "core/column/column_vector.h"
+#include "exec/common/agg_utils.h"
 #include "exec/common/hash_table/hash.h"
 #include "exec/common/util.hpp"
 #include "exec/operator/operator.h"
@@ -323,8 +324,8 @@ void BucketedAggLocalState::_build_output_block(Block* block, MutableColumns& ke
     size_t agg_size = shared_state.aggregate_evaluators.size();
 
     if (p._needs_finalize) {
-        auto columns_with_schema =
-                VectorizedUtils::create_columns_with_type_and_name(p.row_descriptor());
+        auto columns_with_schema = VectorizedUtils::create_columns_with_type_and_name(
+                p.operator_row_desc_before_projection());
         MutableColumns value_columns;
         for (size_t i = key_size; i < columns_with_schema.size(); ++i) {
             if (mem_reuse) {

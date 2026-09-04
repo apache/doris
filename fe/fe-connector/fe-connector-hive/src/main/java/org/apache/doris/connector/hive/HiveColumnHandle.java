@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
 import java.util.Objects;
 

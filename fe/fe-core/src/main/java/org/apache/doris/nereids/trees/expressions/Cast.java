@@ -101,6 +101,11 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         if (srcNullable) {
             return true;
         }
+        // Identity casts are inserted while merging unchanged complex-type siblings. They cannot create NULL,
+        // so test exact type equality before the conservative datetime/timestamptz conversion rules below.
+        if (srcType.equals(targetType)) {
+            return false;
+        }
         // Not allowed cast is forbidden in CheckCast, and all the Propagation Nullable cases are handled above
         // and the default return false below.
         // The if branches below only handle 2 cases: always nullable and nullable that may overflow.
@@ -212,8 +217,8 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         } else if (childDataType.isJsonType() && !targetType.isJsonType()) {
             // Json to other type is always nullable
             return true;
-        } else if (childDataType.isVariantType() && targetType.isJsonType()) {
-            // Variant to Json is always nullable
+        } else if (childDataType.isVariantType() && !targetType.isVariantType()) {
+            // Variant values can have a shape that is incompatible with the target type.
             return true;
         }
         return false;
@@ -223,6 +228,12 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     public Cast withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Cast(children, targetType, isExplicitType);
+    }
+
+    /** Return this cast with a different immutable target type. */
+    public Cast withTargetType(DataType targetType) {
+        return this.targetType.equals(targetType)
+                ? this : new Cast(children, targetType, isExplicitType);
     }
 
     @Override

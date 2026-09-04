@@ -19,15 +19,27 @@ package org.apache.doris.common.jni;
 
 
 import org.apache.doris.common.jni.utils.OffHeap;
+import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.VectorTable;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
 
 public class JniScannerTest {
+    @Test
+    public void testUnencodedStructFieldNamesRemainLowerCase() {
+        ColumnType structType = ColumnType.parseType(
+                "value", "struct<Mixed:int,UPPER:struct<Nested:string>>");
+
+        Assert.assertEquals(Arrays.asList("mixed", "upper"), structType.getChildNames());
+        Assert.assertEquals(Arrays.asList("nested"),
+                structType.getChildTypes().get(1).getChildNames());
+    }
+
     @Test
     public void testMockJniScanner() throws IOException {
         OffHeap.setTesting();

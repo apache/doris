@@ -24,7 +24,7 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
@@ -190,14 +190,16 @@ public class AlterTableCommandTest {
 
     @Test
     void testAllowNestedColumnPathForIcebergTable() throws AnalysisException {
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);
         AlterTableCommand.checkColumnOperationsSupported(table,
                 parseAlter("ALTER TABLE t ADD COLUMN s.c STRING NULL").getOps());
     }
 
     @Test
     void testRejectRequiredNestedColumnForIcebergTable() {
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> AlterTableCommand.checkColumnOperationsSupported(table,
                         parseAlter("ALTER TABLE t ADD COLUMN s.required_field INT NOT NULL").getOps()));
@@ -207,7 +209,8 @@ public class AlterTableCommandTest {
 
     @Test
     void testRejectRollupForIcebergColumnOperations() {
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);
         for (String sql : Arrays.asList(
                 "ALTER TABLE t ADD COLUMN c STRING NULL TO r1",
                 "ALTER TABLE t ADD COLUMN s.c STRING NULL TO r1",
@@ -226,7 +229,8 @@ public class AlterTableCommandTest {
 
     @Test
     void testRejectPropertiesForIcebergColumnOperations() {
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);
         for (String sql : Arrays.asList(
                 "ALTER TABLE t ADD COLUMN c STRING NULL PROPERTIES ('k' = 'v')",
                 "ALTER TABLE t ADD COLUMN s.c STRING NULL PROPERTIES ('k' = 'v')",
@@ -245,7 +249,8 @@ public class AlterTableCommandTest {
 
     @Test
     void testRejectKeyForIcebergAddAndModify() {
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);
         for (String sql : Arrays.asList(
                 "ALTER TABLE t ADD COLUMN c INT KEY NULL",
                 "ALTER TABLE t ADD COLUMN s.c INT KEY NULL",
@@ -261,7 +266,8 @@ public class AlterTableCommandTest {
 
     @Test
     void testRejectGeneratedColumnForIcebergAddAndModify() {
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);
         for (String sql : Arrays.asList(
                 "ALTER TABLE t ADD COLUMN c INT AS (id + 1) NULL",
                 "ALTER TABLE t ADD COLUMN s.c INT AS (id + 1) NULL",
@@ -277,7 +283,8 @@ public class AlterTableCommandTest {
 
     @Test
     void testRejectUnsupportedDefaultChangesForIcebergTable() throws AnalysisException {
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);
         for (String sql : Arrays.asList(
                 "ALTER TABLE t MODIFY COLUMN c BIGINT DEFAULT 7",
                 "ALTER TABLE t MODIFY COLUMN c BIGINT DEFAULT NULL",
@@ -309,7 +316,8 @@ public class AlterTableCommandTest {
 
     @Test
     void testRejectCompoundIcebergColumnOperations() throws AnalysisException {
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);
         for (String sql : Arrays.asList(
                 "ALTER TABLE t ADD COLUMN s.good INT NULL, DROP COLUMN m.value.x",
                 "ALTER TABLE t MODIFY COLUMN c COMMENT 'new comment', ADD COLUMN d INT NULL",
@@ -329,7 +337,8 @@ public class AlterTableCommandTest {
 
     @Test
     void testPreserveEmptyAddColumnsValidationForIcebergTable() throws AnalysisException {
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);
         AddColumnsOp addColumnsOp = new AddColumnsOp(null, null, new HashMap<>());
 
         AlterTableCommand.checkColumnOperationsSupported(table, Arrays.asList(addColumnsOp));
@@ -361,7 +370,8 @@ public class AlterTableCommandTest {
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         CatalogIf catalog = Mockito.mock(CatalogIf.class);
         DatabaseIf database = Mockito.mock(DatabaseIf.class);
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
         Mockito.when(catalogMgr.getCatalogOrDdlException("iceberg")).thenReturn(catalog);
         Mockito.when(catalog.getDbOrDdlException("db")).thenReturn(database);
@@ -404,7 +414,7 @@ public class AlterTableCommandTest {
         }
     }
 
-    private void validateIcebergAlter(String sql, IcebergExternalTable table) throws Exception {
+    private void validateIcebergAlter(String sql, PluginDrivenMvccExternalTable table) throws Exception {
         AlterTableCommand command = parseAlter(sql);
         AlterTableCommand.checkColumnOperationsSupported(table, command.getOps());
         for (AlterTableOp op : command.getOps()) {

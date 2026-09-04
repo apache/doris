@@ -138,11 +138,16 @@ public class PointQueryExecutor implements CoordInterface {
                 candidateBackends.add(backend);
             }
         }
-        // Random read replicas
-        Collections.shuffle(this.candidateBackends);
+        if (shouldShuffleCandidateBackends(scanNode)) {
+            Collections.shuffle(candidateBackends);
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("set scan locations, backend ids {}, tablet id {}", candidateBackends, tabletID);
         }
+    }
+
+    static boolean shouldShuffleCandidateBackends(OlapScanNode scanNode) {
+        return !scanNode.isScanBackendOrderBySelection();
     }
 
     // execute query without analyze & plan
@@ -379,7 +384,7 @@ public class PointQueryExecutor implements CoordInterface {
             try {
                 deserializer.deserialize(resultBatch, serialResult);
             } catch (TException e) {
-                if (e.getMessage().contains("MaxMessageSize reached")) {
+                if (ResultReceiver.isMessageSizeExceeded(e)) {
                     throw new TException("MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
                 } else {
                     throw e;

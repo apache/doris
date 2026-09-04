@@ -33,7 +33,8 @@ suite("test_external_catalog_hive", "p0,external") {
         sql """
             create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
-                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+                'hive.parquet.time-zone' = 'Asia/Shanghai'
             );
         """
 

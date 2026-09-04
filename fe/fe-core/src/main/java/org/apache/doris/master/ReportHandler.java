@@ -27,7 +27,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -92,6 +91,7 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletMetaInfo;
+import org.apache.doris.thrift.TTabletRole;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
@@ -111,6 +111,7 @@ import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -631,6 +632,13 @@ public class ReportHandler extends Daemon {
                 cooldownConfToPush,
                 cooldownConfToUpdate);
 
+        // The partition storage medium remains authoritative for base tablets. Let a paired base tablet
+        // migrate first, then let row-binlog locality repair move its companion to the base tablet's new
+        // exact path. A row-binlog tablet itself must never choose a storage medium independently.
+        if (!Config.disable_storage_medium_check && !tabletMigrationMap.isEmpty()) {
+            filterRowBinlogTabletMigration(tabletMigrationMap, backendId);
+        }
+
         // 2. sync
         if (!tabletSyncMap.isEmpty()) {
             sync(backendTablets, tabletSyncMap, backendId, backendReportVersion);
@@ -991,7 +999,7 @@ public class ReportHandler extends Daemon {
                     if (index == null) {
                         continue;
                     }
-                    if (index.getState() == IndexState.SHADOW) {
+                    if (index.getState().isShadow()) {
                         // This index is under schema change or rollup, tablet may not be created on BE.
                         // ignore it.
                         continue;
@@ -1060,10 +1068,6 @@ public class ReportHandler extends Daemon {
                                                             ? olapTable.getCopiedIndexes() : null;
                                     List<String> rowStoreColumns =
                                                 olapTable.getTableProperty().getCopiedRowStoreColumns();
-                                    MaterializedIndexMeta rowBinlogIndexMeta = null;
-                                    if (olapTable.needRowBinlog() && indexId == olapTable.getBaseIndexId()) {
-                                        rowBinlogIndexMeta = olapTable.getRowBinlogMeta();
-                                    }
                                     CreateReplicaTask createReplicaTask = new CreateReplicaTask(backendId, dbId,
                                             tableId, partitionId, indexId, tabletId, replica.getId(),
                                             indexMeta.getShortKeyColumnCount(),
@@ -1093,11 +1097,22 @@ public class ReportHandler extends Daemon {
                                             olapTable.storagePageSize(), olapTable.getTDEAlgorithm(),
                                             olapTable.storageDictPageSize(),
                                             olapTable.getColumnSeqMapping(),
-                                            olapTable.getVerticalCompactionNumColumnsPerGroup(),
-                                            rowBinlogIndexMeta);
+                                            olapTable.getVerticalCompactionNumColumnsPerGroup());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());
+                                    if (indexMeta.isRowBinlogIndex()) {
+                                        Tablet baseTablet = partition.getBaseIndex()
+                                                .getTablet(tablet.getRowBinlogBaseTabletId());
+                                        Preconditions.checkNotNull(baseTablet,
+                                                "row binlog tablet %s's base tablet %s can not be found "
+                                                        + "in partition %s",
+                                                tablet.getId(), tablet.getRowBinlogBaseTabletId(),
+                                                partition.getId());
+                                        createReplicaTask.setTabletRole(TTabletRole.TABLET_ROLE_ROW_BINLOG);
+                                        createReplicaTask.setBaseTablet(baseTablet.getId(),
+                                                olapTable.getBaseIndexMeta().getSchemaHash());
+                                    }
                                     if (indexId == olapTable.getBaseIndexId() || olapTable.isShadowIndex(indexId)) {
                                         List<Integer> clusterKeyUids = OlapTable.getClusterKeyUids(
                                                 indexMeta.getSchema());
@@ -1264,6 +1279,34 @@ public class ReportHandler extends Daemon {
         }
 
         AgentTaskExecutor.submit(batchTask);
+    }
+
+    static void filterRowBinlogTabletMigration(
+            ListMultimap<TStorageMedium, Long> tabletMigrationMap, long backendId) {
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<Long> skippedTabletIds = Lists.newArrayListWithCapacity(10);
+        int skippedTabletNum = 0;
+        Iterator<Map.Entry<TStorageMedium, Long>> iterator = tabletMigrationMap.entries().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<TStorageMedium, Long> entry = iterator.next();
+            long tabletId = entry.getValue();
+            TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+            if (tabletMeta != null && tabletMeta != TabletInvertedIndex.NOT_EXIST_TABLET_META
+                    && !tabletMeta.isRowBinlog()) {
+                continue;
+            }
+            iterator.remove();
+            skippedTabletNum++;
+            if (skippedTabletIds.size() < 10) {
+                skippedTabletIds.add(tabletId);
+            }
+        }
+        if (skippedTabletNum > 0) {
+            LOG.info("skip independent storage medium migration for {} tablets on backend {} because they are "
+                            + "row-binlog companions or their metadata is no longer available. "
+                            + "sample tablet ids: {}",
+                    skippedTabletNum, backendId, skippedTabletIds);
+        }
     }
 
     private static void handleRepublishVersionInfo(

@@ -334,6 +334,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                     DataType originalType = cast.child().getDataType();
                     DataType targetType = cast.getDataType();
                     if (!check(originalType, targetType, SessionVariable.enableStrictCast())) {
+                        if (requiresExactAggStateMatch(originalType, targetType)) {
+                            throw new AnalysisException(exactAggStateMatchError(originalType, targetType));
+                        }
                         throw new AnalysisException("cannot cast " + originalType.toSql()
                                 + " to " + targetType.toSql());
                     }
@@ -355,9 +358,6 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
-        if (originalType.isVariantType() && targetType.isVariantType()) {
-            return originalType.equals(targetType);
-        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;
@@ -373,7 +373,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (looseAggState && originalType instanceof AggStateType && targetType instanceof AggStateType) {
             AggStateType originalAggState = (AggStateType) originalType;
             AggStateType targetAggState = (AggStateType) targetType;
-            if (originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
+            if (originalAggState.isLooseTypeCoercionAllowed()
+                    && originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
                     && originalAggState.getSubTypes().size() == targetAggState.getSubTypes().size()) {
                 return true;
             }
@@ -414,7 +415,16 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                 return false;
             }
             for (int i = 0; i < targetFields.size(); i++) {
-                if (originalFields.get(i).isNullable() != targetFields.get(i).isNullable()) {
+                // A nullable target can safely accept a required source, but the inverse would
+                // allow a possible NULL into a required nested field.
+                if (originalFields.get(i).isNullable() && !targetFields.get(i).isNullable()) {
+                    return false;
+                }
+                // Non-strict conversion failures become NULL, while strict conversion failures abort the cast;
+                // only non-strict mode can therefore violate a required target through a failed conversion.
+                if (!isStrictMode && !targetFields.get(i).isNullable()
+                        && Cast.castNullable(false, originalFields.get(i).getDataType(),
+                                targetFields.get(i).getDataType())) {
                     return false;
                 }
                 if (!check(originalFields.get(i).getDataType(), targetFields.get(i).getDataType(), isStrictMode)) {
@@ -427,6 +437,20 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         } else {
             return true;
         }
+    }
+
+    /** Whether the source AggState only allows an exact target type. */
+    public static boolean requiresExactAggStateMatch(DataType originalType, DataType targetType) {
+        return originalType instanceof AggStateType
+                && targetType instanceof AggStateType
+                && !((AggStateType) originalType).isLooseTypeCoercionAllowed()
+                && !originalType.equals(targetType);
+    }
+
+    /** Build the analysis error for a non-exact aggregate combine state cast. */
+    public static String exactAggStateMatchError(DataType originalType, DataType targetType) {
+        return "Aggregate combine state requires an exact AggState type match: cannot cast "
+                + originalType.toSql() + " to " + targetType.toSql();
     }
 
     /**

@@ -50,8 +50,6 @@
 
 #define ALIGN_CACHE_LINE __attribute__((aligned(CACHE_LINE_SIZE)))
 
-#define PURE __attribute__((pure))
-
 #ifdef __clang__
 #define NO_SANITIZE_UNDEFINED __attribute__((__no_sanitize__("undefined")))
 #else

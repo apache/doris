@@ -23,11 +23,15 @@
 #include <vector>
 
 #include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris::segment_v2 {
 
-// Forward declaration
-struct ReaderEntry;
+struct ReaderEntry {
+    InvertedIndexReaderType type;
+    std::string analyzer_key;
+    InvertedIndexReaderPtr reader;
+};
 
 // Result of analyzer key matching operation.
 // Contains candidate readers that match the requested analyzer key.

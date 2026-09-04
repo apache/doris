@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -33,6 +34,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "io/io_common.h"
 
 namespace doris {
 class Block;
@@ -68,8 +70,8 @@ struct FileScanRequest {
     // Columns that must be read before row-level filtering. They are materialized eagerly because
     // conjuncts/delete_conjuncts need them to decide the selected rows.
     std::vector<LocalColumnIndex> predicate_columns;
-    // Columns read after row-level filtering. Predicate columns are also available for output and
-    // should not be duplicated here.
+    // Columns read after row-level filtering. A complex root may intentionally also appear in
+    // predicate_columns when its eager predicate subtree is smaller than its final output subtree.
     std::vector<LocalColumnIndex> non_predicate_columns;
     // Predicate columns introduced only to evaluate hidden filter slots. Their values are dead
     // after all file-local predicates run, although the shared file block still needs row-shaped
@@ -77,8 +79,18 @@ struct FileScanRequest {
     std::vector<LocalColumnId> predicate_only_columns;
     // file-local column id -> file-local output block position.
     std::map<LocalColumnId, LocalIndex> local_positions;
+    // Optional output position for a root that has independent eager-predicate and deferred-output
+    // projections. local_positions continues to identify the position referenced by localized
+    // predicate expressions.
+    std::map<LocalColumnId, LocalIndex> non_predicate_positions;
     // Row-level filters converted to file-local expressions from table-level predicates.
     VExprContextSPtrs conjuncts;
+    // Only this leading subset may participate in footer/page metadata pruning. The boundary is
+    // inherited from table-conjunct order so an omitted slotless unsafe expression remains a fence.
+    size_t metadata_pruning_safe_conjunct_count = std::numeric_limits<size_t>::max();
+    // Constant split pruning may use only this table-filter prefix after mapping. A rejected
+    // file-local rewrite is a materialization barrier even when a later filter is constant.
+    size_t constant_pruning_safe_table_filter_count = std::numeric_limits<size_t>::max();
     // Delete predicates converted to file-local expressions. A TRUE result means that the row is
     // deleted, so readers must invert each result when building their keep filter.
     VExprContextSPtrs delete_conjuncts;
@@ -90,6 +102,11 @@ struct FileScanRequest {
     // predicate_columns, the value is semantically required and must still be validated and read.
     std::vector<LocalColumnId> count_star_placeholder_columns;
 
+    // Table formats may assign semantics that legacy physical files do not encode. Each path here
+    // identifies an unannotated Parquet group that the physical reader must validate and decode as
+    // Variant. Keeping this explicit prevents generic Parquet scans from guessing based on names.
+    std::vector<LocalColumnIndex> variant_schema_overrides;
+
     bool is_count_star_placeholder(LocalColumnId column_id) const {
         return std::ranges::find(count_star_placeholder_columns, column_id) !=
                count_star_placeholder_columns.end();
@@ -98,6 +115,26 @@ struct FileScanRequest {
     bool is_predicate_only(LocalColumnId column_id) const {
         return std::ranges::find(predicate_only_columns, column_id) != predicate_only_columns.end();
     }
+
+    LocalIndex non_predicate_position(LocalColumnId column_id) const {
+        const auto it = non_predicate_positions.find(column_id);
+        return it == non_predicate_positions.end() ? local_positions.at(column_id) : it->second;
+    }
+
+    bool has_deferred_non_predicate_column(LocalColumnId column_id) const {
+        return non_predicate_positions.contains(column_id);
+    }
+
+    size_t block_column_count() const {
+        size_t count = 0;
+        for (const auto& [_, position] : local_positions) {
+            count = std::max(count, position.value() + 1);
+        }
+        for (const auto& [_, position] : non_predicate_positions) {
+            count = std::max(count, position.value() + 1);
+        }
+        return count;
+    }
 };
 
 // Helper for constructing the scan-column layout in FileScanRequest.
@@ -105,9 +142,10 @@ struct FileScanRequest {
 // as Parquet can read predicate columns first, filter rows, and then lazily read the remaining
 // projected columns. The two lists still share one file-local output block, whose positions are
 // stored in local_positions. This builder centralizes the mechanical rules for that shared layout:
-// - each root file column gets one stable block position;
+// - each root file column gets one stable predicate block position;
 // - predicate columns dominate non-predicate columns because they are already returned in the file
 //   block and can be reused for final materialization;
+// - a smaller complex predicate subtree may get a second deferred output position;
 // - repeated nested projections for the same root are merged instead of duplicated.
 // TableColumnMapper should still own table-to-file semantic resolution. This helper only owns the
 // FileScanRequest layout contract after a file-local projection has been produced.
@@ -127,6 +165,38 @@ public:
                            /*is_predicate_column=*/false);
     }
 
+    Status add_deferred_non_predicate_column(LocalColumnIndex projection) {
+        const auto file_column_id = projection.column_id();
+        DORIS_CHECK(file_column_id != LocalColumnId::invalid());
+        DORIS_CHECK(_request->local_positions.contains(file_column_id));
+        DORIS_CHECK(std::ranges::any_of(_request->predicate_columns,
+                                        [&](const LocalColumnIndex& predicate) {
+                                            return predicate.column_id() == file_column_id;
+                                        }));
+
+        if (!_request->non_predicate_positions.contains(file_column_id)) {
+            _request->non_predicate_positions.emplace(file_column_id,
+                                                      _next_block_position(*_request));
+        }
+        _sort_projection_children_by_file_id(&projection);
+        auto existing = std::ranges::find_if(_request->non_predicate_columns,
+                                             [&](const LocalColumnIndex& output) {
+                                                 return output.column_id() == file_column_id;
+                                             });
+        if (existing == _request->non_predicate_columns.end()) {
+            _request->non_predicate_columns.push_back(std::move(projection));
+        } else {
+            RETURN_IF_ERROR(merge_local_column_index(&*existing, projection));
+            _sort_projection_children_by_file_id(&*existing);
+        }
+        if (!_request->is_predicate_only(file_column_id)) {
+            // The eager complex value has a different physical shape from the final value and
+            // must never leak into table materialization after its predicates have run.
+            _request->predicate_only_columns.push_back(file_column_id);
+        }
+        return Status::OK();
+    }
+
     Status add_predicate_column(LocalColumnId column_id) {
         return add_predicate_column(LocalColumnIndex::top_level(column_id));
     }
@@ -139,6 +209,9 @@ private:
     static LocalIndex _next_block_position(const FileScanRequest& request) {
         size_t next_position = 0;
         for (const auto& [_, block_position] : request.local_positions) {
+            next_position = std::max(next_position, block_position.value() + 1);
+        }
+        for (const auto& [_, block_position] : request.non_predicate_positions) {
             next_position = std::max(next_position, block_position.value() + 1);
         }
         return LocalIndex(next_position);
@@ -164,9 +237,11 @@ private:
         const auto file_column_id = projection.column_id();
         DORIS_CHECK(file_column_id != LocalColumnId::invalid());
         if (!is_predicate_column &&
-            std::ranges::find_if(_request->predicate_columns, [&](const LocalColumnIndex& p) {
-                return p.column_id() == file_column_id;
-            }) != _request->predicate_columns.end()) {
+            std::ranges::find_if(_request->predicate_columns,
+                                 [&](const LocalColumnIndex& p) {
+                                     return p.column_id() == file_column_id;
+                                 }) != _request->predicate_columns.end() &&
+            !_request->has_deferred_non_predicate_column(file_column_id)) {
             return Status::OK();
         }
         if (!_request->local_positions.contains(file_column_id)) {
@@ -184,7 +259,7 @@ private:
             _sort_projection_children_by_file_id(&*existing_projection_it);
         }
 
-        if (is_predicate_column) {
+        if (is_predicate_column && !_request->has_deferred_non_predicate_column(file_column_id)) {
             auto it = std::ranges::find_if(
                     _request->non_predicate_columns,
                     [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
@@ -303,6 +378,15 @@ public:
     virtual Status open(std::shared_ptr<FileScanRequest> request) {
         _request = std::move(request);
         return Status::OK();
+    }
+
+    // Readers opt in only when they can keep an immutable request for the active physical
+    // granule and switch a newer snapshot at a well-defined boundary.
+    virtual bool supports_scan_request_refresh() const { return false; }
+
+    virtual Status queue_scan_request(std::shared_ptr<FileScanRequest> request) {
+        (void)request;
+        return Status::NotSupported("FileReader does not support scan request refresh");
     }
 
     virtual Status get_block(Block* file_block, size_t* rows, bool* eof) {

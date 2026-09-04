@@ -33,14 +33,17 @@ suite('compaction_width_array_column', "p2") {
     def s3BucketName = getS3BucketName()
     def random = new Random();
 
+    // Loading wide array columns is memory-intensive: the default 8G exec_mem_limit was exceeded
+    // (peak ~12G) and the load got cancelled with MEM_LIMIT_EXCEEDED. Raise the limit to 16G and
+    // load with parallelism 1 to keep the per-load peak comfortably under the limit.
     def s3WithProperties = """WITH S3 (
         |"AWS_ACCESS_KEY" = "${getS3AK()}",
         |"AWS_SECRET_KEY" = "${getS3SK()}",
         |"AWS_ENDPOINT" = "${getS3Endpoint()}",
         |"AWS_REGION" = "${getS3Region()}")
         |PROPERTIES(
-        |"exec_mem_limit" = "8589934592",
-        |"load_parallelism" = "3")""".stripMargin()
+        |"exec_mem_limit" = "17179869184",
+        |"load_parallelism" = "1")""".stripMargin()
 
     // set fe configuration
     sql "ADMIN SET FRONTEND CONFIG ('max_bytes_per_broker_scanner' = '161061273600')"

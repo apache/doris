@@ -124,8 +124,15 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 
 // 10: start from doris 4.0.3
 //   a. use new fixed object serialization way.
+// 11: start from master
+//   a. enforce Iceberg SQL MERGE cardinality only when every executing BE supports it.
+// 12: start from master
+//   a. support Variant columns and delete-only writer omission in Iceberg SQL MERGE.
+// 13: start from master
+//   a. support strict ownership hash routing for external table sink writers.
+//   b. support Paimon default fixed-bucket routing in the external sink exchange.
 
-const int BeExecVersionManager::max_be_exec_version = 10;
+const int BeExecVersionManager::max_be_exec_version = 13;
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
 std::set<std::string> BeExecVersionManager::_function_restrict_map;

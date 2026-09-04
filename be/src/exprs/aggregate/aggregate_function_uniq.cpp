@@ -22,7 +22,9 @@
 
 #include <string>
 
+#include "common/exception.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exec/common/hash_table/hash.h" // IWYU pragma: keep
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
@@ -36,6 +38,20 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                                                     const DataTypePtr& result_type,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
+    if (argument_types.size() == 1) {
+        const DataTypePtr argument_type = remove_nullable(argument_types[0]);
+        if (argument_type->get_primitive_type() == TYPE_VARIANT) {
+            if (dynamic_cast<const DataTypeVariantV2*>(argument_type.get()) == nullptr) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Aggregate function {} does not support legacy Variant; Variant V2 is "
+                        "required",
+                        name);
+            }
+            return creator_without_type::create<AggregateFunctionUniqVariant>(
+                    argument_types, result_is_nullable, attr);
+        }
+    }
     return creator_with_type_list<
             TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
             TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256, TYPE_VARCHAR,

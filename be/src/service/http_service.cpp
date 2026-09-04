@@ -344,15 +344,6 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::POST, "/api/_tablet/_batch_download",
                                       batch_download_action);
 
-    if (config::enable_single_replica_load) {
-        DownloadAction* single_replica_download_action = _pool.add(new DownloadAction(
-                _env, nullptr, allow_paths, config::single_replica_load_download_num_workers));
-        _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_single_replica/_download",
-                                          single_replica_download_action);
-        _ev_http_server->register_handler(HttpMethod::GET, "/api/_single_replica/_download",
-                                          single_replica_download_action);
-    }
-
     DownloadBinlogAction* download_binlog_action =
             _pool.add(new DownloadBinlogAction(_env, engine, _rate_limit_group));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/_binlog/_download",

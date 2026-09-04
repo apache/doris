@@ -24,6 +24,7 @@
 
 #include "agent/utils.h"
 #include "runtime/memory/heap_profiler.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/ev_http_server.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_handler.h"
@@ -33,7 +34,6 @@
 
 namespace doris {
 
-const static std::string HEADER_JSON = "application/json";
 const static std::string START_HEAP_PROFILE_NOTICE =
         "`curl http://be_host:be_webport/jeheap/active/true` to start heap profiler, note that "
         "`JEMALLOC_CONF` in `be/conf/be.conf` must contain `prof:true`, will only track and sample "

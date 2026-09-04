@@ -135,6 +135,12 @@ private:
     bool is_typed = false;
 };
 
+// Heap bytes retained beyond sizeof(PathInData): the dotted-path string buffer
+// plus the parts vector.
+inline size_t path_allocated_bytes(const PathInData& path) {
+    return path.get_path().capacity() + path.get_parts().capacity() * sizeof(PathInData::Part);
+}
+
 class PathInDataBuilder {
 public:
     const PathInData::Parts& get_parts() const { return parts; }

@@ -280,7 +280,15 @@ public abstract class ConnectProcessor {
         ctx.setSqlHash(sqlHash);
 
         SessionVariable sessionVariable = ctx.getSessionVariable();
-        boolean wantToParseSqlFromSqlCache = CacheAnalyzer.canUseSqlCache(sessionVariable);
+        // The sql cache keeps the result rows in MySQL wire format and replays them through a
+        // MysqlChannel (StmtExecutor.sendCachedValues -> sendFields), which only exists on a MySQL
+        // connection. An Arrow Flight SQL connection has no channel and needs Arrow batches built by
+        // the BE, and the cached rows would be wrong for it anyway (object types such as HLL /
+        // BITMAP / QUANTILE_STATE were serialized as NULL under return_object_data_as_binary=false).
+        // So a non-MySQL connection must always re-execute the query instead of replaying the cache.
+        // The cache is never populated by such a connection either, see StmtExecutor.handleQueryStmt.
+        boolean wantToParseSqlFromSqlCache = connectType.equals(ConnectType.MYSQL)
+                && CacheAnalyzer.canUseSqlCache(sessionVariable);
         List<StatementBase> stmts = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
@@ -784,6 +792,16 @@ public abstract class ConnectProcessor {
             // If reach here, maybe Doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        } finally {
+            // Master-side forwarded statements (redirect DDL / SHOW) execute via Command.run and never reach
+            // unregisterQuery, so their per-statement connector scope has no query-finish trigger. Close it here
+            // via StatementContext.close() (the same per-statement close the direct-connection path runs in its
+            // finally). Idempotent: a coordinated forwarded query's scope is already closed by its query-finish
+            // callback. These statements run synchronously with no off-thread scan pump, so close-after-use holds.
+            StatementContext forwardedStatementContext = ctx.getStatementContext();
+            if (forwardedStatementContext != null) {
+                forwardedStatementContext.close();
+            }
         }
         // no matter the master execute success or fail, the master must transfer the result to follower
         // and tell the follower the current journalID.
@@ -821,6 +839,11 @@ public abstract class ConnectProcessor {
             }
         }
         if (executor != null) {
+            List<Long> auditStatisticsBackendIds = Lists.newArrayList(
+                    AuditLogHelper.getExternalDmlAuditBackendIds(executor));
+            if (!auditStatisticsBackendIds.isEmpty()) {
+                result.setAuditStatisticsBackendIds(auditStatisticsBackendIds);
+            }
             if (executor.getProxyShowResultSet() != null) {
                 result.setResultSet(executor.getProxyShowResultSet().tothrift());
             } else if (!executor.getProxyQueryResultBufList().isEmpty()) {

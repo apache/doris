@@ -46,13 +46,22 @@ void RowKeyEncoder::_init_mow(const TabletSchema& schema) {
         _seq_col_length = column.length();
     }
 
+    // Which columns each view ends up holding:
+    //
+    //                     _sort_key_coders    _primary_key_coders
+    //   no cluster key    key columns         key columns
+    //   cluster keys      cluster key cols    key columns
+    //
+    // The primary key index is built on the schema key columns whatever the segment sorts by, so
+    // every mow table gets that view, not just the ones with cluster keys. The sort-key view
+    // follows the segment's own order, which is the only column set that differs between the two.
+    for (size_t cid = 0; cid < schema.num_key_columns(); ++cid) {
+        _primary_key_coders.push_back(get_key_coder(schema.column(cid).type()));
+    }
+
     if (schema.cluster_key_uids().empty()) {
         _add_default_sort_key_columns(schema);
         return;
-    }
-
-    for (size_t cid = 0; cid < schema.num_key_columns(); ++cid) {
-        _primary_key_coders.push_back(get_key_coder(schema.column(cid).type()));
     }
     _rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
     for (auto uid : schema.cluster_key_uids()) {

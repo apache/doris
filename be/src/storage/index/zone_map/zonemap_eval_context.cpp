@@ -37,6 +37,11 @@ DataTypePtr ZoneMapEvalContext::data_type(int slot_index) const {
     return it->second.data_type;
 }
 
+bool ZoneMapEvalContext::floating_nan_count_unknown(int slot_index) const {
+    auto it = slots.find(slot_index);
+    return it != slots.end() && it->second.floating_nan_count_unknown;
+}
+
 void ZoneMapEvalStats::merge_page_eval_stats(const ZoneMapEvalStats& src) {
     // Page-level evaluation repeats the same conjuncts for many pages. Keep structural
     // diagnostics once per column, while operation counters still reflect actual page checks.

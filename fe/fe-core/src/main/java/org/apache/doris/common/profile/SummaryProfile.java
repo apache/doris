@@ -83,6 +83,8 @@ public class SummaryProfile {
     public static final String DISTRIBUTED_PLAN = "Distributed Plan";
     public static final String SYSTEM_MESSAGE = "System Message";
     public static final String EXECUTED_BY_FRONTEND = "Executed By Frontend";
+    public static final String QUERY_BACKEND_SELECTION = "Query Backend Selection";
+    public static final String LOAD_BACKEND_SELECTION = "Load Backend Selection";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String INIT_SCAN_NODE_TIME = "Init Scan Node Time";
@@ -155,8 +157,6 @@ public class SummaryProfile {
     public static final String RPC_WORK_TIME = "RPC Work Time";
     public static final String LATENCY_FROM_BE_TO_FE = "RPC Latency From BE To FE";
     public static final String SPLITS_ASSIGNMENT_WEIGHT = "Splits Assignment Weight";
-    public static final String ICEBERG_SCAN_METRICS = "Iceberg Scan Metrics";
-    public static final String PAIMON_SCAN_METRICS = "Paimon Scan Metrics";
     public static final String WAIT_CHANGE_VISIBLE_TIME = "Wait Change Visible Time";
     private boolean isWarmUp = false;
 
@@ -215,8 +215,6 @@ public class SummaryProfile {
             EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME,
             SINK_SET_PARTITION_VALUES_TIME,
             CREATE_SCAN_RANGE_TIME,
-            ICEBERG_SCAN_METRICS,
-            PAIMON_SCAN_METRICS,
             NEREIDS_DISTRIBUTE_TIME,
             GET_META_VERSION_TIME,
             GET_META_VERSION_RATE_LIMIT_WAIT_TIME,
@@ -246,6 +244,8 @@ public class SummaryProfile {
             TRANSACTION_COMMIT_TIME,
             SYSTEM_MESSAGE,
             EXECUTED_BY_FRONTEND,
+            QUERY_BACKEND_SELECTION,
+            LOAD_BACKEND_SELECTION,
             SPLITS_ASSIGNMENT_WEIGHT
     );
 
@@ -275,8 +275,6 @@ public class SummaryProfile {
             .put(EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME, 5)
             .put(SINK_SET_PARTITION_VALUES_TIME, 3)
             .put(CREATE_SCAN_RANGE_TIME, 2)
-            .put(ICEBERG_SCAN_METRICS, 3)
-            .put(PAIMON_SCAN_METRICS, 3)
             .put(GET_META_VERSION_RATE_LIMIT_WAIT_TIME, 1)
             .put(GET_PARTITION_VERSION_TIME, 1)
             .put(GET_PARTITION_VERSION_COUNT, 1)
@@ -1485,6 +1483,16 @@ public class SummaryProfile {
 
         public SummaryBuilder workloadGroup(String workloadGroup) {
             map.put(WORKLOAD_GROUP, workloadGroup);
+            return this;
+        }
+
+        public SummaryBuilder queryBackendSelection(String selection) {
+            map.put(QUERY_BACKEND_SELECTION, selection);
+            return this;
+        }
+
+        public SummaryBuilder loadBackendSelection(String selection) {
+            map.put(LOAD_BACKEND_SELECTION, selection);
             return this;
         }
 

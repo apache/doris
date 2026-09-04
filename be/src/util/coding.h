@@ -16,8 +16,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "core/extended_types.h"
 #include "exec/common/endian.h"
-#include "storage/olap_common.h"
 #include "util/slice.h"
 
 namespace doris {

@@ -30,5 +30,10 @@ namespace segment_v2 {
 using rowid_t = uint32_t;
 using ordinal_t = uint64_t;
 
+// Magic footer bytes identifying a V2 segment file, written by the segment
+// writers and checked when parsing the footer.
+inline constexpr const char* k_segment_magic = "D0R1";
+inline constexpr uint32_t k_segment_magic_length = 4;
+
 } // namespace segment_v2
 } // namespace doris

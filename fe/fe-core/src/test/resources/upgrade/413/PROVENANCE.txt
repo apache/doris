@@ -1,0 +1,108 @@
+Golden FE metadata fixtures for the 4.1.3 -> catalog-SPI upgrade compatibility tests.
+
+WHAT THIS IS
+============
+Every .bin / .json file in this directory was produced by REAL Apache Doris 4.1.3 bytecode.
+Nothing here was hand-written. That is the point: a hand-authored fixture only encodes what
+someone believed 4.1.3 writes, and 4.1.3's actual wire format has at least five details that
+are easy to get wrong (see TRAPS below).
+
+PROVENANCE
+==========
+  source tag        : 4.1.3  (annotated tag; commit 7126cf65d96ebc43fce0906f51e92c1a2ccf24a6)
+  gson              : 2.10.1 (identical on 4.1.3 and on the branch under test)
+  generator         : generator/Gen413Fixtures.java (committed here verbatim)
+  generated on      : 2026-07-29
+  sha256 datasource.module.bin       : cda84219f44d46325f38103f7d34655636b79723c4f7cbb2488c2230f6d06bf6
+  sha256 datasource.module.cloud.bin : b1d1f55e331d691d247847d31e9069a0afd08fe3e6556cfb405a1965b301560e
+
+HOW TO REGENERATE
+=================
+  git worktree add --detach /path/to/doris-413 4.1.3^{commit}
+  cp generator/Gen413Fixtures.java /path/to/doris-413/fe/fe-core/src/main/java/org/apache/doris/tools/
+  cd /path/to/doris-413
+  DORIS_HOME=$PWD DORIS_THIRDPARTY=/path/to/doris/thirdparty bash generated-source.sh
+  mvn -o -f /path/to/doris-413/fe/pom.xml -pl fe-core -am -DskipTests \
+      -Dcheckstyle.skip=true -Dlicense.skip=true -Drat.skip=true compile
+  mvn -o -f /path/to/doris-413/fe/pom.xml -pl fe-core dependency:build-classpath \
+      -Dmdep.outputFile=/tmp/cp413.txt -Dmdep.includeScope=runtime
+  # PREPEND the 4.1.3 worktree's own target/classes dirs, otherwise the ~/.m2 jars
+  # (fe-common 1.2-SNAPSHOT etc.) silently supply the CURRENT branch's classes:
+  LOCAL=$(find /path/to/doris-413/fe -maxdepth 3 -type d -name classes -path '*/target/*' | tr '\n' ':')
+  java -cp "${LOCAL}$(cat /tmp/cp413.txt)" org.apache.doris.tools.Gen413Fixtures <outDir> [cloud]
+
+  Output is byte-deterministic across JVM runs (verified: two runs produce identical sha256).
+
+  !! NEVER run `mvn install` in the 4.1.3 worktree. Both trees resolve ${revision}=1.2-SNAPSHOT,
+     so 4.1.3's jars would silently overwrite the current branch's artifacts in ~/.m2.
+  !! `-am` is mandatory on every mvn invocation there; a single-module build fails on ${revision}.
+
+CONTENTS
+========
+  datasource.module.bin        the image's "datasource" module, framed exactly as MetaWriter writes it
+                               (Text.writeString = big-endian int32 length + UTF-8). 24 catalogs.
+  datasource.module.cloud.bin  the same generator run with Config.deploy_mode="cloud".
+                               Differs from the non-cloud file in EXACTLY ONE entry: id 0 is
+                               {"clazz":"CloudInternalCatalog"} instead of {"clazz":"InternalCatalog"}.
+                               Every external catalog entry is byte-identical -> external-catalog
+                               migration is provably cloud-mode independent.
+  catalogMgr[.cloud].json      the same JSON unframed, for human diffing. Not read by the tests.
+  labels.{ds,db,tbl}.txt       4.1.3's own GSON label registries, read reflectively out of
+                               GsonUtils' RuntimeTypeAdapterFactory instances. Machine-generated on
+                               purpose: a regex scrape drops entries whose class name contains a digit
+                               (IcebergS3TablesExternalCatalog).
+  editlog/op<code>-<name>.bin  one BDBJE journal entry each, in JournalEntity wire form:
+                               writeShort(opCode) followed by Text.writeString(GSON.toJson(payload)).
+  generator/                   the generator source, so the fixtures are reproducible.
+
+FIXTURE FAMILIES (why each exists)
+==================================
+  G1  ids 10001-10015  built through 4.1.3's own CatalogFactory.createFromLog, props DO carry "type".
+                       This is what a catalog CREATED ON 4.1.3 looks like.
+                       10015 (RemoteDorisExternalCatalog) is a CONTROL: the engine implements "doris"
+                       itself, so it must NOT be remapped onto PluginDrivenExternalCatalog.
+  G2  ids 10020-10023  resource-backed shape: catalogProperty.resource is set and props carry NO "type"
+                       key. 4.1.3 did not need "type" because the concrete class carried it.
+                       *** THIS FAMILY IS THE ONLY ONE THAT CAN FAIL WHEN THE MIGRATION IS REMOVED. ***
+                       With "type" present (G1), deleting PluginDrivenExternalCatalog.gsonPostProcess'
+                       backfill entirely leaves every assertion green, because getType() just reads the
+                       property that was already on the wire. Do not add fixtures without a G2 twin.
+                       10023 (trino) is load-bearing: TRINO_CONNECTOR is the only logType whose
+                       name().toLowerCase() ("trino_connector") differs from the catalog type string
+                       the connector answers to ("trino-connector").
+  G3  ids 10030-10034  labels that exist in 4.1.3's registry and can appear in a 4.1 image, but that
+                       4.1.3's own factories can no longer produce: the paimon factory always returns
+                       the base PaimonExternalCatalog, and lakesoul creation is rejected outright.
+                       They are carry-forward from <= 4.0 metadata. Still real 4.1.3 bytecode --
+                       only the construction route differs (direct constructor + setDefaultPropsIfMissing,
+                       which is literally what 4.1.3's CatalogFactory switch does after picking a class).
+
+LABELS DELIBERATELY ABSENT FROM THE FIXTURE
+===========================================
+  IcebergExternalCatalog   registered by 4.1.3 but ABSTRACT, so GSON can never emit that label.
+                           (labels.ds.txt marks it.)
+  TestExternalCatalog      needs a unit-test-only provider class; cannot occur in a production image.
+  CloudInternalCatalog     present in datasource.module.cloud.bin instead.
+
+TRAPS THAT MAKE HAND-WRITTEN FIXTURES WRONG (all observed in these bytes)
+========================================================================
+  1. HTML escaping is ON. jdbc_url persists as
+     "jdbc:mysql://mysql:3306/db?useSSL=false&serverTimezone=UTC..."
+     -- '=' and '&' are escaped.
+  2. serializeNulls is OFF. catalogProperty.resource is absent entirely when null, not "resource":null.
+  3. taap (tableAutoAnalyzePolicy) is polymorphic under enableComplexMapKeySerialization:
+     empty map      -> "taap":{}                                    (a JSON object)
+     non-empty map  -> "taap":[[{"first":"db1","second":"tbl1"},"enable"],...]   (array of 2-tuples)
+  4. "clazz" is written FIRST, then ExternalCatalog's 8 fields in declaration order:
+     id, name, logType, catalogProperty, initialized, lastUpdateTime, taap, comment.
+  5. What is persisted is NOT what the user typed. setDefaultPropsIfMissing injects use_meta_cache /
+     enable.mapping.varbinary / enable.mapping.timestamp_tz into every catalog, HMS adds
+     ipc.client.fallback-to-simple-auth-allowed, and JDBC rewrites jdbc_url (appending
+     yearIsDateType=false&tinyInt1isBit=false&...).
+
+ONE-WAY DOOR
+============
+Downgrade is out of scope BY DECISION, and it is not merely untested -- it is impossible.
+The branch writes "clazz":"PluginDrivenExternalCatalog", which no 4.1.3 FE can parse
+(no such label, and CatalogIf has no default subtype), so once an upgraded FE checkpoints,
+rolling the binary back to 4.1.3 cannot load its own image.

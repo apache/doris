@@ -33,6 +33,7 @@
 
 #include "common/exception.h"
 #include "core/string_ref.h"
+#include "util/hyperscan_util.h"
 
 namespace doris::multiregexps {
 
@@ -67,24 +68,26 @@ private:
     ScratchPtr scratch;
 };
 
+using RegexpsPtr = std::shared_ptr<Regexps>;
+
 class DeferredConstructedRegexps {
 public:
     explicit DeferredConstructedRegexps(std::function<Regexps()> constructor_)
             : constructor(std::move(constructor_)) {}
 
-    Regexps* get() {
+    RegexpsPtr get() {
         std::lock_guard lock(mutex);
         if (regexps) {
-            return &*regexps;
+            return regexps;
         }
-        regexps = constructor();
-        return &*regexps;
+        regexps = std::make_shared<Regexps>(constructor());
+        return regexps;
     }
 
 private:
     std::mutex mutex;
     std::function<Regexps()> constructor;
-    std::optional<Regexps> regexps;
+    RegexpsPtr regexps;
 };
 
 using DeferredConstructedRegexpsPtr = std::shared_ptr<DeferredConstructedRegexps>;
@@ -144,6 +147,9 @@ Regexps constructRegexps(const std::vector<String>& str_patterns,
 
     for (auto& pattern : patterns) {
         LOG(INFO) << "pattern: " << pattern << "\n";
+        if (is_hyperscan_regexp_expensive(pattern)) {
+            throw doris::Exception(Status::InvalidArgument(HYPERSCAN_BOUNDED_REPEAT_ERROR));
+        }
     }
 
     hs_error_t err;

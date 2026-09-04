@@ -24,6 +24,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "util/client_cache.h"

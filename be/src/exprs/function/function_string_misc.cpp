@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <bit>
 #include <boost/locale.hpp>
+#include <cctype>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
@@ -141,9 +142,11 @@ public:
         auto& res_offset = res->get_offsets();
         res_offset.resize(input_rows_count);
 
-        const char* partition_type = chars_list[0]->raw_data();
+        std::string partition_type(chars_list[0]->raw_data(), (*offsets_list[0])[0]);
+        std::transform(partition_type.begin(), partition_type.end(), partition_type.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         // partition type is list|range
-        if (std::strncmp(partition_type, "list", 4) == 0) {
+        if (partition_type == "list") {
             return _auto_partition_type_of_list(chars_list, offsets_list, is_const_args, null_list,
                                                 res_data, res_offset, input_rows_count,
                                                 argument_size, block, result, res);
@@ -256,7 +259,9 @@ private:
                                          auto& res_offset, size_t input_rows_count,
                                          size_t argument_size, Block& block, uint32_t result,
                                          auto& res) const {
-        const char* range_type = chars_list[1]->raw_data();
+        std::string range_type(chars_list[1]->raw_data(), (*offsets_list[1])[0]);
+        std::transform(range_type.begin(), range_type.end(), range_type.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
         res_data.resize(15 * input_rows_count);
         for (int i = 0; i < input_rows_count; i++) {
@@ -292,21 +297,21 @@ private:
             // minute => 2022 12  11 30 00
             // second => 2022 12 12 12 30 20
 
-            if (!strncmp(range_type, "year", 4)) {
+            if (range_type == "year") {
                 curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 1);
                 memcpy(&res_data[res_offset[i - 1]] + curr_len, "0101", 4);
                 curr_len += 4;
-            } else if (!strncmp(range_type, "month", 5)) {
+            } else if (range_type == "month") {
                 curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 2);
                 memcpy(&res_data[res_offset[i - 1]] + curr_len, "01", 2);
                 curr_len += 2;
-            } else if (!strncmp(range_type, "day", 3)) {
+            } else if (range_type == "day") {
                 curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 3);
-            } else if (!strncmp(range_type, "hour", 4)) {
+            } else if (range_type == "hour") {
                 curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 4);
-            } else if (!strncmp(range_type, "minute", 6)) {
+            } else if (range_type == "minute") {
                 curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 5);
-            } else if (!strncmp(range_type, "second", 6)) {
+            } else if (range_type == "second") {
                 curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 6);
             }
 

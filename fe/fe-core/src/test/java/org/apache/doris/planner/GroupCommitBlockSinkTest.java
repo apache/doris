@@ -29,7 +29,6 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
-import java.util.List;
 
 public class GroupCommitBlockSinkTest {
 
@@ -38,17 +37,12 @@ public class GroupCommitBlockSinkTest {
         OlapTable dstTable = Mockito.mock(OlapTable.class);
         TupleDescriptor tuple = Mockito.mock(TupleDescriptor.class);
         GroupCommitBlockSink sink = new GroupCommitBlockSink(
-                dstTable, tuple, Lists.newArrayList(1L), false, "async_mode", 0.0);
+                dstTable, tuple, Lists.newArrayList(1L), "async_mode", 0.0);
 
-        List<TOlapTableLocationParam> params = sink.initLocationParams(new TOlapTableSink());
+        TOlapTableLocationParam location = sink.initLocationParam(new TOlapTableSink());
 
-        Assert.assertEquals(2, params.size());
-        Assert.assertNotNull(params.get(0).getTablets());
-        Assert.assertTrue("master location should be empty placeholder",
-                params.get(0).getTablets().isEmpty());
-        Assert.assertNotNull(params.get(1).getTablets());
-        Assert.assertTrue("slave location should be empty placeholder",
-                params.get(1).getTablets().isEmpty());
+        Assert.assertNotNull(location.getTablets());
+        Assert.assertTrue("location should be empty placeholder", location.getTablets().isEmpty());
         Mockito.verifyNoInteractions(dstTable);
         Mockito.verifyNoInteractions(tuple);
     }

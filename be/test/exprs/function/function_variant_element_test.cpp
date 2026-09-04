@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include "core/value/jsonb_value.h"
+
 namespace doris {
 
 TEST(function_variant_element_test, extract_from_sparse_column) {
@@ -97,6 +99,57 @@ TEST(function_variant_element_test, extract_string_from_scalar_root) {
     EXPECT_EQ(extract("uploadTimeValue"), "2026-05-20 18:40:02");
     // non-string scalars keep their JSON representation
     EXPECT_EQ(extract("n"), "49.98");
+}
+
+TEST(function_variant_element_test, exact_storage_json_null_remains_variant_null) {
+    Slice null_json("null", 4);
+    JsonBinaryValue null_value;
+    ASSERT_TRUE(null_value.from_json_string(null_json.data, null_json.size).ok());
+    ColumnVariant::Subcolumn null_subcolumn(0, true, false);
+    null_subcolumn.insert(
+            Field::create_field<TYPE_JSONB>(JsonbField(null_value.value(), null_value.size())));
+
+    for (const bool use_doc_value : {false, true}) {
+        SCOPED_TRACE(use_doc_value ? "doc" : "sparse");
+        auto source = ColumnVariant::create(1, use_doc_value);
+        auto [paths, values] = use_doc_value ? source->get_doc_value_data_paths_and_values()
+                                             : source->get_sparse_data_paths_and_values();
+        auto& offsets = use_doc_value ? source->serialized_doc_value_column_offsets()
+                                      : source->serialized_sparse_column_offsets();
+        null_subcolumn.serialize_to_binary_column(paths, "a", values, 0);
+        offsets.push_back(paths->size());
+        source->get_subcolumn({})->insert_default();
+        source->set_num_rows(1);
+        if (use_doc_value) {
+            source->get_sparse_column_mutable().resize(1);
+        } else {
+            source->get_doc_value_column_mutable().resize(1);
+        }
+
+        ColumnPtr index_data = ColumnString::create();
+        assert_cast<ColumnString*>(index_data->assert_mutable().get())->insert_data("a", 1);
+        ColumnPtr index = ColumnConst::create(index_data, 1);
+        const auto variant_type = std::make_shared<DataTypeVariant>();
+        const auto index_type = std::make_shared<DataTypeString>();
+        const auto result_type = make_nullable(variant_type);
+        Block block {{std::move(source), variant_type, "source"},
+                     {std::move(index), index_type, "index"},
+                     {result_type->create_column(), result_type, "result"}};
+        ASSERT_TRUE(
+                FunctionVariantElement::create()->execute_impl(nullptr, block, {0, 1}, 2, 1).ok());
+
+        const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        ASSERT_EQ(nullable.size(), 1);
+        EXPECT_FALSE(nullable.is_null_at(0));
+
+        DataTypeSerDe::FormatOptions options;
+        auto timezone = cctz::utc_time_zone();
+        options.timezone = &timezone;
+        std::string logical_value;
+        assert_cast<const ColumnVariant&>(nullable.get_nested_column())
+                .serialize_one_row_to_string(0, &logical_value, options);
+        EXPECT_EQ(logical_value, "null");
+    }
 }
 
 } // namespace doris

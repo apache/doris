@@ -16,6 +16,7 @@
 // under the License.
 
 suite("variant_hirachinal_doc_value", "nonConcurrent"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """ set default_variant_enable_doc_mode = true """
     sql """ set default_variant_doc_materialization_min_rows = 0 """
     def set_be_config = { key, value ->
@@ -41,12 +42,12 @@ suite("variant_hirachinal_doc_value", "nonConcurrent"){
             DISTRIBUTED BY HASH(k) BUCKETS 1
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
-    sql """insert into  ${table_name} select * from (select -2, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}'  as json_str
-            union  all select -1, '{"a": 1123}' as json_str union all select *, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4098 ;"""
+    sql """insert into  ${table_name} select * from (select -2, ${variantV2Function}('{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}') as json_str
+            union all select -1, ${variantV2Function}('{"a": 1123}') as json_str union all select *, ${variantV2Function}('{"a" : 1234, "xxxx" : "kaana"}') as json_str from numbers("number" = "4096"))t order by 1 limit 4098 ;"""
     qt_sql "select * from ${table_name} order by k limit 10"
     qt_sql "select cast(v['c'] as string) from ${table_name} where k = -3 or k = -2 order by k"
     qt_sql "select v['b'] from ${table_name} where k = -3 or k = -2"
-    sql """insert into ${table_name} values (-3, '{"c" : 12345}')"""
+    sql """insert into ${table_name} values (-3, ${variantV2Function}('{"c" : 12345}'))"""
     order_qt_sql1 "select cast(v['c'] as string) from var_rs where k = -3 or k = -2 or k = -4 or (k = 1 and v['c'] = 1024) order by k"
     order_qt_sql2 "select cast(v['c'] as string) from var_rs where k = -3 or k = -2 or k = 1 order by k, cast(v['c'] as text) limit 2"
 
@@ -64,8 +65,8 @@ suite("variant_hirachinal_doc_value", "nonConcurrent"){
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
 
-    sql """insert into ${table_name} values (1, '{"a": 1, "b": 2, "c" : {"d" : 2}}'), (2, '{"a": 3, "b": 4}');"""
-    sql """insert into ${table_name} values (3, '{"c": {"d": 6}}');"""
+    sql """insert into ${table_name} values (1, ${variantV2Function}('{"a": 1, "b": 2, "c" : {"d" : 2}}')), (2, ${variantV2Function}('{"a": 3, "b": 4}'));"""
+    sql """insert into ${table_name} values (3, ${variantV2Function}('{"c": {"d": 6}}'));"""
 
     qt_sql """select v['c'] from ${table_name} order by k;"""
 
@@ -82,19 +83,19 @@ suite("variant_hirachinal_doc_value", "nonConcurrent"){
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
 
-    sql """insert into ${table_name} values (1, '{"a": 1, "b": 2, "c" : {"d" : 2}}'), (2, '{"a": 3, "b": 4}');"""
-    sql """insert into ${table_name} values (3, '{"c": {"d": 6}}');"""
+    sql """insert into ${table_name} values (1, ${variantV2Function}('{"a": 1, "b": 2, "c" : {"d" : 2}}')), (2, ${variantV2Function}('{"a": 3, "b": 4}'));"""
+    sql """insert into ${table_name} values (3, ${variantV2Function}('{"c": {"d": 6}}'));"""
     sql """insert into ${table_name} values (4, NULL);"""
-    sql """insert into ${table_name} values (5, '{}');"""
+    sql """insert into ${table_name} values (5, ${variantV2Function}('{}'));"""
 
     qt_sql """select v['c'] from ${table_name} order by k;"""
     qt_sql """select v from ${table_name} order by k;"""
 
     sql "DROP TABLE IF EXISTS t"
     sql """create table t(a int, v variant, vn variant not null) PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
-    sql """insert into t values(1, '{}', '{}');"""
-    sql """insert into t values(2, '{}', '{}');"""
-    sql """insert into t values(3, NULL, '{"a" : 1, "b" : 2, "c" : 3, "d" : 4}');"""
+    sql """insert into t values(1, ${variantV2Function}('{}'), ${variantV2Function}('{}'));"""
+    sql """insert into t values(2, ${variantV2Function}('{}'), ${variantV2Function}('{}'));"""
+    sql """insert into t values(3, NULL, ${variantV2Function}('{"a" : 1, "b" : 2, "c" : 3, "d" : 4}'));"""
     qt_sql """select * from t order by a;"""
     qt_sql """select * from t where v is null;"""
 
@@ -110,7 +111,7 @@ suite("variant_hirachinal_doc_value", "nonConcurrent"){
         "replication_allocation" = "tag.location.default: 1"
         );
     """
-    sql """insert into ${table_name} values (1, '{"a": 1}'), (2, '{"a" : 1, "profile" : {"name" : "John", "age" : 30}, "profile_id" : 123}');"""
-    sql """insert into ${table_name} values (3, '{"a": 1}'), (4, '{"a" : 1, "profile" : {"name" : "John", "age" : 30}, "profile2" : 123}'); """
+    sql """insert into ${table_name} values (1, ${variantV2Function}('{"a": 1}')), (2, ${variantV2Function}('{"a" : 1, "profile" : {"name" : "John", "age" : 30}, "profile_id" : 123}'));"""
+    sql """insert into ${table_name} values (3, ${variantV2Function}('{"a": 1}')), (4, ${variantV2Function}('{"a" : 1, "profile" : {"name" : "John", "age" : 30}, "profile2" : 123}')); """
     qt_sql """select v['profile'] from ${table_name} order by k;"""
 }

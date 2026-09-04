@@ -101,6 +101,7 @@ private:
     TFileCompressType::type _hive_compress_type;
     const THiveSerDeProperties* _hive_serde_properties;
     const std::map<std::string, std::string>& _hadoop_conf;
+    bool _supports_deferred_azure_multipart = false;
 
     std::shared_ptr<io::FileSystem> _fs = nullptr;
 

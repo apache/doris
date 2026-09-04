@@ -65,9 +65,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -84,6 +86,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 /** BaseViewInfo */
 public class BaseViewInfo {
@@ -140,12 +143,24 @@ public class BaseViewInfo {
     }
 
     protected String rewriteProjectsToUserDefineAlias(String resSql) {
-        IndexFinder finder = new IndexFinder();
-        ParserRuleContext tree = NereidsParser.toAst(resSql, DorisParser::singleStatement);
-        finder.visit(tree);
         if (simpleColumnDefinitions.isEmpty()) {
             return resSql;
         }
+        return rewriteProjectsToUserDefineAlias(resSql, finalCols.stream()
+                .map(Column::getName)
+                .collect(Collectors.toList()));
+    }
+
+    /**
+     * rewrite projects to user define alias by column names list
+     */
+    public static String rewriteProjectsToUserDefineAlias(String resSql, List<String> finalColNames) {
+        if (finalColNames.isEmpty()) {
+            return resSql;
+        }
+        IndexFinder finder = new IndexFinder();
+        ParserRuleContext tree = NereidsParser.toAst(resSql, DorisParser::singleStatement);
+        finder.visit(tree);
         List<NamedExpressionContext> namedExpressionContexts = finder.getNamedExpressionContexts();
         StringBuilder replaceWithColsBuilder = new StringBuilder();
         for (int i = 0; i < namedExpressionContexts.size(); ++i) {
@@ -154,7 +169,7 @@ public class BaseViewInfo {
             int stop = namedExpressionContext.expression().stop.getStopIndex();
             replaceWithColsBuilder.append(resSql, start, stop + 1);
             replaceWithColsBuilder.append(" AS `");
-            String escapeBacktick = finalCols.get(i).getName().replace("`", "``");
+            String escapeBacktick = finalColNames.get(i).replace("`", "``");
             replaceWithColsBuilder.append(escapeBacktick);
             replaceWithColsBuilder.append('`');
             if (i != namedExpressionContexts.size() - 1) {
@@ -171,6 +186,10 @@ public class BaseViewInfo {
             for (Slot output : outputs) {
                 DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
                         TinyIntType.INSTANCE);
+                // View schemas are persisted, so strip connector execution markers without changing
+                // unrelated legacy types at this durable boundary.
+                dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                        ConnectorComputeVariantType.class, VariantType.INSTANCE);
                 Column column = new Column(output.getName(), dataType.toCatalogDataType(), output.nullable());
                 finalCols.add(column);
             }
@@ -182,6 +201,9 @@ public class BaseViewInfo {
                 Slot output = outputs.get(i);
                 DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
                         TinyIntType.INSTANCE);
+                // Keep explicit-column views on the same durable type boundary as inferred-column views.
+                dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                        ConnectorComputeVariantType.class, VariantType.INSTANCE);
                 Column column = new Column(simpleColumnDefinitions.get(i).getName(),
                         dataType.toCatalogDataType(), output.nullable());
                 column.setComment(simpleColumnDefinitions.get(i).getComment());

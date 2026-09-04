@@ -197,9 +197,9 @@ flowchart LR
    does not repeatedly interpret table-schema evolution.
 3. **Capability checks:** ZoneMap, Dictionary, and Bloom use only expressions they can interpret
    safely. All others remain row-level residual predicates.
-4. **Prefer safe single-column predicates:** Single-column predicates can drive indexes and staged
-   filtering. Multi-column, stateful, or error-sensitive expressions retain whole-expression
-   evaluation.
+4. **Prefer safe single-column row filters:** Single-column predicates can drive staged dictionary
+   or raw filtering. Multi-column AND/OR trees may still combine conservative Row Group and Page
+   Index candidate ranges, but the complete expression remains in whole-expression row evaluation.
 5. **Runtime Filters can refresh:** ScannerScheduler refreshes late Runtime Filters before reading.
    TableReader handles partition-range pruning during Split preparation, and passes file-pushable
    parts as localized conjuncts.
@@ -285,9 +285,11 @@ sequenceDiagram
 ### How the plan drives physical skips
 
 ColumnIndex provides min/max/null semantics for each page. OffsetIndex maps pages to Row Group row
-numbers and file offsets. Candidate ranges from multiple predicate columns are intersected into
-`selected_ranges`; a `page_skip_plan` is then built for each leaf so its column reader can skip pages
-that do not overlap surviving rows.
+numbers and file offsets. Candidate ranges follow the predicate tree: AND nodes intersect child
+ranges and OR nodes union them into `selected_ranges`. A missing or unusable AND child contributes
+no pruning, while a missing or unusable OR branch retains the complete Row Group range. A
+`page_skip_plan` is then built for each leaf so its column reader can skip pages that do not overlap
+surviving rows.
 
 > `selected_ranges` represents logical row ranges, while `page_skip_plan` represents physical page
 > reads. Keeping them separate allows the scheduler to advance by row batch while each column skips
@@ -826,7 +828,8 @@ split safely, or read anomalies must never change query semantics.
 | Bloom missing, disabled, or unreadable | Skip Bloom pruning and continue with later scan stages |
 | Incomplete dictionary page, mixed non-dictionary encoding, complex/repeated column | Disable dictionary pruning and Dictionary-ID Filter; use actual values |
 | Missing or inconsistent ColumnIndex/OffsetIndex | Disable fine-grained page pruning and read the full candidate range |
-| Multi-column, OR, stateful, or error-order-sensitive expression | Preserve whole-expression evaluation to avoid changing SQL short-circuit or error semantics |
+| Multi-column AND/OR expression | Combine only conservative metadata candidate ranges; preserve whole-expression row evaluation |
+| Stateful or error-order-sensitive expression | Preserve whole-expression evaluation without metadata decomposition |
 | No stable file-version identity for Page Cache | Disable Parquet Page Cache to prevent stale-byte reads |
 | Incomplete Condition Cache coverage | Retain and recompute uncovered ranges |
 

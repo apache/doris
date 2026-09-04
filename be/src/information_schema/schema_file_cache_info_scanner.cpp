@@ -20,7 +20,10 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_ref.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
+#include "io/cache/fs_file_cache_storage.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 

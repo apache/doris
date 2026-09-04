@@ -149,6 +149,9 @@ Status SpillFileWriter::write_block(RuntimeState* state, const Block& block) {
 
     // Lazily open the first part
     if (!_file_writer) {
+        if (_current_part_index == 0) {
+            state->get_query_ctx()->record_spill_data_dir(_data_dir);
+        }
         RETURN_IF_ERROR(_open_next_part());
     }
 

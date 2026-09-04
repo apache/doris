@@ -25,6 +25,7 @@
 
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/operator/spill_counters.h"
 #include "exec/partitioner/partitioner.h"
 #include "exec/spill/spill_file.h"
 #include "exec/spill/spill_file_manager.h"
@@ -54,27 +55,21 @@ protected:
         _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
         ADD_TIMER_WITH_LEVEL(_common_profile.get(), "ExecTime", 1);
 
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillTotalTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillWriteTime", 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteTaskWaitInQueueCount", TUnit::UNIT,
+        // Reuse the production initializers so the registered names cannot drift from
+        // what SpillFileReader/SpillFileWriter look up.
+        SpillWriteCounters write_counters;
+        write_counters.init(_custom_profile.get());
+        SpillReadCounters read_counters;
+        read_counters.init(_custom_profile.get());
+
+        // Source-only extras, see PipelineXSpillLocalState::init_spill_{write,read}_counters.
+        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_TOTAL_TIME, 1);
+        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_WRITE_FILE_BYTES, TUnit::BYTES,
                                1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteTaskCount", TUnit::UNIT, 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillWriteTaskWaitInQueueTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillWriteSerializeBlockTime", 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteBlockCount", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileBytes", TUnit::BYTES, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteRows", TUnit::UNIT, 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillReadDerializeBlockTime", 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadBlockCount", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadBlockBytes", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileBytes", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadRows", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileCount", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileTotalCount", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileCurrentBytes", TUnit::UNIT, 1);
+        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_WRITE_FILE_TOTAL_COUNT,
+                               TUnit::UNIT, 1);
+        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_WRITE_FILE_CURRENT_BYTES,
+                               TUnit::BYTES, 1);
 
         _profile->add_child(_custom_profile.get(), true);
         _profile->add_child(_common_profile.get(), true);

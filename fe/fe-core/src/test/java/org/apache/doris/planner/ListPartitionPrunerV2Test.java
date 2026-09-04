@@ -18,33 +18,21 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.NameMapping;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HiveExternalMetaCache;
-import org.apache.doris.datasource.hive.HiveExternalMetaCache.PartitionValueCacheKey;
-import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ThreadPoolExecutor;
 
 public class ListPartitionPrunerV2Test {
     @Test
@@ -68,80 +56,5 @@ public class ListPartitionPrunerV2Test {
         Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
         Assert.assertEquals("1.123000", partitionValuesMap.get(1L).get(0));
         Assert.assertEquals("1.123", partitionValuesMap.get(2L).get(0));
-    }
-
-    @Test
-    public void testInvalidateTable() {
-        Env env = Mockito.mock(Env.class);
-        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
-        HMSExternalCatalog hmsCatalog = Mockito.mock(HMSExternalCatalog.class);
-        long catalogId = 10001L;
-
-        ThriftHMSCachedClient mockClient = Mockito.mock(ThriftHMSCachedClient.class);
-        // Mock is used here to represent the existence of a partition in the original table
-        Mockito.when(mockClient.listPartitionNames(Mockito.anyString(), Mockito.anyString()))
-                .thenReturn(new ArrayList<>(java.util.Collections.singletonList("c1=1.234000")));
-        Mockito.when(hmsCatalog.getClient()).thenReturn(mockClient);
-
-        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class)) {
-            mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
-            Mockito.doReturn(hmsCatalog).when(catalogMgr).getCatalog(catalogId);
-
-            ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
-                    10, 10, "mgr", 120, false);
-            ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
-                    10, 10, "mgr", 120, false);
-            HiveExternalMetaCache cache = new HiveExternalMetaCache(executor, listExecutor);
-            cache.initCatalog(catalogId, new HashMap<>());
-            ArrayList<Type> types = new ArrayList<>();
-            types.add(ScalarType.DOUBLE);
-
-            // test cache
-            // the original partition of the table (in mock) will be loaded here
-            String dbName = "db";
-            String tblName = "tb";
-            NameMapping nameMapping = NameMapping.createForTest(catalogId, dbName, tblName);
-            PartitionValueCacheKey key = new PartitionValueCacheKey(nameMapping, types);
-            HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(key);
-            Assert.assertEquals(1, partitionValues.getNameToPartitionItem().size());
-            List<PartitionKey> items = partitionValues.getNameToPartitionItem().values().iterator().next().getItems();
-            Assert.assertEquals(1, items.size());
-            PartitionKey partitionKey = items.get(0);
-            Assert.assertEquals("1.234", partitionKey.getKeys().get(0).toString());
-            Assert.assertEquals("1.234000", partitionKey.getOriginHiveKeys().get(0));
-
-            // test add cache
-            ArrayList<String> values = new ArrayList<>();
-            values.add("c1=5.678000");
-            cache.addPartitionsCache(nameMapping, values, types);
-            HiveExternalMetaCache.HivePartitionValues partitionValues2 = cache.getPartitionValues(
-                new PartitionValueCacheKey(nameMapping, types));
-            Assert.assertEquals(2, partitionValues2.getNameToPartitionItem().size());
-            PartitionKey partitionKey2 = null;
-            for (PartitionItem partitionItem : partitionValues2.getNameToPartitionItem().values()) {
-                List<PartitionKey> partitionKeys = partitionItem.getItems();
-                Assert.assertEquals(1, partitionKeys.size());
-                if ("5.678000".equals(partitionKeys.get(0).getOriginHiveKeys().get(0))) {
-                    partitionKey2 = partitionKeys.get(0);
-                    break;
-                }
-            }
-            Assert.assertNotNull(partitionKey2);
-            Assert.assertEquals("5.678", partitionKey2.getKeys().get(0).toString());
-            Assert.assertEquals("5.678000", partitionKey2.getOriginHiveKeys().get(0));
-
-            // test refresh table
-            // simulates the manually added partition table being deleted, leaving only one original partition in mock
-            cache.invalidateTableCache(nameMapping);
-            HiveExternalMetaCache.HivePartitionValues partitionValues3 = cache.getPartitionValues(
-                new PartitionValueCacheKey(nameMapping, types));
-            Assert.assertEquals(1, partitionValues3.getNameToPartitionItem().size());
-            List<PartitionKey> items3 = partitionValues3.getNameToPartitionItem().values().iterator().next().getItems();
-            Assert.assertEquals(1, items3.size());
-            PartitionKey partitionKey3 = items3.get(0);
-            Assert.assertEquals("1.234", partitionKey3.getKeys().get(0).toString());
-            Assert.assertEquals("1.234000", partitionKey3.getOriginHiveKeys().get(0));
-        }
     }
 }

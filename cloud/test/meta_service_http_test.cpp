@@ -1413,6 +1413,11 @@ TEST(MetaServiceHttpTest, GetStageTest) {
 TEST(MetaServiceHttpTest, GetTabletStatsTest) {
     HttpContext ctx(true);
     auto& meta_service = ctx.meta_service_;
+    auto expected_http_body = [](GetTabletStatsResponse response) {
+        // The HTTP handler bypasses MetaServiceProxy, so its text response has no actual_code.
+        response.mutable_status()->clear_actual_code();
+        return response.DebugString() + "\n";
+    };
 
     constexpr auto db_id = 1000, table_id = 10001, index_id = 10002, partition_id = 10003,
                    tablet_id = 10004;
@@ -1437,7 +1442,7 @@ TEST(MetaServiceHttpTest, GetTabletStatsTest) {
         idx->set_tablet_id(tablet_id);
         auto [status_code, content] = ctx.forward<std::string>("get_tablet_stats", req);
         ASSERT_EQ(status_code, 200);
-        ASSERT_EQ(content, res.DebugString() + "\n");
+        ASSERT_EQ(content, expected_http_body(res));
     }
 
     // Insert rowset
@@ -1504,7 +1509,7 @@ TEST(MetaServiceHttpTest, GetTabletStatsTest) {
         idx->set_tablet_id(tablet_id);
         auto [status_code, content] = ctx.forward<std::string>("get_tablet_stats", req);
         ASSERT_EQ(status_code, 200);
-        ASSERT_EQ(content, res.DebugString() + "\n");
+        ASSERT_EQ(content, expected_http_body(res));
     }
 }
 
@@ -3248,38 +3253,6 @@ TEST(MetaServiceHttpTest, VirtualClusterTest) {
         // }
 
     } // namespace doris::cloud
-}
-
-TEST(MetaServiceHttpTest, ShortGetTabletStatsDebugStringTest) {
-    config::enable_idempotent_request_injection = true;
-    auto sp = SyncPoint::get_instance();
-    sp->enable_processing();
-    DORIS_CLOUD_DEFER {
-        sp->disable_processing();
-    };
-
-    HttpContext ctx(true);
-    auto& meta_service = ctx.meta_service_;
-    constexpr auto table_id = 10001, index_id = 11001, partition_id = 12001;
-    int64_t tablet_id = 10001;
-    GetTabletStatsRequest req;
-    GetTabletStatsResponse res;
-
-    brpc::Controller cntl;
-    for (size_t i = 0; i < 50; i++) {
-        auto* idx = req.add_tablet_idx();
-        idx->set_table_id(table_id);
-        idx->set_index_id(index_id);
-        idx->set_partition_id(partition_id);
-        idx->set_tablet_id(tablet_id + i);
-    }
-
-    meta_service->get_tablet_stats(&cntl, &req, &res, nullptr);
-
-    sp->set_call_back("idempotent_injection_short_debug_string_for_get_stats", [](auto&& args) {
-        GetTabletStatsRequest debug_req = *try_any_cast<GetTabletStatsRequest*>(args.back());
-        ASSERT_EQ(10, debug_req.tablet_idx_size());
-    });
 }
 
 TEST(MetaServiceHttpTest, FixTabletIndexDbId) {

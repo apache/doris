@@ -93,7 +93,7 @@ suite("test_iceberg_schema_change_complex_types", "p0,external,doris,external_do
     // Cannot change nullable complex column to not null
     test {
         sql """ALTER TABLE ${table_name} MODIFY COLUMN arr_i ARRAY<INT> NOT NULL"""
-        exception "Cannot change nullable column arr_i to not null"
+        exception "Can not change nullable column arr_i to not null"
     }
 
     // Map key type change is not allowed

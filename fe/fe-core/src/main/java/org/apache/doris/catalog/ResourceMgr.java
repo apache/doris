@@ -154,7 +154,8 @@ public class ResourceMgr implements Writable {
 
         // log alter
         Env.getCurrentEnv().getEditLog().logAlterResource(resource);
-        LOG.info("Alter resource success. Resource: {}", resource);
+        // Only log non-sensitive identifiers here because resource objects may retain credential properties.
+        LOG.info("Alter resource success. Resource: {}, type: {}", resource.getName(), resource.getType());
     }
 
     public void replayAlterResource(Resource resource) {

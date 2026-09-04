@@ -21,12 +21,14 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "core/column/column.h"
+#include "core/data_type/primitive_type.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/tablet/tablet_fwd.h"
 
@@ -45,8 +47,12 @@ struct HistoricalRowRetrieverContext;
 struct RowsetWriterContext;
 struct RowsetId;
 class BitmapValue;
+class HistoricalRowFetcher;
+class OlapBlockDataConvertor;
+class RowKeyEncoder;
+struct MowContext;
 namespace segment_v2 {
-class VerticalSegmentWriter;
+class MowKeyProbe;
 }
 
 class SegmentCacheHandle;
@@ -135,7 +141,11 @@ public:
                                 const TabletSchema& tablet_schema, Block& full_block,
                                 const std::vector<bool>& use_default_or_null_flag,
                                 bool has_default_or_nullable, uint32_t segment_start_pos,
-                                const Block* block) const;
+                                const Block* block,
+                                std::vector<signed char>* old_delete_signs = nullptr) const;
+    Status fill_old_delete_signs(const Block& old_value_block,
+                                 const std::map<uint32_t, uint32_t>& read_index, size_t num_rows,
+                                 std::vector<signed char>* old_delete_signs) const;
 
 private:
     std::map<RowsetId, std::map<uint32_t /* segment_id */, std::vector<RidAndPos>>> plan;
@@ -190,29 +200,45 @@ private:
     std::map<RowsetId, std::map<uint32_t /* segment_id */, std::vector<RidAndPos>>> row_store_plan;
 };
 
+ColumnBitmap* get_mutable_skip_bitmap_column(Block* block, size_t skip_bitmap_col_idx);
+
 class BlockAggregator {
 public:
-    ~BlockAggregator() = default;
-    BlockAggregator(segment_v2::VerticalSegmentWriter& vertical_segment_writer);
+    ~BlockAggregator();
+    // All references must live longer than the aggregator; the flexible fill
+    // stage builds everything as locals in one apply() scope. The aggregator
+    // owns its block convertor (key + sequence column slots).
+    BlockAggregator(TabletSchema& tablet_schema, BaseTabletSPtr tablet,
+                    std::shared_ptr<MowContext> mow_context,
+                    const PartialUpdateInfo& partial_update_info, const RowKeyEncoder& key_encoder,
+                    const segment_v2::MowKeyProbe& probe, HistoricalRowFetcher& fetcher);
 
     Status convert_pk_columns(Block* block, size_t row_pos, size_t num_rows,
                               std::vector<IOlapColumnDataAccessor*>& key_columns);
     Status convert_seq_column(Block* block, size_t row_pos, size_t num_rows,
                               IOlapColumnDataAccessor*& seq_column);
+    // Optional sidecars are aggregated and filtered with `block`; on return each element is
+    // aligned with the corresponding row in the final block. A non-zero
+    // `insert_after_delete_flags` entry marks the surviving INSERT of a same-batch
+    // DELETE-then-INSERT pair.
     Status aggregate_for_flexible_partial_update(
             Block* block, size_t num_rows, const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            std::vector<int64_t>* row_lsns = nullptr,
+            std::vector<uint8_t>* insert_after_delete_flags = nullptr);
 
 private:
     Status aggregate_for_sequence_column(
             Block* block, int num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
             IOlapColumnDataAccessor* seq_column,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            std::vector<int64_t>* row_lsns);
     Status aggregate_for_insert_after_delete(
             Block* block, size_t num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            std::vector<int64_t>* row_lsns, std::vector<uint8_t>* insert_after_delete_flags);
     Status filter_block(Block* block, size_t num_rows, MutableColumnPtr filter_column,
                         int duplicate_rows, std::string col_name);
 
@@ -226,6 +252,10 @@ private:
     void append_one_row(MutableBlock& dst_block, Block* src_block, int rid);
     void remove_last_n_rows(MutableBlock& dst_block, int n);
 
+    void append_row_lsn(int rid);
+    void merge_row_lsn(int rid);
+    void remove_last_row_lsns(int n);
+
     // aggregate rows with same keys in range [start, end) from block to output_block
     Status aggregate_rows(MutableBlock& output_block, Block* block, int start, int end,
                           std::string key, std::vector<BitmapValue>* skip_bitmaps,
@@ -233,8 +263,22 @@ private:
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
 
-    segment_v2::VerticalSegmentWriter& _writer;
+    Status _generate_encoded_default_seq_value(std::string* encoded_value);
+
     TabletSchema& _tablet_schema;
+    BaseTabletSPtr _tablet;
+    std::shared_ptr<MowContext> _mow_context;
+    const PartialUpdateInfo& _partial_update_info;
+    const RowKeyEncoder& _key_encoder;
+    std::unique_ptr<OlapBlockDataConvertor> _convertor;
+    const segment_v2::MowKeyProbe& _probe;
+    HistoricalRowFetcher& _fetcher;
+
+    // Optional sidecar used by Row Binlog. Flexible aggregation can remove or merge input rows;
+    // keep the persisted LSN aligned with the surviving row and retain the largest LSN of all
+    // merged changes.
+    const std::vector<int64_t>* _input_row_lsns = nullptr;
+    std::vector<int64_t>* _output_row_lsns = nullptr;
 
     // used to store state when aggregating rows in block
     struct AggregateState {

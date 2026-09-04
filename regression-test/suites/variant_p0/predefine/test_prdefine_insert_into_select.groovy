@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_predefine_insert_into_select", "p0"){
+    boolean enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    def normalizedVariant = "regexp_replace(cast(var as string), " +
+            "'([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})[.]000000', '\\\\1')"
 
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
@@ -33,8 +37,8 @@ suite("test_predefine_insert_into_select", "p0"){
         INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="d", "parser"="unicode", "support_phrase" = "true") COMMENT ''
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    sql """insert into fromTable values(1, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
-    sql """insert into fromTable values(1, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
+    sql """insert into fromTable values(1, ${variantV2Function}('{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}'));"""
+    sql """insert into fromTable values(1, ${variantV2Function}('{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}'));"""
 
     sql "DROP TABLE IF EXISTS toTable_without_define"
     sql """CREATE TABLE toTable_without_define (
@@ -42,20 +46,16 @@ suite("test_predefine_insert_into_select", "p0"){
         `var` variant<properties("variant_max_subcolumns_count" = "2")> NULL
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    sql """insert into toTable_without_define values(1, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
+    sql """insert into toTable_without_define values(1, ${variantV2Function}('{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}'));"""
 
-    sql """ insert into toTable_without_define select id, cast(var as string) from fromTable"""
-    boolean findException = false
-    try {
-        sql """ insert into toTable_without_define select * from fromTable"""
-    } catch (Exception e) {
-        logger.info(e.getMessage())
-        findException = true
+    sql """ insert into toTable_without_define select id, ${variantV2Function}(cast(var as string)) from fromTable"""
+    order_qt_sql """ select id, ${normalizedVariant} from toTable_without_define"""
+    if (!enableVariantV2) {
+        order_qt_variant_type_without_v1 "select variant_type(var) from toTable_without_define"
     }
-    assertTrue(findException)
+    qt_variant_type_without "select count(*) from toTable_without_define where variant_type(var) is null"
 
-    order_qt_sql """ select * from toTable_without_define"""
-    order_qt_sql """ select variant_type(var) from toTable_without_define"""
+    sql """ insert into toTable_without_define select * from fromTable"""
 
     sql "DROP TABLE IF EXISTS toTable_with_define"
     sql """CREATE TABLE toTable_with_define (
@@ -67,32 +67,33 @@ suite("test_predefine_insert_into_select", "p0"){
         > NULL
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    sql """insert into toTable_with_define values(1, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
+    sql """insert into toTable_with_define values(1, ${variantV2Function}('{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}'));"""
 
-    sql """ insert into toTable_with_define select id, cast(var as string) from fromTable"""
-
-    findException = false
-    try {
-        sql """ insert into toTable_with_define select * from fromTable"""
-    } catch (Exception e) {
-        logger.info(e.getMessage())
-        findException = true
+    sql """ insert into toTable_with_define select id, ${variantV2Function}(cast(var as string)) from fromTable"""
+    order_qt_sql """ select id, ${normalizedVariant} from toTable_with_define"""
+    if (!enableVariantV2) {
+        order_qt_variant_type_with_v1 "select variant_type(var) from toTable_with_define"
     }
-    assertTrue(findException)
+    qt_variant_type_with "select count(*) from toTable_with_define where variant_type(var) is null"
 
-    order_qt_sql """ select * from toTable_with_define"""
-    order_qt_sql """ select variant_type(var) from toTable_with_define"""
+    sql """ insert into toTable_with_define select * from fromTable"""
 
     sql "DROP TABLE IF EXISTS toTable"
     sql """ create table toTable like fromTable"""
     // qt_sql """ show create table toTable"""
     qt_sql """ insert into toTable select * from fromTable"""
-    order_qt_sql """ select * from toTable"""
-    order_qt_sql """ select variant_type(var) from toTable"""
+    order_qt_sql """ select id, ${normalizedVariant} from toTable"""
+    if (!enableVariantV2) {
+        order_qt_variant_type_copy_v1 "select variant_type(var) from toTable"
+    }
+    qt_variant_type_copy "select count(*) from toTable where variant_type(var) is null"
 
-    sql """insert into toTable values(1, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
+    sql """insert into toTable values(1, ${variantV2Function}('{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": 123, "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}'));"""
 
-    order_qt_sql """ select variant_type(var) from toTable"""
+    if (!enableVariantV2) {
+        order_qt_variant_type_values_v1 "select variant_type(var) from toTable"
+    }
+    qt_variant_type_values "select count(*) from toTable where variant_type(var) is null"
 
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_segment_limit_pushdown = true """

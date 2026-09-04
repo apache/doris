@@ -20,8 +20,11 @@
 #include <arrow/builder.h>
 #include <cctz/time_zone.h>
 
+#include "common/config.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/parquet_timestamp.h"
 #include "core/value/timestamptz_value.h"
@@ -32,6 +35,44 @@
 namespace doris {
 
 namespace {
+
+Status decode_timestamp_tz_orc_values(IColumn& nested_column,
+                                      const OrcDecodedColumnView& orc_view) {
+    const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC timestamp batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto& data = assert_cast<ColumnTimeStampTz&>(nested_column).get_data();
+    const size_t old_data_size = data.size();
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    data.resize(old_data_size + output_rows);
+    static const auto utc_time_zone = cctz::utc_time_zone();
+    for (size_t row = 0; row < output_rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
+        if (orc_serde_utils::orc_row_is_null(*orc_view.batch, source_row)) {
+            data[old_data_size + row] = TimestampTzValue {};
+            continue;
+        }
+        auto& value = data[old_data_size + row];
+        orc_serde_utils::RoundedOrcTimestamp timestamp;
+        auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
+        value.from_unixtime(timestamp.seconds, utc_time_zone);
+        value.set_microsecond(timestamp.microseconds);
+        if (!value.is_valid_date()) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC TIMESTAMPTZ is outside the Doris 0000-9999 range");
+        }
+    }
+    return Status::OK();
+}
 
 Status append_timestamptz_from_utc_epoch_micros(ColumnTimeStampTz::Container& data,
                                                 int64_t timestamp_micros) {
@@ -71,9 +112,13 @@ class TimestampTzParquetConsumer final : public ParquetFixedValueConsumer {
 public:
     TimestampTzParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
                                ParquetMaterializationState* state = nullptr)
-            : _data(assert_cast<ColumnTimeStampTz&>(column).get_data()),
-              _context(context),
-              _state(state) {}
+            : TimestampTzParquetConsumer(assert_cast<ColumnTimeStampTz&>(column).get_data(),
+                                         context, state) {}
+
+    TimestampTzParquetConsumer(ColumnTimeStampTz::Container& data,
+                               const ParquetDecodeContext& context,
+                               ParquetMaterializationState* state = nullptr)
+            : _data(data), _context(context), _state(state) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         const size_t old_size = _data.size();
@@ -119,6 +164,40 @@ public:
     Status consume(const StringRef* values, size_t num_values) override {
         return Status::NotSupported("Binary Parquet values cannot be materialized as TIMESTAMPTZ");
     }
+};
+
+class TimestampTzPredicateParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    TimestampTzPredicateParquetConsumer(const ParquetDecodeContext& context,
+                                        bool enable_strict_mode,
+                                        ParquetLogicalValueConsumer& consumer,
+                                        ColumnTimeStampTz::Container& logical_values,
+                                        IColumn::Filter& conversion_nulls)
+            : _context(context),
+              _enable_strict_mode(enable_strict_mode),
+              _consumer(consumer),
+              _logical_values(logical_values),
+              _conversion_nulls(conversion_nulls) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        _logical_values.clear();
+        _conversion_nulls.clear();
+        _conversion_nulls.resize_fill(num_values, 0);
+        ParquetMaterializationState state;
+        state.enable_strict_mode = _enable_strict_mode;
+        state.conversion_failure_null_map = &_conversion_nulls;
+        TimestampTzParquetConsumer converter(_logical_values, _context, &state);
+        RETURN_IF_ERROR(converter.consume(values, num_values, value_width));
+        return _consumer.consume(reinterpret_cast<const uint8_t*>(_logical_values.data()),
+                                 num_values, sizeof(TimestampTzValue), _conversion_nulls.data());
+    }
+
+private:
+    const ParquetDecodeContext& _context;
+    bool _enable_strict_mode;
+    ParquetLogicalValueConsumer& _consumer;
+    ColumnTimeStampTz::Container& _logical_values;
+    IColumn::Filter& _conversion_nulls;
 };
 
 } // namespace
@@ -319,6 +398,95 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
     return Status::OK();
 }
 
+/**
+ * Reads an Arrow timestamp array into a TIMESTAMPTZ column.
+ *
+ * <p>Without this the base DataTypeNumberSerDe<TYPE_TIMESTAMPTZ> reader runs instead, and its
+ * fixed-width path memcpy's the array's int64 epoch values straight into the column -- whose element
+ * is a PACKED date/time value, not an epoch. Both are 8 bytes wide, so no check catches it: the scan
+ * succeeds and every row is silently wrong. That is why an unreadable Arrow type below is an error
+ * rather than a fallback.
+ *
+ * <p>The value is read as an instant on the UTC line, which is the inverse of what
+ * write_column_to_arrow emits (it converts with cctz::utc_time_zone(), not with ctz). ctz is
+ * therefore unused here: an Arrow timestamp's zone -- whether it names one or not -- describes how
+ * to DISPLAY the instant, and TIMESTAMPTZ stores the instant itself.
+ */
+Status DataTypeTimeStampTzSerDe::read_column_from_arrow(IColumn& column,
+                                                        const arrow::Array* arrow_array,
+                                                        int64_t start, int64_t end,
+                                                        const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_array_range(*arrow_array, start, end);
+    }
+    if (arrow_array->type()->id() != arrow::Type::TIMESTAMP) {
+        LOG(WARNING) << "not support convert to timestamptz from arrow type:"
+                     << arrow_array->type()->id();
+        return Status::InternalError("not support convert to timestamptz from arrow type: {}",
+                                     arrow_array->type()->id());
+    }
+    const auto* concrete_array = assert_cast<const arrow::TimestampArray*>(arrow_array);
+    if (config::enable_arrow_input_validation) {
+        check_arrow_fixed_width_buffer(*concrete_array, sizeof(arrow::TimestampArray::value_type));
+    }
+    const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
+    // Scale each unit to the microseconds the column stores. NANO is divided rather than refused:
+    // sub-microsecond precision is beyond what any Doris datetime type keeps, and rejecting the
+    // column over a digit would make whole tables unreadable.
+    int64_t multiplier = 1;
+    int64_t divisor = 1;
+    switch (type->unit()) {
+    case arrow::TimeUnit::type::SECOND:
+        multiplier = 1000000;
+        break;
+    case arrow::TimeUnit::type::MILLI:
+        multiplier = 1000;
+        break;
+    case arrow::TimeUnit::type::MICRO:
+        break;
+    case arrow::TimeUnit::type::NANO:
+        divisor = 1000;
+        break;
+    default:
+        LOG(WARNING) << "not support convert to timestamptz from time_unit:" << type->unit();
+        return Status::InvalidArgument("not support convert to timestamptz from time_unit: {}",
+                                       type->unit());
+    }
+
+    auto& col_data = assert_cast<ColumnTimeStampTz&>(column).get_data();
+    const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
+    const size_t element_size = sizeof(int64_t);
+    for (auto value_i = start; value_i < end; ++value_i) {
+        // One value per row including the null ones: the caller (DataTypeNullableSerDe) has already
+        // taken the validity bitmap and hands the whole range down. The value under a null slot is
+        // whatever the source left there, so it must not be converted -- a garbage epoch would fail
+        // the range check below and take a well-formed batch down with it.
+        if (concrete_array->IsNull(value_i)) {
+            col_data.push_back(TimestampTzValue());
+            continue;
+        }
+        const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
+        auto value = unaligned_load<int64_t>(raw_byte_ptr);
+        int64_t timestamp_micros = 0;
+        if (__builtin_mul_overflow(value, multiplier, &timestamp_micros)) {
+            return Status::DataQualityError(
+                    "Arrow timestamp {} in unit {} overflows the microsecond range of TIMESTAMPTZ",
+                    value, static_cast<int>(type->unit()));
+        }
+        if (divisor != 1) {
+            // Floor, not truncate: C++ integer division rounds toward zero, which would move a
+            // pre-1970 instant forward by up to one microsecond.
+            int64_t remainder = timestamp_micros % divisor;
+            timestamp_micros /= divisor;
+            if (remainder < 0) {
+                --timestamp_micros;
+            }
+        }
+        RETURN_IF_ERROR(append_timestamptz_from_utc_epoch_micros(col_data, timestamp_micros));
+    }
+    return Status::OK();
+}
+
 Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone,
                                                      const IColumn& column, const NullMap* null_map,
                                                      orc::ColumnVectorBatch* orc_col_batch,
@@ -437,6 +605,26 @@ Status DataTypeTimeStampTzSerDe::read_column_from_parquet(
     return state.materialize_dictionary(column, source, num_values);
 }
 
+bool DataTypeTimeStampTzSerDe::supports_parquet_raw_predicate(
+        const ParquetDecodeContext& context) const {
+    return context.encoding != ParquetValueEncoding::DICTIONARY &&
+           (context.physical_type == ParquetPhysicalType::INT64 ||
+            context.physical_type == ParquetPhysicalType::INT96) &&
+           context.logical_type == ParquetLogicalType::TIMESTAMP;
+}
+
+Status DataTypeTimeStampTzSerDe::read_parquet_raw_predicate(
+        ParquetDecodeSource& source, const ParquetDecodeContext& context, size_t num_values,
+        bool enable_strict_mode, ParquetLogicalValueConsumer& consumer) const {
+    if (!supports_parquet_raw_predicate(context)) {
+        return Status::NotSupported("Unsupported Parquet raw predicate conversion for TIMESTAMPTZ");
+    }
+    TimestampTzPredicateParquetConsumer predicate_consumer(context, enable_strict_mode, consumer,
+                                                           _parquet_predicate_values,
+                                                           _parquet_predicate_nulls);
+    return source.decode_fixed_values(num_values, predicate_consumer);
+}
+
 std::string DataTypeTimeStampTzSerDe::to_olap_string(const Field& field) const {
     return CastToString::from_timestamptz(field.get<TYPE_TIMESTAMPTZ>(), 6);
 }
@@ -456,6 +644,18 @@ void DataTypeTimeStampTzSerDe::write_one_cell_to_binary(const IColumn& src_colum
            sizeof(uint8_t));
     memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t), data_ref.data,
            data_ref.size);
+}
+
+Status DataTypeTimeStampTzSerDe::read_column_from_orc(IColumn& column,
+                                                      const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT);
+    DORIS_CHECK(view.enable_mapping_timestamp_tz);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_timestamp_tz_orc_values(column, view);
 }
 
 } // namespace doris

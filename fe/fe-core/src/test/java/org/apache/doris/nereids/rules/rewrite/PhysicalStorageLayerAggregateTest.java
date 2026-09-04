@@ -22,7 +22,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RulePromise;
@@ -166,10 +166,14 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
 
     private LogicalAggregate<LogicalFileScan> newNullableFileCountAggregate() {
         Column nullableColumn = new Column("value", Type.INT, true);
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.initSelectedPartitions(Mockito.any()))
                 .thenReturn(SelectedPartitions.NOT_PRUNED);
         Mockito.when(table.getFullSchema()).thenReturn(ImmutableList.of(nullableColumn));
+        // On this branch external file-scan tables are PluginDrivenExternalTable, so
+        // LogicalFileScan.computeOutput() resolves the schema via the version-aware
+        // getFullSchema(Optional<MvccSnapshot>) overload rather than the no-arg one.
+        Mockito.when(table.getFullSchema(Mockito.any())).thenReturn(ImmutableList.of(nullableColumn));
         Mockito.when(table.getName()).thenReturn("nullable_file_table");
         CatalogIf catalog = Mockito.mock(CatalogIf.class);
         Mockito.when(catalog.getName()).thenReturn("catalog");

@@ -44,6 +44,8 @@ struct WriteRequest {
     int64_t txn_expiration = 0; // For cloud mode
     int64_t index_id = 0;
     int64_t partition_id = 0;
+    // the row binlog tablet id written together with this base tablet, 0 means no binlog.
+    int64_t binlog_tablet_id = 0;
     PUniqueId load_id;
     TupleDescriptor* tuple_desc = nullptr;
     // slots are in order of tablet's schema
@@ -58,7 +60,7 @@ struct WriteRequest {
 
 struct TabletAddRowsPayload {
     DorisVector<uint32_t> row_idxs;
-    DorisVector<int64_t> row_binlog_lsns = {};
+    DorisVector<int64_t> allocated_lsns = {};
 };
 
 } // namespace doris

@@ -48,6 +48,7 @@
 #include "exprs/function/functions_logical.h"
 #include "exprs/vexpr.h"
 #include "storage/index/index_reader_helper.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
 
 namespace doris {
 /** Comparison functions: ==, !=, <, >, <=, >=.
@@ -314,6 +315,15 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
 
     const auto effective_op = slot_literal->literal_on_left ? symmetric_op(op) : op;
     const auto& literal = slot_literal->literal;
+    const bool literal_is_nan = literal.is_nan();
+    const bool hidden_nan_can_match = (effective_op == Op::EQ && literal_is_nan) ||
+                                      (effective_op == Op::NE && !literal_is_nan) ||
+                                      (effective_op == Op::GT && !literal_is_nan) ||
+                                      effective_op == Op::GE;
+    if (ctx.floating_nan_count_unknown(slot_literal->slot_index) && hidden_nan_can_match) {
+        // Parquet bounds omit NaNs, so only operators that cannot match a hidden NaN may prune.
+        return unsupported_zonemap_filter(ctx);
+    }
     switch (effective_op) {
     case Op::EQ:
         return literal < zone_map.min_value || zone_map.max_value < literal
@@ -367,7 +377,13 @@ inline bool can_evaluate(const VExprSPtrs& arguments) {
 }
 
 inline bool can_evaluate_equality(const VExprSPtrs& arguments, Op op) {
-    return op == Op::EQ && can_evaluate(arguments);
+    if (op != Op::EQ || !can_evaluate(arguments)) {
+        return false;
+    }
+    const auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    DORIS_CHECK(slot_literal.has_value());
+    // Bloom membership cannot disprove Doris NaN equality across different physical encodings.
+    return !slot_literal->literal.is_nan();
 }
 
 inline bool dictionary_value_matches(const Field& value, const Field& literal, Op op) {
@@ -416,7 +432,7 @@ inline ZoneMapFilterResult evaluate_dictionary(const DictionaryEvalContext& ctx,
 inline ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
                                                  const VExprSPtrs& arguments, Op op) {
     DORIS_CHECK(op == Op::EQ);
-    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    auto slot_literal = expr_zonemap::extract_bloom_filter_slot_and_literal(arguments);
     DORIS_CHECK(slot_literal.has_value());
     return expr_zonemap::eval_eq_bloom_filter(ctx, *slot_literal);
 }
@@ -658,7 +674,8 @@ public:
 
     bool can_evaluate_bloom_filter(const VExprSPtrs& arguments) const override {
         auto op = comparison_zonemap_detail::op_from_name(name);
-        return op.has_value() && comparison_zonemap_detail::can_evaluate_equality(arguments, *op);
+        return op == comparison_zonemap_detail::Op::EQ &&
+               expr_zonemap::can_evaluate_bloom_filter_equality(arguments);
     }
 
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.

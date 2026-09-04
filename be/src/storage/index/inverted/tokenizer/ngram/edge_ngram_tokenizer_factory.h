@@ -56,6 +56,10 @@ public:
         }
     }
 
+    PositionCapability position_capability() const override {
+        return PositionCapability::kAlwaysUnitIncrement;
+    }
+
 private:
     int32_t _min_gram = 0;
     int32_t _max_gram = 0;

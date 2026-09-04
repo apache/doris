@@ -19,16 +19,21 @@ package org.apache.doris.httpv2.controller;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Log4jConfig;
+import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.config.ReadEnvironment;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.security.CsrfTokenUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -42,7 +47,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/rest/v1")
-public class LogController {
+public class LogController extends BaseController {
 
     private static final Logger LOG = LogManager.getLogger(LogController.class);
     private static final long WEB_LOG_BYTES = 1024 * 1024;  // 1MB
@@ -59,7 +64,16 @@ public class LogController {
     }
 
     @RequestMapping(path = "/log", method = RequestMethod.POST)
-    public Object logLevel(HttpServletRequest request) {
+    public Object logLevel(HttpServletRequest request, HttpServletResponse response) {
+        if (Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
+            SessionValue session = requireCookieSession(request, response);
+            if (!CsrfTokenUtils.csrfTokenMatches(
+                    session.csrfToken, request.getHeader(CsrfTokenUtils.HEADER_NAME))) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                        "code", "UI_CSRF_INVALID",
+                        "message", "The CSRF token is missing or invalid."));
+            }
+        }
         Map<String, Map<String, String>> map = new HashMap<>();
         // get parameters
         String addVerboseName = request.getParameter("add_verbose");

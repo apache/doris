@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
-suite("regression_test_variant_rqg_p0", "p0"){
-    sql """DROP DATABASE regression_test_variant_p0_rqg""" 
-    sql """CREATE DATABASE regression_test_variant_p0_rqg""" 
+suite("regression_test_variant_rqg_p0", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: false]) {
+        assertFalse(getFeConfig("enable_variant_v2").toBoolean())
+        sql """DROP DATABASE regression_test_variant_p0_rqg"""
+        sql """CREATE DATABASE regression_test_variant_p0_rqg"""
+    }
 }

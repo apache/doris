@@ -409,6 +409,50 @@ TEST(ResourceTest, RestartResourceManager) {
     sp->clear_all_call_backs();
 }
 
+TEST(ResourceTest, RefreshDeletedInstanceClearsRuntimeCaches) {
+    auto txn_kv = create_txn_kv();
+    ResourceManager resource_mgr(txn_kv);
+    ASSERT_EQ(resource_mgr.init(), 0);
+
+    const std::string instance_id = "deleted_cache_instance";
+    const std::string cloud_unique_id = "deleted_cache_cloud_unique_id";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_status(InstanceInfoPB::NORMAL);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_ENABLED);
+    instance.set_source_instance_id("source_instance");
+    instance.set_source_snapshot_id("00000000000000000000");
+    auto* cluster = instance.add_clusters();
+    cluster->set_type(ClusterPB::COMPUTE);
+    cluster->set_cluster_id("cluster_id");
+    cluster->set_cluster_name("cluster_name");
+    auto* node = cluster->add_nodes();
+    node->set_cloud_unique_id(cloud_unique_id);
+    node->set_ip("127.0.0.1");
+    node->set_heartbeat_port(10000);
+
+    resource_mgr.refresh_instance(instance_id, instance);
+
+    std::vector<NodeInfo> nodes;
+    ASSERT_EQ(resource_mgr.get_node(cloud_unique_id, &nodes), "");
+    ASSERT_EQ(nodes.size(), 1);
+    ASSERT_TRUE(resource_mgr.is_version_read_enabled(instance_id));
+    std::string source_instance_id;
+    Versionstamp source_snapshot_version;
+    ASSERT_TRUE(resource_mgr.get_source_snapshot_info(instance_id, &source_instance_id,
+                                                      &source_snapshot_version));
+
+    instance.set_status(InstanceInfoPB::DELETED);
+    resource_mgr.refresh_instance(instance_id, instance);
+
+    nodes.clear();
+    EXPECT_EQ(resource_mgr.get_node(cloud_unique_id, &nodes), "cloud_unique_id not found");
+    EXPECT_TRUE(nodes.empty());
+    EXPECT_FALSE(resource_mgr.is_version_read_enabled(instance_id));
+    EXPECT_FALSE(resource_mgr.get_source_snapshot_info(instance_id, &source_instance_id,
+                                                       &source_snapshot_version));
+}
+
 // test add/drop cluster
 TEST(ResourceTest, AddDropCluster) {
     auto sp = SyncPoint::get_instance();

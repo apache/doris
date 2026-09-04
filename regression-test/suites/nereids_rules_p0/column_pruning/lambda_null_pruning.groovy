@@ -19,9 +19,11 @@ suite("lambda_null_pruning") {
     sql """ DROP TABLE IF EXISTS lambda_null_pruning_tbl """
     sql """
         CREATE TABLE lambda_null_pruning_tbl (
-            id  INT,
-            a   ARRAY<INT> NULL,
-            b   ARRAY<INT> NULL
+            id            INT,
+            a             ARRAY<INT> NULL,
+            b             ARRAY<INT> NULL,
+            nested_arrays ARRAY<ARRAY<INT>> NULL,
+            indexes       ARRAY<BIGINT> NULL
         ) ENGINE = OLAP
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -29,10 +31,10 @@ suite("lambda_null_pruning") {
     """
     sql """
         INSERT INTO lambda_null_pruning_tbl VALUES
-            (1, [1, 2, 3],    [10, 20, 30]),
-            (2, NULL,          NULL),
-            (3, [],            []),
-            (4, [null],        [1])
+            (1, [1, 2, 3], [10, 20, 30], [[2, 3, 1], [4, 2, 1, 4], [1, 2]], [2, 1, 2]),
+            (2, NULL,       NULL,         [[9], [8, 7]],                         [1, 2]),
+            (3, [],         [],           [],                                    []),
+            (4, [null],     [1],          NULL,                                  NULL)
     """
 
     // ================================================================
@@ -156,5 +158,52 @@ suite("lambda_null_pruning") {
     order_qt_case6 """
         SELECT id, cardinality(a), array_count(x -> TRUE, a)
         FROM lambda_null_pruning_tbl ORDER BY id
+    """
+
+    // ================================================================
+    // Case 7: comparator-form array_sort needs offsets for comparison, but its result
+    // also needs the complete nested-array payload.
+    // ================================================================
+    explain {
+        sql """
+            SELECT array_sort(
+                       (x, y) -> IF(cardinality(x) < cardinality(y), -1,
+                                    IF(cardinality(x) = cardinality(y), 0, 1)),
+                       nested_arrays)
+            FROM lambda_null_pruning_tbl
+        """
+        contains "nested columns"
+        contains "all access paths: [nested_arrays]"
+    }
+
+    order_qt_case7 """
+        SELECT id,
+               array_sort(
+                   (x, y) -> IF(cardinality(x) < cardinality(y), -1,
+                                IF(cardinality(x) = cardinality(y), 0, 1)),
+                   nested_arrays)
+        FROM lambda_null_pruning_tbl
+        ORDER BY id
+    """
+
+    // ================================================================
+    // Case 8: the index argument is a leaf lambda slot. element_at must dispatch it
+    // through visitArrayItemSlot so indexes keeps its payload beside indexes.NULL.
+    // ================================================================
+    explain {
+        sql """
+            SELECT array_map((nested, i) -> element_at(nested, i), nested_arrays, indexes)
+            FROM lambda_null_pruning_tbl
+            WHERE indexes IS NOT NULL
+        """
+        contains "nested columns"
+        contains "all access paths: [indexes]"
+    }
+
+    order_qt_case8 """
+        SELECT id, array_map((nested, i) -> element_at(nested, i), nested_arrays, indexes)
+        FROM lambda_null_pruning_tbl
+        WHERE indexes IS NOT NULL
+        ORDER BY id
     """
 }

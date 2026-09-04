@@ -324,6 +324,8 @@ Status SchemaColumnsScanner::_get_new_desc() {
             desc_params.__set_user_ip(*(_param->common_param->user_ip));
         }
     }
+    desc_params.__set_mysql_compatible_index_metadata(
+            _param->common_param->mysql_compatible_index_metadata);
 
     if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
         RETURN_IF_ERROR(SchemaHelper::describe_tables(*(_param->common_param->ip),

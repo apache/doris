@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
@@ -811,7 +812,9 @@ public class NereidsPlanner extends Planner {
             }
         }
 
-        distributedPlans = new DistributePlanner(statementContext, fragments, notNeedBackend, false).plan();
+        boolean useLoadBackendSelection = physicalPlan.anyMatch(PhysicalOlapTableSink.class::isInstance);
+        distributedPlans = new DistributePlanner(
+                statementContext, fragments, notNeedBackend, false, useLoadBackendSelection).plan();
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
                     .setNereidsDistributeTime(TimeUtils.getStartTimeMs());

@@ -183,10 +183,10 @@ charlie	50
 4
 
 -- !leaf_int_nested_nonleaf --
-\\N
-\\N
-\\N
-\\N
+true
+true
+true
+true
 
 -- !leaf_int_nested_chain_select --
 1011111
@@ -283,7 +283,7 @@ charlie	50
 3	1
 
 -- !leaf_group_by_nonleaf --
-\\N	4
+true	4
 
 -- !leaf_group_by_mixed --
 1011111	1
@@ -307,7 +307,7 @@ charlie	50
 2
 
 -- !nonleaf_auto_cast_on --
-\\N
+true
 
 -- !nonleaf_auto_cast_off --
 {"level1_num_1":1011111,"level1_num_2":102}

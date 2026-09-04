@@ -21,6 +21,9 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -98,6 +101,57 @@ public class TimeBasedChangeVisibleWaiterTest {
 
         Mockito.verify(txnMgr, Mockito.times(1)).getCommittedTransactions(DB_ID);
         Mockito.verify(txn, Mockito.times(1)).waitTransactionVisible(Mockito.anyLong());
+    }
+
+    @Test
+    public void testCloudWaitForVisibleUsesTransactionIdWatermark() throws Exception {
+        ConnectContext context = mockContext();
+        OlapTable table = mockOlapTable(DB_ID, TABLE_ID);
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        long currentMaxTxnId = 300L;
+        long txnIdWatermark = currentMaxTxnId + 1;
+        Mockito.when(txnMgr.getNextTransactionId()).thenReturn(currentMaxTxnId);
+        Mockito.when(txnMgr.isPreviousTransactionsFinished(
+                txnIdWatermark, DB_ID, ImmutableList.of(TABLE_ID))).thenReturn(false, true);
+
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class);
+                MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+            mockedEnv.when(Env::getCurrentGlobalTransactionMgr).thenReturn(txnMgr);
+
+            TimeBasedChangeVisibleWaiter.waitForVisible(context, newChangeRelation(1, ImmutableMap.of()),
+                    ImmutableMap.of(TABLE_QUALIFIER, table));
+        }
+
+        Mockito.verify(txnMgr, Mockito.times(1)).getNextTransactionId();
+        Mockito.verify(txnMgr, Mockito.times(2)).isPreviousTransactionsFinished(
+                txnIdWatermark, DB_ID, ImmutableList.of(TABLE_ID));
+        Mockito.verify(txnMgr, Mockito.never()).getCommittedTransactions(Mockito.anyLong());
+    }
+
+    @Test
+    public void testCloudWaitForVisibleFailsWhenConflictCheckFails() throws Exception {
+        ConnectContext context = mockContext();
+        OlapTable table = mockOlapTable(DB_ID, TABLE_ID);
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        long currentMaxTxnId = 300L;
+        long txnIdWatermark = currentMaxTxnId + 1;
+        Mockito.when(txnMgr.getNextTransactionId()).thenReturn(currentMaxTxnId);
+        Mockito.when(txnMgr.isPreviousTransactionsFinished(
+                txnIdWatermark, DB_ID, ImmutableList.of(TABLE_ID)))
+                .thenThrow(new AnalysisException("check transaction conflict failed"));
+
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class);
+                MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+            mockedEnv.when(Env::getCurrentGlobalTransactionMgr).thenReturn(txnMgr);
+
+            UserException exception = Assertions.assertThrows(UserException.class,
+                    () -> TimeBasedChangeVisibleWaiter.waitForVisible(
+                            context, newChangeRelation(1, ImmutableMap.of()),
+                            ImmutableMap.of(TABLE_QUALIFIER, table)));
+            Assertions.assertTrue(exception.getMessage().contains("check previous transactions failed"));
+        }
     }
 
     private ConnectContext mockContext() {

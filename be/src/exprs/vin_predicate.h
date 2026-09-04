@@ -17,12 +17,12 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
-#include <vector>
+#include <utility>
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "core/field.h"
 #include "exprs/function/function.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr.h"
@@ -33,6 +33,8 @@ class RuntimeState;
 class TExprNode;
 class Block;
 class VExprContext;
+class HybridSetBase;
+struct HybridSetMinMax;
 } // namespace doris
 
 namespace doris {
@@ -42,7 +44,7 @@ class VInPredicate MOCK_REMOVE(final) : public VExpr {
 public:
     VInPredicate(const TExprNode& node);
 #ifdef BE_TEST
-    VInPredicate() = default;
+    VInPredicate();
 #endif
     ~VInPredicate() override = default;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
@@ -56,7 +58,7 @@ public:
 
     std::string debug_string() const override;
 
-    const FunctionBasePtr function() { return _function; }
+    FunctionBasePtr function() const { return _function; }
 
     bool is_not_in() const { return _is_not_in; };
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
@@ -66,6 +68,17 @@ public:
     bool can_evaluate_dictionary_filter() const override;
     ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override;
     bool can_evaluate_bloom_filter() const override;
+
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override;
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override;
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override;
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override;
 
     uint64_t get_digest(uint64_t seed) const override { return 0; }
     Status clone_node(VExprSPtr* cloned_expr) const override {
@@ -79,7 +92,7 @@ public:
     }
 
 private:
-    Status _materialize_for_zonemap_filter(VExprContext* context);
+    void _prepare_zonemap_min_max(VExprContext* context);
 
     FunctionBasePtr _function;
     std::string _expr_name;
@@ -88,10 +101,7 @@ private:
     static const constexpr char* function_name = "in";
     uint32_t _in_list_value_count_threshold = 10;
     bool _is_args_all_constant = false;
-    bool _zonemap_materialized = false;
-    bool _seg_filter_contains_null = false;
-    std::vector<Field> _seg_filter_values;
-    Field _seg_filter_min;
-    Field _seg_filter_max;
+    std::shared_ptr<HybridSetBase> _direct_filter_set;
+    std::shared_ptr<const HybridSetMinMax> _zonemap_min_max;
 };
 } // namespace doris

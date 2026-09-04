@@ -26,7 +26,6 @@ suite("test_http_meta_databases_auth","p0,auth,nonConcurrent") {
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
      try {
-        sql """ ADMIN SET ALL FRONTENDS CONFIG ("enable_all_http_auth" = "true"); """
         def getDatabases = { check_func ->
             httpTest {
                 basicAuthorization "${user}","${pwd}"
@@ -51,8 +50,7 @@ suite("test_http_meta_databases_auth","p0,auth,nonConcurrent") {
                 assertTrue("${body}".contains("${dbName}"))
         }
 
-        try_sql("DROP USER ${user}")
      } finally {
-          sql """ ADMIN SET ALL FRONTENDS CONFIG ("enable_all_http_auth" = "false"); """
+          try_sql("DROP USER ${user}")
      }
 }

@@ -19,6 +19,11 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
+
+#include "agent/be_exec_version_manager.h"
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
@@ -28,15 +33,30 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "exec/sink/sink_common.h"
+#include "exec/sink/viceberg_delete_sink.h"
+#include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 #include "exprs/vexpr_context.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/debug_points.h"
 
 namespace doris {
+
+class IcebergWriteMockRuntimeState : public MockRuntimeState {
+public:
+    IcebergWriteMockRuntimeState() {
+        auto query_options = this->query_options();
+        // Successful writer tests must model a coordinator that can accept file ownership.
+        query_options.__set_supports_external_file_report_ack(true);
+        set_query_options(query_options);
+    }
+};
 
 class VIcebergMergeSinkTest : public testing::Test {
 protected:
@@ -47,7 +67,7 @@ protected:
                "]}";
     }
 
-    TDataSink build_sink() {
+    TDataSink build_sink(bool require_cardinality_check = true, bool set_cardinality_check = true) {
         TDataSink t_sink;
         t_sink.__set_type(TDataSinkType::ICEBERG_MERGE_SINK);
 
@@ -64,6 +84,9 @@ protected:
         merge_sink.__set_file_type(TFileType::FILE_LOCAL);
         merge_sink.__set_delete_type(TFileContent::POSITION_DELETES);
         merge_sink.__set_partition_spec_id_for_delete(0);
+        if (set_cardinality_check) {
+            merge_sink.__set_require_merge_cardinality_check(require_cardinality_check);
+        }
 
         t_sink.__set_iceberg_merge_sink(merge_sink);
         return t_sink;
@@ -106,7 +129,8 @@ protected:
         return output_exprs;
     }
 
-    Block build_block_with_ops(const std::vector<int8_t>& ops) {
+    Block build_block_with_ops(const std::vector<int8_t>& ops, bool distinct_files = true,
+                               size_t file_index_offset = 0) {
         Block block;
 
         auto op_col = ColumnInt8::create();
@@ -121,9 +145,11 @@ protected:
         auto id_col = ColumnInt32::create();
         auto name_col = ColumnString::create();
         for (size_t i = 0; i < ops.size(); ++i) {
-            std::string file_path = "file" + std::to_string(i + 1) + ".parquet";
+            std::string file_path =
+                    distinct_files ? "file" + std::to_string(file_index_offset + i + 1) + ".parquet"
+                                   : "shared-file.parquet";
             file_path_col->insert_data(file_path.data(), file_path.size());
-            row_pos_col->insert_value(static_cast<int64_t>((i + 1) * 10));
+            row_pos_col->insert_value(static_cast<int64_t>((file_index_offset + i + 1) * 10));
             id_col->insert_value(static_cast<int32_t>(i + 1));
             char name_value = static_cast<char>('a' + i);
             name_col->insert_data(&name_value, 1);
@@ -157,7 +183,7 @@ protected:
 
 TEST_F(VIcebergMergeSinkTest, TestUpdateProducesDeleteAndInsert) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -185,9 +211,48 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateProducesDeleteAndInsert) {
     ASSERT_TRUE(sink->close(Status::OK()).ok());
 }
 
+TEST_F(VIcebergMergeSinkTest, TestDeleteOnlySkipsVariantDataWriter) {
+    ObjectPool pool;
+    // Opening the retained delete writer still requires the coordinator ownership handshake.
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    TDataSink t_sink = build_sink();
+    t_sink.iceberg_merge_sink.__set_writes_data_files(false);
+    t_sink.iceberg_merge_sink.__set_schema_json(
+            "{\"type\":\"struct\",\"schema-id\":0,\"fields\":["
+            "{\"id\":1,\"name\":\"payload\",\"required\":false,\"type\":\"variant\"}"
+            "]}");
+
+    auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    EXPECT_EQ(nullptr, sink->_table_writer);
+    RuntimeProfile profile("iceberg_merge_sink");
+    const Status open_status = sink->open(&state, &profile);
+    ASSERT_TRUE(open_status.ok()) << open_status;
+
+    // Delete-only plans must never use the insert opcode, which intentionally requires a data writer.
+    Block block = build_block_with_ops({kDeleteOperation});
+    Status status = sink->write(&state, block);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(1, sink->_delete_row_count);
+    EXPECT_EQ(0, sink->_insert_row_count);
+
+    ASSERT_TRUE(sink->close(Status::OK()).ok());
+}
+
 TEST_F(VIcebergMergeSinkTest, TestMissingOperationColumn) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -210,7 +275,7 @@ TEST_F(VIcebergMergeSinkTest, TestMissingOperationColumn) {
 
 TEST_F(VIcebergMergeSinkTest, TestMissingRowIdColumn) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -233,7 +298,7 @@ TEST_F(VIcebergMergeSinkTest, TestMissingRowIdColumn) {
 
 TEST_F(VIcebergMergeSinkTest, TestUnknownOperation) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -260,7 +325,7 @@ TEST_F(VIcebergMergeSinkTest, TestUnknownOperation) {
 
 TEST_F(VIcebergMergeSinkTest, TestUpdateInsertAndDeleteOperations) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -290,7 +355,7 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateInsertAndDeleteOperations) {
 
 TEST_F(VIcebergMergeSinkTest, TestSchemaMismatch) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -313,6 +378,288 @@ TEST_F(VIcebergMergeSinkTest, TestSchemaMismatch) {
     Status status = sink->open(&state, &profile);
     ASSERT_FALSE(status.ok());
     ASSERT_NE(std::string::npos, status.to_string().find("do not match schema columns"));
+}
+
+TEST_F(VIcebergMergeSinkTest, TestRejectsDuplicateMatchedTargetAcrossBlocks) {
+    ObjectPool pool;
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto sink = std::make_shared<VIcebergMergeSink>(build_sink(), output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    Block first = build_block_with_ops({3});
+    ASSERT_TRUE(sink->write(&state, first).ok());
+    Block duplicate = build_block_with_ops({3});
+    Status status = sink->write(&state, duplicate);
+
+    ASSERT_FALSE(status.ok());
+    ASSERT_NE(std::string::npos,
+              status.to_string().find("multiple source rows matched the same target row"));
+}
+
+TEST_F(VIcebergMergeSinkTest, TestUpdateSkipsCardinalityState) {
+    ObjectPool pool;
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto sink =
+            std::make_shared<VIcebergMergeSink>(build_sink(false), output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_update_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    Block first = build_block_with_ops({3});
+    ASSERT_TRUE(sink->write(&state, first).ok());
+    Block duplicate = build_block_with_ops({3});
+    ASSERT_TRUE(sink->write(&state, duplicate).ok());
+    EXPECT_TRUE(sink->_matched_row_positions.empty());
+    EXPECT_EQ(nullptr, profile.get_counter("MatchedRowIdStateBytes"));
+}
+
+TEST_F(VIcebergMergeSinkTest, TestOldFePlanSkipsCardinalityState) {
+    ObjectPool pool;
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto sink = std::make_shared<VIcebergMergeSink>(build_sink(false, false), output_exprs, nullptr,
+                                                    nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("old_fe_iceberg_update_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+    Block duplicate = build_block_with_ops({3, 3}, false);
+    ASSERT_TRUE(sink->write(&state, duplicate).ok());
+    EXPECT_TRUE(sink->_matched_row_positions.empty());
+}
+
+TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeSkipsCardinalityState) {
+    ObjectPool pool;
+    IcebergWriteMockRuntimeState state;
+    state.set_be_exec_version(SUPPORT_ICEBERG_MERGE_CARDINALITY_VERSION - 1);
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto sink = std::make_shared<VIcebergMergeSink>(build_sink(), output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("rolling_upgrade_iceberg_merge_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+    Block duplicate = build_block_with_ops({3, 3}, false);
+    ASSERT_TRUE(sink->write(&state, duplicate).ok());
+    EXPECT_TRUE(sink->_matched_row_positions.empty());
+}
+
+TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeWriterOmissionFenceIsVariantOnly) {
+    ObjectPool pool;
+    // The rolling-version assertion must run after the ordinary writer handshake succeeds.
+    IcebergWriteMockRuntimeState state;
+    state.set_be_exec_version(SUPPORT_ICEBERG_VARIANT_VERSION - 1);
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto t_sink = build_sink();
+    t_sink.iceberg_merge_sink.__set_writes_data_files(false);
+    auto non_variant_sink =
+            std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+
+    ASSERT_TRUE(non_variant_sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("rolling_upgrade_delete_only_iceberg_merge_sink");
+    const Status non_variant_status = non_variant_sink->open(&state, &profile);
+    EXPECT_TRUE(non_variant_status.ok()) << non_variant_status;
+
+    t_sink.iceberg_merge_sink.__set_has_variant_schema(true);
+    auto variant_sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+    ASSERT_TRUE(variant_sink->init_properties(&pool, row_desc).ok());
+    const Status status = variant_sink->open(&state, &profile);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+}
+
+TEST_F(VIcebergMergeSinkTest, TestErrorCloseRemovesRolledDataFiles) {
+    ObjectPool pool;
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto sink = std::make_shared<VIcebergMergeSink>(build_sink(), output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_cleanup_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    std::filesystem::path path =
+            std::filesystem::temp_directory_path() / "doris_iceberg_merge_rolled_file.parquet";
+    {
+        std::ofstream output(path);
+        output << "rolled-data";
+    }
+    ASSERT_TRUE(std::filesystem::exists(path));
+    sink->_table_writer->_closed_files.emplace_back(io::global_local_filesystem(), path.string());
+
+    Status failure = Status::InvalidArgument("late duplicate");
+    EXPECT_FALSE(sink->close(failure).ok());
+    EXPECT_FALSE(std::filesystem::exists(path));
+}
+
+TEST_F(VIcebergMergeSinkTest, TestDeleteCloseFailureRemovesBothInnerSinkFiles) {
+    ObjectPool pool;
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto sink = std::make_shared<VIcebergMergeSink>(build_sink(), output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_delete_close_cleanup_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    std::filesystem::path data_path = std::filesystem::temp_directory_path() /
+                                      "doris_iceberg_merge_delete_close_data.parquet";
+    std::filesystem::path delete_path = std::filesystem::temp_directory_path() /
+                                        "doris_iceberg_merge_delete_close_position.parquet";
+    {
+        std::ofstream output(data_path);
+        output << "closed-data";
+    }
+    {
+        std::ofstream output(delete_path);
+        output << "closed-delete";
+    }
+    ASSERT_TRUE(std::filesystem::exists(data_path));
+    ASSERT_TRUE(std::filesystem::exists(delete_path));
+    sink->_table_writer->_closed_files.emplace_back(io::global_local_filesystem(),
+                                                    data_path.string());
+    sink->_delete_writer->_created_files.emplace_back(io::global_local_filesystem(),
+                                                      delete_path.string());
+
+    bool previous_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("VIcebergDeleteSink.close.inject_failure");
+    Status status = sink->close(Status::OK());
+    DebugPoints::instance()->clear();
+    config::enable_debug_points = previous_enable_debug_points;
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("injected Iceberg delete close failure"));
+    EXPECT_FALSE(std::filesystem::exists(data_path));
+    EXPECT_FALSE(std::filesystem::exists(delete_path));
+}
+
+TEST_F(VIcebergMergeSinkTest, TestMatchedRowIdsUseCompactRetainedState) {
+    ObjectPool pool;
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto sink = std::make_shared<VIcebergMergeSink>(build_sink(), output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    constexpr size_t row_count = 100000;
+    std::vector<int8_t> operations(row_count, 3);
+    Block block = build_block_with_ops(operations, false);
+    ASSERT_TRUE(sink->write(&state, block).ok());
+
+    auto* retained_bytes = profile.get_counter("MatchedRowIdStateBytes");
+    ASSERT_NE(nullptr, retained_bytes);
+    EXPECT_LT(retained_bytes->value(), static_cast<int64_t>(row_count * sizeof(int64_t)));
+}
+
+TEST_F(VIcebergMergeSinkTest, TestMatchedRowIdStateAcrossManyFilesAndWrites) {
+    ObjectPool pool;
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto sink = std::make_shared<VIcebergMergeSink>(build_sink(), output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    auto* retained_bytes = profile.get_counter("MatchedRowIdStateBytes");
+    ASSERT_NE(nullptr, retained_bytes);
+    constexpr size_t files_per_write = 32;
+    constexpr size_t write_count = 64;
+    std::vector<int8_t> operations(files_per_write, 3);
+    int64_t previous_bytes = 0;
+    for (size_t write_index = 0; write_index < write_count; ++write_index) {
+        Block block = build_block_with_ops(operations, true, write_index * files_per_write);
+        ASSERT_TRUE(sink->write(&state, block).ok());
+        EXPECT_GT(retained_bytes->value(), previous_bytes);
+        previous_bytes = retained_bytes->value();
+    }
+
+    EXPECT_EQ(files_per_write * write_count, sink->_matched_row_positions.size());
+    EXPECT_EQ(static_cast<int64_t>(sink->_matched_row_id_state_size), retained_bytes->value());
 }
 
 } // namespace doris

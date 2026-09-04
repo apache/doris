@@ -18,6 +18,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 
 #include <gen_cpp/data.pb.h>
+#include <gen_cpp/types.pb.h>
 
 #include <memory>
 #include <ostream>
@@ -189,6 +190,11 @@ DataTypePtr create_datetimev2(UInt64 scale_value) {
                                scale_value);
     }
     return std::make_shared<DataTypeDateTimeV2>(scale_value);
+}
+
+void DataTypeDateTimeV2::to_protobuf(PTypeDesc* ptype, PTypeNode* node,
+                                     PScalarType* scalar_type) const {
+    scalar_type->set_scale(_scale);
 }
 
 } // namespace doris

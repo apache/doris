@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/cast_set.h"
+#include "storage/field_type.h"           // for FieldType
 #include "storage/segment/options.h"      // for PageBuilderOptions/PageDecoderOptions
 #include "storage/segment/page_builder.h" // for PageBuilder
 #include "storage/segment/page_decoder.h" // for PageDecoder

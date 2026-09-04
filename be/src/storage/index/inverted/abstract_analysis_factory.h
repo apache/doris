@@ -21,6 +21,19 @@
 
 namespace doris::segment_v2::inverted_index {
 
+enum class AnalysisPurpose {
+    kIndex,
+    kSniiTransientIndex,
+    kPlainQuery,
+    kExactPhraseQuery,
+    kPhrasePrefixQuery,
+};
+
+enum class PositionCapability {
+    kUnknown,
+    kAlwaysUnitIncrement,
+};
+
 class AbstractAnalysisFactory {
 public:
     virtual ~AbstractAnalysisFactory() = default;

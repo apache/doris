@@ -36,6 +36,7 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
@@ -207,5 +208,14 @@ template class DataTypeNumberBase<TYPE_IPV4>;
 template class DataTypeNumberBase<TYPE_IPV6>;
 template class DataTypeNumberBase<TYPE_TIMEV2>;
 template class DataTypeNumberBase<TYPE_TIMESTAMPTZ>;
+
+template class DataTypeNumber<TYPE_BOOLEAN>;
+template class DataTypeNumber<TYPE_TINYINT>;
+template class DataTypeNumber<TYPE_SMALLINT>;
+template class DataTypeNumber<TYPE_INT>;
+template class DataTypeNumber<TYPE_BIGINT>;
+template class DataTypeNumber<TYPE_LARGEINT>;
+template class DataTypeNumber<TYPE_FLOAT>;
+template class DataTypeNumber<TYPE_DOUBLE>;
 
 } // namespace doris

@@ -54,6 +54,14 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
     zone_map_info.has_positive_inf = zone_map.has_positive_inf();
     zone_map_info.has_nan = zone_map.has_nan();
 
+    // A bound that fails to parse makes the zone map invalid: mark it pass_all so it prunes
+    // nothing, instead of failing the scan that loads it.
+    auto parse_bound = [&](const std::string& bound, Field& value) {
+        if (!data_type->get_serde()->from_zonemap_string(bound, value).ok()) {
+            zone_map_info.pass_all = true;
+        }
+    };
+
     auto field_type = data_type->get_storage_field_type();
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
@@ -69,8 +77,7 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
             }
         } else {
             if (!zone_map_info.pass_all) {
-                RETURN_IF_ERROR(data_type->get_serde()->from_zonemap_string(
-                        zone_map.min(), zone_map_info.min_value));
+                parse_bound(zone_map.min(), zone_map_info.min_value);
             }
         }
 
@@ -96,8 +103,7 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
             }
         } else {
             if (!zone_map_info.pass_all) {
-                RETURN_IF_ERROR(data_type->get_serde()->from_zonemap_string(
-                        zone_map.max(), zone_map_info.max_value));
+                parse_bound(zone_map.max(), zone_map_info.max_value);
             }
         }
     }

@@ -167,15 +167,19 @@ public:
         return Status::OK();
     }
 
-    int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
+    Result<int32_t> allocate_segment_id() override {
+        return _segment_creator.allocate_segment_id();
+    };
 
     int32_t get_allocated_segment_id() override {
         return _segment_creator.get_allocated_segment_id();
     };
 
-    void set_segment_start_id(int32_t start_id) override {
-        _segment_creator.set_segment_start_id(start_id);
-        _segment_start_id = start_id;
+    void set_segment_start_id(int32_t start_seg_id,
+                              int32_t max_seg_num = MAX_SEGMENT_NUM) override {
+        _context.set_first_segment_id(start_seg_id);
+        _segment_creator.set_segment_start_id(start_seg_id, max_seg_num);
+        _segment_start_id = start_seg_id;
     }
 
     Status force_rollback() override {
@@ -210,7 +214,10 @@ private:
     // for this segment
 protected:
     Status _generate_delete_bitmap(int32_t segment_id);
-    virtual Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
+    // `completed_segment_ids`, when requested, is populated from the same statistics snapshot
+    // used to build the rowset meta.
+    virtual Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false,
+                                      std::vector<int64_t>* completed_segment_ids = nullptr);
     Status _create_file_writer(const std::string& path, io::FileWriterPtr& file_writer,
                                FileType file_type = FileType::SEGMENT_FILE);
     virtual Status _close_file_writers();
@@ -311,7 +318,7 @@ private:
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint32_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
-    Status _remove_segment_footer_cache(const uint32_t seg_id, const std::string& segment_path);
+    Status _remove_segment_footer_cache(uint32_t seg_pos, const std::string& segment_path);
     void _clear_statistics_for_deleting_segments_unsafe(uint32_t begin, uint32_t end);
 
     StorageEngine& _engine;

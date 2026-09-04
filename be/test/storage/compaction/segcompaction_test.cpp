@@ -19,12 +19,14 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -36,11 +38,14 @@
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/schema.h"
 #include "storage/segment/segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -114,6 +119,10 @@ public:
     }
 
     void TearDown() {
+        auto* sync_point = SyncPoint::get_instance();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+        sync_point->clear_trace();
         config::enable_segcompaction = false;
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         l_engine = nullptr;
@@ -288,6 +297,55 @@ private:
     std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
 };
 
+// A segcompaction failure that is not one of the retryable ones (out of memory, reader or
+// writer init) terminates the write job, and build() must surface that instead of returning
+// a rowset built on top of a failed compaction. The row-count check is the cheapest fatal
+// failure to provoke: SegcompactionWorker::_check_correctness reports CHECK_LINES_ERROR,
+// which falls through to the fatal branch of SegcompactionWorker::compact_segments.
+//
+// build() reports SEGCOMPACTION_FAILED rather than CHECK_LINES_ERROR because the worker
+// hands the writer a bare error code, losing the original status. That is existing
+// behavior; this test pins the failure reaching build(), not the code it arrives as.
+TEST_F(SegCompactionTest, FatalSegcompactionFailsBuild) {
+    config::segcompaction_candidate_max_rows = 10;
+    config::segcompaction_batch_size = 2;
+
+    const auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("SegcompactionWorker._check_correctness_wrong_sum_src_row");
+    Defer defer([origin_enable_debug_points]() {
+        DebugPoints::instance()->remove("SegcompactionWorker._check_correctness_wrong_sum_src_row");
+        config::enable_debug_points = origin_enable_debug_points;
+    });
+
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema, DUP_KEYS);
+
+    RowsetWriterContext writer_context;
+    create_rowset_writer_context(10046, tablet_schema, &writer_context);
+    auto writer_result = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
+    ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+    auto rowset_writer = std::move(writer_result).value();
+
+    for (int segment_id = 0; segment_id < 3; ++segment_id) {
+        Block block = tablet_schema->create_storage_block();
+        auto columns = std::move(block).mutate_columns();
+        for (uint32_t column_id = 0; column_id < columns.size(); ++column_id) {
+            const uint32_t value = segment_id + column_id;
+            columns[column_id]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+        }
+        ASSERT_TRUE(add_block_with_columns(rowset_writer.get(), &block, &columns).ok());
+        ASSERT_TRUE(rowset_writer->flush().ok());
+    }
+
+    RowsetSharedPtr rowset;
+    // build() waits for the inflight segcompaction, so the failure is visible by the time it
+    // returns; no polling is needed.
+    const auto status = rowset_writer->build(rowset);
+    EXPECT_FALSE(status.ok()) << "expected the fatal segcompaction to fail the build";
+    EXPECT_EQ(status.code(), SEGCOMPACTION_FAILED) << status;
+}
+
 TEST_F(SegCompactionTest, SegCompactionThenRead) {
     config::enable_segcompaction = true;
     Status s;
@@ -314,7 +372,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         // k2 := k1 * 10
         // k3 := rid
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -357,7 +415,9 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         reader_context.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
-        reader_context.return_columns = &return_columns;
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+        reader_context.read_schema = read_schema;
         reader_context.stats = &_stats;
 
         // without predicates
@@ -368,8 +428,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             uint32_t num_rows_read = 0;
             bool eof = false;
             while (!eof) {
-                std::shared_ptr<Block> output_block =
-                        std::make_shared<Block>(tablet_schema->create_block(return_columns));
+                auto output_block = std::make_shared<Block>(read_schema->create_read_block());
                 std::vector<bool> row_is_same;
                 BlockWithSameBit block_with_same_bit {.block = output_block.get(),
                                                       .same_bit = row_is_same};
@@ -435,7 +494,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         int num_segments = 4;
         uint32_t rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -453,7 +512,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 2;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -471,7 +530,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -489,7 +548,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -507,7 +566,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 8;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -526,7 +585,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -589,7 +648,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         int num_segments = 1;
         uint32_t rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -607,7 +666,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -625,7 +684,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -643,7 +702,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -661,7 +720,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -717,7 +776,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         uint32_t k2 = 0;
         uint32_t k3 = 0;
 
-        Block block = tablet_schema->create_block();
+        Block block = tablet_schema->create_storage_block();
         auto columns = std::move(block).mutate_columns();
         // segment#0
         k1 = k2 = 1;
@@ -864,7 +923,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         reader_context.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
-        reader_context.return_columns = &return_columns;
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+        reader_context.read_schema = read_schema;
         reader_context.stats = &_stats;
         reader_context.is_unique = true;
 
@@ -876,8 +937,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
             uint32_t num_rows_read = 0;
             bool eof = false;
             while (!eof) {
-                std::shared_ptr<Block> output_block =
-                        std::make_shared<Block>(tablet_schema->create_block(return_columns));
+                auto output_block = std::make_shared<Block>(read_schema->create_read_block());
                 std::vector<bool> row_is_same;
                 BlockWithSameBit block_with_same_bit {.block = output_block.get(),
                                                       .same_bit = row_is_same};
@@ -983,7 +1043,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         uint32_t k2 = 0;
         uint32_t k3 = 0;
 
-        Block block = tablet_schema->create_block();
+        Block block = tablet_schema->create_storage_block();
         auto columns = std::move(block).mutate_columns();
 
         // segment#0
@@ -1131,7 +1191,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         reader_context.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
-        reader_context.return_columns = &return_columns;
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+        reader_context.read_schema = read_schema;
         reader_context.stats = &_stats;
         // reader_context.is_unique = true;
 
@@ -1143,8 +1205,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
             uint32_t num_rows_read = 0;
             bool eof = false;
             while (!eof) {
-                std::shared_ptr<Block> output_block =
-                        std::make_shared<Block>(tablet_schema->create_block(return_columns));
+                auto output_block = std::make_shared<Block>(read_schema->create_read_block());
                 std::vector<bool> row_is_same;
                 BlockWithSameBit block_with_same_bit {.block = output_block.get(),
                                                       .same_bit = row_is_same};

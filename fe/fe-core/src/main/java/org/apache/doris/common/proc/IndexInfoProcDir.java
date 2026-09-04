@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -29,6 +30,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
@@ -40,7 +42,7 @@ import java.util.Set;
 public class IndexInfoProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>().add("IndexId").add("IndexName").add("SchemaVersion").add("SchemaHash")
-                    .add("ShortKeyColumnCount").add("StorageType").add("Keys").build();
+                    .add("ShortKeyColumnCount").add("StorageType").add("Keys").add("IsRowBinlog").build();
 
     private DatabaseIf db;
     private TableIf table;
@@ -65,12 +67,12 @@ public class IndexInfoProcDir implements ProcDirInterface {
                 // indices order
                 List<Long> indices = Lists.newArrayList();
                 indices.add(olapTable.getBaseIndexId());
-                indices.addAll(olapTable.getIndexIdListExceptBaseIndex());
+                indices.addAll(olapTable.getIndexIdListExceptBaseIndex(true));
 
                 for (long indexId : indices) {
-                    MaterializedIndexMeta indexMeta = olapTable.getIndexIdToMeta().get(indexId);
+                    MaterializedIndexMeta indexMeta = olapTable.getIndexIdToMeta(true).get(indexId);
 
-                    String type = olapTable.getIndexMetaByIndexId(indexId).getKeysType().name();
+                    String type = indexMeta.getKeysType().name();
                     StringBuilder builder = new StringBuilder();
                     builder.append(type).append("(");
                     List<String> columnNames = Lists.newArrayList();
@@ -88,10 +90,12 @@ public class IndexInfoProcDir implements ProcDirInterface {
                             String.valueOf(indexMeta.getSchemaHash()),
                             String.valueOf(indexMeta.getShortKeyColumnCount()),
                             indexMeta.getStorageType().name(),
-                            builder.toString()));
+                            builder.toString(),
+                            String.valueOf(indexMeta.isRowBinlogIndex())));
                 }
             } else {
-                result.addRow(Lists.newArrayList(String.valueOf(table.getId()), table.getName(), "", "", "", "", ""));
+                result.addRow(Lists.newArrayList(String.valueOf(table.getId()), table.getName(), "", "", "", "", "",
+                        "false"));
             }
 
             return result;
@@ -127,7 +131,14 @@ public class IndexInfoProcDir implements ProcDirInterface {
                 if (schema == null) {
                     throw new AnalysisException("Index " + idxId + " does not exist");
                 }
-                bfColumns = olapTable.getCopiedBfColumns();
+                bfColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+                if (olapTable.getCopiedBfColumns() != null) {
+                    bfColumns.addAll(olapTable.getCopiedBfColumns());
+                }
+                bfColumns.addAll(Index.getBfIndexColumns(olapTable.getIndexes()));
+                if (bfColumns.isEmpty()) {
+                    bfColumns = null;
+                }
                 if (olapTable.hasVariantColumns()
                                     && SessionVariable.enableDescribeExtendVariantColumn()) {
                     return new RemoteIndexSchemaProcDir(table, schema, bfColumns);

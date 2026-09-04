@@ -18,6 +18,7 @@
 suite("variant_different_max_subcolumns_count", "p0") {
     
     
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def table_name = "variant_different_max_subcolumns_count"
     sql """ set default_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS ${table_name}"
@@ -31,10 +32,10 @@ suite("variant_different_max_subcolumns_count", "p0") {
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
 
-    sql """INSERT INTO ${table_name} values(1, '{"a": "1", "b": "hello", "c": 1.1}'), (2, '{"c": 2.2}')"""
-    sql """INSERT INTO ${table_name} values(3, '{"a": "3", "b": "world", "c": 3.3}')"""
-    sql """INSERT INTO ${table_name} values(4, '{"b": "world", "c": 4.4}')"""
-    sql """INSERT INTO ${table_name} values(5, '{"a": "5", "c": 5.5}')"""
+    sql """INSERT INTO ${table_name} values(1, ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}')), (2, ${variantV2Function}('{"c": 2.2}'))"""
+    sql """INSERT INTO ${table_name} values(3, ${variantV2Function}('{"a": "3", "b": "world", "c": 3.3}'))"""
+    sql """INSERT INTO ${table_name} values(4, ${variantV2Function}('{"b": "world", "c": 4.4}'))"""
+    sql """INSERT INTO ${table_name} values(5, ${variantV2Function}('{"a": "5", "c": 5.5}'))"""
 
     qt_sql "select v['a'], v['b'], v['c'], * from ${table_name} order by k"
     trigger_and_wait_compaction(table_name, "full", 1800)
@@ -54,14 +55,14 @@ suite("variant_different_max_subcolumns_count", "p0") {
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
 
-    sql """INSERT INTO ${table_name} values(1, '{"a": "1", "b": "hello", "c": 1.1}', '{"a": "1", "b": "hello", "c": 1.1}', '{"a": "1", "b": "hello", "c": 1.1}', '{"a": "1", "b": "hello", "c": 1.1}')"""
-    sql """INSERT INTO ${table_name} values(2, '{"c": 2.2}', '{"c": 2.2}', '{"c": 2.2}', '{"c": 2.2}')"""
-    sql """INSERT INTO ${table_name} values(3, '{"a": "3", "b": "world", "c": 3.3}', '{"a": "3", "b": "world", "c": 3.3}', '{"a": "3", "b": "world", "c": 3.3}', '{"a": "3", "b": "world", "c": 3.3}')"""
-    sql """INSERT INTO ${table_name} values(4, '{"b": "world", "c": 4.4}', '{"b": "world", "c": 4.4}', '{"b": "world", "c": 4.4}', '{"b": "world", "c": 4.4}')"""
-    sql """INSERT INTO ${table_name} values(5, '{"a": "5", "c": 5.5}', '{"a": "5", "c": 5.5}', '{"a": "5", "c": 5.5}', '{"a": "5", "c": 5.5}')"""
-    sql """INSERT INTO ${table_name} values(6, '{"a" : "5", "b" : "world"}', '{"a" : "5", "b" : "world"}', '{"a" : "5", "b" : "world"}', '{"a" : "5", "b" : "world"}')"""
-    sql """INSERT INTO ${table_name} values(7, '{"a" : "1"}', '{"a" : "1"}', '{"a" : "1"}', '{"a" : "1"}')"""
-    sql """INSERT INTO ${table_name} values(8, '{"b" : "1"}', '{"b" : "1"}', '{"b" : "1"}', '{"b" : "1"}')"""
+    sql """INSERT INTO ${table_name} values(1, ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'))"""
+    sql """INSERT INTO ${table_name} values(2, ${variantV2Function}('{"c": 2.2}'), ${variantV2Function}('{"c": 2.2}'), ${variantV2Function}('{"c": 2.2}'), ${variantV2Function}('{"c": 2.2}'))"""
+    sql """INSERT INTO ${table_name} values(3, ${variantV2Function}('{"a": "3", "b": "world", "c": 3.3}'), ${variantV2Function}('{"a": "3", "b": "world", "c": 3.3}'), ${variantV2Function}('{"a": "3", "b": "world", "c": 3.3}'), ${variantV2Function}('{"a": "3", "b": "world", "c": 3.3}'))"""
+    sql """INSERT INTO ${table_name} values(4, ${variantV2Function}('{"b": "world", "c": 4.4}'), ${variantV2Function}('{"b": "world", "c": 4.4}'), ${variantV2Function}('{"b": "world", "c": 4.4}'), ${variantV2Function}('{"b": "world", "c": 4.4}'))"""
+    sql """INSERT INTO ${table_name} values(5, ${variantV2Function}('{"a": "5", "c": 5.5}'), ${variantV2Function}('{"a": "5", "c": 5.5}'), ${variantV2Function}('{"a": "5", "c": 5.5}'), ${variantV2Function}('{"a": "5", "c": 5.5}'))"""
+    sql """INSERT INTO ${table_name} values(6, ${variantV2Function}('{"a" : "5", "b" : "world"}'), ${variantV2Function}('{"a" : "5", "b" : "world"}'), ${variantV2Function}('{"a" : "5", "b" : "world"}'), ${variantV2Function}('{"a" : "5", "b" : "world"}'))"""
+    sql """INSERT INTO ${table_name} values(7, ${variantV2Function}('{"a" : "1"}'), ${variantV2Function}('{"a" : "1"}'), ${variantV2Function}('{"a" : "1"}'), ${variantV2Function}('{"a" : "1"}'))"""
+    sql """INSERT INTO ${table_name} values(8, ${variantV2Function}('{"b" : "1"}'), ${variantV2Function}('{"b" : "1"}'), ${variantV2Function}('{"b" : "1"}'), ${variantV2Function}('{"b" : "1"}'))"""
 
     qt_sql "select v['a'], v['b'], v['c'], v2['a'], v2['b'], v2['c'], v3['a'], v3['b'], v3['c'], v4['a'], v4['b'], v4['c'], * from ${table_name} order by k"
 
@@ -82,22 +83,22 @@ suite("variant_different_max_subcolumns_count", "p0") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
-    sql """INSERT INTO ${table_name} values(1, '{"a": "1", "b": "hello", "c": 1.1}', '{"a": "1", "b": "hello", "c": 1.1}', '{"a": "1", "b": "hello", "c": 1.1}', '{"a": "1", "b": "hello", "c": 1.1}', '{"a": "1", "b": "hello", "c": 1.1}')"""
-    sql """INSERT INTO ${table_name} values(2, '{"c": 2.2, "d": 2.2}', '{"c": 2.2, "d": 2.2}', '{"c": 2.2, "d": 2.2}', '{"c": 2.2, "d": 2.2}', '{"c": 2.2, "d": 2.2}')"""
-    sql """INSERT INTO ${table_name} values(3, '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}')"""
-    sql """INSERT INTO ${table_name} values(1, '{"a": "1", "b": "hello", "c": 1.1}', '{"a": "1", "b": "hello", "c": 1.1}', '{"a": "1", "b": "hello", "c": 1.1}', '{"a": "1", "b": "hello", "c": 1.1}', '{"a": "1", "b": "hello", "c": 1.1}')"""
-    sql """INSERT INTO ${table_name} values(2, '{"c": 2.2, "d": 2.2}', '{"c": 2.2, "d": 2.2}', '{"c": 2.2, "d": 2.2}', '{"c": 2.2, "d": 2.2}', '{"c": 2.2, "d": 2.2}')"""
-    sql """INSERT INTO ${table_name} values(3, '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}')"""
+    sql """INSERT INTO ${table_name} values(1, ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'))"""
+    sql """INSERT INTO ${table_name} values(2, ${variantV2Function}('{"c": 2.2, "d": 2.2}'), ${variantV2Function}('{"c": 2.2, "d": 2.2}'), ${variantV2Function}('{"c": 2.2, "d": 2.2}'), ${variantV2Function}('{"c": 2.2, "d": 2.2}'), ${variantV2Function}('{"c": 2.2, "d": 2.2}'))"""
+    sql """INSERT INTO ${table_name} values(3, ${variantV2Function}('{"e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"e": "3", "f": "world", "g": 3.3, "h": 3.3}'))"""
+    sql """INSERT INTO ${table_name} values(1, ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'))"""
+    sql """INSERT INTO ${table_name} values(2, ${variantV2Function}('{"c": 2.2, "d": 2.2}'), ${variantV2Function}('{"c": 2.2, "d": 2.2}'), ${variantV2Function}('{"c": 2.2, "d": 2.2}'), ${variantV2Function}('{"c": 2.2, "d": 2.2}'), ${variantV2Function}('{"c": 2.2, "d": 2.2}'))"""
+    sql """INSERT INTO ${table_name} values(3, ${variantV2Function}('{"e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"e": "3", "f": "world", "g": 3.3, "h": 3.3}'))"""
 
     qt_sql "select v['a'], v2['b'], v3['c'], v4['d'], v5['e'], v5['g'], * from ${table_name} order by k"
 
     trigger_and_wait_compaction(table_name, "full", 1800)
     qt_sql "select v['a'], v2['b'], v3['c'], v4['d'], v5['e'], v5['g'], * from ${table_name} order by k"
 
-    sql """ INSERT INTO ${table_name} values(4, '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}')"""
-    sql """ INSERT INTO ${table_name} values(5, '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}')"""
-    sql """ INSERT INTO ${table_name} values(6, '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}')"""
-    sql """ INSERT INTO ${table_name} values(7, '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}')"""
+    sql """ INSERT INTO ${table_name} values(4, ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'))"""
+    sql """ INSERT INTO ${table_name} values(5, ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'))"""
+    sql """ INSERT INTO ${table_name} values(6, ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'))"""
+    sql """ INSERT INTO ${table_name} values(7, ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}'))"""
 
 
     qt_sql "select v['a'], v2['b'], v3['c'], v4['d'], v5['e'], v5['g'], * from ${table_name} order by k"

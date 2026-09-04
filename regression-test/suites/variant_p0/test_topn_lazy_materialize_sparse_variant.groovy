@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_topn_lazy_materialize_sparse_variant", "p0") {
+    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
     sql "set default_variant_enable_doc_mode = false"
     sql "set default_variant_max_subcolumns_count = 1"
     sql "set default_variant_sparse_hash_shard_count = 2"
@@ -49,30 +51,44 @@ suite("test_topn_lazy_materialize_sparse_variant", "p0") {
 
     sql """
         INSERT INTO test_topn_lazy_materialize_sparse_variant VALUES
-            (19, -9223372036854775808, '{"word":"hot","n":7}', '[1,2,3]'),
-            (18, -9223372036854775808, '{"word":"hot","n":7}', '{"word":"hot","n":7}'),
-            (17, -1, '{"k":1}', '{}'),
-            (16, -906638365906932436, '{"word":"hot","n":7}', '{"k":1}'),
-            (15, -1, '[1,2,3]', '{}'),
-            (14, -9223372036854775808, '{"word":"hot","n":7}', '[1,2,3]'),
-            (13, 5777142737451291289, '{}', '{"word":"hot","n":7}'),
+            (19, -9223372036854775808, '{"word":"hot","n":7}', ${variantV2Function}('[1,2,3]')),
+            (18, -9223372036854775808, '{"word":"hot","n":7}', ${variantV2Function}('{"word":"hot","n":7}')),
+            (17, -1, '{"k":1}', ${variantV2Function}('{}')),
+            (16, -906638365906932436, '{"word":"hot","n":7}', ${variantV2Function}('{"k":1}')),
+            (15, -1, '[1,2,3]', ${variantV2Function}('{}')),
+            (14, -9223372036854775808, '{"word":"hot","n":7}', ${variantV2Function}('[1,2,3]')),
+            (13, 5777142737451291289, '{}', ${variantV2Function}('{"word":"hot","n":7}')),
             (12, 1, '{"word":"hot","n":7}', NULL),
             (11, 42, '[1,2,3]', NULL),
-            (10, 1, '{}', '{"word":"hot","n":7}'),
-            (9, NULL, '{}', '{}'),
-            (8, NULL, '{"k":1}', '{"k":1}'),
-            (7, 0, '[1,2,3]', '[1,2,3]'),
-            (6, 1, '[1,2,3]', '{}'),
-            (5, -3610716764638269764, '{"k":1}', '[1,2,3]'),
-            (4, -9223372036854775808, '[1,2,3]', '{"k":1}'),
-            (3, 42, '{"k":1}', '{}'),
-            (2, -9223372036854775808, '{}', '{}'),
-            (1, -1, '{}', '[1,2,3]'),
-            (0, 1, '{}', '{}')
+            (10, 1, '{}', ${variantV2Function}('{"word":"hot","n":7}')),
+            (9, NULL, '{}', ${variantV2Function}('{}')),
+            (8, NULL, '{"k":1}', ${variantV2Function}('{"k":1}')),
+            (7, 0, '[1,2,3]', ${variantV2Function}('[1,2,3]')),
+            (6, 1, '[1,2,3]', ${variantV2Function}('{}')),
+            (5, -3610716764638269764, '{"k":1}', ${variantV2Function}('[1,2,3]')),
+            (4, -9223372036854775808, '[1,2,3]', ${variantV2Function}('{"k":1}')),
+            (3, 42, '{"k":1}', ${variantV2Function}('{}')),
+            (2, -9223372036854775808, '{}', ${variantV2Function}('{}')),
+            (1, -1, '{}', ${variantV2Function}('[1,2,3]')),
+            (0, 1, '{}', ${variantV2Function}('{}'))
     """
 
-    def topnQuery = """
+    def topnV1Query = """
         SELECT pk, col_bigint, col_json, col_variant
+        FROM test_topn_lazy_materialize_sparse_variant
+        WHERE ABS(pk % 3) IN (0, 1, 3)
+        ORDER BY pk ASC
+        LIMIT 128
+    """
+    // V1 renders an empty object stored at the Variant root as an empty array. Keep that
+    // historical assertion on V1 and use typed subpaths for the shared V1/V2 check.
+    if (!enableVariantV2) {
+        qt_topn_lazy_sparse_variant_v1 topnV1Query
+    }
+    def topnQuery = """
+        SELECT pk, col_bigint, col_json,
+               cast(col_variant['word'] as text), cast(col_variant['n'] as int),
+               cast(col_variant['k'] as int)
         FROM test_topn_lazy_materialize_sparse_variant
         WHERE ABS(pk % 3) IN (0, 1, 3)
         ORDER BY pk ASC
@@ -82,5 +98,5 @@ suite("test_topn_lazy_materialize_sparse_variant", "p0") {
         sql topnQuery
         contains("MaterializeNode")
     }
-    qt_topn_lazy_sparse_variant topnQuery
+    qt_topn_lazy_sparse_variant_supported topnQuery
 }

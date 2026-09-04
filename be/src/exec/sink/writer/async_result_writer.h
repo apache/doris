@@ -21,8 +21,10 @@
 #include <condition_variable>
 #include <queue> // IWYU pragma: keep
 
+#include "exec/sink/writer/async_writer_queue_admission.h"
 #include "exec/sink/writer/result_writer.h"
 #include "exprs/vexpr_fwd.h"
+#include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/runtime_profile.h"
 
 namespace doris {
@@ -36,6 +38,7 @@ class Dependency;
 class PipelineTask;
 
 class Block;
+
 /*
  *  In the pipeline execution engine, there are usually a large number of io operations on the sink side that
  *  will block the limited execution threads of the pipeline execution engine, resulting in a sharp performance
@@ -69,6 +72,10 @@ public:
 
     void set_low_memory_mode();
 
+    void wait_for_processing_before_next_sink() {
+        _queue_admission.wait_for_processing_before_next_sink();
+    }
+
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;
@@ -77,21 +84,30 @@ protected:
     std::unique_ptr<Block> _get_free_block(Block*, size_t rows);
 
 private:
+    struct QueuedBlock {
+        std::unique_ptr<Block> block;
+        ReservedMemoryToken reservation;
+        bool eos = false;
+    };
+
     void process_block(RuntimeState* state, RuntimeProfile* operator_profile);
-    [[nodiscard]] bool _data_queue_is_available() const { return _data_queue.size() < QUEUE_SIZE; }
+    [[nodiscard]] bool _data_queue_is_available() const {
+        return _queue_admission.is_available(_data_queue.size());
+    }
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
     void _set_ready_to_finish();
 
     void _return_free_block(std::unique_ptr<Block>);
-    std::unique_ptr<Block> _get_block_from_queue();
+    QueuedBlock _get_block_from_queue();
+    void _notify_block_processed();
 
-    static constexpr auto QUEUE_SIZE = 3;
     std::mutex _m;
     std::condition_variable _cv;
-    std::deque<std::unique_ptr<Block>> _data_queue;
+    std::deque<QueuedBlock> _data_queue;
     // Default value is ok
     AtomicStatus _writer_status;
     bool _eos = false;
+    AsyncWriterQueueAdmission _queue_admission;
     std::atomic_bool _low_memory_mode = false;
 
     std::shared_ptr<Dependency> _dependency;

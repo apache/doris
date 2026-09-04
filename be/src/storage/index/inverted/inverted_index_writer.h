@@ -29,13 +29,11 @@
 #include "storage/index/inverted/util/reader.h"
 #include "storage/olap_common.h"
 #include "storage/segment/common.h"
+#include "storage/types.h"
 
 namespace doris {
 
 class KeyCoder;
-
-template <FieldType field_type>
-struct CppTypeTraits;
 
 namespace segment_v2 {
 
@@ -103,6 +101,32 @@ private:
     uint32_t _ignore_above;
     bool _should_analyzer = false;
 };
+
+/// Instantiated once in inverted_index_writer.cpp; suppresses per-TU implicit instantiation.
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_CHAR>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_STRING>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_TINYINT>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_SMALLINT>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_INT>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_BIGINT>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_LARGEINT>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATE>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATETIME>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATEV2>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL32>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL64>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL256>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_BOOL>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_IPV4>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_IPV6>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_FLOAT>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DOUBLE>;
 
 } // namespace segment_v2
 } // namespace doris

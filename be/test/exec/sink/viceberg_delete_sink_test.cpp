@@ -94,6 +94,18 @@ TEST_F(VIcebergDeleteSinkTest, TestInitProperties) {
     ASSERT_TRUE(status.ok());
 }
 
+TEST_F(VIcebergDeleteSinkTest, RejectsCoordinatorWithoutExternalFileReportAck) {
+    VExprContextSPtrs output_exprs;
+    auto sink = std::make_shared<VIcebergDeleteSink>(_t_data_sink, output_exprs, nullptr, nullptr);
+    RuntimeState state;
+    RuntimeProfile profile("test");
+
+    Status status = sink->open(&state, &profile);
+
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    EXPECT_NE(std::string::npos, status.to_string().find("acknowledges external-file reports"));
+}
+
 TEST_F(VIcebergDeleteSinkTest, TestGetRowIdColumnIndex) {
     VExprContextSPtrs output_exprs;
     auto sink = std::make_shared<VIcebergDeleteSink>(_t_data_sink, output_exprs, nullptr, nullptr);

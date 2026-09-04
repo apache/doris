@@ -334,8 +334,10 @@ struct GroupArrayStringIntersectData : public GroupArraySetOpStringBaseData {
         } else if (!this->set->empty()) {
             Set new_set = std::make_unique<NullableStringSet>();
             for (size_t i = 0; i < arr_size; ++i) {
-                if (col_null->is_null_at(offset + i) && this->set->contain_null()) {
-                    new_set->insert(nullptr);
+                if (col_null->is_null_at(offset + i)) {
+                    if (this->set->contain_null()) {
+                        new_set->insert(nullptr);
+                    }
                 } else {
                     auto src = nested_column_data.get_data_at(offset + i);
                     if (this->set->find((void*)src.data, src.size)) {
@@ -443,16 +445,11 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void check_input_columns_type(const IColumn** columns) const override {
-        const IColumn* column = columns[0];
-        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
-            column = &nullable_column->get_nested_column();
-        }
-
-        const auto* array_column = check_and_get_column<ColumnArray>(*column);
+        const auto* array_column = check_and_get_column<ColumnArray>(*columns[0]);
         if (UNLIKELY(array_column == nullptr)) {
             throw doris::Exception(Status::InternalError(
                     "Aggregate function {} argument 0 type check failed: Column type {} ({}) is "
-                    "not ColumnArray or Nullable(ColumnArray)",
+                    "not ColumnArray",
                     get_name(), columns[0]->get_name(), typeid(*columns[0]).name()));
         }
 
@@ -507,14 +504,8 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
-        const bool col_is_nullable = is_column_nullable(*columns[0]);
-        const ColumnArray& column =
-                col_is_nullable
-                        ? assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
-                                  assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                                          *columns[0])
-                                          .get_nested_column())
-                        : assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& column =
+                assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
 
         const auto& offsets = column.get_offsets();
         const auto offset = offsets[row_num - 1];

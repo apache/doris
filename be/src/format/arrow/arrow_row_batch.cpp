@@ -49,8 +49,8 @@
 namespace doris {
 
 Status convert_to_arrow_type(const DataTypePtr& origin_type,
-                             std::shared_ptr<arrow::DataType>* result,
-                             const std::string& timezone) {
+                             std::shared_ptr<arrow::DataType>* result, const std::string& timezone,
+                             bool datetime_naive) {
     auto type = get_serialized_type(origin_type);
     switch (type->get_primitive_type()) {
     case TYPE_NULL:
@@ -97,17 +97,27 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     case TYPE_DATEV2:
         *result = std::make_shared<arrow::Date32Type>();
         break;
-    // TODO: maybe need to distinguish TYPE_DATETIME and TYPE_TIMESTAMPTZ
     case TYPE_TIMESTAMPTZ:
-    case TYPE_DATETIMEV2:
+    case TYPE_DATETIMEV2: {
+        arrow::TimeUnit::type time_unit;
         if (type->get_scale() > 3) {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
+            time_unit = arrow::TimeUnit::MICRO;
         } else if (type->get_scale() > 0) {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MILLI, timezone);
+            time_unit = arrow::TimeUnit::MILLI;
         } else {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::SECOND, timezone);
+            time_unit = arrow::TimeUnit::SECOND;
+        }
+        // Doris DATETIMEV2 represents a wall-clock value without a timezone. Arrow Flight
+        // exposes it as a timezone-naive timestamp so clients do not interpret it as an instant.
+        // This option only changes the DATETIMEV2 output schema. TIMESTAMPTZ remains timezone-aware,
+        // and Arrow-to-Doris conversions are unaffected.
+        if (type->get_primitive_type() == TYPE_DATETIMEV2 && datetime_naive) {
+            *result = std::make_shared<arrow::TimestampType>(time_unit);
+        } else {
+            *result = std::make_shared<arrow::TimestampType>(time_unit, timezone);
         }
         break;
+    }
     case TYPE_DECIMALV2:
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
@@ -123,7 +133,8 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     case TYPE_ARRAY: {
         const auto* type_arr = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> item_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone,
+                                              datetime_naive));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
@@ -131,8 +142,10 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone));
-        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone,
+                                              datetime_naive));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone,
+                                              datetime_naive));
         *result = std::make_shared<arrow::MapType>(key_type, val_type);
         break;
     }
@@ -141,8 +154,8 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         std::vector<std::shared_ptr<arrow::Field>> fields;
         for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
-            RETURN_IF_ERROR(
-                    convert_to_arrow_type(type_struct->get_element(i), &field_type, timezone));
+            RETURN_IF_ERROR(convert_to_arrow_type(type_struct->get_element(i), &field_type,
+                                                  timezone, datetime_naive));
             fields.push_back(
                     std::make_shared<arrow::Field>(type_struct->get_element_name(i), field_type,
                                                    type_struct->get_element(i)->is_nullable()));
@@ -190,11 +203,12 @@ std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
 }
 
 Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Schema>* result,
-                                   const std::string& timezone) {
+                                   const std::string& timezone, bool datetime_naive) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type, &arrow_type, timezone));
+        RETURN_IF_ERROR(
+                convert_to_arrow_type(type_and_name.type, &arrow_type, timezone, datetime_naive));
         auto field = create_arrow_field_with_metadata(type_and_name.name, arrow_type,
                                                       type_and_name.type->is_nullable(),
                                                       type_and_name.type->get_primitive_type());
@@ -206,12 +220,13 @@ Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Sc
 
 Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                        std::shared_ptr<arrow::Schema>* result,
-                                       const std::string& timezone) {
+                                       const std::string& timezone, bool datetime_naive) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (int i = 0; i < output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> arrow_type;
         auto root_expr = output_vexpr_ctxs.at(i)->root();
-        RETURN_IF_ERROR(convert_to_arrow_type(root_expr->data_type(), &arrow_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(root_expr->data_type(), &arrow_type, timezone,
+                                              datetime_naive));
         auto field_name = root_expr->is_slot_ref() && !root_expr->expr_label().empty()
                                   ? root_expr->expr_label()
                                   : fmt::format("{}_{}", root_expr->data_type()->get_name(), i);

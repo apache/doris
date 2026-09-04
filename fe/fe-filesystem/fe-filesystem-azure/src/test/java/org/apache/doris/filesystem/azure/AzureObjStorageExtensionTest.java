@@ -17,25 +17,32 @@
 
 package org.apache.doris.filesystem.azure;
 
+import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.filesystem.spi.RequestBody;
 
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.specialized.BlockBlobClient;
 import com.azure.storage.common.StorageSharedKeyCredential;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Unit tests for the cloud extension methods added to {@link AzureObjStorage}:
@@ -375,51 +382,127 @@ class AzureObjStorageExtensionTest {
     }
 
     // ------------------------------------------------------------------
-    // F20 — abortMultipartUpload safe-noop / commit-empty behaviour
+    // F20 — multipart upload identity and safe no-op abort behaviour
     // ------------------------------------------------------------------
 
     @Test
-    void abortMultipartUpload_safeNoopWhenCommittedBlobExists() throws Exception {
-        com.azure.storage.blob.models.BlobProperties props =
-                Mockito.mock(com.azure.storage.blob.models.BlobProperties.class);
-        Mockito.when(props.getBlobSize()).thenReturn(1024L);
+    void multipartBlockId_embedsFullUploadUuid() {
+        String firstUpload = "09492e3d-e231-4ed9-bf84-b6fc772cda54";
+        String secondUpload = "06996d15-1c2e-4ddd-8853-43816ea84a07";
+        String firstBlock = AzureObjStorage.multipartBlockId(firstUpload, 1);
+        String secondBlock = AzureObjStorage.multipartBlockId(secondUpload, 1);
 
-        com.azure.storage.blob.specialized.BlockBlobClient blockClient =
-                Mockito.mock(com.azure.storage.blob.specialized.BlockBlobClient.class);
-        Mockito.when(blockClient.getProperties()).thenReturn(props);
-
-        BlobClient blobClient = Mockito.mock(BlobClient.class);
-        Mockito.when(blobClient.getBlockBlobClient()).thenReturn(blockClient);
-
-        BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);
-        Mockito.when(containerClient.getBlobClient("stage/blob")).thenReturn(blobClient);
-
-        BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
-        Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
-
-        TestableAzureObjStorage storage = new TestableAzureObjStorage(buildBasicProps(), serviceClient);
-
-        storage.abortMultipartUpload(
-                "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob", "uploadId");
-
-        // The committed blob must NOT be touched (no commitBlockList, no delete).
-        Mockito.verify(blockClient, Mockito.never()).commitBlockList(Mockito.anyList());
-        Mockito.verify(blockClient, Mockito.never()).delete();
+        Assertions.assertNotEquals(firstBlock, secondBlock);
+        Assertions.assertEquals(firstBlock.length(),
+                AzureObjStorage.multipartBlockId(firstUpload, 999).length());
+        byte[] decoded = Base64.getDecoder().decode(firstBlock);
+        Assertions.assertEquals(firstUpload.length() + Integer.BYTES, decoded.length);
+        Assertions.assertArrayEquals(firstUpload.getBytes(StandardCharsets.UTF_8),
+                Arrays.copyOf(decoded, firstUpload.length()));
+        Assertions.assertArrayEquals(new byte[]{1, 0, 0, 0},
+                Arrays.copyOfRange(decoded, firstUpload.length(), decoded.length));
     }
 
     @Test
-    void abortMultipartUpload_commitsEmptyAndDeletesWhenNoCommittedBlob() throws Exception {
-        com.azure.storage.blob.specialized.BlockBlobClient blockClient =
-                Mockito.mock(com.azure.storage.blob.specialized.BlockBlobClient.class);
-        BlobStorageException notFoundEx = Mockito.mock(BlobStorageException.class);
-        Mockito.when(notFoundEx.getStatusCode()).thenReturn(404);
-        Mockito.when(blockClient.getProperties()).thenThrow(notFoundEx);
+    void initiateMultipartUpload_returnsLocalUuidWithoutTouchingProvider() throws Exception {
+        BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
+        TestableAzureObjStorage storage = new TestableAzureObjStorage(buildBasicProps(), serviceClient);
 
+        String uploadId = storage.initiateMultipartUpload(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob");
+
+        Assertions.assertEquals(uploadId, UUID.fromString(uploadId).toString());
+        Mockito.verifyNoInteractions(serviceClient);
+    }
+
+    @Test
+    void uploadPart_stagesBlockWithFullUploadUuid() throws Exception {
+        BlockBlobClient blockClient = Mockito.mock(BlockBlobClient.class);
         BlobClient blobClient = Mockito.mock(BlobClient.class);
         Mockito.when(blobClient.getBlockBlobClient()).thenReturn(blockClient);
-
         BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);
         Mockito.when(containerClient.getBlobClient("stage/blob")).thenReturn(blobClient);
+        BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
+        Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
+        TestableAzureObjStorage storage = new TestableAzureObjStorage(buildBasicProps(), serviceClient);
+        String uploadId = "09492e3d-e231-4ed9-bf84-b6fc772cda54";
+
+        UploadPartResult result = storage.uploadPart(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob", uploadId, 1,
+                RequestBody.of(new ByteArrayInputStream(new byte[]{1}), 1));
+
+        String expectedBlockId = AzureObjStorage.multipartBlockId(uploadId, 1);
+        Assertions.assertEquals(expectedBlockId, result.etag());
+        Mockito.verify(blockClient).stageBlock(Mockito.eq(expectedBlockId),
+                Mockito.any(java.io.InputStream.class), Mockito.eq(1L));
+    }
+
+    @Test
+    void completeMultipartUpload_usesExactBlockIdsReportedByBe() throws Exception {
+        com.azure.storage.blob.specialized.BlockBlobClient blockClient =
+                Mockito.mock(com.azure.storage.blob.specialized.BlockBlobClient.class);
+        BlobClient targetBlob = Mockito.mock(BlobClient.class);
+        Mockito.when(targetBlob.getBlockBlobClient()).thenReturn(blockClient);
+        BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);
+        Mockito.when(containerClient.getBlobClient("stage/blob")).thenReturn(targetBlob);
+        BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
+        Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
+        TestableAzureObjStorage storage = new TestableAzureObjStorage(buildBasicProps(), serviceClient);
+
+        String firstBlockId = "YmUtZ2VuZXJhdGVkLXVwbG9hZC1pZDowMDAwMDAwMDAx";
+        String secondBlockId = "YmUtZ2VuZXJhdGVkLXVwbG9hZC1pZDowMDAwMDAwMDAy";
+        storage.completeMultipartUpload(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob",
+                "be-generated-upload-id",
+                Arrays.asList(new UploadPartResult(2, secondBlockId),
+                        new UploadPartResult(1, firstBlockId)));
+
+        Mockito.verify(blockClient).commitBlockList(Arrays.asList(firstBlockId, secondBlockId));
+        Mockito.verify(targetBlob, Mockito.never()).beginCopy(Mockito.anyString(), Mockito.isNull());
+    }
+
+    @Test
+    void completeMultipartUpload_rejectsOlderBeWithoutBlockIds() throws Exception {
+        com.azure.storage.blob.specialized.BlockBlobClient blockClient =
+                Mockito.mock(com.azure.storage.blob.specialized.BlockBlobClient.class);
+        BlobClient blobClient = Mockito.mock(BlobClient.class);
+        Mockito.when(blobClient.getBlockBlobClient()).thenReturn(blockClient);
+        BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);
+        Mockito.when(containerClient.getBlobClient("stage/blob")).thenReturn(blobClient);
+        BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
+        Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
+        TestableAzureObjStorage storage = new TestableAzureObjStorage(buildBasicProps(), serviceClient);
+
+        Assertions.assertThrows(IOException.class, () -> storage.completeMultipartUpload(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob",
+                "legacy-upload-id", Collections.singletonList(new UploadPartResult(1, ""))));
+
+        Mockito.verify(blockClient, Mockito.never()).commitBlockList(Mockito.anyList());
+    }
+
+    @Test
+    void completeMultipartUpload_rejectsMixedExactAndMissingBlockIds() throws Exception {
+        com.azure.storage.blob.specialized.BlockBlobClient blockClient =
+                Mockito.mock(com.azure.storage.blob.specialized.BlockBlobClient.class);
+        BlobClient blobClient = Mockito.mock(BlobClient.class);
+        Mockito.when(blobClient.getBlockBlobClient()).thenReturn(blockClient);
+        BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);
+        Mockito.when(containerClient.getBlobClient("stage/blob")).thenReturn(blobClient);
+        BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
+        Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
+        TestableAzureObjStorage storage = new TestableAzureObjStorage(buildBasicProps(), serviceClient);
+
+        Assertions.assertThrows(IOException.class, () -> storage.completeMultipartUpload(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob",
+                "mixed-upload-id",
+                Arrays.asList(new UploadPartResult(1, "exact-id"), new UploadPartResult(2, ""))));
+
+        Mockito.verify(blockClient, Mockito.never()).commitBlockList(Mockito.anyList());
+    }
+
+    @Test
+    void abortMultipartUpload_doesNotMutatePublishedTarget() throws Exception {
+        BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);
 
         BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
         Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
@@ -429,8 +512,8 @@ class AzureObjStorageExtensionTest {
         storage.abortMultipartUpload(
                 "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob", "uploadId");
 
-        Mockito.verify(blockClient).commitBlockList(Collections.emptyList());
-        Mockito.verify(blockClient).delete();
+        Mockito.verify(containerClient, Mockito.never()).getBlobClient("stage/blob");
+        Mockito.verifyNoInteractions(containerClient);
     }
 
     // ------------------------------------------------------------------

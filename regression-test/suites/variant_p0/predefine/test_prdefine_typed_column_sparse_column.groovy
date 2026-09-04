@@ -15,7 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_predefine_typed_sparse", "p0"){ 
+suite("test_predefine_typed_sparse", "p0"){
+    boolean enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    def normalizedVariant = "regexp_replace(cast(var as string), " +
+            "'([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})[.]000000', '\\\\1')"
 
     def tableName = "test_predefine_typed_sparse"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
@@ -34,14 +38,20 @@ suite("test_predefine_typed_sparse", "p0"){
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
     for (int i = 0; i < 10; i++) {
-        sql """insert into ${tableName} values(1, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": "2025-04-18", "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
-        sql """insert into ${tableName} values(2, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": "2025-04-18", "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
+        sql """insert into ${tableName} values(1, ${variantV2Function}('{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": "2025-04-18", "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}'));"""
+        sql """insert into ${tableName} values(2, ${variantV2Function}('{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09:09:09Z", "d": "2025-04-18", "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}'));"""
     }
 
-    qt_sql """ select variant_type(var) from ${tableName} order by id """
-    qt_sql """ select * from ${tableName} order by id """
+    if (!enableVariantV2) {
+        qt_variant_type_before_v1 """ select variant_type(var) from ${tableName} order by id """
+    }
+    qt_variant_type_before """ select count(*) from ${tableName} where variant_type(var) is null """
+    qt_sql """ select id, ${normalizedVariant} from ${tableName} order by id """
     trigger_and_wait_compaction(tableName, "cumulative", 1800)
-    qt_sql """ select * from ${tableName} order by id """
+    qt_sql """ select id, ${normalizedVariant} from ${tableName} order by id """
 
-    qt_sql """ select variant_type(var) from ${tableName} order by id """
+    if (!enableVariantV2) {
+        qt_variant_type_after_v1 """ select variant_type(var) from ${tableName} order by id """
+    }
+    qt_variant_type_after """ select count(*) from ${tableName} where variant_type(var) is null """
 }

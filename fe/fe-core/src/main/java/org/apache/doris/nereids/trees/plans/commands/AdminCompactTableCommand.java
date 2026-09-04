@@ -47,8 +47,7 @@ public class AdminCompactTableCommand extends Command implements ForwardWithSync
     public enum CompactionType {
         CUMULATIVE,
         BASE,
-        FULL,
-        BINLOG
+        FULL
     }
 
     private CompactionType typeFilter;
@@ -89,12 +88,12 @@ public class AdminCompactTableCommand extends Command implements ForwardWithSync
         // analyze where clause if not null
         if (where == null) {
             throw new AnalysisException("Compaction type must be specified in"
-                + " Where clause like: type = 'BASE/CUMULATIVE/FULL/BINLOG'");
+                + " Where clause like: type = 'BASE/CUMULATIVE/FULL'");
         }
 
         if (!analyzeWhere()) {
             throw new AnalysisException(
-                "Where clause should looks like: type = 'BASE/CUMULATIVE/FULL/BINLOG'");
+                "Where clause should looks like: type = 'BASE/CUMULATIVE/FULL'");
         }
     }
 
@@ -107,8 +106,7 @@ public class AdminCompactTableCommand extends Command implements ForwardWithSync
 
         return typeFilter == CompactionType.CUMULATIVE
                 || typeFilter == CompactionType.BASE
-                || typeFilter == CompactionType.FULL
-                || typeFilter == CompactionType.BINLOG;
+                || typeFilter == CompactionType.FULL;
     }
 
     @Override
@@ -124,8 +122,6 @@ public class AdminCompactTableCommand extends Command implements ForwardWithSync
                 return "base";
             case FULL:
                 return "full";
-            case BINLOG:
-                return "binlog";
             default:
                 throw new IllegalStateException("unexpected compaction type: " + typeFilter);
         }

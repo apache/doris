@@ -19,6 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+
+#include "format/table/iceberg_default_value.h"
+
 namespace doris {
 namespace iceberg {
 
@@ -64,6 +68,33 @@ TEST(SchemaTest, test_find_field) {
     EXPECT_NE(found_field2, nullptr);
     EXPECT_EQ(found_field1->field_id(), 1);
     EXPECT_EQ(found_field2->field_id(), 2);
+}
+
+TEST(SchemaTest, FindNestedFieldPath) {
+    std::vector<NestedField> children;
+    children.emplace_back(true, 2, "part", std::make_unique<IntegerType>(), std::nullopt);
+    std::vector<NestedField> columns;
+    columns.emplace_back(true, 1, "payload", std::make_unique<StructType>(std::move(children)),
+                         std::nullopt);
+    Schema schema(1, std::move(columns));
+
+    const auto* path = schema.find_field_path(2);
+    ASSERT_NE(path, nullptr);
+    ASSERT_EQ(path->size(), 2);
+    EXPECT_EQ((*path)[0]->field_id(), 1);
+    EXPECT_EQ((*path)[1]->field_id(), 2);
+    EXPECT_EQ(schema.find_type(2)->type_id(), TypeID::INTEGER);
+}
+
+TEST(SchemaTest, ParsesIcebergNonFiniteDefaults) {
+    Field value;
+    EXPECT_TRUE(detail::parse_non_finite_default(TYPE_FLOAT, "NaN", &value));
+    EXPECT_TRUE(std::isnan(value.get<TYPE_FLOAT>()));
+    EXPECT_TRUE(detail::parse_non_finite_default(TYPE_DOUBLE, "Infinity", &value));
+    EXPECT_TRUE(std::isinf(value.get<TYPE_DOUBLE>()));
+    EXPECT_GT(value.get<TYPE_DOUBLE>(), 0);
+    EXPECT_TRUE(detail::parse_non_finite_default(TYPE_DOUBLE, "-Infinity", &value));
+    EXPECT_LT(value.get<TYPE_DOUBLE>(), 0);
 }
 
 } // namespace iceberg

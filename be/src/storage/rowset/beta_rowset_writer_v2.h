@@ -112,7 +112,9 @@ public:
 
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
-    int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
+    Result<int32_t> allocate_segment_id() override {
+        return _segment_creator.allocate_segment_id();
+    };
 
     int32_t get_allocated_segment_id() override {
         return _segment_creator.get_allocated_segment_id();

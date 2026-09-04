@@ -97,6 +97,7 @@ public class CloudFEVersionSynchronizer {
             partitionVersion.setPartitionId(partition.getId());
             partitionVersion.setVersion(versionPair.first);
             partitionVersion.setVersionUpdateTime(versionPair.second);
+            partitionVersion.setCommitTso(partition.getTso());
             partitionVersionInfos.add(partitionVersion);
         });
         TFrontendSyncCloudVersionRequest request = new TFrontendSyncCloudVersionRequest();
@@ -197,12 +198,13 @@ public class CloudFEVersionSynchronizer {
                     continue;
                 }
                 CloudPartition cloudPartition = (CloudPartition) partition;
+                long commitTso = partitionVersionInfo.isSetCommitTso() ? partitionVersionInfo.getCommitTso() : -1;
                 cloudPartition.setCachedVisibleVersion(partitionVersionInfo.getVersion(),
-                        partitionVersionInfo.getVersionUpdateTime());
+                        partitionVersionInfo.getVersionUpdateTime(), commitTso);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Update tableId: {}, partitionId: {}, version: {}, updateTime: {}",
+                    LOG.debug("Update tableId: {}, partitionId: {}, version: {}, updateTime: {}, commitTso: {}",
                             partitionVersionInfo.getTableId(), partition.getId(), partitionVersionInfo.getVersion(),
-                            partitionVersionInfo.getVersionUpdateTime());
+                            partitionVersionInfo.getVersionUpdateTime(), commitTso);
                 }
             }
             for (Pair<OlapTable, Long> tableVersion : tableVersions) {

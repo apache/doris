@@ -170,7 +170,7 @@ TEST_F(DataTypeVarbinarySerDeTest, MysqlTextAndBinaryAndConst) {
     }
 }
 
-TEST_F(DataTypeVarbinarySerDeTest, ArrowWriteSupportedReadNotImplemented) {
+TEST_F(DataTypeVarbinarySerDeTest, ArrowBinaryRoundTrip) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
     auto* vb = col.get();
@@ -185,8 +185,11 @@ TEST_F(DataTypeVarbinarySerDeTest, ArrowWriteSupportedReadNotImplemented) {
 
     std::shared_ptr<arrow::Array> arr;
     ASSERT_TRUE(builder->Finish(&arr).ok());
-    st = serde.read_column_from_arrow(*vb, arr.get(), 0, 1, tz);
-    EXPECT_FALSE(st.ok());
+    auto read_column = ColumnVarbinary::create();
+    st = serde.read_column_from_arrow(*read_column, arr.get(), 0, 1, tz);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(1U, read_column->size());
+    EXPECT_EQ(v, read_column->get_data_at(0).to_string());
 
     auto* binary_array = dynamic_cast<arrow::BinaryArray*>(arr.get());
     ASSERT_NE(binary_array, nullptr);
@@ -196,6 +199,49 @@ TEST_F(DataTypeVarbinarySerDeTest, ArrowWriteSupportedReadNotImplemented) {
     EXPECT_EQ(binary_array->value_length(0), static_cast<int>(view.size));
     const uint8_t* raw = binary_array->value_data()->data() + binary_array->value_offset(0);
     EXPECT_EQ(memcmp(raw, view.data, view.size), 0);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, ArrowReadSupportsLargeAndFixedSizeBinary) {
+    DataTypeVarbinarySerDe serde;
+    cctz::time_zone tz;
+    const auto expect_values = [](const ColumnVarbinary& column,
+                                  const std::vector<std::string>& expected) {
+        ASSERT_EQ(expected.size(), column.size());
+        for (size_t i = 0; i < expected.size(); ++i) {
+            EXPECT_EQ(expected[i], column.get_data_at(i).to_string());
+        }
+    };
+
+    {
+        arrow::LargeBinaryBuilder builder;
+        ASSERT_TRUE(builder.Append("large").ok());
+        ASSERT_TRUE(builder.AppendNull().ok());
+        ASSERT_TRUE(builder.Append("binary").ok());
+        std::shared_ptr<arrow::Array> arrow_array;
+        ASSERT_TRUE(builder.Finish(&arrow_array).ok());
+
+        auto column = ColumnVarbinary::create();
+        ASSERT_TRUE(serde.read_column_from_arrow(*column, arrow_array.get(), 0,
+                                                 arrow_array->length(), tz)
+                            .ok());
+        expect_values(*column, {"large", "", "binary"});
+    }
+
+    {
+        auto type = arrow::fixed_size_binary(3);
+        arrow::FixedSizeBinaryBuilder builder(type, arrow::default_memory_pool());
+        ASSERT_TRUE(builder.Append("abc").ok());
+        ASSERT_TRUE(builder.AppendNull().ok());
+        ASSERT_TRUE(builder.Append("xyz").ok());
+        std::shared_ptr<arrow::Array> arrow_array;
+        ASSERT_TRUE(builder.Finish(&arrow_array).ok());
+
+        auto column = ColumnVarbinary::create();
+        ASSERT_TRUE(serde.read_column_from_arrow(*column, arrow_array.get(), 0,
+                                                 arrow_array->length(), tz)
+                            .ok());
+        expect_values(*column, {"abc", "", "xyz"});
+    }
 }
 
 TEST_F(DataTypeVarbinarySerDeTest, OrcWriteSupported) {

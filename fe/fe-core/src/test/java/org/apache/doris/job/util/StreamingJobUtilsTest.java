@@ -18,17 +18,25 @@
 package org.apache.doris.job.util;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.qe.GlobalVariable;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
@@ -249,5 +257,63 @@ public class StreamingJobUtilsTest {
 
         Assert.assertEquals("test_db",
                 StreamingJobUtils.getRemoteDbName(DataSourceType.OCEANBASE, properties));
+    }
+
+    @Test
+    public void testGenerateCreateTableCmdsClosesJdbcClientOnFailure() {
+        Map<String, String> properties = new HashMap<>();
+        try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            utils.when(() -> StreamingJobUtils.getJdbcClient(DataSourceType.OCEANBASE, properties))
+                    .thenReturn(jdbcClient);
+            utils.when(() -> StreamingJobUtils.getRemoteDbName(DataSourceType.OCEANBASE, properties))
+                    .thenReturn("test_db");
+            Mockito.when(jdbcClient.getTablesNameList("test_db")).thenReturn(new ArrayList<>());
+
+            Assert.assertThrows(JobException.class, () -> StreamingJobUtils.generateCreateTableCmds(
+                    "target_db", DataSourceType.OCEANBASE, properties, new HashMap<>()));
+
+            Mockito.verify(jdbcClient).closeClient();
+        }
+    }
+
+    @Test
+    public void testGenerateCreateTableCmdsFindsMixedCasePrecreatedTargetWhenStoredLowerCase() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DataSourceConfigKeys.SCHEMA, "source_db");
+        properties.put(DataSourceConfigKeys.TABLE + ".source_table."
+                + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX, "MixedTarget");
+
+        Database targetDatabase = new Database(1L, "target_db");
+        targetDatabase.registerTable(new OlapTable(2L, "mixedtarget", new ArrayList<>(), KeysType.UNIQUE_KEYS,
+                null, null));
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getDbNullable("target_db")).thenReturn(targetDatabase);
+        Mockito.when(jdbcClient.getTablesNameList("source_db"))
+                .thenReturn(Arrays.asList("source_table"));
+        Mockito.when(jdbcClient.getPrimaryKeys("source_db", "source_table"))
+                .thenReturn(Arrays.asList("id"));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table"))
+                .thenReturn(Arrays.asList(
+                        new Column("id", ScalarType.createType(PrimitiveType.INT)),
+                        new Column("unsupported_col", new ScalarType(PrimitiveType.UNSUPPORTED))));
+
+        int originalLowerCaseTableNames = GlobalVariable.lowerCaseTableNames;
+        GlobalVariable.lowerCaseTableNames = 1;
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class,
+                        Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            utils.when(() -> StreamingJobUtils.getJdbcClient(DataSourceType.POSTGRES, properties))
+                    .thenReturn(jdbcClient);
+
+            Assert.assertFalse(StreamingJobUtils.generateCreateTableCmds(
+                    "target_db", DataSourceType.POSTGRES, properties, new HashMap<>())
+                    .get("source_table").isPresent());
+        } finally {
+            GlobalVariable.lowerCaseTableNames = originalLowerCaseTableNames;
+        }
     }
 }

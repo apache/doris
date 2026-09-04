@@ -22,6 +22,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/logging.h"
+#include "service/backend_options.h"
 
 namespace doris {
 

@@ -273,6 +273,7 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
                                 bool enable_page_cache, const io::FileDescription& file_description,
                                 bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary) {
     DORIS_CHECK(input_file_reader != nullptr);
+    contains_variant = false;
     if (detail::should_stage_small_http_file(input_file_reader->path().native(),
                                              input_file_reader->size(),
                                              config::in_memory_file_size)) {
@@ -602,6 +603,7 @@ Status ParquetFileContext::close() {
     native_io_ctx = nullptr;
     native_page_cache_enabled = false;
     native_page_cache_file_key.clear();
+    contains_variant = false;
     return Status::OK();
 }
 

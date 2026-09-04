@@ -90,11 +90,11 @@ suite("test_hive_default_mtmv", "p0,external,hive,external_docker,external_docke
             """
         def showPartitionsResult = sql """show partitions from ${mvName}"""
         logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-        assertTrue(showPartitionsResult.toString().contains("p_NULL"))
+        assertTrue(showPartitionsResult.toString().contains("pn_NULL"))
         assertTrue(showPartitionsResult.toString().contains("p_1"))
 
         sql """
-                REFRESH MATERIALIZED VIEW ${mvName} partitions(p_NULL);
+                REFRESH MATERIALIZED VIEW ${mvName} partitions(pn_NULL);
             """
         def jobName = getJobName(dbName, mvName);
         waitingMTMVTaskFinished(jobName)

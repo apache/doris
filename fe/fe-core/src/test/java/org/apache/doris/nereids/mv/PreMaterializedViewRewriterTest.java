@@ -59,7 +59,7 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
 
     @Test
     public void testShouldNotRecordTmpPlanWhenNoMv() {
-        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION, ELIMINATE_GROUP_BY_KEY");
         BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
         SessionVariable spySv = Mockito.spy(connectContext.getSessionVariable());
         Mockito.doReturn(disableNereidsRules).when(spySv).getDisableNereidsRules();
@@ -2950,6 +2950,19 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
         statementContext.getPlannerHooks().add(InitMaterializationContextHook.INSTANCE);
         statementContext.getTmpPlanForMvRewrite().add(cascadesContext.getRewritePlan());
         Assertions.assertTrue(PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+    }
+
+    /**
+     * Test pre-materialized view rewrite need pre-rewrite when ELIMINATE_GROUP_BY_KEY applied
+     * */
+    @Test
+    public void testNeedPreRewriteForEliminateGroupByKey() {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext("select T1.id from T1");
+        StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
+        statementContext.setForceRecordTmpPlan(true);
+        statementContext.ruleSetApplied(RuleType.ELIMINATE_GROUP_BY_KEY);
+        statementContext.getPlannerHooks().add(InitMaterializationContextHook.INSTANCE);
+        statementContext.getTmpPlanForMvRewrite().add(cascadesContext.getRewritePlan());
     }
 
     private void checkIfEquals(String originalSql, List<String> equivalentSqlList) {

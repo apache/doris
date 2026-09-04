@@ -81,7 +81,7 @@ a_struct	struct<renamed:bigint,keep:bigint,drop_and_add:bigint,added:bigint>	Yes
 
 -- !case_desc --
 id	bigint	Yes	true	\N	
-a_struct	struct<renamed:bigint,keep:bigint,drop_and_add:bigint,added:bigint>	Yes	true	\N	
+a_struct	struct<renamed:bigint,keep:bigint,DROP_AND_ADD:bigint,added:bigint>	Yes	true	\N	
 
 -- !case_select_all --
 1	{"renamed":11, "keep":12, "drop_and_add":null, "added":null}
@@ -129,7 +129,7 @@ a_struct	struct<renamed:bigint,keep:bigint,drop_and_add:bigint,added:bigint>	Yes
 
 -- !case_orc_desc --
 id	bigint	Yes	true	\N	
-a_struct	struct<renamed:bigint,keep:bigint,drop_and_add:bigint,added:bigint>	Yes	true	\N	
+a_struct	struct<renamed:bigint,keep:bigint,DROP_AND_ADD:bigint,added:bigint>	Yes	true	\N	
 
 -- !case_orc_select_all --
 1	{"renamed":11, "keep":12, "drop_and_add":null, "added":null}

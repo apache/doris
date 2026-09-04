@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_variant_predefine_index_type", "p0"){
+    boolean enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_segment_limit_pushdown = true """
@@ -37,13 +39,16 @@ suite("test_variant_predefine_index_type", "p0"){
         INDEX idx_a_d (var) USING INVERTED PROPERTIES("field_pattern"="path.string", "parser"="unicode", "support_phrase" = "true") COMMENT ''
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
-    sql """insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}'),
-                                          (2, '{"path" : {"int" : 456, "decimal" : 456.456789123456, "string" : "world"}}'),
-                                          (3, '{"path" : {"int" : 789, "decimal" : 789.789123456789, "string" : "hello"}}'),
-                                          (4, '{"path" : {"int" : 100, "decimal" : 100.100123456789, "string" : "world"}}'),
-                                          (5, '{"path" : {"int" : 111, "decimal" : 111.111111111111, "string" : "hello"}}')"""
+    sql """insert into ${tableName} values(1, ${variantV2Function}('{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}')),
+                                          (2, ${variantV2Function}('{"path" : {"int" : 456, "decimal" : 456.456789123456, "string" : "world"}}')),
+                                          (3, ${variantV2Function}('{"path" : {"int" : 789, "decimal" : 789.789123456789, "string" : "hello"}}')),
+                                          (4, ${variantV2Function}('{"path" : {"int" : 100, "decimal" : 100.100123456789, "string" : "world"}}')),
+                                          (5, ${variantV2Function}('{"path" : {"int" : 111, "decimal" : 111.111111111111, "string" : "hello"}}'))"""
 
-    qt_sql """ select variant_type(var) from ${tableName} """
+    if (!enableVariantV2) {
+        qt_variant_type_before_v1 """ select variant_type(var) from ${tableName} """
+    }
+    qt_variant_type_before """ select count(*) from ${tableName} where variant_type(var) is null """
     qt_sql """select * from ${tableName} order by id"""
     sql """ set profile_level = 2"""
     sql """ set inverted_index_skip_threshold = 0 """
@@ -66,12 +71,15 @@ suite("test_variant_predefine_index_type", "p0"){
     qt_sql """ select count() from ${tableName} where var['path']['string'] match 'hello' """
 
     for (int i = 0; i < 10; i++) {
-        sql """ insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}') """
+        sql """ insert into ${tableName} values(1, ${variantV2Function}('{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}')) """
     }
 
     trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
-    qt_sql """ select variant_type(var) from ${tableName} order by id """
+    if (!enableVariantV2) {
+        qt_variant_type_after_v1 """ select variant_type(var) from ${tableName} order by id """
+    }
+    qt_variant_type_after """ select count(*) from ${tableName} where variant_type(var) is null """
     qt_sql """select * from ${tableName} order by id"""
     qt_sql """ select count() from ${tableName} where cast(var['path']['int'] as int) = 789 """
     qt_sql """ select count() from ${tableName} where cast(var['path']['decimal'] as DECIMAL(15, 12)) = 789.789123456789 """
@@ -109,11 +117,11 @@ suite("test_variant_predefine_index_type", "p0"){
         sql """
             INSERT INTO objects (id, overflow_properties)
             VALUES
-        (6, '{"color":"Bright Red","description":"A bright red circular object with a metallic shine","shape":"Large Circle","tags":["metallic","reflective"]}'),
-        (7, '{"color":"Deep Blue","description":"Opaque square made of plastic in deep blue","shape":"Small Square","tags":["opaque","plastic"]}'),
-        (8, '{"color":"Green","description":"Tall green triangle carved from wood","shape":"Tall Triangle","tags":["matte","wood"]}'),
-        (9, '{"color":"Reddish Orange","description":"Glossy ceramic hexagon with reddish orange tint","shape":"Flat Hexagon","tags":["glossy","ceramic"]}'),
-            (10, '{"color":"Yellow","description":"Shiny yellow circular badge","shape":"Wide Circle","tags":["shiny","plastic"]}');
+        (6, ${variantV2Function}('{"color":"Bright Red","description":"A bright red circular object with a metallic shine","shape":"Large Circle","tags":["metallic","reflective"]}')),
+        (7, ${variantV2Function}('{"color":"Deep Blue","description":"Opaque square made of plastic in deep blue","shape":"Small Square","tags":["opaque","plastic"]}')),
+        (8, ${variantV2Function}('{"color":"Green","description":"Tall green triangle carved from wood","shape":"Tall Triangle","tags":["matte","wood"]}')),
+        (9, ${variantV2Function}('{"color":"Reddish Orange","description":"Glossy ceramic hexagon with reddish orange tint","shape":"Flat Hexagon","tags":["glossy","ceramic"]}')),
+            (10, ${variantV2Function}('{"color":"Yellow","description":"Shiny yellow circular badge","shape":"Wide Circle","tags":["shiny","plastic"]}'));
         """
     }
     trigger_and_wait_compaction(tableName, "cumulative", 1800)

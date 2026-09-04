@@ -37,8 +37,12 @@
 #include "core/custom_allocator.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/types.h"
-#include "util/rle_encoding.h"
 #include "util/slice.h"
+
+namespace doris {
+template <typename T>
+class RleBatchDecoder;
+} // namespace doris
 
 namespace doris::format::parquet::native {
 
@@ -127,99 +131,25 @@ protected:
 
 class BaseDictDecoder : public Decoder {
 public:
-    BaseDictDecoder() = default;
-    ~BaseDictDecoder() override = default;
+    // Out-of-line together with every member that dereferences _index_batch_decoder:
+    // keeping the RleBatchDecoder<uint32_t> machinery out of this header stops every
+    // includer from instantiating the RLE decode chain; the complete type lives only
+    // in decoder.cpp. All of these are per-page/per-batch virtual calls. The ctor is
+    // out of line for the same reason: a defaulted-in-class one would be defined in
+    // every TU that constructs a derived decoder, and it odr-uses the member's dtor.
+    BaseDictDecoder();
+    ~BaseDictDecoder() override;
 
     // Set the data to be decoded
-    Status set_data(Slice* data) override {
-        if (UNLIKELY(data == nullptr || data->size == 0)) {
-            return Status::Corruption("Parquet dictionary index stream is empty");
-        }
-        _data = data;
-        _offset = 0;
-        uint8_t bit_width = *data->data;
-        // Dictionary indices are uint32_t; wider external widths make repeated runs overwrite the
-        // decoder's four-byte state before any dictionary-bound check can run.
-        if (UNLIKELY(bit_width > 32)) {
-            return Status::Corruption("Parquet dictionary index bit width {} exceeds 32",
-                                      bit_width);
-        }
-        _index_batch_decoder = std::make_unique<RleBatchDecoder<uint32_t>>(
-                reinterpret_cast<uint8_t*>(data->data) + 1, static_cast<int>(data->size) - 1,
-                bit_width);
-        return Status::OK();
-    }
+    Status set_data(Slice* data) override;
 
     bool has_dictionary() const override { return true; }
     uint64_t dictionary_generation() const override { return _dictionary_generation; }
 
-    Status decode_dictionary_indices(size_t num_values, std::vector<uint32_t>* indices) override {
-        DORIS_CHECK(indices != nullptr);
-        indices->resize(num_values);
-        const auto decoded =
-                _index_batch_decoder->GetBatch(indices->data(), cast_set<uint32_t>(num_values));
-        if (UNLIKELY(decoded != num_values)) {
-            return Status::IOError("Can't read enough Parquet dictionary indices");
-        }
-        const size_t num_dictionary_values = dictionary_size();
-        if (UNLIKELY(!dictionary_indices_in_bounds(indices->data(), num_values,
-                                                   num_dictionary_values))) {
-            // The SIMD common path only computes a bound; recover the exact corrupt row for the
-            // diagnostic after the batch has already been proven invalid.
-            for (size_t row = 0; row < num_values; ++row) {
-                if ((*indices)[row] < num_dictionary_values) {
-                    continue;
-                }
-                return Status::Corruption(
-                        "Parquet dictionary index {} at row {} exceeds dictionary size {}",
-                        (*indices)[row], row, num_dictionary_values);
-            }
-        }
-        return Status::OK();
-    }
+    Status decode_dictionary_indices(size_t num_values, std::vector<uint32_t>* indices) override;
 
     Status decode_selected_dictionary_indices(const ParquetSelection& selection,
-                                              std::vector<uint32_t>* indices) override {
-        DORIS_CHECK(indices != nullptr);
-        const size_t num_dictionary_values = dictionary_size();
-        if (_is_fragmented_selection(selection)) {
-            RETURN_IF_ERROR(_decode_fragmented_selection(selection, num_dictionary_values));
-            indices->assign(_skip_indices.begin(),
-                            _skip_indices.begin() + selection.selected_values);
-            return Status::OK();
-        }
-        indices->resize(selection.selected_values);
-        size_t cursor = 0;
-        size_t output = 0;
-        for (const auto& range : selection.ranges) {
-            DORIS_CHECK(range.first >= cursor);
-            RETURN_IF_ERROR(_decode_and_validate_skipped(range.first - cursor, cursor,
-                                                         num_dictionary_values));
-            const auto decoded = _index_batch_decoder->GetBatch(indices->data() + output,
-                                                                cast_set<uint32_t>(range.count));
-            if (UNLIKELY(decoded != range.count)) {
-                return Status::IOError("Can't read enough Parquet dictionary indices");
-            }
-            if (UNLIKELY(!dictionary_indices_in_bounds(indices->data() + output, range.count,
-                                                       num_dictionary_values))) {
-                for (size_t row = 0; row < range.count; ++row) {
-                    if ((*indices)[output + row] < num_dictionary_values) {
-                        continue;
-                    }
-                    return Status::Corruption(
-                            "Parquet dictionary index {} at row {} exceeds dictionary size {}",
-                            (*indices)[output + row], range.first + row, num_dictionary_values);
-                }
-            }
-            output += range.count;
-            cursor = range.first + range.count;
-        }
-        DORIS_CHECK(cursor <= selection.total_values);
-        RETURN_IF_ERROR(_decode_and_validate_skipped(selection.total_values - cursor, cursor,
-                                                     num_dictionary_values));
-        DORIS_CHECK_EQ(output, selection.selected_values);
-        return Status::OK();
-    }
+                                              std::vector<uint32_t>* indices) override;
 
     Status decode_dictionary_values(size_t num_values,
                                     ParquetDictionaryValueConsumer& consumer) override {
@@ -266,135 +196,18 @@ protected:
     }
 
     Status _decode_fragmented_selection(const ParquetSelection& selection,
-                                        size_t num_dictionary_values) {
-        // Decode and validate the page batch once when predicate survivors alternate in tiny runs.
-        // Walking each range separately turns one RLE batch into millions of decoder calls for
-        // low-cardinality predicates such as TPC-DS quantity buckets.
-        _skip_indices.resize(selection.total_values);
-        const auto decoded = _index_batch_decoder->GetBatch(
-                _skip_indices.data(), cast_set<uint32_t>(selection.total_values));
-        if (UNLIKELY(decoded != selection.total_values)) {
-            return Status::IOError("Can't read enough Parquet dictionary indices");
-        }
-        if (UNLIKELY(!dictionary_indices_in_bounds(_skip_indices.data(), selection.total_values,
-                                                   num_dictionary_values))) {
-            for (size_t row = 0; row < selection.total_values; ++row) {
-                if (_skip_indices[row] < num_dictionary_values) {
-                    continue;
-                }
-                return Status::Corruption(
-                        "Parquet dictionary index {} at row {} exceeds dictionary size {}",
-                        _skip_indices[row], row, num_dictionary_values);
-            }
-        }
-        size_t output = 0;
-        constexpr size_t MAX_INLINE_COPY_VALUES = 4;
-        for (const auto& range : selection.ranges) {
-            DORIS_CHECK(range.first + range.count <= selection.total_values);
-            // Alternating predicates mostly produce one-row spans; inline tiny forward copies so
-            // range compaction does not replace decoder calls with equally numerous libc calls.
-            if (range.count <= MAX_INLINE_COPY_VALUES) {
-                for (size_t row = 0; row < range.count; ++row) {
-                    _skip_indices[output + row] = _skip_indices[range.first + row];
-                }
-            } else {
-                memmove(_skip_indices.data() + output, _skip_indices.data() + range.first,
-                        range.count * sizeof(uint32_t));
-            }
-            output += range.count;
-        }
-        DORIS_CHECK_EQ(output, selection.selected_values);
-        return Status::OK();
-    }
+                                        size_t num_dictionary_values);
 
     Status skip_values(size_t num_values) override {
         return _decode_and_validate_skipped(num_values, 0, dictionary_size());
     }
 
     Status _decode_and_validate_skipped(size_t num_values, size_t row_offset,
-                                        size_t num_dictionary_values) {
-        constexpr size_t kSkipBatchSize = 4096;
-        // Skipped dictionary ids are still external input and must be bounds-checked, but keeping
-        // only one bounded gap buffer avoids the page-sized scratch used by sparse selections.
-        _skip_indices.resize(std::min(num_values, kSkipBatchSize));
-        size_t skipped_values = 0;
-        while (skipped_values < num_values) {
-            const size_t batch_size = std::min(num_values - skipped_values, kSkipBatchSize);
-            const auto skipped = _index_batch_decoder->GetBatch(_skip_indices.data(),
-                                                                static_cast<uint32_t>(batch_size));
-            if (UNLIKELY(skipped != batch_size)) {
-                return Status::IOError(
-                        "Can't skip enough Parquet dictionary indices at row {}: {} of {}",
-                        row_offset + skipped_values, skipped, batch_size);
-            }
-            // Filter gaps may be huge RLE runs; validate them in bounded SIMD-sized batches.
-            if (UNLIKELY(!dictionary_indices_in_bounds(_skip_indices.data(), batch_size,
-                                                       num_dictionary_values))) {
-                for (size_t row = 0; row < batch_size; ++row) {
-                    if (_skip_indices[row] < num_dictionary_values) {
-                        continue;
-                    }
-                    return Status::Corruption(
-                            "Parquet dictionary index {} at skipped row {} exceeds dictionary "
-                            "size {}",
-                            _skip_indices[row], row_offset + skipped_values + row,
-                            num_dictionary_values);
-                }
-            }
-            skipped_values += batch_size;
-        }
-        return Status::OK();
-    }
+                                        size_t num_dictionary_values);
 
     Status _decode_dictionary_values(size_t num_values, size_t row_offset,
                                      size_t num_dictionary_values,
-                                     ParquetDictionaryValueConsumer& consumer) {
-        constexpr size_t kLiteralBatchSize = 1024;
-        size_t decoded_values = 0;
-        while (decoded_values < num_values) {
-            const int32_t repeats = _index_batch_decoder->NextNumRepeats();
-            if (repeats > 0) {
-                const size_t run = std::min<size_t>(repeats, num_values - decoded_values);
-                const uint32_t index =
-                        _index_batch_decoder->GetRepeatedValue(cast_set<int32_t>(run));
-                if (UNLIKELY(static_cast<size_t>(index) >= num_dictionary_values)) {
-                    return Status::Corruption(
-                            "Parquet dictionary index {} at row {} exceeds dictionary size {}",
-                            index, row_offset + decoded_values, num_dictionary_values);
-                }
-                RETURN_IF_ERROR(consumer.consume_repeated(index, run));
-                decoded_values += run;
-                continue;
-            }
-
-            const int32_t literals = _index_batch_decoder->NextNumLiterals();
-            if (UNLIKELY(literals == 0)) {
-                return Status::IOError("Can't read enough Parquet dictionary indices");
-            }
-            const size_t batch = std::min({static_cast<size_t>(literals),
-                                           num_values - decoded_values, kLiteralBatchSize});
-            _skip_indices.resize(batch);
-            if (UNLIKELY(!_index_batch_decoder->GetLiteralValues(cast_set<int32_t>(batch),
-                                                                 _skip_indices.data()))) {
-                return Status::IOError("Can't read enough Parquet dictionary indices");
-            }
-            if (UNLIKELY(!dictionary_indices_in_bounds(_skip_indices.data(), batch,
-                                                       num_dictionary_values))) {
-                for (size_t row = 0; row < batch; ++row) {
-                    if (_skip_indices[row] < num_dictionary_values) {
-                        continue;
-                    }
-                    return Status::Corruption(
-                            "Parquet dictionary index {} at row {} exceeds dictionary size {}",
-                            _skip_indices[row], row_offset + decoded_values + row,
-                            num_dictionary_values);
-                }
-            }
-            RETURN_IF_ERROR(consumer.consume_indices(_skip_indices.data(), batch));
-            decoded_values += batch;
-        }
-        return Status::OK();
-    }
+                                     ParquetDictionaryValueConsumer& consumer);
 
     // For dictionary encoding
     DorisUniqueBufferPtr<uint8_t> _dict;

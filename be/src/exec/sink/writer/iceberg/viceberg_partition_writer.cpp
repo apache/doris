@@ -36,7 +36,8 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
         const std::string* iceberg_schema_json, std::vector<std::string> write_column_names,
         WriteInfo write_info, std::string file_name, int file_name_index,
         TFileFormatType::type file_format_type, TFileCompressType::type compress_type,
-        const std::map<std::string, std::string>& hadoop_conf)
+        const std::map<std::string, std::string>& hadoop_conf,
+        ClosedFileCallback closed_file_callback)
         : _partition_values(std::move(partition_values)),
           _write_output_expr_ctxs(write_output_expr_ctxs),
           _schema(schema),
@@ -47,7 +48,8 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
           _file_name_index(file_name_index),
           _file_format_type(file_format_type),
           _compress_type(compress_type),
-          _hadoop_conf(hadoop_conf) {
+          _hadoop_conf(hadoop_conf),
+          _closed_file_callback(std::move(closed_file_callback)) {
     if (t_sink.iceberg_table_sink.__isset.collect_column_stats) {
         _collect_column_stats = t_sink.iceberg_table_sink.collect_column_stats;
     }
@@ -61,13 +63,13 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     if (!_write_info.broker_addresses.empty()) {
         fs_properties.broker_addresses = &(_write_info.broker_addresses);
     }
-    io::FileDescription file_description = {
-            .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
-            .fs_name {}};
+    _path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name());
+    io::FileDescription file_description = {.path = _path, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
+    Status open_status;
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
         TParquetCompressionType::type parquet_compression_type;
@@ -91,9 +93,13 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
             break;
         }
         default: {
-            return Status::InternalError("Unsupported compress type {} with parquet",
-                                         to_string(_compress_type));
+            open_status = Status::InternalError("Unsupported compress type {} with parquet",
+                                                to_string(_compress_type));
+            break;
         }
+        }
+        if (!open_status.ok()) {
+            break;
         }
         ParquetFileOptions parquet_options = {.compression_type = parquet_compression_type,
                                               .parquet_version = TParquetVersion::PARQUET_1_0,
@@ -102,19 +108,27 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
         _file_format_transformer = std::make_unique<VParquetTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
                 parquet_options, _iceberg_schema_json, &_schema);
-        return _file_format_transformer->open();
+        open_status = _file_format_transformer->open();
+        break;
     }
     case TFileFormatType::FORMAT_ORC: {
         _file_format_transformer = std::make_unique<VOrcTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
                 _compress_type, &_schema, _fs);
-        return _file_format_transformer->open();
+        open_status = _file_format_transformer->open();
+        break;
     }
     default: {
-        return Status::InternalError("Unsupported file format type {}",
-                                     to_string(_file_format_type));
+        open_status = Status::InternalError("Unsupported file format type {}",
+                                            to_string(_file_format_type));
+        break;
     }
     }
+    if (!open_status.ok()) {
+        // A transformer failure happens after object creation, so remove any published file.
+        WARN_IF_ERROR(_fs->delete_file(_path), "failed to delete Iceberg file after open error");
+    }
+    return open_status;
 }
 
 Status VIcebergPartitionWriter::close(const Status& status) {
@@ -129,16 +143,32 @@ Status VIcebergPartitionWriter::close(const Status& status) {
     bool status_ok = result_status.ok() && status.ok();
     if (!status_ok && _fs != nullptr) {
         // delete the actual created file, otherwise an orphan file is left behind
-        auto path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name());
-        Status st = _fs->delete_file(path);
+        Status st = _fs->delete_file(_path);
         if (!st.ok()) {
-            LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
+            LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", _path, st.to_string());
         }
     }
     if (status_ok) {
         TIcebergCommitData commit_data;
-        RETURN_IF_ERROR(_build_iceberg_commit_data(&commit_data));
-        _state->add_iceberg_commit_datas(commit_data);
+        Status commit_status = _build_iceberg_commit_data(&commit_data);
+        if (!commit_status.ok()) {
+            // A closed object without commit data can never be published, so remove it immediately.
+            Status delete_status = _fs->delete_file(_path);
+            if (!delete_status.ok()) {
+                LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", _path,
+                                            delete_status.to_string());
+            }
+            return commit_status;
+        }
+        Status report_status = _state->add_iceberg_commit_datas(std::move(commit_data));
+        if (!report_status.ok()) {
+            // A closed object that cannot be reported can never be committed, so remove it immediately.
+            WARN_IF_ERROR(_fs->delete_file(_path), "failed to delete unreportable Iceberg file");
+            return report_status;
+        }
+        if (_closed_file_callback) {
+            _closed_file_callback(_fs, _path);
+        }
     }
     return result_status;
 }

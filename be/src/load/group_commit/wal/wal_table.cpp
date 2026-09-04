@@ -23,6 +23,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/group_commit/wal/wal_manager.h"
+#include "runtime/cluster_info.h"
 #include "runtime/fragment_mgr.h"
 #include "service/http/action/http_stream.h"
 #include "service/http/action/stream_load.h"
@@ -91,7 +92,8 @@ Status WalTable::_relay_wal_one_by_one() {
         int64_t file_size = 0;
         std::filesystem::path file_path(wal_info->get_wal_path());
         if (!std::filesystem::exists(file_path)) {
-            st = Status::InternalError("wal file {} does not exist", wal_info->get_wal_path());
+            LOG(WARNING) << "skip replay missing wal=" << wal_info->get_wal_path();
+            st = Status::OK();
         } else {
             file_size = std::filesystem::file_size(file_path);
             st = _replay_wal_internal(wal_info->get_wal_path());

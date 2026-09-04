@@ -60,6 +60,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Month;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -840,25 +841,33 @@ public class DynamicPartitionUtil {
     }
 
     // return the partition range date string formatted as yyyy-MM-dd[ HH:mm::ss]
+    // When current is UTC-based (e.g. for TIMESTAMPTZ columns), the result
+    // carries a +00:00 suffix so downstream TimestampTzLiteral parsing treats
+    // it as an unambiguous UTC instant.
     public static String getPartitionRangeString(DynamicPartitionProperty property, ZonedDateTime current,
                                                  int offset, String format) {
         String timeUnit = property.getTimeUnit();
+        String result;
         if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
-            return getPartitionRangeOfDay(current, offset, format);
+            result = getPartitionRangeOfDay(current, offset, format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.WEEK.toString())) {
-            return getPartitionRangeOfWeek(current, offset, property.getStartOfWeek(), format);
+            result = getPartitionRangeOfWeek(current, offset, property.getStartOfWeek(), format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
-            return getPartitionRangeOfHour(current, offset, format);
+            result = getPartitionRangeOfHour(current, offset, format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString())) {
-            return getPartitionRangeOfMonth(current, offset, property.getStartOfMonth(), format);
+            result = getPartitionRangeOfMonth(current, offset, property.getStartOfMonth(), format);
         } else { // YEAR
-            return getPartitionRangeOfYear(current, offset, format);
+            result = getPartitionRangeOfYear(current, offset, format);
         }
+        if (current.getZone().equals(ZoneOffset.UTC)) {
+            result += "+00:00";
+        }
+        return result;
     }
 
     public static String getHistoryPartitionRangeString(DynamicPartitionProperty dynamicPartitionProperty,
-            String time, String format) throws AnalysisException {
-        ZoneId zoneId = dynamicPartitionProperty.getTimeZone().toZoneId();
+            String time, String format, boolean isTimestampTz) throws AnalysisException {
+        ZoneId zoneId = isTimestampTz ? ZoneOffset.UTC : dynamicPartitionProperty.getTimeZone().toZoneId();
         LocalDateTime dateTime = null;
         Timestamp timestamp = null;
         String timeUnit = dynamicPartitionProperty.getTimeUnit();
@@ -870,8 +879,12 @@ public class DynamicPartitionUtil {
             throw new AnalysisException("Parse dynamic partition periods error. Error=" + e.getMessage());
         }
         timestamp = Timestamp.valueOf(dateTime);
-        return getFormattedTimeWithoutMinuteSecond(
+        String result = getFormattedTimeWithoutMinuteSecond(
                 ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
+        if (isTimestampTz) {
+            result += "+00:00";
+        }
+        return result;
     }
 
     private static LocalDateTime getDateTimeByTimeUnit(String time, String timeUnit) {

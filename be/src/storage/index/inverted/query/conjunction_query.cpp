@@ -17,8 +17,8 @@
 
 #include "storage/index/inverted/query/conjunction_query.h"
 
-#include "storage/compaction/collection_statistics.h"
 #include "storage/index/inverted/query/query_helper.h"
+#include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/index/inverted/util/mock_iterator.h"
 #include "storage/index/inverted/util/string_helper.h"
 

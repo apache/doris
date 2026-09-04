@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_storage_format_v2_1") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def tableName = "test_storage_format_v2_1_table"
     
     // Test 1: Create table with storage_format = V2.1
@@ -34,9 +35,9 @@ suite("test_storage_format_v2_1") {
     """
     
     // Insert some data
-    sql """insert into ${tableName} values (1, '{"a": 1, "b": 2, "c": 3}')"""
-    sql """insert into ${tableName} values (2, '{"a": 10, "b": 20, "d": 40}')"""
-    sql """insert into ${tableName} values (3, '{"e": 500, "f": 600}')"""
+    sql """insert into ${tableName} values (1, ${variantV2Function}('{"a": 1, "b": 2, "c": 3}'))"""
+    sql """insert into ${tableName} values (2, ${variantV2Function}('{"a": 10, "b": 20, "d": 40}'))"""
+    sql """insert into ${tableName} values (3, ${variantV2Function}('{"e": 500, "f": 600}'))"""
     
     // Query to verify data is correct
     qt_sql1 "select k, v['a'] from ${tableName} where cast(v['a'] as int) is not null order by k"
@@ -68,7 +69,7 @@ suite("test_storage_format_v2_1") {
         );
     """
     
-    sql """insert into ${tableName2} values (1, '{"x": 100}')"""
+    sql """insert into ${tableName2} values (1, ${variantV2Function}('{"x": 100}'))"""
     qt_sql5 "select k, v['x'] from ${tableName2} order by k"
     
     sql "DROP TABLE IF EXISTS ${tableName2}"
@@ -89,10 +90,8 @@ suite("test_storage_format_v2_1") {
         );
     """
     
-    sql """insert into ${tableName3} values (1, '{"test": "value"}')"""
+    sql """insert into ${tableName3} values (1, ${variantV2Function}('{"test": "value"}'))"""
     qt_sql6 "select k, v['test'] from ${tableName3} order by k"
     
     sql "DROP TABLE IF EXISTS ${tableName3}"
 }
-
-

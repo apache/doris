@@ -48,6 +48,7 @@
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_client.h"
 #include "storage/data_dir.h"
@@ -765,7 +766,7 @@ Status BaseSnapshotLoader::init(TStorageBackendType::type type, const std::strin
     } else if (TStorageBackendType::type::HDFS == type) {
         THdfsParams hdfs_params = parse_properties(_prop);
         _remote_fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,
-                                                          io::FileSystem::TMP_FS_ID, nullptr));
+                                                          io::FileSystem::TMP_FS_ID));
     } else if (TStorageBackendType::type::BROKER == type) {
         std::shared_ptr<io::BrokerFileSystem> fs;
         _remote_fs = DORIS_TRY(

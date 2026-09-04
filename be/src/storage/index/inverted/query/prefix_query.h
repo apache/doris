@@ -31,7 +31,10 @@ public:
     void add(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
-    void get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
+    // Explicitly qualified: unqualified IndexReader inside doris::segment_v2
+    // resolves to doris::segment_v2::IndexReader whenever that type is in
+    // scope (e.g. in a unity TU), not to the CL_NS_USE(index) one intended.
+    void get_prefix_terms(lucene::index::IndexReader* reader, const std::wstring& field_name,
                           const std::string& prefix, std::vector<std::string>& prefix_terms,
                           int32_t max_expansions = 50);
 

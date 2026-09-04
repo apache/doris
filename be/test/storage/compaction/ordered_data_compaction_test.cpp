@@ -49,6 +49,7 @@
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/data_dir.h"
 #include "storage/delete/delete_handler.h"
+#include "storage/index/index_writer.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"
@@ -303,7 +304,7 @@ protected:
 
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
                 int32_t c1 = std::get<0>(rowset_data[i][rid]);
@@ -450,27 +451,6 @@ protected:
         }
     }
 
-    void block_create(TabletSchemaSPtr tablet_schema, Block* block) {
-        block->clear();
-        size_t num_columns = tablet_schema->num_columns();
-        if (num_columns > 0 && tablet_schema->columns().back()->name() == BeConsts::ROW_STORE_COL) {
-            --num_columns;
-        }
-        std::vector<ColumnId> schema_column_ids(num_columns);
-        for (uint32_t cid = 0; cid < num_columns; ++cid) {
-            schema_column_ids[cid] = cid;
-        }
-        Schema schema(tablet_schema->columns(), schema_column_ids);
-        const auto& column_ids = schema.column_ids();
-        for (size_t i = 0; i < schema.num_column_ids(); ++i) {
-            auto column_desc = schema.column(column_ids[i]);
-            auto data_type = Schema::get_data_type_ptr(*column_desc);
-            EXPECT_TRUE(data_type != nullptr);
-            auto column = data_type->create_column();
-            block->insert(ColumnWithTypeAndName(std::move(column), data_type, column_desc->name()));
-        }
-    }
-
 private:
     const std::string kTestDir = "/ut_dir/ordered_compaction_test";
     const std::string tmp_dir = "./ut_dir/ordered_compaction_test/tmp";
@@ -514,8 +494,9 @@ TEST_F(OrderedDataCompactionTest, test_01) {
     RowsetReaderContext reader_context;
     reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
-    std::vector<uint32_t> return_columns = {0, 1};
-    reader_context.return_columns = &return_columns;
+    auto read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
+    reader_context.read_schema = read_schema;
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
@@ -525,7 +506,7 @@ TEST_F(OrderedDataCompactionTest, test_01) {
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     Status s = Status::OK();
     do {
-        block_create(tablet_schema, &output_block);
+        output_block = read_schema->create_read_block();
         s = output_rs_reader->next_batch(&output_block);
         auto columns = output_block.get_columns_with_type_and_name();
         EXPECT_EQ(columns.size(), 2);
@@ -581,7 +562,7 @@ TEST_F(OrderedDataCompactionTest, test_index_disk_size) {
 
         uint32_t num_rows = 0;
         for (int j = 0; j < input_data[i].size(); ++j) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < input_data[i][j].size(); ++rid) {
                 int32_t c1 = std::get<0>(input_data[i][j][rid]);

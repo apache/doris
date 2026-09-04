@@ -34,8 +34,9 @@ namespace doris {
 template <bool is_intersect>
 struct MockSetSourceOperatorX : public SetSourceOperatorX<is_intersect> {
     MockSetSourceOperatorX(int child_size, DataTypes types, ObjectPool* pool)
-            : SetSourceOperatorX<is_intersect>(child_size), _mock_row_descriptor(types, pool) {}
-    RowDescriptor& row_descriptor() override { return _mock_row_descriptor; }
+            : SetSourceOperatorX<is_intersect>(child_size), _mock_row_descriptor(types, pool) {
+        this->_row_descriptor = _mock_row_descriptor;
+    }
     MockRowDescriptor _mock_row_descriptor;
 };
 

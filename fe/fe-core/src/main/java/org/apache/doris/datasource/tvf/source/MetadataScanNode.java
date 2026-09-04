@@ -19,7 +19,7 @@ package org.apache.doris.datasource.tvf.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.ExternalScanNode;
+import org.apache.doris.datasource.scan.ExternalScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;

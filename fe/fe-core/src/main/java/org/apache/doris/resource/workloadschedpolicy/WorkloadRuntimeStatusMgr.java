@@ -29,12 +29,15 @@ import org.apache.doris.thrift.TQueryStatisticsResult;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +60,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     private volatile Map<String, TQueryStatistics> queryStatisticsSnapshot = ImmutableMap.of();
     private final ReentrantLock queryAuditEventLock = new ReentrantLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
+    private final Map<AuditEvent, Set<Long>> externalDmlAuditBackendIds = new IdentityHashMap<>();
     private volatile long lastWarnTime;
 
     private class BeReportInfo {
@@ -76,14 +80,12 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        // 1 rebuild and publish query statistics snapshot
-        rebuildQueryStatisticsSnapshot();
-        // 2 read the latest immutable snapshot for downstream processing
-        Map<String, TQueryStatistics> queryStatisticsMap = getQueryStatisticsMap();
-
-        // 3 log query audit
         try {
             List<AuditEvent> auditEventList = getQueryNeedAudit();
+            // Once an external write is ready, rebuild after the readiness check so the audit
+            // event observes the same final BE reports that satisfied its completion barrier.
+            rebuildQueryStatisticsSnapshot();
+            Map<String, TQueryStatistics> queryStatisticsMap = getQueryStatisticsMap();
             int missedLogCount = 0;
             int succLogCount = 0;
             for (AuditEvent auditEvent : auditEventList) {
@@ -115,7 +117,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             LOG.warn("exception happens when handleAuditEvent, ", t);
         }
 
-        // 4 clear beToQueryStatsMap when be report timeout
+        // clear beToQueryStatsMap when be report timeout
         clearReportTimeoutBeStatistics();
     }
 
@@ -127,6 +129,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     // And the worker thread will get an event from the queue and get the statistic info for this
     // event from queryStatisticsMap.
     public void submitFinishQueryToAudit(AuditEvent event) {
+        submitFinishQueryToAudit(event, ImmutableSet.of());
+    }
+
+    public void submitFinishQueryToAudit(AuditEvent event, Set<Long> expectedBackendIds) {
         queryAuditEventLogWriteLock();
         try {
             if (queryAuditEventList.size() > Config.audit_event_log_queue_size) {
@@ -148,6 +154,9 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                 // the worker thread will try best to wait for the statistic info before logging this event.
                 event.pushToAuditLogQueueTime = System.currentTimeMillis();
                 queryAuditEventList.add(event);
+                if (expectedBackendIds != null && !expectedBackendIds.isEmpty()) {
+                    externalDmlAuditBackendIds.put(event, ImmutableSet.copyOf(expectedBackendIds));
+                }
             }
         } finally {
             queryAuditEventLogWriteUnlock();
@@ -155,25 +164,70 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     }
 
     private List<AuditEvent> getQueryNeedAudit() {
-        List<AuditEvent> ret = new ArrayList<>();
         long currentTime = System.currentTimeMillis();
+        int queryAuditLogTimeout = Config.query_audit_log_timeout_ms;
+        long maximumWaitMs = Math.max(queryAuditLogTimeout,
+                Config.be_report_query_statistics_timeout_ms);
+        Map<AuditEvent, Set<Long>> dueExternalDmlEvents = new IdentityHashMap<>();
+        Set<AuditEvent> readyEvents = Collections.newSetFromMap(new IdentityHashMap<>());
+
         queryAuditEventLogWriteLock();
         try {
-            int queryAuditLogTimeout = Config.query_audit_log_timeout_ms;
+            for (AuditEvent ae : queryAuditEventList) {
+                long waitTimeMs = currentTime - ae.pushToAuditLogQueueTime;
+                if (waitTimeMs <= queryAuditLogTimeout) {
+                    continue;
+                }
+                Set<Long> expectedBackendIds = externalDmlAuditBackendIds.get(ae);
+                if (expectedBackendIds == null || waitTimeMs > maximumWaitMs) {
+                    readyEvents.add(ae);
+                } else {
+                    dueExternalDmlEvents.put(ae, expectedBackendIds);
+                }
+            }
+        } finally {
+            queryAuditEventLogWriteUnlock();
+        }
+
+        // BE lookups are O(events * participants), so keep them outside the queue lock that
+        // statement threads need in order to submit unrelated audit events.
+        for (Map.Entry<AuditEvent, Set<Long>> entry : dueExternalDmlEvents.entrySet()) {
+            if (haveAllBackendsReportedFinalStatistics(entry.getKey().queryId, entry.getValue())) {
+                readyEvents.add(entry.getKey());
+            }
+        }
+
+        List<AuditEvent> ret = new ArrayList<>();
+        queryAuditEventLogWriteLock();
+        try {
             Iterator<AuditEvent> iter = queryAuditEventList.iterator();
             while (iter.hasNext()) {
                 AuditEvent ae = iter.next();
-                if (currentTime - ae.pushToAuditLogQueueTime > queryAuditLogTimeout) {
+                if (readyEvents.contains(ae)) {
                     ret.add(ae);
                     iter.remove();
-                } else {
-                    break;
+                    externalDmlAuditBackendIds.remove(ae);
                 }
             }
         } finally {
             queryAuditEventLogWriteUnlock();
         }
         return ret;
+    }
+
+    private boolean haveAllBackendsReportedFinalStatistics(String queryId, Set<Long> expectedBackendIds) {
+        for (Long backendId : expectedBackendIds) {
+            BeReportInfo reportInfo = beToQueryStatsMap.get(backendId);
+            if (reportInfo == null) {
+                return false;
+            }
+            Pair<Long, TQueryStatisticsResult> queryStatistics = reportInfo.queryStatsMap.get(queryId);
+            if (queryStatistics == null || queryStatistics.second == null
+                    || !queryStatistics.second.isQueryFinished()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void updateBeQueryStats(TReportWorkloadRuntimeStatusParams params) {

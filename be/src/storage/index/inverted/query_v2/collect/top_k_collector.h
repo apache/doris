@@ -22,7 +22,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
-#include <ranges>
 #include <roaring/roaring.hh>
 #include <string>
 #include <vector>
@@ -99,9 +98,10 @@ private:
     std::vector<ScoredDoc> _buffer;
 };
 
-void collect_multi_segment_top_k(const WeightPtr& weight, const QueryExecutionContext& context,
-                                 const std::string& binding_key, size_t k,
-                                 const std::shared_ptr<roaring::Roaring>& roaring,
-                                 const CollectionSimilarityPtr& similarity, bool use_wand = true);
+void collect_multi_segment_top_k(
+        const WeightPtr& weight, const QueryExecutionContext& context,
+        const std::string& binding_key, size_t k, const std::shared_ptr<roaring::Roaring>& roaring,
+        const CollectionSimilarityPtr& similarity, bool use_wand = true,
+        const std::shared_ptr<const roaring::Roaring>& delete_bitmap = nullptr);
 
 } // namespace doris::segment_v2::inverted_index::query_v2

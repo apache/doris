@@ -26,6 +26,6 @@ PhysicalResultSink
 -- !ndv_row_invalid --
 PhysicalResultSink
 --hashJoin[INNER_JOIN broadcast] hashCondition=((region.r_regionkey = nation.n_regionkey)) otherCondition=()
-----PhysicalOlapScan[region]
 ----PhysicalOlapScan[nation]
+----PhysicalOlapScan[region]
 

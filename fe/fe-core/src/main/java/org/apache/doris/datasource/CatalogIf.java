@@ -32,7 +32,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -59,6 +63,10 @@ public interface CatalogIf<T extends DatabaseIf> {
     // Name of this catalog
     String getName();
 
+    /**
+     * Returns a read-only database-name snapshot.
+     * Callers that need to modify the result must create a copy.
+     */
     List<String> getDbNames();
 
     default String getErrorMsg() {
@@ -154,6 +162,11 @@ public interface CatalogIf<T extends DatabaseIf> {
     // Called when catalog is dropped
     void onClose();
 
+    // Called when catalog creation fails before the catalog is registered.
+    default void onCreateFailure() {
+        onClose();
+    }
+
     String getComment();
 
     default void setComment(String comment) {
@@ -183,6 +196,32 @@ public interface CatalogIf<T extends DatabaseIf> {
     void createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException;
 
     void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException;
+
+    /**
+     * Validates an explicitly written {@code CREATE TABLE ... ENGINE=<name>} against this catalog, throwing
+     * if this catalog does not create tables under that engine name.
+     *
+     * <p>{@code ENGINE=} is legacy syntax that predates catalogs, and it is optional — omitting it is always
+     * legal and lets the catalog pick for itself. The engine therefore keeps no table of which name belongs
+     * to which data source: every catalog answers for itself, and an external catalog forwards the question
+     * to its connector. The default rejects any explicit engine, which is the right answer for a catalog that
+     * cannot create tables at all.</p>
+     *
+     * <p>Implementations must not force the catalog to initialize: this runs during analysis, where a remote
+     * round trip would turn a syntax mistake into a connection error.</p>
+     */
+    default void validateCreateTableEngine(String engineName) throws AnalysisException {
+        throw new AnalysisException(engineMismatchError(engineName, getName()));
+    }
+
+    /**
+     * The one wording for "that engine name is not this catalog's", so every catalog rejects alike. It names
+     * only what the user wrote and the catalog they wrote it against — deliberately not the engine name that
+     * would have been accepted, which is the connector's to know, not the engine's.
+     */
+    static String engineMismatchError(String engineName, String catalogName) {
+        return "Engine '" + engineName + "' does not match catalog '" + catalogName + "'.";
+    }
 
     /**
      * @return if org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo.ifNotExists is true,
@@ -310,5 +349,19 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     default void reorderColumns(TableIf table, List<String> newOrder) throws UserException {
         throw new UserException("Not support reorder columns operation");
+    }
+
+    // partition evolution operations (Iceberg): add / drop / replace a partition field
+
+    default void addPartitionField(TableIf table, AddPartitionFieldOp op) throws UserException {
+        throw new UserException("Not support add partition field operation");
+    }
+
+    default void dropPartitionField(TableIf table, DropPartitionFieldOp op) throws UserException {
+        throw new UserException("Not support drop partition field operation");
+    }
+
+    default void replacePartitionField(TableIf table, ReplacePartitionFieldOp op) throws UserException {
+        throw new UserException("Not support replace partition field operation");
     }
 }

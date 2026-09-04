@@ -101,4 +101,13 @@ public class AuditLogHelperTest {
             Config.enable_bdbje_debug_mode = original;
         }
     }
+
+    @Test
+    public void testGetCloudClusterForAuditPrefersEffectiveCluster() throws Exception {
+        ConnectContext ctx = createMockContext(true, false);
+        ctx.getSessionVariable().setCloudCluster("session_cluster");
+        ctx.setEffectiveCloudCluster("hint_cluster");
+
+        Assert.assertEquals("hint_cluster", AuditLogHelper.getCloudClusterForAudit(ctx));
+    }
 }

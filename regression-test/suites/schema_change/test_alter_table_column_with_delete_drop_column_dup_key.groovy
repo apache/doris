@@ -94,8 +94,8 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
         """
 
     sql "insert into ${tbName1} values(1,1,1,1);"
-    sql "insert into ${tbName1} values(2,2,2,2);"
-    qt_sql "select * from ${tbName1} where value2=2 order by k1;"
+    sql "insert into ${tbName1} values(20,200,2000,2);"
+    qt_sql "select * from ${tbName1} where value2=2000 order by k1;"
 
     // test alter light schema change by the way
     if (!isCloudMode()) {
@@ -123,7 +123,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
     });
     qt_sql "select * from ${tbName1} where value1=3 order by k1;"
 
-    // drop value3
+    // re-add value3 with a different type and unique ID
     sql """
             ALTER TABLE ${tbName1} 
             ADD COLUMN value3 CHAR(100) DEFAULT 'A';
@@ -138,8 +138,34 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
     });
     qt_sql "select * from ${tbName1} where value1=4 order by k1;"
 
+    order_qt_project_other_after_delete_drop_readd """
+        SELECT value1
+        FROM ${tbName1}
+        ORDER BY value1
+    """
+
     sql "insert into ${tbName1} values(5,5,5,'B');"
     qt_sql "select * from ${tbName1} order by k1;"
+
+    // Keep the old delete predicate through light schema changes, then drop the same-name
+    // replacement so the following full schema change must resolve value3 historically.
+    sql """
+            ALTER TABLE ${tbName1}
+            DROP COLUMN value3;
+        """
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        res = getJobState(tbName1)
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            return true;
+        }
+        return false;
+    });
+    order_qt_project_other_after_delete_drop_readd_drop_again """
+        SELECT value1
+        FROM ${tbName1}
+        ORDER BY value1
+    """
 
     // Do schema change that not do light weight schema change
     sql """
@@ -155,6 +181,12 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
         return false;
     });
     qt_sql "select * from ${tbName1} where value1=4 order by k1;"
+    order_qt_project_other_after_delete_drop_readd_drop_again_full_schema_change """
+        SELECT value1
+        FROM ${tbName1}
+        ORDER BY value1
+    """
+
     sql "DROP TABLE ${tbName1} FORCE;"
 
 //======================= Test Light Weight Schema Change  with Compaction

@@ -39,7 +39,7 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     auto& parent = _parent->cast<CacheSourceOperatorX>();
     const auto& cache_param = parent._cache_param;
     // 1. init the slot orders
-    const auto& tuple_descs = parent.row_desc().tuple_descriptors();
+    const auto& tuple_descs = parent.operator_row_desc_after_projection().tuple_descriptors();
     for (auto tuple_desc : tuple_descs) {
         for (auto slot_desc : tuple_desc->slots()) {
             if (cache_param.output_slot_mapping.find(slot_desc->id()) !=

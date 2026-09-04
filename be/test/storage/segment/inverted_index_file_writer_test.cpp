@@ -23,6 +23,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_storage_format_v1.h"
 #include "storage/index/index_storage_format_v2.h"
+#include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/storage_engine.h"
 
@@ -32,6 +33,33 @@ using namespace doris;
 
 class IndexFileWriterTest : public ::testing::Test {
 protected:
+    class TrackingFileWriter final : public io::FileWriter {
+    public:
+        Status close(bool non_block = false) override {
+            close_calls.push_back(non_block);
+            _state = non_block ? State::ASYNC_CLOSING : State::CLOSED;
+            return Status::OK();
+        }
+
+        Status appendv(const Slice* data, size_t data_cnt) override {
+            for (size_t i = 0; i < data_cnt; ++i) {
+                _bytes_appended += data[i].size;
+            }
+            return Status::OK();
+        }
+
+        const io::Path& path() const override { return _path; }
+        size_t bytes_appended() const override { return _bytes_appended; }
+        State state() const override { return _state; }
+
+        std::vector<bool> close_calls;
+
+    private:
+        io::Path _path {"tracking.idx"};
+        size_t _bytes_appended = 0;
+        State _state = State::OPENED;
+    };
+
     class MockDorisFSDirectoryFileLength : public DorisFSDirectory {
     public:
         //MOCK_METHOD(lucene::store::IndexOutput*, createOutput, (const char* name), (override));
@@ -1353,7 +1381,7 @@ public:
     int64_t num_rows_filtered() const override { return 0; }
     RowsetId rowset_id() override { return _context.rowset_id; }
     RowsetTypePB type() const override { return BETA_ROWSET; }
-    int32_t allocate_segment_id() override { return 0; }
+    Result<int32_t> allocate_segment_id() override { return 0; }
     int32_t get_allocated_segment_id() override { return 0; }
     std::shared_ptr<PartialUpdateInfo> get_partial_update_info() override { return nullptr; }
     bool is_partial_update() override { return false; }
@@ -2179,6 +2207,21 @@ TEST_F(IndexFileWriterTest, EmptyIndexV2Test) {
     ASSERT_TRUE(close_status.ok());
     close_status = writer.finish_close();
     ASSERT_TRUE(close_status.ok());
+}
+
+TEST_F(IndexFileWriterTest, SniiBeginCloseStartsUnderlyingFileClose) {
+    auto file_writer = std::make_unique<TrackingFileWriter>();
+    auto* tracking_writer = file_writer.get();
+    IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                           InvertedIndexStorageFormatPB::SNII, std::move(file_writer));
+
+    ASSERT_TRUE(writer.begin_close().ok());
+    EXPECT_EQ(tracking_writer->state(), io::FileWriter::State::ASYNC_CLOSING);
+    EXPECT_EQ(tracking_writer->close_calls, std::vector<bool>({true}));
+
+    ASSERT_TRUE(writer.finish_close().ok());
+    EXPECT_EQ(tracking_writer->state(), io::FileWriter::State::CLOSED);
+    EXPECT_EQ(tracking_writer->close_calls, std::vector<bool>({true, false}));
 }
 
 // Test for StreamSinkFileWriter path in close()

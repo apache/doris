@@ -22,8 +22,11 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.LocalTablet;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Tablet;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -41,9 +44,13 @@ public class HashDistributionPrunerTest {
     @Test
     public void test() {
         List<Long> tabletIds = Lists.newArrayListWithExpectedSize(300);
+        List<Tablet> indexTablets = Lists.newArrayListWithExpectedSize(300);
         for (long i = 0; i < 300; i++) {
             tabletIds.add(i);
+            indexTablets.add(new LocalTablet(i));
         }
+        MaterializedIndex index = new MaterializedIndex();
+        index.appendTablets(indexTablets);
 
         // distribution columns
         Column dealDate = new Column("dealDate", PrimitiveType.DATE, false);
@@ -91,7 +98,7 @@ public class HashDistributionPrunerTest {
         filters.put("CHANNEL", channelFilter);
         filters.put("SHOP_TYPE", shopTypeFilter);
 
-        HashDistributionPruner pruner = new HashDistributionPruner(null, tabletIds, columns, filters, tabletIds.size(),
+        HashDistributionPruner pruner = new HashDistributionPruner(null, index, columns, filters, tabletIds.size(),
                 true);
 
         Collection<Long> results = pruner.prune();
@@ -137,6 +144,45 @@ public class HashDistributionPrunerTest {
         }
 
         Assert.assertEquals(39, tablets.size());
+    }
+
+    @Test
+    public void testPruneWithMaterializedIndex() {
+        List<Long> tabletIds = Lists.newArrayListWithExpectedSize(8);
+        MaterializedIndex index = new MaterializedIndex();
+        for (long i = 0; i < 8; i++) {
+            long tabletId = 100 + i;
+            tabletIds.add(tabletId);
+            index.addTablet(new LocalTablet(tabletId), null, true);
+        }
+
+        Column column = new Column("k1", PrimitiveType.CHAR, false);
+        List<Column> columns = Lists.newArrayList(column);
+
+        List<Expr> inList = Lists.newArrayList();
+        inList.add(new StringLiteral("a"));
+        inList.add(new StringLiteral("b"));
+        PartitionColumnFilter filter = new PartitionColumnFilter();
+        filter.setInPredicate(new InPredicate(new SlotRef(null, "k1"), inList, false));
+
+        Map<String, PartitionColumnFilter> filters = new CaseInsensitiveMap();
+        filters.put("K1", filter);
+
+        Collection<Long> indexResult = new HashDistributionPruner(null, index, columns, filters,
+                tabletIds.size(), true).prune();
+        Set<Long> expectedTabletIds = Sets.newHashSet();
+        for (Expr literal : inList) {
+            PartitionKey hashKey = new PartitionKey();
+            hashKey.pushColumn((StringLiteral) literal, PrimitiveType.CHAR);
+            long hashValue = hashKey.getHashValue();
+            expectedTabletIds.add(tabletIds.get((int) ((hashValue & 0xffffffff) % tabletIds.size())));
+        }
+        Assert.assertEquals(expectedTabletIds, Sets.newHashSet(indexResult));
+
+        Map<String, PartitionColumnFilter> emptyFilters = new CaseInsensitiveMap();
+        Collection<Long> allIndexTablets = new HashDistributionPruner(null, index, columns, emptyFilters,
+                tabletIds.size(), true).prune();
+        Assert.assertEquals(tabletIds, Lists.newArrayList(allIndexTablets));
     }
 
 }

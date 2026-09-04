@@ -56,11 +56,41 @@ public class ExprToStringValueVisitor extends ExprVisitor<String, StringValueCon
         String value;
         if (expr.getType().isTimeStampTz()) {
             try {
-                ZoneId dorisZone = DateUtils.getTimeZone();
-                String offset = dorisZone.getRules().getOffset(java.time.Instant.now()).toString();
-                DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(expr.getStringValue(),
-                        ScalarType.createDatetimeV2Type(((ScalarType) expr.getType()).getScalarScale()));
-                value = dateLiteral.getStringValue() + offset;
+                if (ctx.isForStreamLoad()) {
+                    // BE's TIMESTAMPTZ parser consumes only hour/minute offsets
+                    // (minutes restricted to 00/30/45).  Historical zone offsets
+                    // can include seconds (e.g. Asia/Shanghai before 1901 had
+                    // +08:05:43), which BE would reject.  Since TIMESTAMPTZ
+                    // stores UTC internally, render in UTC format that BE can
+                    // round-trip.
+                    value = expr.getStringValue();
+                } else {
+                    ZoneId dorisZone = DateUtils.getTimeZone();
+                    // Compute offset from the target instant (the literal's UTC
+                    // value), not Instant.now() which may be in a different DST
+                    // period.
+                    java.time.Instant targetInstant = java.time.LocalDateTime.of(
+                            (int) expr.getYear(), (int) expr.getMonth(), (int) expr.getDay(),
+                            (int) expr.getHour(), (int) expr.getMinute(), (int) expr.getSecond(),
+                            (int) expr.getMicrosecond() * 1000)
+                            .atZone(java.time.ZoneOffset.UTC).toInstant();
+                    String offset = dorisZone.getRules().getOffset(targetInstant).toString();
+                    DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(expr.getStringValue(),
+                            ScalarType.createDatetimeV2Type(((ScalarType) expr.getType()).getScalarScale()));
+                    // BE's TimestampTzValue::to_string() renders the wall clock
+                    // with the session timezone offset but truncates seconds
+                    // (e.g. +08:05:43 becomes +08:05), producing text that
+                    // denotes a different instant if reparsed.  When the offset
+                    // contains seconds (a second colon), fall back to UTC so
+                    // that FE constant evaluation and BE row serialisation
+                    // produce the same string for the same stored instant.
+                    int firstColon = offset.indexOf(':');
+                    if (firstColon > 0 && offset.indexOf(':', firstColon + 1) > 0) {
+                        value = expr.getStringValue();
+                    } else {
+                        value = dateLiteral.getStringValue() + offset;
+                    }
+                }
             } catch (Exception e) {
                 LOG.warn("generate timestamptz({})'s string value for query failed. ",
                         expr.getStringValue(), e);
@@ -82,19 +112,11 @@ public class ExprToStringValueVisitor extends ExprVisitor<String, StringValueCon
             String timeStr = expr.getStringValue();
             value = timeStr.substring(1, timeStr.length() - 1);
         } else {
-            double dValue = expr.getValue();
             if (expr.getType() == Type.FLOAT) {
-                Float fValue = (float) dValue;
-                if (fValue.equals(Float.POSITIVE_INFINITY)) {
-                    dValue = Double.POSITIVE_INFINITY;
-                }
-                if (fValue.equals(Float.NEGATIVE_INFINITY)) {
-                    dValue = Double.NEGATIVE_INFINITY;
-                }
+                value = FractionalFormat.getFormatStringValue((float) expr.getValue());
+            } else {
+                value = FractionalFormat.getFormatStringValue(expr.getValue());
             }
-            value = FractionalFormat.getFormatStringValue(dValue,
-                    expr.getType() == Type.DOUBLE ? 16 : 7,
-                    expr.getType() == Type.DOUBLE ? "%.15E" : "%.6E");
         }
         if (ctx.isInComplexType() && expr.getType() == Type.TIMEV2) {
             return wrapWithQuotes(value, ctx);

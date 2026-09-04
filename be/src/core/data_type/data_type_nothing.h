@@ -35,6 +35,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
 #include "core/types.h"
+#include "storage/field_type.h"
 
 namespace doris {
 

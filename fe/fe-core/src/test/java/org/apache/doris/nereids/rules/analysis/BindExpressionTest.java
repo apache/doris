@@ -20,6 +20,11 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecondSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearMonthAdd;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -99,6 +104,37 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
                 .nonMatch(any()
                         .when(e -> e.getExpressions().stream().anyMatch(Expression::hasUnbound)));
 
+    }
+
+    @Test
+    void testCompoundIntervalArithmetic() {
+        PlanChecker.from(connectContext)
+                .analyze("select cast(col1 as datetime) + interval '1-2' year_month from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(YearMonthAdd.class::isInstance))));
+
+        PlanChecker.from(connectContext)
+                .analyze("select interval '1 5' day_hour + cast(col1 as datetime) from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(DayHourAdd.class::isInstance))));
+
+        PlanChecker.from(connectContext)
+                .analyze("select cast(col1 as datetime) - interval '2 30' hour_second from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(HourSecondSub.class::isInstance))));
+    }
+
+    @Test
+    void testSimpleIntervalArithmeticBinding() {
+        PlanChecker.from(connectContext)
+                .analyze("select cast(col1 as datetime) + interval 1 microsecond from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(MicroSecondsAdd.class::isInstance))));
+
+        PlanChecker.from(connectContext)
+                .analyze("select cast(col1 as datetime) - interval 1 microsecond from t1")
+                .matches(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expression -> expression.anyMatch(MicroSecondsSub.class::isInstance))));
     }
 
     @Test

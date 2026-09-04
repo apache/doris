@@ -17,6 +17,8 @@
 
 #include "exec/operator/rec_cte_source_operator.h"
 
+#include "exec/common/distinct_agg_utils.h"
+
 namespace doris {
 
 RecCTESourceLocalState::RecCTESourceLocalState(RuntimeState* state, OperatorXBase* parent)

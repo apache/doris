@@ -32,8 +32,10 @@ namespace doris {
 using namespace config;
 
 class ConfigTest : public testing::Test {
-    void SetUp() override { config::Register::_s_field_map->clear(); }
-    void TearDown() override { config::Register::_s_field_map->clear(); }
+    void SetUp() override { _saved_fields.swap(*config::Register::_s_field_map); }
+    void TearDown() override { _saved_fields.swap(*config::Register::_s_field_map); }
+
+    std::map<std::string, config::Register::Field> _saved_fields;
 };
 
 TEST_F(ConfigTest, DumpAllConfigs) {

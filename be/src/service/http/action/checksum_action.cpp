@@ -24,6 +24,7 @@
 #include "boost/lexical_cast.hpp"
 #include "common/logging.h"
 #include "common/status.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
@@ -32,11 +33,9 @@
 
 namespace doris {
 
-const std::string TABLET_ID = "tablet_id";
 // do not use name "VERSION",
 // or will be conflict with "VERSION" in thrift/config.h
 const std::string TABLET_VERSION = "version";
-const std::string SCHEMA_HASH = "schema_hash";
 
 ChecksumAction::ChecksumAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
                                TPrivilegeType::type type)

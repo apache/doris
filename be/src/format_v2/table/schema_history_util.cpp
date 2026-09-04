@@ -27,13 +27,6 @@
 namespace doris::format {
 namespace {
 
-const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr& field_ptr) {
-    if (!field_ptr.__isset.field_ptr || field_ptr.field_ptr == nullptr) {
-        return nullptr;
-    }
-    return field_ptr.field_ptr.get();
-}
-
 const schema::external::TField* find_child_field_by_name(
         const std::vector<schema::external::TFieldPtr>& fields, const std::string& name) {
     for (const auto& field_ptr : fields) {
@@ -79,6 +72,10 @@ void annotate_column_from_field(ColumnDefinition* column, const schema::external
             field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {};
     column->has_name_mapping =
             field.__isset.name_mapping_is_authoritative && field.name_mapping_is_authoritative;
+    column->timestamp_is_adjusted_to_utc =
+            field.__isset.timestamp_is_adjusted_to_utc
+                    ? std::make_optional(field.timestamp_is_adjusted_to_utc)
+                    : std::nullopt;
     if (!field.__isset.nestedField) {
         return;
     }

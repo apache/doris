@@ -1,0 +1,23 @@
+# Iceberg connector plugin configuration.
+#
+# build.sh seeds iceberg.conf from this file on first deploy and never overwrites it, so an upgrade
+# that unzips a new plugin build over this directory keeps whatever you configured here.
+# This file must exist on EVERY FE node -- it is not replicated through Doris metadata.
+# Changes take effect after an FE restart.
+#
+# Every setting below is optional. Left commented out, each falls back to the fe.conf key named
+# after it, and then to the built-in default -- so an existing deployment needs no change here.
+#
+# NOTE: both settings below are shared with other connectors at the fe.conf end -- one
+# jdbc_drivers_dir and one hive_metastore_client_timeout_second serve jdbc, iceberg and paimon.
+# A per-plugin conf cannot express that, so if you move them here you must also set them in
+# jdbc.conf and paimon.conf. Leaving them commented out keeps the single shared fe.conf value.
+
+# Directory a bare driver jar name in iceberg.jdbc.driver_url resolves under (JDBC catalog only).
+# Falls back to fe.conf's jdbc_drivers_dir, whose default is <DORIS_HOME>/plugins/jdbc_drivers.
+# drivers_dir=/opt/doris/plugins/jdbc_drivers
+
+# Socket timeout, in seconds, for this catalog's Hive metastore client (HMS catalog only), used
+# unless the catalog overrides it. Falls back to fe.conf's hive_metastore_client_timeout_second,
+# whose default is 10.
+# metastore_client_timeout_second=10

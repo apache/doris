@@ -73,7 +73,10 @@ public:
         return Status::OK();
     }
 
-    const RowDescriptor& row_desc() const override { return *_mock_row_desc; }
+    void set_mock_row_desc(std::unique_ptr<MockRowDescriptor> row_desc) {
+        _mock_row_desc = std::move(row_desc);
+        _row_descriptor = *_mock_row_desc;
+    }
 
 private:
     std::unique_ptr<MockRowDescriptor> _mock_row_desc;
@@ -83,8 +86,10 @@ struct StreamingAggOperatorTest : public testing::Test {
         state = std::make_shared<MockRuntimeState>();
         op = std::make_shared<MockStreamingAggOperatorX>();
         child_op = std::make_shared<MockStreamingAggOperatorChildOperator>();
-        child_op->_mock_row_desc.reset(new MockRowDescriptor {
-                {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()}, &pool});
+        child_op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt64>(),
+                                          std::make_shared<DataTypeInt64>()},
+                &pool));
     }
 
     std::shared_ptr<MockStreamingAggOperatorX> op;

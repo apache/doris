@@ -1,0 +1,177 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// DORIS-25891: Variant SEARCH must bind subcolumn predicates to the real stored
+// field names for direct, nested, and special-character paths.
+//
+// Mirrors test_variant_search_subcolumn.groovy under SNII: same table shape, same data, same
+// test1-test8/test10 queries, with "inverted_index_storage_format" changed V2 -> SNII (and the
+// suite/table name suffixed _snii). Before the SNII-native SEARCH clause mapping landed, every
+// one of these clauses except a bare WILDCARD was a hard error on a SNII index; now each clause
+// type (TERM, AND, ALL, OR, a nonexistent field, a nested path, a compound boolean with NOT, and
+// a hyphenated field name) is forwarded to the reader as a query type. Groups test1-test8 and
+// test10 are recorded byte-identical to the mirrored suite's baseline -- that correspondence is
+// the parity assertion, proving the clause mapping preserves CLucene semantics rather than merely
+// not erroring.
+//
+// One addition beyond the mirror: the mirrored suite's test9 (a WILDCARD clause) is commented out
+// upstream for no stated reason, which left WILDCARD through the VARIANT SNII_NATIVE path --
+// SearchFieldExecutionMode::SNII_NATIVE only binds for a VARIANT column
+// (variant_inverted_index_search.cpp:250) -- with no coverage anywhere: it is the one clause type
+// that worked even before the mapping change, so a regression there would go unnoticed. This
+// suite enables it as qt_wildcard (query and expectation copied unchanged from upstream's
+// disabled test9) as additional SNII-specific coverage; that group has no counterpart in the V2
+// baseline to diff against, so it does not affect the byte-identical claim above.
+suite("test_variant_search_subcolumn_snii") {
+    def table_name = "test_variant_search_subcolumn_snii"
+    sql "set default_variant_doc_materialization_min_rows = 0"
+
+    sql "DROP TABLE IF EXISTS ${table_name}"
+
+    // Create table with variant column and inverted index
+    sql """
+        CREATE TABLE ${table_name} (
+            id BIGINT,
+            overflowpropertiesfulltext VARIANT<PROPERTIES("variant_max_subcolumns_count"="0")>,
+            INDEX idx_overflow (overflowpropertiesfulltext) USING INVERTED PROPERTIES (
+                "parser" = "unicode",
+                "lower_case" = "true",
+                "support_phrase" = "true"
+            )
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 4
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "inverted_index_storage_format" = "SNII"
+        )
+    """
+
+    // Insert test data
+    sql """
+        INSERT INTO ${table_name} VALUES
+        (1, '{"string4": "0ff dpr test"}'),
+        (2, '{"string4": "hello world"}'),
+        (3, '{"string4": "0ff test"}'),
+        (4, '{"string5": "0ff dpr"}'),
+        (5, '{"string4": "dpr only"}'),
+        (6, '{"nested": {"field": "0ff dpr"}}')
+    """
+
+    // Wait for data to be flushed and index to be built
+    Thread.sleep(10000)
+
+    // Test 1: Single term search on variant subcolumn
+    logger.info("Test 1: Single term search on variant subcolumn")
+    qt_test1 """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true, default_variant_max_subcolumns_count=0)*/ id FROM ${table_name}
+        WHERE search('overflowpropertiesfulltext.string4:0ff')
+        ORDER BY id
+    """
+    // Expected: 1, 3
+
+    // Test 2: AND query on same variant subcolumn
+    logger.info("Test 2: AND query on same variant subcolumn")
+    qt_test2 """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true, default_variant_max_subcolumns_count=0)*/ id FROM ${table_name}
+        WHERE search('overflowpropertiesfulltext.string4:0ff AND overflowpropertiesfulltext.string4:dpr')
+        ORDER BY id
+    """
+    // Expected: 1
+
+    // Test 3: ALL search on variant subcolumn
+    logger.info("Test 3: ALL search on variant subcolumn")
+    qt_test3 """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true, default_variant_max_subcolumns_count=0)*/ id FROM ${table_name}
+        WHERE search('overflowpropertiesfulltext.string4:ALL(0ff dpr)')
+        ORDER BY id
+    """
+    // Expected: 1
+
+    // Test 4: Search on different variant subcolumns (OR)
+    logger.info("Test 4: Search on different variant subcolumns")
+    qt_test4 """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true, default_variant_max_subcolumns_count=0)*/ id FROM ${table_name}
+        WHERE search('overflowpropertiesfulltext.string4:hello OR overflowpropertiesfulltext.string5:dpr')
+        ORDER BY id
+    """
+    // Expected: 2, 4
+
+    // Test 5: Search on non-existent subcolumn
+    logger.info("Test 5: Search on non-existent subcolumn")
+    qt_test5 """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true, default_variant_max_subcolumns_count=0)*/ COUNT(*) FROM ${table_name}
+        WHERE search('overflowpropertiesfulltext.nonexistent:value')
+    """
+    // Expected: 0
+
+    // Test 6: Nested variant path
+    logger.info("Test 6: Nested variant path")
+    qt_test6 """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true, default_variant_max_subcolumns_count=0)*/ id FROM ${table_name}
+        WHERE search('overflowpropertiesfulltext.nested.field:0ff')
+        ORDER BY id
+    """
+    // Expected: 6
+
+    // Test 7: Complex query with variant subcolumns
+    logger.info("Test 7: Complex query with variant subcolumns")
+    qt_test7 """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true, default_variant_max_subcolumns_count=0)*/ id FROM ${table_name}
+        WHERE search('(overflowpropertiesfulltext.string4:0ff OR overflowpropertiesfulltext.string4:dpr) AND NOT overflowpropertiesfulltext.string4:hello')
+        ORDER BY id
+    """
+    // Expected: 1, 3, 5
+
+    // Test 8: Quoted field names with special characters
+    logger.info("Test 8: Quoted field names")
+    sql """
+        INSERT INTO ${table_name} VALUES
+        (7, '{"field-name": "test value"}')
+    """
+    Thread.sleep(5000)
+
+    qt_test8 """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true, default_variant_max_subcolumns_count=0)*/ id FROM ${table_name}
+        WHERE search('overflowpropertiesfulltext.field-name:test')
+        ORDER BY id
+    """
+    // Expected: 7
+
+    // Wildcard search on variant subcolumn. Disabled upstream in the mirrored suite (as test9,
+    // no reason stated); enabled here because it is the only clause type that already reached
+    // SNII_NATIVE before the clause-mapping change, so it needs its own regression coverage,
+    // separate from the byte-identical-to-V2 groups above.
+    logger.info("Wildcard search on variant subcolumn (SNII-specific, no V2 counterpart)")
+    qt_wildcard """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true, default_variant_max_subcolumns_count=0)*/ id FROM ${table_name}
+        WHERE search('overflowpropertiesfulltext.string4:0*')
+        ORDER BY id
+    """
+    // Expected: 1, 3 (string4 values starting with "0": id 1 "0ff dpr test", id 3 "0ff test")
+
+    // Test 10: Verify normal field search still works
+    logger.info("Test 10: Verify normal field search still works (if id has index)")
+    // This test verifies we didn't break normal field search
+    qt_test10 """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true, default_variant_max_subcolumns_count=0)*/ COUNT(*) FROM ${table_name}
+        WHERE id > 0
+    """
+    // Expected: 7
+
+    logger.info("Variant subcolumn search tests completed successfully!")
+}

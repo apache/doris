@@ -23,6 +23,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_profile.h"
+#include "storage/rowset/rowset_fwd.h"
 
 namespace doris {
 

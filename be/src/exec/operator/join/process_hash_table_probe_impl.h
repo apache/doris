@@ -25,6 +25,7 @@
 #include "core/column/column_filter_helper.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
+#include "exec/common/join_utils.h"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/join/process_hash_table_probe.h"
 #include "exprs/vexpr_context.h"

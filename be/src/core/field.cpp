@@ -31,6 +31,7 @@
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_string.h"
+#include "util/json/path_in_data.h"
 #include "util/var_int.h"
 
 namespace doris {

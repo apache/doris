@@ -87,6 +87,7 @@ public class OlapTxnInsertExecutor extends OlapInsertExecutor {
         // if any throwable being thrown during insert operation, first we should abort this txn
         LOG.warn("insert [{}] with query id {} failed, url={}", labelName, queryId, coordinator.getTrackingUrl(), t);
         cleanTransaction();
+        setErrorState();
     }
 
     @Override

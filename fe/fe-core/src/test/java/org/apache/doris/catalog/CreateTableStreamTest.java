@@ -17,12 +17,14 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 
@@ -71,6 +73,50 @@ public class CreateTableStreamTest extends TestWithFeService {
                         createTable("create stream if not exists test_stream.s1 on table test_stream.tbl1\n"
                                 + "properties('show_initial_rows' = 'true'); "));
         dropDatabase("test_stream");
+    }
+
+    @Test
+    public void testCreateStreamUsesRequestedTypeForBaseValidation() throws Exception {
+        createDatabase("test_stream_type_validation");
+        String sql = "create table test_stream_type_validation.base_table\n" + "(k1 int, k2 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'false'); ";
+        createTable(sql);
+
+        ExceptionChecker.expectThrowsNoException(() ->
+                createTable("create stream test_stream_type_validation.append_only_stream "
+                        + "on table test_stream_type_validation.base_table\n"
+                        + "properties('type' = 'append_only', 'show_initial_rows' = 'false'); "));
+        ExceptionChecker.expectThrowsNoException(() ->
+                createTable("create stream test_stream_type_validation.detail_stream "
+                        + "on table test_stream_type_validation.base_table\n"
+                        + "properties('type' = 'detail', 'show_initial_rows' = 'false'); "));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test_stream_type_validation");
+        BaseTableStream appendOnlyStream = (BaseTableStream) db.getTableOrDdlException("append_only_stream");
+        BaseTableStream detailStream = (BaseTableStream) db.getTableOrDdlException("detail_stream");
+        Assertions.assertEquals(BaseTableStream.StreamScanType.APPEND_ONLY,
+                appendOnlyStream.getStreamScanType());
+        Assertions.assertEquals(BaseTableStream.StreamScanType.DETAIL, detailStream.getStreamScanType());
+
+        String minDeltaError = "MIN_DELTA table stream requires base mow table to enable "
+                + "binlog.need_historical_value=true";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, minDeltaError,
+                () -> createTable("create stream test_stream_type_validation.default_stream "
+                        + "on table test_stream_type_validation.base_table\n"
+                        + "properties('show_initial_rows' = 'false'); "));
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, minDeltaError,
+                () -> createTable("create stream test_stream_type_validation.min_delta_stream "
+                        + "on table test_stream_type_validation.base_table\n"
+                        + "properties('type' = 'min_delta', 'show_initial_rows' = 'false'); "));
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "not supported type: invalid_type",
+                () -> createTable("create stream test_stream_type_validation.invalid_type_stream "
+                        + "on table test_stream_type_validation.base_table\n"
+                        + "properties('type' = 'invalid_type', 'show_initial_rows' = 'false'); "));
+        dropDatabase("test_stream_type_validation");
     }
 
     @Test

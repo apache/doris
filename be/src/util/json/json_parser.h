@@ -172,4 +172,8 @@ private:
     ParserImpl parser;
 };
 
+class SimdJSONParser;
+/// Instantiated once in json_parser.cpp; suppresses per-TU implicit instantiation.
+extern template class JSONDataParser<SimdJSONParser>;
+
 } // namespace doris

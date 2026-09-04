@@ -26,7 +26,7 @@ RUN yum makecache && yum -y update && yum -y groupinstall 'Development Tools' &&
     devtoolset-10-libasan-devel
 
 # build cmake
-ARG CMAKE_VERSION=3.22.1
+ARG CMAKE_VERSION=3.25.3
 ARG CMAKE_BASE_URL=https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}
 RUN wget ${CMAKE_BASE_URL}/cmake-${CMAKE_VERSION}-Linux-x86_64.sh -q -O /tmp/cmake-install.sh && \
     chmod u+x /tmp/cmake-install.sh && \
@@ -63,12 +63,13 @@ RUN wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$F
     && rm -rf /tmp/flex-$FLEX_VERSION
 
 # install nodejs
-ARG NODEJS_VERSION=14.16.0
-RUN wget https://nodejs.org/dist/v$NODEJS_VERSION/node-v$NODEJS_VERSION-linux-x64.tar.gz \
-    -q -O /tmp/node-v$NODEJS_VERSION-linux-x64.tar.gz \
-    && cd /tmp/ && tar -xf node-v$NODEJS_VERSION-linux-x64.tar.gz \
-    && cp -r node-v$NODEJS_VERSION-linux-x64/* /usr/local/ \
-    && rm /tmp/node-v$NODEJS_VERSION-linux-x64.tar.gz && rm -rf node-v$NODEJS_VERSION-linux-x64
+ARG NODEJS_VERSION=22.12.0
+RUN wget https://unofficial-builds.nodejs.org/download/release/v${NODEJS_VERSION}/node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz \
+    -q -O /tmp/node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz \
+    && cd /tmp/ && tar -xf node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz \
+    && cp -r node-v${NODEJS_VERSION}-linux-x64-glibc-217/* /usr/local/ \
+    && rm /tmp/node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz \
+    && rm -rf node-v${NODEJS_VERSION}-linux-x64-glibc-217
 
 
 ENV BASH_ENV=/opt/rh/devtoolset-10/enable  \
@@ -121,4 +122,3 @@ ENV JAVA_HOME="/usr/lib/jvm/java-11" \
 WORKDIR /root
 
 CMD ["/bin/bash"]
-

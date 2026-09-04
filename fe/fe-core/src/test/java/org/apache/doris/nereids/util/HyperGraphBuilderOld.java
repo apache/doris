@@ -37,9 +37,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Statistics;
-import org.apache.doris.statistics.StatisticsCacheKey;
+import org.apache.doris.statistics.cache.StatisticsCacheKey;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;

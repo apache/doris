@@ -17,15 +17,15 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorIsNull;
-import org.apache.doris.connector.api.pushdown.ConnectorLike;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.api.pushdown.ConnectorOr;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
+import org.apache.doris.connector.spi.pushdown.ConnectorLike;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -155,10 +155,24 @@ public class PaimonPredicateConverter {
         }
         Object value = convertLiteralValue(literal, fieldTypes.get(idx));
         if (value == null) {
+            // A null value here means one of two unrelated things, and conflating them is what caused
+            // `col <=> 5` to be pushed as IS NULL: either the literal really IS null, or this Paimon
+            // type is deliberately not pushed down (FLOAT / CHAR / timestamp with local time zone).
+            // Only the first case has a translation - and only for the null-safe operator. Checking
+            // the operator alone would resurrect the same bug on a FLOAT column.
+            if (cmp.getOperator() == ConnectorComparison.Operator.EQ_FOR_NULL && literal.isNull()) {
+                return builder.isNull(idx);
+            }
             return null;
         }
         switch (cmp.getOperator()) {
             case EQ:
+            case EQ_FOR_NULL:
+                // Against a NON-null literal, `col <=> v` and `col = v` have identical result sets:
+                // <=> yields false (never unknown) when col is null, and Paimon's Equal likewise never
+                // matches nulls. Translating this to IS NULL - as the port from fe-core did - is not a
+                // narrowing but an inversion: Paimon prunes away every file that holds col = v, and the
+                // BE-side residual filter can only remove rows, never bring pruned files back.
                 return builder.equal(idx, value);
             case NE:
                 return builder.notEqual(idx, value);
@@ -170,8 +184,6 @@ public class PaimonPredicateConverter {
                 return builder.greaterThan(idx, value);
             case GE:
                 return builder.greaterOrEqual(idx, value);
-            case EQ_FOR_NULL:
-                return builder.isNull(idx);
             default:
                 return null;
         }
@@ -231,11 +243,50 @@ public class PaimonPredicateConverter {
             return null;
         }
         String pattern = ((ConnectorLiteral) patternExpr).getValue().toString();
-        if (!pattern.startsWith("%") && pattern.endsWith("%")) {
-            String prefix = pattern.substring(0, pattern.length() - 1);
-            return builder.startsWith(idx, BinaryString.fromString(prefix));
+        String prefix = literalPrefixOrNull(pattern);
+        if (prefix == null) {
+            return null;
         }
-        return null;
+        return builder.startsWith(idx, BinaryString.fromString(prefix));
+    }
+
+    /**
+     * The literal prefix a Doris LIKE pattern is exactly equivalent to, or {@code null} when no such
+     * proof exists.
+     *
+     * <p>Declining is always safe - the predicate is simply not pushed and BE filters every row with
+     * the original LIKE. Narrowing is not: the predicate returned here drives Paimon's partition and
+     * data-file pruning at planning time and the BE-side JNI row filter, so a file skipped because the
+     * pushed prefix was stricter than the user's pattern can never be read back.
+     *
+     * <p>Doris LIKE uses backslash as its default escape character, {@code %} matches any run of
+     * characters and {@code _} matches exactly one. Only {@code literal%} is provably a prefix match:
+     * <ul>
+     *   <li>{@code _} anywhere is a wildcard, so {@code 'a_c%'} must also match {@code abc...};</li>
+     *   <li>a backslash escapes the next character, so the raw text is not the literal to match
+     *       ({@code 'a\%%'} means "starts with a%", not "starts with a\%"). Rejecting the whole
+     *       pattern on any backslash also guarantees the {@code %} we strip below is a real wildcard
+     *       and not an escaped literal one;</li>
+     *   <li>a {@code %} left anywhere but the tail means the rest is not a literal prefix.</li>
+     * </ul>
+     */
+    private static String literalPrefixOrNull(String pattern) {
+        if (pattern.indexOf('_') >= 0 || pattern.indexOf('\\') >= 0) {
+            return null;
+        }
+        int end = pattern.length();
+        while (end > 0 && pattern.charAt(end - 1) == '%') {
+            end--;
+        }
+        if (end == pattern.length()) {
+            // No trailing '%': the pattern is anchored at both ends (or starts with '%'), not a prefix.
+            return null;
+        }
+        String body = pattern.substring(0, end);
+        if (body.isEmpty() || body.indexOf('%') >= 0) {
+            return null;
+        }
+        return body;
     }
 
     /**
@@ -278,12 +329,22 @@ public class PaimonPredicateConverter {
                 }
                 return null;
             case TIMESTAMP_WITHOUT_TIME_ZONE:
-            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                // Zone-free type: interpret the literal's wall-clock in UTC to match paimon's
+                // stored min/max file/partition stats (computed by reading the wall clock as UTC).
+                // Mirrors legacy PaimonValueConverter#visit(TimestampType), which uses a fixed
+                // GMT Calendar. Using the session zone here would shift the epoch-millis vs the
+                // stored stats and risk false file/partition pruning = silent data loss.
                 if (value instanceof LocalDateTime) {
                     LocalDateTime dt = (LocalDateTime) value;
                     long millis = dt.toInstant(ZoneOffset.UTC).toEpochMilli();
                     return Timestamp.fromEpochMillis(millis);
                 }
+                return null;
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                // Do NOT push: legacy never pushed LTZ predicates (PaimonValueConverter has no
+                // visit(LocalZonedTimestampType), so it fell to defaultMethod -> null). Pushing
+                // via a fixed zone is an instant mismatch under non-UTC sessions; leave LTZ
+                // conjuncts to BE-side filtering (this conjunct is cleanly dropped).
                 return null;
             default:
                 return null;

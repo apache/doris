@@ -23,6 +23,7 @@
 
 #include "common/logging.h"
 #include "util/debug_points.h"
+#include "util/hyperscan_util.h"
 
 namespace doris::segment_v2 {
 
@@ -39,6 +40,9 @@ void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
     }
 
     const std::string& pattern = query_info.term_infos[0].get_single_term();
+    if (is_hyperscan_regexp_expensive(pattern)) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, HYPERSCAN_BOUNDED_REPEAT_ERROR);
+    }
     auto prefix = get_regex_prefix(pattern);
 
     hs_database_t* database = nullptr;

@@ -96,11 +96,19 @@ public class GlobalFunctionMgr extends MetaObject implements GsonPostProcessable
         }
     }
 
-    public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
+    public synchronized List<Long> dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
+        Function droppedFunction = null;
+        try {
+            droppedFunction = FunctionUtil.getFunction(function, name2Function);
+        } catch (AnalysisException e) {
+            // Let dropFunctionImpl preserve the existing IF EXISTS and error behavior.
+        }
         if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropGlobalFunction(function);
             FunctionUtil.dropFromNereids(null, function);
+            return ImmutableList.of(droppedFunction.getId());
         }
+        return ImmutableList.of();
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {

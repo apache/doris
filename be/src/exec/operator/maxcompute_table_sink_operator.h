@@ -80,4 +80,7 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class AsyncWriterSink<VMCTableWriter, MCTableSinkOperatorX>;
+
 } // namespace doris

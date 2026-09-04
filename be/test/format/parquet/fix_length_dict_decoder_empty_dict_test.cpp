@@ -18,7 +18,16 @@
 #include <gtest/gtest.h>
 
 #include "core/column/column_vector.h"
+// Must precede the header below. FixLengthDictDecoder::_decode_values dereferences the inherited
+// unique_ptr<RleBatchDecoder<uint32_t>>, and that type depends on no template parameter, so the
+// call is bound when the template is parsed rather than when it is instantiated. decoder.h only
+// forward-declares RleBatchDecoder to keep the RLE machinery out of its ~530 includers, so this TU
+// supplies the complete type up front. Only this test pays for it.
+// clang-format off
+#include "util/rle_encoding.h" // IWYU pragma: keep
+
 #include "format/parquet/fix_length_dict_decoder.hpp"
+// clang-format on
 
 namespace doris {
 

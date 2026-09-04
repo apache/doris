@@ -8,5 +8,9 @@
 2	2
 3	3
 
+-- !non_pct_truncate --
+2	2
+3	3
+
 -- !truncate_table --
 

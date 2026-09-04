@@ -17,6 +17,7 @@
 
 #include "runtime/workload_management/workload_sched_policy.h"
 
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/resource_context.h"
 #include "runtime/workload_management/task_controller.h"
 #include "util/time.h"

@@ -613,8 +613,13 @@ public class OutFileClause {
                 .equals(StorageBackend.StorageType.HDFS)
                 || brokerDesc.getStorageType().equals(StorageBackend.StorageType.JFS))) {
             String defaultFs = extractDefaultFsFromPath(filePath);
-            // "fs.defaultFS" is the exact literal of the legacy HdfsProperties.HDFS_DEFAULT_FS_NAME.
-            brokerDesc.getBackendConfigProperties().put("fs.defaultFS", defaultFs);
+            if (!Strings.isNullOrEmpty(defaultFs)) {
+                // getBackendConfigProperties() returns a defensive copy, so inject fs.defaultFS
+                // into the source properties and rebuild the descriptor.
+                // "fs.defaultFS" is the exact literal of the legacy HdfsProperties.HDFS_DEFAULT_FS_NAME.
+                copiedProps.put("fs.defaultFS", defaultFs);
+                brokerDesc = new BrokerDesc(brokerName, copiedProps);
+            }
         }
     }
 

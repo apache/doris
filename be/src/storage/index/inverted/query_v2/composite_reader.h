@@ -33,7 +33,6 @@
 #endif
 
 #include <algorithm>
-#include <ranges>
 #include <unordered_map>
 #include <vector>
 
@@ -66,7 +65,7 @@ public:
     }
 
     void close() {
-        for (auto* reader : std::views::values(_field_readers)) {
+        for (const auto& [_, reader] : _field_readers) {
             reader->close();
         }
     }
@@ -76,7 +75,7 @@ public:
             throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "CompositeReader has no readers");
         }
         uint32_t max_doc = 0;
-        for (auto* reader : std::views::values(_field_readers)) {
+        for (const auto& [_, reader] : _field_readers) {
             max_doc = std::max(max_doc, static_cast<uint32_t>(reader->maxDoc()));
         }
         return max_doc;
@@ -85,7 +84,7 @@ public:
     [[nodiscard]] std::vector<lucene::index::IndexReader*> readers() const {
         std::vector<lucene::index::IndexReader*> readers;
         readers.reserve(_field_readers.size());
-        for (auto* reader : std::views::values(_field_readers)) {
+        for (const auto& [_, reader] : _field_readers) {
             readers.push_back(reader);
         }
         return readers;

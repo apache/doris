@@ -21,22 +21,33 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <numeric>
+#include <set>
+#include <string>
 #include <vector>
 
 #include "common/config.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "exec/operator/spill_counters.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/column_helper.h"
+#include "testutil/mock/mock_query_context.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
+#include "util/uid_util.h"
 
 namespace doris::vectorized {
 
@@ -52,39 +63,44 @@ protected:
         _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
         ADD_TIMER_WITH_LEVEL(_common_profile.get(), "ExecTime", 1);
 
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillTotalTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillWriteTime", 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteTaskWaitInQueueCount", TUnit::UNIT,
+        // Register exactly what PipelineXSpillLocalState registers in production, by
+        // reusing the same initializers. Hand-copying the counter names here is what let
+        // a misspelled lookup in SpillFileReader ("SpillReadDerializeBlockTime") go
+        // unnoticed: the test registered the same misspelling, so the lookup "worked"
+        // here while silently returning null in a real query.
+        SpillWriteCounters write_counters;
+        write_counters.init(_custom_profile.get());
+        SpillReadCounters read_counters;
+        read_counters.init(_custom_profile.get());
+
+        // Source-only extras, see PipelineXSpillLocalState::init_spill_{write,read}_counters.
+        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_TOTAL_TIME, 1);
+        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_WRITE_FILE_BYTES, TUnit::BYTES,
                                1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteTaskCount", TUnit::UNIT, 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillWriteTaskWaitInQueueTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillWriteSerializeBlockTime", 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteBlockCount", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileBytes", TUnit::BYTES, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteRows", TUnit::UNIT, 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillReadDerializeBlockTime", 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadBlockCount", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadBlockBytes", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileBytes", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadRows", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileCount", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileTotalCount", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileCurrentBytes", TUnit::UNIT, 1);
+        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_WRITE_FILE_TOTAL_COUNT,
+                               TUnit::UNIT, 1);
+        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_WRITE_FILE_CURRENT_BYTES,
+                               TUnit::BYTES, 1);
 
         _profile->add_child(_custom_profile.get(), true);
         _profile->add_child(_common_profile.get(), true);
 
         _spill_dir = "./ut_dir/spill_file_test";
-        auto spill_data_dir = std::make_unique<SpillDataDir>(_spill_dir, 1024L * 1024 * 128);
+        _second_spill_dir = "./ut_dir/spill_file_test_second";
+        auto spill_data_dir =
+                std::make_unique<SpillDataDir>(_spill_dir, 1024L * 1024 * 128, TStorageMedium::SSD);
         auto st = io::global_local_filesystem()->create_directory(spill_data_dir->path(), false);
+        ASSERT_TRUE(st.ok()) << "create directory failed: " << st.to_string();
+        auto second_spill_data_dir = std::make_unique<SpillDataDir>(
+                _second_spill_dir, 1024L * 1024 * 128, TStorageMedium::HDD);
+        st = io::global_local_filesystem()->create_directory(second_spill_data_dir->path(), false);
         ASSERT_TRUE(st.ok()) << "create directory failed: " << st.to_string();
 
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
         _data_dir_ptr = spill_data_dir.get();
+        _second_data_dir_ptr = second_spill_data_dir.get();
         data_map.emplace("test", std::move(spill_data_dir));
+        data_map.emplace("test_second", std::move(second_spill_data_dir));
         auto* spill_file_manager = new SpillFileManager(std::move(data_map));
         ExecEnv::GetInstance()->_spill_file_mgr = spill_file_manager;
         st = spill_file_manager->init();
@@ -93,11 +109,13 @@ protected:
 
     void TearDown() override {
         ExecEnv::GetInstance()->spill_file_mgr()->stop();
+        _runtime_state.reset();
         SAFE_DELETE(ExecEnv::GetInstance()->_spill_file_mgr);
         // Clean up test directory
         auto st = io::global_local_filesystem()->delete_directory(_spill_dir);
         (void)st;
-        _runtime_state.reset();
+        st = io::global_local_filesystem()->delete_directory(_second_spill_dir);
+        (void)st;
     }
 
     Block _create_int_block(const std::vector<int32_t>& data) {
@@ -111,12 +129,58 @@ protected:
         return block;
     }
 
+    void _write_and_release_spill_file(const TUniqueId& query_id, QueryContext* query_ctx,
+                                       SpillDataDir* data_dir, const std::string& relative_path) {
+        TQueryGlobals query_globals;
+        auto runtime_state = std::make_unique<MockRuntimeState>(
+                query_id, 0, query_ctx->query_options(), query_globals, ExecEnv::GetInstance(),
+                query_ctx);
+
+        auto spill_file = std::make_shared<SpillFile>(
+                data_dir, fmt::format("{}/{}", print_id(query_id), relative_path));
+
+        SpillFileWriterSPtr writer;
+        auto st = spill_file->create_writer(runtime_state.get(), _profile.get(), writer);
+        ASSERT_TRUE(st.ok());
+        auto block = _create_int_block({1, 2, 3});
+        st = writer->write_block(runtime_state.get(), block);
+        ASSERT_TRUE(st.ok());
+        st = writer->close();
+        ASSERT_TRUE(st.ok());
+        writer.reset();
+        spill_file.reset();
+    }
+
+    void _create_residual_file(const std::string& file_path) {
+        auto st = io::global_local_filesystem()->create_directory(
+                std::filesystem::path(file_path).parent_path(), false);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        io::FileWriterPtr writer;
+        st = io::global_local_filesystem()->create_file(file_path, &writer);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        st = writer->close();
+        ASSERT_TRUE(st.ok()) << st.to_string();
+    }
+
+    std::set<std::string> _gc_subdirectories(SpillDataDir* data_dir) {
+        std::set<std::string> subdirectories;
+        for (const auto& entry :
+             std::filesystem::directory_iterator(data_dir->get_spill_data_gc_path())) {
+            if (entry.is_directory()) {
+                subdirectories.emplace(entry.path().filename().string());
+            }
+        }
+        return subdirectories;
+    }
+
     std::unique_ptr<MockRuntimeState> _runtime_state;
     std::unique_ptr<RuntimeProfile> _profile;
     std::unique_ptr<RuntimeProfile> _custom_profile;
     std::unique_ptr<RuntimeProfile> _common_profile;
     std::string _spill_dir;
+    std::string _second_spill_dir;
     SpillDataDir* _data_dir_ptr = nullptr;
+    SpillDataDir* _second_data_dir_ptr = nullptr;
 };
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -889,7 +953,420 @@ TEST_F(SpillFileTest, GCCleansUpFiles) {
     ASSERT_FALSE(exists);
 }
 
-TEST_F(SpillFileTest, DeleteSpillFileThroughManager) {
+TEST_F(SpillFileTest, QueryContextDeletesEmptySpillDirectory) {
+    ExecEnv::GetInstance()->spill_file_mgr()->stop();
+
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 2;
+    auto query_id_str = print_id(query_id);
+    auto query_ctx = MockQueryContext::create(query_id);
+
+    auto query_dir = _data_dir_ptr->get_spill_data_path(query_id_str);
+    const auto gc_subdirectories_before = _gc_subdirectories(_data_dir_ptr);
+    _write_and_release_spill_file(query_id, query_ctx.get(), _data_dir_ptr, "query_context_gc");
+
+    bool exists = false;
+    auto st = io::global_local_filesystem()->exists(query_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(exists);
+
+    query_ctx.reset();
+
+    st = io::global_local_filesystem()->exists(query_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(exists);
+    st = io::global_local_filesystem()->exists(_data_dir_ptr->get_spill_data_path(), &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(exists);
+    EXPECT_EQ(_gc_subdirectories(_data_dir_ptr), gc_subdirectories_before);
+}
+
+TEST_F(SpillFileTest, QueryContextCleansUpNestedSpillDirectory) {
+    TUniqueId query_id;
+    query_id.hi = 3;
+    query_id.lo = 4;
+    auto query_id_str = print_id(query_id);
+    auto query_ctx = MockQueryContext::create(query_id);
+
+    auto query_dir = _data_dir_ptr->get_spill_data_path(query_id_str);
+    auto nested_dir = query_dir + "/nested";
+    _write_and_release_spill_file(query_id, query_ctx.get(), _data_dir_ptr,
+                                  "nested/query_context_gc");
+
+    bool exists = false;
+    auto st = io::global_local_filesystem()->exists(query_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(exists);
+    st = io::global_local_filesystem()->exists(nested_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(exists);
+
+    query_ctx.reset();
+
+    st = io::global_local_filesystem()->exists(query_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(exists);
+}
+
+TEST_F(SpillFileTest, QueryContextDeletesResidualSpillDirectory) {
+    ExecEnv::GetInstance()->spill_file_mgr()->stop();
+
+    TUniqueId query_id;
+    query_id.hi = 5;
+    query_id.lo = 6;
+    auto query_id_str = print_id(query_id);
+    auto query_ctx = MockQueryContext::create(query_id);
+
+    auto query_dir = _data_dir_ptr->get_spill_data_path(query_id_str);
+    const auto gc_subdirectories_before = _gc_subdirectories(_data_dir_ptr);
+    _write_and_release_spill_file(query_id, query_ctx.get(), _data_dir_ptr, "query_context_gc");
+
+    auto residual_file = query_dir + "/residual/temporary-data";
+    _create_residual_file(residual_file);
+
+    bool exists = false;
+    auto st = io::global_local_filesystem()->exists(residual_file, &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(exists);
+
+    query_ctx.reset();
+
+    st = io::global_local_filesystem()->exists(query_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(exists);
+
+    EXPECT_EQ(_gc_subdirectories(_data_dir_ptr), gc_subdirectories_before);
+}
+
+TEST_F(SpillFileTest, QueryContextCleansUpAllTouchedSpillDirectories) {
+    TUniqueId query_id;
+    query_id.hi = 9;
+    query_id.lo = 10;
+    auto query_id_str = print_id(query_id);
+    auto query_ctx = MockQueryContext::create(query_id);
+
+    auto first_query_dir = _data_dir_ptr->get_spill_data_path(query_id_str);
+    auto second_query_dir = _second_data_dir_ptr->get_spill_data_path(query_id_str);
+    const auto first_gc_subdirectories_before = _gc_subdirectories(_data_dir_ptr);
+    const auto second_gc_subdirectories_before = _gc_subdirectories(_second_data_dir_ptr);
+    _write_and_release_spill_file(query_id, query_ctx.get(), _data_dir_ptr, "first");
+    _write_and_release_spill_file(query_id, query_ctx.get(), _second_data_dir_ptr, "second");
+
+    bool first_exists = false;
+    bool second_exists = false;
+    auto st = io::global_local_filesystem()->exists(first_query_dir, &first_exists);
+    ASSERT_TRUE(st.ok());
+    st = io::global_local_filesystem()->exists(second_query_dir, &second_exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(first_exists);
+    ASSERT_TRUE(second_exists);
+
+    query_ctx.reset();
+
+    st = io::global_local_filesystem()->exists(first_query_dir, &first_exists);
+    ASSERT_TRUE(st.ok());
+    st = io::global_local_filesystem()->exists(second_query_dir, &second_exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(first_exists);
+    ASSERT_FALSE(second_exists);
+    EXPECT_EQ(_gc_subdirectories(_data_dir_ptr), first_gc_subdirectories_before);
+    EXPECT_EQ(_gc_subdirectories(_second_data_dir_ptr), second_gc_subdirectories_before);
+}
+
+TEST_F(SpillFileTest, QueryContextContinuesCleanupAfterRootFailure) {
+    ExecEnv::GetInstance()->spill_file_mgr()->stop();
+
+    TUniqueId query_id;
+    query_id.hi = 11;
+    query_id.lo = 12;
+    auto query_id_str = print_id(query_id);
+    auto query_ctx = MockQueryContext::create(query_id);
+
+    auto first_query_dir = _data_dir_ptr->get_spill_data_path(query_id_str);
+    auto second_query_dir = _second_data_dir_ptr->get_spill_data_path(query_id_str);
+    const auto first_gc_subdirectories_before = _gc_subdirectories(_data_dir_ptr);
+    const auto second_gc_subdirectories_before = _gc_subdirectories(_second_data_dir_ptr);
+    _write_and_release_spill_file(query_id, query_ctx.get(), _data_dir_ptr, "first");
+    _write_and_release_spill_file(query_id, query_ctx.get(), _second_data_dir_ptr, "second");
+    _create_residual_file(first_query_dir + "/residual/temporary-data");
+    _create_residual_file(second_query_dir + "/residual/temporary-data");
+
+    const auto live_query_dir = _data_dir_ptr->get_spill_data_path("live-query");
+    const auto live_query_file = live_query_dir + "/sentinel";
+    _create_residual_file(live_query_file);
+
+    bool first_exists = false;
+    bool second_exists = false;
+    auto st = io::global_local_filesystem()->exists(first_query_dir, &first_exists);
+    ASSERT_TRUE(st.ok());
+    st = io::global_local_filesystem()->exists(second_query_dir, &second_exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(first_exists);
+    ASSERT_TRUE(second_exists);
+
+    const bool previous_enable_debug_points = config::enable_debug_points;
+    constexpr auto debug_point_name =
+            "fault_inject::spill_file_manager::delete_query_spill_directory";
+    Defer restore_debug_point([&] {
+        DebugPoints::instance()->remove(debug_point_name);
+        config::enable_debug_points = previous_enable_debug_points;
+    });
+    auto debug_point = std::make_shared<DebugPoint>();
+    debug_point->execute_limit = 1;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add(debug_point_name, debug_point);
+
+    query_ctx.reset();
+
+    st = io::global_local_filesystem()->exists(first_query_dir, &first_exists);
+    ASSERT_TRUE(st.ok());
+    st = io::global_local_filesystem()->exists(second_query_dir, &second_exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_NE(first_exists, second_exists);
+    ASSERT_EQ(debug_point->execute_num.load(), 2);
+
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
+
+    st = io::global_local_filesystem()->exists(first_query_dir, &first_exists);
+    ASSERT_TRUE(st.ok());
+    st = io::global_local_filesystem()->exists(second_query_dir, &second_exists);
+    ASSERT_TRUE(st.ok());
+    EXPECT_FALSE(first_exists);
+    EXPECT_FALSE(second_exists);
+
+    bool live_query_exists = false;
+    st = io::global_local_filesystem()->exists(live_query_file, &live_query_exists);
+    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(live_query_exists);
+
+    EXPECT_EQ(_gc_subdirectories(_data_dir_ptr), first_gc_subdirectories_before);
+    EXPECT_EQ(_gc_subdirectories(_second_data_dir_ptr), second_gc_subdirectories_before);
+}
+
+TEST_F(SpillFileTest, QueryContextRetriesSpillDirectoryDeletionUntilSuccess) {
+    ExecEnv::GetInstance()->spill_file_mgr()->stop();
+
+    TUniqueId query_id;
+    query_id.hi = 15;
+    query_id.lo = 16;
+    auto query_id_str = print_id(query_id);
+    auto query_ctx = MockQueryContext::create(query_id);
+
+    auto query_dir = _data_dir_ptr->get_spill_data_path(query_id_str);
+    const auto gc_subdirectories_before = _gc_subdirectories(_data_dir_ptr);
+    _write_and_release_spill_file(query_id, query_ctx.get(), _data_dir_ptr, "retry_cleanup");
+    _create_residual_file(query_dir + "/residual/temporary-data");
+
+    const bool previous_enable_debug_points = config::enable_debug_points;
+    constexpr auto debug_point_name =
+            "fault_inject::spill_file_manager::delete_query_spill_directory";
+    Defer restore_debug_point([&] {
+        DebugPoints::instance()->remove(debug_point_name);
+        config::enable_debug_points = previous_enable_debug_points;
+    });
+    auto debug_point = std::make_shared<DebugPoint>();
+    debug_point->execute_limit = 5;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add(debug_point_name, debug_point);
+
+    query_ctx.reset();
+
+    bool exists = false;
+    auto st = io::global_local_filesystem()->exists(query_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(exists);
+
+    for (int i = 0; i < 4; ++i) {
+        ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
+        st = io::global_local_filesystem()->exists(query_dir, &exists);
+        ASSERT_TRUE(st.ok());
+        ASSERT_TRUE(exists);
+    }
+
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
+    st = io::global_local_filesystem()->exists(query_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    EXPECT_FALSE(exists);
+    EXPECT_EQ(debug_point->execute_num.load(), 6);
+    EXPECT_EQ(_gc_subdirectories(_data_dir_ptr), gc_subdirectories_before);
+}
+
+TEST_F(SpillFileTest, RetryPreservesDirectoryQueuedAfterPendingDrain) {
+    ExecEnv::GetInstance()->spill_file_mgr()->stop();
+
+    TUniqueId first_query_id;
+    first_query_id.hi = 17;
+    first_query_id.lo = 18;
+    auto first_query_ctx = MockQueryContext::create(first_query_id);
+    auto first_query_dir = _data_dir_ptr->get_spill_data_path(print_id(first_query_id));
+    _write_and_release_spill_file(first_query_id, first_query_ctx.get(), _data_dir_ptr,
+                                  "first_retry_cleanup");
+    _create_residual_file(first_query_dir + "/residual/temporary-data");
+
+    TUniqueId second_query_id;
+    second_query_id.hi = 19;
+    second_query_id.lo = 20;
+    auto second_query_ctx = MockQueryContext::create(second_query_id);
+    auto second_query_dir = _data_dir_ptr->get_spill_data_path(print_id(second_query_id));
+    _write_and_release_spill_file(second_query_id, second_query_ctx.get(), _data_dir_ptr,
+                                  "second_retry_cleanup");
+    _create_residual_file(second_query_dir + "/residual/temporary-data");
+
+    const bool previous_enable_debug_points = config::enable_debug_points;
+    constexpr auto delete_debug_point_name =
+            "fault_inject::spill_file_manager::delete_query_spill_directory";
+    constexpr auto after_drain_debug_point_name =
+            "fault_inject::spill_file_manager::retry_pending_query_spill_directories_after_drain";
+    Defer restore_debug_points([&] {
+        DebugPoints::instance()->remove(after_drain_debug_point_name);
+        DebugPoints::instance()->remove(delete_debug_point_name);
+        config::enable_debug_points = previous_enable_debug_points;
+    });
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add(delete_debug_point_name);
+
+    first_query_ctx.reset();
+
+    auto after_drain_debug_point = std::make_shared<DebugPoint>();
+    after_drain_debug_point->execute_limit = 1;
+    after_drain_debug_point->callback = std::function<void()>([&]() { second_query_ctx.reset(); });
+    DebugPoints::instance()->add(after_drain_debug_point_name, after_drain_debug_point);
+
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
+
+    bool first_exists = false;
+    auto st = io::global_local_filesystem()->exists(first_query_dir, &first_exists);
+    ASSERT_TRUE(st.ok());
+    bool second_exists = false;
+    st = io::global_local_filesystem()->exists(second_query_dir, &second_exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(first_exists);
+    ASSERT_TRUE(second_exists);
+    ASSERT_EQ(after_drain_debug_point->execute_num.load(), 1);
+
+    DebugPoints::instance()->remove(after_drain_debug_point_name);
+    DebugPoints::instance()->remove(delete_debug_point_name);
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
+
+    st = io::global_local_filesystem()->exists(first_query_dir, &first_exists);
+    ASSERT_TRUE(st.ok());
+    st = io::global_local_filesystem()->exists(second_query_dir, &second_exists);
+    ASSERT_TRUE(st.ok());
+    EXPECT_FALSE(first_exists);
+    EXPECT_FALSE(second_exists);
+}
+
+TEST_F(SpillFileTest, FinalCloseReleasesRerunnableQueryContextAndDeletesSpillDirectory) {
+    ExecEnv::GetInstance()->spill_file_mgr()->stop();
+
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_fragment_mgr = exec_env->_fragment_mgr;
+    auto* fragment_mgr = new FragmentMgr(exec_env);
+    exec_env->_fragment_mgr = fragment_mgr;
+
+    TUniqueId query_id;
+    query_id.hi = 13;
+    query_id.lo = 14;
+    constexpr int first_fragment_id = 1;
+    constexpr int second_fragment_id = 2;
+    Defer restore_fragment_mgr([&] {
+        fragment_mgr->remove_query_context(query_id);
+        fragment_mgr->remove_pipeline_context({query_id, first_fragment_id});
+        fragment_mgr->remove_pipeline_context({query_id, second_fragment_id});
+        fragment_mgr->stop();
+        delete fragment_mgr;
+        exec_env->_fragment_mgr = previous_fragment_mgr;
+    });
+
+    auto query_ctx = MockQueryContext::create(query_id);
+    std::weak_ptr<QueryContext> weak_query_ctx = query_ctx;
+    const auto query_id_str = print_id(query_id);
+    const auto query_dir = _data_dir_ptr->get_spill_data_path(query_id_str);
+    const auto gc_subdirectories_before = _gc_subdirectories(_data_dir_ptr);
+    _write_and_release_spill_file(query_id, query_ctx.get(), _data_dir_ptr, "recursive_cte");
+    _create_residual_file(query_dir + "/residual/temporary-data");
+
+    auto create_fragment_context = [&](int fragment_id) {
+        TPipelineFragmentParams params;
+        params.__set_query_id(query_id);
+        params.__set_fragment_id(fragment_id);
+        params.__set_need_notify_close(true);
+        auto context = std::make_shared<PipelineFragmentContext>(
+                query_id, params, query_ctx, exec_env, [](RuntimeState*, Status*) {});
+        fragment_mgr->_pipeline_map.insert({query_id, fragment_id}, context);
+        g_fragment_executing_count << 1;
+        query_ctx->set_pipeline_context(fragment_id, context);
+        {
+            std::lock_guard lock(fragment_mgr->_rerunnable_params_lock);
+            auto& info = fragment_mgr->_rerunnable_params_map[{query_id, fragment_id}];
+            info.params = params;
+            info.query_ctx = query_ctx;
+        }
+        return context;
+    };
+
+    auto first_fragment_ctx = create_fragment_context(first_fragment_id);
+    auto second_fragment_ctx = create_fragment_context(second_fragment_id);
+    query_ctx.reset();
+    first_fragment_ctx.reset();
+    second_fragment_ctx.reset();
+
+    ASSERT_FALSE(weak_query_ctx.expired());
+    auto st = fragment_mgr->rerun_fragment({}, query_id, first_fragment_id,
+                                           PRerunFragmentParams::FINAL_CLOSE);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(fragment_mgr->_pipeline_map.num_items(), 1);
+    {
+        std::lock_guard lock(fragment_mgr->_rerunnable_params_lock);
+        EXPECT_FALSE(fragment_mgr->_rerunnable_params_map.contains({query_id, first_fragment_id}));
+        EXPECT_TRUE(fragment_mgr->_rerunnable_params_map.contains({query_id, second_fragment_id}));
+    }
+    EXPECT_FALSE(weak_query_ctx.expired());
+
+    bool exists = false;
+    st = io::global_local_filesystem()->exists(query_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(exists);
+
+    st = fragment_mgr->rerun_fragment({}, query_id, second_fragment_id,
+                                      PRerunFragmentParams::FINAL_CLOSE);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(fragment_mgr->_pipeline_map.num_items(), 0);
+    {
+        std::lock_guard lock(fragment_mgr->_rerunnable_params_lock);
+        EXPECT_TRUE(fragment_mgr->_rerunnable_params_map.empty());
+    }
+    EXPECT_TRUE(weak_query_ctx.expired());
+
+    st = io::global_local_filesystem()->exists(query_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    EXPECT_FALSE(exists);
+
+    EXPECT_EQ(_gc_subdirectories(_data_dir_ptr), gc_subdirectories_before);
+}
+
+TEST_F(SpillFileTest, QueryContextSkipsCleanupWithoutSpill) {
+    TUniqueId query_id;
+    query_id.hi = 7;
+    query_id.lo = 8;
+    auto query_id_str = print_id(query_id);
+    auto query_ctx = MockQueryContext::create(query_id);
+    auto query_dir = _data_dir_ptr->get_spill_data_path(query_id_str);
+
+    // No spill root was recorded for this query, so teardown must leave this untracked directory.
+    auto st = io::global_local_filesystem()->create_directory(query_dir, false);
+    ASSERT_TRUE(st.ok());
+
+    query_ctx.reset();
+
+    bool exists = false;
+    st = io::global_local_filesystem()->exists(query_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(exists);
+}
+
+TEST_F(SpillFileTest, DeleteSpillFileThroughManagerSynchronously) {
     SpillFileSPtr spill_file;
     auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file("test_query/mgr_delete",
                                                                           spill_file);
@@ -906,11 +1383,17 @@ TEST_F(SpillFileTest, DeleteSpillFileThroughManager) {
     st = writer->close();
     ASSERT_TRUE(st.ok());
 
-    // Delete through manager (async GC)
+    auto spill_file_dir = _data_dir_ptr->get_spill_data_path("test_query/mgr_delete");
+    bool exists = false;
+    st = io::global_local_filesystem()->exists(spill_file_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(exists);
+
     ExecEnv::GetInstance()->spill_file_mgr()->delete_spill_file(spill_file);
 
-    // Run GC to process the deletion
-    ExecEnv::GetInstance()->spill_file_mgr()->gc(1000);
+    st = io::global_local_filesystem()->exists(spill_file_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(exists);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1054,6 +1537,58 @@ TEST_F(SpillFileTest, ReadCounters) {
     auto* read_file_size = _custom_profile->get_counter("SpillReadFileBytes");
     ASSERT_TRUE(read_file_size != nullptr);
     ASSERT_GT(read_file_size->value(), 0);
+}
+
+// Regression test: SpillFileReader used to look up the deserialize timer under a
+// misspelled name ("SpillReadDerializeBlockTime"), so get_counter() returned null and
+// SCOPED_TIMER silently recorded nothing. The counter stayed at 0 in every profile.
+TEST_F(SpillFileTest, ReadDeserializeTimerIsRecorded) {
+    SpillFileSPtr spill_file;
+    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(
+            "test_query/read_deserialize_timer", spill_file);
+    ASSERT_TRUE(st.ok());
+
+    {
+        SpillFileWriterSPtr writer;
+        st = spill_file->create_writer(_runtime_state.get(), _profile.get(), writer);
+        ASSERT_TRUE(st.ok());
+
+        auto block = _create_int_block({1, 2, 3, 4, 5});
+        st = writer->write_block(_runtime_state.get(), block);
+        ASSERT_TRUE(st.ok());
+
+        st = writer->close();
+        ASSERT_TRUE(st.ok());
+    }
+
+    // The timer is registered by SpillReadCounters::init under the canonical name and
+    // must still be untouched before any read happens.
+    auto* deserialize_timer =
+            _custom_profile->get_counter(profile::SPILL_READ_DESERIALIZE_BLOCK_TIME);
+    ASSERT_TRUE(deserialize_timer != nullptr)
+            << "counter name drifted from " << profile::SPILL_READ_DESERIALIZE_BLOCK_TIME;
+    ASSERT_EQ(deserialize_timer->value(), 0);
+
+    auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
+    st = reader->open();
+    ASSERT_TRUE(st.ok());
+
+    Block block;
+    bool eos = false;
+    st = reader->read(&block, &eos);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(block.rows(), 5);
+
+    st = reader->close();
+    ASSERT_TRUE(st.ok());
+
+    // Deserializing a real block must land on the canonical counter. This is 0 whenever
+    // the reader's lookup name does not match what the operator registered.
+    ASSERT_GT(deserialize_timer->value(), 0);
+
+    // The misspelled name must not exist: if it reappears, some caller registered it and
+    // the two spellings will drift apart again.
+    ASSERT_TRUE(_custom_profile->get_counter("SpillReadDerializeBlockTime") == nullptr);
 }
 
 // ═══════════════════════════════════════════════════════════════════════

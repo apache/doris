@@ -25,8 +25,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstring>
-#include <map>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -42,7 +42,7 @@
 #include "core/value/bitmap_value.h"
 #include "core/value/hll.h"
 #include "core/value/quantile_state.h"
-#include "util/json/path_in_data.h"
+#include "core/value/variant/variant_field.h"
 
 namespace doris {
 template <PrimitiveType type>
@@ -74,10 +74,6 @@ struct Struct : public FieldVector {
 struct Map : public FieldVector {
     using FieldVector::FieldVector;
 };
-
-struct FieldWithDataType;
-
-using VariantMap = std::map<PathInData, FieldWithDataType>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -271,6 +267,18 @@ public:
     template <PrimitiveType T>
     const typename PrimitiveTypeTraits<T>::CppType& get() const;
 
+    bool is_nan() const {
+        // Keep type dispatch with the value so callers cannot reinterpret Field storage using a
+        // mismatched PrimitiveType.
+        if (type == PrimitiveType::TYPE_FLOAT) {
+            return std::isnan(get<TYPE_FLOAT>());
+        }
+        if (type == PrimitiveType::TYPE_DOUBLE) {
+            return std::isnan(get<TYPE_DOUBLE>());
+        }
+        return false;
+    }
+
     bool operator==(const Field& rhs) const {
         return operator<=>(rhs) == std::strong_ordering::equal;
     }
@@ -287,8 +295,8 @@ public:
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
                          Int128, IPv6, Float64, String, JsonbField, StringView, Array, Struct, Map,
-                         VariantMap, Decimal32, Decimal64, DecimalV2Value, Decimal128V3, Decimal256,
-                         BitmapValue, HyperLogLog, QuantileState>
+                         VariantField, Decimal32, Decimal64, DecimalV2Value, Decimal128V3,
+                         Decimal256, BitmapValue, HyperLogLog, QuantileState>
             storage;
 
     PrimitiveType type;

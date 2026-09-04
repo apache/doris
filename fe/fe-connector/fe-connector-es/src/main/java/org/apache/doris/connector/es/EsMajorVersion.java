@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.es;
 
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 /**
  * Elasticsearch major version information.

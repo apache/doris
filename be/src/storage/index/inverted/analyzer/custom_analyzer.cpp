@@ -17,12 +17,116 @@
 
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 
+#include <algorithm>
+#include <string_view>
+
 #include "common/status.h"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis_factory_mgr.h"
+#include "storage/index/inverted/common_grams/common_word_set.h"
+#include "storage/index/inverted/token_filter/common_grams_filter_factory.h"
 #include "storage/index/inverted/token_stream.h"
+#include "util/sha.h"
 
 namespace doris::segment_v2::inverted_index {
+namespace {
+
+bool config_uses_common_grams(const ImmutableCustomAnalyzerConfigPtr& config) {
+    DORIS_CHECK(config != nullptr);
+    const auto& filter_configs = config->get_token_filter_configs();
+    return std::any_of(filter_configs.begin(), filter_configs.end(),
+                       [](const auto& entry) { return entry->get_name() == "common_grams"; });
+}
+
+void append_canonical_value(std::string_view value, std::string* output) {
+    output->append(std::to_string(value.size()));
+    output->push_back(':');
+    output->append(value);
+}
+
+void append_component(std::string_view role, const ComponentConfigPtr& component,
+                      std::string* output) {
+    append_canonical_value(role, output);
+    append_canonical_value(component->get_name(), output);
+    const auto entries = component->get_params().sorted_entries();
+    append_canonical_value(std::to_string(entries.size()), output);
+    for (const auto& [key, value] : entries) {
+        append_canonical_value(key, output);
+        append_canonical_value(value, output);
+    }
+}
+
+std::string sha256(std::string_view value) {
+    SHA256Digest digest;
+    digest.reset(value.data(), value.size());
+    return std::string(digest.digest());
+}
+
+std::string calculate_base_analyzer_fingerprint_impl(
+        const ImmutableCustomAnalyzerConfigPtr& config,
+        const std::map<std::string, std::string>& outer_char_filter_map) {
+    DORIS_CHECK(config != nullptr);
+    std::string base;
+    append_canonical_value("doris-common-grams-base-analyzer:v1", &base);
+    append_canonical_value("outer_char_filter", &base);
+    append_canonical_value(std::to_string(outer_char_filter_map.size()), &base);
+    for (const auto& [key, value] : outer_char_filter_map) {
+        append_canonical_value(key, &base);
+        append_canonical_value(value, &base);
+    }
+    append_component("tokenizer", config->get_tokenizer_config(), &base);
+    const auto char_filters = config->get_char_filter_configs();
+    append_canonical_value(std::to_string(char_filters.size()), &base);
+    for (const auto& char_filter : char_filters) {
+        append_component("char_filter", char_filter, &base);
+    }
+    const auto token_filters = config->get_token_filter_configs();
+    const auto base_token_filter_count = std::count_if(
+            token_filters.begin(), token_filters.end(),
+            [](const auto& token_filter) { return token_filter->get_name() != "common_grams"; });
+    append_canonical_value(std::to_string(base_token_filter_count), &base);
+    for (const auto& token_filter : token_filters) {
+        if (token_filter->get_name() != "common_grams") {
+            append_component("token_filter", token_filter, &base);
+        }
+    }
+    return sha256(base);
+}
+
+CommonGramsQueryIdentity build_common_grams_identity(std::string dictionary_identity,
+                                                     std::string base_analyzer_fingerprint) {
+    std::string common_grams;
+    append_canonical_value("doris-common-grams:v1", &common_grams);
+    append_canonical_value(std::to_string(COMMON_GRAMS_SEMANTICS_VERSION_V1), &common_grams);
+    append_canonical_value(std::to_string(COMMON_GRAMS_KEY_VERSION_V1), &common_grams);
+    append_canonical_value(WORDSET_FORMAT_V1, &common_grams);
+    append_canonical_value(dictionary_identity, &common_grams);
+    return {.common_grams_dictionary_identity = std::move(dictionary_identity),
+            .base_analyzer_fingerprint = std::move(base_analyzer_fingerprint),
+            .common_grams_fingerprint = sha256(common_grams)};
+}
+
+std::array<std::shared_ptr<lucene::analysis::Analyzer>, 5> build_purpose_analyzers(
+        const ImmutableCustomAnalyzerConfigPtr& config,
+        const std::shared_ptr<const CommonWordSet>& common_words) {
+    DORIS_CHECK(config != nullptr);
+    const bool has_common_grams = config_uses_common_grams(config);
+    if (!has_common_grams) {
+        auto analyzer = CustomAnalyzer::build_custom_analyzer(config);
+        return {analyzer, analyzer, analyzer, analyzer, analyzer};
+    }
+    return {CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kIndex, common_words),
+            CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kSniiTransientIndex,
+                                                  common_words),
+            CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kPlainQuery,
+                                                  common_words),
+            CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kExactPhraseQuery,
+                                                  common_words),
+            CustomAnalyzer::build_custom_analyzer(config, AnalysisPurpose::kPhrasePrefixQuery,
+                                                  common_words)};
+}
+
+} // namespace
 
 CustomAnalyzer::CustomAnalyzer(Builder* builder) {
     _tokenizer = builder->_tokenizer;
@@ -74,7 +178,8 @@ TokenStreamComponentsPtr CustomAnalyzer::create_components() {
     return std::make_shared<TokenStreamComponents>(tk, ts);
 }
 
-CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(const CustomAnalyzerConfigPtr& config) {
+CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(
+        const ImmutableCustomAnalyzerConfigPtr& config) {
     if (config == nullptr) {
         throw Exception(ErrorCode::ILLEGAL_STATE, "Null configuration detected.");
     }
@@ -88,6 +193,134 @@ CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(const CustomAnalyzerConf
         builder.add_token_filter(filter_config->get_name(), filter_config->get_params());
     }
     return builder.build();
+}
+
+CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(
+        const ImmutableCustomAnalyzerConfigPtr& config, AnalysisPurpose purpose) {
+    return build_custom_analyzer(config, purpose, CommonWordSet::default_word_set());
+}
+
+CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(
+        const ImmutableCustomAnalyzerConfigPtr& config, AnalysisPurpose purpose,
+        const std::shared_ptr<const CommonWordSet>& common_words) {
+    if (config == nullptr) {
+        throw Exception(ErrorCode::ILLEGAL_STATE, "Null configuration detected.");
+    }
+
+    CustomAnalyzer::Builder builder;
+    for (const auto& filter_config : config->get_char_filter_configs()) {
+        builder.add_char_filter(filter_config->get_name(), filter_config->get_params());
+    }
+    builder.with_tokenizer(config->get_tokenizer_config()->get_name(),
+                           config->get_tokenizer_config()->get_params());
+
+    const auto filter_configs = config->get_token_filter_configs();
+    const size_t common_grams_count =
+            std::count_if(filter_configs.begin(), filter_configs.end(),
+                          [](const auto& entry) { return entry->get_name() == "common_grams"; });
+    if (common_grams_count == 0) {
+        for (const auto& filter_config : filter_configs) {
+            builder.add_token_filter(filter_config->get_name(), filter_config->get_params());
+        }
+        return builder.build();
+    }
+    if (common_grams_count != 1 || filter_configs.back()->get_name() != "common_grams") {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "common_grams must appear exactly once as the terminal token filter");
+    }
+    if (builder._tokenizer->position_capability() != PositionCapability::kAlwaysUnitIncrement) {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "CommonGrams tokenizer does not guarantee unit position increments");
+    }
+
+    for (size_t i = 0; i + 1 < filter_configs.size(); ++i) {
+        auto factory = AnalysisFactoryMgr::instance().create<TokenFilterFactory>(
+                filter_configs[i]->get_name(), filter_configs[i]->get_params());
+        if (factory->position_capability() != PositionCapability::kAlwaysUnitIncrement) {
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                            "CommonGrams token filter '{}' does not guarantee unit position "
+                            "increments",
+                            filter_configs[i]->get_name());
+        }
+        builder._token_filters.push_back(std::move(factory));
+    }
+
+    auto common_grams = AnalysisFactoryMgr::instance().create<TokenFilterFactory>(
+            filter_configs.back()->get_name(), filter_configs.back()->get_params());
+    auto common_grams_factory = std::dynamic_pointer_cast<CommonGramsFilterFactory>(common_grams);
+    DORIS_CHECK(common_grams_factory != nullptr);
+    common_grams_factory->set_common_words(common_words);
+    switch (purpose) {
+    case AnalysisPurpose::kIndex:
+        common_grams_factory->set_output_mode(CommonGramsOutputMode::kEscapedV1Index);
+        builder._token_filters.push_back(std::move(common_grams));
+        break;
+    case AnalysisPurpose::kSniiTransientIndex:
+        common_grams_factory->set_output_mode(CommonGramsOutputMode::kEscapedV1SpimiIndex);
+        builder._token_filters.push_back(std::move(common_grams));
+        break;
+    case AnalysisPurpose::kPlainQuery: {
+        auto factory = std::make_shared<CommonGramsPositionFilterFactory>();
+        factory->initialize({});
+        builder._token_filters.push_back(std::move(factory));
+        break;
+    }
+    case AnalysisPurpose::kExactPhraseQuery: {
+        builder._token_filters.push_back(std::move(common_grams));
+        auto factory = std::make_shared<CommonGramsQueryFilterFactory>(common_words);
+        factory->initialize({});
+        builder._token_filters.push_back(std::move(factory));
+        break;
+    }
+    case AnalysisPurpose::kPhrasePrefixQuery: {
+        builder._token_filters.push_back(std::move(common_grams));
+        auto factory = std::make_shared<CommonGramsPhrasePrefixFilterFactory>(common_words);
+        factory->initialize({});
+        builder._token_filters.push_back(std::move(factory));
+        break;
+    }
+    }
+    return builder.build();
+}
+
+CustomAnalyzerProvider::CustomAnalyzerProvider(
+        ImmutableCustomAnalyzerConfigPtr config,
+        std::map<std::string, std::string> outer_char_filter_map)
+        : _config(std::move(config)),
+          _base_analyzer_fingerprint(
+                  calculate_base_analyzer_fingerprint(_config, outer_char_filter_map)),
+          _uses_common_grams(config_uses_common_grams(_config)) {
+    _common_words = CommonWordSet::default_word_set();
+    _analyzers = build_purpose_analyzers(_config, _common_words);
+    if (_uses_common_grams) {
+        // Content-derived, so a BE reading a segment grammed against a different word list sees a
+        // mismatched identity and falls back to the plain plan instead of trusting its grams.
+        _common_grams_identity =
+                build_common_grams_identity(_common_words->identity(), _base_analyzer_fingerprint);
+    }
+}
+
+std::string CustomAnalyzerProvider::calculate_base_analyzer_fingerprint(
+        const ImmutableCustomAnalyzerConfigPtr& config,
+        const std::map<std::string, std::string>& outer_char_filter_map) {
+    return calculate_base_analyzer_fingerprint_impl(config, outer_char_filter_map);
+}
+
+std::shared_ptr<lucene::analysis::Analyzer> CustomAnalyzerProvider::get_analyzer(
+        AnalysisPurpose purpose) const {
+    switch (purpose) {
+    case AnalysisPurpose::kIndex:
+        return _analyzers[0];
+    case AnalysisPurpose::kSniiTransientIndex:
+        return _analyzers[1];
+    case AnalysisPurpose::kPlainQuery:
+        return _analyzers[2];
+    case AnalysisPurpose::kExactPhraseQuery:
+        return _analyzers[3];
+    case AnalysisPurpose::kPhrasePrefixQuery:
+        return _analyzers[4];
+    }
+    __builtin_unreachable();
 }
 
 void CustomAnalyzer::Builder::with_tokenizer(const std::string& name, const Settings& params) {

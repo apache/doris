@@ -50,6 +50,27 @@ class S3FileSystemPropertiesTest {
     }
 
     @Test
+    void glueAliases_carryTheSessionTokenAlongsideAccessAndSecretKey() {
+        // A glue catalog's credentials reach this store only through the glue aliases, and temporary STS
+        // credentials are rejected by AWS unless all three travel together. The token alias used to be missing
+        // while access/secret key had theirs, so a glue catalog on temporary credentials silently degraded to
+        // token-less basic credentials. MUTATION: drop "aws.glue.session-token" from the alias list -> red.
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        raw.put("region", "us-east-1");
+        raw.put("aws.glue.access-key", "GAK");
+        raw.put("aws.glue.secret-key", "GSK");
+        raw.put("aws.glue.session-token", "GST");
+
+        S3FileSystemProperties props = S3FileSystemProperties.of(raw);
+
+        Assertions.assertEquals("GAK", props.getAccessKey());
+        Assertions.assertEquals("GSK", props.getSecretKey());
+        Assertions.assertEquals("GST", props.getSessionToken(),
+                "the glue session token must reach the store, not just the access/secret key");
+    }
+
+    @Test
     void of_bindsAliasesAndExposesEffectiveViews() {
         Map<String, String> raw = new HashMap<>();
         raw.put("s3.endpoint", "https://minio.local");
@@ -247,6 +268,28 @@ class S3FileSystemPropertiesTest {
         Assertions.assertEquals("ENV", properties.toFileSystemKv().get("AWS_CREDENTIALS_PROVIDER_TYPE"));
         Assertions.assertEquals(EnvironmentVariableCredentialsProvider.class.getName(),
                 properties.toHadoopConfigurationMap().get("fs.s3a.aws.credentials.provider"));
+    }
+
+    @Test
+    void toMaps_emitS3TuningDefaultsWhenNotConfigured() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        // Parity with fe-core S3Properties.Env defaults (50 / 3000 / 1000). Literal expected values
+        // (not DEFAULT_* constants) so that mutating a default in the main class fails this guard.
+        Map<String, String> beKv = properties.toFileSystemKv();
+        Assertions.assertEquals("50", beKv.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("3000", beKv.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("1000", beKv.get("AWS_CONNECTION_TIMEOUT_MS"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("50", hadoopKv.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("3000", hadoopKv.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("1000", hadoopKv.get("fs.s3a.connection.timeout"));
     }
 
     @Test

@@ -195,7 +195,7 @@ suite("test_iceberg_v3_row_lineage_complex_query", "p0,external,iceberg,external
                             select rid, id, tag, 0, date '2024-01-01'
                             from ${dimTable}
                         """
-                        exception "Cannot specify row lineage column '_row_id' in INSERT statement"
+                        exception "Cannot specify invisible column '_row_id' in INSERT statement"
                     }
 
                     test {
@@ -204,7 +204,7 @@ suite("test_iceberg_v3_row_lineage_complex_query", "p0,external,iceberg,external
                             select seq, id, tag, 0, date '2024-01-01'
                             from ${dimTable}
                         """
-                        exception "Cannot specify row lineage column '_last_updated_sequence_number' in INSERT statement"
+                        exception "Cannot specify invisible column '_last_updated_sequence_number' in INSERT statement"
                     }
                 } finally {
                     sql """drop table if exists ${dimTable}"""

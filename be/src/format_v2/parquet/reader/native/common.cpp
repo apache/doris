@@ -17,6 +17,7 @@
 
 #include "format_v2/parquet/reader/native/common.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include "core/types.h"
@@ -66,6 +67,133 @@ bool FilterMap::can_filter_all(size_t remaining_num_values, size_t filter_map_in
     return simd::count_zero_num(
                    reinterpret_cast<const int8_t*>(_filter_map_data + filter_map_index),
                    remaining_num_values) == remaining_num_values;
+}
+
+bool should_use_fused_nullable_selection(size_t num_values, size_t num_nulls,
+                                         size_t num_null_runs) {
+    constexpr size_t MIN_BATCH_VALUES = 1024;
+    constexpr size_t MIN_NULL_RUNS = 32;
+    constexpr size_t MAX_AVERAGE_NULL_RUN = 64;
+    constexpr size_t MIN_NULL_RATIO_DENOMINATOR = 10;
+    if (num_values < MIN_BATCH_VALUES || num_nulls < num_values / MIN_NULL_RATIO_DENOMINATOR) {
+        return false;
+    }
+    return num_null_runs >= std::max(MIN_NULL_RUNS, num_values / MAX_AVERAGE_NULL_RUN);
+}
+
+Status build_filtered_nullable_selection(const std::vector<uint16_t>& run_length_null_map,
+                                         size_t num_values, size_t num_nulls,
+                                         NullMap* output_null_map, FilterMap* filter_map,
+                                         size_t filter_map_index, ParquetSelection* selection,
+                                         NullMap* selected_nulls, size_t* num_filtered) {
+    if (output_null_map == nullptr || filter_map == nullptr || selection == nullptr ||
+        selected_nulls == nullptr || num_filtered == nullptr) {
+        return Status::InvalidArgument(
+                "Nullable selection planning requires non-null output state");
+    }
+    if (!filter_map->has_filter()) {
+        return Status::InvalidArgument("Nullable selection planning requires a row filter");
+    }
+    if (!filter_map->filter_all() &&
+        (filter_map->filter_map_data() == nullptr ||
+         filter_map_index + num_values > filter_map->filter_map_size())) {
+        return Status::InvalidArgument("Nullable selection filter range [{}, {}) exceeds size {}",
+                                       filter_map_index, filter_map_index + num_values,
+                                       filter_map->filter_map_size());
+    }
+    if (num_nulls > num_values) {
+        return Status::InvalidArgument("Nullable selection has {} nulls for {} values", num_nulls,
+                                       num_values);
+    }
+
+    selection->ranges.clear();
+    selection->total_values = num_values - num_nulls;
+    selection->selected_values = 0;
+    selected_nulls->clear();
+    *num_filtered = 0;
+    if (filter_map->filter_all()) {
+        *num_filtered = num_values;
+        return Status::OK();
+    }
+
+    selected_nulls->reserve(num_values);
+    const uint8_t* filter = filter_map->filter_map_data() + filter_map_index;
+    const auto select_physical_values = [&](size_t physical_index, size_t count) {
+        if (!selection->ranges.empty() &&
+            selection->ranges.back().first + selection->ranges.back().count == physical_index) {
+            selection->ranges.back().count += count;
+        } else {
+            selection->ranges.push_back({.first = physical_index, .count = count});
+        }
+        selection->selected_values += count;
+    };
+
+    if (num_nulls == 0) {
+        size_t row = 0;
+        while (row < num_values) {
+            const bool selected = filter[row] != 0;
+            const size_t run_start = row++;
+            while (row < num_values && (filter[row] != 0) == selected) {
+                ++row;
+            }
+            const size_t run_length = row - run_start;
+            if (selected) {
+                select_physical_values(run_start, run_length);
+            } else {
+                *num_filtered += run_length;
+            }
+        }
+        selected_nulls->resize_fill(selection->selected_values, 0);
+    } else {
+        size_t logical_index = 0;
+        size_t physical_index = 0;
+        size_t observed_nulls = 0;
+        bool is_null = false;
+        for (const size_t run_length : run_length_null_map) {
+            if (logical_index + run_length > num_values) {
+                return Status::InvalidArgument("Nullable selection run lengths exceed {} values",
+                                               num_values);
+            }
+            const size_t run_end = logical_index + run_length;
+            while (logical_index < run_end) {
+                const bool selected = filter[logical_index] != 0;
+                const size_t filter_run_start = logical_index++;
+                while (logical_index < run_end && (filter[logical_index] != 0) == selected) {
+                    ++logical_index;
+                }
+                const size_t filter_run_length = logical_index - filter_run_start;
+                if (selected) {
+                    selected_nulls->resize_fill(selected_nulls->size() + filter_run_length,
+                                                static_cast<UInt8>(is_null));
+                    if (!is_null) {
+                        select_physical_values(physical_index, filter_run_length);
+                    }
+                } else {
+                    *num_filtered += filter_run_length;
+                }
+                if (!is_null) {
+                    physical_index += filter_run_length;
+                } else {
+                    observed_nulls += filter_run_length;
+                }
+            }
+            is_null = !is_null;
+        }
+        if (logical_index != num_values || observed_nulls != num_nulls ||
+            physical_index != selection->total_values) {
+            return Status::InvalidArgument(
+                    "Nullable selection level plan is inconsistent: values={}, nulls={}",
+                    logical_index, observed_nulls);
+        }
+    }
+
+    const size_t old_null_size = output_null_map->size();
+    output_null_map->resize(old_null_size + selected_nulls->size());
+    if (!selected_nulls->empty()) {
+        memcpy(output_null_map->data() + old_null_size, selected_nulls->data(),
+               selected_nulls->size());
+    }
+    return Status::OK();
 }
 
 Status FilterMap::generate_nested_filter_map(const std::vector<level_t>& rep_levels,
@@ -190,6 +318,90 @@ Status ColumnSelectVector::init(const std::vector<uint16_t>& run_length_null_map
             }
         }
     }
+    return Status::OK();
+}
+
+void ColumnSelectVector::reset(bool has_filter) {
+    _data_map.clear();
+    _run_length_null_map = nullptr;
+    _has_filter = has_filter;
+    _num_values = 0;
+    _num_nulls = 0;
+    _num_filtered = 0;
+    _read_index = 0;
+}
+
+Status ColumnSelectVector::init_nested(std::vector<level_t>* repetition_levels,
+                                       std::vector<level_t>* definition_levels,
+                                       size_t level_start_index, level_t repeated_parent_def_level,
+                                       level_t definition_level, NullMap* null_map,
+                                       FilterMap* parent_filter, size_t filter_map_index,
+                                       size_t* ancestor_null_count) {
+    if (repetition_levels == nullptr || definition_levels == nullptr || parent_filter == nullptr ||
+        ancestor_null_count == nullptr) {
+        return Status::InvalidArgument("Nested selection requires non-null input state");
+    }
+    if (repetition_levels->size() != definition_levels->size() ||
+        level_start_index > repetition_levels->size()) {
+        return Status::InvalidArgument(
+                "Nested selection has invalid level bounds: repetition={}, definition={}, start={}",
+                repetition_levels->size(), definition_levels->size(), level_start_index);
+    }
+    if (!parent_filter->has_filter() || parent_filter->filter_all()) {
+        return Status::InvalidArgument("Nested selection requires a partial parent filter");
+    }
+    if (level_start_index == repetition_levels->size()) {
+        reset(true);
+        *ancestor_null_count = 0;
+        return Status::OK();
+    }
+    if (filter_map_index >= parent_filter->filter_map_size()) {
+        return Status::InvalidArgument("Nested filter row {} exceeds filter map size {}",
+                                       filter_map_index, parent_filter->filter_map_size());
+    }
+    reset(true);
+    _data_map.reserve(repetition_levels->size() - level_start_index);
+    *ancestor_null_count = 0;
+    size_t current_parent = filter_map_index;
+    size_t output_level = level_start_index;
+    for (size_t input_level = level_start_index; input_level < repetition_levels->size();
+         ++input_level) {
+        if (input_level != level_start_index && (*repetition_levels)[input_level] == 0) {
+            ++current_parent;
+            if (current_parent >= parent_filter->filter_map_size()) {
+                return Status::InvalidArgument("Nested filter row {} exceeds filter map size {}",
+                                               current_parent, parent_filter->filter_map_size());
+            }
+        }
+        const bool selected = parent_filter->filter_map_data()[current_parent] != 0;
+        if (selected) {
+            (*repetition_levels)[output_level] = (*repetition_levels)[input_level];
+            (*definition_levels)[output_level] = (*definition_levels)[input_level];
+            ++output_level;
+        }
+        // An ancestor-null placeholder belongs to the surviving parent's level shape, but it must
+        // never consume a leaf selection entry because no physical leaf value exists for it.
+        const level_t def_level = (*definition_levels)[input_level];
+        if (def_level < repeated_parent_def_level) {
+            ++*ancestor_null_count;
+            continue;
+        }
+        const bool is_null = def_level < definition_level;
+        ++_num_values;
+        _num_nulls += is_null;
+        if (!selected) {
+            ++_num_filtered;
+        } else if (null_map != nullptr) {
+            null_map->push_back(static_cast<UInt8>(is_null));
+        }
+        DataReadType read_type = is_null ? FILTERED_NULL : FILTERED_CONTENT;
+        if (selected) {
+            read_type = is_null ? NULL_DATA : CONTENT;
+        }
+        _data_map.push_back(read_type);
+    }
+    repetition_levels->resize(output_level);
+    definition_levels->resize(output_level);
     return Status::OK();
 }
 

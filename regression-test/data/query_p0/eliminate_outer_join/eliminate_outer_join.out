@@ -20,11 +20,12 @@ SyntaxError:
 -- !2 --
 PhysicalResultSink
 --hashJoin[RIGHT_OUTER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
-----filter((supplier.s_suppkey > 1))
-------hashJoin[FULL_OUTER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey)) otherCondition=()
---------hashJoin[FULL_OUTER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey)) otherCondition=()
-----------PhysicalOlapScan[region]
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey)) otherCondition=()
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey)) otherCondition=()
+--------PhysicalOlapScan[region]
+--------filter(( not nation.n_nationkey IS NULL) and (nation.n_nationkey > 1))
 ----------PhysicalOlapScan[nation]
+------filter(( not supplier.s_suppkey IS NULL) and (supplier.s_suppkey > 1))
 --------PhysicalOlapScan[supplier]
 ----filter(( not partsupp.ps_suppkey IS NULL) and (partsupp.ps_suppkey > 1))
 ------PhysicalOlapScan[partsupp]
@@ -37,11 +38,12 @@ SyntaxError:
 -- !3 --
 PhysicalResultSink
 --hashJoin[RIGHT_OUTER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
-----filter((supplier.s_suppkey > 1))
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey)) otherCondition=()
---------hashJoin[FULL_OUTER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey)) otherCondition=()
-----------PhysicalOlapScan[region]
+----hashJoin[INNER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey)) otherCondition=()
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey)) otherCondition=()
+--------PhysicalOlapScan[region]
+--------filter(( not nation.n_nationkey IS NULL) and (nation.n_nationkey > 1))
 ----------PhysicalOlapScan[nation]
+------filter(( not supplier.s_suppkey IS NULL) and (supplier.s_suppkey > 1))
 --------PhysicalOlapScan[supplier]
 ----filter(( not partsupp.ps_suppkey IS NULL) and (partsupp.ps_suppkey > 1))
 ------PhysicalOlapScan[partsupp]
@@ -143,4 +145,3 @@ Hint log:
 Used: [broadcast]_1
 UnUsed:
 SyntaxError:
-

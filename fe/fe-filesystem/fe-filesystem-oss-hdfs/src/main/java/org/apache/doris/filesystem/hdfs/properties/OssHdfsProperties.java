@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.hdfs.properties;
 
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.foundation.property.NoPathTraversalValidator;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
@@ -94,6 +95,7 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
 
     @ConnectorProperty(names = {"oss.hdfs.hadoop.config.resources"},
             required = false,
+            validator = NoPathTraversalValidator.class,
             description = "The xml files of Hadoop configuration.")
     private String hadoopConfigResources = "";
 

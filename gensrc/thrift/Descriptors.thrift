@@ -221,6 +221,7 @@ enum TSchemaTableType {
     SCH_ROLE_MAPPINGS = 71;
     SCH_BACKEND_MS_RPC_TABLE_THROTTLERS = 72;
     SCH_EXTENSIONS = 73;
+    SCH_TSO_STATUS = 74;
 }
 
 enum THdfsCompression {
@@ -366,12 +367,14 @@ struct TOlapTableSchemaParam {
     14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     15: optional i32 sequence_map_col_unique_id = -1
     16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
-    17: optional TOlapTableIndexSchema row_binlog_index_schema
+    17: optional list<TOlapTableIndexSchema> row_binlog_index_schemas
 }
 
 struct TTabletLocation {
     1: required i64 tablet_id
     2: required list<i64> node_ids
+    // used to write binlog tablet by base tablet with the same bucket idx
+    3: optional i64 base_tablet_id
 }
 
 struct TOlapTableLocationParam {

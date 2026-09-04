@@ -20,8 +20,10 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
@@ -47,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -56,8 +59,12 @@ import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -120,6 +127,35 @@ public class NereidsParserTest extends ParserTestBase {
             e.printStackTrace();
         }
         Assertions.assertNull(exceptionOccurred);
+    }
+
+    @Test
+    public void testRefreshMtmvDryRunLimitClause() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        RefreshMTMVCommand noLimit = (RefreshMTMVCommand) nereidsParser.parseSingle(
+                "REFRESH MATERIALIZED VIEW mv INCREMENTAL WITH DRY RUN");
+        Assertions.assertTrue(noLimit.isDryRun());
+        Assertions.assertTrue(noLimit.getDryRunLimit().isEmpty());
+
+        RefreshMTMVCommand limit = (RefreshMTMVCommand) nereidsParser.parseSingle(
+                "REFRESH MATERIALIZED VIEW mv INCREMENTAL WITH DRY RUN LIMIT 10");
+        Assertions.assertEquals(new IvmDryRunLimit(0, 10).toString(),
+                limit.getDryRunLimit().get().toString());
+
+        RefreshMTMVCommand offsetLimit = (RefreshMTMVCommand) nereidsParser.parseSingle(
+                "REFRESH MATERIALIZED VIEW mv INCREMENTAL WITH DRY RUN LIMIT 3, 10");
+        Assertions.assertEquals(new IvmDryRunLimit(3, 10).toString(),
+                offsetLimit.getDryRunLimit().get().toString());
+
+        RefreshMTMVCommand offsetKeywordLimit = (RefreshMTMVCommand) nereidsParser.parseSingle(
+                "REFRESH MATERIALIZED VIEW mv INCREMENTAL WITH DRY RUN LIMIT 10 OFFSET 3");
+        Assertions.assertEquals(new IvmDryRunLimit(3, 10).toString(),
+                offsetKeywordLimit.getDryRunLimit().get().toString());
+
+        RefreshMTMVCommand ordinaryRefresh = (RefreshMTMVCommand) nereidsParser.parseSingle(
+                "REFRESH MATERIALIZED VIEW mv INCREMENTAL");
+        Assertions.assertFalse(ordinaryRefresh.isDryRun());
     }
 
     @Test
@@ -295,7 +331,7 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testPostProcessor() {
+    public void testQuotedIdentifierNormalization() {
         parsePlan("select `AD``D` from t1 where a = 1")
                 .matches(
                         logicalProject().when(p -> "AD`D".equals(p.getProjects().get(0).getName()))
@@ -392,13 +428,12 @@ public class NereidsParserTest extends ParserTestBase {
         String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        ReplayCommand replayCommand = (ReplayCommand) logicalPlan;
-        Assertions.assertEquals(ReplayCommand.ReplayType.DUMP, replayCommand.getReplayType());
-        sql = "plan replayer play 'path'";
-        logicalPlan = nereidsParser.parseSingle(sql);
-        replayCommand = (ReplayCommand) logicalPlan;
-        Assertions.assertEquals(ReplayCommand.ReplayType.PLAY, replayCommand.getReplayType());
-        Assertions.assertEquals("path", replayCommand.getDumpFileFullPath());
+        Assertions.assertInstanceOf(ReplayCommand.class, logicalPlan);
+        Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle("plan replayer play 'path'"));
+        // PLAY is no longer a keyword, so it is an ordinary identifier in any case.
+        Assertions.assertDoesNotThrow(() -> nereidsParser.parseSingle("select pLaY from play"));
+        Assertions.assertDoesNotThrow(() -> nereidsParser.parseSingle("select play.play as play from play"));
     }
 
     @Test
@@ -485,6 +520,19 @@ public class NereidsParserTest extends ParserTestBase {
         logicalPlan = (LogicalPlan) nereidsParser.parseSingle(crossJoin).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.CROSS_JOIN, logicalJoin.getJoinType());
+    }
+
+    @Test
+    public void testParseAsofJoinRejectNullSafeEquality() {
+        parsePlan("SELECT t1.a FROM t1 ASOF INNER JOIN t2 "
+                + "MATCH_CONDITION(t1.dt < t2.dt) ON t1.id <=> t2.id")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts");
+
+        parsePlan("SELECT t1.a FROM t1 ASOF LEFT JOIN t2 "
+                + "MATCH_CONDITION(t1.dt < t2.dt) ON t1.id <=> t2.id")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts");
     }
 
     @Test
@@ -948,14 +996,23 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testCreateFunction() {
         NereidsParser nereidsParser = new NereidsParser();
-        String sql = "create session tables function func_a (int, ...) returns boolean properties('k'='v')";
-        nereidsParser.parseSingle(sql);
+        nereidsParser.parseSingle(
+                "create session tables function func_a(int) returns boolean properties('k'='v')");
+        nereidsParser.parseSingle("create local aggregate function func_a(int) returns boolean "
+                + "intermediate varchar properties('k'='v')");
+        nereidsParser.parseSingle("create alias function func_a(int) with parameter(id) as abs(id)");
 
-        sql = "create local aggregate function func_a (int, ...) returns boolean intermediate varchar properties('k'='v')";
-        nereidsParser.parseSingle(sql);
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "create function func_a(int, ...) returns boolean properties('k'='v')"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "create aggregate function func_a(int, ...) returns boolean properties('k'='v')"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "create tables function func_a(int, ...) returns boolean properties('k'='v')"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "create alias function func_a(int, ...) with parameter(id) as abs(id)"));
 
-        sql = "create alias function func_a (int) with parameter(id) as abs(id)";
-        nereidsParser.parseSingle(sql);
+        nereidsParser.parseSingle("drop function func_a(int, ...)");
+        nereidsParser.parseSingle("show create function func_a(int, ...)");
     }
 
     @Test
@@ -1546,6 +1603,81 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
         CreateTableCommand createTableCommand = (CreateTableCommand) logicalPlan;
         Assertions.assertTrue(createTableCommand.getCtasQuery().isPresent());
+    }
+
+    @Test
+    public void testCreateIndexUsingBloomFilter() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE INDEX idx_content ON docs(content) USING BLOOMFILTER";
+        Plan plan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(AlterTableCommand.class, plan);
+        AlterTableCommand alterTableCommand = (AlterTableCommand) plan;
+        Assertions.assertEquals(1, alterTableCommand.getOps().size());
+        Assertions.assertInstanceOf(CreateIndexOp.class, alterTableCommand.getOps().get(0));
+        CreateIndexOp createIndexOp = (CreateIndexOp) alterTableCommand.getOps().get(0);
+        IndexDefinition indexDefinition = createIndexOp.getIndexDef();
+        Assertions.assertEquals("idx_content", indexDefinition.getIndexName());
+        Assertions.assertEquals(Lists.newArrayList("content"), indexDefinition.getColumnNames());
+        Assertions.assertEquals(IndexType.BLOOMFILTER, indexDefinition.getIndexType());
+        Assertions.assertEquals("docs", createIndexOp.getTableName().getTbl());
+    }
+
+    @Test
+    public void testCreateIndexUsingBloomFilterWithPropertiesThrows() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE INDEX idx_content ON docs(content) USING BLOOMFILTER "
+                + "PROPERTIES (\"bloom_filter_fpp\" = \"0.05\")";
+        Plan plan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(AlterTableCommand.class, plan);
+        AlterTableCommand alterTableCommand = (AlterTableCommand) plan;
+        Assertions.assertEquals(1, alterTableCommand.getOps().size());
+        Assertions.assertInstanceOf(CreateIndexOp.class, alterTableCommand.getOps().get(0));
+        CreateIndexOp createIndexOp = (CreateIndexOp) alterTableCommand.getOps().get(0);
+        IndexDefinition indexDefinition = createIndexOp.getIndexDef();
+        Assertions.assertDoesNotThrow(indexDefinition::validate);
+        Assertions.assertEquals("0.05", indexDefinition.getProperties().get("bloom_filter_fpp"));
+    }
+
+    @Test
+    public void testCreateTableInlineBloomFilterIndex() throws Exception {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE docs ("
+                + "id BIGINT, "
+                + "content TEXT, "
+                + "INDEX idx_content (content) USING BLOOMFILTER COMMENT \"this is a simple bloomfilter index\""
+                + ") DISTRIBUTED BY HASH(id) BUCKETS 1";
+        Plan plan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, plan);
+        CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
+        Field indexesField = CreateTableInfo.class.getDeclaredField("indexes");
+        indexesField.setAccessible(true);
+        List<IndexDefinition> indexDefinitions = (List<IndexDefinition>) indexesField.get(createTableInfo);
+        Assertions.assertEquals(1, indexDefinitions.size());
+        IndexDefinition indexDefinition = indexDefinitions.get(0);
+        Assertions.assertEquals("idx_content", indexDefinition.getIndexName());
+        Assertions.assertEquals(Lists.newArrayList("content"), indexDefinition.getColumnNames());
+        Assertions.assertEquals(IndexType.BLOOMFILTER, indexDefinition.getIndexType());
+        Assertions.assertEquals("this is a simple bloomfilter index", indexDefinition.getComment());
+    }
+
+    @Test
+    public void testCreateTableInlineBloomFilterIndexWithFppProperty() throws Exception {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE docs ("
+                + "id BIGINT, "
+                + "content TEXT, "
+                + "INDEX idx_content (content) USING BLOOMFILTER "
+                + "PROPERTIES (\"bloom_filter_fpp\" = \"0.05\")"
+                + ") DISTRIBUTED BY HASH(id) BUCKETS 1";
+        Plan plan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, plan);
+        CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
+        Field indexesField = CreateTableInfo.class.getDeclaredField("indexes");
+        indexesField.setAccessible(true);
+        List<IndexDefinition> indexDefinitions = (List<IndexDefinition>) indexesField.get(createTableInfo);
+        Assertions.assertEquals(1, indexDefinitions.size());
+        Assertions.assertDoesNotThrow(() -> indexDefinitions.get(0).validate());
+        Assertions.assertEquals("0.05", indexDefinitions.get(0).getProperties().get("bloom_filter_fpp"));
     }
 
     @Test

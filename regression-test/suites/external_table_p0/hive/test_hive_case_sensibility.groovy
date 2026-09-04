@@ -46,7 +46,8 @@ suite("test_hive_case_sensibility", "p0,external") {
                 sql """create database case_db1;"""
                 test {
                     sql """create database CASE_DB1;""" // conflict
-                    exception "Can't create database 'CASE_DB1'; database exists"
+                    exception "Failed to create Hive database"
+                    exception "already exists"
                 }
                 sql """create database CASE_DB2;"""
                 sql """create database if not exists CASE_DB1;"""
@@ -58,19 +59,18 @@ suite("test_hive_case_sensibility", "p0,external") {
                 qt_sql3 """show databases like "%case_db2%";"""
                 test {
                     sql """create database CASE_DB2;""" // conflict
-                    exception "database exists"
-                    exception "CASE_DB2"
+                    exception "Failed to create Hive database"
+                    exception "already exists"
                 }
                 test {
                     sql """create database case_db2;""" // conflict
-                    exception "database exists"
-                    exception "case_db2"
+                    exception "Failed to create Hive database"
+                    exception "already exists"
                 }
                 // 2. drop database
                 test {
                     sql """drop database CASE_DB1"""
-                    exception "database doesn't exist"
-                    exception "CASE_DB1"
+                    exception "Failed to get database"
                 }
                 sql """drop database if exists CASE_DB1;""" 
                 qt_sql4 """show databases like "%case_db1%";""" // still exists
@@ -79,19 +79,16 @@ suite("test_hive_case_sensibility", "p0,external") {
 
                 test {
                     sql """drop database CASE_DB2;"""
-                    exception "database doesn't exist"
-                    exception "CASE_DB2"
+                    exception "Failed to get database"
                 }
                 sql """drop database case_db2;"""
                 test {
                     sql """drop database case_db1"""
-                    exception "database doesn't exist"
-                    exception "case_db1"
+                    exception "Failed to get database"
                 }
                 test {
                     sql """drop database case_db2"""
-                    exception "database doesn't exist"
-                    exception "case_db2"
+                    exception "Failed to get database"
                 }
                 sql """drop database if exists case_db2;""" 
                 qt_sql6 """show databases like "%case_db1%";""" // empty
@@ -241,16 +238,16 @@ suite("test_hive_case_sensibility", "p0,external") {
                 /// full qualified
                 test {
                     sql """truncate table CASE_DB2.CASE_TBL22"""
-                    exception "Unknown database 'CASE_DB2'"
+                    exception "Failed to get database: 'CASE_DB2' in catalog"
                 }
                 test {
                     sql """truncate table CASE_DB2.case_tbl22"""
-                    exception "Unknown database 'CASE_DB2'"
+                    exception "Failed to get database: 'CASE_DB2'"
                 }
                 if (case_type.equals("0")) {
                     test {
                         sql """truncate table case_db2.CASE_TBL22"""
-                        exception "Unknown table 'CASE_TBL22'"
+                        exception "Failed to get table: 'CASE_TBL22'"
                     }
                 } else {
                     sql """truncate table case_db2.CASE_TBL22"""
@@ -262,7 +259,7 @@ suite("test_hive_case_sensibility", "p0,external") {
                 if (case_type.equals("0")) {
                     test {
                         sql """truncate table CASE_TBL12;"""
-                        exception "Unknown table 'CASE_TBL12'"
+                        exception "Failed to get table: 'CASE_TBL12' in database: case_db1"
                     }
                 } else {
                     sql """truncate table CASE_TBL12;"""

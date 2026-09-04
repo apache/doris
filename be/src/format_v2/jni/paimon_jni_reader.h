@@ -51,6 +51,7 @@ protected:
     Status validate_scan_range(const TFileRangeDesc& range) const override;
     Status build_scanner_params(std::map<std::string, std::string>* params) const override;
     bool supports_batch_size_update_after_open() const override { return false; }
+    bool publishes_encoded_schema() const override { return true; }
 
 private:
     static std::string build_default_io_manager_tmp_dirs(const std::vector<StorePath>& store_paths);

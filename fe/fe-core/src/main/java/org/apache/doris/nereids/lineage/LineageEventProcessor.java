@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.lineage;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
 import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
@@ -72,6 +73,16 @@ public class LineageEventProcessor {
     /** Parent-first prefixes for child-first classloading isolation. */
     private static final List<String> LINEAGE_PARENT_FIRST_PREFIXES =
             Collections.singletonList("org.apache.doris.nereids.lineage.");
+
+    /**
+     * The lineage plugin API contract this FE serves. Built from the version filtered into fe-core at build
+     * time — the lineage SPI lives in fe-core itself, so {@link LineagePluginFactory} is both the anchor and
+     * the contract. Deliberately a static field: a missing or malformed resource is a build defect, and
+     * failing class initialization is the only way to make it loud, since the directory-discovery block below
+     * swallows exceptions to keep one bad plugin from stopping FE.
+     */
+    private static final ApiVersionGate API_VERSION_GATE =
+            ApiVersionGate.forFamily("lineage", LineagePluginFactory.class);
 
     private final AtomicReference<List<LineagePlugin>> lineagePlugins = new AtomicReference<>(Collections.emptyList());
     private final BlockingQueue<LineageInfo> eventQueue =
@@ -159,7 +170,7 @@ public class LineageEventProcessor {
             ClassLoadingPolicy policy = new ClassLoadingPolicy(LINEAGE_PARENT_FIRST_PREFIXES);
             LoadReport<LineagePluginFactory> report = runtimeManager.loadAll(
                     pluginRoots, getClass().getClassLoader(),
-                    LineagePluginFactory.class, policy);
+                    LineagePluginFactory.class, policy, API_VERSION_GATE);
 
             for (LoadFailure failure : report.getFailures()) {
                 LOG.warn("Skip lineage plugin directory due to load failure:"

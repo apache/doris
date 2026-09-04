@@ -166,11 +166,15 @@ public class TruncateTableCommandTest extends TestWithFeService {
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210903", 4);
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210904", 5);
 
+        OlapTable table = Env.getCurrentInternalCatalog().getDbNullable("testcommand")
+                .getOlapTableOrDdlException("tblcommand");
+        long visibleVersion = table.getVisibleVersion();
         String truncateStr = "truncate table internal.testcommand.tblcommand;";
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan plan = nereidsParser.parseSingle(truncateStr);
         Assertions.assertTrue(plan instanceof TruncateTableCommand);
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);
+        Assertions.assertEquals(visibleVersion + 1, table.getVisibleVersion());
 
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210901", 2);
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210902", 3);
@@ -181,6 +185,7 @@ public class TruncateTableCommandTest extends TestWithFeService {
         plan = nereidsParser.parseSingle(truncateStr);
         Assertions.assertTrue(plan instanceof TruncateTableCommand);
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);
+        Assertions.assertEquals(visibleVersion + 2, table.getVisibleVersion());
 
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210901", 2);
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210902", 3);

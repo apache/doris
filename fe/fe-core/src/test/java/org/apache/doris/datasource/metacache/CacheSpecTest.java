@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.metacache;
 
-import org.apache.doris.common.DdlException;
+import org.apache.doris.connector.cache.CacheSpec;
 
 import com.google.common.collect.Maps;
 import org.junit.Assert;
@@ -127,16 +127,16 @@ public class CacheSpecTest {
 
         try {
             CacheSpec.checkBooleanProperty("on", "k.enable");
-            Assert.fail("expected DdlException");
-        } catch (DdlException e) {
+            Assert.fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
             Assert.assertTrue(e.getMessage().contains("k.enable"));
         }
 
         CacheSpec.checkLongProperty("10", 0, "k.ttl");
         try {
             CacheSpec.checkLongProperty("-1", 0, "k.ttl");
-            Assert.fail("expected DdlException");
-        } catch (DdlException e) {
+            Assert.fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
             Assert.assertTrue(e.getMessage().contains("k.ttl"));
         }
     }

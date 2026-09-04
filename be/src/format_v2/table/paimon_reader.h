@@ -35,9 +35,16 @@ public:
 
 #ifdef BE_TEST
     void TEST_set_scan_params(TFileScanRangeParams* params) { _scan_params = params; }
+    void TEST_set_projected_columns(std::vector<format::ColumnDefinition> columns) {
+        _projected_columns = std::move(columns);
+    }
+    void TEST_set_format(format::FileFormat format) { _format = format; }
     format::TableColumnMappingMode TEST_mapping_mode() const { return mapping_mode(); }
     Status TEST_annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) {
         return annotate_file_schema(file_schema);
+    }
+    Status TEST_customize_file_scan_request(format::FileScanRequest* request) {
+        return customize_file_scan_request(request);
     }
     Status TEST_parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
                                            bool* has_delete_file) {
@@ -48,12 +55,14 @@ public:
 protected:
     format::TableColumnMappingMode mapping_mode() const override;
     Status annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) override;
+    Status customize_file_scan_request(format::FileScanRequest* file_request) override;
 
     Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
                                        bool* has_delete_file) override;
 
 private:
     int64_t _split_schema_id = -1;
+    std::vector<format::LocalColumnIndex> _variant_schema_overrides;
 };
 
 // Paimon scans can contain both native data-file splits and serialized JNI splits in the same
@@ -65,6 +74,7 @@ public:
 
     Status init(format::TableReadOptions&& options) override;
     Status prepare_split(const format::SplitReadOptions& options) override;
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override;
     Status get_block(Block* block, bool* eos) override;
     bool current_split_pruned() const override;
     bool current_split_uses_metadata_count() const override;

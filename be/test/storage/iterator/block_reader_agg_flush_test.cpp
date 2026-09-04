@@ -24,11 +24,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
-#define private public
-#define protected public
 #include "storage/iterator/block_reader.h"
-#undef private
-#undef protected
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -92,9 +88,7 @@ void configure_reader_for_int64_sum(BlockReader& reader, const Block& src_block,
     config::enable_adaptive_batch_size = false;
 
     // Column layout: [0]=key, [1]=agg value. Output layout matches input.
-    reader._normal_columns_idx = {0};
     reader._agg_columns_idx = {1};
-    reader._return_columns_loc = {0, 1};
 
     reader._stored_data_columns = make_stored_columns(src_block, batch_max_rows);
     reader._stored_has_null_tag.assign(reader._stored_data_columns.size(), false);

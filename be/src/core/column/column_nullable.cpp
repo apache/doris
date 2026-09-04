@@ -676,6 +676,29 @@ bool ColumnNullable::only_null() const {
     return !simd::contain_zero(get_null_map_data().data(), size());
 }
 
+ColumnNullable::NullMapState ColumnNullable::get_null_map_state() const {
+    const auto& null_map = get_null_map_data();
+    if (null_map.empty()) {
+        return {.has_null = false, .only_null = true};
+    }
+
+    if (null_map[0]) {
+        return {.has_null = true,
+                .only_null = !simd::contain_zero(null_map.data() + 1, null_map.size() - 1)};
+    }
+    return {.has_null = simd::contain_one(null_map.data() + 1, null_map.size() - 1),
+            .only_null = false};
+}
+
+bool ColumnNullable::try_replace_null_payload_with_default_without_cow() const {
+    if (!is_exclusive()) {
+        return false;
+    }
+
+    const_cast<IColumn&>(get_nested_column()).replace_column_null_data(get_null_map_data().data());
+    return true;
+}
+
 bool ColumnNullable::has_null(size_t begin, size_t end) const {
     return simd::contain_one(get_null_map_data().data() + begin, end - begin);
 }

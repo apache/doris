@@ -1,0 +1,128 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+syntax = "proto2";
+
+package doris.snii;
+
+message SniiMetadataDirectoryPB {
+    // Known values: 1 = blob logical index entries are present (set iff any
+    // entry has kind != SNII_KIND_INVERTED). Readers accept a whitelist of
+    // known values and reject everything else as Unsupported.
+    repeated uint32 required_features = 1 [packed = true];
+    repeated SniiLogicalIndexMetadataPB indexes = 2;
+}
+
+// Logical index kinds. INVERTED keeps the existing three-blob contract; blob
+// kinds carry an opaque named-file table instead. The `kind` field below is
+// deliberately uint32 (not this enum type): proto2 drops unknown enum values
+// into unknown fields, which would make a future kind indistinguishable from
+// an absent one instead of a clean Unsupported.
+enum SniiLogicalIndexKindPB {
+    SNII_KIND_INVERTED = 0; // default: SNII text inverted index
+    SNII_KIND_BKD = 1;      // opaque CLucene BKD blobs
+    SNII_KIND_ANN = 2;      // opaque faiss blobs
+}
+
+// One opaque sub-file of a blob logical index. Offsets are absolute file
+// offsets into the container. NOTE: length may legitimately be 0 (an empty
+// BKD segment writes 0-byte `bkd` / `bkd_index`); this deliberately differs
+// from SniiBlobRefPB, whose length==0 is Corruption.
+message SniiNamedBlobPB {
+    optional bytes name = 1; // e.g. "bkd_meta", "ann.faiss"
+    optional uint64 offset = 2;
+    optional uint64 length = 3; // may be 0
+    // Whole-blob checksum, recorded by the writer. NOT verified on the read
+    // path: a blob is served through random-access reads, so a whole-file
+    // verification would defeat the point, and BKD/faiss both carry their own
+    // structural checks. It exists so an offline inspect/fsck tool (and the
+    // writer's own unit tests) can distinguish "container bytes rotted" from
+    // "reader is buggy". No such tool exists yet.
+    optional uint32 crc32c = 4;
+}
+
+message SniiLogicalIndexMetadataPB {
+    optional uint64 index_id = 1;
+    optional bytes index_suffix = 2;
+    optional SniiBlobRefPB core_metadata = 3;        // INVERTED only
+    optional SniiBlobRefPB sampled_term_index = 4;   // INVERTED only
+    optional SniiBlobRefPB dict_block_directory = 5; // INVERTED only
+    // SniiLogicalIndexKindPB. Writers MUST NOT set this field (not even to 0)
+    // on INVERTED entries: proto2 presence semantics would serialize it and
+    // change the bytes of every pure-text directory.
+    optional uint32 kind = 6;
+    repeated SniiNamedBlobPB files = 7; // blob kinds only
+}
+
+message SniiBlobRefPB {
+    optional uint64 offset = 1;
+    optional uint64 length = 2;
+}
+
+message SniiCoreMetadataPB {
+    optional uint32 index_config = 1;
+    optional SniiStatsPB stats = 2;
+    optional SniiSectionRefsPB section_refs = 3;
+    optional SniiCommonGramsMetadataPB common_grams = 4;
+    optional uint32 common_grams_posting_policy = 5;
+}
+
+// FIELD NUMBERS ARE ON DISK. The SNII format shipped before this message reached
+// upstream, and those segments put null_count at 4. Upstream later inserted
+// sum_total_term_freq at 4 and pushed null_count to 5, so the two layouts
+// disagree on what tag 4 means -- and both are uint64, so a mismatched read
+// returns a plausible wrong number instead of failing. Numbering here follows
+// the shipped layout; append new fields, never insert.
+message SniiStatsPB {
+    optional uint64 doc_count = 1;
+    optional uint64 indexed_doc_count = 2;
+    optional uint64 term_count = 3;
+    optional uint64 null_count = 4;
+    optional uint64 sum_total_term_freq = 5;
+}
+
+message SniiRegionRefPB {
+    optional uint64 offset = 1;
+    optional uint64 length = 2;
+}
+
+// FIELD NUMBERS ARE ON DISK -- see the note on SniiStatsPB. Shipped segments put
+// null_bitmap at 3 and bsbf at 4; upstream inserted norms at 3 and shifted both,
+// which makes a reader take the null bitmap's offset/length for the norms region
+// and lose bsbf entirely. Numbering here follows the shipped layout.
+message SniiSectionRefsPB {
+    optional SniiRegionRefPB dict_region = 1;
+    optional SniiRegionRefPB posting_region = 2;
+    optional SniiRegionRefPB null_bitmap = 3;
+    optional SniiRegionRefPB bsbf = 4;
+    optional SniiRegionRefPB norms = 5;
+}
+
+message SniiCommonGramsMetadataPB {
+    optional uint32 plain_term_key_version = 1;
+    optional uint32 common_grams_coverage = 2;
+    optional uint32 common_grams_semantics_version = 3;
+    optional uint32 common_grams_key_version = 4;
+    optional bytes common_grams_dictionary_identity = 5;
+    optional bytes base_analyzer_fingerprint = 6;
+    optional bytes common_grams_fingerprint = 7;
+    optional uint32 scoring_coverage = 8;
+    optional uint32 scoring_stats_version = 9;
+    optional uint32 norm_semantics_version = 10;
+    optional uint64 scoring_doc_count = 11;
+    optional uint64 scoring_token_count = 12;
+}

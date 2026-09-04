@@ -18,9 +18,19 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -33,7 +43,11 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExecuteCommandTest {
@@ -70,6 +84,40 @@ public class ExecuteCommandTest {
     }
 
     @Test
+    public void testResolvedScanOptionsAreResetForPreparedDeleteUsing() throws Exception {
+        String sql = "delete from target using source@options('scan.mode'='latest') "
+                + "where target.id = source.id";
+        LogicalPlan command = new NereidsParser().parseSingle(sql);
+        LogicalPlan relationRoot = ((DeleteFromUsingCommand) command).getLogicalQuery();
+
+        assertPreparedCommandResetsScanOptions(sql, command, relationRoot);
+    }
+
+    @Test
+    public void testResolvedScanOptionsAreResetForPreparedDeleteSubquery() throws Exception {
+        String sql = "delete from target where id in "
+                + "(select id from source@options('scan.mode'='latest'))";
+        DeleteFromCommand command = (DeleteFromCommand) new NereidsParser().parseSingle(sql);
+        SubqueryExpr subquery = command.logicalQuery.<LogicalPlan>collectToList(plan -> true).stream()
+                .flatMap(plan -> plan.getExpressions().stream())
+                .flatMap(expression -> expression.<SubqueryExpr>collectToList(
+                        SubqueryExpr.class::isInstance).stream())
+                .findFirst().orElseThrow(AssertionError::new);
+
+        assertPreparedCommandResetsScanOptions(sql, command, subquery.getQueryPlan());
+    }
+
+    @Test
+    public void testResolvedScanOptionsAreResetForPreparedMerge() throws Exception {
+        String sql = "merge into target using source@options('scan.mode'='latest') "
+                + "on target.id = source.id when matched then delete";
+        MergeIntoCommand command = (MergeIntoCommand) new NereidsParser().parseSingle(sql);
+
+        assertPreparedCommandResetsScanOptions(
+                sql, command, command.getRelationRoots().get(0));
+    }
+
+    @Test
     public void testExecutePreparedCommandWithoutPlanChildren() throws Exception {
         String sql = "show variables";
         LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
@@ -91,9 +139,127 @@ public class ExecuteCommandTest {
         Mockito.verify(executor).execute();
     }
 
+    @Test
+    public void testPreparedConnectorUpdateRefreshesWriteDefaultEveryExecution() throws Exception {
+        // Prepared UPDATE reuses one StatementContext. Model connector metadata changing from default 1 to 2
+        // between executions: each planner callback pins the current schema only when no schema is already pinned,
+        // then expands DEFAULT(v) and writes the resulting value.
+        // MUTATION: resetConnectorStatementScope() not clearing connectorWriteSchemas makes execution two reuse
+        // default 1, so the written values become [1, 1] instead of [1, 2].
+        String sql = "update ext_catalog.db.t set v = default(v) where id = 1";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        Assertions.assertInstanceOf(UpdateCommand.class, logicalPlan);
+
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        long tableId = 7L;
+        AtomicInteger metadataDefault = new AtomicInteger(1);
+        List<String> writtenValues = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            if (!statementContext.getConnectorWriteSchema(tableId).isPresent()) {
+                Column column = new Column("v", ScalarType.createType(PrimitiveType.INT),
+                        false, null, String.valueOf(metadataDefault.get()), "");
+                statementContext.setConnectorWriteSchema(tableId, Collections.singletonList(column));
+            }
+            writtenValues.add(statementContext.getConnectorWriteSchema(tableId).get()
+                    .get(0).getDefaultValueSql());
+            return null;
+        }).when(executor).execute();
+
+        ExecuteCommand execute = new ExecuteCommand("stmt", prepareCommand, statementContext);
+        execute.run(connectContext, executor);
+        metadataDefault.set(2);
+        execute.run(connectContext, executor);
+
+        Assertions.assertEquals(Arrays.asList("1", "2"), writtenValues,
+                "each prepared UPDATE must write the default from its freshly resolved connector schema");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testMvccSnapshotsAreResetForEveryExecute() throws Exception {
+        String sql = "select 1";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        MvccTable table = Mockito.mock(MvccTable.class);
+        DatabaseIf<TableIf> database = Mockito.mock(DatabaseIf.class);
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(table.getName()).thenReturn("t");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        MvccSnapshot first = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot second = Mockito.mock(MvccSnapshot.class);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.empty())).thenReturn(first, second);
+
+        statementContext.loadSnapshots(table, Optional.empty(), Optional.empty());
+        Assertions.assertSame(first,
+                statementContext.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
+
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+        statementContext.loadSnapshots(table, Optional.empty(), Optional.empty());
+
+        Assertions.assertSame(second,
+                statementContext.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
+        Mockito.verify(table, Mockito.times(2)).loadSnapshot(Optional.empty(), Optional.empty());
+    }
+
     private String resolveNextSnapshot(TableScanParams scanParams, AtomicInteger snapshotId) {
         return scanParams.getOrResolveMapParams(ignored -> ImmutableMap.of(
                 "scan.snapshot-id", String.valueOf(snapshotId.incrementAndGet())))
                 .get("scan.snapshot-id");
+    }
+
+    private void assertPreparedCommandResetsScanOptions(
+            String sql, LogicalPlan command, LogicalPlan relationRoot) throws Exception {
+        UnboundRelation relation = relationRoot.<UnboundRelation>collectToList(
+                UnboundRelation.class::isInstance).stream()
+                .filter(candidate -> candidate.getScanParams() != null)
+                .findFirst().orElseThrow(AssertionError::new);
+        TableScanParams scanParams = relation.getScanParams();
+        AtomicInteger snapshotId = new AtomicInteger();
+        Assertions.assertEquals("1", resolveNextSnapshot(scanParams, snapshotId));
+
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", command, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+
+        Assertions.assertEquals("2", resolveNextSnapshot(scanParams, snapshotId));
+
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+
+        Assertions.assertEquals("3", resolveNextSnapshot(scanParams, snapshotId));
     }
 }

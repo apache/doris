@@ -28,6 +28,7 @@ public:
     ~TokenizerFactory() override = default;
 
     virtual TokenizerPtr create() = 0;
+    virtual PositionCapability position_capability() const { return PositionCapability::kUnknown; }
 };
 using TokenizerFactoryPtr = std::shared_ptr<TokenizerFactory>;
 

@@ -19,6 +19,7 @@
 #include <limits>
 #include <memory>
 
+#include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -43,7 +44,13 @@ struct ScanNormalizePredicate : public ::testing::Test {
     void SetUp() override {
         state = std::make_shared<MockRuntimeState>();
         op = std::make_shared<MockScanOperatorX>();
+        // Predicate column ids are ordinals in the operator's pre-projection descriptor, which is
+        // what the scanner reads (ScanOperatorX::operator_row_desc_before_projection).
+        op->_row_descriptor = MockRowDescriptor {
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt64>()}, &pool};
+        op->_output_tuple_desc = op->_row_descriptor.tuple_descriptors()[0];
     }
+    ObjectPool pool;
     std::shared_ptr<MockRuntimeState> state;
     std::shared_ptr<MockScanOperatorX> op;
 };
@@ -206,6 +213,10 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot1) {
                                                     conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         std::cout << st.msg() << std::endl;
+
+        const auto& predicates = local_state->_slot_id_to_predicates[SlotId];
+        ASSERT_EQ(predicates.size(), 1);
+        EXPECT_EQ(predicates.front()->column_id(), 0);
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));

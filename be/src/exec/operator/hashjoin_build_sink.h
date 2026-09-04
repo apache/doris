@@ -277,4 +277,9 @@ private:
     RuntimeState* _state = nullptr;
 };
 
+/// Instantiated once in join_build_sink_operator.cpp; suppresses per-TU implicit
+/// instantiation.
+extern template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
+extern template class JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState>;
+
 } // namespace doris

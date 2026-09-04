@@ -206,6 +206,7 @@ The following components are provided under the Apache License. See project link
 The text of each license is the standard Apache 2.0 license.
 
 software.amazon.awssdk.core.client.builder.SdkDefaultClientBuilder from AWS SDK v2 (sdk-core 2.29.52)
+org.apache.hadoop.fs.FileSystem from Apache Hadoop (hadoop-common 3.4.2)
 
 --------------------------------------------------------------------------------
 
@@ -365,6 +366,14 @@ be/src/olap/skiplist.h : BSD-style license
   Copyright (c) 2011 The LevelDB Authors. All rights reserved.
   Use of this source code is governed by a BSD-style license that can be
   found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/storage/index/inverted/analyzer/kuromoji/dict/darts.h : 2-Clause BSD license (darts-clone)
+
+  Copyright (c) 2008-2014 Susumu Yata. All rights reserved.
+  Vendored from https://github.com/s-yata/darts-clone
+  Full text: dist/licenses/LICENSE-darts-clone.txt
 
 --------------------------------------------------------------------------------
 
@@ -735,5 +744,13 @@ org.openjdk.jmc.flightrecorder:  UPL 1.0 or BSD-style license
 The Mission Control source code is made available under the Universal Permissive License (UPL),
 Version 1.0 or a BSD-style license, alternatively. The full open source license text is available
 at license/LICENSE.txt in the JMC project.
+
+----------------------------------------------------------------------------------
+
+ui bundled dependency elkjs 0.12.0: Eclipse Public License v2.0
+
+elkjs is offered under EPL-2.0 OR GPL-3.0-or-later. This distribution elects
+EPL-2.0. The full Eclipse Public License v2.0 text is available at
+dist/licenses/LICENSE-EPL-2.0.txt.
 
 ----------------------------------------------------------------------------------

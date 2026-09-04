@@ -752,12 +752,16 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
                                          &aws_config.connectTimeoutMs));
     }
 
-    // Get credentials provider (reuses S3 infrastructure)
-    auto credentials_provider = S3ClientFactory::instance().get_aws_credentials_provider(s3_conf);
+    // Create credentials provider (reuses S3 infrastructure)
+    auto credentials = S3ClientFactory::instance().create_aws_credentials_provider(s3_conf);
+    if (!credentials) {
+        return Status::InvalidArgument("Failed to create AWS credential provider: {}",
+                                       credentials.error);
+    }
 
     // Create Kinesis client
-    _kinesis_client =
-            std::make_shared<Aws::Kinesis::KinesisClient>(credentials_provider, aws_config);
+    _kinesis_client = std::make_shared<Aws::Kinesis::KinesisClient>(std::move(credentials.provider),
+                                                                    aws_config);
 
     if (!_kinesis_client) {
         return Status::InternalError(

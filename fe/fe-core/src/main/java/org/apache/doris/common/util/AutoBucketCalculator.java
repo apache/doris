@@ -138,8 +138,9 @@ public class AutoBucketCalculator {
                 executeFirstTime ? "executeFirstTime" : "not auto bucket table");
         }
 
-        // Get historical partitions
-        List<Partition> partitions = DynamicPartitionScheduler.getHistoricalPartitions(table, nowPartitionName);
+        // Get historical partitions (current partition excluded by name-based comparison)
+        List<Partition> partitions = DynamicPartitionScheduler.getHistoricalPartitions(
+                table, nowPartitionName);
 
         // Get visible versions with error handling
         List<Long> visibleVersions;

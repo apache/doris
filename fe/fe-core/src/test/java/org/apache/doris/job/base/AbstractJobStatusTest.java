@@ -66,6 +66,18 @@ class AbstractJobStatusTest {
         }
     }
 
+    private static class FailingTask extends DummyTask {
+        FailingTask(long taskId) {
+            super(taskId);
+            setJobId(1L);
+        }
+
+        @Override
+        public void run() throws JobException {
+            throw new JobException("task failed");
+        }
+    }
+
     private static class DummyJob extends AbstractJob<DummyTask, Void> {
         private final List<DummyTask> history = new ArrayList<>();
 
@@ -129,6 +141,17 @@ class AbstractJobStatusTest {
         DummyJob job = new DummyJob(JobStatus.PAUSED);
         job.updateJobStatus(JobStatus.PENDING);
         Assertions.assertEquals(JobStatus.PENDING, job.getJobStatus());
+    }
+
+    @Test
+    void testTaskFailureSetsFinishTime() throws Exception {
+        FailingTask task = new FailingTask(100L);
+
+        task.runTask();
+
+        Assertions.assertEquals(TaskStatus.FAILED, task.getStatus());
+        Assertions.assertNotNull(task.getFinishTimeMs());
+        Assertions.assertEquals("task failed", task.getErrMsg());
     }
 
     @Test

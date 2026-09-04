@@ -43,6 +43,11 @@ enum FileCacheType {
     DISPOSABLE = 0,
     TTL = 3,
 };
+
+inline size_t file_cache_type_index(FileCacheType type) {
+    return static_cast<size_t>(type);
+}
+
 std::string cache_type_to_surfix(FileCacheType type);
 FileCacheType surfix_to_cache_type(const std::string& str);
 
@@ -75,6 +80,7 @@ struct ReadStatistics {
     int64_t bytes_read_from_local = 0;
     int64_t bytes_read_from_remote = 0;
     int64_t bytes_read_from_peer = 0;
+    int64_t remote_physical_read_bytes = 0;
     int64_t bytes_write_into_file_cache = 0;
     int64_t remote_read_timer = 0;
     int64_t peer_read_timer = 0;
@@ -86,6 +92,17 @@ struct ReadStatistics {
     int64_t lock_wait_timer = 0;
     int64_t get_timer = 0;
     int64_t set_timer = 0;
+    int64_t async_cache_write_submitted = 0;
+    int64_t async_cache_write_rejected = 0;
+    int64_t async_cache_write_buffer_alloc_fail = 0;
+    int64_t async_cache_write_drop_stale_epoch = 0;
+    int64_t inflight_write_buffer_index_hit = 0;
+    int64_t inflight_write_buffer_index_miss = 0;
+    int64_t probe_downloaded_hit = 0;
+    int64_t probe_downloading_hit = 0;
+    int64_t probe_miss = 0;
+    int64_t block_wait_success = 0;
+    int64_t block_wait_timeout = 0;
 };
 
 class BlockFileCache;

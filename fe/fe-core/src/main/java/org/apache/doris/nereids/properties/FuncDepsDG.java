@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableList;
@@ -215,6 +216,43 @@ public class FuncDepsDG {
             for (DGItem dgItem : funcDepsDG.dgItems) {
                 for (int childIdx : dgItem.children) {
                     addDeps(dgItem.slots, funcDepsDG.dgItems.get(childIdx).slots);
+                }
+            }
+        }
+
+        /**
+         * Add FD edges from the nullable side of an outer join. Only keep edges whose
+         * determinant slots are all NOT NULL in the immediate child's current output:
+         * matched rows always carry a non-null determinant, while unmatched rows contribute
+         * (NULL, NULL), so they cannot collide. Edges with a nullable determinant are dropped
+         * because a matched row with determinant=NULL could conflict with an unmatched (NULL, NULL).
+         * The determinant slots stored in the graph may carry a stale nullable flag (slot
+         * equality/hash use only ExprId and getOrCreateNode never replaces the stored object),
+         * so each determinant is canonicalized against the child's current output before the
+         * nullability check.
+         */
+        public void addDepsForOuterJoinNullableSide(FuncDepsDG funcDepsDG, List<Slot> childOutput) {
+            Map<ExprId, Slot> outputSlotMap = new HashMap<>();
+            for (Slot slot : childOutput) {
+                outputSlotMap.put(slot.getExprId(), slot);
+            }
+            for (DGItem dgItem : funcDepsDG.dgItems) {
+                Set<Slot> canonicalSlots = new HashSet<>();
+                boolean allNotNull = true;
+                for (Slot slot : dgItem.slots) {
+                    Slot outputSlot = outputSlotMap.get(slot.getExprId());
+                    // a determinant not in the child's output cannot be trusted; drop the edge
+                    if (outputSlot == null || outputSlot.nullable()) {
+                        allNotNull = false;
+                        break;
+                    }
+                    canonicalSlots.add(outputSlot);
+                }
+                if (!allNotNull) {
+                    continue;
+                }
+                for (int childIdx : dgItem.children) {
+                    addDeps(canonicalSlots, funcDepsDG.dgItems.get(childIdx).slots);
                 }
             }
         }

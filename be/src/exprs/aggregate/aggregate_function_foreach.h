@@ -97,24 +97,25 @@ protected:
             char* new_state =
                     arena.aligned_alloc(allocation_size, nested_function->align_of_data());
 
-            size_t i;
+            size_t num_created = 0;
             try {
-                for (i = 0; i < new_size; ++i) {
-                    nested_function->create(&new_state[i * nested_size_of_data]);
+                for (; num_created < new_size; ++num_created) {
+                    nested_function->create(&new_state[num_created * nested_size_of_data]);
+                }
+
+                for (size_t i = 0; i < old_size; ++i) {
+                    nested_function->merge(&new_state[i * nested_size_of_data],
+                                           &old_state[i * nested_size_of_data], arena);
                 }
             } catch (...) {
-                size_t cleanup_size = i;
-
-                for (i = 0; i < cleanup_size; ++i) {
+                for (size_t i = 0; i < num_created; ++i) {
                     nested_function->destroy(&new_state[i * nested_size_of_data]);
                 }
 
                 throw;
             }
 
-            for (i = 0; i < old_size; ++i) {
-                nested_function->merge(&new_state[i * nested_size_of_data],
-                                       &old_state[i * nested_size_of_data], arena);
+            for (size_t i = 0; i < old_size; ++i) {
                 nested_function->destroy(&old_state[i * nested_size_of_data]);
             }
 
