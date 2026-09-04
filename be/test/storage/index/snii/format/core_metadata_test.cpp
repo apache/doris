@@ -208,7 +208,7 @@ TEST(SniiCoreMetadata, RejectsLegacyScoringIndexConfigAsUnsupported) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
-// 已上线的生产 writer（selectdb-core 4.1.7 系）不写 stats.sum_total_term_freq 与
+// 已上线的 3.1 系生产 writer 不写 stats.sum_total_term_freq 与
 // section_refs.norms：这种形态必须能打开，缺失的统计按 0、norms 按空 region 处理。
 TEST(SniiCoreMetadata, AcceptsProductionShapeWithoutNormsAndTotalTermFreq) {
     const auto metadata = sample_core(IndexConfig::kDocsPositions);

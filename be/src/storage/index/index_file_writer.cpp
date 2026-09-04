@@ -45,15 +45,6 @@
 
 namespace doris::segment_v2 {
 
-// Resolves whether one segment index lays out freq regions (G16-c). Freq
-// serves ONLY BM25 scoring: a scoring config always keeps it; a plain
-// positions config keeps it only when the escape-hatch config asks for the
-// full T2 layout. NOT in the anonymous namespace on purpose -- the UT covers
-// this production policy line directly (a flipped operator or inverted flag
-// here would otherwise stay green: no BE test drives add_snii_index).
-bool snii_effective_write_freq(bool has_norms) {
-    return has_norms || config::snii_positions_index_write_freq;
-}
 
 // Shared write-parameter resolution for one SNII index flush; `input->config`
 // must already be set. BOTH the build path (add_snii_index) and the T2.2
@@ -63,9 +54,6 @@ bool snii_effective_write_freq(bool has_norms) {
 // namespace on purpose -- the UT pins the resolved values directly.
 void snii_resolve_index_write_params(bool is_direct_load, bool has_norms,
                                      doris::snii::writer::SniiIndexInput* input) {
-    // G16-c: freq regions serve only BM25 scoring; a plain positions index
-    // drops them unless the escape hatch asks for the full T2 layout.
-    input->write_freq = snii_effective_write_freq(has_norms);
     // G16-h: zstd levels. dict blocks accept zstd's full sane range; the prx
     // level floor is 3 because the writer passes -level into the prx builders
     // and -1 is the historic "auto at default level 3" sentinel -- a

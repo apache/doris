@@ -218,11 +218,10 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
     ASSERT_TRUE(cw.finish().ok());
 }
 
-// dd-block / freq-block byte sizes of a windowed term (the contiguous runs).
+// dd-block byte size of a windowed term (the contiguous run).
 struct Blocks {
     uint64_t prelude_len = 0;
     uint64_t dd_block = 0;
-    uint64_t freq_block = 0;
     uint32_t windows = 0;
 };
 
@@ -239,7 +238,6 @@ Blocks MeasureBlocks(const LogicalIndexReader& idx, const std::string& term) {
     EXPECT_TRUE(fetch_windowed_prelude(idx, entry, frq_base, &prelude).ok());
     b.windows = prelude.n_windows();
     b.dd_block = prelude.dd_block_len();
-    b.freq_block = prelude.freq_block_len();
     return b;
 }
 
@@ -320,20 +318,19 @@ std::vector<uint32_t> DecodePerWindow(const LogicalIndexReader& idx, const DictE
     for (uint32_t w = 0; w < prelude.n_windows(); ++w) {
         WindowAbsRange r;
         EXPECT_TRUE(windowed_window_range(idx, entry, frq_base, prx_base, prelude, w,
-                                          /*want_positions=*/false, /*want_freq=*/false, &r)
+                                          /*want_positions=*/false, &r)
                             .ok());
         WindowMeta m;
         EXPECT_TRUE(prelude.window(w, &m).ok());
-        // One read round per window (the un-grouped reader could not coalesce
-        // across the interleaved freq regions of the old layout).
+        // One read round per window (the un-grouped reader fetched each window's
+        // dd region as its own physical range).
         doris::snii::io::BatchRangeFetcher fetcher(idx.reader(), /*coalesce_gap=*/0);
         const size_t h = fetcher.add(r.dd_off, r.dd_len);
         EXPECT_TRUE(fetcher.fetch().ok());
-        std::vector<uint32_t> wd, wf;
+        std::vector<uint32_t> wd;
         std::vector<std::vector<uint32_t>> wp;
-        EXPECT_TRUE(decode_window_slices(m, fetcher.get(h), Slice(), Slice(),
-                                         /*want_positions=*/false,
-                                         /*want_freq=*/false, &wd, &wf, &wp)
+        EXPECT_TRUE(decode_window_slices(m, fetcher.get(h), Slice(), /*want_positions=*/false, &wd,
+                                         &wp)
                             .ok());
         docids.insert(docids.end(), wd.begin(), wd.end());
     }
@@ -365,7 +362,6 @@ TEST(SniiPostingGrouping, ContiguousDdBlockSavesAllThreeMetrics) {
     // The high-df term must span many windows (the contiguity win is meaningful).
     const Blocks hi = MeasureBlocks(idx, "aa_hi");
     ASSERT_GE(hi.windows, 8U) << "high-df term should span many windows";
-    ASSERT_GT(hi.freq_block, 0U) << "freq-block must carry real bytes";
 
     // ---- (a) term_query / phrase_query docids == ORACLE -----------------------
     const std::vector<std::string> terms_to_check = {"aa_hi", "aa_mid", "aa_quick", "aa_lazy",
@@ -397,21 +393,16 @@ TEST(SniiPostingGrouping, ContiguousDdBlockSavesAllThreeMetrics) {
         EXPECT_EQ(got, c.phrase_oracle(p)) << "phrase oracle mismatch: [" << label << "]";
     }
 
-    // ---- scoring: exhaustive == wand == selective == reference ----------------
+    // ---- scoring: exhaustive == reference --------------------------------------
     SniiStatsProvider stats;
     ASSERT_TRUE(SniiStatsProvider::open(&idx, &stats).ok());
     const Bm25Params params;
     const std::vector<std::string> score_terms = {"aa_hi", "aa_mid", "aa_rare"};
     for (uint32_t k : {1U, 10U, 100U}) {
-        std::vector<ScoredDoc> ex, wa, sel;
+        std::vector<ScoredDoc> ex;
         ASSERT_TRUE(query::scoring_query_exhaustive(idx, stats, score_terms, k, params, &ex).ok());
-        ASSERT_TRUE(query::scoring_query_wand(idx, stats, score_terms, k, params, &wa).ok());
-        ASSERT_TRUE(
-                query::scoring_query_wand_selective(idx, stats, score_terms, k, params, &sel).ok());
         const std::vector<ScoredDoc> ref = ReferenceRanking(c, score_terms, k, params);
         ExpectRankingEqual(ex, ref, "exhaustive");
-        ExpectRankingEqual(wa, ex, "wand");
-        ExpectRankingEqual(sel, ex, "selective");
     }
 
     DictEntry hi_entry;
@@ -419,24 +410,23 @@ TEST(SniiPostingGrouping, ContiguousDdBlockSavesAllThreeMetrics) {
     bool hi_found = false;
     ASSERT_TRUE(idx.lookup("aa_hi", &hi_found, &hi_entry, &hi_frq_base, &hi_prx_base).ok());
     ASSERT_TRUE(hi_found);
-    ASSERT_EQ(hi_entry.frq_docs_len, hi.prelude_len + hi.dd_block);
-    ASSERT_LT(hi_entry.frq_docs_len, hi_entry.frq_len);
+    // The frq span is exactly [prelude][dd-block]: nothing else lives in it.
+    ASSERT_EQ(hi_entry.frq_len, hi.prelude_len + hi.dd_block);
 
-    DictEntry oversized_docs_prefix = hi_entry;
-    ++oversized_docs_prefix.frq_docs_len;
+    DictEntry truncated_frq = hi_entry;
+    --truncated_frq.frq_len;
     std::vector<uint32_t> corrupt_docs;
     // Integrated SNII reports posting corruption with the inverted-index-file
-    // corruption code (the "docs prefix length mismatch" guard), not the generic
+    // corruption code (the "dd-block length mismatch" guard), not the generic
     // CORRUPTION code the standalone test used.
-    EXPECT_TRUE(query::internal::read_docid_posting(idx, oversized_docs_prefix, hi_frq_base,
-                                                    hi_prx_base, &corrupt_docs)
+    EXPECT_TRUE(query::internal::read_docid_posting(idx, truncated_frq, hi_frq_base, hi_prx_base,
+                                                    &corrupt_docs)
                         .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
 
     // ---- (b) docid-only posting read fetches the dd-block CONTIGUOUSLY --------
     // GROUPED = the Phase-D grouped docid-only path: read [prelude][dd-block] as
-    // one contiguous prefix; the freq-block is skipped on the wire. The lookup is
-    // deliberately outside this metrics window so the assertion covers posting
-    // I/O.
+    // one contiguous range. The lookup is deliberately outside this metrics
+    // window so the assertion covers posting I/O.
     metered.reset_metrics();
     std::vector<uint32_t> grouped_docs;
     ASSERT_TRUE(query::internal::read_docid_posting(idx, hi_entry, hi_frq_base, hi_prx_base,
@@ -452,24 +442,22 @@ TEST(SniiPostingGrouping, ContiguousDdBlockSavesAllThreeMetrics) {
                                          "issue one contiguous prefix range";
 
     // PER-WINDOW = the pre-grouping layout: fetch EACH window's dd region as its
-    // own physical range (gaps = the skipped freq regions). Same resolved term.
+    // own physical range. Same resolved term.
     metered.reset_metrics();
     const std::vector<uint32_t> perwin_docs =
             DecodePerWindow(idx, hi_entry, hi_frq_base, hi_prx_base);
     const io::IoMetrics perwin = metered.metrics();
     ASSERT_EQ(perwin_docs, c.term_oracle("aa_hi"));
 
-    // FULL = fetch the whole posting (prelude + dd-block + freq-block). Same
-    // resolved term.
+    // FULL = fetch the whole posting through the generic windowed reader (prelude
+    // + dd-block). Same resolved term.
     metered.reset_metrics();
     {
         DecodedPosting full_posting;
         ASSERT_TRUE(read_windowed_posting(idx, hi_entry, hi_frq_base, hi_prx_base,
-                                          /*want_positions=*/false,
-                                          /*want_freq=*/true, &full_posting)
+                                          /*want_positions=*/false, &full_posting)
                             .ok());
         EXPECT_EQ(full_posting.docids, c.term_oracle("aa_hi"));
-        EXPECT_EQ(full_posting.freqs.size(), full_posting.docids.size());
     }
     const io::IoMetrics full = metered.metrics();
 
@@ -482,8 +470,7 @@ TEST(SniiPostingGrouping, ContiguousDdBlockSavesAllThreeMetrics) {
             << " windows=" << hi.windows;
 
     // (1) vs PER-WINDOW: all three drop because the dd-block is ONE contiguous
-    // range instead of one fetch per window separated by the skipped freq
-    // regions.
+    // range instead of one fetch per window.
     EXPECT_LT(grouped.read_at_calls, perwin.read_at_calls)
             << "read_at vs per-window did not drop: grouped=" << grouped.read_at_calls
             << " perwin=" << perwin.read_at_calls;
@@ -494,15 +481,14 @@ TEST(SniiPostingGrouping, ContiguousDdBlockSavesAllThreeMetrics) {
             << "request_bytes vs per-window grew: grouped=" << grouped.total_request_bytes
             << " perwin=" << perwin.total_request_bytes;
 
-    // (2) vs FULL posting: request_bytes and remote_bytes strictly drop
-    // (freq-block skipped on the wire and its cache blocks never touched).
-    EXPECT_LT(grouped.total_request_bytes, full.total_request_bytes)
-            << "request_bytes vs full did not drop: grouped=" << grouped.total_request_bytes
+    // (2) vs FULL posting: the docid-only path already reads the whole frq span
+    // ([prelude][dd-block] is all there is), so request_bytes and remote_bytes
+    // match the generic windowed reader exactly.
+    EXPECT_EQ(grouped.total_request_bytes, full.total_request_bytes)
+            << "request_bytes vs full differ: grouped=" << grouped.total_request_bytes
             << " full=" << full.total_request_bytes;
-    EXPECT_EQ(full.total_request_bytes - grouped.total_request_bytes, hi.freq_block)
-            << "skipped bytes != freq-block size";
-    EXPECT_LT(grouped.remote_bytes, full.remote_bytes)
-            << "remote_bytes vs full did not drop: grouped=" << grouped.remote_bytes
+    EXPECT_EQ(grouped.remote_bytes, full.remote_bytes)
+            << "remote_bytes vs full differ: grouped=" << grouped.remote_bytes
             << " full=" << full.remote_bytes;
 
     std::remove(path.c_str());

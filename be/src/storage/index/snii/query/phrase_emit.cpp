@@ -90,12 +90,10 @@ bool should_use_streaming_exact_phrase(const std::vector<TermPlan>& plans,
         }
         const TermPlan& plan = plans[plan_index];
         DORIS_CHECK_NE(plan.df, 0);
-        DORIS_CHECK(plan.entry.term_stats_present ||
-                    sources[plan_index].logical_position_docs != 0);
-        const uint64_t position_work = plan.entry.term_stats_present
-                                               ? plan.entry.ttf_delta / plan.df
-                                               : sources[plan_index].logical_position_work /
-                                                         sources[plan_index].logical_position_docs;
+        // dict entry 不带词频统计：每 doc 的平均位置工作量从已解码的 prx 帧统计得来。
+        DORIS_CHECK_NE(sources[plan_index].logical_position_docs, 0);
+        const uint64_t position_work = sources[plan_index].logical_position_work /
+                                       sources[plan_index].logical_position_docs;
         sum_position_work += position_work;
         max_position_work = std::max(max_position_work, position_work);
     }

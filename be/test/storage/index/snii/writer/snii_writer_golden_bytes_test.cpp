@@ -193,7 +193,6 @@ doris::snii::writer::SniiIndexInput make_shape_input(
     input.index_suffix = std::move(suffix);
     input.config = config;
     input.doc_count = term.docids.empty() ? 0 : term.docids.back() + 1;
-    input.write_freq = false;
     input.terms.push_back(std::move(term));
     return input;
 }
@@ -292,15 +291,12 @@ protected:
         config::snii_dict_block_zstd_level = 3;
         config::snii_prx_zstd_level = 3;
         config::snii_prx_zstd_level_direct_load = 3;
-        _saved_write_freq = config::snii_positions_index_write_freq;
-        config::snii_positions_index_write_freq = false;
     }
 
     void TearDown() override {
         config::snii_dict_block_zstd_level = _saved_dict_lvl;
         config::snii_prx_zstd_level = _saved_prx_lvl;
         config::snii_prx_zstd_level_direct_load = _saved_prx_load_lvl;
-        config::snii_positions_index_write_freq = _saved_write_freq;
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
@@ -308,18 +304,21 @@ private:
     int32_t _saved_dict_lvl = 3;
     int32_t _saved_prx_lvl = 3;
     int32_t _saved_prx_load_lvl = 3;
-    bool _saved_write_freq = false;
 };
 
 // Whole-image digests re-harvested after core metadata stopped writing an empty
 // norms section reference (SniiSectionRefsPB.norms is optional; production writers
 // never emitted it). Every digest moved, the keyword docs-only one included.
+// S1 re-harvest (2026-09-04): the dict / posting / prelude physical layout went back
+// to the production layout byte-for-byte (no freq regions, no per-window max_freq /
+// max_norm, no dict-entry term stats, no frq_docs_len), so every digest moved again --
+// the keyword docs-only one included.
 // Whole-image digests re-harvested for the protobuf v1 metadata layout. They
 // still pin posting bytes together with every framing, directory, and metadata
 // byte, so future format changes remain explicit.
-constexpr uint64_t kGoldenEnglishPhrase = 0x5866fd6c56d3a574ULL;
-constexpr uint64_t kGoldenUnicodePhrase = 0xb1a090bf81ba1839ULL;
-constexpr uint64_t kGoldenKeywordDocsOnly = 0x8335178784ee78b8ULL;
+constexpr uint64_t kGoldenEnglishPhrase = 0x8157f9dd81c5397cULL;
+constexpr uint64_t kGoldenUnicodePhrase = 0x9e2a4ba4abedaef9ULL;
+constexpr uint64_t kGoldenKeywordDocsOnly = 0x27cec04c70573201ULL;
 
 TEST_F(SniiWriterGoldenBytes, EnglishPhrase) {
     const TabletIndex meta =
@@ -399,9 +398,9 @@ TEST_F(SniiWriterGoldenBytes, PostingShapeMatrixCompleteImageDigest) {
             "df-8192", "recut-full", "recut-tail", "docs-only",
     };
     constexpr std::array<uint64_t, 9> expected = {
-            0x71045caa878057a7ULL, 0x17e7bec76cf6d65eULL, 0x0c184f06c6bf02e0ULL,
-            0x5cac2316cb6433abULL, 0xd3bc7432d5cd2154ULL, 0x6fe3be71c6afb8f9ULL,
-            0x60dfb9e8300d3294ULL, 0x2c721c2bf8f2f7d8ULL, 0x0187c9e45977b506ULL,
+            0x5b6807a5d668ff9fULL, 0x0aaa7e9cc44697e1ULL, 0xffff899812d536afULL,
+            0x346f92715953d47cULL, 0x6feac955a63cd476ULL, 0x5c12077d649d3f95ULL,
+            0x8d31c79d059cb728ULL, 0xcea7e9f70309b4f7ULL, 0x96696b7f0b18be2dULL,
     };
     for (size_t i = 0; i < images.size(); ++i) {
         const uint64_t actual = fnv1a64(images[i].bytes);

@@ -247,7 +247,7 @@ std::vector<uint8_t> EncodeNorms(const Corpus& c) {
 
 // Fixture-free test: build, open, and compare.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-TEST(SniiScoringQuery, ReferenceOracleAndWandEqualsExhaustive) {
+TEST(SniiScoringQuery, ReferenceOracleEqualsExhaustive) {
     const Corpus corpus = MakeCorpus();
     const std::vector<uint8_t> norms = EncodeNorms(corpus);
     const std::string path = TempPath();
@@ -273,7 +273,7 @@ TEST(SniiScoringQuery, ReferenceOracleAndWandEqualsExhaustive) {
     SniiStatsProvider stats;
     ASSERT_TRUE(SniiStatsProvider::open(&idx, &stats).ok());
 
-    // (c) SniiStatsProvider df / ttf / avgdl / encoded_norm match brute force.
+    // (c) SniiStatsProvider df / avgdl / encoded_norm match brute force.
     uint64_t sum_ttf = 0;
     for (const auto& dl : corpus.doc_len) {
         sum_ttf += dl;
@@ -283,15 +283,9 @@ TEST(SniiScoringQuery, ReferenceOracleAndWandEqualsExhaustive) {
     EXPECT_NEAR(stats.avgdl(), static_cast<double>(sum_ttf) / corpus.doc_count, 1e-9);
 
     for (const auto& [term, plist] : corpus.postings) {
-        uint64_t df = 0, ttf = 0;
+        uint64_t df = 0;
         ASSERT_TRUE(stats.doc_freq(term, &df).ok());
-        ASSERT_TRUE(stats.total_term_freq(term, &ttf).ok());
-        uint64_t exp_ttf = 0;
-        for (const auto& [d, f] : plist) {
-            exp_ttf += f;
-        }
         EXPECT_EQ(df, plist.size()) << term;
-        EXPECT_EQ(ttf, exp_ttf) << term;
     }
     for (uint32_t d = 0; d < corpus.doc_count; ++d) {
         uint8_t got = 0;
@@ -309,20 +303,11 @@ TEST(SniiScoringQuery, ReferenceOracleAndWandEqualsExhaustive) {
         ASSERT_TRUE(doris::snii::query::scoring_query_exhaustive(idx, stats, terms, k, params,
                                                                  &exhaustive)
                             .ok());
-        std::vector<ScoredDoc> wand;
-        ASSERT_TRUE(
-                doris::snii::query::scoring_query_wand(idx, stats, terms, k, params, &wand).ok());
 
         ASSERT_EQ(exhaustive.size(), reference.size());
         for (size_t i = 0; i < reference.size(); ++i) {
             EXPECT_EQ(exhaustive[i].docid, reference[i].docid) << "rank " << i;
             EXPECT_NEAR(exhaustive[i].score, reference[i].score, 1e-6) << "rank " << i;
-        }
-        // (b) WAND-pruned top-K equals the exhaustive top-K.
-        ASSERT_EQ(wand.size(), exhaustive.size());
-        for (size_t i = 0; i < wand.size(); ++i) {
-            EXPECT_EQ(wand[i].docid, exhaustive[i].docid) << "wand rank " << i;
-            EXPECT_NEAR(wand[i].score, exhaustive[i].score, 1e-6) << "wand rank " << i;
         }
     };
 
@@ -693,10 +678,10 @@ Corpus MakeWindowedTieCorpus() {
 
 } // namespace
 
-// Differential: WAND top-k MUST equal exhaustive top-k EVEN with boundary ties and
-// windowed (block-max) terms, across many k. Strict-'>' pruning would drop ties.
+// Differential: exhaustive top-k MUST equal the in-memory reference EVEN with
+// boundary ties and windowed terms, across many k (ties break by ascending docid).
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-TEST(SniiScoringQuery, WandEqualsExhaustiveWithTiesAndWindowedTerms) {
+TEST(SniiScoringQuery, ExhaustiveMatchesReferenceWithTiesAndWindowedTerms) {
     const Corpus corpus = MakeWindowedTieCorpus();
     const std::string path = TempPath();
     {
@@ -719,17 +704,14 @@ TEST(SniiScoringQuery, WandEqualsExhaustiveWithTiesAndWindowedTerms) {
     const Bm25Params params;
     const std::vector<uint8_t> norms = EncodeNorms(corpus);
     auto check = [&](const std::vector<std::string>& terms, uint32_t k) {
-        std::vector<ScoredDoc> ex, wa;
+        std::vector<ScoredDoc> ex;
         ASSERT_TRUE(scoring_query_exhaustive(idx, stats, terms, k, params, &ex).ok());
-        ASSERT_TRUE(scoring_query_wand(idx, stats, terms, k, params, &wa).ok());
         const std::vector<ScoredDoc> ref = ReferenceRanking(corpus, norms, terms, k, params);
-        ASSERT_EQ(wa.size(), ex.size());
         ASSERT_EQ(ex.size(), ref.size());
         for (size_t i = 0; i < ex.size(); ++i) {
-            EXPECT_EQ(wa[i].docid, ex[i].docid)
+            EXPECT_EQ(ex[i].docid, ref[i].docid)
                     << "terms[0]=" << terms[0] << " k=" << k << " i=" << i;
-            EXPECT_EQ(ex[i].docid, ref[i].docid) << "ref k=" << k << " i=" << i;
-            EXPECT_NEAR(wa[i].score, ex[i].score, 1e-9);
+            EXPECT_NEAR(ex[i].score, ref[i].score, 1e-9);
         }
     };
     // Single high-df term: all 700 docs tie -> top-k must be the k smallest docids.

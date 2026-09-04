@@ -74,7 +74,7 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
         return corrupted("core metadata: missing statistics field");
     }
     // sum_total_term_freq（字段 5）与 norms（字段 5）是后加的可选字段：已上线的生产
-    // writer（selectdb-core 4.1.7 系）不写它们。缺失 = 该段没有打分统计 / 没有 norms，
+    // 3.1 系 writer 不写它们。缺失 = 该段没有打分统计 / 没有 norms，
     // 只影响 BM25 打分是否可用，不影响任何过滤查询。
     out->stats = {.doc_count = stats.doc_count(),
                   .indexed_doc_count = stats.indexed_doc_count(),

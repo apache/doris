@@ -48,16 +48,9 @@ struct PostingRunView {
 
 struct TermAggregateStats {
     uint32_t df = 0;
+    // 该 term 的总词频（有位置的 term = 位置个数；docs-only = 文档数或输入 freqs 之和），只进
+    // core 元数据的 sum_total_term_freq（BM25 的 avgdl），不进 dict entry。
     uint64_t total_freq = 0;
-    uint32_t max_freq = 0;
-};
-
-// CommonGrams entries define semantic term frequency from documents or
-// positions rather than the transient physical frequency array.
-enum class TermFrequencySource : uint8_t {
-    kFrequenciesOrDocuments,
-    kDocuments,
-    kPositions,
 };
 
 struct WindowEmitterOptions {
@@ -65,16 +58,13 @@ struct WindowEmitterOptions {
     uint64_t posting_region_offset = 0;
     uint64_t frq_base = 0;
     uint64_t prx_base = 0;
-    std::span<const uint8_t> encoded_norms;
-    bool has_freq = false;
     bool has_prx = false;
     int prx_zstd_level = 3;
     format::PrxWindowLimits prx_window_limits = format::kReaderPrxWindowLimits;
-    TermFrequencySource term_frequency_source = TermFrequencySource::kFrequenciesOrDocuments;
     MemoryReporter* memory_reporter = nullptr;
 };
 
-// The single owner of windowed DD/frequency/PRX encoding and prelude metadata.
+// The single owner of windowed DD/PRX encoding and prelude metadata.
 // A failed emit poisons the instance; finish_term cannot publish a partial term.
 class WindowEmitter {
 public:
@@ -97,12 +87,6 @@ private:
 // Process-global test observability for the one emitter choke point and the
 // existing bounded-work counters. Reset between tests.
 namespace testing {
-void note_window_norm_doc_visits(uint64_t count);
-uint64_t window_norm_doc_visits();
-void reset_window_norm_doc_visits();
-void note_window_freq_doc_visits();
-uint64_t window_freq_doc_visits();
-void reset_window_freq_doc_visits();
 uint64_t window_emitter_finished_terms();
 uint64_t window_emitter_physical_windows();
 void reset_window_emitter_counters();

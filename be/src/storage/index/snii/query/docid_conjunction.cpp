@@ -51,15 +51,6 @@ struct CandidateRange {
     size_t end = 0;
 };
 
-Status slim_frq_docs_len(const DictEntry& entry, uint64_t win_len, uint64_t* out) {
-    if (entry.frq_docs_len > win_len) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "docid_conjunction: slim frq_docs_len exceeds frq window");
-    }
-    *out = entry.frq_docs_len > 0 ? entry.frq_docs_len : win_len;
-    return Status::OK();
-}
-
 Status add_u64(uint64_t lhs, uint64_t rhs, const char* message, uint64_t* out) {
     if (rhs > std::numeric_limits<uint64_t>::max() - lhs) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
@@ -92,9 +83,7 @@ Status configure_term_plan(const LogicalIndexReader& idx, bool need_positions,
         uint64_t poff = 0;
         uint64_t plen = 0;
         RETURN_IF_ERROR(idx.resolve_frq_window(p->entry, p->frq_base, &foff, &flen));
-        uint64_t frq_fetch = flen;
-        RETURN_IF_ERROR(slim_frq_docs_len(p->entry, flen, &frq_fetch));
-        p->frq_handle = fetcher->add(foff, frq_fetch);
+        p->frq_handle = fetcher->add(foff, flen);
         if (need_positions) {
             RETURN_IF_ERROR(idx.resolve_prx_window(p->entry, p->prx_base, &poff, &plen));
             p->prx_handle = fetcher->add(poff, plen);
@@ -580,14 +569,12 @@ Status emit_dense_full_window_docids(const WindowWork& f, const std::vector<uint
 Status emit_decoded_window_docids(const WindowWork& f, const io::BatchRangeFetcher& fetcher,
                                   const std::vector<uint32_t>* candidates,
                                   std::vector<uint32_t>& out, DocidSource* source,
-                                  std::vector<uint32_t>& docs, std::vector<uint32_t>& freqs,
+                                  std::vector<uint32_t>& docs,
                                   std::vector<std::vector<uint32_t>>& positions) {
     docs.clear();
-    freqs.clear();
     positions.clear();
-    RETURN_IF_ERROR(reader::decode_window_slices(f.meta, fetcher.get(f.handle), Slice(), Slice(),
-                                                 /*want_positions=*/false, /*want_freq=*/false,
-                                                 &docs, &freqs, &positions));
+    RETURN_IF_ERROR(reader::decode_window_slices(f.meta, fetcher.get(f.handle), Slice(),
+                                                 /*want_positions=*/false, &docs, &positions));
     if (source != nullptr) {
         DocidChunk chunk;
         chunk.windowed = true;
@@ -658,7 +645,7 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
         reader::WindowAbsRange range;
         RETURN_IF_ERROR(reader::windowed_window_range(
                 idx, p.entry, p.frq_base, p.prx_base, p.prelude, w,
-                /*want_positions=*/false, /*want_freq=*/false, &range));
+                /*want_positions=*/false, &range));
         WindowWork f;
         f.ordinal = w;
         f.meta = meta;
@@ -671,7 +658,6 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
     }
 
     std::vector<uint32_t> docs;
-    std::vector<uint32_t> freqs;
     std::vector<std::vector<uint32_t>> positions;
     for (const WindowWork& f : work) {
         if (f.dense_full) {
@@ -679,7 +665,7 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
             continue;
         }
         RETURN_IF_ERROR(emit_decoded_window_docids(f, fetcher, candidates, *out, source, docs,
-                                                   freqs, positions));
+                                                   positions));
     }
     return Status::OK();
 }

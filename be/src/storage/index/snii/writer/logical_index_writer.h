@@ -107,7 +107,7 @@ struct SniiIndexInput {
     // config has scoring. May be empty otherwise.
     std::vector<uint8_t> encoded_norms;
     // 流式合并会话：norms 在 finish 之前才交付（与 postings 同一趟重建），先用它声明
-    // "这个索引会有 norms"，让 writer 保留 freq 区并在 finalize 时校验长度。
+    // "这个索引会有 norms"，让 writer 在 finalize 时校验长度。
     bool write_norms = false;
     // G16-h: zstd levels for the dict-block whole-block compression and the
     // .prx window auto mode (both default 3 == the historical constants).
@@ -118,16 +118,6 @@ struct SniiIndexInput {
     // tests may only tighten them to exercise extreme-window behavior without
     // allocating hundreds of MiB.
     format::PrxWindowLimits prx_window_limits = format::kReaderPrxWindowLimits;
-    // G16-c: whether freq-capable (tier>=T2) postings lay out freq regions at
-    // all. Freq bytes serve ONLY BM25 scoring (want_freq=true lives solely in
-    // scoring_query), so the CALLER resolves the policy -- the Doris adapter
-    // passes has_norms || config::snii_positions_index_write_freq,
-    // i.e. plain kDocsPositions indexes drop freq unless the escape hatch is
-    // set. Defaults to true so the core library and existing callers keep the
-    // full T2 layout unless they opt out. The drop is value-driven on disk
-    // (windowed prelude flags bit0; slim/inline zero-length freq regions), so
-    // readers need no index-level flag. Ignored for docs-only configs.
-    bool write_freq = true;
     // Lexicographically sorted terms with ascending-docid postings. Used when
     // `term_source` is null (callers that already hold a materialized vector,
     // e.g. unit tests). The writer reads but does not retain these.
@@ -221,13 +211,11 @@ private:
     std::vector<uint8_t> norms_;
 };
 
-// Term-level frequency statistics. Ordinary terms compute sum(freqs) and
-// max(freqs) in one fused scan. Complete CommonGrams entries derive total_freq
-// from their required PRX position count and leave max_freq at 0 because their
-// statless DICT block does not serialize it.
+// Term-level frequency statistics: sum(freqs) in one fused scan. The on-disk
+// format stores no per-term stats (dict entries carry only df); the total only
+// feeds the stats block's sum_total_term_freq (BM25 avgdl).
 struct FreqStats {
     uint64_t total_freq = 0;
-    uint32_t max_freq = 0;
 };
 
 // Builds and holds the section bytes + meta sub-sections for one logical index.
@@ -364,7 +352,6 @@ private:
     format::IndexConfig index_config_;
     format::IndexTier tier_;
     bool has_prx_;
-    bool has_freq_; // tier >= T2: a freq region is encoded per window
     bool has_norms_;
     uint32_t doc_count_;
     TrackedNullDocids null_docids_;

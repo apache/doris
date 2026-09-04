@@ -54,8 +54,8 @@ namespace {
 // the filter via Parquet OptimalNumOfBytes; L0 keeps the probe in memory and L1
 // keeps the per-query cost at one 32-byte block.
 constexpr double kBsbfFpp = 0.01;
-// Force-raw level for .frq dd/freq regions. Their plaintext is PFOR-bit-packed
-// doc-deltas/freqs -- already high-entropy, so zstd shrinks ~30 MB of input by
+// Force-raw level for .frq dd regions. Their plaintext is PFOR-bit-packed
+// doc-deltas -- already high-entropy, so zstd shrinks ~30 MB of input by
 // <0.1 MiB while burning ~0.4s CPU (and an extra crc pass over the compressed
 // bytes) at 5M. We force raw here and keep zstd only on .prx (which compresses
 // ~77%). Output stays self-describing: the region meta records zstd=false.
@@ -68,13 +68,8 @@ constexpr int kRawFrqRegion = 0;
 
 using format::FrqRegionMeta;
 
-// Fused single-pass term-level freq statistics: total_freq (running sum) and
-// max_freq (running max) in ONE scan, reused by validate_term (has_prx
-// position-count budget), stats_.sum_total_term_freq, and the DictEntry
-// ttf_delta/max_freq. Byte-identical to the former separate SumOf/MaxOf scans:
-// same left-to-right accumulation order and the same max init of 0, so a freq of
-// 0 never lowers the max. Complete CommonGrams entries bypass this helper:
-// their ttf is the already-known PRX position count and max_freq is not stored.
+// Single-pass term-level freq statistics: total_freq (running sum), reused by
+// validate_term (has_prx position-count budget) and stats_.sum_total_term_freq.
 FreqStats fuse_freq_stats(const std::vector<uint32_t>& freqs) {
 #ifdef BE_TEST
     testing::note_term_freq_scan();
@@ -82,7 +77,6 @@ FreqStats fuse_freq_stats(const std::vector<uint32_t>& freqs) {
     FreqStats fs;
     for (uint32_t f : freqs) {
         fs.total_freq += f;
-        fs.max_freq = std::max(f, fs.max_freq);
     }
     return fs;
 }
@@ -104,15 +98,14 @@ bool fits_prx_window_shape(uint64_t doc_count, uint64_t position_count,
 
 // The only encoder for TermPostingSource input. It borrows the writer's reusable
 // posting buffer, streams PRX windows directly to the final sink, and stages grouped DD
-// and frequency regions without retaining the complete term.
+// regions without retaining the complete term.
 class StreamingTermEncoder {
 public:
     StreamingTermEncoder(LogicalIndexWriter* writer, StreamedTermPostings* postings,
-                         bool term_has_freq, bool term_has_prx, TermPostingBuffer* buffer,
-                         uint64_t frq_base, uint64_t prx_base)
+                         bool term_has_prx, TermPostingBuffer* buffer, uint64_t frq_base,
+                         uint64_t prx_base)
             : writer_(writer),
               postings_(postings),
-              term_has_freq_(term_has_freq),
               term_has_prx_(term_has_prx),
               buffer_(buffer),
               frq_base_(frq_base),
@@ -122,12 +115,9 @@ public:
                       .posting_region_offset = writer->posting_off0_,
                       .frq_base = frq_base,
                       .prx_base = prx_base,
-                      .encoded_norms = writer->encoded_norms_,
-                      .has_freq = term_has_freq,
                       .has_prx = term_has_prx,
                       .prx_zstd_level = writer->prx_zstd_level_,
                       .prx_window_limits = writer->prx_window_limits_,
-                      .term_frequency_source = TermFrequencySource::kFrequenciesOrDocuments,
                       .memory_reporter = writer->memory_reporter_,
               }) {
         DCHECK(buffer_ != nullptr);
@@ -155,8 +145,6 @@ public:
         if (exhausted && buffer_->document_count() < format::kAdaptiveWindowDfThreshold) {
             entry->term = std::move(postings_->term);
             entry->df = total_docs_;
-            entry->ttf_delta = stats_.total_freq;
-            entry->max_freq = stats_.max_freq;
             RETURN_IF_ERROR(encode_small(entry));
             *stats = stats_;
             return Status::OK();
@@ -174,8 +162,6 @@ public:
 
         entry->term = std::move(postings_->term);
         entry->df = total_docs_;
-        entry->ttf_delta = stats_.total_freq;
-        entry->max_freq = stats_.max_freq;
         RETURN_IF_ERROR(finish_windowed(entry));
         *stats = stats_;
         return Status::OK();
@@ -229,11 +215,9 @@ private:
         // uint32 frequencies cannot overflow within one fill; the per-term
         // accumulation below keeps its overflow check.
         uint64_t fill_freq_sum = 0;
-        uint32_t fill_max_freq = 0;
         for (size_t doc = 0; doc < freqs.size(); ++doc) {
             const uint32_t freq = freqs[doc];
             fill_freq_sum += freq;
-            fill_max_freq = std::max(fill_max_freq, freq);
             if (postings_->retain_positions) {
                 position_offsets_[doc + 1] = static_cast<uint32_t>(fill_freq_sum);
             }
@@ -279,7 +263,6 @@ private:
                         "logical_index: source total frequency overflow");
             }
             stats_.total_freq += fill_freq_sum;
-            stats_.max_freq = std::max(stats_.max_freq, fill_max_freq);
         }
         return Status::OK();
     }
@@ -308,27 +291,19 @@ private:
 
         ByteSink frq_sink;
         FrqRegionMeta dd_meta;
-        FrqRegionMeta freq_meta {};
         RETURN_IF_ERROR(format::build_dd_region(buffer_->docids(), /*win_base=*/0, kRawFrqRegion,
                                                 &frq_sink, &dd_meta));
-        if (term_has_freq_) {
-            RETURN_IF_ERROR(format::build_freq_region(buffer_->freqs(), kRawFrqRegion, &frq_sink,
-                                                      &freq_meta));
-        }
         std::vector<uint8_t> frq_window = frq_sink.take();
         entry->enc = DictEntryEnc::kSlim;
         entry->dd_meta = dd_meta;
-        entry->freq_meta = freq_meta;
         if (frq_window.size() <= format::kDefaultInlineThreshold) {
             entry->kind = DictEntryKind::kInline;
-            entry->inline_dd_disk_len = dd_meta.disk_len;
             entry->frq_bytes = std::move(frq_window);
             if (term_has_prx_) entry->prx_bytes = std::move(prx_window);
             return Status::OK();
         }
 
         entry->kind = DictEntryKind::kPodRef;
-        entry->frq_docs_len = dd_meta.disk_len;
         if (term_has_prx_) {
             const uint64_t prx_off = writer_->posting_size();
             RETURN_IF_ERROR(writer_->posting_out_->append(Slice(prx_window)));
@@ -372,13 +347,11 @@ private:
         RETURN_IF_ERROR(emitter_.finish_term(entry, &emitted_stats));
         DCHECK_EQ(emitted_stats.df, total_docs_);
         DCHECK_EQ(emitted_stats.total_freq, stats_.total_freq);
-        DCHECK_EQ(emitted_stats.max_freq, stats_.max_freq);
         return Status::OK();
     }
 
     LogicalIndexWriter* writer_;
     StreamedTermPostings* postings_;
-    bool term_has_freq_ = false;
     bool term_has_prx_ = false;
     TermPostingBuffer* buffer_ = nullptr;
     uint64_t frq_base_ = 0;
@@ -437,9 +410,6 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDoci
           index_config_(in.config),
           tier_(format::tier_of(in.config)),
           has_prx_(format::has_positions(in.config)),
-          // G16-c: the caller can drop freq layout entirely (in.write_freq ==
-          // false) on a freq-capable tier -- see SniiIndexInput::write_freq.
-          has_freq_(format::tier_of(in.config) >= format::IndexTier::kT2 && in.write_freq),
           has_norms_(in.write_norms || !in.encoded_norms.empty()),
           doc_count_(in.doc_count),
           null_docids_(std::move(null_docids)),
@@ -529,7 +499,6 @@ struct LogicalIndexWriter::BlockState {
     std::string block_first_term;
     uint64_t frq_base = 0;
     uint64_t prx_base = 0;
-    bool term_stats = true;
     TermPostingBuffer transfer_buffer;
 };
 
@@ -538,20 +507,13 @@ LogicalIndexWriter::~LogicalIndexWriter() = default;
 
 Status LogicalIndexWriter::process_term(StreamedTermPostings& tp, BlockState* st) {
     const bool term_has_prx = has_prx_ && tp.retain_positions;
-    const bool term_has_freq = has_freq_;
 
-    if (st->block && st->term_stats != term_has_freq) {
-        RETURN_IF_ERROR(flush_block(st->block.get(), st->block_first_term));
-        st->block.reset();
-    }
     if (!st->block) {
         const uint64_t base = posting_size();
         st->frq_base = base;
         st->prx_base = base;
-        st->term_stats = term_has_freq;
         st->block = std::make_unique<DictBlockBuilder>(tier_, has_prx_, st->frq_base, st->prx_base,
-                                                       /*anchor_interval=*/16,
-                                                       /*term_stats=*/term_has_freq);
+                                                       /*anchor_interval=*/16);
         st->block_first_term = tp.term;
     }
 
@@ -559,7 +521,7 @@ Status LogicalIndexWriter::process_term(StreamedTermPostings& tp, BlockState* st
     const uint64_t term_hash = format::bsbf_hash(tp.term);
     DictEntry entry;
     FreqStats stats;
-    StreamingTermEncoder encoder(this, &tp, term_has_freq, term_has_prx, &st->transfer_buffer,
+    StreamingTermEncoder encoder(this, &tp, term_has_prx, &st->transfer_buffer,
                                  st->frq_base, st->prx_base);
     RETURN_IF_ERROR(encoder.encode(&entry, &stats));
 
@@ -600,10 +562,6 @@ Status LogicalIndexWriter::prepare_build(io::FileWriter* posting_out) {
     if (has_norms_ && !has_prx_) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "logical_index: norms require positions");
-    }
-    if (has_norms_ && !has_freq_) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "logical_index: norms require term frequencies");
     }
     for (size_t i = 0; i < null_docids_.size(); ++i) {
         if (null_docids_[i] >= doc_count_) {
