@@ -485,15 +485,19 @@ public class ExportMgr {
             if (exportIdToJob.size() > Config.max_export_history_job_num) {
                 List<Map.Entry<Long, ExportJob>> jobList = new ArrayList<>(exportIdToJob.entrySet());
                 jobList.sort(Comparator.comparingLong(entry -> entry.getValue().getCreateTimeMs()));
-                while (exportIdToJob.size() > Config.max_export_history_job_num) {
-                    // Remove the oldest job
-                    Map.Entry<Long, ExportJob> oldestEntry = jobList.remove(0);
+                Iterator<Map.Entry<Long, ExportJob>> jobIterator = jobList.iterator();
+                while (exportIdToJob.size() > Config.max_export_history_job_num && jobIterator.hasNext()) {
+                    Map.Entry<Long, ExportJob> oldestEntry = jobIterator.next();
+                    ExportJob job = oldestEntry.getValue();
+                    if (job.getState() != ExportJobState.CANCELLED && job.getState() != ExportJobState.FINISHED) {
+                        continue;
+                    }
                     exportIdToJob.remove(oldestEntry.getKey());
-                    Map<String, Long> labelJobs = dbTolabelToExportJobId.get(oldestEntry.getValue().getDbId());
+                    Map<String, Long> labelJobs = dbTolabelToExportJobId.get(job.getDbId());
                     if (labelJobs != null) {
-                        labelJobs.remove(oldestEntry.getValue().getLabel());
+                        labelJobs.remove(job.getLabel());
                         if (labelJobs.isEmpty()) {
-                            dbTolabelToExportJobId.remove(oldestEntry.getValue().getDbId());
+                            dbTolabelToExportJobId.remove(job.getDbId());
                         }
                     }
                 }
