@@ -217,6 +217,17 @@ class IvmAggDeltaHandler {
                 IvmUtil.buildRowIdHash(deltaAgg.getOutput().subList(0, groupKeySize)), Column.IVM_ROW_ID_COL);
         topOutputs.add(rowIdAlias);
 
+        // Processors that pack every change row into one aggregate column (ARRAY_AGG packs
+        // (dml_factor, elem) into a struct array) derive their polarity columns here, above the
+        // aggregate: an aggregate output cannot reference a sibling aggregate output, but a column
+        // of the top delta project can. Derived outputs keep the same transient names the apply
+        // stage resolves below.
+        Map<String, Slot> deltaAggOutputByName = indexSlotsByName(deltaAgg.getOutput());
+        for (IvmAggTarget target : aggMeta.getAggTargets()) {
+            aggFunctionRegistry.appendDeltaTopProjectOutputs(
+                    target, deltaAggOutputByName, topOutputs, aggExpressionBuilder);
+        }
+
         Set<String> zeroDefaultDeltaOutputNames = collectZeroDefaultDeltaOutputNames(aggMeta);
         for (Slot slot : deltaAgg.getOutput()) {
             if (zeroDefaultDeltaOutputNames.contains(slot.getName())) {

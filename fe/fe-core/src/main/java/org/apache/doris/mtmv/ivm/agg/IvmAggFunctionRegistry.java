@@ -64,7 +64,9 @@ public class IvmAggFunctionRegistry {
                 new IvmAggMinProcessor(),
                 new IvmAggMaxProcessor(),
                 new IvmAggBitmapUnionProcessor(),
-                new IvmAggBitmapUnionCountProcessor());
+                new IvmAggBitmapUnionCountProcessor(),
+                new IvmAggArrayAggProcessor(),
+                new IvmAggCollectListProcessor());
         processorByKind = new EnumMap<>(IvmAggFunctionKind.class);
         for (IvmAggFunctionProcessor processor : processors) {
             processorByKind.put(processor.handledFunctionKind(), processor);
@@ -95,6 +97,15 @@ public class IvmAggFunctionRegistry {
                 outputs.add(output);
             }
         }
+    }
+
+    /**
+     * Appends processor-owned derived (non-aggregate) columns to the delta top project, computed
+     * over the delta aggregate's own output slots.
+     */
+    public void appendDeltaTopProjectOutputs(IvmAggTarget target, Map<String, Slot> deltaAggOutputByName,
+            List<NamedExpression> topOutputs, IvmAggExpressionBuilder ctx) {
+        processorFor(target).appendDeltaTopProjectOutputs(target, deltaAggOutputByName, topOutputs, ctx);
     }
 
     /**
