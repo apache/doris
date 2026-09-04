@@ -45,23 +45,6 @@ struct SniiQueryStats {
     int64_t phrase_prefix_leading_candidate_docs = 0;
     int64_t phrase_prefix_tail_candidate_visits = 0;
 
-    int64_t common_grams_candidate_queries = 0;
-    int64_t common_grams_plain_plans = 0;
-    int64_t common_grams_gram_plans = 0;
-    int64_t common_grams_fallback_no_gram = 0;
-    int64_t common_grams_fallback_incompatible = 0;
-    int64_t common_grams_fallback_kill_switch = 0;
-    int64_t common_grams_fallback_cost = 0;
-    int64_t common_grams_fallback_base_analyzer_mismatch = 0;
-    int64_t common_grams_fallback_prefix_tail_empty = 0;
-    int64_t common_grams_authoritative_empty = 0;
-    int64_t common_grams_plain_posting_bytes = 0;
-    int64_t common_grams_gram_posting_bytes = 0;
-    int64_t common_grams_plain_estimated_candidate_df = 0;
-    int64_t common_grams_gram_estimated_candidate_df = 0;
-    int64_t common_grams_plain_estimated_cost = 0;
-    int64_t common_grams_gram_estimated_cost = 0;
-    int64_t common_grams_planning_ns = 0;
 };
 
 } // namespace doris::snii

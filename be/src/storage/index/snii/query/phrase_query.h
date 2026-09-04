@@ -23,8 +23,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/inverted/common_grams/common_grams_query_cost.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/index/snii/format/prx_decode_stats.h"
 #include "storage/index/snii/query/query_profile.h"
@@ -41,30 +39,6 @@
 // An empty term list -> empty result. Any term absent -> empty result.
 namespace doris::snii::query {
 
-enum class ExactPhrasePlanKind : uint8_t {
-    kPlain = 0,
-    kCommonGrams = 1,
-};
-
-enum class PhrasePrefixPlanKind : uint8_t {
-    kPlain = 0,
-    kCommonGrams = 1,
-};
-
-// Benchmark-only plan override. The debug points are inert unless the process-wide
-// enable_debug_points switch is on, and planners apply them only after both complete plans resolve.
-enum class CommonGramsPlanDebugOverride : uint8_t {
-    kNone = 0,
-    kForcePlain = 1,
-    kForceCommonGrams = 2,
-};
-
-inline constexpr char COMMON_GRAMS_FORCE_PLAIN_PLAN_DEBUG_POINT[] =
-        "snii.common_grams.force_plain_plan";
-inline constexpr char COMMON_GRAMS_FORCE_GRAM_PLAN_DEBUG_POINT[] =
-        "snii.common_grams.force_gram_plan";
-
-CommonGramsPlanDebugOverride common_grams_plan_debug_override();
 
 struct PhraseMatch {
     uint32_t docid = 0;
@@ -95,28 +69,7 @@ Status phrase_query_with_frequencies(const reader::LogicalIndexReader& idx,
                                      QueryProfile* profile = nullptr,
                                      const PhraseQueryOptions& options = {});
 
-// Selects between equivalent plain and CommonGrams exact-phrase plans above
-// the existing opaque-term matcher. A missing or mismatched query identity
-// forces the plain plan before any gram DICT lookup.
-Status planned_exact_phrase_query(
-        const reader::LogicalIndexReader& idx,
-        const segment_v2::InvertedIndexQueryInfo& plain_query_info,
-        const segment_v2::InvertedIndexQueryInfo& gram_query_info,
-        const segment_v2::inverted_index::CommonGramsQueryIdentity* common_grams_identity,
-        std::vector<uint32_t>* docids, QueryProfile* profile = nullptr,
-        ExactPhrasePlanKind* selected_plan = nullptr,
-        segment_v2::inverted_index::CommonGramsPlanCostModel cost_model = {},
-        std::optional<CommonGramsPlanDebugOverride> debug_override = std::nullopt);
 
-Status planned_phrase_prefix_query(
-        const reader::LogicalIndexReader& idx,
-        const segment_v2::InvertedIndexQueryInfo& plain_query_info,
-        const segment_v2::InvertedIndexQueryInfo& gram_query_info,
-        const segment_v2::inverted_index::CommonGramsQueryIdentity* common_grams_identity,
-        std::vector<uint32_t>* docids, QueryProfile* profile = nullptr, int32_t max_expansions = 0,
-        PhrasePrefixPlanKind* selected_plan = nullptr,
-        segment_v2::inverted_index::CommonGramsPlanCostModel cost_model = {},
-        std::optional<CommonGramsPlanDebugOverride> debug_override = std::nullopt);
 
 // phrase_prefix_query -- MATCH_PHRASE_PREFIX: the last item in `terms` is a
 // term prefix and preceding items are exact terms. For example {"quick", "bro"}

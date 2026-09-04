@@ -31,7 +31,6 @@
 
 #include "common/status.h"
 #include "runtime/runtime_profile.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/format/prx_pod.h"
@@ -1439,23 +1438,6 @@ TEST(SniiQueryProfileTest, PhraseReaderAndRuntimeTotalsAreAdditiveAndNonZero) {
     delta.exact_candidate_visits = 2;
     delta.prefix_leading_candidate_docs = 3;
     delta.prefix_tail_candidate_visits = 4;
-    delta.common_grams_candidate_queries = 5;
-    delta.common_grams_plain_plans = 6;
-    delta.common_grams_gram_plans = 7;
-    delta.common_grams_fallback_no_gram = 8;
-    delta.common_grams_fallback_incompatible = 9;
-    delta.common_grams_fallback_kill_switch = 10;
-    delta.common_grams_fallback_cost = 11;
-    delta.common_grams_authoritative_empty = 12;
-    delta.common_grams_plain_posting_bytes = 13;
-    delta.common_grams_gram_posting_bytes = 14;
-    delta.common_grams_plain_estimated_candidate_df = 15;
-    delta.common_grams_gram_estimated_candidate_df = 16;
-    delta.common_grams_plain_estimated_cost = 17;
-    delta.common_grams_gram_estimated_cost = 18;
-    delta.common_grams_fallback_base_analyzer_mismatch = 19;
-    delta.common_grams_fallback_prefix_tail_empty = 20;
-    delta.common_grams_planning_ns = 23;
     delta.prx_streaming_frames = 3;
 
     doris::OlapReaderStatistics reader_stats;
@@ -1465,23 +1447,6 @@ TEST(SniiQueryProfileTest, PhraseReaderAndRuntimeTotalsAreAdditiveAndNonZero) {
     EXPECT_EQ(reader_stats.snii_stats.phrase_candidate_visits, 4);
     EXPECT_EQ(reader_stats.snii_stats.phrase_prefix_leading_candidate_docs, 6);
     EXPECT_EQ(reader_stats.snii_stats.phrase_prefix_tail_candidate_visits, 8);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_candidate_queries, 10);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_plain_plans, 12);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_gram_plans, 14);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_no_gram, 16);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_incompatible, 18);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_kill_switch, 20);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_cost, 22);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_authoritative_empty, 24);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_plain_posting_bytes, 26);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_gram_posting_bytes, 28);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_plain_estimated_candidate_df, 30);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_gram_estimated_candidate_df, 32);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_plain_estimated_cost, 34);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_gram_estimated_cost, 36);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_base_analyzer_mismatch, 38);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_prefix_tail_empty, 40);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_planning_ns, 46);
     EXPECT_EQ(reader_stats.snii_stats.prx_streaming_frames, 6);
 
     doris::RuntimeProfile runtime_profile("IndexFilter");
@@ -1498,23 +1463,6 @@ TEST(SniiQueryProfileTest, PhraseReaderAndRuntimeTotalsAreAdditiveAndNonZero) {
             {"SniiPhraseCandidateVisits", 8, doris::TUnit::UNIT},
             {"SniiPhrasePrefixLeadingCandidateDocs", 12, doris::TUnit::UNIT},
             {"SniiPhrasePrefixTailCandidateVisits", 16, doris::TUnit::UNIT},
-            {"SniiCommonGramsCandidateQueries", 20, doris::TUnit::UNIT},
-            {"SniiCommonGramsPlainPlans", 24, doris::TUnit::UNIT},
-            {"SniiCommonGramsGramPlans", 28, doris::TUnit::UNIT},
-            {"SniiCommonGramsFallbackNoGram", 32, doris::TUnit::UNIT},
-            {"SniiCommonGramsFallbackIncompatible", 36, doris::TUnit::UNIT},
-            {"SniiCommonGramsFallbackKillSwitch", 40, doris::TUnit::UNIT},
-            {"SniiCommonGramsFallbackCost", 44, doris::TUnit::UNIT},
-            {"SniiCommonGramsAuthoritativeEmpty", 48, doris::TUnit::UNIT},
-            {"SniiCommonGramsPlainPostingBytes", 52, doris::TUnit::BYTES},
-            {"SniiCommonGramsGramPostingBytes", 56, doris::TUnit::BYTES},
-            {"SniiCommonGramsPlainEstimatedCandidateDf", 60, doris::TUnit::UNIT},
-            {"SniiCommonGramsGramEstimatedCandidateDf", 64, doris::TUnit::UNIT},
-            {"SniiCommonGramsPlainEstimatedCost", 68, doris::TUnit::UNIT},
-            {"SniiCommonGramsGramEstimatedCost", 72, doris::TUnit::UNIT},
-            {"SniiCommonGramsFallbackBaseAnalyzerMismatch", 76, doris::TUnit::UNIT},
-            {"SniiCommonGramsFallbackPrefixTailEmpty", 80, doris::TUnit::UNIT},
-            {"SniiCommonGramsPlanningTime", 92, doris::TUnit::TIME_NS},
             {"SniiPhraseStreamingPrxFrames", 12, doris::TUnit::UNIT},
     };
 
