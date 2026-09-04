@@ -79,11 +79,10 @@ public class LanceExternalCatalog extends ExternalCatalog {
     private static final int MAX_PROVIDER_MESSAGE_BYTES = 1024;
     private static final String[] RUNTIME_SENSITIVE_OPTION_KEYS = {
             "aws_access_key_id", "aws_secret_access_key", "aws_session_token",
-            // This PR is what lets OSS credentials reach these options in the first place, so
-            // they have to be recognized here or the change would introduce a way for them to
-            // surface in an error. Both spellings: a namespace may vend either.
-            "oss_access_key_id", "oss_secret_access_key", "oss_security_token",
-            "access_key_id", "access_key_secret", "security_token"
+            // OSS credentials only reach these options because of this change, so they have to be
+            // recognized here too. The emitted spelling is the only one that occurs: the map read
+            // below is the merged one, where a vended alias has already been normalized onto it.
+            "oss_access_key_id", "oss_secret_access_key", "oss_security_token"
     };
 
     private transient LanceNamespace namespace;

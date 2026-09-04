@@ -499,8 +499,9 @@ public class LanceStorageOptionsTest {
     }
 
     /**
-     * OpenDAL's OSS service addresses buckets virtual-host style by default, so only an explicit
-     * path-style request is translated; the default must stay absent rather than say "virtual".
+     * Doris models path-style addressing as a property with a default, so both answers are stated
+     * rather than only the non-default one - see
+     * {@link #testOssVirtualHostAddressingIsStatedExplicitly} for why absence is not neutral here.
      */
     @Test
     public void testOssPathStyleAddressingIsForwarded() {
@@ -573,9 +574,9 @@ public class LanceStorageOptionsTest {
     }
 
     /**
-     * A namespace that vends its own token keeps it - only a stale one is dropped. The token
-     * assertion alone would pass without reconciliation, since the overlay overwrites it anyway,
-     * so this also pins the flag that only reconciliation states.
+     * A namespace vending a whole credential has all of it carried through, token included, and the
+     * signing flag inferred from it. Options merge key by key, so a namespace is expected to vend
+     * the credential it wants used in full - what the catalog holds is not combined with it.
      */
     @Test
     public void testVendedOssTokenSurvivesWithItsOwnPair() {
@@ -700,5 +701,64 @@ public class LanceStorageOptionsTest {
                         .get("allow_anonymous"));
     }
 
-    /** Half a credential cannot sign; fail where the catalog is defined rather than at scan time. */
+    /**
+     * OpenDAL lower-cases every config key before deserializing, so a credential vended in upper
+     * case still reaches the store. Left unrecognized here it would not count as signing
+     * configuration, and the anonymous flag would be inferred as true beside it - the store would
+     * then load the credential and skip signing anyway, sending every request unsigned.
+     */
+    @Test
+    public void testVendedOssOptionsAreRecognizedRegardlessOfCase() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("ACCESS_KEY_ID", "vended-ak");
+        vended.put("Access_Key_Secret", "vended-sk");
+
+        Map<String, String> merged = LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                OSS_URI, Collections.emptyList(), vended);
+
+        Assertions.assertEquals("vended-ak", merged.get("oss_access_key_id"));
+        Assertions.assertEquals("vended-sk", merged.get("oss_secret_access_key"));
+        Assertions.assertEquals("false", merged.get("allow_anonymous"));
+    }
+
+    /**
+     * The signing flag is read with OpenDAL's boolean grammar, not Java's. Judging {@code on} by
+     * Boolean.parseBoolean would call it "not anonymous" and let it through beside a credential,
+     * while the store reads it as anonymous and stops signing.
+     */
+    @Test
+    public void testVendedOssAnonymousFlagUsesTheStoresBooleanGrammar() {
+        for (String spelling : new String[] {"true", "on", "ON"}) {
+            Map<String, String> vended = new HashMap<>();
+            vended.put("allow_anonymous", spelling);
+            IllegalArgumentException thrown = Assertions.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                            OSS_URI, createAll(ossProperties()), vended),
+                    "'" + spelling + "' should conflict with configured credentials");
+            Assertions.assertTrue(thrown.getMessage().contains("Conflicting OSS authentication"),
+                    "unexpected message: " + thrown.getMessage());
+        }
+        // off/false are the store's own spellings for "sign", and agree with a credential
+        for (String spelling : new String[] {"false", "off"}) {
+            Map<String, String> vended = new HashMap<>();
+            vended.put("allow_anonymous", spelling);
+            Assertions.assertEquals(spelling, LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                    OSS_URI, createAll(ossProperties()), vended).get("allow_anonymous"));
+        }
+    }
+
+    /** A value OpenDAL cannot parse is refused here, not several layers down in the operator build. */
+    @Test
+    public void testVendedOssAnonymousFlagRejectsAnUnparsableValue() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("allow_anonymous", "yes");
+
+        IllegalArgumentException thrown = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                        OSS_URI, Collections.emptyList(), vended));
+        Assertions.assertTrue(thrown.getMessage().contains("Unrecognized value"),
+                "unexpected message: " + thrown.getMessage());
+    }
 }
