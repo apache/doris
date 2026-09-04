@@ -20,16 +20,31 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper {
@@ -178,6 +193,78 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
                 ),
                 new NullLiteral(DateTimeV2Type.of(6))
         );
+    }
+
+    @Test
+    public void testIf() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(bottomUp((SimplifyConditionalFunction.INSTANCE))));
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true);
+        SlotReference flag = new SlotReference("flag", IntegerType.INSTANCE, true);
+        SlotReference cost = new SlotReference("cost", DoubleType.INSTANCE, true);
+        SlotReference denom = new SlotReference("denom", DoubleType.INSTANCE, true);
+        IntegerLiteral zero = new IntegerLiteral(0);
+        IntegerLiteral eight = new IntegerLiteral(8);
+        GreaterThan noThrowCond = new GreaterThan(flag, zero);
+
+        // 1. no-throw deterministic condition, identical branches -> rewrite to the branch
+        assertIf(new If(noThrowCond, b, b), b);
+
+        // 2. non-deterministic condition -> keep (dropping rand() would remove a side effect)
+        If randIf = new If(new GreaterThan(new Random(), zero), b, b);
+        assertIf(randIf, randIf);
+
+        // 3. then != else -> keep
+        If distinctIf = new If(noThrowCond, b, c);
+        assertIf(distinctIf, distinctIf);
+
+        // 4. throwing subtree in condition but absent from branch -> keep (would suppress an error)
+        If divOnlyInCond = new If(new GreaterThanEqual(new Divide(cost, denom), zero), b, b);
+        assertIf(divOnlyInCond, divOnlyInCond);
+
+        // 5. Case3 shape: throwing round(cost/denom, 8) also appears unconditionally in the
+        //    ceil(...) branch -> safe to rewrite
+        Expression round = new Round(new Divide(cost, denom), eight);
+        Expression ceil = new Ceil(round);
+        assertIf(new If(new GreaterThanEqual(round, zero), ceil, ceil), ceil);
+
+        // 6. throwing subtree present only under a guarded inner if in the branch -> keep
+        Expression guardedBranch =
+                new If(new GreaterThan(flag, zero), new Ceil(new Divide(cost, denom)), zero);
+        If guardedIf =
+                new If(new GreaterThanEqual(new Divide(cost, denom), zero), guardedBranch, guardedBranch);
+        assertIf(guardedIf, guardedIf);
+
+        // 7. sleep() in condition -> keep. sleep is deterministic and its self-identical value
+        //    also occurs in the branch, but collapsing IF(sleep, sleep, sleep) would drop one
+        //    observable blocking evaluation.
+        If sleepIf = new If(new Sleep(new IntegerLiteral(1)),
+                new Sleep(new IntegerLiteral(1)), new Sleep(new IntegerLiteral(1)));
+        assertIf(sleepIf, sleepIf);
+
+        // 8. NoneMovableFunction (assert_true) in condition -> keep. Contractually must not be
+        //    pruned; dropping the condition would skip the assertion.
+        If assertTrueIf = new If(new AssertTrue(new GreaterThan(flag, zero), new VarcharLiteral("bad")), b, b);
+        assertIf(assertTrueIf, assertTrueIf);
+
+        // 9. sleep() identical in both branches -> keep. BE evaluates the then/else argument
+        //    columns unconditionally before selecting between them, so if(cond, sleep(1), sleep(1))
+        //    already runs sleep() twice per block; collapsing to one sleep(1) would halve that
+        //    observable blocking time even though the branches are structurally identical.
+        If sleepBranchIf = new If(noThrowCond, new Sleep(new IntegerLiteral(1)), new Sleep(new IntegerLiteral(1)));
+        assertIf(sleepBranchIf, sleepBranchIf);
+
+        // 10. NoneMovableFunction (assert_true) identical in both branches -> keep. Same
+        //     eager-evaluation reasoning: dropping the if would still halve how many times
+        //     assert_true's check actually runs.
+        If assertTrueBranchIf = new If(noThrowCond,
+                new AssertTrue(new GreaterThan(flag, zero), new VarcharLiteral("bad")),
+                new AssertTrue(new GreaterThan(flag, zero), new VarcharLiteral("bad")));
+        assertIf(assertTrueBranchIf, assertTrueBranchIf);
+    }
+
+    private void assertIf(Expression input, Expression expected) {
+        Assertions.assertEquals(expected, executor.rewrite(input, context));
     }
 
 }
