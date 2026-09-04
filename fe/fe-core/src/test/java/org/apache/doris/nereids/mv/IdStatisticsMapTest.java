@@ -23,7 +23,7 @@ import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

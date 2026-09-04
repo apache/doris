@@ -92,7 +92,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * InsertIntoTableCommand(Query())
  * ExplainCommand(Query())
  */
-public class InsertOverwriteTableCommand extends Command implements NeedAuditEncryption, ForwardWithSync, Explainable {
+public class InsertOverwriteTableCommand extends Command
+        implements NeedAuditEncryption, ForwardWithSync, Explainable, CancelableCommand {
 
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteTableCommand.class);
 

@@ -23,7 +23,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import java.util.Optional;
 import javax.annotation.Nullable;

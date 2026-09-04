@@ -57,7 +57,7 @@ public class StreamConsumptionInfoExtractor {
                     if (!streamScan.isSnapshot()) {
                         OlapTableStreamWrapper wrapper = streamScan.getTable();
                         Preconditions.checkState(Config.isNotCloudMode() || wrapper.hasCloudReadStates(),
-                                "Cloud Table Stream read state must be installed during relation analysis");
+                                "Cloud Table Stream read state must be installed before extraction");
                         AbstractTableStreamUpdate update = Config.isCloudMode()
                                 ? toCloudOlapTableStreamUpdate(wrapper, streamScan.getSelectedPartitionIds())
                                 : toOlapTableStreamUpdate(wrapper);

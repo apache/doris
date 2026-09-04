@@ -33,9 +33,9 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.BaseAnalysisTask;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.ImmutableMap;

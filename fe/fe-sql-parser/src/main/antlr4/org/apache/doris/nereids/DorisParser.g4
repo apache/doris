@@ -49,6 +49,11 @@ options { tokenVocab = DorisLexer; }
                 ctx.getParent().getText(), ctx);
     }
 
+    private boolean isQueryOrganizationStart() {
+        int tokenType = _input.LA(1);
+        return tokenType == ORDER || tokenType == LIMIT;
+    }
+
     private boolean isTupleLambdaBody() {
         if (_input.LA(1) != LEFT_PAREN) {
             return false;
@@ -131,7 +136,7 @@ statementBase
 
 queryOrDmlStatement
     : explainContext=explain? cteContext=cte?
-        (queryTerm queryOrganization outFileClause?
+        (queryTerm organization=queryOrganization? outFileClause?
         | dmlStatementBody[$explainContext.ctx, $cteContext.ctx])    #explainableStatement
     | nonExplainableDmlStatement        #dmlStatementAlias
     | describeStatement                 #describeStatementAlias
@@ -200,7 +205,7 @@ killStatementDispatch
 createMaterializedViewStatement
     : CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
-        (REFRESH refreshMethod? refreshTrigger?)?
+        (REFRESH refreshPolicy? refreshTrigger?)?
         ((DUPLICATE)? KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
         (PARTITION BY LEFT_PAREN mvPartition RIGHT_PAREN)?
@@ -211,12 +216,17 @@ createMaterializedViewStatement
     ;
 
 refreshMaterializedViewStatement
-    : REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE | AUTO)    #refreshMTMV
+    : explain REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
+        explainRefreshPolicy                                                                     #explainRefreshMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier INCREMENTAL WITH DRY RUN
+        limitClause?                                                                              #refreshMTMVDryRun
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
+        (partitionSpec | refreshPolicy)                                                           #refreshMTMV
     ;
 
 alterMaterializedViewStatement
     : ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME renameNewName=multipartIdentifier)
-        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
+        | (REFRESH (refreshPolicy | refreshTrigger | refreshPolicy refreshTrigger))
         | REPLACE WITH MATERIALIZED VIEW replaceNewName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
     ;
@@ -321,12 +331,12 @@ dmlStatementBody[ExplainContext explainContext, CteContext cteContext]
         SET updateAssignmentSeq
         fromClause?
         whereClause?
-        queryOrganization                                              #update
+        organization=queryOrganization?                                #update
     | DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
         (USING relations)?
         whereClause?
-        queryOrganization                                              #delete
+        organization=queryOrganization?                                #delete
     | MERGE INTO targetTable=multipartIdentifier
         (AS? identifier)? USING srcRelation=relationPrimary
         ON expression
@@ -421,12 +431,12 @@ createStatement
     | CREATE ENCRYPTKEY (IF NOT EXISTS)? multipartIdentifier AS STRING_LITERAL  #createEncryptkey
     | CREATE statementScope?
             (TABLES | AGGREGATE)? FUNCTION (IF NOT EXISTS)?
-            functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
+            functionIdentifier LEFT_PAREN dataTypeList? RIGHT_PAREN
             RETURNS returnType=dataType (INTERMEDIATE intermediateType=dataType)?
             properties=propertyClause?
             (AS functionCode=dollarQuotedString)?                                   #createUserDefineFunction
     | CREATE statementScope? ALIAS FUNCTION (IF NOT EXISTS)?
-            functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
+            functionIdentifier LEFT_PAREN dataTypeList? RIGHT_PAREN
             WITH PARAMETER LEFT_PAREN parameters=identifierSeq? RIGHT_PAREN
             AS expression                                                           #createAliasFunction
     | CREATE USER (IF NOT EXISTS)? grantUserIdentify
@@ -493,6 +503,8 @@ alterStatement
         properties=propertyClause?                                                          #alterWorkloadPolicy
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?                       #alterSqlBlockRule
     | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL                   #alterCatalogComment
+    | ALTER STREAM name=multipartIdentifier
+        (SET | MODIFY) COMMENT comment=STRING_LITERAL                                       #alterStreamComment
     | ALTER DATABASE name=identifier RENAME newName=identifier                              #alterDatabaseRename
     | ALTER STORAGE POLICY name=identifierOrText
         properties=propertyClause                                                           #alterStoragePolicy
@@ -1332,8 +1344,21 @@ refreshSchedule
     : EVERY INTEGER_VALUE refreshUnit = identifier (STARTS STRING_LITERAL)?
     ;
 
+refreshPolicy
+    : refreshMethod refreshFallback?
+    ;
+
+explainRefreshPolicy
+    : INCREMENTAL (WITH ALL STREAMS)?
+    | COMPLETE
+    ;
+
+refreshFallback
+    : FALLBACK
+    ;
+
 refreshMethod
-    : COMPLETE | AUTO
+    : COMPLETE | AUTO | INCREMENTAL | PARTITIONS
     ;
 
 mvPartition
@@ -1476,7 +1501,7 @@ outFileClause
     ;
 
 query
-    : cte? queryTerm queryOrganization
+    : cte? queryTerm organization=queryOrganization?
     ;
 
 queryTerm
@@ -1504,7 +1529,8 @@ querySpecification
       aggClause?
       havingClause?
       qualifyClause?
-      ({!ansiSQLSyntax}? queryOrganization | {ansiSQLSyntax}?)         #regularQuerySpecification
+      ({!ansiSQLSyntax}? organization=queryOrganization
+      | {ansiSQLSyntax || !isQueryOrganizationStart()}?)                 #regularQuerySpecification
     ;
 
 cte
@@ -1640,7 +1666,8 @@ unnest:
     )?;
 
 queryOrganization
-    : sortClause? limitClause?
+    : sortClause (limitClause | {_input.LA(1) != LIMIT}?)
+    | limitClause
     ;
 
 sortClause
@@ -2341,6 +2368,7 @@ nonReserved
     | DORIS_INTERNAL_TABLE_ID
     | DOW
     | DOY
+    | DRY
     | DUAL
     | DYNAMIC
     | E
@@ -2360,6 +2388,7 @@ nonReserved
     | EXPIRED
     | EXTERNAL
     | BLOOMFILTER
+    | FALLBACK
     | FAILED_LOGIN_ATTEMPTS
     | FAST
     | FEATURE
@@ -2544,6 +2573,7 @@ nonReserved
     | ROTATE
     | ROUTINE
     | RULE
+    | RUN
     | S3
     | SAMPLE
     | SAN

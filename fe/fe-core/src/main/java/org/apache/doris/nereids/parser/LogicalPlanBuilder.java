@@ -77,6 +77,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
+import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AddBackendClauseContext;
 import org.apache.doris.nereids.DorisParser.AddBrokerClauseContext;
@@ -221,6 +222,7 @@ import org.apache.doris.nereids.DorisParser.ExceptContext;
 import org.apache.doris.nereids.DorisParser.ExceptOrReplaceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
+import org.apache.doris.nereids.DorisParser.ExplainRefreshMTMVContext;
 import org.apache.doris.nereids.DorisParser.ExplainableDmlStatementContext;
 import org.apache.doris.nereids.DorisParser.ExplainableStatementContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
@@ -321,6 +323,7 @@ import org.apache.doris.nereids.DorisParser.RefreshCatalogContext;
 import org.apache.doris.nereids.DorisParser.RefreshDatabaseContext;
 import org.apache.doris.nereids.DorisParser.RefreshDictionaryContext;
 import org.apache.doris.nereids.DorisParser.RefreshMTMVContext;
+import org.apache.doris.nereids.DorisParser.RefreshMTMVDryRunContext;
 import org.apache.doris.nereids.DorisParser.RefreshMethodContext;
 import org.apache.doris.nereids.DorisParser.RefreshScheduleContext;
 import org.apache.doris.nereids.DorisParser.RefreshTableContext;
@@ -666,6 +669,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterStreamCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemRenameComputeGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -1002,6 +1006,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.Ma
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenamePartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameRollupOp;
@@ -1107,7 +1112,7 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
-import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
 import org.apache.doris.system.NodeType;
 
 import com.google.common.base.Preconditions;
@@ -1236,7 +1241,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         LogicalPlan plan = ParserUtils.withOrigin(
                 ctx.cteContext != null ? ctx.cteContext : ctx.queryTerm(),
-                () -> withCte(buildQuery(ctx.queryTerm(), ctx.queryOrganization()), ctx.cteContext));
+                () -> withCte(buildQuery(ctx.queryTerm(), ctx.organization), ctx.cteContext));
         if (ctx.outFileClause() != null) {
             plan = withOutFile(plan, ctx.outFileClause());
         } else {
@@ -1660,7 +1665,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Command visitCreateMTMV(CreateMTMVContext ctx) {
-        if (ctx.buildMode() == null && ctx.refreshMethod() == null && ctx.refreshTrigger() == null
+        if (ctx.buildMode() == null && ctx.refreshPolicy() == null && ctx.refreshTrigger() == null
                 && ctx.cols == null && ctx.keys == null
                 && ctx.HASH() == null && ctx.RANDOM() == null && ctx.BUCKETS() == null) {
             return visitCreateSyncMvCommand(ctx);
@@ -1668,7 +1673,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         BuildMode buildMode = visitBuildMode(ctx.buildMode());
-        RefreshMethod refreshMethod = visitRefreshMethod(ctx.refreshMethod());
+        ParsedRefreshPolicy refreshPolicy = visitRefreshPolicy(ctx.refreshPolicy());
         MTMVRefreshTriggerInfo refreshTriggerInfo = visitRefreshTrigger(ctx.refreshTrigger());
         LogicalPlan logicalPlan = visitQuery(ctx.query());
         String querySql = getOriginSql(ctx.query());
@@ -1677,12 +1682,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.INTEGER_VALUE() != null) {
             bucketNum = Integer.parseInt(ctx.INTEGER_VALUE().getText());
         }
-        DistributionDescriptor desc;
+        DistributionDescriptor desc = null;
         if (ctx.HASH() != null) {
             desc = new DistributionDescriptor(true, ctx.AUTO() != null, bucketNum,
                     visitIdentifierList(ctx.hashKeys));
-        } else {
-            desc = new DistributionDescriptor(false, ctx.AUTO() != null, bucketNum, null);
+        } else if (ctx.RANDOM() != null || ctx.BUCKETS() != null || ctx.AUTO() != null) {
+            desc = new DistributionDescriptor(false, ctx.AUTO() != null || ctx.BUCKETS() == null, bucketNum, null);
         }
 
         Map<String, String> properties = ctx.propertyClause() != null
@@ -1694,7 +1699,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
                 comment,
                 desc, properties, logicalPlan, querySql,
-                new MTMVRefreshInfo(buildMode, refreshMethod, refreshTriggerInfo),
+                new MTMVRefreshInfo(buildMode, refreshPolicy.refreshMethod,
+                        refreshPolicy.allowFallback, refreshTriggerInfo),
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols),
                 visitMTMVPartitionInfo(ctx.mvPartition()),
                 ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get())
@@ -1819,6 +1825,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public ParsedRefreshPolicy visitRefreshPolicy(DorisParser.RefreshPolicyContext ctx) {
+        RefreshMethod refreshMethod = visitRefreshMethod(ctx == null ? null : ctx.refreshMethod());
+        // Missing policy on CREATE means AUTO, and AUTO keeps its historical
+        // implicit fallback. Non-AUTO methods require an explicit FALLBACK token.
+        boolean allowFallback = ctx != null && ctx.refreshFallback() != null
+                ? true : MTMVRefreshInfo.defaultAllowFallback(refreshMethod);
+        return new ParsedRefreshPolicy(refreshMethod, allowFallback);
+    }
+
+    private static class ParsedRefreshPolicy {
+        private final RefreshMethod refreshMethod;
+        private final boolean allowFallback;
+
+        private ParsedRefreshPolicy(RefreshMethod refreshMethod, boolean allowFallback) {
+            this.refreshMethod = refreshMethod;
+            this.allowFallback = allowFallback;
+        }
+    }
+
+    @Override
     public BuildMode visitBuildMode(BuildModeContext ctx) {
         if (ctx == null) {
             return BuildMode.IMMEDIATE;
@@ -1832,7 +1858,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public RefreshMTMVCommand visitRefreshMTMV(RefreshMTMVContext ctx) {
+    public LogicalPlan visitExplainRefreshMTMV(ExplainRefreshMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        boolean incremental = ctx.explainRefreshPolicy().INCREMENTAL() != null;
+        RefreshMode refreshMode = incremental ? RefreshMode.INCREMENTAL : RefreshMode.COMPLETE;
+        boolean includeExhaustedStreams = ctx.explainRefreshPolicy().ALL() != null;
+        RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(
+                new TableNameInfo(nameParts), ImmutableList.of(), refreshMode);
+        return withExplain(new RefreshMTMVCommand(refreshMTMVInfo, includeExhaustedStreams), ctx.explain());
+    }
+
+    @Override
+    public LogicalPlan visitRefreshMTMV(RefreshMTMVContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         List<String> partitions = ImmutableList.of();
         if (ctx.partitionSpec() != null) {
@@ -1845,8 +1882,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitions = visitIdentifierList(ctx.partitionSpec().partitions);
             }
         }
-        return new RefreshMTMVCommand(new RefreshMTMVInfo(new TableNameInfo(nameParts),
-                partitions, ctx.COMPLETE() != null));
+        ParsedRefreshPolicy refreshPolicy = ctx.partitionSpec() == null
+                ? visitRefreshPolicy(ctx.refreshPolicy())
+                // Legacy REFRESH ... PARTITION(S) is an exact partition request,
+                // not the PARTITIONS refresh strategy with fallback.
+                : new ParsedRefreshPolicy(RefreshMethod.PARTITIONS, false);
+        RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(new TableNameInfo(nameParts), partitions,
+                RefreshMode.valueOf(refreshPolicy.refreshMethod.name()), refreshPolicy.allowFallback);
+        return new RefreshMTMVCommand(refreshMTMVInfo);
+    }
+
+    @Override
+    public LogicalPlan visitRefreshMTMVDryRun(RefreshMTMVDryRunContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(
+                new TableNameInfo(nameParts), ImmutableList.of(), RefreshMode.INCREMENTAL);
+        Optional<IvmDryRunLimit> dryRunLimit = Optional.empty();
+        if (ctx.limitClause() != null) {
+            Pair<Long, Long> limitAndOffset = parseLimitClause(ctx.limitClause());
+            dryRunLimit = Optional.of(new IvmDryRunLimit(limitAndOffset.second, limitAndOffset.first));
+        }
+        return new RefreshMTMVCommand(refreshMTMVInfo, false, true, dryRunLimit);
     }
 
     private DropMTMVCommand visitDropMTMV(DropMVContext ctx) {
@@ -1961,8 +2017,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     new TableNameInfo(visitMultipartIdentifier(ctx.renameNewName)));
         } else if (ctx.REFRESH() != null) {
             MTMVRefreshInfo refreshInfo = new MTMVRefreshInfo();
-            if (ctx.refreshMethod() != null) {
-                refreshInfo.setRefreshMethod(visitRefreshMethod(ctx.refreshMethod()));
+            if (ctx.refreshPolicy() != null) {
+                ParsedRefreshPolicy refreshPolicy = visitRefreshPolicy(ctx.refreshPolicy());
+                refreshInfo.setRefreshMethod(refreshPolicy.refreshMethod);
+                // Store fallback only when the method is present. ALTER REFRESH
+                // trigger-only statements must leave the existing fallback policy
+                // untouched.
+                refreshInfo.setAllowFallback(refreshPolicy.allowFallback);
             }
             if (ctx.refreshTrigger() != null) {
                 refreshInfo.setRefreshTriggerInfo(visitRefreshTrigger(ctx.refreshTrigger()));
@@ -2083,7 +2144,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             query = withRelations(query, ((FromRelationsContext) ctx.fromClause()).relations().relation());
         }
         query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
-        query = withQueryOrganization(query, ctx.queryOrganization());
+        query = withQueryOrganization(query, ctx.organization);
         query = convertSortOrdinalsToUnboundSlot(query);
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
@@ -2115,9 +2176,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tableAlias = ctx.tableAlias().strictIdentifier().getText();
         }
 
-        boolean hasQueryOrganization = ctx.queryOrganization() != null
-                && (ctx.queryOrganization().sortClause() != null
-                        || ctx.queryOrganization().limitClause() != null);
+        boolean hasQueryOrganization = ctx.organization != null;
         Command deleteCommand;
         if (ctx.USING() == null && ctx.cteContext == null && !hasQueryOrganization) {
             query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
@@ -2129,7 +2188,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 query = withRelations(query, ctx.relations().relation());
             }
             query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
-            query = withQueryOrganization(query, ctx.queryOrganization());
+            query = withQueryOrganization(query, ctx.organization);
             query = convertSortOrdinalsToUnboundSlot(query);
             Optional<LogicalPlan> cte = Optional.empty();
             if (ctx.cteContext != null) {
@@ -2609,7 +2668,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitQuery(QueryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             // TODO: need to add withQueryResultClauses and withCTE
-            return withCte(buildQuery(ctx.queryTerm(), ctx.queryOrganization()), ctx.cte());
+            return withCte(buildQuery(ctx.queryTerm(), ctx.organization), ctx.cte());
         });
     }
 
@@ -2717,7 +2776,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     Optional.ofNullable(ctx.aggClause()),
                     Optional.ofNullable(ctx.havingClause()),
                     Optional.ofNullable(ctx.qualifyClause()));
-            selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
+            selectPlan = withQueryOrganization(selectPlan, ctx.organization);
             if ((selectHintMap == null) || selectHintMap.isEmpty()) {
                 return selectPlan;
             }
@@ -4011,8 +4070,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.REPLACE() != null && ctx.EXISTS() != null) {
             throw new AnalysisException("[OR REPLACE] and [IF NOT EXISTS] cannot used at the same time");
         }
-        String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
-                ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
+        String comment = ctx.STRING_LITERAL() == null ? ""
+                : SqlLiteralUtils.parseStringLiteral(ctx.STRING_LITERAL().getText());
         Map<String, String> properties = ctx.properties != null
                 // NOTICE: we should not generate immutable map here, because it will be modified when analyzing.
                 ? Maps.newHashMap(visitPropertyClause(ctx.properties))
@@ -4470,28 +4529,33 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return inputPlan;
         }
         return ParserUtils.withOrigin(ctx, () -> {
-            ExplainLevel explainLevel = ExplainLevel.NORMAL;
-
-            if (ctx.planType() != null) {
-                if (ctx.level == null || !ctx.level.getText().equalsIgnoreCase("plan")) {
-                    throw new ParseException("Only explain plan can use plan type: " + ctx.planType().getText(), ctx);
-                }
-            }
-
-            boolean showPlanProcess = false;
-            if (ctx.level != null) {
-                if (!ctx.level.getText().equalsIgnoreCase("plan")) {
-                    explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
-                } else {
-                    explainLevel = parseExplainPlanType(ctx.planType());
-
-                    if (ctx.PROCESS() != null) {
-                        showPlanProcess = true;
-                    }
-                }
-            }
-            return new ExplainCommand(explainLevel, inputPlan, showPlanProcess);
+            Pair<ExplainLevel, Boolean> explainInfo = parseExplain(ctx);
+            return new ExplainCommand(explainInfo.first, inputPlan, explainInfo.second);
         });
+    }
+
+    private Pair<ExplainLevel, Boolean> parseExplain(ExplainContext ctx) {
+        ExplainLevel explainLevel = ExplainLevel.NORMAL;
+
+        if (ctx.planType() != null) {
+            if (ctx.level == null || !ctx.level.getText().equalsIgnoreCase("plan")) {
+                throw new ParseException("Only explain plan can use plan type: " + ctx.planType().getText(), ctx);
+            }
+        }
+
+        boolean showPlanProcess = false;
+        if (ctx.level != null) {
+            if (!ctx.level.getText().equalsIgnoreCase("plan")) {
+                explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
+            } else {
+                explainLevel = parseExplainPlanType(ctx.planType());
+
+                if (ctx.PROCESS() != null) {
+                    showPlanProcess = true;
+                }
+            }
+        }
+        return Pair.of(explainLevel, showPlanProcess);
     }
 
     private LogicalPlan withOutFile(LogicalPlan plan, OutFileClauseContext ctx) {
@@ -4561,17 +4625,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private LogicalPlan withLimit(LogicalPlan input, Optional<LimitClauseContext> limitCtx) {
         return input.optionalMap(limitCtx, () -> {
-            long limit = Long.parseLong(limitCtx.get().limit.getText());
-            if (limit < 0) {
-                throw new ParseException("Limit requires non-negative number", limitCtx.get());
-            }
-            long offset = 0;
-            Token offsetToken = limitCtx.get().offset;
-            if (offsetToken != null) {
-                offset = Long.parseLong(offsetToken.getText());
-            }
-            return new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, input);
+            Pair<Long, Long> limitAndOffset = parseLimitClause(limitCtx.get());
+            return new LogicalLimit<>(limitAndOffset.first, limitAndOffset.second, LimitPhase.ORIGIN, input);
         });
+    }
+
+    // Parse a LIMIT clause into (limit, offset). Supports "LIMIT n", "LIMIT n OFFSET m" and "LIMIT m, n".
+    private Pair<Long, Long> parseLimitClause(LimitClauseContext limitCtx) {
+        long limit = Long.parseLong(limitCtx.limit.getText());
+        if (limit < 0) {
+            throw new ParseException("Limit requires non-negative number", limitCtx);
+        }
+        long offset = 0;
+        Token offsetToken = limitCtx.offset;
+        if (offsetToken != null) {
+            offset = Long.parseLong(offsetToken.getText());
+        }
+        return Pair.of(limit, offset);
     }
 
     /**
@@ -5619,12 +5689,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean isAggFunction = ctx.AGGREGATE() != null;
         boolean isTableFunction = ctx.TABLES() != null;
         FunctionName function = visitFunctionIdentifier(ctx.functionIdentifier());
-        FunctionArgTypesInfo functionArgTypesInfo;
-        if (ctx.functionArguments() != null) {
-            functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
-        } else {
-            functionArgTypesInfo = new FunctionArgTypesInfo(new ArrayList<>(), false);
-        }
+        List<DataType> argTypes = ctx.dataTypeList() == null
+                ? new ArrayList<>() : visitDataTypeList(ctx.dataTypeList());
+        FunctionArgTypesInfo functionArgTypesInfo = new FunctionArgTypesInfo(argTypes, false);
         DataType returnType = typedVisit(ctx.returnType);
         returnType = returnType.conversion();
         DataType intermediateType = ctx.intermediateType != null ? typedVisit(ctx.intermediateType) : null;
@@ -5645,12 +5712,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         SetType statementScope = visitStatementScope(ctx.statementScope());
         boolean ifNotExists = ctx.EXISTS() != null;
         FunctionName function = visitFunctionIdentifier(ctx.functionIdentifier());
-        FunctionArgTypesInfo functionArgTypesInfo;
-        if (ctx.functionArguments() != null) {
-            functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
-        } else {
-            functionArgTypesInfo = new FunctionArgTypesInfo(new ArrayList<>(), false);
-        }
+        List<DataType> argTypes = ctx.dataTypeList() == null
+                ? new ArrayList<>() : visitDataTypeList(ctx.dataTypeList());
+        FunctionArgTypesInfo functionArgTypesInfo = new FunctionArgTypesInfo(argTypes, false);
         List<String> parameters = ctx.parameters != null ? visitIdentifierSeq(ctx.parameters) : new ArrayList<>();
         Expression originFunction = getExpression(ctx.expression());
         return new CreateFunctionCommand(statementScope, ifNotExists, false, true, false,
@@ -7266,6 +7330,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String catalogName = stripQuotes(ctx.name.getText());
         String comment = stripQuotes(ctx.comment.getText());
         return new AlterCatalogCommentCommand(catalogName, comment);
+    }
+
+    @Override
+    public LogicalPlan visitAlterStreamComment(DorisParser.AlterStreamCommentContext ctx) {
+        TableNameInfo streamName = new TableNameInfo(visitMultipartIdentifier(ctx.name));
+        String comment = SqlLiteralUtils.parseStringLiteral(ctx.comment.getText());
+        return new AlterStreamCommand(streamName, AlterStreamCommand.AlterType.SET_COMMENT, comment);
     }
 
     @Override

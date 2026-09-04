@@ -27,7 +27,9 @@ public class MTMVRefreshEnum {
      */
     public enum RefreshMethod {
         COMPLETE, //complete
-        AUTO //try to update incrementally, if not possible, update in full
+        AUTO, // existing auto refresh behavior
+        INCREMENTAL, // opt in nereids ivm rewrite flow
+        PARTITIONS // partition-based refresh
     }
 
     /**

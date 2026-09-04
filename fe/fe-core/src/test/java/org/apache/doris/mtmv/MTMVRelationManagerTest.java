@@ -17,6 +17,8 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Sets;
@@ -24,6 +26,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Set;
@@ -123,5 +126,55 @@ public class MTMVRelationManagerTest {
         // should return mv1
         t4All = manager.getMtmvsByBaseTableOneLevelAndFromView(t4);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4All));
+    }
+
+    @Test
+    public void testRefreshMtmvCacheReplacesRelation() {
+        MTMVRelationManager manager = new MTMVRelationManager();
+        MTMVRelation oldRelation = new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(t3), Sets.newHashSet(), Sets.newHashSet());
+        MTMVRelation newRelation = new MTMVRelation(Sets.newHashSet(t4), Sets.newHashSet(t4),
+                Sets.newHashSet(t4), Sets.newHashSet(), Sets.newHashSet());
+
+        manager.refreshMTMVCache(oldRelation, mv1);
+        manager.refreshMTMVCache(newRelation, mv1);
+
+        Assert.assertTrue(manager.getMtmvsByBaseTable(t3).isEmpty());
+        Assert.assertTrue(manager.getMtmvsByBaseTableOneLevelAndFromView(t3).isEmpty());
+        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1),
+                manager.getMtmvsByBaseTable(t4)));
+    }
+
+    @Test
+    public void testBaselineBarrierOnlyInvalidatesIvm() {
+        MTMVRelationManager manager = new MTMVRelationManager();
+        manager.refreshMTMVCache(new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(t3), Sets.newHashSet(), Sets.newHashSet()), mv1);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.isIvm()).thenReturn(false);
+        try (MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class)) {
+            util.when(() -> MTMVUtil.getMTMV(mv1)).thenReturn(mtmv);
+
+            manager.markIvmBaselineRebuild(t3, "test");
+        }
+
+        Mockito.verify(mtmv, Mockito.never()).invalidateIvmBaseline();
+    }
+
+    @Test
+    public void testBaselineBarrierSkipsExcludedTable() {
+        MTMVRelationManager manager = new MTMVRelationManager();
+        manager.refreshMTMVCache(new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(t3), Sets.newHashSet(), Sets.newHashSet()), mv1);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Sets.newHashSet(new TableNameInfo("t3")));
+        try (MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class)) {
+            util.when(() -> MTMVUtil.getMTMV(mv1)).thenReturn(mtmv);
+
+            manager.markIvmBaselineRebuild(t3, "test");
+        }
+
+        Mockito.verify(mtmv, Mockito.never()).invalidateIvmBaseline();
     }
 }
