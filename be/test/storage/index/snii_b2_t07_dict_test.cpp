@@ -66,15 +66,10 @@ DictEntry MakePodRef(std::string term, uint32_t df, uint64_t frq_off, uint64_t p
     e.kind = DictEntryKind::kPodRef;
     e.enc = DictEntryEnc::kSlim;
     e.df = df;
-    e.ttf_delta = df * 2;
-    e.max_freq = 9;
     e.frq_off_delta = frq_off;
     e.frq_len = 128;
-    e.frq_docs_len = 64; // dd region on-disk length (<= frq_len)
     e.dd_meta.uncomp_len = 70;
     e.dd_meta.crc = 0xABCD1234U; // pod_ref regions keep their per-region crc
-    e.freq_meta.uncomp_len = 40;
-    e.freq_meta.crc = 0x55AA00FFU;
     e.prx_off_delta = prx_off;
     e.prx_len = 64;
     return e;
@@ -86,12 +81,9 @@ DictEntry MakePodRefWindowed(std::string term, uint32_t df, uint64_t frq_off) {
     e.kind = DictEntryKind::kPodRef;
     e.enc = DictEntryEnc::kWindowed;
     e.df = df;
-    e.ttf_delta = df * 2;
-    e.max_freq = 5;
     e.frq_off_delta = frq_off;
     e.frq_len = 200;
-    e.prelude_len = 10;   // 0 < prelude_len <= frq_docs_len
-    e.frq_docs_len = 120; // <= frq_len
+    e.prelude_len = 10;   // 0 < prelude_len <= frq_len
     e.prx_off_delta = 0;
     e.prx_len = 50;
     return e;
@@ -103,12 +95,8 @@ DictEntry MakeInline(std::string term, uint32_t df) {
     e.kind = DictEntryKind::kInline;
     e.enc = DictEntryEnc::kSlim;
     e.df = df;
-    e.ttf_delta = df * 3;
-    e.max_freq = 7;
     e.frq_bytes = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80};
-    e.inline_dd_disk_len = 5; // <= frq_bytes.size()
     e.dd_meta.uncomp_len = 12;
-    e.freq_meta.uncomp_len = 6;
     e.prx_bytes = {0xAA, 0xBB, 0xCC};
     return e;
 }
@@ -121,15 +109,11 @@ void ExpectEntryEq(const DictEntry& a, const DictEntry& b) {
     EXPECT_EQ(a.enc, b.enc);
     EXPECT_EQ(a.has_sb, b.has_sb);
     EXPECT_EQ(a.df, b.df);
-    EXPECT_EQ(a.ttf_delta, b.ttf_delta);
-    EXPECT_EQ(a.max_freq, b.max_freq);
     EXPECT_EQ(a.frq_off_delta, b.frq_off_delta);
     EXPECT_EQ(a.frq_len, b.frq_len);
     EXPECT_EQ(a.prelude_len, b.prelude_len);
-    EXPECT_EQ(a.frq_docs_len, b.frq_docs_len);
     EXPECT_EQ(a.prx_off_delta, b.prx_off_delta);
     EXPECT_EQ(a.prx_len, b.prx_len);
-    EXPECT_EQ(a.inline_dd_disk_len, b.inline_dd_disk_len);
     EXPECT_EQ(a.frq_bytes, b.frq_bytes);
     EXPECT_EQ(a.prx_bytes, b.prx_bytes);
     EXPECT_EQ(a.dd_meta.zstd, b.dd_meta.zstd);
@@ -137,11 +121,6 @@ void ExpectEntryEq(const DictEntry& a, const DictEntry& b) {
     EXPECT_EQ(a.dd_meta.disk_len, b.dd_meta.disk_len);
     EXPECT_EQ(a.dd_meta.crc, b.dd_meta.crc);
     EXPECT_EQ(a.dd_meta.verify_crc, b.dd_meta.verify_crc);
-    EXPECT_EQ(a.freq_meta.zstd, b.freq_meta.zstd);
-    EXPECT_EQ(a.freq_meta.uncomp_len, b.freq_meta.uncomp_len);
-    EXPECT_EQ(a.freq_meta.disk_len, b.freq_meta.disk_len);
-    EXPECT_EQ(a.freq_meta.crc, b.freq_meta.crc);
-    EXPECT_EQ(a.freq_meta.verify_crc, b.freq_meta.verify_crc);
 }
 
 std::vector<uint8_t> BuildBlock(const std::vector<DictEntry>& entries, IndexTier tier,

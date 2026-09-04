@@ -31,24 +31,18 @@ namespace {
 // Anti-DoS: a segment holds at most ~15M docs (>=1 doc/window), so 1<<24
 // windows is a generous ceiling that still prevents multi-GB allocations from a
 // crafted N. (crc32c is not a MAC and cannot defend a re-stamped inflated count.)
-constexpr uint64_t kMaxWindows = 1ull << 24;
+constexpr uint64_t kMaxWindows = 1ULL << 24;
 
 uint64_t ceil_div(uint64_t a, uint64_t b) {
     return (a + b - 1) / b;
 }
 
 uint8_t make_flags(const FrqPreludeColumns& cols) {
-    uint8_t flags = 0;
-    if (cols.has_freq) flags |= frq_prelude_flags::kHasFreq;
-    if (cols.has_prx) flags |= frq_prelude_flags::kHasPrx;
-    return flags;
+    return cols.has_prx ? frq_prelude_flags::kHasPrx : 0;
 }
 
-uint8_t make_win_mode(const WindowMeta& m, bool has_freq) {
-    uint8_t mode = 0;
-    if (m.dd_zstd) mode |= frq_win_mode::kDdZstd;
-    if (has_freq && m.freq_zstd) mode |= frq_win_mode::kFreqZstd;
-    return mode;
+uint8_t make_win_mode(const WindowMeta& m) {
+    return m.dd_zstd ? frq_win_mode::kDdZstd : 0;
 }
 
 Status checked_add_u64(uint64_t lhs, uint64_t rhs, const char* message, uint64_t* out) {
@@ -89,8 +83,9 @@ Status validate_window_doc_count(bool first_window, uint64_t win_base, uint64_t 
 // Validates builder input: non-null sink, group_size>=1, sane count, and
 // non-decreasing absolute last_docid across windows.
 Status validate_input(const FrqPreludeColumns& cols, ByteSink* out) {
-    if (out == nullptr)
+    if (out == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("frq_prelude: null sink");
+    }
     if (cols.group_size == 0) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "frq_prelude: group_size must be >= 1");
@@ -111,15 +106,14 @@ Status validate_input(const FrqPreludeColumns& cols, ByteSink* out) {
 // Encodes one window row into a per-block sink. last_docid_delta is the row's
 // absolute last_docid minus prev_last (the previous window's absolute last).
 //
-// dd_off/freq_off/prx_off are NOT serialized: each was a pure running prefix sum
+// dd_off/prx_off are NOT serialized: each was a pure running prefix sum
 // of the per-window disk/prx lengths, which the reader reconstructs (see
-// decode_window_row / RunningOffsets). dd_uncomp_len/freq_uncomp_len are written
+// decode_window_row / RunningOffsets). dd_uncomp_len is written
 // ONLY when the region's zstd win_mode bit is set; a raw region's uncomp_len is
 // defined to equal its disk_len (open_region enforces uncomp_len == disk_len on
 // raw region bytes), so the reader derives it without a stored field.
-void encode_window_row(const WindowMeta& m, bool has_freq, bool has_prx, uint64_t prev_last,
-                       ByteSink* block) {
-    const uint8_t win_mode = make_win_mode(m, has_freq);
+void encode_window_row(const WindowMeta& m, bool has_prx, uint64_t prev_last, ByteSink* block) {
+    const uint8_t win_mode = make_win_mode(m);
     block->put_varint64(static_cast<uint64_t>(m.last_docid) - prev_last);
     block->put_varint64(m.doc_count);
     block->put_u8(win_mode);
@@ -128,18 +122,9 @@ void encode_window_row(const WindowMeta& m, bool has_freq, bool has_prx, uint64_
         block->put_varint64(m.dd_uncomp_len);
     }
     block->put_fixed32(m.crc_dd);
-    if (has_freq) {
-        block->put_varint64(m.freq_disk_len);
-        if ((win_mode & frq_win_mode::kFreqZstd) != 0) {
-            block->put_varint64(m.freq_uncomp_len);
-        }
-        block->put_fixed32(m.crc_freq);
-    }
     if (has_prx) {
         block->put_varint64(m.prx_len);
     }
-    block->put_varint64(m.max_freq);
-    block->put_u8(m.max_norm);
 }
 
 // One super-block's serialized window block plus its directory fields.
@@ -160,7 +145,7 @@ std::vector<SuperBlock> encode_super_blocks(const FrqPreludeColumns& cols) {
         const size_t end = std::min(n, start + g);
         SuperBlock sb;
         for (size_t w = start; w < end; ++w) {
-            encode_window_row(cols.windows[w], cols.has_freq, cols.has_prx, prev_last, &sb.block);
+            encode_window_row(cols.windows[w], cols.has_prx, prev_last, &sb.block);
             prev_last = cols.windows[w].last_docid;
         }
         sb.last_docid = prev_last;
@@ -203,7 +188,9 @@ Status build_frq_prelude(const FrqPreludeColumns& cols, ByteSink* out) {
 
     out->put_bytes(covered.view());
     out->put_fixed32(crc32c(covered.view()));
-    for (const SuperBlock& sb : blocks) out->put_bytes(sb.block.view());
+    for (const SuperBlock& sb : blocks) {
+        out->put_bytes(sb.block.view());
+    }
     return Status::OK();
 }
 
@@ -211,7 +198,6 @@ namespace {
 
 // Decoded header fields shared between parse phases.
 struct Header {
-    bool has_freq = false;
     bool has_prx = false;
     uint64_t n = 0;
     uint64_t group_size = 0;
@@ -241,8 +227,11 @@ Status verify_covered_crc(Slice prelude, size_t header_end, uint64_t sbdir_len) 
 Status parse_header(ByteSource* src, Header* h) {
     uint8_t flags = 0;
     RETURN_IF_ERROR(src->get_u8(&flags));
-    h->has_freq = (flags & frq_prelude_flags::kHasFreq) != 0;
     h->has_prx = (flags & frq_prelude_flags::kHasPrx) != 0;
+    if ((flags & ~frq_prelude_flags::kHasPrx) != 0) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: unknown flags");
+    }
     RETURN_IF_ERROR(src->get_varint64(&h->n));
     RETURN_IF_ERROR(src->get_varint64(&h->group_size));
     RETURN_IF_ERROR(src->get_varint64(&h->n_super));
@@ -306,42 +295,37 @@ Status decode_super_block_dir(Slice dir, const Header& h, std::vector<SbDirRow>*
 }
 
 // Validates a per-window codec mode byte against the known bits.
-Status check_win_mode(uint8_t mode, bool has_freq) {
+Status check_win_mode(uint8_t mode) {
     if ((mode & ~frq_win_mode::kKnownBits) != 0) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "frq_prelude: unknown win_mode bits");
-    }
-    if (!has_freq && (mode & frq_win_mode::kFreqZstd) != 0) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "frq_prelude: freq mode set without has_freq");
     }
     return Status::OK();
 }
 
 // Running per-block byte offsets, chained across windows AND across super-blocks
-// with the same lifetime as prev_last: dd/freq are prefix sums of the per-window
+// with the same lifetime as prev_last: dd is the prefix sum of the per-window
 // on-disk region lengths, prx the prefix sum of prx lengths. They replace the
 // three offset columns the row used to serialize (each was exactly this sum), so
-// the reader reproduces dd_off/freq_off/prx_off bit-identically to the old
+// the reader reproduces dd_off/prx_off bit-identically to the old
 // explicit fields.
 struct RunningOffsets {
     uint64_t dd = 0;
-    uint64_t freq = 0;
     uint64_t prx = 0;
 };
 
 // Decodes one window row, advancing prev_last to this window's absolute last and
-// the running offsets past this window's dd/freq/prx regions.
-Status decode_window_row(ByteSource* src, bool has_freq, bool has_prx, bool first_window,
-                         uint64_t* prev_last, RunningOffsets* run, WindowMeta* m) {
+// the running offsets past this window's dd/prx regions.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- Keep invariant-sensitive state transitions together.
+Status decode_window_row(ByteSource* src, bool has_prx, bool first_window, uint64_t* prev_last,
+                         RunningOffsets* run, WindowMeta* m) {
     uint64_t ldd = 0, doc_count = 0;
     RETURN_IF_ERROR(src->get_varint64(&ldd));
     RETURN_IF_ERROR(src->get_varint64(&doc_count));
     uint8_t mode = 0;
     RETURN_IF_ERROR(src->get_u8(&mode));
-    RETURN_IF_ERROR(check_win_mode(mode, has_freq));
+    RETURN_IF_ERROR(check_win_mode(mode));
     m->dd_zstd = (mode & frq_win_mode::kDdZstd) != 0;
-    m->freq_zstd = has_freq && (mode & frq_win_mode::kFreqZstd) != 0;
 
     // dd region: read disk_len, derive dd_off from the running dd-block offset,
     // then advance it (overflow-guarded). uncomp_len is stored only for a zstd
@@ -356,27 +340,12 @@ Status decode_window_row(ByteSource* src, bool has_freq, bool has_prx, bool firs
         m->dd_uncomp_len = m->dd_disk_len;
     }
     RETURN_IF_ERROR(src->get_fixed32(&m->crc_dd));
-    if (has_freq) {
-        RETURN_IF_ERROR(src->get_varint64(&m->freq_disk_len));
-        m->freq_off = run->freq;
-        RETURN_IF_ERROR(checked_add_u64(run->freq, m->freq_disk_len,
-                                        "frq_prelude: freq-block offset overflow", &run->freq));
-        if (m->freq_zstd) {
-            RETURN_IF_ERROR(src->get_varint64(&m->freq_uncomp_len));
-        } else {
-            m->freq_uncomp_len = m->freq_disk_len;
-        }
-        RETURN_IF_ERROR(src->get_fixed32(&m->crc_freq));
-    }
     if (has_prx) {
         RETURN_IF_ERROR(src->get_varint64(&m->prx_len));
         m->prx_off = run->prx;
         RETURN_IF_ERROR(checked_add_u64(run->prx, m->prx_len, "frq_prelude: prx offset overflow",
                                         &run->prx));
     }
-    uint64_t max_freq = 0;
-    RETURN_IF_ERROR(src->get_varint64(&max_freq));
-    RETURN_IF_ERROR(src->get_u8(&m->max_norm));
     uint64_t last_docid = 0;
     RETURN_IF_ERROR(checked_add_u64(*prev_last, ldd, "frq_prelude: window last_docid overflow",
                                     &last_docid));
@@ -386,8 +355,6 @@ Status decode_window_row(ByteSource* src, bool has_freq, bool has_prx, bool firs
             checked_u32(last_docid, "frq_prelude: window last_docid exceeds u32", &m->last_docid));
     RETURN_IF_ERROR(
             checked_u32(doc_count, "frq_prelude: window doc_count exceeds u32", &m->doc_count));
-    RETURN_IF_ERROR(
-            checked_u32(max_freq, "frq_prelude: window max_freq exceeds u32", &m->max_freq));
     *prev_last = last_docid;
     return Status::OK();
 }
@@ -400,8 +367,7 @@ Status decode_one_block(Slice block, const Header& h, uint64_t sb_last_docid, si
     ByteSource src(block);
     for (size_t i = 0; i < row_count; ++i) {
         WindowMeta m;
-        RETURN_IF_ERROR(decode_window_row(&src, h.has_freq, h.has_prx, windows->empty(), prev_last,
-                                          run, &m));
+        RETURN_IF_ERROR(decode_window_row(&src, h.has_prx, windows->empty(), prev_last, run, &m));
         windows->push_back(m);
     }
     if (!src.eof()) {
@@ -421,18 +387,17 @@ Status decode_all_blocks(Slice window_region, const Header& h, const std::vector
     windows->clear();
     windows->reserve(static_cast<size_t>(h.n));
     uint64_t prev_last = 0;
-    // dd/freq/prx running offsets chain across ALL super-blocks (not reset per
-    // block), the same lifetime as prev_last, so the derived per-window offsets are
-    // continuous over the whole dd-block / freq-block / prx span.
+    // DD/PRX running offsets chain across all super-blocks (not reset per
+    // block), so derived per-window offsets are continuous over the complete
+    // DD/PRX spans.
     RunningOffsets run;
-    for (size_t s = 0; s < dir.size(); ++s) {
-        const SbDirRow& r = dir[s];
+    for (const auto& r : dir) {
         if (r.block_off + r.block_len > window_region.size() ||
             r.block_off + r.block_len < r.block_off) {
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                     "frq_prelude: window block out of region");
         }
-        const uint64_t already = static_cast<uint64_t>(windows->size());
+        const auto already = static_cast<uint64_t>(windows->size());
         const uint64_t rows = std::min<uint64_t>(h.group_size, h.n - already);
         Slice block = window_region.subslice(static_cast<size_t>(r.block_off),
                                              static_cast<size_t>(r.block_len));
@@ -446,18 +411,16 @@ Status decode_all_blocks(Slice window_region, const Header& h, const std::vector
     return Status::OK();
 }
 
-// Sums the per-window dd/freq on-disk lengths into the dd-block / freq-block
-// lengths, guarding each running sum against u64 overflow. The dd_off/freq_off
+// Sums the per-window dd on-disk lengths into the dd-block length, guarding the
+// running sum against u64 overflow. The dd_off
 // contiguity cross-checks the old prelude ran here are now tautological -- the
-// reader DERIVES dd_off/freq_off as these very prefix sums (decode_window_row),
+// reader DERIVES dd_off as this prefix sum (decode_window_row),
 // so `m.dd_off == running-sum` holds by construction and is dropped. The
 // length-overflow guards and the returned block lengths are retained: they still
-// bound the dd-block/freq-block range the callers' in_bounds checks fetch against,
+// bounds the dd-block range the callers' in_bounds checks fetch against,
 // and mirror the same checked_add_u64 the offset derivation uses.
-Status validate_region_layout(const Header& h, const std::vector<WindowMeta>& windows,
-                              uint64_t* dd_block_len, uint64_t* freq_block_len) {
+Status validate_region_layout(const std::vector<WindowMeta>& windows, uint64_t* dd_block_len) {
     uint64_t dd_expect = 0;
-    uint64_t freq_expect = 0;
     for (const WindowMeta& m : windows) {
         // Raw regions carry uncomp_len == disk_len (derived, not stored); this
         // guard stays as defensive documentation of that invariant.
@@ -470,16 +433,8 @@ Status validate_region_layout(const Header& h, const std::vector<WindowMeta>& wi
                     "frq_prelude: dd block length overflow");
         }
         dd_expect += m.dd_disk_len;
-        if (h.has_freq) {
-            if (freq_expect + m.freq_disk_len < freq_expect) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                        "frq_prelude: freq block length overflow");
-            }
-            freq_expect += m.freq_disk_len;
-        }
     }
     *dd_block_len = dd_expect;
-    *freq_block_len = freq_expect;
     return Status::OK();
 }
 
@@ -519,13 +474,14 @@ Status FrqPreludeReader::open(Slice prelude, FrqPreludeReader* out) {
     }
     Slice window_region = prelude.subslice(region_start, static_cast<size_t>(window_region_len));
 
-    out->has_freq_ = h.has_freq;
     out->has_prx_ = h.has_prx;
     out->group_size_ = static_cast<uint32_t>(h.group_size);
     out->n_super_ = static_cast<uint32_t>(h.n_super);
     out->sb_last_docid_.clear();
     out->sb_last_docid_.reserve(rows.size());
-    for (const SbDirRow& r : rows) out->sb_last_docid_.push_back(r.last_docid);
+    for (const SbDirRow& r : rows) {
+        out->sb_last_docid_.push_back(r.last_docid);
+    }
     RETURN_IF_ERROR(decode_all_blocks(window_region, h, rows, &out->windows_));
     // Packed last_docid catalogue for the covering-window cursor (in-memory only;
     // byte-identical to each windows_[w].last_docid, never serialized).
@@ -534,12 +490,13 @@ Status FrqPreludeReader::open(Slice prelude, FrqPreludeReader* out) {
     for (const WindowMeta& m : out->windows_) {
         out->win_last_docid_.push_back(m.last_docid);
     }
-    return validate_region_layout(h, out->windows_, &out->dd_block_len_, &out->freq_block_len_);
+    return validate_region_layout(out->windows_, &out->dd_block_len_);
 }
 
 Status FrqPreludeReader::window(uint32_t w, WindowMeta* out) const {
-    if (out == nullptr)
+    if (out == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("frq_prelude: null window out");
+    }
     if (w >= windows_.size()) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "frq_prelude: window index out of range");
@@ -553,8 +510,12 @@ Status FrqPreludeReader::locate_window(uint32_t docid, bool* found, uint32_t* w)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("frq_prelude: null locate out");
     }
     *found = false;
-    if (windows_.empty()) return Status::OK();
-    if (docid > windows_.back().last_docid) return Status::OK();
+    if (windows_.empty()) {
+        return Status::OK();
+    }
+    if (docid > windows_.back().last_docid) {
+        return Status::OK();
+    }
 
     // Level 1: first super-block whose absolute last docid >= docid.
     const auto sb_it = std::lower_bound(sb_last_docid_.begin(), sb_last_docid_.end(),

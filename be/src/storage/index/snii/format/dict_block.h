@@ -66,10 +66,6 @@ inline constexpr uint8_t kDictBlockFormatVer = 2;
 // block_flags bit definitions.
 namespace dict_block_flags {
 inline constexpr uint8_t kHasPositions = 1U << 0; // whether to write prx_base / .prx fields
-// G16-f: entries omit the ttf_delta/max_freq varints (freq-dropped index --
-// the stats serve only BM25 scoring). Self-describing per block; absent on
-// pre-G16-f blocks, whose entries always carry the stats on tier>=T2.
-inline constexpr uint8_t kNoTermStats = 1U << 1;
 // bit1-7 reserved
 } // namespace dict_block_flags
 
@@ -81,7 +77,7 @@ inline constexpr uint8_t kNoTermStats = 1U << 1;
 class DictBlockBuilder {
 public:
     DictBlockBuilder(IndexTier tier, bool has_positions, uint64_t frq_base, uint64_t prx_base,
-                     uint32_t anchor_interval = 16, bool term_stats = true);
+                     uint32_t anchor_interval = 16);
 
     // Append one entry (caller must guarantee lexicographic term order).
     // Internally decides whether it becomes an anchor. The copy overload is kept
@@ -113,7 +109,6 @@ private:
 
     IndexTier tier_;
     bool has_positions_;
-    bool term_stats_ = true; // false: entries omit ttf/max_freq (kNoTermStats)
     uint64_t frq_base_;
     uint64_t prx_base_;
     uint32_t anchor_interval_;
@@ -203,7 +198,6 @@ private:
     Slice block_; // [header .. crc) full block view
     IndexTier tier_ = IndexTier::kT1;
     bool has_positions_ = false;
-    bool term_stats_ = true; // from block flags (kNoTermStats absent => true)
     uint64_t frq_base_ = 0;
     uint64_t prx_base_ = 0;
     uint32_t n_entries_ = 0;

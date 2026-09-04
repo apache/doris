@@ -36,7 +36,6 @@ DictEntry MakeInlineEntry(std::string term, uint8_t value, size_t payload_size =
     entry.enc = DictEntryEnc::kSlim;
     entry.df = 32;
     entry.frq_bytes.assign(payload_size, value);
-    entry.inline_dd_disk_len = entry.frq_bytes.size();
     entry.dd_meta.uncomp_len = entry.frq_bytes.size();
     entry.dd_meta.disk_len = entry.frq_bytes.size();
     entry.dd_meta.verify_crc = false;

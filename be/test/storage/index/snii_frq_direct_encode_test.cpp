@@ -57,16 +57,6 @@ ByteSink legacy_raw_dd(const std::vector<uint32_t>& docs, uint64_t win_base) {
     return out;
 }
 
-ByteSink legacy_raw_freq(const std::vector<uint32_t>& freqs) {
-    ByteSink out;
-    for (size_t begin = 0; begin < freqs.size(); begin += format::kFrqBaseUnit) {
-        const size_t count =
-                std::min(freqs.size() - begin, static_cast<size_t>(format::kFrqBaseUnit));
-        pfor_encode(freqs.data() + begin, count, &out);
-    }
-    return out;
-}
-
 std::vector<uint32_t> make_docs(size_t count, uint32_t win_base, uint32_t salt) {
     std::vector<uint32_t> docs;
     docs.reserve(count);
@@ -87,14 +77,6 @@ std::vector<uint32_t> make_doc_deltas(const std::vector<uint32_t>& docs, uint64_
         previous = doc;
     }
     return deltas;
-}
-
-std::vector<uint32_t> make_freqs(size_t count, uint32_t salt) {
-    std::vector<uint32_t> freqs(count);
-    for (size_t i = 0; i < count; ++i) {
-        freqs[i] = 1 + static_cast<uint32_t>((i * 5 + salt) % 11);
-    }
-    return freqs;
 }
 
 void expect_raw_meta(const format::FrqRegionMeta& meta, Slice expected) {
@@ -214,45 +196,6 @@ TEST(SniiFrqDirectEncodeTest, RawDdDeltasMatchAbsoluteAcrossBoundariesAndWindows
     }
 }
 
-TEST(SniiFrqDirectEncodeTest, RawFreqMatchesReferenceAcrossBoundariesAndConsecutiveAppends) {
-    for (size_t count : kBoundaryCounts) {
-        SCOPED_TRACE(count);
-        const std::vector<uint32_t> first_freqs = make_freqs(count, 2);
-        const std::vector<uint32_t> second_freqs = make_freqs(count, 7);
-        const ByteSink first_reference = legacy_raw_freq(first_freqs);
-        const ByteSink second_reference = legacy_raw_freq(second_freqs);
-
-        ByteSink actual;
-        actual.put_fixed32(0x87654321);
-        const size_t first_offset = actual.size();
-        format::FrqRegionMeta first_meta;
-        ASSERT_TRUE(format::build_freq_region(first_freqs, 0, &actual, &first_meta).ok());
-        const size_t second_offset = actual.size();
-        format::FrqRegionMeta second_meta;
-        ASSERT_TRUE(format::build_freq_region(second_freqs, 0, &actual, &second_meta).ok());
-
-        ByteSink expected;
-        expected.put_fixed32(0x87654321);
-        expected.put_bytes(first_reference.view());
-        expected.put_bytes(second_reference.view());
-        EXPECT_EQ(actual.buffer(), expected.buffer());
-        expect_raw_meta(first_meta, first_reference.view());
-        expect_raw_meta(second_meta, second_reference.view());
-
-        std::vector<uint32_t> decoded;
-        ASSERT_TRUE(format::decode_freq_region(
-                            appended_region(actual, first_offset, first_meta.disk_len), first_meta,
-                            first_freqs.size(), &decoded)
-                            .ok());
-        EXPECT_EQ(decoded, first_freqs);
-        ASSERT_TRUE(format::decode_freq_region(
-                            appended_region(actual, second_offset, second_meta.disk_len),
-                            second_meta, second_freqs.size(), &decoded)
-                            .ok());
-        EXPECT_EQ(decoded, second_freqs);
-    }
-}
-
 TEST(SniiFrqDirectEncodeTest, DescendingDocInLaterRunLeavesOutputsUnchanged) {
     std::vector<uint32_t> docs(300);
     std::iota(docs.begin(), docs.end(), 100);
@@ -280,18 +223,15 @@ TEST(SniiFrqDirectEncodeTest, DescendingDocInLaterRunLeavesOutputsUnchanged) {
     EXPECT_EQ(meta.verify_crc, original_meta.verify_crc);
 }
 
-TEST(SniiFrqDirectEncodeTest, WindowedRegionsRoundTripWithAndWithoutFreq) {
-    for (bool write_freq : {false, true}) {
-        SCOPED_TRACE(write_freq);
+TEST(SniiFrqDirectEncodeTest, WindowedRegionsRoundTrip) {
+    {
         std::vector<uint32_t> expected_docs;
-        std::vector<uint32_t> expected_freqs;
         writer::TermPostings term;
         term.term = "windowed";
         for (uint32_t ordinal = 0; ordinal < format::kSlimDfThreshold; ++ordinal) {
             const uint32_t doc = ordinal * 2 + 1;
             const uint32_t freq = ordinal % 3 + 1;
             expected_docs.push_back(doc);
-            expected_freqs.push_back(freq);
             term.docids.push_back(doc);
             term.freqs.push_back(freq);
             for (uint32_t position = 0; position < freq; ++position) {
@@ -303,7 +243,6 @@ TEST(SniiFrqDirectEncodeTest, WindowedRegionsRoundTripWithAndWithoutFreq) {
         input.index_suffix = "body";
         input.config = format::IndexConfig::kDocsPositions;
         input.doc_count = format::kSlimDfThreshold * 2;
-        input.write_freq = write_freq;
         input.terms.push_back(std::move(term));
 
         testing::reset_frq_raw_encode_work();
@@ -335,10 +274,8 @@ TEST(SniiFrqDirectEncodeTest, WindowedRegionsRoundTripWithAndWithoutFreq) {
                         Slice(frq_bytes.data(), static_cast<size_t>(entry.prelude_len)), &prelude)
                         .ok());
         ASSERT_EQ(prelude.n_windows(), 2);
-        EXPECT_EQ(prelude.has_freq(), write_freq);
         EXPECT_TRUE(prelude.has_prx());
-        EXPECT_EQ(entry.frq_len,
-                  entry.prelude_len + prelude.dd_block_len() + prelude.freq_block_len());
+        EXPECT_EQ(entry.frq_len, entry.prelude_len + prelude.dd_block_len());
 
         size_t doc_begin = 0;
         for (uint32_t window = 0; window < prelude.n_windows(); ++window) {
@@ -361,34 +298,6 @@ TEST(SniiFrqDirectEncodeTest, WindowedRegionsRoundTripWithAndWithoutFreq) {
                     expected_docs.begin() + doc_begin + window_meta.doc_count);
             EXPECT_EQ(decoded_docs, window_docs);
 
-            if (write_freq) {
-                format::FrqRegionMeta freq_meta;
-                freq_meta.zstd = window_meta.freq_zstd;
-                freq_meta.uncomp_len = window_meta.freq_uncomp_len;
-                freq_meta.disk_len = window_meta.freq_disk_len;
-                freq_meta.crc = window_meta.crc_freq;
-                const size_t freq_offset = static_cast<size_t>(
-                        entry.prelude_len + prelude.dd_block_len() + window_meta.freq_off);
-                std::vector<uint32_t> decoded_freqs;
-                ASSERT_TRUE(format::decode_freq_region(
-                                    Slice(frq_bytes.data() + freq_offset,
-                                          static_cast<size_t>(window_meta.freq_disk_len)),
-                                    freq_meta, window_meta.doc_count, &decoded_freqs)
-                                    .ok());
-                const std::vector<uint32_t> window_freqs(
-                        expected_freqs.begin() + doc_begin,
-                        expected_freqs.begin() + doc_begin + window_meta.doc_count);
-                EXPECT_EQ(decoded_freqs, window_freqs);
-                if (window == 1) {
-                    std::vector<uint8_t> corrupted(
-                            frq_bytes.begin() + freq_offset,
-                            frq_bytes.begin() + freq_offset + window_meta.freq_disk_len);
-                    corrupted.front() ^= 1;
-                    EXPECT_FALSE(format::decode_freq_region(Slice(corrupted), freq_meta,
-                                                            window_meta.doc_count, &decoded_freqs)
-                                         .ok());
-                }
-            }
             if (window == 1) {
                 std::vector<uint8_t> corrupted(
                         frq_bytes.begin() + dd_offset,

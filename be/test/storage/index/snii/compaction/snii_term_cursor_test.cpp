@@ -24,8 +24,8 @@
 //     the scan with a distinct error, while user terms merely starting with a
 //     raw 0x1F byte pass through (marker classification, not prefix-byte);
 //   - all three posting encodings (inline / slim pod_ref / windowed pod_ref)
-//     and the kNoTermStats flag are passed through UNINTERPRETED -- the cursor
-//     yields exactly the DictEntry lookup() yields;
+//     are passed through UNINTERPRETED -- the cursor yields exactly the
+//     DictEntry lookup() yields;
 //   - read-ahead honors chunk boundaries, clamps to the region end, and falls
 //     back to exact reads for oversized/backward windows without disturbing
 //     the buffered forward stream;
@@ -80,14 +80,13 @@ struct SourceFixture {
 };
 
 Status build_source(std::vector<writer::TermPostings> terms, uint32_t doc_count, SourceFixture* fx,
-                    bool write_freq = true, uint32_t target_dict_block_bytes = 256,
+                    uint32_t target_dict_block_bytes = 256,
                     reader::LogicalIndexOpenMode open_mode = reader::LogicalIndexOpenMode::kQuery) {
     writer::SniiIndexInput in;
     in.index_id = 7;
     in.index_suffix = "body";
     in.config = format::IndexConfig::kDocsPositions;
     in.doc_count = doc_count;
-    in.write_freq = write_freq;
     // Small blocks force a multi-block dictionary so the scan crosses block
     // boundaries (and the frq/prx bases change between blocks).
     in.target_dict_block_bytes = target_dict_block_bytes;
@@ -111,46 +110,42 @@ void expect_entry_eq(const format::DictEntry& got, const format::DictEntry& want
     EXPECT_EQ(got.enc, want.enc);
     EXPECT_EQ(got.has_sb, want.has_sb);
     EXPECT_EQ(got.df, want.df);
-    EXPECT_EQ(got.ttf_delta, want.ttf_delta);
-    EXPECT_EQ(got.term_stats_present, want.term_stats_present);
-    EXPECT_EQ(got.max_freq, want.max_freq);
     EXPECT_EQ(got.frq_off_delta, want.frq_off_delta);
     EXPECT_EQ(got.frq_len, want.frq_len);
     EXPECT_EQ(got.prelude_len, want.prelude_len);
-    EXPECT_EQ(got.frq_docs_len, want.frq_docs_len);
     EXPECT_EQ(got.prx_off_delta, want.prx_off_delta);
     EXPECT_EQ(got.prx_len, want.prx_len);
-    EXPECT_EQ(got.inline_dd_disk_len, want.inline_dd_disk_len);
     EXPECT_EQ(got.dd_meta.zstd, want.dd_meta.zstd);
     EXPECT_EQ(got.dd_meta.uncomp_len, want.dd_meta.uncomp_len);
     EXPECT_EQ(got.dd_meta.disk_len, want.dd_meta.disk_len);
     EXPECT_EQ(got.dd_meta.crc, want.dd_meta.crc);
-    EXPECT_EQ(got.freq_meta.zstd, want.freq_meta.zstd);
-    EXPECT_EQ(got.freq_meta.uncomp_len, want.freq_meta.uncomp_len);
-    EXPECT_EQ(got.freq_meta.disk_len, want.freq_meta.disk_len);
-    EXPECT_EQ(got.freq_meta.crc, want.freq_meta.crc);
     EXPECT_EQ(got.frq_bytes, want.frq_bytes);
     EXPECT_EQ(got.prx_bytes, want.prx_bytes);
 }
 
 // Corpus spanning all three posting encodings:
 //   "aa_tiny"     df=1   -> inline (encoded bytes <= inline threshold)
-//   "mid_slim"    df=500 -> slim pod_ref (df < 512 but bytes > threshold)
+//   "mid_slim"    df=500 -> slim pod_ref (df < 512 but the irregularly spaced
+//                 docids make the dd region exceed the inline threshold)
 //   "zz_wide"     df=600 -> windowed pod_ref (df >= kSlimDfThreshold)
 // plus filler vocabulary so target_dict_block_bytes=256 yields several blocks.
 std::vector<writer::TermPostings> three_encoding_terms(uint32_t* doc_count) {
-    *doc_count = 600;
+    *doc_count = 20000;
     std::vector<writer::TermPostings> terms;
     terms.push_back(make_term("aa_tiny", {{.docid = 5, .positions = {1}}}));
     std::vector<PostingDoc> mid;
     mid.reserve(500);
-    for (uint32_t d = 0; d < 500; ++d) {
+    uint32_t d = 0;
+    for (uint32_t i = 0; i < 500; ++i) {
+        if (i != 0) {
+            d += 1 + (i * 73 + i * i * 19) % 62;
+        }
         uint32_t mixed = d * 2654435761U;
         mixed ^= mixed >> 16;
         const uint32_t frequency = mixed % 97 + 1;
         std::vector<uint32_t> positions(frequency);
-        for (uint32_t i = 0; i < frequency; ++i) {
-            positions[i] = i * 3;
+        for (uint32_t k = 0; k < frequency; ++k) {
+            positions[k] = k * 3;
         }
         mid.push_back({.docid = d, .positions = std::move(positions)});
     }
@@ -261,7 +256,7 @@ TEST(SniiTermCursorTest, CompactionOpenSkipsResidentQuerySections) {
 TEST(SniiTermCursorTest, DictScanMemoryIsReservedAndLimitErrorIsPreserved) {
     SourceFixture source;
     assert_ok(build_source({make_term("alpha", {{.docid = 0, .positions = {0}}})},
-                           /*doc_count=*/1, &source, /*write_freq=*/true,
+                           /*doc_count=*/1, &source, 
                            /*target_dict_block_bytes=*/256,
                            reader::LogicalIndexOpenMode::kCompaction));
 
@@ -342,39 +337,6 @@ TEST(SniiTermCursorTest, LeadingUnitSeparatorUserTermsPass) {
     std::vector<std::string> got;
     drain_and_check(&fx, &got);
     EXPECT_EQ(got, (std::vector<std::string> {partial_marker, unit_sep_user, "alpha"}));
-}
-
-TEST(SniiTermCursorTest, NoTermStatsFlagPassthrough) {
-    // A freq-dropped index (write_freq=false on a positions config) writes
-    // kNoTermStats DICT blocks; the cursor must surface term_stats_present ==
-    // false so the downstream pump recomputes ttf/max_freq from the actual
-    // freq stream instead of trusting meaningless defaults (invariant 2).
-    auto build_terms = [] {
-        std::vector<writer::TermPostings> terms;
-        terms.push_back(make_term("alpha", docs_with_one_position(0, 20, 0)));
-        terms.push_back(make_term("bravo", {{.docid = 3, .positions = {1, 4}}}));
-        return terms;
-    };
-
-    SourceFixture dropped;
-    assert_ok(build_source(build_terms(), 32, &dropped, /*write_freq=*/false));
-    SniiSegmentTermCursor cursor(&dropped.index, 0);
-    bool has_term = false;
-    size_t seen = 0;
-    ASSERT_TRUE(cursor.next(&has_term).ok());
-    while (has_term) {
-        EXPECT_FALSE(cursor.entry().term_stats_present) << cursor.term();
-        ++seen;
-        ASSERT_TRUE(cursor.next(&has_term).ok());
-    }
-    EXPECT_EQ(seen, 2U);
-
-    SourceFixture kept;
-    assert_ok(build_source(build_terms(), 32, &kept, /*write_freq=*/true));
-    SniiSegmentTermCursor kept_cursor(&kept.index, 0);
-    ASSERT_TRUE(kept_cursor.next(&has_term).ok());
-    ASSERT_TRUE(has_term);
-    EXPECT_TRUE(kept_cursor.entry().term_stats_present);
 }
 
 // ---------------------------------------------------------------------------
@@ -566,7 +528,7 @@ TEST(SniiTermMergeFrontierTest, CachedPrefixesPreserveRandomizedStringOrderingAn
             terms.push_back(make_term(vocabulary[ordinal], {{.docid = 0, .positions = {1}}}));
             expected[vocabulary[ordinal]].push_back(static_cast<uint32_t>(source));
         }
-        assert_ok(build_source(std::move(terms), 1, &fixtures[source], /*write_freq=*/true,
+        assert_ok(build_source(std::move(terms), 1, &fixtures[source], 
                                /*target_dict_block_bytes=*/128));
         cursors.push_back(std::make_unique<SniiSegmentTermCursor>(&fixtures[source].index,
                                                                   static_cast<uint32_t>(source)));

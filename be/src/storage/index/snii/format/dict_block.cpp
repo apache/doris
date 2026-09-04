@@ -33,66 +33,30 @@ constexpr size_t kFooterBytes = sizeof(uint32_t);    // trailing crc32c
 constexpr size_t kNAnchorsBytes = sizeof(uint32_t);  // n_anchors u32
 constexpr size_t kAnchorOffBytes = sizeof(uint32_t); // per-anchor offset u32
 
-size_t estimate_statless_entry_upper_bound(const DictEntry& e, IndexTier tier) {
-    size_t body = 0;
-    body += varint_len(static_cast<uint32_t>(e.term.size()));
-    body += varint_len(static_cast<uint32_t>(e.term.size()));
-    body += e.term.size();
-    body += 1; // flags
-    body += varint_len(e.df);
-
-    const bool tier_has_stats = tier >= IndexTier::kT2;
-    if (e.kind == DictEntryKind::kInline) {
-        body += varint_len(static_cast<uint64_t>(e.frq_bytes.size())) + e.frq_bytes.size();
-        body += varint_len(e.inline_dd_disk_len);
-        body += 1 + varint_len(e.dd_meta.uncomp_len); // win_mode + DD metadata
-        if (tier_has_stats) {
-            body += varint_len(e.freq_meta.uncomp_len);
-            body += varint_len(static_cast<uint64_t>(e.prx_bytes.size())) + e.prx_bytes.size();
-        }
-    } else {
-        body += varint_len(e.frq_off_delta) + varint_len(e.frq_len);
-        if (e.enc == DictEntryEnc::kWindowed) {
-            body += varint_len(e.prelude_len) + varint_len(e.frq_docs_len);
-        } else {
-            body += varint_len(e.frq_docs_len);
-            body += 1 + varint_len(e.dd_meta.uncomp_len) + sizeof(uint32_t);
-            if (tier_has_stats) {
-                body += varint_len(e.freq_meta.uncomp_len) + sizeof(uint32_t);
-            }
-        }
-        if (tier_has_stats) {
-            body += varint_len(e.prx_off_delta) + varint_len(e.prx_len);
-        }
-    }
-    return varint_len(static_cast<uint64_t>(body)) + body;
-}
-
 // Estimate the encoded upper-bound byte size of one entry (no actual encoding; used by
 // estimated_bytes). Take the maximum varint width of each variable-length field plus payload bytes
 // to guarantee an upper bound.
-size_t estimate_entry_bytes(const DictEntry& e, IndexTier tier, bool term_stats) {
+size_t estimate_entry_bytes(const DictEntry& e, IndexTier tier) {
     size_t body = 0;
     body += varint_len(static_cast<uint32_t>(e.term.size())); // prefix_len upper bound
     body += varint_len(static_cast<uint32_t>(e.term.size())); // suffix_len upper bound
     body += e.term.size();                                    // suffix bytes upper bound
     body += 1;                                                // flags
     body += 10;                                               // df upper bound
-    if (term_stats) {
-        body += 10; // ttf_delta
-        body += 10; // max_freq
-    }
     if (e.kind == DictEntryKind::kInline) {
         body += 10 + e.frq_bytes.size();
-        body += 10 + e.prx_bytes.size();
+        body += 1 + 10; // codec mode + dd uncomp_len
+        if (tier >= IndexTier::kT2) {
+            body += 10 + e.prx_bytes.size();
+        }
     } else {
-        body += 10 * 5; // frq_off/frq_len/prelude/prx_off/prx_len upper bound
+        body += 10 * 2; // frq_off/frq_len
+        body += e.enc == DictEntryEnc::kWindowed ? 10 : 1 + 10 + sizeof(uint32_t);
+        if (tier >= IndexTier::kT2) {
+            body += 10 * 2; // prx_off/prx_len
+        }
     }
-    const size_t legacy_estimate = varint_len(static_cast<uint64_t>(body)) + body;
-    if (term_stats) {
-        return legacy_estimate;
-    }
-    return std::max(legacy_estimate, estimate_statless_entry_upper_bound(e, tier));
+    return varint_len(static_cast<uint64_t>(body)) + body;
 }
 
 } // namespace
@@ -100,10 +64,9 @@ size_t estimate_entry_bytes(const DictEntry& e, IndexTier tier, bool term_stats)
 // ---- DictBlockBuilder ----
 
 DictBlockBuilder::DictBlockBuilder(IndexTier tier, bool has_positions, uint64_t frq_base,
-                                   uint64_t prx_base, uint32_t anchor_interval, bool term_stats)
+                                   uint64_t prx_base, uint32_t anchor_interval)
         : tier_(tier),
           has_positions_(has_positions),
-          term_stats_(term_stats),
           frq_base_(frq_base),
           prx_base_(prx_base),
           anchor_interval_(anchor_interval == 0 ? 1 : anchor_interval) {}
@@ -112,7 +75,7 @@ void DictBlockBuilder::add_entry(const DictEntry& entry) {
     if (is_anchor(n_entries_)) {
         ++n_anchors_;
     }
-    entries_est_ += estimate_entry_bytes(entry, tier_, term_stats_);
+    entries_est_ += estimate_entry_bytes(entry, tier_);
     entries_.push_back(entry);
     ++n_entries_;
 }
@@ -125,7 +88,7 @@ void DictBlockBuilder::add_entry(DictEntry&& entry) {
     // sizing a moved-from (empty) entry would undercount entries_est_ and split
     // blocks incorrectly. finish() output is unaffected either way -- it depends
     // only on the entries actually queued, not on how they were appended.
-    entries_est_ += estimate_entry_bytes(entry, tier_, term_stats_);
+    entries_est_ += estimate_entry_bytes(entry, tier_);
     entries_.push_back(std::move(entry));
     ++n_entries_;
 }
@@ -144,8 +107,7 @@ void DictBlockBuilder::encode_covered(ByteSink* sink) const {
     // header.
     sink->put_varint64(static_cast<uint64_t>(n_entries_));
     sink->put_u8(kDictBlockFormatVer);
-    sink->put_u8(static_cast<uint8_t>((has_positions_ ? dict_block_flags::kHasPositions : 0U) |
-                                      (term_stats_ ? 0U : dict_block_flags::kNoTermStats)));
+    sink->put_u8(has_positions_ ? dict_block_flags::kHasPositions : 0U);
     sink->put_varint64(frq_base_);
     if (has_positions_) {
         sink->put_varint64(prx_base_);
@@ -164,8 +126,8 @@ void DictBlockBuilder::encode_covered(ByteSink* sink) const {
         const std::string_view prev_term = anchor ? std::string_view {} : prev;
         // finish() is void and entry encoding into an in-memory ByteSink cannot fail;
         // explicitly discard the (now [[nodiscard]] Status) return.
-        static_cast<void>(encode_dict_entry(entries_[i], prev_term, tier_, sink, term_stats_,
-                                            &entry_body_scratch));
+        static_cast<void>(
+                encode_dict_entry(entries_[i], prev_term, tier_, sink, &entry_body_scratch));
         prev = entries_[i].term;
     }
 
@@ -219,6 +181,10 @@ Status verify_crc(Slice block, Slice* covered) {
 
 // Read and verify that block_flags is consistent with has_positions.
 Status check_flags(uint8_t flags, bool has_positions) {
+    if ((flags & ~dict_block_flags::kHasPositions) != 0) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict_block: unknown block_flags");
+    }
     const bool flag_pos = (flags & dict_block_flags::kHasPositions) != 0;
     if (flag_pos != has_positions) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
@@ -229,6 +195,7 @@ Status check_flags(uint8_t flags, bool has_positions) {
 
 } // namespace
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size) -- Keep invariant-sensitive state transitions together.
 Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
                              DictBlockReader* out) {
     if (out == nullptr) {
@@ -260,7 +227,6 @@ Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
                 "dict_block: unsupported entry_format_ver");
     }
     RETURN_IF_ERROR(check_flags(flags, has_positions));
-    out->term_stats_ = (flags & dict_block_flags::kNoTermStats) == 0;
     RETURN_IF_ERROR(src.get_varint64(&out->frq_base_));
     if (has_positions) {
         RETURN_IF_ERROR(src.get_varint64(&out->prx_base_));
@@ -312,8 +278,7 @@ Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
         // Anchor entries are encoded with prev_term="" and can be decoded independently to retrieve their term.
         ByteSource e_src(covered.subslice(off, anchor_table_begin - off));
         DictEntry probe;
-        RETURN_IF_ERROR(decode_dict_entry(&e_src, std::string_view {}, tier, &probe,
-                                          (flags & dict_block_flags::kNoTermStats) == 0));
+        RETURN_IF_ERROR(decode_dict_entry(&e_src, std::string_view {}, tier, &probe));
         out->anchor_terms_[i] = std::move(probe.term);
     }
     return Status::OK();
@@ -370,8 +335,7 @@ Status DictBlockReader::decode_all(std::vector<DictEntry>* out) const {
         std::string prev; // first entry of a segment is an anchor (prev_term="")
         while (!src.eof()) {
             DictEntry e;
-            RETURN_IF_ERROR(
-                    decode_dict_entry(&src, std::string_view(prev), tier_, &e, term_stats_));
+            RETURN_IF_ERROR(decode_dict_entry(&src, std::string_view(prev), tier_, &e));
             prev = e.term;
             out->push_back(std::move(e));
         }
@@ -410,8 +374,7 @@ Status DictBlockReader::scan_from_anchor(size_t anchor_idx, std::string_view tar
         RETURN_IF_ERROR(
                 decode_dict_entry_key(&src, std::string_view(prev), &e, &body_start, &entry_total));
         if (e.term == target) {
-            RETURN_IF_ERROR(
-                    decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e, term_stats_));
+            RETURN_IF_ERROR(decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e));
             *found = true;
             *out = std::move(e);
             return Status::OK();
@@ -502,8 +465,7 @@ Status DictBlockReader::visit_prefix_range(std::string_view prefix,
             continue;
         }
         // Accepted: materialize the body and hand the entry to the visitor.
-        RETURN_IF_ERROR(
-                decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e, term_stats_));
+        RETURN_IF_ERROR(decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e));
         prev = e.term; // copy the key before the entry is moved into on_hit
         bool stop = false;
         RETURN_IF_ERROR(on_hit(std::move(e), &stop));
@@ -567,8 +529,7 @@ Status DictBlockReader::visit_term_range(std::string_view lower_inclusive,
             prev = std::move(entry.term);
             continue;
         }
-        RETURN_IF_ERROR(
-                decode_dict_entry_rest(&src, tier_, body_start, entry_total, &entry, term_stats_));
+        RETURN_IF_ERROR(decode_dict_entry_rest(&src, tier_, body_start, entry_total, &entry));
         prev = entry.term;
         bool stop = false;
         RETURN_IF_ERROR(on_hit(std::move(entry), &stop));

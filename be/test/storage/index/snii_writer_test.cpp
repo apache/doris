@@ -56,9 +56,6 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/slice.h"
 
-namespace doris::segment_v2 {
-bool snii_effective_write_freq(bool has_norms);
-}
 
 namespace {
 
@@ -140,16 +137,6 @@ doris::Slice malformed_value_after_valid_token() {
     return doris::Slice(input);
 }
 
-TEST(SniiWriterTest, EffectiveWriteFreqResolver) {
-    const bool saved = doris::config::snii_positions_index_write_freq;
-    doris::config::snii_positions_index_write_freq = false;
-    EXPECT_FALSE(doris::segment_v2::snii_effective_write_freq(/*has_norms=*/false));
-    EXPECT_TRUE(doris::segment_v2::snii_effective_write_freq(/*has_norms=*/true));
-    doris::config::snii_positions_index_write_freq = true;
-    EXPECT_TRUE(doris::segment_v2::snii_effective_write_freq(/*has_norms=*/false));
-    doris::config::snii_positions_index_write_freq = saved;
-}
-
 // SampledTermIndexReader::heap_bytes(): all-SSO sample terms have no per-string
 // heap, so the charge is exactly n_blocks * sizeof(std::string) (reserve-exact
 // backing buffer).
@@ -223,15 +210,10 @@ DictEntry make_pod_ref(std::string term) {
     e.kind = DictEntryKind::kPodRef;
     e.enc = DictEntryEnc::kSlim;
     e.df = 3;
-    e.ttf_delta = 6;
-    e.max_freq = 9;
     e.frq_off_delta = 0;
     e.frq_len = 128;
-    e.frq_docs_len = 64; // dd region on-disk length (<= frq_len)
     e.dd_meta.uncomp_len = 70;
     e.dd_meta.crc = 0xABCD1234U;
-    e.freq_meta.uncomp_len = 40;
-    e.freq_meta.crc = 0x55AA00FFU;
     e.prx_off_delta = 0;
     e.prx_len = 64;
     return e;

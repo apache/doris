@@ -75,7 +75,6 @@ SniiIndexInput make_input(uint32_t doc_count, std::vector<uint32_t> null_docids,
     input.doc_count = doc_count;
     input.null_docids = std::move(null_docids);
     input.terms = std::move(terms);
-    input.write_freq = false;
     return input;
 }
 
@@ -84,7 +83,6 @@ SniiIndexInput make_input(uint32_t doc_count, std::vector<uint32_t> null_docids,
 SniiIndexInput make_norms_input(uint32_t doc_count, std::vector<uint32_t> null_docids,
                                 std::vector<uint8_t> norms, std::vector<TermPostings> terms) {
     SniiIndexInput input = make_input(doc_count, std::move(null_docids), std::move(terms));
-    input.write_freq = true;
     input.encoded_norms = std::move(norms);
     return input;
 }
@@ -554,7 +552,6 @@ TEST(SniiIndexCompactionTest, NormsMergeMatchesRebuildAfterDeletesAndRemap) {
         compounds[i] = std::make_unique<SniiCompoundWriter>(&merged_files[i]);
         SniiIndexInput input = make_input(destination_rows[i], {}, {});
         input.config = plan->destination_index_config();
-        input.write_freq = true;
         input.write_norms = true;
         assert_ok(compounds[i]->begin_streamed_index(
                 std::move(input), plan->take_destination_null_docids(i), &sessions[i]));
@@ -631,7 +628,6 @@ TEST(SniiIndexCompactionTest, NormsAreReconstructedFromLegacySourcesWithSaturati
     SniiCompoundWriter compound(&merged_file);
     SniiIndexInput input = make_input(/*doc_count=*/3, {}, {});
     input.config = plan->destination_index_config();
-    input.write_freq = true;
     input.write_norms = true;
     SniiStreamedIndexSession* session = nullptr;
     assert_ok(compound.begin_streamed_index(std::move(input), plan->take_destination_null_docids(0),
@@ -705,7 +701,6 @@ TEST(SniiIndexCompactionTest, NormsMergeReclaimsResidentDictBeforeLargePlainTerm
     SniiCompoundWriter compound(&merged_file);
     SniiIndexInput input = make_input(/*doc_count=*/1, {}, {});
     input.config = plan->destination_index_config();
-    input.write_freq = true;
     input.target_dict_block_bytes = 1;
     input.dict_resident_cap_bytes = kHardCap / 8;
     input.mem_reporter = reporter.get();

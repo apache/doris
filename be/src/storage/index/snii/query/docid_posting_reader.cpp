@@ -53,15 +53,6 @@ Status decode_inline_docs(const DictEntry& entry, std::vector<uint32_t>* docids)
             docids);
 }
 
-Status slim_docs_fetch_len(const DictEntry& entry, uint64_t win_len, uint64_t* out) {
-    if (entry.frq_docs_len > win_len) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "docid_posting_reader: slim frq_docs_len exceeds frq window");
-    }
-    *out = entry.frq_docs_len > 0 ? entry.frq_docs_len : win_len;
-    return Status::OK();
-}
-
 Status posting_reader_add_u64(uint64_t lhs, uint64_t rhs, const char* message, uint64_t* out) {
     if (rhs > std::numeric_limits<uint64_t>::max() - lhs) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
@@ -85,13 +76,9 @@ Status validate_windowed_docs_prefix(const DictEntry& entry) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "docid_posting_reader: windowed entry has no prelude");
     }
-    if (entry.prelude_len > entry.frq_docs_len) {
+    if (entry.prelude_len > entry.frq_len) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "docid_posting_reader: prelude_len exceeds docs prefix");
-    }
-    if (entry.frq_docs_len > entry.frq_len) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "docid_posting_reader: docs prefix exceeds frq_len");
+                "docid_posting_reader: prelude_len exceeds frq_len");
     }
     return Status::OK();
 }
@@ -113,9 +100,7 @@ Status plan_flat_docs(const LogicalIndexReader& idx, const ResolvedDocidPosting&
     uint64_t win_abs = 0;
     uint64_t win_len = 0;
     RETURN_IF_ERROR(idx.resolve_frq_window(posting.entry, posting.frq_base, &win_abs, &win_len));
-    uint64_t docs_len = 0;
-    RETURN_IF_ERROR(slim_docs_fetch_len(posting.entry, win_len, &docs_len));
-    plan->handle = fetcher->add(win_abs, docs_len);
+    plan->handle = fetcher->add(win_abs, win_len);
     return Status::OK();
 }
 
@@ -125,7 +110,8 @@ Status plan_window_prefix(const LogicalIndexReader& idx, WindowPlan* plan,
     RETURN_IF_ERROR(validate_windowed_docs_prefix(posting.entry));
     uint64_t abs = 0;
     RETURN_IF_ERROR(prelude_abs(idx, posting.entry, posting.frq_base, &abs));
-    plan->prefix_handle = fetcher->add(abs, posting.entry.frq_docs_len);
+    // 生产布局：整个 .frq 载荷就是 [prelude][dd-block]，一次 range 读完。
+    plan->prefix_handle = fetcher->add(abs, posting.entry.frq_len);
     return Status::OK();
 }
 
@@ -227,7 +213,6 @@ Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const Win
     }
     const Slice dd_block = prefix.subslice(prelude_len, prefix.size() - prelude_len);
     std::vector<uint32_t> docs;
-    std::vector<uint32_t> freqs;
     std::vector<std::vector<uint32_t>> positions;
     for (uint32_t w = 0; w < prelude.n_windows(); ++w) {
         WindowMeta meta;
@@ -243,11 +228,9 @@ Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const Win
             continue;
         }
         docs.clear();
-        freqs.clear();
         positions.clear();
-        RETURN_IF_ERROR(reader::decode_window_slices(
-                meta, dd_region, Slice(), Slice(), /*want_positions=*/false,
-                /*want_freq=*/false, &docs, &freqs, &positions));
+        RETURN_IF_ERROR(reader::decode_window_slices(meta, dd_region, Slice(),
+                                                     /*want_positions=*/false, &docs, &positions));
         RETURN_IF_ERROR(sink->append_sorted(docs));
     }
     return Status::OK();

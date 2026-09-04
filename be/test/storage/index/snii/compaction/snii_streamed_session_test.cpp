@@ -121,7 +121,6 @@ SniiIndexInput empty_input(uint64_t index_id, std::string suffix, uint32_t doc_c
     input.index_suffix = std::move(suffix);
     input.config = format::IndexConfig::kDocsPositions;
     input.doc_count = doc_count;
-    input.write_freq = false;
     return input;
 }
 
@@ -303,12 +302,11 @@ private:
     size_t fill_count_ = 0;
 };
 
-SniiIndexInput representative_input(bool write_freq = false) {
+SniiIndexInput representative_input() {
     SniiIndexInput input;
     input.index_id = 71;
     input.index_suffix = "body";
     input.config = format::IndexConfig::kDocsPositions;
-    input.write_freq = write_freq;
     input.target_dict_block_bytes = 256;
 
     input.terms.push_back(make_term("aa_inline", {{.docid = 7, .positions = {1}}}));
@@ -404,26 +402,35 @@ TEST(SniiStreamedWriterSessionTest, StreamedContainerPadsIdenticallyToOrdinary) 
         doris::config::enable_file_cache = saved_cache;
     }};
 
-    // Measure the unpadded size first, then pick a block the gate must accept: the container spans
-    // 2*kMinPaddingLeverage blocks, and pad is asserted to be both due and worth paying.
+    // Measure the unpadded size first, then pick a block the gate must accept: the container
+    // spans at least kMinPaddingLeverage blocks (we start the search at 2x that leverage and walk
+    // the block size up), and pad is asserted to be both due and worth paying.
     doris::config::enable_file_cache = false;
     MemoryFile unpadded_file;
-    assert_ok(write_streamed_index(representative_input(true), &unpadded_file));
+    assert_ok(write_streamed_index(representative_input(), &unpadded_file));
     const size_t unpadded = unpadded_file.data().size();
-    const auto block = static_cast<int64_t>(unpadded / (2 * writer::kMinPaddingLeverage));
-    ASSERT_GE(block, 2) << "fixture too small to derive a usable block size";
-    const auto block_size = static_cast<size_t>(block);
-    const size_t pad = (block_size - unpadded % block_size) % block_size;
-    ASSERT_GT(pad, 0U) << "fixture is an exact multiple of block " << block
+    size_t block_size = unpadded / (2 * writer::kMinPaddingLeverage);
+    ASSERT_GE(block_size, 2U) << "fixture too small to derive a usable block size";
+    size_t pad = 0;
+    for (; unpadded / block_size >= writer::kMinPaddingLeverage; ++block_size) {
+        pad = (block_size - unpadded % block_size) % block_size;
+        if (pad > 0 && 2 * pad < block_size) {
+            break;
+        }
+    }
+    ASSERT_GE(unpadded / block_size, writer::kMinPaddingLeverage)
+            << "no block size in the leverage range makes padding both due and worth paying";
+    ASSERT_GT(pad, 0U) << "fixture is an exact multiple of block " << block_size
                        << "; nothing would be padded and this test would pass vacuously";
     ASSERT_LT(2 * pad, block_size) << "the gate would decline this padding as not worth its cost";
+    const auto block = static_cast<int64_t>(block_size);
 
     doris::config::enable_file_cache = true;
     doris::config::file_cache_each_block_size = block;
     MemoryFile ordinary;
     MemoryFile streamed;
-    assert_ok(write_ordinary_index(representative_input(true), &ordinary));
-    assert_ok(write_streamed_index(representative_input(true), &streamed));
+    assert_ok(write_ordinary_index(representative_input(), &ordinary));
+    assert_ok(write_streamed_index(representative_input(), &streamed));
 
     EXPECT_EQ(streamed.data().size(), unpadded + pad);
     EXPECT_EQ(streamed.data().size() % block_size, 0U);
@@ -439,11 +446,11 @@ TEST(SniiStreamedWriterSessionTest, StreamedContainerPadsIdenticallyToOrdinary) 
 }
 
 TEST(SniiStreamedWriterSessionTest, OrdinaryAndStreamedImagesAreByteIdentical) {
-    for (bool write_freq : {false, true}) {
+    {
         MemoryFile ordinary;
         MemoryFile streamed;
-        assert_ok(write_ordinary_index(representative_input(write_freq), &ordinary));
-        assert_ok(write_streamed_index(representative_input(write_freq), &streamed));
+        assert_ok(write_ordinary_index(representative_input(), &ordinary));
+        assert_ok(write_streamed_index(representative_input(), &streamed));
 
         EXPECT_EQ(streamed.data(), ordinary.data());
 
@@ -461,19 +468,16 @@ TEST(SniiStreamedWriterSessionTest, OrdinaryAndStreamedImagesAreByteIdentical) {
         assert_ok(index.lookup("aa_inline", &found, &entry, &frq_base, &prx_base));
         ASSERT_TRUE(found);
         EXPECT_EQ(entry.kind, format::DictEntryKind::kInline);
-        EXPECT_EQ(entry.term_stats_present, write_freq);
 
         assert_ok(index.lookup("bb_slim", &found, &entry, &frq_base, &prx_base));
         ASSERT_TRUE(found);
         EXPECT_EQ(entry.kind, format::DictEntryKind::kPodRef);
         EXPECT_EQ(entry.enc, format::DictEntryEnc::kSlim);
-        EXPECT_EQ(entry.term_stats_present, write_freq);
 
         assert_ok(index.lookup("cc_windowed", &found, &entry, &frq_base, &prx_base));
         ASSERT_TRUE(found);
         EXPECT_EQ(entry.kind, format::DictEntryKind::kPodRef);
         EXPECT_EQ(entry.enc, format::DictEntryEnc::kWindowed);
-        EXPECT_EQ(entry.term_stats_present, write_freq);
     }
 }
 
@@ -581,7 +585,6 @@ TEST(SniiStreamedWriterSessionTest, TightPrxLimitsRecutSlimTermAtDocumentBoundar
     input.index_id = 72;
     input.index_suffix = "tight_prx";
     input.config = format::IndexConfig::kDocsPositions;
-    input.write_freq = true;
     input.doc_count = 3;
     input.prx_window_limits = {
             .max_docs = 8,
@@ -621,7 +624,6 @@ TEST(SniiStreamedWriterSessionTest, TightByteLimitKeepsReadableLegacySlimFrame) 
     input.index_id = 73;
     input.index_suffix = "tight_prx_readable";
     input.config = format::IndexConfig::kDocsPositions;
-    input.write_freq = true;
     input.doc_count = 3;
     input.prx_window_limits = {
             .max_docs = 8,
@@ -779,7 +781,6 @@ TEST(SniiStreamedWriterSessionTest, ByteLimitRecutReusesSourcePositionsAndFinalP
     input.index_id = 74;
     input.index_suffix = "byte_recut";
     input.config = format::IndexConfig::kDocsPositions;
-    input.write_freq = true;
     input.doc_count = kDocs;
     input.prx_window_limits = {
             .max_docs = 1024,
@@ -815,7 +816,7 @@ TEST(SniiStreamedWriterSessionTest, ReleasesResidentDictAfterStreamingItIntoCont
     writer::MemoryReporter reporter;
     MemoryFile file;
     SniiCompoundWriter compound(&file);
-    SniiIndexInput input = representative_input(/*write_freq=*/false);
+    SniiIndexInput input = representative_input();
     std::vector<TermPostings> terms = std::move(input.terms);
     input.terms.clear();
     input.mem_reporter = &reporter;
@@ -1132,7 +1133,6 @@ TEST(SniiStreamedWriterSessionTest, EncodedNormsAreLateBoundExactlyOnceBeforeFin
     SniiStreamedIndexSession* session = nullptr;
     SniiIndexInput input = empty_input(105, "late_norms", /*doc_count=*/2);
     // norms 需要词频（BM25 的 tf 来自位置计数，存储上要求 freq 区存在）。
-    input.write_freq = true;
     input.write_norms = true;
     assert_ok(compound.begin_streamed_index(std::move(input), &session));
     ASSERT_NE(session, nullptr);
@@ -1165,7 +1165,6 @@ TEST(SniiStreamedWriterSessionTest, NormsRequiredFinishRejectsMissingNorms) {
     SniiCompoundWriter compound(&file);
     SniiStreamedIndexSession* session = nullptr;
     SniiIndexInput input = empty_input(106, "missing_norms", /*doc_count=*/1);
-    input.write_freq = true;
     input.write_norms = true;
     assert_ok(compound.begin_streamed_index(std::move(input), &session));
     ASSERT_NE(session, nullptr);
@@ -1296,14 +1295,13 @@ TEST(SniiStreamedWriterSessionTest, DictAppendFailureLeavesContainerUnsealable) 
 TEST(SniiStreamedWriterSessionTest, SourcePushMatchesMaterializedShapeMatrix) {
     uint64_t index_id = 151;
     auto expect_match = [&](std::string suffix, TermPostings postings, format::IndexConfig config,
-                            bool write_freq, format::PrxWindowLimits limits) {
-        SCOPED_TRACE(suffix + (write_freq ? "-freq" : "-no-freq"));
+                            format::PrxWindowLimits limits) {
+        SCOPED_TRACE(suffix);
         SniiIndexInput input;
         input.index_id = index_id++;
         input.index_suffix = std::move(suffix);
         input.config = config;
         input.doc_count = postings.docids.empty() ? 0 : postings.docids.back() + 1;
-        input.write_freq = write_freq;
         input.prx_window_limits = limits;
 
         SniiIndexInput expected_input = input;
@@ -1326,40 +1324,35 @@ TEST(SniiStreamedWriterSessionTest, SourcePushMatchesMaterializedShapeMatrix) {
             .max_positions = 2048,
             .max_uncomp_bytes = 2048,
     };
-    for (bool write_freq : {false, true}) {
-        expect_match("empty-key", make_uniform_term("", 1), format::IndexConfig::kDocsPositions,
-                     write_freq, default_limits);
-        expect_match("inline", make_uniform_term("inline", 1), format::IndexConfig::kDocsPositions,
-                     write_freq, default_limits);
-        expect_match("slim", make_sparse_slim_term("slim"), format::IndexConfig::kDocsPositions,
-                     write_freq, default_limits);
+    {
+        expect_match("empty-key", make_uniform_term("", 1), format::IndexConfig::kDocsPositions, default_limits);
+        expect_match("inline", make_uniform_term("inline", 1), format::IndexConfig::kDocsPositions, default_limits);
+        expect_match("slim", make_sparse_slim_term("slim"), format::IndexConfig::kDocsPositions, default_limits);
         expect_match("df-511", make_uniform_term("df-511", 511),
-                     format::IndexConfig::kDocsPositions, write_freq, default_limits);
+                     format::IndexConfig::kDocsPositions, default_limits);
         expect_match("df-512", make_uniform_term("df-512", 512),
-                     format::IndexConfig::kDocsPositions, write_freq, default_limits);
+                     format::IndexConfig::kDocsPositions, default_limits);
         expect_match("df-8191", make_uniform_term("df-8191", 8191),
-                     format::IndexConfig::kDocsPositions, write_freq, default_limits);
+                     format::IndexConfig::kDocsPositions, default_limits);
         expect_match("df-8192", make_uniform_term("df-8192", 8192),
-                     format::IndexConfig::kDocsPositions, write_freq, default_limits);
+                     format::IndexConfig::kDocsPositions, default_limits);
         expect_match("recut-full", make_adaptive_boundary_term(1024),
-                     format::IndexConfig::kDocsPositions, write_freq, recut_limits);
+                     format::IndexConfig::kDocsPositions, recut_limits);
         expect_match("recut-tail", make_adaptive_boundary_term(512),
-                     format::IndexConfig::kDocsPositions, write_freq, recut_limits);
+                     format::IndexConfig::kDocsPositions, recut_limits);
     }
 
     TermPostings docs_only = make_uniform_term("docs-only", 512);
     docs_only.retain_positions = false;
     docs_only.freqs.clear();
     docs_only.positions_flat.clear();
-    expect_match("docs-only", std::move(docs_only), format::IndexConfig::kDocsOnly,
-                 /*write_freq=*/false, default_limits);
+    expect_match("docs-only", std::move(docs_only), format::IndexConfig::kDocsOnly, default_limits);
 
     TermPostings docs_with_stats = make_uniform_term("docs-with-stats", 512);
     docs_with_stats.retain_positions = false;
     docs_with_stats.freqs.assign(docs_with_stats.docids.size(), 2);
     docs_with_stats.positions_flat.clear();
-    expect_match("docs-with-stats", std::move(docs_with_stats), format::IndexConfig::kDocsOnly,
-                 /*write_freq=*/false, default_limits);
+    expect_match("docs-with-stats", std::move(docs_with_stats), format::IndexConfig::kDocsOnly, default_limits);
 }
 
 TEST(SniiStreamedWriterSessionTest, SourcePushMatchesMaterializedAcrossAdaptiveBoundary) {
