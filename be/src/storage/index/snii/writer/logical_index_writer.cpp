@@ -24,7 +24,6 @@
 #include <span>
 #include <utility>
 
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/varint.h"
@@ -48,10 +47,6 @@ using format::DictEntryEnc;
 using format::DictEntryKind;
 using format::SampledTermIndexBuilder;
 using format::SectionRefs;
-using segment_v2::inverted_index::CG_V1_MARKER;
-using segment_v2::inverted_index::CommonGramsCoverage;
-using segment_v2::inverted_index::ScoringCoverage;
-using segment_v2::inverted_index::validate_common_grams_segment_metadata;
 
 namespace {
 
@@ -113,11 +108,10 @@ bool fits_prx_window_shape(uint64_t doc_count, uint64_t position_count,
 class StreamingTermEncoder {
 public:
     StreamingTermEncoder(LogicalIndexWriter* writer, StreamedTermPostings* postings,
-                         bool declared_common_gram, bool term_has_freq, bool term_has_prx,
-                         TermPostingBuffer* buffer, uint64_t frq_base, uint64_t prx_base)
+                         bool term_has_freq, bool term_has_prx, TermPostingBuffer* buffer,
+                         uint64_t frq_base, uint64_t prx_base)
             : writer_(writer),
               postings_(postings),
-              declared_common_gram_(declared_common_gram),
               term_has_freq_(term_has_freq),
               term_has_prx_(term_has_prx),
               buffer_(buffer),
@@ -133,11 +127,7 @@ public:
                       .has_prx = term_has_prx,
                       .prx_zstd_level = writer->prx_zstd_level_,
                       .prx_window_limits = writer->prx_window_limits_,
-                      .term_frequency_source =
-                              declared_common_gram ? (postings->retain_positions
-                                                              ? TermFrequencySource::kPositions
-                                                              : TermFrequencySource::kDocuments)
-                                                   : TermFrequencySource::kFrequenciesOrDocuments,
+                      .term_frequency_source = TermFrequencySource::kFrequenciesOrDocuments,
                       .memory_reporter = writer->memory_reporter_,
               }) {
         DCHECK(buffer_ != nullptr);
@@ -153,14 +143,12 @@ public:
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "logical_index: streamed term has a null posting source");
         }
-        if (writer_->has_prx_ && !postings_->retain_positions && !declared_common_gram_) {
+        if (writer_->has_prx_ && !postings_->retain_positions) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                    "logical_index: only a declared CommonGrams term may omit positions");
+                    "logical_index: a positional index term must retain positions");
         }
 #ifdef BE_TEST
-        if (!declared_common_gram_) {
-            testing::note_term_freq_scan();
-        }
+        testing::note_term_freq_scan();
 #endif
         bool exhausted = false;
         RETURN_IF_ERROR(fill(format::kAdaptiveWindowDfThreshold, &exhausted));
@@ -279,15 +267,7 @@ private:
         }
         total_docs_ += static_cast<uint32_t>(docids.size());
 
-        if (declared_common_gram_) {
-            const uint64_t increment =
-                    postings_->retain_positions ? positions.size() : docids.size();
-            if (increment > std::numeric_limits<uint64_t>::max() - stats_.total_freq) {
-                return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                        "logical_index: source total frequency overflow");
-            }
-            stats_.total_freq += increment;
-        } else if (freqs.empty()) {
+        if (freqs.empty()) {
             if (docids.size() > std::numeric_limits<uint64_t>::max() - stats_.total_freq) {
                 return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                         "logical_index: source total frequency overflow");
@@ -398,7 +378,6 @@ private:
 
     LogicalIndexWriter* writer_;
     StreamedTermPostings* postings_;
-    bool declared_common_gram_ = false;
     bool term_has_freq_ = false;
     bool term_has_prx_ = false;
     TermPostingBuffer* buffer_ = nullptr;
@@ -461,14 +440,12 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDoci
           // G16-c: the caller can drop freq layout entirely (in.write_freq ==
           // false) on a freq-capable tier -- see SniiIndexInput::write_freq.
           has_freq_(format::tier_of(in.config) >= format::IndexTier::kT2 && in.write_freq),
-          has_norms_(format::has_scoring(in.config)),
+          has_norms_(in.write_norms || !in.encoded_norms.empty()),
           doc_count_(in.doc_count),
           null_docids_(std::move(null_docids)),
           terms_(in.terms),
           term_source_(in.term_source),
           encoded_norms_(in.encoded_norms),
-          common_grams_metadata_(in.common_grams_metadata),
-          common_grams_posting_policy_(in.common_grams_posting_policy),
           target_dict_block_bytes_(in.target_dict_block_bytes != 0
                                            ? in.target_dict_block_bytes
                                            : format::kDefaultTargetDictBlockBytes),
@@ -560,12 +537,8 @@ struct LogicalIndexWriter::BlockState {
 LogicalIndexWriter::~LogicalIndexWriter() = default;
 
 Status LogicalIndexWriter::process_term(StreamedTermPostings& tp, BlockState* st) {
-    const bool is_declared_common_gram =
-            common_grams_metadata_.has_value() && tp.term.starts_with(CG_V1_MARKER) &&
-            (common_grams_metadata_->common_grams_coverage == CommonGramsCoverage::kComplete ||
-             common_grams_posting_policy_ == format::CommonGramsPostingPolicy::kHybridV1);
     const bool term_has_prx = has_prx_ && tp.retain_positions;
-    const bool term_has_freq = has_freq_ && !is_declared_common_gram;
+    const bool term_has_freq = has_freq_;
 
     if (st->block && st->term_stats != term_has_freq) {
         RETURN_IF_ERROR(flush_block(st->block.get(), st->block_first_term));
@@ -586,8 +559,8 @@ Status LogicalIndexWriter::process_term(StreamedTermPostings& tp, BlockState* st
     const uint64_t term_hash = format::bsbf_hash(tp.term);
     DictEntry entry;
     FreqStats stats;
-    StreamingTermEncoder encoder(this, &tp, is_declared_common_gram, term_has_freq, term_has_prx,
-                                 &st->transfer_buffer, st->frq_base, st->prx_base);
+    StreamingTermEncoder encoder(this, &tp, term_has_freq, term_has_prx, &st->transfer_buffer,
+                                 st->frq_base, st->prx_base);
     RETURN_IF_ERROR(encoder.encode(&entry, &stats));
 
     term_hashes_.push_back(term_hash);
@@ -624,9 +597,13 @@ Status LogicalIndexWriter::prepare_build(io::FileWriter* posting_out) {
                 "logical_index: null posting sink");
     }
     RETURN_IF_ERROR(format::validate_prx_window_limits(prx_window_limits_));
-    if (has_norms_ && encoded_norms_.size() != doc_count_) {
+    if (has_norms_ && !has_prx_) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "logical_index: norms length must equal doc_count");
+                "logical_index: norms require positions");
+    }
+    if (has_norms_ && !has_freq_) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: norms require term frequencies");
     }
     for (size_t i = 0; i < null_docids_.size(); ++i) {
         if (null_docids_[i] >= doc_count_) {
@@ -637,32 +614,6 @@ Status LogicalIndexWriter::prepare_build(io::FileWriter* posting_out) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "logical_index: null docids must be strictly ascending");
         }
-    }
-    if (common_grams_metadata_) {
-        RETURN_IF_ERROR(validate_common_grams_segment_metadata(*common_grams_metadata_));
-        if (common_grams_metadata_->common_grams_coverage == CommonGramsCoverage::kComplete &&
-            !has_prx_) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                    "logical_index: complete CommonGrams metadata requires positions");
-        }
-        if (common_grams_metadata_->scoring_coverage == ScoringCoverage::kComplete) {
-            if (!has_norms_ || !has_freq_) {
-                return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                        "logical_index: complete scoring metadata requires frequencies and "
-                        "semantic norms");
-            }
-            if (common_grams_metadata_->scoring_doc_count != doc_count_) {
-                return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                        "logical_index: scoring doc count must equal doc_count");
-            }
-        }
-    }
-    if (common_grams_posting_policy_ == format::CommonGramsPostingPolicy::kHybridV1 &&
-        (!common_grams_metadata_ ||
-         common_grams_metadata_->common_grams_coverage != CommonGramsCoverage::kMixed ||
-         !has_prx_)) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "logical_index: hybrid CommonGrams postings require mixed metadata and positions");
     }
     // The interleaved posting region streams STRAIGHT into the container output
     // (no temp round-trip): posting_size() is the region-relative byte count,
@@ -676,23 +627,9 @@ Status LogicalIndexWriter::prepare_build(io::FileWriter* posting_out) {
 }
 
 Status LogicalIndexWriter::finalize_build() {
-    if (common_grams_metadata_ &&
-        common_grams_metadata_->scoring_coverage == ScoringCoverage::kComplete) {
-        if (common_grams_metadata_->scoring_token_count > stats_.sum_total_term_freq) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                    "logical_index: semantic scoring token count exceeds physical term frequency");
-        }
-        if (stats_.sum_total_term_freq != 0 && common_grams_metadata_->scoring_token_count == 0) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                    "logical_index: non-empty physical postings have zero semantic scoring tokens");
-        }
-        if (common_grams_metadata_->plain_term_key_version ==
-                    ::doris::segment_v2::inverted_index::PlainTermKeyVersion::kRawNoInternal &&
-            common_grams_metadata_->common_grams_coverage == CommonGramsCoverage::kNone &&
-            common_grams_metadata_->scoring_token_count != stats_.sum_total_term_freq) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                    "logical_index: semantic plain token count must equal physical term frequency");
-        }
+    if (has_norms_ && encoded_norms_.size() != doc_count_) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: norms length must equal doc_count");
     }
     // Seal the dict buffer so a spilled temp is flushed before
     // stream_dict_region_into reads it back. A no-op for a RAM-resident dict.
@@ -941,8 +878,6 @@ Status LogicalIndexWriter::finish_metadata(const SectionRefs& abs_refs, uint64_t
     core.index_config = index_config_;
     core.stats = stats_;
     core.section_refs = abs_refs;
-    core.common_grams_metadata = common_grams_metadata_;
-    core.common_grams_posting_policy = common_grams_posting_policy_;
     ByteSink core_sink;
     RETURN_IF_ERROR(format::encode_core_metadata(core, &core_sink));
     out->core = core_sink.take();

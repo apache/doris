@@ -117,7 +117,7 @@ SniiIndexInput MakeIndex(const Corpus& c) {
     SniiIndexInput in;
     in.index_id = 1;
     in.index_suffix = "body";
-    in.config = IndexConfig::kDocsPositionsScoring; // scoring -> norms available
+    in.config = IndexConfig::kDocsPositions; // norms 随 encoded_norms 一起写出
     in.doc_count = c.doc_count;
     in.target_dict_block_bytes = 1; // one block per term
     in.encoded_norms.resize(c.doc_count);
@@ -128,11 +128,6 @@ SniiIndexInput MakeIndex(const Corpus& c) {
     in.terms.push_back(MakePosTerm("hot", c.hot_docs, /*pos=*/0));
     in.terms.push_back(MakePosTerm("rare", c.rare_docs, /*pos=*/0));
     in.terms.push_back(MakePosTerm("spark", c.spark_docs, /*pos=*/1));
-    uint64_t token_count = 0;
-    for (const auto& term : in.terms) {
-        token_count += term.positions_flat.size();
-    }
-    in.common_grams_metadata = snii_test::make_plain_scoring_metadata(in.doc_count, token_count);
     return in;
 }
 

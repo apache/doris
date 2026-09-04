@@ -72,17 +72,8 @@ std::vector<TermInfo> analyze_plain_query(const std::string& value,
     return inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader, analyzer.get());
 }
 
-Status append_scoring_leaf(CollectInfo* collect_info, const std::vector<TermInfo>& term_infos,
-                           std::string_view base_analyzer_fingerprint) {
+Status append_scoring_leaf(CollectInfo* collect_info, const std::vector<TermInfo>& term_infos) {
     DORIS_CHECK(collect_info != nullptr);
-    if (!collect_info->logical_scoring_leaves.empty() &&
-        collect_info->expected_base_analyzer_fingerprint != base_analyzer_fingerprint) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "Scoring predicates for one field use different base analyzers");
-    }
-    if (collect_info->logical_scoring_leaves.empty()) {
-        collect_info->expected_base_analyzer_fingerprint = base_analyzer_fingerprint;
-    }
 
     LogicalScoringLeaf leaf;
     leaf.clauses.reserve(term_infos.size());
@@ -401,8 +392,6 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     if (expr->op() == TExprOpcode::MATCH_PHRASE_PREFIX && !term_infos.empty()) {
         term_infos.pop_back();
     }
-    const auto base_analyzer_fingerprint =
-            analyzer_ctx->analyzer_provider->base_analyzer_fingerprint();
 
     std::string field_name =
             build_field_name(index_meta->col_unique_ids()[0], candidates.index_suffix_path);
@@ -411,12 +400,12 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     auto iter = collect_infos->find(ws_field_name);
     if (iter == collect_infos->end()) {
         CollectInfo collect_info;
-        RETURN_IF_ERROR(append_scoring_leaf(&collect_info, term_infos, base_analyzer_fingerprint));
+        RETURN_IF_ERROR(append_scoring_leaf(&collect_info, term_infos));
         preserve_selected_index_metadata(candidates, index_meta, &collect_info);
         (*collect_infos)[ws_field_name] = std::move(collect_info);
     } else {
         RETURN_IF_ERROR(validate_same_physical_index(iter->second, *index_meta));
-        RETURN_IF_ERROR(append_scoring_leaf(&iter->second, term_infos, base_analyzer_fingerprint));
+        RETURN_IF_ERROR(append_scoring_leaf(&iter->second, term_infos));
     }
 
     return Status::OK();
@@ -527,11 +516,9 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
     const auto& analysis_properties = index_meta->properties();
 
     std::vector<TermInfo> term_infos;
-    std::string_view base_analyzer_fingerprint;
     std::optional<InvertedIndexAnalyzerCtx> analyzer_ctx;
     if (InvertedIndexAnalyzer::should_analyzer(analysis_properties)) {
         analyzer_ctx.emplace(analyzer_context_from_properties(analysis_properties));
-        base_analyzer_fingerprint = analyzer_ctx->analyzer_provider->base_analyzer_fingerprint();
     }
 
     if (clause_type == "MATCH") {
@@ -557,12 +544,12 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
     auto iter = collect_infos->find(ws_field_name);
     if (iter == collect_infos->end()) {
         CollectInfo collect_info;
-        RETURN_IF_ERROR(append_scoring_leaf(&collect_info, term_infos, base_analyzer_fingerprint));
+        RETURN_IF_ERROR(append_scoring_leaf(&collect_info, term_infos));
         preserve_selected_index_metadata(candidates, index_meta, &collect_info);
         (*collect_infos)[ws_field_name] = std::move(collect_info);
     } else {
         RETURN_IF_ERROR(validate_same_physical_index(iter->second, *index_meta));
-        RETURN_IF_ERROR(append_scoring_leaf(&iter->second, term_infos, base_analyzer_fingerprint));
+        RETURN_IF_ERROR(append_scoring_leaf(&iter->second, term_infos));
     }
 
     return Status::OK();

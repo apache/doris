@@ -49,7 +49,6 @@ struct CollectInfo {
     std::vector<std::string> unique_terms;
     std::unordered_map<std::string, uint32_t> unique_term_slots;
     std::vector<LogicalScoringLeaf> logical_scoring_leaves;
-    std::string expected_base_analyzer_fingerprint;
     std::shared_ptr<const TabletIndex> owned_index_meta;
     const TabletIndex* index_meta = nullptr;
 };

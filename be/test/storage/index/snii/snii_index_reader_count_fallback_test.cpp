@@ -50,8 +50,6 @@
 #include "storage/index/index_iterator.h" // for IndexIterator
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/snii/encoding/byte_sink.h"
@@ -246,37 +244,26 @@ std::shared_ptr<inverted_index::CustomAnalyzerProvider> make_plain_provider() {
     return std::make_shared<inverted_index::CustomAnalyzerProvider>(builder.build());
 }
 
-std::string encode_plain_test_term(std::string_view term) {
-    auto encoded = inverted_index::encode_plain_term(
-            term, inverted_index::PlainTermKeyVersion::kEscapedV1);
-    DORIS_CHECK(encoded.has_value());
-    return std::move(*encoded);
-}
-
 
 
 Status write_scoring_segment(std::string_view index_path_prefix, bool corrupt_norms = false) {
     std::vector<doris::snii::writer::TermPostings> terms {
-            make_term(encode_plain_test_term("alpha"),
+            make_term("alpha",
                       {{.docid = 0, .positions = {0, 1, 2, 3}}, {.docid = 1, .positions = {0, 2}}}),
-            make_term(encode_plain_test_term("beta"),
+            make_term("beta",
                       {{.docid = 1, .positions = {1, 3}}, {.docid = 2, .positions = {0, 1}}}),
     };
     std::ranges::sort(terms, [](const auto& lhs, const auto& rhs) { return lhs.term < rhs.term; });
 
-    // 不含 gram 的打分载体：物理 ttf = alpha(4+2) + beta(2+2) = 10。
-    auto metadata = ::doris::snii::snii_test::make_plain_scoring_metadata(/*doc_count=*/3, /*token_count=*/10);
-
     doris::snii::writer::SniiIndexInput input;
     input.index_id = kIndexId;
     input.index_suffix = "";
-    input.config = doris::snii::format::IndexConfig::kDocsPositionsScoring;
+    input.config = doris::snii::format::IndexConfig::kDocsPositions;
     input.doc_count = 3;
     input.encoded_norms = {doris::snii::query::encode_norm(4), doris::snii::query::encode_norm(4),
                            doris::snii::query::encode_norm(2)};
     input.terms = std::move(terms);
     input.target_dict_block_bytes = 64;
-    input.common_grams_metadata = std::move(metadata);
 
     MemoryFile memory_file;
     doris::snii::writer::SniiCompoundWriter compound(&memory_file);
@@ -1642,10 +1629,10 @@ TEST_F(SniiIndexReaderCountFallback, MultiTermPhraseUsesNormalPositionalQuery) {
 
 TEST_F(SniiIndexReaderCountFallback, KeywordLaneWarmQueryCacheHitSkipsSegmentOpen) {
     // A physical keyword-lane index carries no analyzer contract for the segment open to
-    // validate: SniiIndexColumnWriter::init() rejects a CommonGrams metadata seed whenever
-    // should_analyzer() is false, the same split that picks STRING_TYPE over FULLTEXT in
-    // ColumnReader. Its warm raw-query cache entry must therefore still be served before the
-    // logical reader is opened, including when the independent searcher cache is disabled.
+    // validate (should_analyzer() is false, the same split that picks STRING_TYPE over
+    // FULLTEXT in ColumnReader). Its warm raw-query cache entry must therefore still be served
+    // before the logical reader is opened, including when the independent searcher cache is
+    // disabled.
     TabletIndex keyword_meta;
     {
         TabletIndexPB pb;

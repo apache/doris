@@ -157,7 +157,7 @@ TEST(SniiCoreMetadata, RoundTripsPositions) {
 
 // CommonGrams 已删除：真正含 gram 的段（完整覆盖 + 键转义）是墓碑，必须重建索引。
 TEST(SniiCoreMetadata, RejectsCommonGramsSegmentAsUnsupported) {
-    auto expected = sample_core(IndexConfig::kDocsPositionsScoring);
+    auto expected = sample_core(IndexConfig::kDocsPositions);
     expected.common_grams_metadata =
             sample_common_grams(CommonGramsCoverage::kComplete, ScoringCoverage::kComplete);
     ByteSink sink;
@@ -167,7 +167,7 @@ TEST(SniiCoreMetadata, RejectsCommonGramsSegmentAsUnsupported) {
 
 // 只借用载体存打分统计、不含 gram 的段（coverage=kNone、键原样）仍按普通段读取。
 TEST(SniiCoreMetadata, AcceptsScoringCarrierWithoutGrams) {
-    auto expected = sample_core(IndexConfig::kDocsPositionsScoring);
+    auto expected = sample_core(IndexConfig::kDocsPositions);
     expected.common_grams_metadata = sample_plain_scoring_carrier();
     CoreMetadata actual;
     ASSERT_TRUE(decode_core_metadata(Slice(encode(expected)), &actual).ok());
@@ -218,6 +218,20 @@ TEST(SniiCoreMetadata, RejectsUnsupportedIndexConfig) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
+// master 开发期曾用 index_config=2 表示"带打分 tier"；打分能力现在由 norms region 表达，
+// 该取值不再有意义，按不支持拒绝（从未进入生产，不存在兼容负担）。
+TEST(SniiCoreMetadata, RejectsLegacyScoringIndexConfigAsUnsupported) {
+    auto payload = payload_of(encode(sample_core()));
+    ByteSink field;
+    field.put_varint32((1u << 3) | 0u);
+    field.put_varint32(2);
+    payload.insert(payload.end(), field.buffer().begin(), field.buffer().end());
+
+    CoreMetadata actual;
+    const auto status = decode_core_metadata(Slice(frame_payload(payload)), &actual);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
+}
+
 TEST(SniiCoreMetadata, RejectsUnsupportedPostingPolicy) {
     auto payload = payload_of(encode(sample_core()));
     ByteSink field;
@@ -231,7 +245,7 @@ TEST(SniiCoreMetadata, RejectsUnsupportedPostingPolicy) {
 }
 
 TEST(SniiCoreMetadata, UnsupportedCommonGramsEnums) {
-    auto metadata = sample_core(IndexConfig::kDocsPositionsScoring);
+    auto metadata = sample_core(IndexConfig::kDocsPositions);
     metadata.common_grams_metadata = sample_plain_scoring_carrier();
 
     for (const auto& mutation :
@@ -248,7 +262,7 @@ TEST(SniiCoreMetadata, UnsupportedCommonGramsEnums) {
 }
 
 TEST(SniiCoreMetadata, RejectsKnownButContradictoryCommonGramsEnumsAsCorruption) {
-    auto metadata = sample_core(IndexConfig::kDocsPositionsScoring);
+    auto metadata = sample_core(IndexConfig::kDocsPositions);
     metadata.common_grams_metadata = sample_plain_scoring_carrier();
     // 键原样（kRawNoInternal）却声称有 gram 覆盖：自相矛盾，按损坏处理（早于墓碑判定）。
     const auto payload = mutate_core_payload(metadata, [](auto* core) {
@@ -353,7 +367,7 @@ TEST(SniiCoreMetadata, RejectsBadFrameTypeCrcAndTruncation) {
 }
 
 TEST(SniiCoreMetadata, ResetsOutputBeforeDecodeFailureAndNullOutputIsInvalid) {
-    auto populated = sample_core(IndexConfig::kDocsPositionsScoring);
+    auto populated = sample_core(IndexConfig::kDocsPositions);
     populated.common_grams_metadata = sample_plain_scoring_carrier();
     CoreMetadata reused;
     ASSERT_TRUE(decode_core_metadata(Slice(encode(populated)), &reused).ok());

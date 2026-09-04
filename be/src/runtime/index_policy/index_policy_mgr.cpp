@@ -197,23 +197,6 @@ AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Analyzer policy not found: " + name);
 }
 
-AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_base_fingerprint(
-        std::string_view base_analyzer_fingerprint,
-        const std::map<std::string, std::string>& outer_char_filter_map) {
-    std::shared_lock lock(_mutex);
-    for (const auto& [_, policy] : _policys) {
-        if (policy.type != TIndexPolicyType::ANALYZER) {
-            continue;
-        }
-        auto config = build_analyzer_config_from_policy(policy);
-        if (segment_v2::inverted_index::CustomAnalyzerProvider::calculate_base_analyzer_fingerprint(
-                    config, outer_char_filter_map) != base_analyzer_fingerprint) {
-            continue;
-        }
-        return build_analyzer_provider_from_config(std::move(config), outer_char_filter_map);
-    }
-    return nullptr;
-}
 
 segment_v2::inverted_index::CustomAnalyzerConfigPtr
 IndexPolicyMgr::build_analyzer_config_from_policy(const TIndexPolicy& index_policy_analyzer) {
@@ -266,9 +249,6 @@ IndexPolicyMgr::build_analyzer_config_from_policy(const TIndexPolicy& index_poli
 AnalyzerProviderPtr IndexPolicyMgr::build_analyzer_provider_from_config(
         segment_v2::inverted_index::CustomAnalyzerConfigPtr config,
         const std::map<std::string, std::string>& outer_char_filter_map) {
-    // One shape for every policy: the provider sources its CommonGrams word list from the
-    // BE-local default, so there is no per-policy word set to look up and no "not yet prepared"
-    // state to represent.
     return std::make_shared<segment_v2::inverted_index::CustomAnalyzerProvider>(
             std::move(config), outer_char_filter_map);
 }
