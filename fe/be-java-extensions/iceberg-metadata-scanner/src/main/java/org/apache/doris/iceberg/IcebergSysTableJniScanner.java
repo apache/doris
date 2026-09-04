@@ -28,11 +28,15 @@ import com.google.common.base.Preconditions;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.CloseableIterator;
-import org.apache.iceberg.util.SerializationUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectStreamClass;
+import java.io.UncheckedIOException;
+import java.util.Base64;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
@@ -55,7 +59,11 @@ public class IcebergSysTableJniScanner extends JniScanner {
         String serializedSplitParams = params.get("serialized_split");
         Preconditions.checkArgument(serializedSplitParams != null && !serializedSplitParams.isEmpty(),
                 "serialized_split should not be empty");
-        this.scanTask = SerializationUtil.deserializeFromBase64(serializedSplitParams);
+        // FileScanTask serialization resolves the table FileIO implementation. Resolve it while the
+        // extension classloader is the thread context loader so Azure ADLSFileIO is visible.
+        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+            this.scanTask = deserializeWithClassLoader(serializedSplitParams, classLoader);
+        }
         String requiredFieldsParam = params.get("required_fields");
         Preconditions.checkArgument(requiredFieldsParam != null && !requiredFieldsParam.isEmpty(),
                 "required_fields should not be empty");
@@ -73,6 +81,25 @@ public class IcebergSysTableJniScanner extends JniScanner {
         String[] requiredTypeStrings = requiredTypesParam.split("#");
         ColumnType[] requiredTypes = parseRequiredTypes(requiredTypeStrings, requiredFields);
         initTableInfo(requiredTypes, requiredFields, batchSize);
+    }
+
+    private static <T> T deserializeWithClassLoader(String serialized, ClassLoader classLoader) {
+        byte[] bytes = Base64.getMimeDecoder().decode(serialized);
+        try (ObjectInputStream input = new ObjectInputStream(new ByteArrayInputStream(bytes)) {
+            @Override
+            protected Class<?> resolveClass(ObjectStreamClass descriptor)
+                    throws IOException, ClassNotFoundException {
+                return Class.forName(descriptor.getName(), false, classLoader);
+            }
+        }) {
+            @SuppressWarnings("unchecked")
+            T value = (T) input.readObject();
+            return value;
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to deserialize object", e);
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException("Could not read object", e);
+        }
     }
 
     @Override
