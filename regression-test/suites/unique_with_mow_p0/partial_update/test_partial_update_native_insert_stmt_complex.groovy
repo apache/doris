@@ -85,12 +85,10 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
                 from ${tbName2} inner join ${tbName3} on ${tbName2}.id = ${tbName3}.id; """
 
             qt_complex_update """select * from ${tbName1} order by id;"""
-            test {
-                sql """insert into ${tbName1}
+            sql """insert into ${tbName1}
                 select ${tbName2}.id, ${tbName2}.c1, ${tbName2}.c3 * 100
                 from ${tbName2} inner join ${tbName3} on ${tbName2}.id = ${tbName3}.id; """
-                exception "insert into cols should be corresponding to the query output"
-            }
+            qt_implicit_insert """select * from ${tbName1} order by id;"""
             sql "truncate table ${tbName1};"
             sql "truncate table ${tbName2};"
             sql "truncate table ${tbName3};"

@@ -258,28 +258,6 @@ suite("test_streaming_insert_job_crud") {
     jobCount = sql """ select count(1) from jobs("type"="insert") where Name = '${jobNameError}' and ExecuteType='STREAMING' """
     assert jobCount.get(0).get(0) == 0
 
-    // no exist path
-    expectExceptionLike({
-        sql """
-       CREATE JOB ${jobNameError}
-       ON STREAMING DO INSERT INTO ${tableName}
-       SELECT * FROM S3
-        (
-            "uri" = "s3://${s3BucketName}/regression/load/NoexistPath/Noexist.csv",
-            "format" = "csv",
-            "provider" = "${getS3Provider()}",
-            "column_separator" = ",",
-            "s3.endpoint" = "${getS3Endpoint()}",
-            "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}"
-        );
-        """
-    }, "insert into cols should be corresponding to the query output")
-
-    jobCount = sql """ select count(1) from jobs("type"="insert") where Name = '${jobNameError}' and ExecuteType='STREAMING' """
-    assert jobCount.get(0).get(0) == 0
-
     /************************ select **********************/
 
     // select no exist job

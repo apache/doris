@@ -30,8 +30,15 @@ import java.util.Optional;
  */
 public class DefaultValueSlot extends Slot {
 
+    private final DataType dataType;
+
     public DefaultValueSlot() {
+        this(NullType.INSTANCE);
+    }
+
+    public DefaultValueSlot(DataType dataType) {
         super(Optional.empty());
+        this.dataType = dataType;
     }
 
     @Override
@@ -51,7 +58,7 @@ public class DefaultValueSlot extends Slot {
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return NullType.INSTANCE;
+        return dataType;
     }
 
     @Override
