@@ -32,6 +32,8 @@ public class StatisticsBuilder {
     private double deltaRowCount = 0.0;
 
     private boolean isFromHbo = false;
+    // See Statistics#rowCountWasUnknown for semantics.
+    private boolean rowCountWasUnknown = false;
 
     public StatisticsBuilder() {
         this.expressionToColumnStats = new HashMap<>();
@@ -44,10 +46,22 @@ public class StatisticsBuilder {
         this.expressionToColumnStats = new HashMap<>();
         this.expressionToColumnStats.putAll(statistics.columnStatistics());
         this.isFromHbo = statistics.isFromHbo();
+        this.rowCountWasUnknown = statistics.isRowCountWasUnknown();
     }
 
     public StatisticsBuilder setRowCount(double rowCount) {
         this.rowCount = rowCount;
+        return this;
+    }
+
+    /**
+     * Mark that the row count value being set was clamped from
+     * UNKNOWN_ROW_COUNT during derivation. Use together with {@link #setRowCount}.
+     * The flag is honored by {@link org.apache.doris.nereids.util.JoinUtils#checkBroadcastJoinStats}
+     * which refuses to broadcast a build side whose row count is not trustworthy.
+     */
+    public StatisticsBuilder setRowCountWasUnknown(boolean rowCountWasUnknown) {
+        this.rowCountWasUnknown = rowCountWasUnknown;
         return this;
     }
 
@@ -77,6 +91,7 @@ public class StatisticsBuilder {
     }
 
     public Statistics build() {
-        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount, isFromHbo);
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats,
+                deltaRowCount, isFromHbo, rowCountWasUnknown);
     }
 }
