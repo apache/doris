@@ -17,10 +17,14 @@
 
 #include "format_v2/table/lance_reader.h"
 
+#include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_decimal.h>
+#include <arrow/array/builder_primitive.h>
 #include <arrow/array/util.h>
 #include <arrow/c/bridge.h>
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
+#include <arrow/util/decimal.h>
 #include <arrow/util/key_value_metadata.h>
 #include <lance/lance.h>
 
@@ -51,13 +55,25 @@
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/common/endian.h"
+#include "exprs/create_predicate_function.h"
+#include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter_expr.h"
+#include "exprs/vdirect_in_predicate.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
+#include "format_v2/lance/lance_reader_helper.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/utils.h"
@@ -164,6 +180,117 @@ ColumnDefinition projected_column(std::string name, DataTypePtr type) {
 ColumnDefinition projected_column(std::string name, PrimitiveType type, bool nullable) {
     return projected_column(std::move(name),
                             DataTypeFactory::instance().create_data_type(type, nullable));
+}
+
+VExprContextSPtr create_int64_runtime_in_conjunct(std::string column_name,
+                                                  const std::vector<int64_t>& values,
+                                                  int filter_id) {
+    std::shared_ptr<HybridSetBase> filter(create_set(TYPE_BIGINT, false));
+    for (const auto value : values) {
+        filter->insert(&value);
+    }
+    TExprNode node;
+    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_node_type(TExprNodeType::IN_PRED);
+    node.in_predicate.__set_is_not_in(false);
+    node.__set_opcode(TExprOpcode::FILTER_IN);
+    node.__set_is_nullable(false);
+    auto predicate = VDirectInPredicate::create_shared(node, std::move(filter), true);
+    predicate->add_child(VSlotRef::create_shared(
+            0, 0, -1, make_nullable(std::make_shared<DataTypeInt64>()), std::move(column_name)));
+    return VExprContext::create_shared(
+            RuntimeFilterExpr::create_shared(node, std::move(predicate), 0.0, false, filter_id));
+}
+
+template <PrimitiveType PT>
+VExprContextSPtr create_typed_runtime_in_conjunct(
+        std::string column_name, const typename PrimitiveTypeTraits<PT>::CppType& value,
+        DataTypePtr value_type, int filter_id) {
+    std::shared_ptr<HybridSetBase> filter(create_set(PT, false));
+    filter->insert(&value);
+    TExprNode node;
+    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_node_type(TExprNodeType::IN_PRED);
+    node.in_predicate.__set_is_not_in(false);
+    node.__set_opcode(TExprOpcode::FILTER_IN);
+    node.__set_is_nullable(false);
+    auto predicate = VDirectInPredicate::create_shared(node, std::move(filter), true);
+    predicate->add_child(
+            VSlotRef::create_shared(0, 0, -1, make_nullable(value_type), std::move(column_name)));
+    return VExprContext::create_shared(
+            RuntimeFilterExpr::create_shared(node, std::move(predicate), 0.0, false, filter_id));
+}
+
+VExprContextSPtr create_string_runtime_in_conjunct(std::string column_name,
+                                                   const std::string& value, int filter_id) {
+    std::shared_ptr<HybridSetBase> filter(create_set(TYPE_STRING, false));
+    const StringRef value_ref(value.data(), value.size());
+    filter->insert(&value_ref);
+    TExprNode node;
+    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_node_type(TExprNodeType::IN_PRED);
+    node.in_predicate.__set_is_not_in(false);
+    node.__set_opcode(TExprOpcode::FILTER_IN);
+    node.__set_is_nullable(false);
+    auto predicate = VDirectInPredicate::create_shared(node, std::move(filter), true);
+    predicate->add_child(VSlotRef::create_shared(
+            0, 0, -1, make_nullable(std::make_shared<DataTypeString>()), std::move(column_name)));
+    return VExprContext::create_shared(
+            RuntimeFilterExpr::create_shared(node, std::move(predicate), 0.0, false, filter_id));
+}
+
+template <PrimitiveType PT>
+VExprContextSPtr create_runtime_range_conjunct(
+        std::string column_name, TExprOpcode::type opcode,
+        const typename PrimitiveTypeTraits<PT>::CppType& value, DataTypePtr value_type,
+        int filter_id, bool null_aware = false) {
+    const auto nullable_value_type = make_nullable(value_type);
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    TFunctionName function_name;
+    function_name.__set_function_name(opcode == TExprOpcode::GE ? "ge" : "le");
+    TFunction function;
+    function.__set_name(function_name);
+    function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    function.__set_arg_types({nullable_value_type->to_thrift(), value_type->to_thrift()});
+    function.__set_ret_type(result_type->to_thrift());
+    function.__set_has_var_args(false);
+
+    TExprNode predicate_node;
+    predicate_node.__set_node_type(TExprNodeType::BINARY_PRED);
+    predicate_node.__set_opcode(opcode);
+    predicate_node.__set_type(result_type->to_thrift());
+    predicate_node.__set_fn(function);
+    predicate_node.__set_num_children(2);
+    predicate_node.__set_is_nullable(true);
+    auto predicate = VectorizedFnCall::create_shared(predicate_node);
+    predicate->add_child(
+            VSlotRef::create_shared(0, 0, -1, nullable_value_type, std::move(column_name)));
+    predicate->add_child(VLiteral::create_shared(value_type, Field::create_field<PT>(value)));
+
+    TExprNode wrapper_node;
+    wrapper_node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    wrapper_node.__set_is_nullable(false);
+    return VExprContext::create_shared(RuntimeFilterExpr::create_shared(
+            wrapper_node, std::move(predicate), 0.0, null_aware, filter_id));
+}
+
+Status write_lance_record_batch(const std::filesystem::path& dataset_uri,
+                                const std::shared_ptr<arrow::RecordBatch>& batch) {
+    auto batch_reader = arrow::RecordBatchReader::Make({batch}, batch->schema());
+    if (!batch_reader.ok()) {
+        return Status::InternalError("create Arrow record batch reader failed: {}",
+                                     batch_reader.status().message());
+    }
+    ArrowArrayStream stream {};
+    const auto export_status =
+            arrow::ExportRecordBatchReader(std::move(batch_reader).ValueUnsafe(), &stream);
+    if (!export_status.ok()) {
+        return Status::InternalError("export Arrow record batch reader failed: {}",
+                                     export_status.message());
+    }
+    static_cast<void>(
+            ::lance::Dataset::write(dataset_uri.string(), &stream, ::lance::WriteMode::Create));
+    return Status::OK();
 }
 
 void add_output_columns(Block* block, const Columns& columns) {
@@ -635,7 +762,7 @@ TEST(LanceTableReaderVectorSearchTest, ReadsOnlyGlobalRowIdVirtualColumn) {
     EXPECT_TRUE(reader.close().ok());
 }
 
-TEST(LanceTableReaderFilterTest, PushesFilterOnNonProjectedColumn) {
+TEST(LanceTableReaderFilterTest, CombinesStaticSubstraitFilterWithRuntimeFilter) {
     const std::filesystem::path dataset_uri =
             "./be/test/format_v2/table/lance/data/all_types.lance";
     LanceFixtureInfo fixture;
@@ -711,6 +838,311 @@ TEST(LanceTableReaderFilterTest, PushesFilterOnNonProjectedColumn) {
     }
     std::ranges::sort(labels);
     EXPECT_EQ((std::vector<std::string> {"extra", "mixed"}), labels);
+    EXPECT_TRUE(reader.close().ok());
+
+    // The static Substrait prefilter and a later runtime filter must both remain active. Static
+    // row_id >= 3 yields {3, 4}; runtime row_id IN (2, 4) yields {2, 4}; their intersection is {4}.
+    std::string combined_substrait_filter;
+    ASSERT_TRUE(base64_decode(substrait_filter_base64, &combined_substrait_filter));
+    TLanceScanParams combined_lance_scan_params;
+    combined_lance_scan_params.__set_lance_substrait_filter(std::move(combined_substrait_filter));
+    TFileScanRangeParams combined_scan_params;
+    combined_scan_params.__set_lance_scan_params(std::move(combined_lance_scan_params));
+    const Columns row_id_columns {projected_column("row_id", TYPE_BIGINT, false)};
+    RuntimeProfile combined_profile("lance_substrait_and_runtime_filter_fixture");
+    const auto combined_runtime_filter = create_int64_runtime_in_conjunct("row_id", {2, 4}, 42);
+
+    LanceTableReader combined_reader;
+    ASSERT_TRUE(init_reader(&combined_reader, row_id_columns, &state, &combined_profile,
+                            &combined_scan_params, {combined_runtime_filter})
+                        .ok());
+    ASSERT_TRUE(prepare_fixture(&combined_reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+
+    Block combined_block;
+    add_output_columns(&combined_block, row_id_columns);
+    std::vector<int64_t> combined_row_ids;
+    eos = false;
+    while (!eos) {
+        ASSERT_TRUE(combined_reader.get_block(&combined_block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& row_ids =
+                assert_cast<const ColumnInt64&>(*combined_block.get_by_position(0).column);
+        combined_row_ids.insert(combined_row_ids.end(), row_ids.get_data().begin(),
+                                row_ids.get_data().end());
+    }
+    EXPECT_EQ((std::vector<int64_t> {4}), combined_row_ids);
+    ASSERT_NE(combined_profile.get_info_string("LanceRuntimeFilterPushedIds"), nullptr);
+    EXPECT_EQ("42", *combined_profile.get_info_string("LanceRuntimeFilterPushedIds"));
+    EXPECT_TRUE(combined_reader.close().ok());
+}
+
+TEST(LanceTableReaderFilterTest, PushesRuntimeInFilterIntoLanceScanner) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryOptions query_options;
+    query_options.__set_batch_size(4);
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("lance_runtime_filter_pushdown_fixture");
+    TFileScanRangeParams scan_params;
+    const auto runtime_filter = create_int64_runtime_in_conjunct("row_id", {2, 4}, 41);
+
+    LanceTableReader reader;
+    ASSERT_TRUE(
+            init_reader(&reader, columns, &state, &profile, &scan_params, {runtime_filter}).ok());
+    ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    std::vector<int64_t> actual_row_ids;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& row_ids = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+        actual_row_ids.insert(actual_row_ids.end(), row_ids.get_data().begin(),
+                              row_ids.get_data().end());
+    }
+    std::ranges::sort(actual_row_ids);
+    EXPECT_EQ((std::vector<int64_t> {2, 4}), actual_row_ids);
+    ASSERT_NE(profile.get_info_string("LanceRuntimeFilterPushedIds"), nullptr);
+    EXPECT_EQ("41", *profile.get_info_string("LanceRuntimeFilterPushedIds"));
+    EXPECT_EQ(profile.get_info_string("LanceRuntimeFilterSkippedIds"), nullptr);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderFilterTest, SkipsNullAwareRuntimeRangeBeforeLanceScanner) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_null_aware_runtime_filter_fixture");
+    TFileScanRangeParams scan_params;
+    const VExprContextSPtrs runtime_filters {
+            create_runtime_range_conjunct<TYPE_BIGINT>("bigint_value", TExprOpcode::GE,
+                                                       std::numeric_limits<int64_t>::lowest(),
+                                                       std::make_shared<DataTypeInt64>(), 43, true),
+            create_runtime_range_conjunct<TYPE_BIGINT>("bigint_value", TExprOpcode::LE,
+                                                       std::numeric_limits<int64_t>::max(),
+                                                       std::make_shared<DataTypeInt64>(), 43, true),
+    };
+
+    LanceTableReader reader;
+    ASSERT_TRUE(
+            init_reader(&reader, columns, &state, &profile, &scan_params, runtime_filters).ok());
+    ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    std::vector<int64_t> row_ids;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (!eos) {
+            const auto& values = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+            row_ids.insert(row_ids.end(), values.get_data().begin(), values.get_data().end());
+        }
+    }
+    std::ranges::sort(row_ids);
+    EXPECT_EQ((std::vector<int64_t> {1, 2, 3, 4}), row_ids);
+    ASSERT_NE(profile.get_info_string("LanceRuntimeFilterSkippedIds"), nullptr);
+    EXPECT_EQ("43", *profile.get_info_string("LanceRuntimeFilterSkippedIds"));
+    EXPECT_EQ(profile.get_info_string("LanceRuntimeFilterPushedIds"), nullptr);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderFilterTest, SkipsUnsafeStringRuntimeFiltersBeforeLanceCStringBoundary) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_unsafe_string_runtime_filter_fixture");
+    TFileScanRangeParams scan_params;
+    const VExprContextSPtrs runtime_filters {
+            create_string_runtime_in_conjunct("text_value", std::string("a\0b", 3), 44),
+            create_string_runtime_in_conjunct("text_value", std::string(1, static_cast<char>(0xff)),
+                                              45),
+    };
+
+    LanceTableReader reader;
+    ASSERT_TRUE(
+            init_reader(&reader, columns, &state, &profile, &scan_params, runtime_filters).ok());
+    ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (!eos) {
+            rows += block.rows();
+        }
+    }
+    EXPECT_EQ(4U, rows);
+    ASSERT_NE(profile.get_info_string("LanceRuntimeFilterSkippedIds"), nullptr);
+    EXPECT_EQ("44,45", *profile.get_info_string("LanceRuntimeFilterSkippedIds"));
+    EXPECT_EQ(profile.get_info_string("LanceRuntimeFilterPushedIds"), nullptr);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderFilterTest, SkipsTimestampNanoRuntimeFilterBeforeMaterialization) {
+    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto dataset_uri =
+            std::filesystem::temp_directory_path() /
+            ("doris_lance_timestamp_nano_rf_" + std::to_string(unique_suffix) + ".lance");
+    Defer cleanup {[&] {
+        std::error_code error;
+        std::filesystem::remove_all(dataset_uri, error);
+    }};
+
+    arrow::Int64Builder row_id_builder;
+    ASSERT_TRUE(row_id_builder.Append(1).ok());
+    std::shared_ptr<arrow::Array> row_ids;
+    ASSERT_TRUE(row_id_builder.Finish(&row_ids).ok());
+    const auto timestamp_type = arrow::timestamp(arrow::TimeUnit::NANO);
+    arrow::TimestampBuilder timestamp_builder(timestamp_type, arrow::default_memory_pool());
+    ASSERT_TRUE(timestamp_builder.Append(123456789).ok());
+    std::shared_ptr<arrow::Array> timestamps;
+    ASSERT_TRUE(timestamp_builder.Finish(&timestamps).ok());
+    const auto schema = arrow::schema({arrow::field("row_id", arrow::int64()),
+                                       arrow::field("timestamp_value", timestamp_type)});
+    ASSERT_TRUE(write_lance_record_batch(dataset_uri,
+                                         arrow::RecordBatch::Make(schema, 1, {row_ids, timestamps}))
+                        .ok());
+
+    DateV2Value<DateTimeV2ValueType> bound;
+    bound.unchecked_set_time(1970, 1, 1, 0, 0, 0, 123456);
+    const auto runtime_filter = create_runtime_range_conjunct<TYPE_DATETIMEV2>(
+            "timestamp_value", TExprOpcode::LE, bound, std::make_shared<DataTypeDateTimeV2>(6), 46);
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("timestamp_value",
+                             make_nullable(std::make_shared<DataTypeDateTimeV2>(6))),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_timestamp_nano_runtime_filter_fixture");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(
+            init_reader(&reader, columns, &state, &profile, &scan_params, {runtime_filter}).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(1U, block.rows());
+    const auto& values = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+    EXPECT_EQ(1, values.get_data()[0]);
+    const auto& timestamp = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    // The physical value has .123456789, while Doris materialization truncates it to .123456.
+    // Therefore the residual <= .123456 accepts this row and the pre-materialization SQL must not
+    // remove it.
+    EXPECT_EQ("1970-01-01 00:00:00.123456", columns[1].type->to_string(timestamp, 0));
+    ASSERT_NE(profile.get_info_string("LanceRuntimeFilterSkippedIds"), nullptr);
+    EXPECT_EQ("46", *profile.get_info_string("LanceRuntimeFilterSkippedIds"));
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderFilterTest, SkipsPhysicalNumericTypesUnsupportedByPinnedPlanner) {
+    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto dataset_uri =
+            std::filesystem::temp_directory_path() /
+            ("doris_lance_unsupported_numeric_rf_" + std::to_string(unique_suffix) + ".lance");
+    Defer cleanup {[&] {
+        std::error_code error;
+        std::filesystem::remove_all(dataset_uri, error);
+    }};
+
+    arrow::Int64Builder row_id_builder;
+    ASSERT_TRUE(row_id_builder.Append(1).ok());
+    std::shared_ptr<arrow::Array> row_ids;
+    ASSERT_TRUE(row_id_builder.Finish(&row_ids).ok());
+    arrow::HalfFloatBuilder half_float_builder;
+    ASSERT_TRUE(half_float_builder.Append(0x3E00).ok());
+    std::shared_ptr<arrow::Array> half_floats;
+    ASSERT_TRUE(half_float_builder.Finish(&half_floats).ok());
+    const auto scaled_decimal_type = arrow::decimal128(9, 2);
+    arrow::Decimal128Builder scaled_decimal_builder(scaled_decimal_type,
+                                                    arrow::default_memory_pool());
+    ASSERT_TRUE(scaled_decimal_builder.Append(arrow::Decimal128(12345)).ok());
+    std::shared_ptr<arrow::Array> scaled_decimals;
+    ASSERT_TRUE(scaled_decimal_builder.Finish(&scaled_decimals).ok());
+    const auto wide_decimal_type = arrow::decimal128(38, 0);
+    arrow::Decimal128Builder wide_decimal_builder(wide_decimal_type, arrow::default_memory_pool());
+    const uint64_t wide_value = static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) + 1;
+    ASSERT_TRUE(wide_decimal_builder.Append(arrow::Decimal128(0, wide_value)).ok());
+    std::shared_ptr<arrow::Array> wide_decimals;
+    ASSERT_TRUE(wide_decimal_builder.Finish(&wide_decimals).ok());
+    arrow::UInt64Builder uint64_builder;
+    ASSERT_TRUE(uint64_builder.Append(wide_value).ok());
+    std::shared_ptr<arrow::Array> uint64_values;
+    ASSERT_TRUE(uint64_builder.Finish(&uint64_values).ok());
+    const auto schema = arrow::schema({
+            arrow::field("row_id", arrow::int64()),
+            arrow::field("half_float", arrow::float16()),
+            arrow::field("scaled_decimal", scaled_decimal_type),
+            arrow::field("wide_decimal", wide_decimal_type),
+            arrow::field("wide_uint64", arrow::uint64()),
+    });
+    ASSERT_TRUE(
+            write_lance_record_batch(
+                    dataset_uri, arrow::RecordBatch::Make(schema, 1,
+                                                          {row_ids, half_floats, scaled_decimals,
+                                                           wide_decimals, uint64_values}))
+                    .ok());
+
+    const auto doris_wide_value = static_cast<Int128>(wide_value);
+    const VExprContextSPtrs runtime_filters {
+            create_typed_runtime_in_conjunct<TYPE_FLOAT>("half_float", 1.5F,
+                                                         std::make_shared<DataTypeFloat32>(), 47),
+            create_typed_runtime_in_conjunct<TYPE_DECIMAL32>(
+                    "scaled_decimal", Decimal32(12345), std::make_shared<DataTypeDecimal32>(9, 2),
+                    48),
+            create_typed_runtime_in_conjunct<TYPE_DECIMAL128I>(
+                    "wide_decimal", Decimal128V3(doris_wide_value),
+                    std::make_shared<DataTypeDecimal128>(38, 0), 49),
+            create_typed_runtime_in_conjunct<TYPE_LARGEINT>("wide_uint64", doris_wide_value,
+                                                            std::make_shared<DataTypeInt128>(), 50),
+    };
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_unsupported_numeric_runtime_filter_fixture");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(
+            init_reader(&reader, columns, &state, &profile, &scan_params, runtime_filters).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    EXPECT_EQ(1U, block.rows());
+    ASSERT_NE(profile.get_info_string("LanceRuntimeFilterSkippedIds"), nullptr);
+    EXPECT_EQ("47,48,49,50", *profile.get_info_string("LanceRuntimeFilterSkippedIds"));
     EXPECT_TRUE(reader.close().ok());
 }
 

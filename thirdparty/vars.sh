@@ -566,10 +566,10 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.7.tar.gz"
-LANCE_C_NAME="lance-c-v0.1.7.tar.gz"
-LANCE_C_SOURCE="lance-c-0.1.7"
-LANCE_C_MD5SUM="15ef7cd20a2e1606384251cb2d41d42f"
+LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.9.tar.gz"
+LANCE_C_NAME="lance-c-v0.1.9.tar.gz"
+LANCE_C_SOURCE="lance-c-0.1.9"
+LANCE_C_MD5SUM="7138ed44e92d4bc91d5b522a6b92ed64"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
