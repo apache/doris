@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_alter_variant_table_column_with_delete") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tbName1 = "alter_table_column_dup_with_delete"
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
@@ -27,7 +27,7 @@ suite("test_alter_variant_table_column_with_delete") {
             CREATE TABLE IF NOT EXISTS ${tbName1} (
                 k1 INT,
                 v variant,
-                vv double 
+                vv double
             )
             UNIQUE KEY (k1)
             DISTRIBUTED BY HASH(k1) BUCKETS 1 properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
@@ -42,7 +42,7 @@ suite("test_alter_variant_table_column_with_delete") {
 
 
     sql """
-            ALTER TABLE ${tbName1} 
+            ALTER TABLE ${tbName1}
             MODIFY COLUMN vv text;
         """
     int max_try_secs = 120

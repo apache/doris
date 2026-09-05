@@ -188,9 +188,6 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _should_keep_column_flags;
     bool _should_keep_hash_key_column = false;
-    // if build side has variant column and need output variant column
-    // need to finalize variant column to speed up the join op
-    bool _need_finalize_variant_column = false;
 
     // ASOF JOIN: build-side expression extracted from MATCH_CONDITION's right child
     // Prepared against build child's row_desc directly (no intermediate tuple needed)

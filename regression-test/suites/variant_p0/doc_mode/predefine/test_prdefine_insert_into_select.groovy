@@ -16,7 +16,7 @@
 // under the License.
 
 suite("predefine_insert_into_select_doc_mode", "p0"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = true """
     boolean minrowszero = new Random().nextBoolean();

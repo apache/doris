@@ -18,6 +18,7 @@
 import com.google.common.collect.Lists
 
 suite("test_dereference") {
+    def variantV2Function = "parse_to_variant"
     multi_sql """
         drop table if exists test_dereference;
         create table test_dereference(
@@ -31,9 +32,9 @@ suite("test_dereference") {
         properties(
           'replication_num'='1'
         );
-        
+
         insert into test_dereference
-        values (1, array(1, 2, 3, 4, 5), map('a', 1, 'b', 2, 'c', 3), struct(1, 2), '{"v": {"v":200}}')
+        values (1, array(1, 2, 3, 4, 5), map('a', 1, 'b', 2, 'c', 3), struct(1, 2), ${variantV2Function}('{"v": {"v":200}}'))
         """
 
     test {
@@ -52,9 +53,9 @@ suite("test_dereference") {
         properties(
           'replication_num'='1'
         );
-        
+
         insert into test_dereference2
-        values (1, struct(struct(struct(100))), '{"v": {"v": 200}}')
+        values (1, struct(struct(struct(100))), ${variantV2Function}('{"v": {"v": 200}}'))
         """
 
     test {

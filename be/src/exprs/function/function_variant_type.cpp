@@ -22,7 +22,6 @@
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "exprs/function/simple_function_factory.h"
@@ -35,8 +34,6 @@ class FunctionContext;
 namespace doris {
 
 namespace {
-
-using TypeInfo = std::map<std::string, std::string>;
 
 std::string_view encoded_variant_type_word(VariantRef value) {
     switch (value.basic_type()) {
@@ -122,23 +119,6 @@ Status variant_v2_exception_status(const Exception& exception) {
     return exception.to_status();
 }
 
-void append_type_info_json(ColumnString& output, const TypeInfo& type_info) {
-    VectorBufferWriter writer(output);
-    writer.write_char('{');
-    bool first = true;
-    for (const auto& [key, value] : type_info) {
-        if (!first) {
-            writer.write_char(',');
-        }
-        first = false;
-        writer.write_json_string(key);
-        writer.write_c_string(":");
-        writer.write_json_string(value);
-    }
-    writer.write_char('}');
-    writer.commit();
-}
-
 } // namespace
 
 // get data type of variant column
@@ -157,23 +137,6 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
 
-    TypeInfo get_type_info(const Field& field) const {
-        TypeInfo result;
-        const auto& variant_map = field.get<TYPE_VARIANT>().legacy_map();
-        for (const auto& [key, value] : variant_map) {
-            if (key.empty() && value.base_scalar_type_id == PrimitiveType::TYPE_JSONB &&
-                value.num_dimensions == 0 && value.field.get<TYPE_JSONB>().get_size() == 0) {
-                // ignore empty jsonb root, it's tricky here
-                continue;
-            }
-            result[key.get_path()] =
-                    to_lower(type_to_string(value.base_scalar_type_id != PrimitiveType::INVALID_TYPE
-                                                    ? value.base_scalar_type_id
-                                                    : value.field.get_type()));
-        }
-        return result;
-    }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr materialized =
@@ -184,39 +147,17 @@ public:
             outer_nulls = nullable->get_null_map_data();
             physical = &nullable->get_nested_column();
         }
-        if (const auto* variant_v2 = check_and_get_column<ColumnVariantV2>(physical)) {
-            try {
-                block.replace_by_position(result,
-                                          execute_variant_type_v2(*variant_v2, outer_nulls));
-                return Status::OK();
-            } catch (const Exception& exception) {
-                return variant_v2_exception_status(exception);
-            }
+        const auto* variant_v2 = check_and_get_column<ColumnVariantV2>(physical);
+        if (variant_v2 == nullptr) {
+            return Status::RuntimeError("variant_type requires ColumnVariantV2, got {}",
+                                        physical->get_name());
         }
-
-        auto result_column = ColumnString::create();
-        auto result_nulls = ColumnUInt8::create();
-        result_nulls->reserve(input_rows_count);
-        const auto& arg_column = assert_cast<const ColumnVariant&>(*physical);
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (!outer_nulls.empty() && outer_nulls[i] != 0) {
-                result_column->insert_default();
-                result_nulls->insert_value(1);
-                continue;
-            }
-            const Field field = arg_column[i];
-            if (field.is_null()) {
-                result_column->insert_default();
-                result_nulls->insert_value(1);
-                continue;
-            }
-            auto type_info = get_type_info(field);
-            append_type_info_json(*result_column, type_info);
-            result_nulls->insert_value(0);
+        try {
+            block.replace_by_position(result, execute_variant_type_v2(*variant_v2, outer_nulls));
+            return Status::OK();
+        } catch (const Exception& exception) {
+            return variant_v2_exception_status(exception);
         }
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(result_column), std::move(result_nulls)));
-        return Status::OK();
     }
 };
 

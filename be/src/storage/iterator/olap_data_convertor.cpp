@@ -35,7 +35,6 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_agg_state.h"
@@ -1017,9 +1016,8 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
     const IColumn& physical_column = nullable_column == nullptr
                                              ? *typed_column.column
                                              : nullable_column->get_nested_column();
-    const bool is_v1 = check_and_get_column<ColumnVariant>(physical_column) != nullptr;
     const bool is_v2 = check_and_get_column<ColumnVariantV2>(physical_column) != nullptr;
-    _value_ptr = is_v1 || is_v2 ? &physical_column : nullptr;
+    _value_ptr = is_v2 ? &physical_column : nullptr;
     _variant_column_data.reset();
     _root_data_convertor.reset();
     if (_value_ptr == nullptr && check_and_get_column<ColumnString>(physical_column) != nullptr) {
@@ -1035,8 +1033,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVariant::convert_to_olap()
     }
     if (_root_data_convertor == nullptr) {
         return Status::InvalidArgument(
-                "Variant storage boundary requires ColumnVariant, ColumnVariantV2, or nullable "
-                "ColumnString root input, got {}",
+                "Variant storage boundary requires ColumnVariantV2 or nullable ColumnString root "
+                "input, got {}",
                 _typed_column.column->get_name());
     }
     const auto* nullable = check_and_get_column<ColumnNullable>(*_typed_column.column);

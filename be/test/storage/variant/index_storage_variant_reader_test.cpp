@@ -25,10 +25,11 @@
 
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
-#include "exec/common/variant_util.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "storage/variant/index_storage_variant_test_base.h"
+#include "util/variant/variant_test_utils.h"
 
 namespace doris::index_storage_test {
 namespace {
@@ -56,12 +57,11 @@ bool has_parent_inherited_binding(const IndexReadResult& result, std::string_vie
 }
 
 void expect_index_read(const IndexReadResult& result, int64_t expected_rows,
-                       int64_t expected_filtered_rows, std::string_view logical_path,
-                       bool use_variant_v2) {
+                       int64_t expected_filtered_rows, std::string_view logical_path) {
     EXPECT_EQ(result.rows_read, expected_rows);
     EXPECT_EQ(result.stats.rows_inverted_index_filtered, expected_filtered_rows);
     EXPECT_EQ(result.stats.inverted_index_downgrade_count, 0);
-    EXPECT_EQ(result.variant_v2_output_uids.contains(kVariantUid), use_variant_v2);
+    EXPECT_TRUE(result.variant_v2_output_uids.contains(kVariantUid));
     EXPECT_TRUE(has_accepted_binding(result, logical_path));
 }
 
@@ -79,14 +79,15 @@ void expect_variant_values(const IndexReadResult& result, int32_t unique_id,
 ColumnPtr make_nullable_doc_column(const std::vector<std::string>& jsons,
                                    const std::vector<uint8_t>& outer_nulls) {
     DORIS_CHECK_EQ(jsons.size(), outer_nulls.size());
-    auto values = ColumnVariant::create(/*max_subcolumns_count=*/2, /*enable_doc_mode=*/true);
-    auto json_column = ColumnString::create();
+    auto values = ColumnVariantV2::create();
+    JsonStringToVariantEncoder encoder({.throw_on_invalid_json = true});
     for (const auto& json : jsons) {
-        json_column->insert_data(json.data(), json.size());
+        encoder.add_json({json.data(), json.size()});
     }
-    ParseConfig config;
-    config.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
-    variant_util::parse_json_to_variant(*values, *json_column, config);
+    VariantBatchBuilder encoded = encoder.finish_batch();
+    for (size_t row = 0; row < jsons.size(); ++row) {
+        insert_encoded_field(*values, VariantField::from_ref(encoded.value_at(row)));
+    }
 
     auto null_map = ColumnUInt8::create();
     for (uint8_t value : outer_nulls) {
@@ -97,7 +98,7 @@ ColumnPtr make_nullable_doc_column(const std::vector<std::string>& jsons,
 
 } // namespace
 
-// Behavior-level reader cases run against the same rowsets through both reader generations.
+// Behavior-level reader cases exercise the V2-only storage reader.
 class IndexStorageVariantReaderTest : public IndexStorageTestFixture {};
 
 TEST_F(IndexStorageVariantReaderTest,
@@ -146,21 +147,14 @@ TEST_F(IndexStorageVariantReaderTest,
     read_options.predicates.push_back(string_equals(path_column_id, path_column.name(), "one"));
     read_options.collect_variant_values = true;
     auto verify_read = [&](const std::vector<RowsetSharedPtr>& source, std::string_view phase) {
-        for (const bool use_v2 : {false, true}) {
-            auto options = read_options;
-            options.use_variant_v2 = use_v2;
-            auto result = read_rowsets(source, std::move(options));
-            ASSERT_TRUE(result.has_value())
-                    << phase << ", use_v2=" << use_v2 << ": " << result.error();
-            expect_index_read(result.value(), 2, 2, "v.b", use_v2);
-            EXPECT_TRUE(has_parent_inherited_binding(result.value(), "v.b"))
-                    << phase << ", use_v2=" << use_v2;
-            EXPECT_EQ(result->variant_v2_output_uids.contains(-1), use_v2)
-                    << phase << ", use_v2=" << use_v2;
-            expect_variant_values(result.value(), kVariantUid,
-                                  {R"({"b":"one","residual":0})", R"({"b":"one","residual":2})"});
-            expect_variant_values(result.value(), -1, {R"("one")", R"("one")"});
-        }
+        auto result = read_rowsets(source, read_options);
+        ASSERT_TRUE(result.has_value()) << phase << ": " << result.error();
+        expect_index_read(result.value(), 2, 2, "v.b");
+        EXPECT_TRUE(has_parent_inherited_binding(result.value(), "v.b")) << phase;
+        EXPECT_TRUE(result->variant_v2_output_uids.contains(-1)) << phase;
+        expect_variant_values(result.value(), kVariantUid,
+                              {R"({"b":"one","residual":0})", R"({"b":"one","residual":2})"});
+        expect_variant_values(result.value(), -1, {R"("one")", R"("one")"});
     };
     verify_read(readable.value(), "before compaction");
 
@@ -232,17 +226,13 @@ TEST_F(IndexStorageVariantReaderTest, DocResidualRootStaysCorrectAfterIndexedPat
     read_options.target_cast_type_for_variants[path_column.name()] = nullable_string_target_type();
     read_options.predicates.push_back(string_equals(path_column_id, path_column.name(), "hit"));
     read_options.collect_variant_values = true;
-    for (const bool use_v2 : {false, true}) {
-        auto options = read_options;
-        options.use_variant_v2 = use_v2;
-        auto read_result = read_rowsets(readable.value(), std::move(options));
-        ASSERT_TRUE(read_result.has_value()) << "use_v2=" << use_v2 << ": " << read_result.error();
-        expect_index_read(read_result.value(), 2, 1, "v.indexed", use_v2);
-        expect_variant_values(read_result.value(), kVariantUid,
-                              {R"({"indexed":"hit","residual":{"arr":[1,2]}})",
-                               R"({"indexed":"hit","residual":{"nested":{"v":3}}})"});
-        EXPECT_GT(read_result->stats.variant_doc_value_column_iter_count, 0) << "use_v2=" << use_v2;
-    }
+    auto read_result = read_rowsets(readable.value(), std::move(read_options));
+    ASSERT_TRUE(read_result.has_value()) << read_result.error();
+    expect_index_read(read_result.value(), 2, 1, "v.indexed");
+    expect_variant_values(read_result.value(), kVariantUid,
+                          {R"({"indexed":"hit","residual":{"arr":[1,2]}})",
+                           R"({"indexed":"hit","residual":{"nested":{"v":3}}})"});
+    EXPECT_GT(read_result->stats.variant_doc_value_column_iter_count, 0);
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros inflate the matrix.
@@ -300,47 +290,36 @@ TEST_F(IndexStorageVariantReaderTest, DocV3ExactPrefixDefaultAndNullMatrix) {
     ASSERT_GE(prefix_column_id, 0) << dump_schema_paths(*tablet_schema());
     ASSERT_GE(absent_column_id, 0) << dump_schema_paths(*tablet_schema());
 
-    auto read_column = [&](int32_t column_id, bool use_variant_v2) {
+    auto read_column = [&](int32_t column_id) {
         IndexReadOptions read_options;
         read_options.need_ordered_result = true;
         read_options.return_columns = {0, static_cast<uint32_t>(column_id)};
         read_options.collect_variant_values = true;
-        read_options.use_variant_v2 = use_variant_v2;
         return read_rowsets(readable.value(), std::move(read_options));
     };
 
-    std::map<int32_t, std::vector<std::optional<std::string>>> v1_values_by_column_id;
-    auto verify_column = [&](int32_t column_id, int32_t unique_id, bool use_v2,
-                             int64_t OlapReaderStatistics::*route_counter) {
-        auto result = read_column(column_id, use_v2);
-        ASSERT_TRUE(result.has_value()) << "use_v2=" << use_v2 << ": " << result.error();
-        EXPECT_EQ(result->variant_v2_output_uids.contains(unique_id), use_v2);
-        EXPECT_GT(result->stats.*route_counter, 0) << "use_v2=" << use_v2;
-        ASSERT_TRUE(result->variant_values_by_uid.contains(unique_id));
-        auto logical_values = canonical_variant_values(result->variant_values_by_uid.at(unique_id));
-        if (use_v2) {
-            EXPECT_EQ(logical_values, v1_values_by_column_id.at(column_id))
-                    << "column_id=" << column_id;
-        } else {
-            v1_values_by_column_id[column_id] = std::move(logical_values);
-        }
+    auto verify_column = [&](int32_t column_id, int32_t unique_id,
+                             int64_t OlapReaderStatistics::*route_counter,
+                             const std::vector<std::optional<std::string>>& expected) {
+        auto result = read_column(column_id);
+        ASSERT_TRUE(result.has_value()) << result.error();
+        EXPECT_TRUE(result->variant_v2_output_uids.contains(unique_id));
+        EXPECT_GT(result->stats.*route_counter, 0);
+        expect_variant_values(result.value(), unique_id, expected);
     };
 
-    for (const bool use_v2 : {false, true}) {
-        verify_column(root_column_id, kVariantUid, use_v2,
-                      &OlapReaderStatistics::variant_doc_value_column_iter_count);
-        verify_column(exact_column_id, -1, use_v2,
-                      &OlapReaderStatistics::variant_subtree_sparse_iter_count);
-        verify_column(prefix_column_id, -1, use_v2,
-                      &OlapReaderStatistics::variant_doc_value_column_iter_count);
-        verify_column(absent_column_id, -1, use_v2,
-                      &OlapReaderStatistics::variant_subtree_default_iter_count);
-    }
-
-    EXPECT_EQ(v1_values_by_column_id.at(root_column_id),
-              canonical_variant_values({std::nullopt, "{}", "{}", R"({"other":1})",
-                                        R"({"exact":"x","obj":{"arr":[1,{"z":2}],"child":1}})",
-                                        R"({"exact":[1,2]})"}));
+    verify_column(root_column_id, kVariantUid,
+                  &OlapReaderStatistics::variant_doc_value_column_iter_count,
+                  {std::nullopt, "{}", "{}", R"({"other":1})",
+                   R"({"exact":"x","obj":{"arr":[1,{"z":2}],"child":1}})", R"({"exact":[1,2]})"});
+    verify_column(exact_column_id, -1, &OlapReaderStatistics::variant_subtree_sparse_iter_count,
+                  {std::nullopt, std::nullopt, std::nullopt, std::nullopt, R"("x")", R"([1,2])"});
+    verify_column(prefix_column_id, -1, &OlapReaderStatistics::variant_doc_value_column_iter_count,
+                  {std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                   R"({"arr":[1,{"z":2}],"child":1})", std::nullopt});
+    verify_column(
+            absent_column_id, -1, &OlapReaderStatistics::variant_subtree_default_iter_count,
+            {std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt});
 }
 
 } // namespace doris::index_storage_test

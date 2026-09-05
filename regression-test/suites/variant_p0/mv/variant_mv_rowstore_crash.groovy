@@ -22,7 +22,7 @@
 
 suite("variant_mv_rowstore_crash", "variant_type") {
 
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tbl = "var_mv_rs_tbl"
     def mv_name = "var_mv_rs_mv"
 
@@ -68,8 +68,7 @@ suite("variant_mv_rowstore_crash", "variant_type") {
     order_qt_mv "SELECT * FROM ${mv_name} ORDER BY k"
 
     // Test 2: INSERT INTO ... SELECT variant subcolumn into rowstore table
-    // This ensures variant goes through parse_and_materialize_variant_columns
-    // with ensure_root_node_type path
+    // This ensures a Variant subcolumn is materialized into the row-store target.
     def tbl3 = "var_rs_target_tbl"
     sql "DROP TABLE IF EXISTS ${tbl3}"
     sql """

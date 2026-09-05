@@ -73,6 +73,29 @@ public class VariantPruningLogicTest extends TestWithFeService {
     }
 
     @Test
+    public void testConstantUnionKeepsNestedSubPathOrder() throws Exception {
+        String explain = getSQLPlanOrErrorMsg("select c2['a']['b'] = 1 from "
+                + "(select id, c1 as c2 from "
+                + "(select parse_to_variant('{\"a\":{\"b\":1}}') as c1, 0 as id union all "
+                + "select parse_to_variant('{\"a\":{\"b\":1}}') as c1, 2 as id) tmp "
+                + "order by id limit 100) tmp order by id", true);
+        Assertions.assertTrue(explain.contains(
+                "element_at(element_at(parse_to_variant('{\"a\":{\"b\":1}}'), 'a'), 'b')"), explain);
+        Assertions.assertFalse(explain.contains(
+                "element_at(element_at(parse_to_variant('{\"a\":{\"b\":1}}'), 'b'), 'a')"), explain);
+    }
+
+    @Test
+    public void testOneRowRelationKeepsNestedSubPathOrder() throws Exception {
+        String explain = getSQLPlanOrErrorMsg("select c1['a']['b'] from "
+                + "(select parse_to_variant('{\"a\":{\"b\":1}}') as c1) tmp", true);
+        Assertions.assertTrue(explain.contains(
+                "element_at(element_at(parse_to_variant('{\"a\":{\"b\":1}}'), 'a'), 'b')"), explain);
+        Assertions.assertFalse(explain.contains(
+                "element_at(element_at(parse_to_variant('{\"a\":{\"b\":1}}'), 'b'), 'a')"), explain);
+    }
+
+    @Test
     public void testVariantArraySubscriptUsesPrunedSubPath() throws Exception {
         String sql = "select cast(v['items']['type'] as array<string>)[1] from variant_tbl";
         String explain = getSQLPlanOrErrorMsg(sql, true);
