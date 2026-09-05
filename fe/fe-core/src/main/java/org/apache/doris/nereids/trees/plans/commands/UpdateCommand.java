@@ -52,6 +52,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -197,7 +198,9 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                         break;
                     }
                 }
-                if (column.isKey() || existInExpr) {
+                boolean isGeneratedColumnDependency = column.getGeneratedColumnInfo() == null
+                        && CollectionUtils.isNotEmpty(column.getGeneratedColumnsThatReferToThis());
+                if (column.isKey() || existInExpr || isGeneratedColumnDependency) {
                     partialUpdateSelectItems.add(expr instanceof UnboundSlot
                             ? ((NamedExpression) expr)
                             : new UnboundAlias(expr));
