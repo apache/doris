@@ -42,6 +42,8 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
     private OriginStatement originStatement;
     @SerializedName(value = "sqlMode")
     private Long sqlMode;
+    @SerializedName(value = "sessionVariables")
+    private Map<String, String> sessionVariables;
 
     public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
             AbstractDataSourceProperties dataSourceProperties) {
@@ -55,11 +57,18 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
 
     public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
             AbstractDataSourceProperties dataSourceProperties, OriginStatement originStatement, Long sqlMode) {
+        this(jobId, jobProperties, dataSourceProperties, originStatement, sqlMode, null);
+    }
+
+    public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
+            AbstractDataSourceProperties dataSourceProperties, OriginStatement originStatement, Long sqlMode,
+            Map<String, String> sessionVariables) {
         this.jobId = jobId;
         this.jobProperties = jobProperties;
         this.dataSourceProperties = dataSourceProperties;
         this.originStatement = originStatement;
         this.sqlMode = sqlMode;
+        this.sessionVariables = sessionVariables;
     }
 
     public long getJobId() {
@@ -80,6 +89,10 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
 
     public Long getSqlMode() {
         return sqlMode;
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
     }
 
     public static AlterRoutineLoadJobOperationLog read(DataInput in) throws IOException {

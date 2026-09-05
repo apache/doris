@@ -793,14 +793,15 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
             if (command.hasLoadProperty()) {
                 setRoutineLoadDesc(command.getRoutineLoadDesc());
-                updateLoadDefinitionSqlMode(command.getSqlMode());
+                updateLoadDefinitionSessionVariables(command.getSessionVariables(), command.getSqlMode());
                 mergeLoadDescToOriginStatement();
             }
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
                     jobProperties, dataSourceProperties,
                     command.hasLoadProperty() ? command.getOriginStatement() : null,
-                    command.hasLoadProperty() ? command.getSqlMode() : null);
+                    command.hasLoadProperty() ? command.getSqlMode() : null,
+                    command.hasLoadProperty() ? command.getSessionVariables() : null);
             Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
         } finally {
             writeUnlock();
@@ -927,7 +928,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
             modifyPropertiesInternal(log.getJobProperties(), (KafkaDataSourceProperties) log.getDataSourceProperties());
-            replayLoadDefinition(log.getOriginStatement(), log.getSqlMode());
+            replayLoadDefinition(log.getOriginStatement(), log.getSqlMode(), log.getSessionVariables());
         } catch (UserException e) {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);

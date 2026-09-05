@@ -2008,6 +2008,7 @@ public abstract class RoutineLoadJob
             ctx.setStatementContext(statementContext);
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(sessionVariables);
             if (sessionVariables.containsKey(SessionVariable.SQL_MODE)) {
                 ctx.getSessionVariable().setSqlMode(Long.parseLong(sessionVariables.get(SessionVariable.SQL_MODE)));
             }
@@ -2045,18 +2046,22 @@ public abstract class RoutineLoadJob
         }
     }
 
-    protected void replayLoadDefinition(OriginStatement alterStatement, Long sqlMode) {
+    protected void replayLoadDefinition(OriginStatement alterStatement, Long sqlMode,
+            Map<String, String> alterSessionVariables) {
         if (alterStatement == null) {
             return;
         }
         Database database = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get();
         ConnectContext ctx = createLoadDefinitionContext(database, sqlMode);
+        // Old journals have no snapshot and retain the existing recovery context.
+        ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(alterSessionVariables);
         try {
             ctx.setThreadLocalInfo();
             AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) parsePersistedStatement(alterStatement);
             if (command.hasLoadProperty()) {
                 setRoutineLoadDesc(command.analyzeLoadProperties(ctx, this));
-                sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(ctx.getSessionVariable().getSqlMode()));
+                updateLoadDefinitionSessionVariables(ctx.getSessionVariable().getAffectQueryResultInPlanVariables(),
+                        ctx.getSessionVariable().getSqlMode());
                 mergeLoadDescToOriginStatement();
             }
         } catch (UserException e) {
@@ -2064,6 +2069,10 @@ public abstract class RoutineLoadJob
         } finally {
             ctx.cleanup();
         }
+    }
+
+    protected void replayLoadDefinition(OriginStatement alterStatement, Long sqlMode) {
+        replayLoadDefinition(alterStatement, sqlMode, null);
     }
 
     protected void replayLoadDefinition(OriginStatement alterStatement) {
@@ -2078,6 +2087,7 @@ public abstract class RoutineLoadJob
         ctx.setStatementContext(statementContext);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+        ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(sessionVariables);
         if (sqlMode != null) {
             ctx.getSessionVariable().setSqlMode(sqlMode);
         } else if (sessionVariables.containsKey(SessionVariable.SQL_MODE)) {
@@ -2110,7 +2120,10 @@ public abstract class RoutineLoadJob
         origStmt = effectiveStatement;
     }
 
-    protected void updateLoadDefinitionSqlMode(long sqlMode) {
+    protected void updateLoadDefinitionSessionVariables(Map<String, String> alterSessionVariables, long sqlMode) {
+        if (alterSessionVariables != null) {
+            sessionVariables.putAll(alterSessionVariables);
+        }
         sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(sqlMode));
     }
 

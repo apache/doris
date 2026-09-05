@@ -90,6 +90,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     private RoutineLoadDesc routineLoadDesc;
     private OriginStatement originStatement;
     private long sqlMode;
+    private Map<String, String> sessionVariables;
     private final Map<String, String> jobProperties;
     private final Map<String, String> dataSourceMapProperties;
     private boolean isPartialUpdate;
@@ -164,6 +165,10 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         return sqlMode;
     }
 
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
     /** Analyze only the load-clause delta while replaying the persisted ALTER statement. */
     public RoutineLoadDesc analyzeLoadProperties(ConnectContext ctx, RoutineLoadJob job) throws UserException {
         return CreateRoutineLoadInfo.checkLoadProperties(ctx, loadPropertyMap,
@@ -175,6 +180,9 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         validate(ctx);
         originStatement = ctx.getStatementContext().getOriginStatement();
         sqlMode = ctx.getSessionVariable().getSqlMode();
+        if (hasLoadProperty()) {
+            sessionVariables = ctx.getSessionVariable().getAffectQueryResultInPlanVariables();
+        }
         ctx.getEnv().getRoutineLoadManager().alterRoutineLoadJob(this);
     }
 

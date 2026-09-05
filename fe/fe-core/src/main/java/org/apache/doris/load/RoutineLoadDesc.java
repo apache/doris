@@ -38,9 +38,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class RoutineLoadDesc {
+    private static final Pattern SINGLE_QUOTED_SEPARATOR = Pattern.compile("(?:\\\\.|''|[^'\\\\])*", Pattern.DOTALL);
+    private static final Pattern SINGLE_QUOTED_SEPARATOR_NO_BACKSLASH_ESCAPES = Pattern.compile("(?:''|[^'])*");
     private static final Set<String> JSON_FUNCTIONS_WITH_ESCAPED_DISPLAY_SQL = ImmutableSet.of(
             "json_quote", "json_array", "json_object", "json_insert", "json_replace", "json_set");
 
@@ -145,7 +148,11 @@ public class RoutineLoadDesc {
             // oriSeparator is already the encoded spelling consumed by Separator.convertSeparator().
             // Escaping its backslashes again would turn \t and \x01 into literal backslash sequences.
             String separator = columnSeparator.getOriSeparator();
-            String quote = separator.contains("'") ? "\"" : "'";
+            // Keep the encoded spelling intact, including escaped or doubled quotes. A single quote
+            // in the spelling does not require double quoting when the SQL lexer already accepts it.
+            Pattern singleQuotedSeparator = SqlModeHelper.hasNoBackSlashEscapes()
+                    ? SINGLE_QUOTED_SEPARATOR_NO_BACKSLASH_ESCAPES : SINGLE_QUOTED_SEPARATOR;
+            String quote = singleQuotedSeparator.matcher(separator).matches() ? "'" : "\"";
             clauses.add("COLUMNS TERMINATED BY " + quote + separator + quote);
         }
         if (columnsInfo != null) {
