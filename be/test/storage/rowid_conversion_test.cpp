@@ -534,7 +534,7 @@ TEST_F(TestRowIdConversion, Basic) {
     rowid_conversion.set_dst_rowset_id(dst_rowset);
 
     std::vector<uint32_t> dst_segment_num_rows = {4, 3, 4};
-    rowid_conversion.add(rss_row_ids, dst_segment_num_rows);
+    ASSERT_TRUE(rowid_conversion.add(rss_row_ids, dst_segment_num_rows).ok());
 
     int res = 0;
     src_rowset.init(0);
@@ -601,7 +601,7 @@ TEST_F(TestRowIdConversion, ConvertDestinationPositionToPhysicalSegmentId) {
     RowIdConversion rowid_conversion;
     ASSERT_TRUE(rowid_conversion.init_segment_map(input_rowset_id, {10}, {1}).ok());
     rowid_conversion.set_dst_rowset_id(output_rowset_id);
-    rowid_conversion.add({RowLocation(input_rowset_id, 10, 0)}, {1});
+    ASSERT_TRUE(rowid_conversion.add({RowLocation(input_rowset_id, 10, 0)}, {1}).ok());
 
     DeleteBitmap input_delete_bitmap(1);
     input_delete_bitmap.add({input_rowset_id, 10, 5}, 0);
@@ -620,6 +620,79 @@ TEST_F(TestRowIdConversion, ConvertDestinationPositionToPhysicalSegmentId) {
     EXPECT_EQ(src.segment_id, 10);
     EXPECT_EQ(dst.rowset_id, output_rowset_id);
     EXPECT_EQ(dst.segment_id, 100);
+}
+
+TEST_F(TestRowIdConversion, LazyChunkedOnlyAllocatesTouchedRows) {
+    constexpr uint32_t NUM_ROWS = 1'000'000;
+    RowsetId src_rowset;
+    src_rowset.init(1);
+    RowsetId dst_rowset;
+    dst_rowset.init(2);
+
+    RowIdConversion rowid_conversion(RowIdConversion::Mode::LAZY_CHUNKED);
+    ASSERT_TRUE(rowid_conversion.init_segment_map(src_rowset, {10}, {NUM_ROWS}).ok());
+    rowid_conversion.set_dst_rowset_id(dst_rowset);
+    ASSERT_TRUE(rowid_conversion
+                        .add({RowLocation(src_rowset, 10, 0),
+                              RowLocation(src_rowset, 10, NUM_ROWS - 1)},
+                             {1, 1})
+                        .ok());
+
+    RowIdConversion::DestinationRowId dst;
+    ASSERT_EQ(rowid_conversion.get(RowLocation(src_rowset, 10, 0), &dst), 0);
+    EXPECT_EQ(dst.segment_pos, 0);
+    EXPECT_EQ(dst.row_id, 0);
+    ASSERT_EQ(rowid_conversion.get(RowLocation(src_rowset, 10, NUM_ROWS - 1), &dst), 0);
+    EXPECT_EQ(dst.segment_pos, 1);
+    EXPECT_EQ(dst.row_id, 0);
+    EXPECT_EQ(rowid_conversion.get(RowLocation(src_rowset, 10, NUM_ROWS / 2), &dst), -1);
+    EXPECT_LT(rowid_conversion.memory_usage(), 1024 * 1024);
+}
+
+TEST_F(TestRowIdConversion, LazyChunkedHandlesMultipleSegmentsAndBoundaries) {
+    constexpr uint32_t CHUNK_SIZE = 4096;
+    RowsetId first_rowset;
+    first_rowset.init(1);
+    RowsetId second_rowset;
+    second_rowset.init(2);
+
+    RowIdConversion rowid_conversion(RowIdConversion::Mode::LAZY_CHUNKED);
+    ASSERT_TRUE(
+            rowid_conversion.init_segment_map(first_rowset, {10, 11}, {CHUNK_SIZE + 1, 2}).ok());
+    ASSERT_TRUE(rowid_conversion.init_segment_map(second_rowset, {10}, {CHUNK_SIZE * 2 + 1}).ok());
+    const size_t memory_usage = rowid_conversion.memory_usage();
+    ASSERT_TRUE(
+            rowid_conversion.init_segment_map(first_rowset, {10, 11}, {CHUNK_SIZE + 1, 2}).ok());
+    EXPECT_EQ(rowid_conversion.get_src_segment_to_id_map().size(), 3);
+    EXPECT_EQ(rowid_conversion.memory_usage(), memory_usage);
+
+    ASSERT_TRUE(rowid_conversion
+                        .add({RowLocation(first_rowset, 10, CHUNK_SIZE - 1),
+                              RowLocation(first_rowset, 10, CHUNK_SIZE),
+                              RowLocation(first_rowset, 11, 1),
+                              RowLocation(second_rowset, 10, CHUNK_SIZE * 2)},
+                             {2, 2})
+                        .ok());
+
+    auto expect_destination = [&](const RowsetId& rowset_id, uint32_t segment_id, uint32_t row_id,
+                                  uint32_t segment_pos, uint32_t destination_row_id) {
+        RowIdConversion::DestinationRowId destination;
+        ASSERT_EQ(rowid_conversion.get(RowLocation(rowset_id, segment_id, row_id), &destination),
+                  0);
+        EXPECT_EQ(destination.segment_pos, segment_pos);
+        EXPECT_EQ(destination.row_id, destination_row_id);
+    };
+    expect_destination(first_rowset, 10, CHUNK_SIZE - 1, 0, 0);
+    expect_destination(first_rowset, 10, CHUNK_SIZE, 0, 1);
+    expect_destination(first_rowset, 11, 1, 1, 0);
+    expect_destination(second_rowset, 10, CHUNK_SIZE * 2, 1, 1);
+
+    RowIdConversion::DestinationRowId destination;
+    EXPECT_EQ(rowid_conversion.get(RowLocation(first_rowset, 10, 0), &destination), -1);
+    EXPECT_EQ(rowid_conversion.get(RowLocation(second_rowset, 10, CHUNK_SIZE), &destination), -1);
+    EXPECT_EQ(rowid_conversion.get(RowLocation(first_rowset, 10, CHUNK_SIZE + 1), &destination),
+              -1);
+    EXPECT_EQ(rowid_conversion.get(RowLocation(first_rowset, 12, 0), &destination), -1);
 }
 
 TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComplete) {
