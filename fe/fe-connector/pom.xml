@@ -53,7 +53,7 @@ under the License.
           The contract this version describes spans fe-connector-spi and - because
           connector plugins link them too - fe-extension-spi and fe-filesystem-api. Changing either
           of the latter two means bumping this property as well (and fe-extension-spi means bumping
-          all four families).
+          all five families).
         -->
         <connector.plugin.api.version>6.0</connector.plugin.api.version>
     </properties>

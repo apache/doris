@@ -173,8 +173,11 @@ public class ShowRoutineLoadTaskCommand extends ShowCommand {
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName,
                     PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, "LOAD",
-                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                // Two placeholders, two arguments: ERR_DBACCESS_DENIED_ERROR reads "Access denied for user
+                // '%s' to database '%s'", so the extra "LOAD" and remote IP used to shift the user name into
+                // the position of the database and print the privilege as the user.
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                        ConnectContext.get().getQualifiedUser(),
                         dbFullName);
             }
             rows.addAll(routineLoadJob.getTasksShowInfo());

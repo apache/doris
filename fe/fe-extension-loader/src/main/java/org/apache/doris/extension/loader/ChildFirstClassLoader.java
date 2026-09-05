@@ -49,6 +49,15 @@ public class ChildFirstClassLoader extends URLClassLoader {
         packages.add("org.apache.logging.");
         packages.add("org.apache.doris.extension.spi.");
         packages.add("org.apache.doris.connector.spi.");
+        // The authorization vocabulary a plugin answers in - a row filter, a column mask, the resource being
+        // asked about. Loaded child-first these become a second set of types, and the engine refuses an answer
+        // carrying them with a message that names the same class twice. Mandatory for every family rather
+        // than only for authorization - see ClassLoadingPolicy, which unions this list into all of them -
+        // because a plugin of any family may carry the api jar without publishing an authorization source.
+        // It does not reach the deprecated AccessControllerFactory channel: that one loads its jars through
+        // org.apache.doris.common.util.ChildFirstClassLoader, a different class, which keeps a list of its
+        // own.
+        packages.add("org.apache.doris.authorization.");
         DEFAULT_PARENT_FIRST_PACKAGES = Collections.unmodifiableList(packages);
     }
 

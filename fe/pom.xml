@@ -240,6 +240,7 @@ under the License.
         <module>hive-udf</module>
         <module>be-java-extensions</module>
         <module>fe-authentication</module>
+        <module>fe-authorization</module>
         <module>fe-thrift</module>
         <module>fe-type</module>
         <module>fe-grpc</module>
@@ -412,6 +413,8 @@ under the License.
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
         <ranger-plugins-common.version>2.8.0</ranger-plugins-common.version>
+        <!-- Matches the jersey-core the FE already carries; only the Ranger plugins ask for it. -->
+        <jersey.version>1.19.4</jersey.version>
         <!-- Huawei IAM pulls bcprov-jdk15on 1.69, whose final 1.70 release is vulnerable to
              CVE-2023-33202. Use the compatible jdk18on line at 1.84, which also fixes
              CVE-2025-14813, CVE-2026-0636, CVE-2026-3505, CVE-2026-5588, and CVE-2026-5598. -->
@@ -1289,6 +1292,18 @@ under the License.
                         <artifactId>jersey-bundle</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <!--
+              Ranger's admin REST client is Jersey 1.x. The jersey-bundle exclusion above keeps that
+              fat jar's JSR-311 copy off the FE's own classpath (#37575), which also leaves nothing
+              behind for RangerAdminRESTClient to use. Inside fe-core that never showed, because
+              nothing there constructed one; the Ranger authorization sources do. Version managed
+              here for both the FE itself and the plugins that bundle it as a fallback.
+            -->
+            <dependency>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-client</artifactId>
+                <version>${jersey.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.objenesis</groupId>
