@@ -17,7 +17,7 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnType;
 
 import com.zaxxer.hikari.HikariDataSource;
 

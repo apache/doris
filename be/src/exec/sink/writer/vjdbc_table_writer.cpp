@@ -76,8 +76,8 @@ VJdbcTableWriter::VJdbcTableWriter(const TDataSink& t_sink,
           _use_transaction(t_sink.jdbc_table_sink.use_transaction) {}
 
 Status VJdbcTableWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
-    _writer = std::make_unique<VJniFormatTransformer>(
-            state, _vec_output_expr_ctxs, "org/apache/doris/jdbc/JdbcJniWriter", _writer_params);
+    _writer = std::make_unique<VJniFormatTransformer>(state, _vec_output_expr_ctxs,
+                                                      Jni::plugin::JDBC_WRITER, _writer_params);
     return _writer->open();
 }
 

@@ -34,7 +34,10 @@
 
 namespace doris {
 
-#ifdef USE_DORIS_HADOOP_HDFS
+// The logger below is doris-thirdparty's libhdfs extension (hdfsSetLogger), which the standard
+// hadoop libhdfs does not have. It used to sit behind USE_DORIS_HADOOP_HDFS; that macro is now
+// defined unconditionally in be/CMakeLists.txt, because the libhdfs3 alternative is gone and
+// hadoop_hdfs_3_4 from doris-thirdparty is the only libhdfs the BE links against.
 void err_log_message(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -88,13 +91,10 @@ void va_err_log_message(const char* fmt, va_list ap) {
 
 struct hdfsLogger logger = {.errLogMessage = err_log_message,
                             .vaErrLogMessage = va_err_log_message};
-#endif // #ifdef USE_DORIS_HADOOP_HDFS
 
 Status HDFSCommonBuilder::init_hdfs_builder() {
-#ifdef USE_DORIS_HADOOP_HDFS
     static std::once_flag flag;
     std::call_once(flag, []() { hdfsSetLogger(&logger); });
-#endif // #ifdef USE_DORIS_HADOOP_HDFS
 
     hdfs_builder = hdfsNewBuilder();
     if (hdfs_builder == nullptr) {
@@ -225,10 +225,8 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
         builder->hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
         builder->hdfs_kerberos_keytab = hdfsParams.hdfs_kerberos_keytab;
         hdfsBuilderSetPrincipal(builder->get(), builder->hdfs_kerberos_principal.c_str());
-#ifdef USE_HADOOP_HDFS
         hdfsBuilderSetKerb5Conf(builder->get(), doris::config::kerberos_krb5_conf_path.c_str());
         hdfsBuilderSetKeyTabFile(builder->get(), builder->hdfs_kerberos_keytab.c_str());
-#endif
         hdfsBuilderConfSetStr(builder->get(), "hadoop.kerberos.keytab.login.autorenewal.enabled",
                               "true");
         // RETURN_IF_ERROR(builder->set_kerberos_ticket_cache());

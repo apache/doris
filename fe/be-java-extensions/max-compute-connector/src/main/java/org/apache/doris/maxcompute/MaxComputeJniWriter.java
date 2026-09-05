@@ -17,10 +17,9 @@
 
 package org.apache.doris.maxcompute;
 
-import org.apache.doris.common.jni.JniWriter;
-import org.apache.doris.common.jni.vec.VectorColumn;
-import org.apache.doris.common.jni.vec.VectorTable;
-import org.apache.doris.common.maxcompute.MCProperties;
+import org.apache.doris.jni.spi.JniWriter;
+import org.apache.doris.jni.spi.vec.VectorColumn;
+import org.apache.doris.jni.spi.vec.VectorTable;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsType;
@@ -59,7 +58,8 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.complex.StructVector;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -78,10 +78,12 @@ import java.util.Objects;
 
 /**
  * MaxComputeJniWriter writes C++ Block data to MaxCompute tables via Storage API (Arrow).
- * Loaded by C++ as: org/apache/doris/maxcompute/MaxComputeJniWriter
+ *
+ * <p>BE never names this class. It asks for the {@code (max-compute, writer)} pair and gets back
+ * whatever {@link MaxComputeWriterFactory} builds; the class name is this plugin's business alone.
  */
 public class MaxComputeJniWriter extends JniWriter {
-    private static final Logger LOG = Logger.getLogger(MaxComputeJniWriter.class);
+    private static final Logger LOG = LoggerFactory.getLogger(MaxComputeJniWriter.class);
 
     private static final String ACCESS_KEY = "access_key";
     private static final String SECRET_KEY = "secret_key";
@@ -159,7 +161,7 @@ public class MaxComputeJniWriter extends JniWriter {
     }
 
     @Override
-    public void open() throws IOException {
+    protected void openInternal() throws IOException {
         try {
             Odps odps = MCUtils.createMcClient(params);
             odps.setDefaultProject(project);
@@ -968,7 +970,7 @@ public class MaxComputeJniWriter extends JniWriter {
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         try {
             closeCurrentBatchWriterAndCollectCommit();
             if (allocator != null) {
@@ -990,7 +992,7 @@ public class MaxComputeJniWriter extends JniWriter {
     }
 
     @Override
-    public Map<String, String> getStatistics() {
+    protected Map<String, String> collectStatistics() {
         Map<String, String> stats = new HashMap<>();
         stats.put("mc_partition_spec", partitionSpec != null ? partitionSpec : "");
 

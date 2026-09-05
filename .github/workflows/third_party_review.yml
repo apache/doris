@@ -76,8 +76,11 @@ jobs:
           # org.junit.jupiter:junit-jupiter is EPL-2.0, a licence allow-licenses above already
           # carries, but GitHub's dependency graph reports it as LicenseRef-bad-non-standard, so
           # every pull request that adds a module with a JUnit 5 test fails on a licence the
-          # project has already approved. junit:junit is EPL-1.0, an ASF Category B licence, and
-          # the JUnit 4 tests that need it run through junit-vintage-engine.
+          # project has already approved. junit:junit is EPL-1.0, an ASF Category B licence. No
+          # pom declares it any more - the fe reactor runs no JUnit 4 test and carries no vintage
+          # engine - but it still arrives transitively via guava-testlib (fe-core, test) and
+          # hive-exec -> zookeeper -> jline (hive-udf, provided), and the standalone samples/
+          # projects declare it directly, so the exception stays.
           allow-dependencies-licenses: >-
             pkg:npm/caniuse-lite@1.0.30001809,
             pkg:maven/org.junit.jupiter/junit-jupiter,

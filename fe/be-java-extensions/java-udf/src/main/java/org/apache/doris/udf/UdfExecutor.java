@@ -19,17 +19,14 @@ package org.apache.doris.udf;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.exception.InternalException;
-import org.apache.doris.common.exception.UdfRuntimeException;
-import org.apache.doris.common.jni.utils.JavaUdfDataType;
-import org.apache.doris.common.jni.utils.UdfClassCache;
-import org.apache.doris.common.jni.utils.UdfUtils;
-import org.apache.doris.common.jni.vec.VectorTable;
+import org.apache.doris.jni.spi.ThreadContextClassLoader;
+import org.apache.doris.jni.spi.vec.VectorTable;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
@@ -38,7 +35,7 @@ import java.util.ArrayList;
 import java.util.Map;
 
 public class UdfExecutor extends BaseExecutor {
-    public static final Logger LOG = Logger.getLogger(UdfExecutor.class);
+    public static final Logger LOG = LoggerFactory.getLogger(UdfExecutor.class);
     private static final String UDF_PREPARE_FUNCTION_NAME = "prepare";
     private static final String UDF_FUNCTION_NAME = "evaluate";
 
@@ -61,7 +58,7 @@ public class UdfExecutor extends BaseExecutor {
     }
 
     public long evaluate(Map<String, String> inputParams, Map<String, String> outputParams) throws UdfRuntimeException {
-        try {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(udfClassLoader())) {
             VectorTable inputTable = VectorTable.createReadableTable(inputParams);
             int numRows = inputTable.getNumRows();
             int numColumns = inputTable.getNumColumns();
@@ -112,7 +109,7 @@ public class UdfExecutor extends BaseExecutor {
         super.init(request, jarPath, funcRetType, parameterTypes);
         Method prepareMethod = objCache.allMethods.get(UDF_PREPARE_FUNCTION_NAME);
         if (prepareMethod != null) {
-            try {
+            try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(udfClassLoader())) {
                 prepareMethod.invoke(udf);
             } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
                 throw new UdfRuntimeException("Unable to call UDF prepare function.", e);
