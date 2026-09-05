@@ -21,8 +21,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 
@@ -31,59 +31,59 @@ public class DebugUtilTest {
     public void testGetUint() {
         Pair<Double, String> result;
         result = DebugUtil.getUint(2000000000L);
-        Assert.assertEquals(Double.valueOf(2.0), result.first);
-        Assert.assertEquals(result.second, "B");
+        Assertions.assertEquals(Double.valueOf(2.0), result.first);
+        Assertions.assertEquals(result.second, "B");
 
         result = DebugUtil.getUint(1234567L);
-        Assert.assertEquals(result.first, Double.valueOf(1.234567));
-        Assert.assertEquals(result.second, "M");
+        Assertions.assertEquals(result.first, Double.valueOf(1.234567));
+        Assertions.assertEquals(result.second, "M");
 
         result = DebugUtil.getUint(1234L);
-        Assert.assertEquals(result.first, Double.valueOf(1.234));
-        Assert.assertEquals(result.second, "K");
+        Assertions.assertEquals(result.first, Double.valueOf(1.234));
+        Assertions.assertEquals(result.second, "K");
 
         result = DebugUtil.getUint(123L);
-        Assert.assertEquals(result.first, Double.valueOf(123.0));
-        Assert.assertEquals(result.second, "");
+        Assertions.assertEquals(result.first, Double.valueOf(123.0));
+        Assertions.assertEquals(result.second, "");
     }
 
     @Test
     public void testGetPrettyStringMs() {
         // 6hour1min
-        Assert.assertEquals("6hour1min", DebugUtil.getPrettyStringMs(21660222));
+        Assertions.assertEquals("6hour1min", DebugUtil.getPrettyStringMs(21660222));
 
         // 1min222ms
-        Assert.assertEquals("1min", DebugUtil.getPrettyStringMs(60222));
+        Assertions.assertEquals("1min", DebugUtil.getPrettyStringMs(60222));
 
         // 2s222ms
-        Assert.assertEquals("2sec222ms", DebugUtil.getPrettyStringMs(2222));
+        Assertions.assertEquals("2sec222ms", DebugUtil.getPrettyStringMs(2222));
 
         // 22ms
-        Assert.assertEquals("22ms", DebugUtil.getPrettyStringMs(22));
+        Assertions.assertEquals("22ms", DebugUtil.getPrettyStringMs(22));
     }
 
     @Test
     public void testGetByteUint() {
         Pair<Double, String> result;
         result = DebugUtil.getByteUint(0);
-        Assert.assertEquals(result.first,  Double.valueOf(0.0));
-        Assert.assertEquals(result.second, "");
+        Assertions.assertEquals(result.first,  Double.valueOf(0.0));
+        Assertions.assertEquals(result.second, "");
 
         result = DebugUtil.getByteUint(123);     // B
-        Assert.assertEquals(result.first, Double.valueOf(123.0));
-        Assert.assertEquals(result.second, "B");
+        Assertions.assertEquals(result.first, Double.valueOf(123.0));
+        Assertions.assertEquals(result.second, "B");
 
         result = DebugUtil.getByteUint(123456);  // K
-        Assert.assertEquals(result.first, Double.valueOf(120.5625));
-        Assert.assertEquals(result.second, "KB");
+        Assertions.assertEquals(result.first, Double.valueOf(120.5625));
+        Assertions.assertEquals(result.second, "KB");
 
         result = DebugUtil.getByteUint(1234567);  // M
-        Assert.assertEquals(result.first, Double.valueOf(1.1773748397827148));
-        Assert.assertEquals(result.second, "MB");
+        Assertions.assertEquals(result.first, Double.valueOf(1.1773748397827148));
+        Assertions.assertEquals(result.second, "MB");
 
         result = DebugUtil.getByteUint(1234567890L);  // G
-        Assert.assertEquals(result.first, Double.valueOf(1.1497809458523989));
-        Assert.assertEquals(result.second, "GB");
+        Assertions.assertEquals(result.first, Double.valueOf(1.1497809458523989));
+        Assertions.assertEquals(result.second, "GB");
     }
 
     @Test
@@ -92,13 +92,13 @@ public class DebugUtilTest {
         DdlException e2 = new DdlException("exception2", e1);
         e2.printStackTrace();
         System.out.println(Util.getRootCauseStack(e2));
-        Assert.assertTrue(Util.getRootCauseStack(e2).contains("java.lang.Exception: exception1"));
+        Assertions.assertTrue(Util.getRootCauseStack(e2).contains("java.lang.Exception: exception1"));
 
         DdlException e3 = new DdlException("only one exception");
         System.out.println(Util.getRootCauseStack(e3));
-        Assert.assertTrue(Util.getRootCauseStack(e3)
+        Assertions.assertTrue(Util.getRootCauseStack(e3)
                 .contains("org.apache.doris.common.DdlException: errCode = 2, detailMessage = only one exception"));
-        Assert.assertEquals("unknown", Util.getRootCauseStack(null));
+        Assertions.assertEquals("unknown", Util.getRootCauseStack(null));
     }
 
     @Test
@@ -108,26 +108,26 @@ public class DebugUtilTest {
         try {
             nullTUniqueId = DebugUtil.parseTUniqueIdFromString(null);
         } catch (NumberFormatException e) {
-            Assert.assertTrue("invalid query id".equals(e.getMessage()));
+            Assertions.assertTrue("invalid query id".equals(e.getMessage()));
         }
-        Assert.assertTrue(nullTUniqueId == null);
+        Assertions.assertTrue(nullTUniqueId == null);
 
 
         try {
             nullTUniqueId = DebugUtil.parseTUniqueIdFromString("");
         } catch (NumberFormatException e) {
-            Assert.assertTrue("invalid query id".equals(e.getMessage()));
+            Assertions.assertTrue("invalid query id".equals(e.getMessage()));
         }
-        Assert.assertTrue(nullTUniqueId == null);
+        Assertions.assertTrue(nullTUniqueId == null);
 
-        Assert.assertEquals(new TUniqueId(), DebugUtil.parseTUniqueIdFromString("0-0"));
+        Assertions.assertEquals(new TUniqueId(), DebugUtil.parseTUniqueIdFromString("0-0"));
 
         try {
             nullTUniqueId = DebugUtil.parseTUniqueIdFromString("INVALID-STRING");
         } catch (NumberFormatException e) {
-            Assert.assertTrue(e.getMessage().contains("For input string"));
+            Assertions.assertTrue(e.getMessage().contains("For input string"));
         }
-        Assert.assertTrue(nullTUniqueId == null);
+        Assertions.assertTrue(nullTUniqueId == null);
 
         for (int i = 0; i < 100; i++) {
             UUID uuid = UUID.randomUUID();
@@ -137,9 +137,9 @@ public class DebugUtilTest {
             TUniqueId convertedTQueryId = DebugUtil.parseTUniqueIdFromString(originStrQueryId);
             String convertedStrQueryId = DebugUtil.printId(convertedTQueryId);
 
-            Assert.assertTrue(originTQueryId.hi == convertedTQueryId.hi);
-            Assert.assertTrue(originTQueryId.lo == convertedTQueryId.lo);
-            Assert.assertTrue(originStrQueryId.equals(convertedStrQueryId));
+            Assertions.assertTrue(originTQueryId.hi == convertedTQueryId.hi);
+            Assertions.assertTrue(originTQueryId.lo == convertedTQueryId.lo);
+            Assertions.assertTrue(originStrQueryId.equals(convertedStrQueryId));
         }
     }
 }

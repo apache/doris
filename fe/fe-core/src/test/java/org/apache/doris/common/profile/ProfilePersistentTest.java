@@ -29,8 +29,8 @@ import com.google.common.base.Strings;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.io.ByteArrayInputStream;
@@ -120,7 +120,7 @@ public class ProfilePersistentTest {
             writeFailed = true;
         }
 
-        Assert.assertFalse(writeFailed);
+        Assertions.assertFalse(writeFailed);
 
         byte[] data = baos.toByteArray();
         ByteArrayInputStream bais = new ByteArrayInputStream(data);
@@ -134,21 +134,21 @@ public class ProfilePersistentTest {
             LOG.info("read failed: {}", e.getMessage(), e);
             readFailed = true;
         }
-        Assert.assertFalse(readFailed);
+        Assertions.assertFalse(readFailed);
 
         SafeStringBuilder builder1 = new SafeStringBuilder();
         summaryProfile.prettyPrint(builder1);
         SafeStringBuilder builder2 = new SafeStringBuilder();
         deserializedSummaryProfile.prettyPrint(builder2);
 
-        Assert.assertNotEquals("", builder1.toString());
-        Assert.assertEquals(builder1.toString(), builder2.toString());
+        Assertions.assertNotEquals("", builder1.toString());
+        Assertions.assertEquals(builder1.toString(), builder2.toString());
 
         for (Entry<String, String> entry : summaryProfile.getAsInfoStings().entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
             String deserializedValue = deserializedSummaryProfile.getAsInfoStings().get(key);
-            Assert.assertEquals(value, deserializedValue);
+            Assertions.assertEquals(value, deserializedValue);
         }
     }
 
@@ -165,19 +165,19 @@ public class ProfilePersistentTest {
             // so we store the original answer to a string
             String profileContentString = profile.getProfileByLevel();
             String profileStoragePathTmp = profile.getProfileStoragePath();
-            Assert.assertFalse(Strings.isNullOrEmpty(profileStoragePathTmp));
+            Assertions.assertFalse(Strings.isNullOrEmpty(profileStoragePathTmp));
 
             LOG.info("Profile storage path: {}", profileStoragePathTmp);
 
             Profile deserializedProfile = Profile.read(profileStoragePathTmp);
-            Assert.assertNotNull(deserializedProfile);
-            Assert.assertEquals(profileContentString, profile.getProfileByLevel());
-            Assert.assertEquals(profile.getProfileByLevel(), deserializedProfile.getProfileByLevel());
+            Assertions.assertNotNull(deserializedProfile);
+            Assertions.assertEquals(profileContentString, profile.getProfileByLevel());
+            Assertions.assertEquals(profile.getProfileByLevel(), deserializedProfile.getProfileByLevel());
 
             // make sure file is removed
             profile.deleteFromStorage();
             File tmpFile = new File(profileStoragePathTmp);
-            Assert.assertFalse(tmpFile.exists());
+            Assertions.assertFalse(tmpFile.exists());
         } finally {
             FileUtils.deleteDirectory(tempDir.toFile());
         }
@@ -192,23 +192,23 @@ public class ProfilePersistentTest {
         try {
             // Test writeToStorage
             profile.writeToStorage(tempDir.toString());
-            Assert.assertFalse(Strings.isNullOrEmpty(profile.getProfileStoragePath()));
-            Assert.assertTrue(new File(profile.getProfileStoragePath()).exists());
+            Assertions.assertFalse(Strings.isNullOrEmpty(profile.getProfileStoragePath()));
+            Assertions.assertTrue(new File(profile.getProfileStoragePath()).exists());
 
             // Test read
             Profile readProfile = Profile.read(profile.getProfileStoragePath());
-            Assert.assertNotNull(readProfile);
-            Assert.assertEquals(profile.getId(), readProfile.getId());
-            Assert.assertEquals(profile.getQueryFinishTimestamp(), readProfile.getQueryFinishTimestamp());
+            Assertions.assertNotNull(readProfile);
+            Assertions.assertEquals(profile.getId(), readProfile.getId());
+            Assertions.assertEquals(profile.getQueryFinishTimestamp(), readProfile.getQueryFinishTimestamp());
 
             // Verify content is readable
             SafeStringBuilder builder = new SafeStringBuilder();
             readProfile.getOnStorageProfile(builder);
-            Assert.assertFalse(Strings.isNullOrEmpty(builder.toString()));
+            Assertions.assertFalse(Strings.isNullOrEmpty(builder.toString()));
 
             // Clean up
             profile.deleteFromStorage();
-            Assert.assertFalse(new File(profile.getProfileStoragePath()).exists());
+            Assertions.assertFalse(new File(profile.getProfileStoragePath()).exists());
         } finally {
             FileUtils.deleteDirectory(tempDir.toFile());
         }
@@ -227,14 +227,14 @@ public class ProfilePersistentTest {
 
             // Test createPorfileFileInputStream
             FileInputStream fis = Profile.createPorfileFileInputStream(path);
-            Assert.assertNotNull(fis);
+            Assertions.assertNotNull(fis);
             fis.close();
 
             // Test with invalid path
-            Assert.assertNull(Profile.createPorfileFileInputStream("/invalid/path"));
+            Assertions.assertNull(Profile.createPorfileFileInputStream("/invalid/path"));
 
             // Test with directory
-            Assert.assertNull(Profile.createPorfileFileInputStream(tempDir.toString()));
+            Assertions.assertNull(Profile.createPorfileFileInputStream(tempDir.toString()));
 
             // Clean up
             profile.deleteFromStorage();
@@ -253,7 +253,7 @@ public class ProfilePersistentTest {
             // First get profile content before storage
             StringBuilder beforeStorage = new StringBuilder();
             beforeStorage.append(profile.getProfileByLevel());
-            Assert.assertFalse(Strings.isNullOrEmpty(beforeStorage.toString()));
+            Assertions.assertFalse(Strings.isNullOrEmpty(beforeStorage.toString()));
 
             // Write to storage
             profile.writeToStorage(tempDir.toString());
@@ -261,17 +261,17 @@ public class ProfilePersistentTest {
             // Test getOnStorageProfile
             StringBuilder afterStorage = new StringBuilder();
             afterStorage.append(profile.getProfileByLevel());
-            Assert.assertFalse(Strings.isNullOrEmpty(afterStorage.toString()));
+            Assertions.assertFalse(Strings.isNullOrEmpty(afterStorage.toString()));
 
             // Content should be same
-            Assert.assertEquals(beforeStorage.toString().trim(), afterStorage.toString().trim());
+            Assertions.assertEquals(beforeStorage.toString().trim(), afterStorage.toString().trim());
 
             // Test with corrupted file
             File profileFile = new File(profile.getProfileStoragePath());
             FileUtils.writeStringToFile(profileFile, "corrupted content", StandardCharsets.UTF_8);
             SafeStringBuilder corruptedContent = new SafeStringBuilder();
             profile.getOnStorageProfile(corruptedContent);
-            Assert.assertTrue(corruptedContent.toString().contains("Failed to read profile"));
+            Assertions.assertTrue(corruptedContent.toString().contains("Failed to read profile"));
 
             // Clean up
             profile.deleteFromStorage();
@@ -292,19 +292,19 @@ public class ProfilePersistentTest {
 
             // Test read with valid path
             Profile readProfile = Profile.read(profile.getProfileStoragePath());
-            Assert.assertNotNull(readProfile);
-            Assert.assertEquals(profile.getId(), readProfile.getId());
+            Assertions.assertNotNull(readProfile);
+            Assertions.assertEquals(profile.getId(), readProfile.getId());
 
             // Test read with invalid path
-            Assert.assertNull(Profile.read("/invalid/path"));
+            Assertions.assertNull(Profile.read("/invalid/path"));
 
             // Test read with directory
-            Assert.assertNull(Profile.read(tempDir.toString()));
+            Assertions.assertNull(Profile.read(tempDir.toString()));
 
             // Test read with corrupted file
             File profileFile = new File(profile.getProfileStoragePath());
             FileUtils.writeStringToFile(profileFile, "corrupted", StandardCharsets.UTF_8);
-            Assert.assertNull(Profile.read(profile.getProfileStoragePath()));
+            Assertions.assertNull(Profile.read(profile.getProfileStoragePath()));
 
             // Clean up
             profile.deleteFromStorage();
@@ -322,18 +322,18 @@ public class ProfilePersistentTest {
         try {
             // Test writeToStorage
             profile.writeToStorage(tempDir.toString());
-            Assert.assertFalse(Strings.isNullOrEmpty(profile.getProfileStoragePath()));
-            Assert.assertTrue(new File(profile.getProfileStoragePath()).exists());
-            Assert.assertTrue(profile.getProfileStoragePath().endsWith(".zip"));
+            Assertions.assertFalse(Strings.isNullOrEmpty(profile.getProfileStoragePath()));
+            Assertions.assertTrue(new File(profile.getProfileStoragePath()).exists());
+            Assertions.assertTrue(profile.getProfileStoragePath().endsWith(".zip"));
 
             // Test write with empty id
             Profile emptyProfile = new Profile();
             emptyProfile.writeToStorage(tempDir.toString());
-            Assert.assertTrue(Strings.isNullOrEmpty(emptyProfile.getProfileStoragePath()));
+            Assertions.assertTrue(Strings.isNullOrEmpty(emptyProfile.getProfileStoragePath()));
 
             // Test write already stored profile
             profile.writeToStorage(tempDir.toString());
-            Assert.assertTrue(profile.getProfileStoragePath().endsWith(".zip"));
+            Assertions.assertTrue(profile.getProfileStoragePath().endsWith(".zip"));
 
             // Clean up
             profile.deleteFromStorage();
@@ -355,15 +355,15 @@ public class ProfilePersistentTest {
             // Test with empty file
             File emptyFile = new File(tempDir.toString(), "empty_1234567_abcdef.zip");
             emptyFile.createNewFile();
-            Assert.assertNull(Profile.createPorfileFileInputStream(emptyFile.getAbsolutePath()));
+            Assertions.assertNull(Profile.createPorfileFileInputStream(emptyFile.getAbsolutePath()));
 
             // Test with invalid filename format
             File invalidFile = new File(tempDir.toString(), "invalid_name.zip");
             invalidFile.createNewFile();
-            Assert.assertNull(Profile.createPorfileFileInputStream(invalidFile.getAbsolutePath()));
+            Assertions.assertNull(Profile.createPorfileFileInputStream(invalidFile.getAbsolutePath()));
 
             // Test with non-existing file
-            Assert.assertNull(Profile.createPorfileFileInputStream(tempDir + "/non_existing.zip"));
+            Assertions.assertNull(Profile.createPorfileFileInputStream(tempDir + "/non_existing.zip"));
 
             // Clean up
             profile.deleteFromStorage();
@@ -392,7 +392,7 @@ public class ProfilePersistentTest {
             Profile nonStoredProfile = constructRandomProfile(1);
             SafeStringBuilder nonStoredBuilder = new SafeStringBuilder();
             nonStoredProfile.getOnStorageProfile(nonStoredBuilder);
-            Assert.assertEquals("", nonStoredBuilder.toString());
+            Assertions.assertEquals("", nonStoredBuilder.toString());
 
             // Test with invalid zip entry
             File profileFile = new File(profile.getProfileStoragePath());
@@ -406,7 +406,7 @@ public class ProfilePersistentTest {
 
             SafeStringBuilder invalidBuilder = new SafeStringBuilder();
             profile.getOnStorageProfile(invalidBuilder);
-            Assert.assertTrue(invalidBuilder.toString().contains("Failed to read profile"));
+            Assertions.assertTrue(invalidBuilder.toString().contains("Failed to read profile"));
 
             // Clean up
             profile.deleteFromStorage();
@@ -430,15 +430,15 @@ public class ProfilePersistentTest {
             FileOutputStream fos = new FileOutputStream(profileFile);
             ZipOutputStream zos = new ZipOutputStream(fos);
             zos.close();
-            Assert.assertNull(Profile.read(profileFile.getAbsolutePath()));
+            Assertions.assertNull(Profile.read(profileFile.getAbsolutePath()));
 
             // Test read with corrupted zip
             FileUtils.writeStringToFile(profileFile, "not a zip file", StandardCharsets.UTF_8);
-            Assert.assertNull(Profile.read(profileFile.getAbsolutePath()));
+            Assertions.assertNull(Profile.read(profileFile.getAbsolutePath()));
 
             // Test read with empty file
             FileUtils.writeStringToFile(profileFile, "", StandardCharsets.UTF_8);
-            Assert.assertNull(Profile.read(profileFile.getAbsolutePath()));
+            Assertions.assertNull(Profile.read(profileFile.getAbsolutePath()));
 
             // Clean up
             profile.deleteFromStorage();

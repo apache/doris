@@ -380,8 +380,8 @@ public class IcebergConnectorMetadataMvccTest {
                 ConnectorMvccSnapshot.builder().snapshotId(f.s1).schemaId(f.schemaIdS1).build());
         ConnectorTableSchema atV1 = md.getTableSchema(null, handle(),
                 ConnectorMvccSnapshot.builder().snapshotId(f.s2).schemaId(f.schemaIdS2).build());
-        Assertions.assertEquals(java.util.Arrays.asList("id", "name"), columnNames(atV0));
-        Assertions.assertEquals(java.util.Arrays.asList("id", "fullname"), columnNames(atV1));
+        Assertions.assertEquals(java.util.Arrays.asList("id", "name", "_file", "_pos"), columnNames(atV0));
+        Assertions.assertEquals(java.util.Arrays.asList("id", "fullname", "_file", "_pos"), columnNames(atV1));
     }
 
     @Test
@@ -389,9 +389,9 @@ public class IcebergConnectorMetadataMvccTest {
         Fixture f = fixture();
         IcebergConnectorMetadata md = metadataFor(f.table, new RecordingIcebergCatalogOps());
         // null snapshot and schemaId<0 both fall back to the latest schema (fullname).
-        Assertions.assertEquals(java.util.Arrays.asList("id", "fullname"),
+        Assertions.assertEquals(java.util.Arrays.asList("id", "fullname", "_file", "_pos"),
                 columnNames(md.getTableSchema(null, handle(), null)));
-        Assertions.assertEquals(java.util.Arrays.asList("id", "fullname"), columnNames(md.getTableSchema(
+        Assertions.assertEquals(java.util.Arrays.asList("id", "fullname", "_file", "_pos"), columnNames(md.getTableSchema(
                 null, handle(), ConnectorMvccSnapshot.builder().snapshotId(f.s2).schemaId(-1L).build())));
     }
 

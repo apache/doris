@@ -291,6 +291,10 @@ struct ColumnDefinition {
     // Partition columns are constants from split metadata and should not be matched against file
     // schema unless table-format logic explicitly asks for it.
     bool is_partition_key = false;
+    // Synthesized table columns are produced by the table reader rather than matched against a
+    // physical file field. This comes from the explicit FE slot category; old FE plans leave it
+    // false so a physical column that shares a metadata spelling keeps its legacy behavior.
+    bool is_synthesized = false;
     // File-local column kind. For table/global columns this remains DATA_COLUMN.
     ColumnType column_type = ColumnType::DATA_COLUMN;
 

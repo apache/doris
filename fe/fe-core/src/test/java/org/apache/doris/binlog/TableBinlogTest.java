@@ -21,9 +21,9 @@ import org.apache.doris.thrift.TBinlog;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -38,10 +38,10 @@ public class TableBinlogTest {
     private int expiredBinlogNum = 3;
     private long baseNum = 30000L;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         // check args valid
-        Assert.assertTrue(expiredBinlogNum <= totalBinlogNum);
+        Assertions.assertTrue(expiredBinlogNum <= totalBinlogNum);
     }
 
     @Test
@@ -80,19 +80,19 @@ public class TableBinlogTest {
             // check binlog status
             for (TBinlog binlog : testBinlogs) {
                 if (binlog.getTimestamp() <= expiredTime) {
-                    Assert.assertEquals(0, binlog.getTableRef());
+                    Assertions.assertEquals(0, binlog.getTableRef());
                 } else {
-                    Assert.assertEquals(1, binlog.getTableRef());
+                    Assertions.assertEquals(1, binlog.getTableRef());
                 }
             }
 
             // check tombstone
-            Assert.assertFalse(tombstone.isDbBinlogTomstone());
-            Assert.assertEquals(expiredTime, tombstone.getCommitSeq());
+            Assertions.assertFalse(tombstone.isDbBinlogTomstone());
+            Assertions.assertEquals(expiredTime, tombstone.getCommitSeq());
 
             // check dummy
             TBinlog dummy = tableBinlog.getDummyBinlog();
-            Assert.assertEquals(expiredTime, dummy.getCommitSeq());
+            Assertions.assertEquals(expiredTime, dummy.getCommitSeq());
         }
     }
 
@@ -126,19 +126,19 @@ public class TableBinlogTest {
         // check binlog status
         for (TBinlog binlog : testBinlogs) {
             if (binlog.getTimestamp() <= expiredCommitSeq) {
-                Assert.assertEquals(0, binlog.getTableRef());
+                Assertions.assertEquals(0, binlog.getTableRef());
             } else {
-                Assert.assertEquals(1, binlog.getTableRef());
+                Assertions.assertEquals(1, binlog.getTableRef());
             }
         }
 
         // check tombstone
-        Assert.assertFalse(tombstone.isDbBinlogTomstone());
-        Assert.assertEquals(expiredCommitSeq, tombstone.getCommitSeq());
+        Assertions.assertFalse(tombstone.isDbBinlogTomstone());
+        Assertions.assertEquals(expiredCommitSeq, tombstone.getCommitSeq());
 
         // check dummy
         TBinlog dummy = tableBinlog.getDummyBinlog();
-        Assert.assertEquals(expiredCommitSeq, dummy.getCommitSeq());
+        Assertions.assertEquals(expiredCommitSeq, dummy.getCommitSeq());
     }
 
     @Test
@@ -182,16 +182,16 @@ public class TableBinlogTest {
 
             // check binlog status - all binlogs should be cleared when table binlog is disabled
             for (TBinlog binlog : testBinlogs) {
-                Assert.assertEquals(0, binlog.getTableRef());
+                Assertions.assertEquals(0, binlog.getTableRef());
             }
 
             // check tombstone
-            Assert.assertFalse(tombstone.isDbBinlogTomstone());
-            Assert.assertEquals(baseNum + totalBinlogNum - 1, tombstone.getCommitSeq());
+            Assertions.assertFalse(tombstone.isDbBinlogTomstone());
+            Assertions.assertEquals(baseNum + totalBinlogNum - 1, tombstone.getCommitSeq());
 
             // check dummy - should have the last commitSeq
             TBinlog dummy = tableBinlog.getDummyBinlog();
-            Assert.assertEquals(baseNum + totalBinlogNum - 1, dummy.getCommitSeq());
+            Assertions.assertEquals(baseNum + totalBinlogNum - 1, dummy.getCommitSeq());
         }
     }
 
@@ -237,19 +237,19 @@ public class TableBinlogTest {
             // check binlog status - only expired binlogs should be cleared
             for (TBinlog binlog : testBinlogs) {
                 if (binlog.getTimestamp() <= expiredTime) {
-                    Assert.assertEquals(0, binlog.getTableRef());
+                    Assertions.assertEquals(0, binlog.getTableRef());
                 } else {
-                    Assert.assertEquals(1, binlog.getTableRef());
+                    Assertions.assertEquals(1, binlog.getTableRef());
                 }
             }
 
             // check tombstone
-            Assert.assertFalse(tombstone.isDbBinlogTomstone());
-            Assert.assertEquals(expiredTime, tombstone.getCommitSeq());
+            Assertions.assertFalse(tombstone.isDbBinlogTomstone());
+            Assertions.assertEquals(expiredTime, tombstone.getCommitSeq());
 
             // check dummy - should have the expiredTime as commitSeq
             TBinlog dummy = tableBinlog.getDummyBinlog();
-            Assert.assertEquals(expiredTime, dummy.getCommitSeq());
+            Assertions.assertEquals(expiredTime, dummy.getCommitSeq());
         }
     }
 

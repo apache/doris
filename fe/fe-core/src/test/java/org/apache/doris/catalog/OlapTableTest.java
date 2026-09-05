@@ -37,8 +37,8 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -68,7 +68,7 @@ public class OlapTableTest {
 
         table.setPartitionInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.SNII);
 
-        Assert.assertEquals(7, table.getBaseSchemaVersion());
+        Assertions.assertEquals(7, table.getBaseSchemaVersion());
     }
 
     @Test
@@ -82,10 +82,10 @@ public class OlapTableTest {
         boolean original = Config.enable_partition_inverted_index_storage_format_rollout;
         try {
             Config.enable_partition_inverted_index_storage_format_rollout = true;
-            Assert.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII,
                     table.getInvertedIndexFileStorageFormatForPartition(10L));
 
-            Assert.assertEquals(TInvertedIndexFileStorageFormat.V2,
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2,
                     table.getInvertedIndexFileStorageFormatForPartition(11L));
         } finally {
             Config.enable_partition_inverted_index_storage_format_rollout = original;
@@ -103,15 +103,15 @@ public class OlapTableTest {
         boolean original = Config.enable_partition_inverted_index_storage_format_rollout;
         try {
             Config.enable_partition_inverted_index_storage_format_rollout = false;
-            Assert.assertEquals(TInvertedIndexFileStorageFormat.V2,
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2,
                     table.getPartitionInvertedIndexFileStorageFormat());
-            Assert.assertEquals(TInvertedIndexFileStorageFormat.V2,
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2,
                     table.getInvertedIndexFileStorageFormatForPartition(10L));
 
             Config.enable_partition_inverted_index_storage_format_rollout = true;
-            Assert.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII,
                     table.getPartitionInvertedIndexFileStorageFormat());
-            Assert.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII,
                     table.getInvertedIndexFileStorageFormatForPartition(10L));
         } finally {
             Config.enable_partition_inverted_index_storage_format_rollout = original;
@@ -126,16 +126,16 @@ public class OlapTableTest {
             new Config().init(configFile.toString());
             Config.enable_partition_inverted_index_storage_format_rollout = false;
             ConfigBase.setMutableConfig("enable_partition_inverted_index_storage_format_rollout", " false ");
-            Assert.assertFalse(Config.enable_partition_inverted_index_storage_format_rollout);
+            Assertions.assertFalse(Config.enable_partition_inverted_index_storage_format_rollout);
 
             ConfigBase.setMutableConfig("enable_partition_inverted_index_storage_format_rollout", "true");
-            Assert.assertTrue(Config.enable_partition_inverted_index_storage_format_rollout);
+            Assertions.assertTrue(Config.enable_partition_inverted_index_storage_format_rollout);
 
             try {
                 ConfigBase.setMutableConfig("enable_partition_inverted_index_storage_format_rollout", "false");
-                Assert.fail("enabled rollout switch must not be disabled");
+                Assertions.fail("enabled rollout switch must not be disabled");
             } catch (ConfigException e) {
-                Assert.assertTrue(e.getMessage().contains("can only be enabled and cannot be disabled"));
+                Assertions.assertTrue(e.getMessage().contains("can only be enabled and cannot be disabled"));
             }
         } finally {
             Config.enable_partition_inverted_index_storage_format_rollout = original;
@@ -161,10 +161,10 @@ public class OlapTableTest {
         olapTable.addPartition(partition);
 
         TableIf.TableStatusStats stats = olapTable.getTableStatusStats();
-        Assert.assertEquals(20L, stats.getRows());
-        Assert.assertEquals(909L, stats.getDataLength());
-        Assert.assertEquals(3L, stats.getAvgRowLength());
-        Assert.assertEquals(132L, stats.getIndexLength());
+        Assertions.assertEquals(20L, stats.getRows());
+        Assertions.assertEquals(909L, stats.getDataLength());
+        Assertions.assertEquals(3L, stats.getAvgRowLength());
+        Assertions.assertEquals(132L, stats.getIndexLength());
     }
 
     @Test
@@ -174,15 +174,15 @@ public class OlapTableTest {
 
         long version = olapTable.getPartitionTopologyVersion();
         addPartitionForTopologyVersionTest(olapTable, 1L, "p1");
-        Assert.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
+        Assertions.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
 
         version = olapTable.getPartitionTopologyVersion();
         olapTable.replacePartition(newPartitionForTopologyVersionTest(2L, "p1"), new RecyclePartitionParam());
-        Assert.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
+        Assertions.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
 
         version = olapTable.getPartitionTopologyVersion();
         olapTable.dropPartitionAndReserveTablet("p1");
-        Assert.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
+        Assertions.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
     }
 
     private void addPartitionForTopologyVersionTest(OlapTable olapTable, long partitionId, String partitionName) {
@@ -255,15 +255,15 @@ public class OlapTableTest {
         OlapTable olapTable = new OlapTable();
         olapTable.setTableProperty(tableProperty);
         olapTable.setColocateGroup("test_group");
-        Assert.assertTrue(olapTable.isColocateTable());
-        Assert.assertTrue(olapTable.getDefaultReplicaAllocation() == ReplicaAllocation.DEFAULT_ALLOCATION);
+        Assertions.assertTrue(olapTable.isColocateTable());
+        Assertions.assertTrue(olapTable.getDefaultReplicaAllocation() == ReplicaAllocation.DEFAULT_ALLOCATION);
 
         ReplicaAllocation replicaAlloc = new ReplicaAllocation((short) 4);
         olapTable.resetPropertiesForRestore(false, false, replicaAlloc, false);
-        Assert.assertEquals(tableProperty.getProperties(), olapTable.getTableProperty().getProperties());
-        Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
-        Assert.assertTrue(olapTable.isColocateTable());
-        Assert.assertEquals((short) 4, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
+        Assertions.assertEquals(tableProperty.getProperties(), olapTable.getTableProperty().getProperties());
+        Assertions.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
+        Assertions.assertTrue(olapTable.isColocateTable());
+        Assertions.assertEquals((short) 4, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
 
         // restore with dynamic partition keys
         properties = Maps.newHashMap();
@@ -283,10 +283,10 @@ public class OlapTableTest {
 
         Map<String, String> expectedProperties = Maps.newHashMap(properties);
         expectedProperties.put(DynamicPartitionProperty.ENABLE, "false");
-        Assert.assertEquals(expectedProperties, olapTable.getTableProperty().getProperties());
-        Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
-        Assert.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
-        Assert.assertEquals((short) 3, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
+        Assertions.assertEquals(expectedProperties, olapTable.getTableProperty().getProperties());
+        Assertions.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
+        Assertions.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
+        Assertions.assertEquals((short) 3, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
     }
 
     @Test
@@ -302,7 +302,7 @@ public class OlapTableTest {
                     break;
                 }
             }
-            Assert.assertNotNull(olapTable);
+            Assertions.assertNotNull(olapTable);
 
             olapTable.setIndexes(Lists.newArrayList(new Index(1L, "bf_v1", Lists.newArrayList("v1"),
                     IndexType.BLOOMFILTER, null, "")));
@@ -314,7 +314,7 @@ public class OlapTableTest {
             olapTable.setBloomFilterInfo(null, 0.02);
             String signatureWithFpp002 = olapTable.getSignature(1, Lists.newArrayList(olapTable.getPartitionNames()));
 
-            Assert.assertEquals(signatureWithFpp001, signatureWithFpp002);
+            Assertions.assertEquals(signatureWithFpp001, signatureWithFpp002);
         }
     }
 
@@ -358,19 +358,19 @@ public class OlapTableTest {
             olapTable.resetPropertiesForRestore(true, false, cloudReplicaAlloc, false);
 
             Map<String, String> resultProps = olapTable.getTableProperty().getProperties();
-            Assert.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY));
-            Assert.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM));
-            Assert.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
-            Assert.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME));
-            Assert.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM));
-            Assert.assertEquals((short) 1, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
-            Assert.assertFalse(olapTable.getTableProperty().isInMemory());
-            Assert.assertNull(olapTable.getTableProperty().getStorageMedium());
-            Assert.assertEquals("", olapTable.getTableProperty().getStoragePolicy());
-            Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
-            Assert.assertTrue(resultProps.containsKey(DynamicPartitionProperty.REPLICATION_NUM));
-            Assert.assertTrue(resultProps.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION));
-            Assert.assertFalse(resultProps.containsKey(DynamicPartitionProperty.STORAGE_MEDIUM));
+            Assertions.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY));
+            Assertions.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM));
+            Assertions.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
+            Assertions.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME));
+            Assertions.assertFalse(resultProps.containsKey(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM));
+            Assertions.assertEquals((short) 1, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
+            Assertions.assertFalse(olapTable.getTableProperty().isInMemory());
+            Assertions.assertNull(olapTable.getTableProperty().getStorageMedium());
+            Assertions.assertEquals("", olapTable.getTableProperty().getStoragePolicy());
+            Assertions.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
+            Assertions.assertTrue(resultProps.containsKey(DynamicPartitionProperty.REPLICATION_NUM));
+            Assertions.assertTrue(resultProps.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION));
+            Assertions.assertFalse(resultProps.containsKey(DynamicPartitionProperty.STORAGE_MEDIUM));
         }
     }
 
@@ -393,13 +393,13 @@ public class OlapTableTest {
             mockedConfig.when(Config::isNotCloudMode).thenReturn(true);
 
             partitionInfo.resetPartitionIdForRestore(partitionIdMap, restoreReplicaAlloc, false);
-            Assert.assertEquals((short) 2,
+            Assertions.assertEquals((short) 2,
                     partitionInfo.getReplicaAllocation(newPartId).getTotalReplicaNum());
             DataProperty newDataProperty = partitionInfo.getDataProperty(newPartId);
-            Assert.assertEquals(TStorageMedium.SSD, newDataProperty.getStorageMedium());
-            Assert.assertEquals(1735689600000L, newDataProperty.getCooldownTimeMs());
-            Assert.assertEquals("s3_policy", newDataProperty.getStoragePolicy());
-            Assert.assertTrue(partitionInfo.getIsInMemory(newPartId));
+            Assertions.assertEquals(TStorageMedium.SSD, newDataProperty.getStorageMedium());
+            Assertions.assertEquals(1735689600000L, newDataProperty.getCooldownTimeMs());
+            Assertions.assertEquals("s3_policy", newDataProperty.getStoragePolicy());
+            Assertions.assertTrue(partitionInfo.getIsInMemory(newPartId));
         }
     }
 
@@ -425,14 +425,14 @@ public class OlapTableTest {
             mockedPA.when(PropertyAnalyzer::getInstance).thenReturn(new CloudPropertyAnalyzer());
 
             partitionInfo.resetPartitionIdForRestore(partitionIdMap, cloudReplicaAlloc, false);
-            Assert.assertEquals((short) 1,
+            Assertions.assertEquals((short) 1,
                     partitionInfo.getReplicaAllocation(newPartId).getTotalReplicaNum());
             DataProperty newDataProperty = partitionInfo.getDataProperty(newPartId);
-            Assert.assertEquals(DataProperty.DEFAULT_STORAGE_MEDIUM, newDataProperty.getStorageMedium());
-            Assert.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, newDataProperty.getCooldownTimeMs());
-            Assert.assertEquals("", newDataProperty.getStoragePolicy());
-            Assert.assertTrue(newDataProperty.isMutable());
-            Assert.assertFalse(partitionInfo.getIsInMemory(newPartId));
+            Assertions.assertEquals(DataProperty.DEFAULT_STORAGE_MEDIUM, newDataProperty.getStorageMedium());
+            Assertions.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, newDataProperty.getCooldownTimeMs());
+            Assertions.assertEquals("", newDataProperty.getStoragePolicy());
+            Assertions.assertTrue(newDataProperty.isMutable());
+            Assertions.assertFalse(partitionInfo.getIsInMemory(newPartId));
         }
     }
 
@@ -444,10 +444,10 @@ public class OlapTableTest {
         TableProperty tableProperty = new TableProperty(properties);
         tableProperty.gsonPostProcess();
 
-        Assert.assertTrue(tableProperty.variantEnableFlattenNested());
-        Assert.assertEquals("true",
+        Assertions.assertTrue(tableProperty.variantEnableFlattenNested());
+        Assertions.assertEquals("true",
                 tableProperty.getProperties().get(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
-        Assert.assertFalse(
+        Assertions.assertFalse(
                 tableProperty.getProperties().containsKey(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
     }
 
@@ -475,44 +475,44 @@ public class OlapTableTest {
         OlapTable olapTable = new OlapTable();
         // Partition is null.
         long row = olapTable.getRowCountForPartitionIndex(0, 0, true);
-        Assert.assertEquals(-1, row);
+        Assertions.assertEquals(-1, row);
 
         // Index is null.
         MaterializedIndex index = new MaterializedIndex(10, MaterializedIndex.IndexState.NORMAL);
         Partition partition = new Partition(11, "p1", index, null);
         olapTable.addPartition(partition);
         row = olapTable.getRowCountForPartitionIndex(11, 0, true);
-        Assert.assertEquals(-1, row);
+        Assertions.assertEquals(-1, row);
 
         // Strict is true and index is not reported.
         index.setRowCountReported(false);
         index.setRowCount(100);
         row = olapTable.getRowCountForPartitionIndex(11, 10, true);
-        Assert.assertEquals(-1, row);
+        Assertions.assertEquals(-1, row);
 
         // Strict is true and index is reported.
         index.setRowCountReported(true);
         index.setRowCount(101);
         row = olapTable.getRowCountForPartitionIndex(11, 10, true);
-        Assert.assertEquals(101, row);
+        Assertions.assertEquals(101, row);
 
         // Strict is false and index is not reported.
         index.setRowCountReported(false);
         index.setRowCount(102);
         row = olapTable.getRowCountForPartitionIndex(11, 10, false);
-        Assert.assertEquals(102, row);
+        Assertions.assertEquals(102, row);
 
         // Reported row is -1, we should return 0
         index.setRowCountReported(true);
         index.setRowCount(-1);
         row = olapTable.getRowCountForPartitionIndex(11, 10, false);
-        Assert.assertEquals(0, row);
+        Assertions.assertEquals(0, row);
 
         // Return reported row.
         index.setRowCountReported(true);
         index.setRowCount(103);
         row = olapTable.getRowCountForPartitionIndex(11, 10, false);
-        Assert.assertEquals(103, row);
+        Assertions.assertEquals(103, row);
 
         olapTable.getRowCountForPartitionIndex(11, 10, true);
     }
@@ -545,36 +545,36 @@ public class OlapTableTest {
         Mockito.doReturn(Lists.newArrayList(index1)).when(table).getVisibleIndex();
 
         Set<Column> schemaAllIndexes = table.getSchemaAllIndexes(false);
-        Assert.assertEquals(2, schemaAllIndexes.size());
-        Assert.assertFalse(schemaAllIndexes.contains(col3));
-        Assert.assertFalse(schemaAllIndexes.contains(col4));
-        Assert.assertTrue(schemaAllIndexes.contains(col1));
-        Assert.assertTrue(schemaAllIndexes.contains(col2));
+        Assertions.assertEquals(2, schemaAllIndexes.size());
+        Assertions.assertFalse(schemaAllIndexes.contains(col3));
+        Assertions.assertFalse(schemaAllIndexes.contains(col4));
+        Assertions.assertTrue(schemaAllIndexes.contains(col1));
+        Assertions.assertTrue(schemaAllIndexes.contains(col2));
 
         MaterializedIndex index2 = new MaterializedIndex(2, MaterializedIndex.IndexState.NORMAL);
         Mockito.doReturn(Lists.newArrayList(index2)).when(table).getVisibleIndex();
         schemaAllIndexes = table.getSchemaAllIndexes(false);
-        Assert.assertEquals(2, schemaAllIndexes.size());
-        Assert.assertTrue(schemaAllIndexes.contains(col3));
-        Assert.assertTrue(schemaAllIndexes.contains(col4));
-        Assert.assertFalse(schemaAllIndexes.contains(col1));
-        Assert.assertFalse(schemaAllIndexes.contains(col2));
+        Assertions.assertEquals(2, schemaAllIndexes.size());
+        Assertions.assertTrue(schemaAllIndexes.contains(col3));
+        Assertions.assertTrue(schemaAllIndexes.contains(col4));
+        Assertions.assertFalse(schemaAllIndexes.contains(col1));
+        Assertions.assertFalse(schemaAllIndexes.contains(col2));
 
         Mockito.doReturn(Lists.newArrayList(index1, index2)).when(table).getVisibleIndex();
         schemaAllIndexes = table.getSchemaAllIndexes(false);
-        Assert.assertEquals(4, schemaAllIndexes.size());
-        Assert.assertTrue(schemaAllIndexes.contains(col3));
-        Assert.assertTrue(schemaAllIndexes.contains(col4));
-        Assert.assertTrue(schemaAllIndexes.contains(col1));
-        Assert.assertTrue(schemaAllIndexes.contains(col2));
+        Assertions.assertEquals(4, schemaAllIndexes.size());
+        Assertions.assertTrue(schemaAllIndexes.contains(col3));
+        Assertions.assertTrue(schemaAllIndexes.contains(col4));
+        Assertions.assertTrue(schemaAllIndexes.contains(col1));
+        Assertions.assertTrue(schemaAllIndexes.contains(col2));
 
         col1.setIsVisible(false);
         schemaAllIndexes = table.getSchemaAllIndexes(false);
-        Assert.assertEquals(3, schemaAllIndexes.size());
-        Assert.assertTrue(schemaAllIndexes.contains(col3));
-        Assert.assertTrue(schemaAllIndexes.contains(col4));
-        Assert.assertFalse(schemaAllIndexes.contains(col1));
-        Assert.assertTrue(schemaAllIndexes.contains(col2));
+        Assertions.assertEquals(3, schemaAllIndexes.size());
+        Assertions.assertTrue(schemaAllIndexes.contains(col3));
+        Assertions.assertTrue(schemaAllIndexes.contains(col4));
+        Assertions.assertFalse(schemaAllIndexes.contains(col1));
+        Assertions.assertTrue(schemaAllIndexes.contains(col2));
     }
 
     @Test
@@ -617,36 +617,36 @@ public class OlapTableTest {
             try {
                 // Test 1: Initial state with TTL set, should still call RPC for first time
                 ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 100000; // Set long TTL
-                Assert.assertEquals(-1, table.getCachedTableVersion()); // Initial state
-                Assert.assertTrue(table.isCachedTableVersionExpired()); // Should be expired due to -1
+                Assertions.assertEquals(-1, table.getCachedTableVersion()); // Initial state
+                Assertions.assertTrue(table.isCachedTableVersionExpired()); // Should be expired due to -1
 
                 long ver0 = table.getVisibleVersion();
-                Assert.assertEquals(100, ver0); // Should get from MS
-                Assert.assertEquals(1, callCount[0]); // First RPC call
-                Assert.assertEquals(100, table.getCachedTableVersion()); // Cache updated
+                Assertions.assertEquals(100, ver0); // Should get from MS
+                Assertions.assertEquals(1, callCount[0]); // First RPC call
+                Assertions.assertEquals(100, table.getCachedTableVersion()); // Cache updated
 
                 // Second call should use cache
                 long ver0Again = table.getVisibleVersion();
-                Assert.assertEquals(100, ver0Again); // Should use cached version
-                Assert.assertEquals(1, callCount[0]); // No new RPC call
+                Assertions.assertEquals(100, ver0Again); // Should use cached version
+                Assertions.assertEquals(1, callCount[0]); // No new RPC call
 
                 // Test 2: Disable cache (TTL = 0), should always call RPC
                 ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 0;
                 long ver1 = table.getVisibleVersion();
-                Assert.assertEquals(200, ver1);
-                Assert.assertEquals(2, callCount[0]); // Second RPC call
+                Assertions.assertEquals(200, ver1);
+                Assertions.assertEquals(2, callCount[0]); // Second RPC call
 
                 long ver2 = table.getVisibleVersion();
-                Assert.assertEquals(300, ver2);
-                Assert.assertEquals(3, callCount[0]); // Third RPC call
-                Assert.assertEquals(300, table.getCachedTableVersion()); // Cache updated to 300
+                Assertions.assertEquals(300, ver2);
+                Assertions.assertEquals(3, callCount[0]); // Third RPC call
+                Assertions.assertEquals(300, table.getCachedTableVersion()); // Cache updated to 300
 
                 // Test 3: Enable cache with long TTL, should use cached version
                 ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 100000; // 100 seconds
                 table.setCachedTableVersion(350); // Set cache to a larger version
                 long ver3 = table.getVisibleVersion();
-                Assert.assertEquals(350, ver3); // Should return cached version (350)
-                Assert.assertEquals(3, callCount[0]); // No new RPC call
+                Assertions.assertEquals(350, ver3); // Should return cached version (350)
+                Assertions.assertEquals(3, callCount[0]); // No new RPC call
 
                 // Test 4: Test setCachedTableVersion only updates when version is greater
                 ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 500; // 500ms TTL
@@ -654,35 +654,35 @@ public class OlapTableTest {
                 // At this point, cache is 350 from Test 3
                 // Set a larger version to 400
                 table.setCachedTableVersion(400);
-                Assert.assertEquals(400, table.getCachedTableVersion());
-                Assert.assertFalse(table.isCachedTableVersionExpired()); // Not expired yet
+                Assertions.assertEquals(400, table.getCachedTableVersion());
+                Assertions.assertFalse(table.isCachedTableVersionExpired()); // Not expired yet
 
                 Thread.sleep(300); // Sleep 300ms
 
                 // Try to set a smaller version (380), should NOT update version or timestamp
                 table.setCachedTableVersion(380);
-                Assert.assertEquals(400, table.getCachedTableVersion()); // Version should remain 400
+                Assertions.assertEquals(400, table.getCachedTableVersion()); // Version should remain 400
 
                 Thread.sleep(300); // Total 600ms since setCachedTableVersion(400)
                 // Cache should be expired (600ms > 500ms TTL)
                 // If timestamp was incorrectly reset by setCachedTableVersion(380), cache would not be expired
-                Assert.assertTrue(table.isCachedTableVersionExpired());
+                Assertions.assertTrue(table.isCachedTableVersionExpired());
 
                 // Test 5: Setting a greater version should update both version and timestamp
                 ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 500; // 500ms TTL
                 table.setCachedTableVersion(500); // Set to 500
-                Assert.assertEquals(500, table.getCachedTableVersion());
-                Assert.assertFalse(table.isCachedTableVersionExpired()); // Not expired
+                Assertions.assertEquals(500, table.getCachedTableVersion());
+                Assertions.assertFalse(table.isCachedTableVersionExpired()); // Not expired
 
                 Thread.sleep(300); // Sleep 300ms
 
                 // Set a greater version (550), should update both version and timestamp
                 table.setCachedTableVersion(550);
-                Assert.assertEquals(550, table.getCachedTableVersion()); // Version updated to 550
-                Assert.assertFalse(table.isCachedTableVersionExpired()); // Timestamp reset, not expired yet
+                Assertions.assertEquals(550, table.getCachedTableVersion()); // Version updated to 550
+                Assertions.assertFalse(table.isCachedTableVersionExpired()); // Timestamp reset, not expired yet
 
                 Thread.sleep(300); // Sleep another 300ms (total 600ms from first setCachedTableVersion(500), but only 300ms from setCachedTableVersion(550))
-                Assert.assertFalse(table.isCachedTableVersionExpired()); // Still not expired (300ms < 500ms TTL)
+                Assertions.assertFalse(table.isCachedTableVersionExpired()); // Still not expired (300ms < 500ms TTL)
 
             } finally {
                 ConnectContext.remove();
@@ -753,24 +753,24 @@ public class OlapTableTest {
             ctx.getSessionVariable().cloudTableVersionCacheTtlMs = -1;
             {
                 List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
-                Assert.assertEquals(1, callCount[0]);
-                Assert.assertEquals(Arrays.asList(10L, 20L, 30L), versions);
+                Assertions.assertEquals(1, callCount[0]);
+                Assertions.assertEquals(Arrays.asList(10L, 20L, 30L), versions);
             }
 
             // Test 2: cache enabled with long TTL, all should hit cache
             ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 100000;
             {
                 List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
-                Assert.assertEquals(1, callCount[0]);
-                Assert.assertEquals(Arrays.asList(10L, 20L, 30L), versions);
+                Assertions.assertEquals(1, callCount[0]);
+                Assertions.assertEquals(Arrays.asList(10L, 20L, 30L), versions);
             }
 
             // Test 3: cache disabled (TTL = 0), all fetched from MS again
             ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 0;
             {
                 List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
-                Assert.assertEquals(2, callCount[0]);
-                Assert.assertEquals(Arrays.asList(11L, 21L, 31L), versions);
+                Assertions.assertEquals(2, callCount[0]);
+                Assertions.assertEquals(Arrays.asList(11L, 21L, 31L), versions);
             }
 
             // Test 4: short TTL, wait for expiration, then partially refresh
@@ -780,27 +780,27 @@ public class OlapTableTest {
             // refresh one table's cache so it stays hot
             OlapTable hotTable = tables.get(0);
             hotTable.setCachedTableVersion(hotTable.getCachedTableVersion());
-            Assert.assertFalse(hotTable.isCachedTableVersionExpired());
-            Assert.assertTrue(tables.get(1).isCachedTableVersionExpired());
-            Assert.assertTrue(tables.get(2).isCachedTableVersionExpired());
+            Assertions.assertFalse(hotTable.isCachedTableVersionExpired());
+            Assertions.assertTrue(tables.get(1).isCachedTableVersionExpired());
+            Assertions.assertTrue(tables.get(2).isCachedTableVersionExpired());
             {
                 // batchVersions[2] = [22, 32] for the 2 expired tables
                 List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
-                Assert.assertEquals(3, callCount[0]);
-                Assert.assertEquals(3, versions.size());
+                Assertions.assertEquals(3, callCount[0]);
+                Assertions.assertEquals(3, versions.size());
                 // hot table keeps its cached version
-                Assert.assertEquals(11L, versions.get(0).longValue());
+                Assertions.assertEquals(11L, versions.get(0).longValue());
                 // expired tables get new versions from MS
-                Assert.assertEquals(22L, versions.get(1).longValue());
-                Assert.assertEquals(32L, versions.get(2).longValue());
+                Assertions.assertEquals(22L, versions.get(1).longValue());
+                Assertions.assertEquals(32L, versions.get(2).longValue());
             }
 
             // Test 5: all expired again, full batch fetch
             ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 0;
             {
                 List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
-                Assert.assertEquals(4, callCount[0]);
-                Assert.assertEquals(Arrays.asList(13L, 23L, 33L), versions);
+                Assertions.assertEquals(4, callCount[0]);
+                Assertions.assertEquals(Arrays.asList(13L, 23L, 33L), versions);
             }
         } finally {
             ConnectContext.remove();

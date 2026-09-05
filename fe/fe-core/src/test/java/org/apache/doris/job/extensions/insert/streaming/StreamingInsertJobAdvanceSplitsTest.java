@@ -22,8 +22,8 @@ import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -53,7 +53,7 @@ public class StreamingInsertJobAdvanceSplitsTest {
         // Many small tables: one split per round, splitting completes after 5 rounds.
         FakeOffsetProvider provider = new FakeOffsetProvider(1, 5);
         newJob(provider, 3600).advanceSplitsIfNeed();
-        Assert.assertEquals("must keep admitting across rounds until noMoreSplits", 5, provider.rounds);
+        Assertions.assertEquals(5, provider.rounds, "must keep admitting across rounds until noMoreSplits");
     }
 
     @Test
@@ -61,8 +61,8 @@ public class StreamingInsertJobAdvanceSplitsTest {
         // Fast producer that never finishes: must stop once the FE backlog cap is crossed.
         FakeOffsetProvider provider = new FakeOffsetProvider(100, -1);
         newJob(provider, 3600).advanceSplitsIfNeed();
-        Assert.assertTrue("must stop once pending crosses the cap", provider.pendingSplitCount() >= CAP);
-        Assert.assertEquals("must not overshoot beyond one round past the cap", 6, provider.rounds);
+        Assertions.assertTrue(provider.pendingSplitCount() >= CAP, "must stop once pending crosses the cap");
+        Assertions.assertEquals(6, provider.rounds, "must not overshoot beyond one round past the cap");
     }
 
     @Test
@@ -70,7 +70,7 @@ public class StreamingInsertJobAdvanceSplitsTest {
         // A round that yields no new split (empty RPC / cursor moved) must break, not spin to deadline.
         FakeOffsetProvider provider = new FakeOffsetProvider(0, -1);
         newJob(provider, 3600).advanceSplitsIfNeed();
-        Assert.assertEquals("must break after a no-progress round", 1, provider.rounds);
+        Assertions.assertEquals(1, provider.rounds, "must break after a no-progress round");
     }
 
     @Test
@@ -78,7 +78,7 @@ public class StreamingInsertJobAdvanceSplitsTest {
         // Entry guard: noMoreSplits up front means the loop never runs.
         FakeOffsetProvider provider = new FakeOffsetProvider(1, 0);
         newJob(provider, 3600).advanceSplitsIfNeed();
-        Assert.assertEquals("entry guard must skip the loop entirely", 0, provider.rounds);
+        Assertions.assertEquals(0, provider.rounds, "entry guard must skip the loop entirely");
     }
 
     /** Minimal provider whose admission behaviour is fully controllable. */
