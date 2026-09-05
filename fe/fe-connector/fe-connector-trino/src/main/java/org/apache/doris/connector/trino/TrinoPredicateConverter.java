@@ -46,6 +46,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoField;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -277,7 +278,7 @@ public class TrinoPredicateConverter {
             case "CharType":
             case "VarbinaryType":
             case "VarcharType":
-                return Slices.utf8Slice(String.valueOf(value));
+                return convertStringLiteralValue(literal);
             case "DateType": {
                 if (value instanceof LocalDate) {
                     return ((LocalDate) value).toEpochDay();
@@ -304,5 +305,21 @@ public class TrinoPredicateConverter {
             return (BigDecimal) value;
         }
         return new BigDecimal(String.valueOf(value));
+    }
+
+    private Object convertStringLiteralValue(ConnectorLiteral literal) {
+        if (literal.isNull()) {
+            return null;
+        }
+        String literalType = literal.getType().getTypeName().toUpperCase(Locale.ROOT);
+        switch (literalType) {
+            case "CHAR":
+            case "VARCHAR":
+            case "STRING":
+                return Slices.utf8Slice((String) literal.getValue());
+            default:
+                throw new UnsupportedOperationException(
+                        "Cannot convert Doris literal type " + literalType + " to a Trino string type");
+        }
     }
 }
