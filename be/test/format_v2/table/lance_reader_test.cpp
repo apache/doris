@@ -1188,6 +1188,143 @@ TEST(LanceTableReaderTypeTest, ConvertsBFloat16NestedInStruct) {
     EXPECT_EQ(ids->data().get(), normalized_struct->field(1)->data().get());
 }
 
+// Verifies sliced List normalization converts only values visible through parent offsets.
+TEST(LanceTableReaderTypeTest, NormalizesVisibleBFloat16ValuesInSlicedList) {
+    const auto metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto item_field =
+            arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(metadata);
+    const auto values = make_bfloat16_array({0x3F80, 0x4000, 0x4040, 0x4080, 0x40A0, 0x40C0});
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 2, 5, 6}).ok());
+    std::shared_ptr<arrow::Int32Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+    auto list_result = arrow::ListArray::FromArrays(arrow::list(item_field), *offsets, *values);
+    ASSERT_TRUE(list_result.ok()) << list_result.status().ToString();
+    const auto input = std::move(list_result).ValueUnsafe()->Slice(1, 1);
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(
+            arrow::field("values", arrow::list(item_field)), input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto list = std::dynamic_pointer_cast<arrow::ListArray>(normalized);
+    ASSERT_NE(nullptr, list);
+    EXPECT_EQ(0, list->offset());
+    ASSERT_EQ(1, list->length());
+    EXPECT_EQ(0, list->value_offset(0));
+    EXPECT_EQ(3, list->value_offset(1));
+    const auto floats = std::dynamic_pointer_cast<arrow::FloatArray>(list->values());
+    ASSERT_NE(nullptr, floats);
+    ASSERT_EQ(3, floats->length());
+    EXPECT_FLOAT_EQ(3.0F, floats->Value(0));
+    EXPECT_FLOAT_EQ(4.0F, floats->Value(1));
+    EXPECT_FLOAT_EQ(5.0F, floats->Value(2));
+}
+
+// Verifies sliced LargeList normalization rebases 64-bit offsets and trims child values.
+TEST(LanceTableReaderTypeTest, NormalizesVisibleBFloat16ValuesInSlicedLargeList) {
+    const auto metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto item_field =
+            arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(metadata);
+    const auto values = make_bfloat16_array({0x3F80, 0x4000, 0x4040, 0x4080, 0x40A0, 0x40C0});
+    arrow::Int64Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 1, 3, 6}).ok());
+    std::shared_ptr<arrow::Int64Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+    auto list_result =
+            arrow::LargeListArray::FromArrays(arrow::large_list(item_field), *offsets, *values);
+    ASSERT_TRUE(list_result.ok()) << list_result.status().ToString();
+    const auto input = std::move(list_result).ValueUnsafe()->Slice(1, 1);
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(
+            arrow::field("values", arrow::large_list(item_field)), input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto list = std::dynamic_pointer_cast<arrow::LargeListArray>(normalized);
+    ASSERT_NE(nullptr, list);
+    EXPECT_EQ(0, list->offset());
+    ASSERT_EQ(1, list->length());
+    EXPECT_EQ(0, list->value_offset(0));
+    EXPECT_EQ(2, list->value_offset(1));
+    const auto floats = std::dynamic_pointer_cast<arrow::FloatArray>(list->values());
+    ASSERT_NE(nullptr, floats);
+    ASSERT_EQ(2, floats->length());
+    EXPECT_FLOAT_EQ(2.0F, floats->Value(0));
+    EXPECT_FLOAT_EQ(3.0F, floats->Value(1));
+}
+
+// Verifies sliced FixedSizeList normalization trims values using the fixed child width.
+TEST(LanceTableReaderTypeTest, NormalizesVisibleBFloat16ValuesInSlicedFixedSizeList) {
+    const auto metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto item_field =
+            arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(metadata);
+    const auto values =
+            make_bfloat16_array({0x3F80, 0x4000, 0x4040, 0x4080, 0x40A0, 0x40C0, 0x40E0, 0x4100});
+    auto list_result = arrow::FixedSizeListArray::FromArrays(values, 2);
+    ASSERT_TRUE(list_result.ok()) << list_result.status().ToString();
+    const auto input = std::move(list_result).ValueUnsafe()->Slice(2, 1);
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(
+            arrow::field("values", arrow::fixed_size_list(item_field, 2)), input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto list = std::dynamic_pointer_cast<arrow::FixedSizeListArray>(normalized);
+    ASSERT_NE(nullptr, list);
+    EXPECT_EQ(0, list->offset());
+    ASSERT_EQ(1, list->length());
+    const auto floats = std::dynamic_pointer_cast<arrow::FloatArray>(list->values());
+    ASSERT_NE(nullptr, floats);
+    ASSERT_EQ(2, floats->length());
+    EXPECT_FLOAT_EQ(5.0F, floats->Value(0));
+    EXPECT_FLOAT_EQ(6.0F, floats->Value(1));
+}
+
+// Verifies sliced Map normalization trims entries while preserving visible keys and values.
+TEST(LanceTableReaderTypeTest, NormalizesVisibleBFloat16ValuesInSlicedMap) {
+    const auto metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto item_field =
+            arrow::field("value", arrow::fixed_size_binary(2))->WithMetadata(metadata);
+    const auto values = make_bfloat16_array({0x3F80, 0x4000, 0x4040, 0x4080, 0x40A0, 0x40C0});
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 2, 5, 6}).ok());
+    std::shared_ptr<arrow::Int32Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+    arrow::StringBuilder keys_builder;
+    ASSERT_TRUE(keys_builder.AppendValues({"k0", "k1", "k2", "k3", "k4", "k5"}).ok());
+    std::shared_ptr<arrow::StringArray> keys;
+    ASSERT_TRUE(keys_builder.Finish(&keys).ok());
+    const auto map_type = arrow::map(arrow::utf8(), item_field);
+    auto map_result = arrow::MapArray::FromArrays(map_type, offsets, keys, values);
+    ASSERT_TRUE(map_result.ok()) << map_result.status().ToString();
+    const auto input = std::move(map_result).ValueUnsafe()->Slice(1, 1);
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(arrow::field("values", map_type),
+                                                             input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto map = std::dynamic_pointer_cast<arrow::MapArray>(normalized);
+    ASSERT_NE(nullptr, map);
+    EXPECT_EQ(0, map->offset());
+    ASSERT_EQ(1, map->length());
+    EXPECT_EQ(0, map->value_offset(0));
+    EXPECT_EQ(3, map->value_offset(1));
+    const auto normalized_keys = std::dynamic_pointer_cast<arrow::StringArray>(map->keys());
+    ASSERT_NE(nullptr, normalized_keys);
+    ASSERT_EQ(3, normalized_keys->length());
+    EXPECT_EQ("k2", normalized_keys->GetString(0));
+    EXPECT_EQ("k3", normalized_keys->GetString(1));
+    EXPECT_EQ("k4", normalized_keys->GetString(2));
+    const auto floats = std::dynamic_pointer_cast<arrow::FloatArray>(map->items());
+    ASSERT_NE(nullptr, floats);
+    ASSERT_EQ(3, floats->length());
+    EXPECT_FLOAT_EQ(3.0F, floats->Value(0));
+    EXPECT_FLOAT_EQ(4.0F, floats->Value(1));
+    EXPECT_FLOAT_EQ(5.0F, floats->Value(2));
+}
+
 // Verifies the Lance JSON extension reads LargeBinary values and nulls through JSON SerDe.
 TEST(LanceTableReaderTypeTest, ReadsLanceJsonLargeBinaryValues) {
     const auto metadata = arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.json"});
