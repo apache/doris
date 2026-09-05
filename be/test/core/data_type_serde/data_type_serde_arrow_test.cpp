@@ -22,6 +22,8 @@
 #include <arrow/array/builder_decimal.h>
 #include <arrow/array/builder_nested.h>
 #include <arrow/array/builder_primitive.h>
+#include <arrow/extension/parquet_variant.h>
+#include <arrow/extension_type.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
@@ -54,6 +56,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -72,13 +75,16 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "core/value/hll.h"
+#include "core/value/variant/variant_canonical.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/arrow_column_to_doris_column.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "runtime/descriptors.cpp"
@@ -644,6 +650,119 @@ TEST(DataTypeSerDeArrowTest, StringToLargeBinary) {
     ASSERT_EQ(12, binary_array->value_length(0));
     const uint8_t* raw = binary_array->value_data()->data() + binary_array->value_offset(0);
     EXPECT_EQ(0, std::memcmp(raw, "binary-value", 12));
+}
+
+TEST(DataTypeSerDeArrowTest, VariantV2SerDeWritesParquetVariantStorage) {
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
+                                        .throw_on_invalid_json = true,
+                                        .check_duplicate_json_path = false});
+    for (std::string_view json :
+         {R"({"a":1,"nested":[true,null,"x"]})", R"([true,"x",-7,1.25,null])", R"("hello")", "-123",
+          "1234567890123", "1.25", "true", "false", "null", R"("masked-by-sql-null")"}) {
+        encoder.add_json({json.data(), json.size()});
+    }
+    VariantBatchBuilder encoded = encoder.finish_batch();
+    auto values = ColumnVariantV2::create();
+    values->insert_encoded_batch(encoded);
+
+    NullMap outer_nulls;
+    outer_nulls.resize(values->size());
+    outer_nulls.back() = 1;
+
+    auto* pool = arrow::default_memory_pool();
+    auto metadata_builder = std::make_shared<arrow::BinaryBuilder>(pool);
+    auto value_builder = std::make_shared<arrow::BinaryBuilder>(pool);
+    const auto storage_type = arrow::struct_({
+            arrow::field("metadata", arrow::binary(), false),
+            arrow::field("value", arrow::binary(), false),
+    });
+    arrow::StructBuilder storage_builder(storage_type, pool, {metadata_builder, value_builder});
+
+    const auto serde = std::make_shared<DataTypeVariantV2>()->get_serde();
+    cctz::time_zone timezone;
+    const Status status = serde->write_column_to_arrow(*values, &outer_nulls, &storage_builder, 0,
+                                                       values->size(), timezone);
+    ASSERT_TRUE(status.ok()) << status;
+
+    std::shared_ptr<arrow::Array> storage_array;
+    ASSERT_TRUE(storage_builder.Finish(&storage_array).ok());
+    const auto storage = std::static_pointer_cast<arrow::StructArray>(storage_array);
+    ASSERT_EQ(storage->length(), values->size());
+    const auto metadata = std::static_pointer_cast<arrow::BinaryArray>(storage->field(0));
+    const auto variant_values = std::static_pointer_cast<arrow::BinaryArray>(storage->field(1));
+    for (size_t row = 0; row < values->size(); ++row) {
+        if (outer_nulls[row] != 0) {
+            EXPECT_TRUE(storage->IsNull(row));
+            continue;
+        }
+        ASSERT_TRUE(storage->IsValid(row));
+        int32_t metadata_size = 0;
+        int32_t value_size = 0;
+        const uint8_t* metadata_bytes = metadata->GetValue(row, &metadata_size);
+        const uint8_t* value_bytes = variant_values->GetValue(row, &value_size);
+        const VariantRef read_back {
+                .metadata = {.data = reinterpret_cast<const char*>(metadata_bytes),
+                             .size = static_cast<size_t>(metadata_size)},
+                .value = {reinterpret_cast<const char*>(value_bytes),
+                          static_cast<size_t>(value_size)},
+        };
+        EXPECT_TRUE(canonical_equals(values->get_value_ref(row), read_back)) << "row=" << row;
+    }
+}
+
+TEST(DataTypeSerDeArrowTest, VariantV2ToParquetVariantExtension) {
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
+                                        .throw_on_invalid_json = true,
+                                        .check_duplicate_json_path = false});
+    for (std::string_view json : {R"({"a":1})", "null", R"([true,"x"])"}) {
+        encoder.add_json({json.data(), json.size()});
+    }
+    VariantBatchBuilder encoded = encoder.finish_batch();
+    auto values = ColumnVariantV2::create();
+    values->insert_encoded_batch(encoded);
+    auto outer_nulls = ColumnUInt8::create();
+    for (uint8_t is_null : {0, 1, 0}) {
+        outer_nulls->insert_value(is_null);
+    }
+    auto nullable = ColumnNullable::create(std::move(values), std::move(outer_nulls));
+
+    Block block;
+    block.insert({std::move(nullable), make_nullable(std::make_shared<DataTypeVariantV2>()), "v"});
+    const auto variant_type = arrow::extension::variant(arrow::struct_({
+            arrow::field("metadata", arrow::binary(), false),
+            arrow::field("value", arrow::binary(), false),
+    }));
+    const auto schema = arrow::schema({arrow::field("v", variant_type, true)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone timezone;
+    const Status status = convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
+                                                 &record_batch, timezone);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(record_batch->num_rows(), 3);
+
+    const auto extension = std::static_pointer_cast<arrow::ExtensionArray>(record_batch->column(0));
+    EXPECT_TRUE(extension->IsValid(0));
+    EXPECT_TRUE(extension->IsNull(1));
+    EXPECT_TRUE(extension->IsValid(2));
+    const auto storage = std::static_pointer_cast<arrow::StructArray>(extension->storage());
+    const auto metadata = std::static_pointer_cast<arrow::BinaryArray>(storage->field(0));
+    const auto variant_values = std::static_pointer_cast<arrow::BinaryArray>(storage->field(1));
+
+    const auto& source_nullable =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& source = assert_cast<const ColumnVariantV2&>(source_nullable.get_nested_column());
+    for (size_t row : {0, 2}) {
+        const VariantRef expected = source.get_value_ref(row);
+        int32_t metadata_size = 0;
+        int32_t value_size = 0;
+        const uint8_t* metadata_bytes = metadata->GetValue(row, &metadata_size);
+        const uint8_t* value_bytes = variant_values->GetValue(row, &value_size);
+        ASSERT_EQ(static_cast<size_t>(metadata_size), expected.metadata.size);
+        ASSERT_EQ(static_cast<size_t>(value_size), expected.value.size);
+        EXPECT_EQ(std::memcmp(metadata_bytes, expected.metadata.data, expected.metadata.size), 0);
+        EXPECT_EQ(std::memcmp(value_bytes, expected.value.data, expected.value.size), 0);
+    }
 }
 
 TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
