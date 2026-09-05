@@ -37,28 +37,37 @@ import java.util.List;
 public final class LanceTypeConverter {
     private static final int MAX_DECIMAL_PRECISION = 76;
     private static final String ARROW_EXTENSION_NAME = "ARROW:extension:name";
+    private static final String ARROW_JSON_EXTENSION = "arrow.json";
+    private static final String LANCE_JSON_EXTENSION = "lance.json";
+    private static final String LANCE_BFLOAT16_EXTENSION = "lance.bfloat16";
 
     private LanceTypeConverter() {
     }
 
+    /** Converts Arrow fields exposed by Lance to Doris types. */
     public static Type toDorisType(Field field) {
-        // Arrow Java exposes unknown extension types through their storage type and field
-        // metadata. Treating the storage type as the logical type would make DESC report
-        // Blob, JSON, or BFloat16 as supported even though the scanner cannot decode their
-        // extension semantics. Dictionary arrays are likewise not decoded by the BE reader.
+        return toDorisType(field, true);
+    }
+
+    /** Converts an Arrow field, allowing Doris NULL only at the top level. */
+    private static Type toDorisType(Field field, boolean allowNull) {
         // TODO(lance): Dataset.getSchema() currently erases the Dictionary marker, while
         // Dataset.getLanceSchema() fails to convert a schema containing Dictionary in the
         // Lance 9.1.0-beta.3 Java SDK. Reject physical Dictionary columns after that SDK
         // conversion is fixed; an unmarked Int16 field cannot be distinguished safely here.
         String extensionName = field.getMetadata() == null
                 ? null : field.getMetadata().get(ARROW_EXTENSION_NAME);
-        if (field.getDictionary() != null
-                || (extensionName != null && !extensionName.isEmpty())) {
+        if (field.getDictionary() != null) {
             return Type.UNSUPPORTED;
+        }
+        if (extensionName != null && !extensionName.isEmpty()) {
+            return extensionType(field, extensionName);
         }
 
         ArrowType arrowType = field.getType();
         switch (arrowType.getTypeID()) {
+            case Null:
+                return allowNull ? Type.NULL : Type.UNSUPPORTED;
             case Bool:
                 return Type.BOOLEAN;
             case Int:
@@ -91,6 +100,8 @@ public final class LanceTypeConverter {
                 return timeType((ArrowType.Time) arrowType);
             case Timestamp:
                 return timestampType((ArrowType.Timestamp) arrowType);
+            case Duration:
+                return Type.BIGINT;
             case Decimal:
                 ArrowType.Decimal decimal = (ArrowType.Decimal) arrowType;
                 if (decimal.getPrecision() <= 0 || decimal.getPrecision() > MAX_DECIMAL_PRECISION
@@ -102,7 +113,7 @@ public final class LanceTypeConverter {
             case LargeList:
             case FixedSizeList:
                 requireChildren(field, 1);
-                Type itemType = toDorisType(field.getChildren().get(0));
+                Type itemType = toDorisType(field.getChildren().get(0), false);
                 return itemType.isSupported() ? new ArrayType(itemType) : Type.UNSUPPORTED;
             case Map:
                 requireChildren(field, 1);
@@ -110,15 +121,15 @@ public final class LanceTypeConverter {
                 requireChildren(entries, 2);
                 Field key = entries.getChildren().get(0);
                 Field value = entries.getChildren().get(1);
-                Type keyType = toDorisType(key);
-                Type valueType = toDorisType(value);
+                Type keyType = toDorisType(key, false);
+                Type valueType = toDorisType(value, false);
                 return keyType.isSupported() && valueType.isSupported()
                         ? new MapType(keyType, valueType, key.isNullable(), value.isNullable())
                         : Type.UNSUPPORTED;
             case Struct:
                 List<StructField> fields = new ArrayList<>();
                 for (Field child : field.getChildren()) {
-                    Type childType = toDorisType(child);
+                    Type childType = toDorisType(child, false);
                     if (!childType.isSupported()) {
                         return Type.UNSUPPORTED;
                     }
@@ -133,6 +144,27 @@ public final class LanceTypeConverter {
         }
     }
 
+    /** Maps a known extension and validates its storage type. */
+    private static Type extensionType(Field field, String extensionName) {
+        ArrowType storageType = field.getType();
+        switch (extensionName) {
+            case ARROW_JSON_EXTENSION:
+                return storageType.getTypeID() == ArrowType.ArrowTypeID.Utf8
+                                || storageType.getTypeID() == ArrowType.ArrowTypeID.LargeUtf8
+                        ? Type.JSONB : Type.UNSUPPORTED;
+            case LANCE_JSON_EXTENSION:
+                return storageType.getTypeID() == ArrowType.ArrowTypeID.LargeBinary
+                        ? Type.JSONB : Type.UNSUPPORTED;
+            case LANCE_BFLOAT16_EXTENSION:
+                return storageType.getTypeID() == ArrowType.ArrowTypeID.FixedSizeBinary
+                                && ((ArrowType.FixedSizeBinary) storageType).getByteWidth() == 2
+                        ? Type.FLOAT : Type.UNSUPPORTED;
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
+    /** Maps an Arrow integer to the narrowest lossless Doris type. */
     private static Type integerType(ArrowType.Int type) {
         if (type.getIsSigned()) {
             switch (type.getBitWidth()) {
@@ -162,6 +194,7 @@ public final class LanceTypeConverter {
         }
     }
 
+    /** Maps an Arrow timestamp while preserving precision and timezone semantics. */
     private static Type timestampType(ArrowType.Timestamp type) {
         TimeUnit unit = type.getUnit();
         int scale;
@@ -185,6 +218,7 @@ public final class LanceTypeConverter {
                 : ScalarType.createTimeStampTzType(scale);
     }
 
+    /** Maps an Arrow time value to Doris TIMEV2. */
     private static Type timeType(ArrowType.Time type) {
         TimeUnit unit = type.getUnit();
         switch (unit) {
@@ -203,6 +237,7 @@ public final class LanceTypeConverter {
         }
     }
 
+    /** Maps an Arrow date value to Doris DATEV2. */
     private static Type dateType(ArrowType.Date type) {
         DateUnit unit = type.getUnit();
         switch (unit) {
@@ -214,6 +249,7 @@ public final class LanceTypeConverter {
         }
     }
 
+    /** Checks the child count of a nested Arrow field. */
     private static void requireChildren(Field field, int expected) {
         if (field.getChildren().size() != expected) {
             throw new IllegalArgumentException("Invalid Arrow children for Lance field '" + field.getName()

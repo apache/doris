@@ -102,16 +102,64 @@ public class LanceTypeConverterTest {
                 Field.nullable("uint64_col", new ArrowType.Int(64, false))));
     }
 
+    /** Verifies Arrow Null and Duration mappings. */
     @Test
-    public void testExtensionAndDictionaryMarkersAreUnsupported() {
-        Field extensionField = new Field(
-                "json_col",
-                new FieldType(
-                        true,
-                        ArrowType.Utf8.INSTANCE,
-                        null,
-                        Collections.singletonMap("ARROW:extension:name", "lance.json")),
-                Collections.emptyList());
+    public void testNullAndDurationMappings() {
+        Assertions.assertEquals(Type.NULL, LanceTypeConverter.toDorisType(
+                Field.nullable("null_col", ArrowType.Null.INSTANCE)));
+        for (TimeUnit unit : TimeUnit.values()) {
+            Assertions.assertEquals(Type.BIGINT, LanceTypeConverter.toDorisType(
+                    Field.nullable("duration_col", new ArrowType.Duration(unit))));
+        }
+    }
+
+    /** Verifies nested Null fields remain unsupported. */
+    @Test
+    public void testNestedNullIsUnsupported() {
+        Field nullItem = Field.nullable("item", ArrowType.Null.INSTANCE);
+        Field nullList = new Field(
+                "null_list",
+                FieldType.nullable(ArrowType.List.INSTANCE),
+                Collections.singletonList(nullItem));
+        Field nullStruct = new Field(
+                "null_struct",
+                FieldType.nullable(ArrowType.Struct.INSTANCE),
+                Collections.singletonList(Field.nullable("value", ArrowType.Null.INSTANCE)));
+
+        Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(nullList));
+        Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(nullStruct));
+    }
+
+    /** Verifies known extension mappings and storage validation. */
+    @Test
+    public void testKnownExtensionMappingsAndStorageValidation() {
+        Assertions.assertEquals(Type.JSONB, LanceTypeConverter.toDorisType(
+                extensionField("arrow_json_col", ArrowType.Utf8.INSTANCE, "arrow.json")));
+        Assertions.assertEquals(Type.JSONB, LanceTypeConverter.toDorisType(
+                extensionField("lance_json_col", ArrowType.LargeBinary.INSTANCE, "lance.json")));
+
+        Field bfloat16Item = extensionField(
+                "item", new ArrowType.FixedSizeBinary(2), "lance.bfloat16");
+        Assertions.assertEquals(Type.FLOAT, LanceTypeConverter.toDorisType(bfloat16Item));
+        Field bfloat16Vector = new Field(
+                "bfloat16_vector_col",
+                FieldType.nullable(new ArrowType.FixedSizeList(4)),
+                Collections.singletonList(bfloat16Item));
+        Assertions.assertEquals("array<float>",
+                LanceTypeConverter.toDorisType(bfloat16Vector).toSql());
+
+        Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(
+                extensionField("invalid_json", ArrowType.Binary.INSTANCE, "arrow.json")));
+        Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(
+                extensionField("invalid_bfloat16", new ArrowType.FixedSizeBinary(4),
+                        "lance.bfloat16")));
+    }
+
+    /** Verifies unknown extensions and dictionary fields remain unsupported. */
+    @Test
+    public void testUnknownExtensionAndDictionaryMarkersAreUnsupported() {
+        Field extensionField = extensionField(
+                "extension_col", ArrowType.Utf8.INSTANCE, "doris.test.extension");
         Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(extensionField));
 
         Field dictionaryField = new Field(
@@ -132,19 +180,17 @@ public class LanceTypeConverterTest {
                         Collections.singletonMap("ARROW:extension:name", "lance.blob.v2")),
                 Collections.emptyList());
         Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(blobField));
+    }
 
-        Field bfloat16Item = new Field(
-                "item",
+    /** Creates a field with Arrow extension metadata. */
+    private static Field extensionField(String name, ArrowType storageType, String extensionName) {
+        return new Field(
+                name,
                 new FieldType(
                         true,
-                        new ArrowType.FixedSizeBinary(2),
+                        storageType,
                         null,
-                        Collections.singletonMap("ARROW:extension:name", "lance.bfloat16")),
+                        Collections.singletonMap("ARROW:extension:name", extensionName)),
                 Collections.emptyList());
-        Field bfloat16Vector = new Field(
-                "bfloat16_vector_col",
-                FieldType.nullable(new ArrowType.FixedSizeList(4)),
-                Collections.singletonList(bfloat16Item));
-        Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(bfloat16Vector));
     }
 }
