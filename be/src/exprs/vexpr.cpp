@@ -910,6 +910,10 @@ ColumnPtr VExpr::get_result_from_const(size_t count) const {
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
+    if (!function->can_evaluate_inverted_index(children())) {
+        return Status::OK();
+    }
+
     // Pre-allocate vectors based on an estimated or known size
     std::vector<segment_v2::IndexIterator*> iterators;
     std::vector<IndexFieldNameAndTypePair> data_type_with_names;

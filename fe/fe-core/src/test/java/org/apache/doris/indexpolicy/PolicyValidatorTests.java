@@ -286,6 +286,27 @@ public class PolicyValidatorTests {
         Assertions.assertTrue(upperMessage.contains("mode must be one of"), upperMessage);
     }
 
+    @Test
+    public void testNGramValidator_GramDecimalPropertiesHavePortableSyntax() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        for (String key : new String[] {"density", "stop_gram_df"}) {
+            // Policies are persisted verbatim and parsed by BE. Java-only suffixes and
+            // implicit trimming must not defer an accepted DDL's failure to data loading.
+            for (String value : new String[] {"0.25f", "0.25D", "0.25 ", " 0.25", "0.25\t",
+                    "0x1p-2", "NaN", "Infinity", "", ".", "1e", "０.２５"}) {
+                Map<String, String> props = sparseGramProps();
+                props.put(key, value);
+                Assertions.assertThrows(DdlException.class, () -> validator.validate(props),
+                        key + "=" + value);
+            }
+            for (String value : new String[] {"0.25", ".25", "1.", "+0.25", "2.5e-1", "0.001", "1"}) {
+                Map<String, String> props = sparseGramProps();
+                props.put(key, value);
+                Assertions.assertDoesNotThrow(() -> validator.validate(props), key + "=" + value);
+            }
+        }
+    }
+
     // StandardTokenizerValidator Tests
     @Test
     public void testStandardTokenizerValidator_ValidProperties() throws Exception {

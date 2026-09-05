@@ -84,19 +84,13 @@ inline size_t codepoint_len(const char* p, size_t remain) {
 
 } // namespace gram_extractor_detail
 
-GramExtractor::GramExtractor(const GramScheme& scheme) : _scheme(scheme) {
-    _build_boundary_table();
-}
+GramExtractor::GramExtractor(const GramScheme& scheme)
+        : _scheme(scheme),
+          _boundary_threshold(static_cast<uint64_t>(scheme.density_permille) * 65536 / 1000) {}
 
-void GramExtractor::_build_boundary_table() {
-    _boundary_bits.assign(8192, 0);
-    const uint64_t threshold = (uint64_t)_scheme.density_permille * 65536ULL / 1000ULL;
-    for (unsigned idx = 0; idx < 65536; idx++) {
-        uint64_t key = ((uint64_t)idx) ^ 0x5bd1e995ULL; // idx = (a<<8)|b
-        if ((gram_extractor_detail::mix64(key) & 0xFFFF) < threshold) {
-            _boundary_bits[idx >> 3] |= (uint8_t)(1U << (idx & 7));
-        }
-    }
+bool GramExtractor::is_boundary(uint8_t a, uint8_t b) const {
+    const uint64_t key = ((static_cast<uint64_t>(a) << 8) | b) ^ 0x5bd1e995ULL;
+    return (gram_extractor_detail::mix64(key) & 0xFFFF) < _boundary_threshold;
 }
 
 void GramExtractor::_ascii_segment(std::string_view seg, std::vector<std::string_view>* out) {

@@ -216,6 +216,14 @@ public:
         }
     }
 
+    // Validate operand roles before VExpr separates indexed fields from literals. Functions
+    // whose index semantics depend on argument order must inspect the original children here.
+    virtual bool can_evaluate_inverted_index(const VExprSPtrs& /*function_arguments*/) const {
+        return true;
+    }
+
+    // VExpr calls this only after can_evaluate_inverted_index accepts the ordered arguments
+    // and the indexed fields have been bound to storage-compatible types and iterators.
     virtual Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
@@ -505,6 +513,10 @@ public:
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return function->close(context, scope);
+    }
+
+    bool can_evaluate_inverted_index(const VExprSPtrs& function_arguments) const override {
+        return function->can_evaluate_inverted_index(function_arguments);
     }
 
     Status evaluate_inverted_index(

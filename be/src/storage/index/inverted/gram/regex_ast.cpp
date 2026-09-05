@@ -43,13 +43,8 @@ namespace {
 // there is a hard cap here that errors out instead of recursing further.
 constexpr int kMaxNestingDepth = 64;
 
-// ------------------------------------------------------------------
-// The UTF-8 codec helpers and the Parser below were ported from utf8_len/decode_cps/encode_cp
-// and struct Parser in the prototype tools/regex-ngram-model/ngram_model.cpp with identical
-// semantics; the only porting changes are: Node -> RegexNode (plus the matching qualification
-// of the enum T -> Type), ok/err converted into Status::InvalidArgument inside parse_regex, and
-// the new depth nesting counter.
-// ------------------------------------------------------------------
+// The parser derives conservative literal constraints for the scalar regex engines.
+// Unsupported syntax fails parsing so the caller can skip gram filtering.
 
 // Infer the byte length of a UTF-8 sequence from its lead byte; an illegal lead byte counts as a
 // single byte.
@@ -134,10 +129,23 @@ NP mk(RegexNode::Type t) {
     return p;
 }
 
-// Recursive-descent parser for the RE2 syntax subset, ported from the prototype's struct Parser.
-// Apart from the three changes listed in the comment at the top of this file, the function
-// split, the control flow and the order in which each syntax rule is handled match the
-// prototype.
+// ASCII K and S also match the Kelvin sign and long s under the scalar engines' Unicode
+// case-insensitive matching. Keep the same expansion for literals and small character classes.
+void append_ascii_case_variants(uint32_t cp, std::vector<std::string>* items) {
+    items->emplace_back(1, static_cast<char>(cp));
+    const uint32_t lower = cp >= 'A' && cp <= 'Z' ? cp + ('a' - 'A') : cp;
+    if (lower < 'a' || lower > 'z') {
+        return;
+    }
+    items->emplace_back(1, static_cast<char>(cp == lower ? cp - ('a' - 'A') : lower));
+    if (lower == 'k') {
+        items->emplace_back("K");
+    } else if (lower == 's') {
+        items->emplace_back("ſ");
+    }
+}
+
+// Recursive-descent parser for the supported regex subset.
 struct Parser {
     std::string_view p;
     size_t i = 0;
@@ -198,6 +206,16 @@ struct Parser {
     NP parse_cat() {
         NP c = mk(RegexNode::Type::CAT);
         while (!eof() && peek() != '|' && peek() != ')') {
+            if (peek() == '\\' && i + 1 < p.size() && p[i + 1] == 'Q') {
+                append_quoted_literals(&c->kids);
+                if (!c->kids.empty()) {
+                    // A quote adds individual literal atoms. If it is empty, a following
+                    // quantifier still applies to the preceding atom, including a group or
+                    // repeat. Keep this token boundary: '+\\Q\\E?' must not become lazy '+?'.
+                    c->kids.back() = parse_quant(std::move(c->kids.back()));
+                }
+                continue;
+            }
             NP atom = parse_atom();
             if (!ok) {
                 return c;
@@ -209,6 +227,17 @@ struct Parser {
             c->kids.push_back(std::move(atom));
         }
         return c;
+    }
+
+    void append_quoted_literals(std::vector<NP>* atoms) {
+        i += 2; // '\\Q'
+        while (!eof() && !(peek() == '\\' && i + 1 < p.size() && p[i + 1] == 'E')) {
+            std::string utf8;
+            atoms->push_back(make_lit(next_cp(&utf8)));
+        }
+        if (!eof()) {
+            i += 2; // '\\E'
+        }
     }
 
     NP parse_quant(NP a) {
@@ -325,6 +354,47 @@ struct Parser {
         return true;
     }
 
+    // Decode only character escapes whose meaning is shared by the scalar engines. Other
+    // letter/digit escapes may denote assertions, classes or backreferences; treating them as
+    // literals could exclude matching rows. Three-digit octal avoids short numeric escapes'
+    // ambiguity with backreferences.
+    bool parse_character_escape(uint32_t* cp) {
+        const char c = p[i++];
+        switch (c) {
+        case 'a':
+            *cp = '\a';
+            return true;
+        case 'f':
+            *cp = '\f';
+            return true;
+        case 'n':
+            *cp = '\n';
+            return true;
+        case 'r':
+            *cp = '\r';
+            return true;
+        case 't':
+            *cp = '\t';
+            return true;
+        case 'x':
+            return parse_hex_escape_value(cp);
+        default:
+            if (c >= '0' && c <= '7' && i + 1 < p.size() && p[i] >= '0' && p[i] <= '7' &&
+                p[i + 1] >= '0' && p[i + 1] <= '7') {
+                *cp = (c - '0') * 64 + (p[i] - '0') * 8 + (p[i + 1] - '0');
+                i += 2;
+                return true;
+            }
+            if (c >= ' ' && c <= '~' && !std::isalnum(static_cast<unsigned char>(c))) {
+                *cp = c;
+                return true;
+            }
+            ok = false;
+            err = "unsupported character escape";
+            return false;
+        }
+    }
+
     // Add one code point or escape from inside a class to out (a large class sets big).
     void class_escape(std::vector<uint32_t>* out, bool* big) {
         // The caller always consumes the '\\' that triggered the escape before calling this
@@ -346,25 +416,9 @@ struct Parser {
         case 'D':
         case 'W':
         case 'S':
+        case 'v': // Hyperscan: vertical whitespace class; RE2: vertical tab.
             *big = true;
             break;
-        case 'n':
-            out->push_back('\n');
-            break;
-        case 't':
-            out->push_back('\t');
-            break;
-        case 'r':
-            out->push_back('\r');
-            break;
-        case 'x': {
-            uint32_t v = 0;
-            if (!parse_hex_escape_value(&v)) {
-                return;
-            }
-            out->push_back(v);
-            break;
-        }
         case 'p':
         case 'P':
             *big = true;
@@ -379,8 +433,11 @@ struct Parser {
             break;
         default: {
             i--;
-            std::string u;
-            out->push_back(next_cp(&u));
+            uint32_t cp;
+            if (!parse_character_escape(&cp)) {
+                return;
+            }
+            out->push_back(cp);
             break;
         }
         }
@@ -475,22 +532,26 @@ struct Parser {
             return n;
         }
         for (auto cp : items) {
+            if (icase && cp >= 128) {
+                // The scalar engines fold Unicode, while the gram index only folds ASCII.
+                // An unenumerated alternative makes this class unknown, but leaves surrounding
+                // literal constraints available to the compiler.
+                n->big_class = true;
+                n->cls.clear();
+                return n;
+            }
+            if (icase) {
+                append_ascii_case_variants(cp, &n->cls);
+                continue;
+            }
             std::string u;
             encode_cp(cp, &u);
             n->cls.push_back(u);
-            if (icase && cp < 128 && std::isalpha(static_cast<unsigned char>(cp))) {
-                std::string v;
-                encode_cp(std::islower(static_cast<unsigned char>(cp))
-                                  ? std::toupper(static_cast<unsigned char>(cp))
-                                  : std::tolower(static_cast<unsigned char>(cp)),
-                          &v);
-                n->cls.push_back(v);
-            }
         }
         std::sort(n->cls.begin(), n->cls.end());
         n->cls.erase(std::unique(n->cls.begin(), n->cls.end()), n->cls.end());
         if (n->cls.size() > 4) {
-            // Under `(?i)` the case expansion can double <= 4 original code points to more than
+            // Under `(?i)` the case expansion can grow <= 4 original code points to more than
             // 4 items (e.g. (?i)[abc] expands to 6), which degrades to a large class; cls must
             // be cleared whenever big_class=true (see the invariant in the RegexNode comment in
             // the header), otherwise a caller cannot tell "is this enumerable?" from big_class
@@ -502,28 +563,24 @@ struct Parser {
     }
 
     NP make_lit(uint32_t cp) const {
-        std::string u;
-        encode_cp(cp, &u);
-        if (icase && cp < 128 && std::isalpha(static_cast<unsigned char>(cp))) {
+        if (icase && cp >= 128) {
+            // Unknown Unicode case variants must not become mandatory literal grams.
+            return mk(RegexNode::Type::ANY);
+        }
+        if (icase && ((cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z'))) {
             NP n = mk(RegexNode::Type::CLASS);
-            std::string v;
-            encode_cp(std::islower(static_cast<unsigned char>(cp))
-                              ? std::toupper(static_cast<unsigned char>(cp))
-                              : std::tolower(static_cast<unsigned char>(cp)),
-                      &v);
-            n->cls = {u, v};
+            append_ascii_case_variants(cp, &n->cls);
             std::sort(n->cls.begin(), n->cls.end());
             return n;
         }
         NP n = mk(RegexNode::Type::LIT);
-        n->lit = u;
+        encode_cp(cp, &n->lit);
         return n;
     }
 
     // Decoding of the `\` escape branch in parse_atom: on entry '\\' has been consumed and eof
     // has been ruled out (the caller handles a trailing backslash before switching here), and
-    // the escape is dispatched on the peek()ed character. Split out of parse_atom to reduce its
-    // complexity/length; the semantics are identical to the original inline switch.
+    // the escape is dispatched on the peek()ed character. Quotes are handled by parse_cat.
     NP parse_backslash_escape() {
         char e = peek();
         switch (e) {
@@ -532,7 +589,8 @@ struct Parser {
         case 's':
         case 'D':
         case 'W':
-        case 'S': {
+        case 'S':
+        case 'v': { // Cover both Hyperscan's whitespace class and RE2's vertical tab.
             i++;
             NP n = mk(RegexNode::Type::CLASS);
             n->big_class = true;
@@ -541,6 +599,7 @@ struct Parser {
         case 'b':
         case 'B':
         case 'A':
+        case 'Z':
         case 'z':
             i++;
             return mk(RegexNode::Type::EMPTY);
@@ -559,39 +618,11 @@ struct Parser {
             n->big_class = true;
             return n;
         }
-        case 'n':
-            i++;
-            return make_lit('\n');
-        case 't':
-            i++;
-            return make_lit('\t');
-        case 'r':
-            i++;
-            return make_lit('\r');
-        case 'x': {
-            i++;
-            std::vector<uint32_t> tmp;
-            bool big = false;
-            i--;
-            class_escape(&tmp, &big);
-            return make_lit(tmp.empty() ? 0 : tmp[0]);
-        }
-        case 'Q': { // \Q...\E literal
-            i++;
-            NP cat = mk(RegexNode::Type::CAT);
-            while (!eof() && !(peek() == '\\' && i + 1 < p.size() && p[i + 1] == 'E')) {
-                std::string u;
-                uint32_t cp = next_cp(&u);
-                cat->kids.push_back(make_lit(cp));
-            }
-            if (!eof()) {
-                i += 2;
-            }
-            return cat;
-        }
         default: {
-            std::string u;
-            uint32_t cp = next_cp(&u);
+            uint32_t cp;
+            if (!parse_character_escape(&cp)) {
+                return nullptr;
+            }
             return make_lit(cp);
         }
         }
@@ -601,9 +632,9 @@ struct Parser {
     // a named group `(?P<name>...)` or `(?<name>...)` and the inline flags `(?i) (?is) (?i:...)`,
     // then recursively parses the group body and checks the closing parenthesis, all while
     // maintaining the kMaxNestingDepth recursion cap. On entry the leading '(' has already been
-    // consumed. Split out of parse_atom to reduce its complexity/length; the semantics are
-    // identical to the original inline code.
+    // consumed. Groups restore the enclosing flags after parsing their bodies.
     NP parse_group() {
+        const bool enclosing_icase = icase;
         if (peek() == '?') {
             i++;
             if (peek() == ':') {
@@ -642,6 +673,7 @@ struct Parser {
                 }
                 if (peek() == ')') {
                     i++;
+                    // Flags-only groups affect the remainder of their enclosing scope.
                     return nullptr;
                 }
                 i++; // ':'
@@ -656,6 +688,7 @@ struct Parser {
         }
         NP inner = parse_alt();
         depth--;
+        icase = enclosing_icase;
         if (peek() != ')') {
             ok = false;
             err = "missing )";

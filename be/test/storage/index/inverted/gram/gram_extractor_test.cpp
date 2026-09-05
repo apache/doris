@@ -19,8 +19,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <set>
 #include <string>
+
+#include "util/stopwatch.hpp"
 
 namespace doris::segment_v2::gram {
 
@@ -111,17 +115,84 @@ TEST(GramExtractorTest, NoGramContainsNulByte) {
     }
 }
 
-TEST(GramExtractorTest, BoundaryTableMatchesFormula) {
-    GramScheme s;
-    GramExtractor ex(s);
-    size_t cnt = 0;
-    for (int a = 0; a < 256; a++) {
-        for (int b = 0; b < 256; b++) {
-            cnt += ex.is_boundary(a, b);
+TEST(GramExtractorTest, BoundaryHashVersionOneGolden) {
+    // Hash-version-1 goldens: FNV-1a over the 0/1 boundary results for all byte pairs in
+    // numeric order. Pin the complete rule, not merely the approximate boundary density.
+    struct Golden {
+        uint32_t density;
+        size_t count;
+        uint64_t digest;
+    };
+    const Golden cases[] = {{.density = 1, .count = 76, .digest = 0xd82b5155d39e1de5ULL},
+                            {.density = 250, .count = 16488, .digest = 0x90bb2e083a7a9ec5ULL},
+                            {.density = 1000, .count = 65536, .digest = 0x2d438615f3572325ULL}};
+    for (auto mode : {GramMode::DENSE, GramMode::SPARSE}) {
+        for (const auto& golden : cases) {
+            GramScheme scheme;
+            scheme.mode = mode;
+            scheme.density_permille = golden.density;
+            SCOPED_TRACE(scheme.cache_key());
+            GramExtractor extractor(scheme);
+            size_t count = 0;
+            uint64_t digest = 14695981039346656037ULL;
+            for (unsigned pair = 0; pair < 65536; ++pair) {
+                const bool boundary = extractor.is_boundary(static_cast<uint8_t>(pair >> 8),
+                                                            static_cast<uint8_t>(pair));
+                count += boundary;
+                digest = (digest ^ boundary) * 1099511628211ULL;
+            }
+            EXPECT_EQ(count, golden.count);
+            EXPECT_EQ(digest, golden.digest);
         }
     }
-    // p=0.25 ± 2%
-    EXPECT_NEAR(cnt / 65536.0, 0.25, 0.02);
+}
+
+// A fresh tokenizer is created for each indexed value. Its setup must not dominate
+// short-row extraction by an order of magnitude. Compare thread CPU time to exclude
+// scheduling delays, and use a median with a deliberately generous local budget.
+TEST(GramExtractorPerformanceTest, ShortRowsHaveBoundedConstructionOverhead) {
+    const std::string row =
+            "2026-09-05T12:45:30 INFO rpc request completed service=frontend "
+            "method=query user=demo elapsed_ms=17 status=OK remote=10.1.2.3";
+    constexpr size_t iterations = 1024;
+    for (GramMode mode : {GramMode::DENSE, GramMode::SPARSE}) {
+        GramScheme scheme;
+        scheme.mode = mode;
+        const size_t expected_grams = mode == GramMode::DENSE ? 120 : 27;
+        std::array<double, 3> ratios {};
+        for (double& ratio : ratios) {
+            size_t fresh_count = 0;
+            ThreadCpuStopWatch fresh_timer(true);
+            for (size_t i = 0; i < iterations; ++i) {
+                GramExtractor extractor(scheme);
+                std::vector<std::string_view> grams;
+                extractor.extract(row, &grams);
+                fresh_count += grams.size();
+            }
+            fresh_timer.stop();
+
+            GramExtractor extractor(scheme);
+            std::vector<std::string_view> grams;
+            size_t reused_count = 0;
+            ThreadCpuStopWatch reused_timer(true);
+            for (size_t i = 0; i < iterations; ++i) {
+                extractor.extract(row, &grams);
+                reused_count += grams.size();
+            }
+            reused_timer.stop();
+            ASSERT_EQ(fresh_count, expected_grams * iterations);
+            ASSERT_EQ(reused_count, expected_grams * iterations);
+            ASSERT_GT(reused_timer.elapsed_time(), 0);
+            ratio = static_cast<double>(fresh_timer.elapsed_time()) /
+                    static_cast<double>(reused_timer.elapsed_time());
+        }
+        std::ranges::sort(ratios);
+        RecordProperty(
+                mode == GramMode::DENSE ? "dense_fresh_reused_ratio" : "sparse_fresh_reused_ratio",
+                std::to_string(ratios[1]));
+        EXPECT_LT(ratios[1], 10.0)
+                << "mode=" << static_cast<int>(mode) << ", fresh/reused CPU ratio=" << ratios[1];
+    }
 }
 
 } // namespace doris::segment_v2::gram

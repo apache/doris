@@ -288,6 +288,8 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t /*input_rows_count*/) const override;
 
+    bool can_evaluate_inverted_index(const VExprSPtrs& function_arguments) const override;
+
     friend struct VectorAllpassSearchState;
     friend struct VectorEqualSearchState;
     friend struct VectorSubStringSearchState;
@@ -374,21 +376,18 @@ protected:
     static Status hs_prepare(FunctionContext* context, const char* expression,
                              hs_database_t** database, hs_scratch_t** scratch);
 
-    // Entry point for gram index push-down, shared by LIKE and REGEXP; the two differ only in
-    // how they compile (LIKE cuts literal segments on %/_, REGEXP goes through the regex syntax
-    // tree) and are otherwise identical (scheme resolution, issuing GRAM_BOOLEAN_QUERY, marking
-    // the result approximate).
+    // Send the original LIKE/REGEXP pattern to the selected reader. The reader compiles it
+    // against its persisted gram scheme and returns an approximate candidate bitmap.
     //
     // Hard semantic constraint (Rulings R26 / R29): the index may only produce a superset of
     // candidates, and any index-side failure or inapplicable case may only cost the speedup --
     // all of them simply return OK() without writing bitmap_result, and a problem on the index
-    // side must never make a LIKE/REGEXP query fail or change its result. The individual cases
-    // (switch turned off, wrong iterator/argument shape, a non-constant or NULL pattern, a LIKE
-    // ESCAPE shape other than "no ESCAPE / a constant backslash", a reader that is not a SNII
-    // reader, a non-gram-family index, an internal gram compiler failure, a compilation result
-    // of ALL, any non-OK status from read_from_index) are handled in the implementation in
-    // like.cpp. The only statuses rethrown are the "the query as a whole should already be
-    // stopping" ones: CANCELLED / MEM_LIMIT_EXCEEDED / MEM_ALLOC_FAILED.
+    // side must never make a LIKE/REGEXP query fail or change its result. The caller first
+    // validates the ordered children through can_evaluate_inverted_index: the value is the
+    // indexed operand, the pattern is a literal, and LIKE ESCAPE is absent or a literal
+    // backslash. VExpr then binds the single value iterator. This method handles a disabled
+    // switch, NULL pattern, unsupported index, compiler result of ALL and index errors.
+    // The only statuses rethrown are CANCELLED / MEM_LIMIT_EXCEEDED / MEM_ALLOC_FAILED.
     enum class GramCompileKind { LIKE, REGEXP };
     Status evaluate_gram_index(GramCompileKind kind, const ColumnsWithTypeAndName& arguments,
                                const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,

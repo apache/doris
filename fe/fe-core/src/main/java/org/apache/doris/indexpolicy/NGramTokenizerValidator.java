@@ -25,6 +25,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public class NGramTokenizerValidator extends BasePolicyValidator {
     private static final Set<String> ALLOWED_PROPS = ImmutableSet.of(
@@ -49,6 +50,10 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
     private static final int MAX_GRAM_LOWER_BOUND = 1;
     private static final int MAX_GRAM_UPPER_BOUND = 256;
     private static final double MIN_DENSITY = 0.001;
+    // Persist a decimal spelling that BE can parse verbatim: Java-only type suffixes or
+    // silently trimmed trailing whitespace must not pass DDL validation.
+    private static final Pattern DECIMAL_PATTERN = Pattern.compile(
+            "[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?");
 
     public NGramTokenizerValidator() {
         super(ALLOWED_PROPS);
@@ -205,6 +210,9 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
      * Parses a double property, throwing a DdlException that carries the field name on failure.
      */
     private static double parseDouble(String value, String key) throws DdlException {
+        if (!DECIMAL_PATTERN.matcher(value).matches()) {
+            throw new DdlException(key + " must be a decimal number, got: " + value);
+        }
         try {
             return Double.parseDouble(value);
         } catch (NumberFormatException e) {

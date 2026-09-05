@@ -19,6 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+#include <string_view>
+#include <utility>
+
 namespace doris::segment_v2::gram {
 
 TEST(GramSchemeTest, DefaultsAndRoundTrip) {
@@ -68,6 +72,26 @@ TEST(GramSchemeTest, RejectsInvalid) {
     EXPECT_FALSE(GramScheme::from_properties({{"density", "1.5"}}, &s).ok());
     EXPECT_FALSE(GramScheme::from_properties({{"stop_gram_df", "-1"}}, &s).ok());
     EXPECT_FALSE(GramScheme::from_properties({{"lower_case", "yes"}}, &s).ok());
+}
+
+TEST(GramSchemeTest, ParsesPortableDecimalProperties) {
+    const std::pair<const char*, uint32_t> cases[] = {{"0.25", 250},  {".25", 250},    {"1.", 1000},
+                                                      {"+0.25", 250}, {"2.5e-1", 250}, {"0.001", 1},
+                                                      {"1", 1000}};
+    for (const auto* key : {"density", "stop_gram_df"}) {
+        for (const auto& [value, expected] : cases) {
+            SCOPED_TRACE(std::string(key) + "=" + value);
+            GramScheme scheme;
+            ASSERT_TRUE(GramScheme::from_properties({{key, value}}, &scheme).ok());
+            EXPECT_EQ(std::string_view(key) == "density" ? scheme.density_permille
+                                                         : scheme.stop_df_permille,
+                      expected);
+        }
+        for (const auto* value : {"0.25f", "0.25D", "0.25 ", "0.25\t"}) {
+            GramScheme scheme;
+            EXPECT_FALSE(GramScheme::from_properties({{key, value}}, &scheme).ok());
+        }
+    }
 }
 
 } // namespace doris::segment_v2::gram

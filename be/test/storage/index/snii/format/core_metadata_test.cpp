@@ -322,9 +322,7 @@ TEST(SniiCoreMetadata, GramSchemeRoundTrip) {
     EXPECT_TRUE(*actual.gram_scheme == scheme);
     expect_core_eq(expected, actual);
 
-    // P0 byte compatibility: the write side never sets gram_scheme, so after encoding the default
-    // (nullopt), has_gram_scheme() on the underlying PB must be false -- introducing this field
-    // must not change the encoded bytes of any existing segment.
+    // A non-gram index has no tokenizer scheme to persist.
     const auto none_framed = encode(sample_core());
     CoreMetadata none_actual;
     ASSERT_TRUE(decode_core_metadata(Slice(none_framed), &none_actual).ok());

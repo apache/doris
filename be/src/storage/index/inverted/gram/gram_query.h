@@ -18,10 +18,8 @@
 #pragma once
 #include <cstdint>
 #include <string>
-#include <string_view>
+#include <utility>
 #include <vector>
-
-#include "common/status.h"
 
 namespace doris::segment_v2::gram {
 
@@ -30,9 +28,8 @@ namespace doris::segment_v2::gram {
 // are operands of that node's operator. and_/or_ are the only entry points for building a
 // non-trivial query, and they simplify while constructing (flattening, deduplication,
 // absorption, NONE/ALL short-circuits, single-element collapse), so a GramQuery instance is in
-// simplified canonical form at all times. It can therefore be serialized to text safely (for
-// InvertedIndexParam::query_value and the cache key) or rendered back as a readable debug string
-// (for EXPLAIN).
+// simplified form at all times. A canonical structural key supports deduplication, while a
+// readable debug string supports EXPLAIN.
 struct GramQuery {
     enum class Op : uint8_t { ALL, NONE, AND, OR };
     Op op = Op::ALL;
@@ -64,17 +61,6 @@ struct GramQuery {
     bool is_none() const { return op == Op::NONE; }
     // Total number of gram leaves, counted recursively over all sub-queries.
     size_t leaf_count() const;
-    // Text format: ALL -> "*", NONE -> "!", AND -> "&(" items ")", OR -> "|(" items ")"; grams
-    // are base64-encoded to avoid clashing with the separators; items are separated by ',' and
-    // sub-queries are emitted sorted by their own serialize() output, so identical structures
-    // always produce identical text.
-    std::string serialize() const;
-    // Inverse of serialize(): the syntax must match the shape serialize() emits exactly (looser
-    // spellings such as an empty item, an empty gram, or an AND/OR with no operand are
-    // rejected), and the parsed tree is re-simplified through and_/or_ so the invariants hold;
-    // the nesting depth is capped. Returns Status::InvalidArgument on invalid input or excessive
-    // nesting, leaving *out at its value from before the call.
-    static Status parse(std::string_view text, GramQuery* out);
     // Readable form for EXPLAIN, e.g. "(\"abc\" & (\"de\" | \"fg\"))".
     std::string to_debug_string() const;
     // Canonical string key used for structural deduplication: two queries with the same

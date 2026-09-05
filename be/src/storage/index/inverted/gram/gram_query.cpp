@@ -44,8 +44,7 @@ void dedupe_grams(std::vector<std::string>& v) {
     v.erase(std::unique(v.begin(), v.end()), v.end());
 }
 
-// Deduplicate sub-queries by structural_key() (i.e. their serialize() text), keeping the first
-// occurrence.
+// Deduplicate sub-queries by their canonical structural key, keeping the first occurrence.
 void dedupe_subs(std::vector<GramQuery>& subs) {
     std::set<std::string> seen;
     std::vector<GramQuery> keep;
@@ -226,10 +225,6 @@ size_t GramQuery::leaf_count() const {
 }
 
 std::string GramQuery::structural_key() const {
-    return serialize();
-}
-
-std::string GramQuery::serialize() const {
     if (op == Op::ALL) {
         return "*";
     }
@@ -247,11 +242,11 @@ std::string GramQuery::serialize() const {
         doris::base64_encode(g, &enc);
         s += enc;
     }
-    // Sub-queries are emitted sorted by their own serialize() text, so identical structures
+    // Sub-queries are emitted sorted by their own structural_key() text, so identical structures
     // always produce identical text.
     std::vector<std::string> ks;
     for (const auto& c : subs) {
-        ks.push_back(c.serialize());
+        ks.push_back(c.structural_key());
     }
     std::sort(ks.begin(), ks.end());
     for (const auto& k : ks) {
@@ -262,134 +257,6 @@ std::string GramQuery::serialize() const {
         s += k;
     }
     return s + ")";
-}
-
-namespace gram_query_detail {
-
-namespace {
-
-// Maximum nesting depth allowed for AND/OR (the top-level call is 1). Anything deeper is
-// rejected at once, so that malformed or malicious input such as a repeated "&(" cannot recurse
-// deep enough to blow the stack (this repository has seen such an overflow: CIR-21633).
-constexpr int kMaxNestingDepth = 64;
-
-// Parse one base64 gram token from an AND/OR item list (the case where t[i] is none of &, |, *,
-// ! and parse_at has classified it as an ordinary item): scan from t[i] to the next ',' or ')'
-// as the token boundary, base64-decode it and wrap it with GramQuery::of_gram; on success i
-// points just past the token (the separator itself is not consumed). Split out of parse_at to
-// reduce its complexity; the semantics are identical to the original inline else branch.
-Status parse_gram_token(std::string_view t, size_t& i, GramQuery* out) {
-    size_t j = i;
-    while (j < t.size() && t[j] != ',' && t[j] != ')') {
-        j++;
-    }
-    if (j == i) {
-        return Status::InvalidArgument("gram query empty item at {}", i);
-    }
-    std::string dec;
-    if (!doris::base64_decode(std::string(t.substr(i, j - i)), &dec)) {
-        return Status::InvalidArgument("gram query bad base64 at {}", i);
-    }
-    if (dec.empty()) {
-        return Status::InvalidArgument("gram query empty gram at {}", i);
-    }
-    *out = GramQuery::of_gram(std::move(dec));
-    i = j;
-    return Status::OK();
-}
-
-// Parse one GramQuery starting at t[i]; on success i points just past that query. depth is the
-// current nesting depth (1 for the top-level call) and bounds the recursion to avoid a stack
-// overflow.
-//
-// Every item of an AND/OR node is folded into an accumulator through the GramQuery::and_/or_
-// combinators (starting from all() for AND and none() for OR) instead of being appended to the
-// grams/subs fields directly: that way sorting, deduplication, absorption, ALL/NONE
-// short-circuits and single-element collapse hold automatically. Those invariants are what make
-// has_gram() (binary search) and or_absorb_subsets() (std::includes) correct -- any tree parsed
-// from text must satisfy them before it can safely take part in further and_/or_ calls;
-// assembling the fields directly would produce trees the invariants forbid and make later
-// operations fail silently.
-// The syntax is also checked strictly, rejecting looser spellings that serialize() never emits:
-// an empty item (consecutive, leading or trailing comma), an AND/OR with no operand (such as
-// "&()"), and a gram that decodes to an empty string.
-Status parse_at(std::string_view t, size_t& i, int depth, GramQuery* out) {
-    if (depth > kMaxNestingDepth) {
-        return Status::InvalidArgument("gram query nesting too deep");
-    }
-    if (i >= t.size()) {
-        return Status::InvalidArgument("gram query truncated");
-    }
-    if (t[i] == '*') {
-        i++;
-        *out = GramQuery::all();
-        return Status::OK();
-    }
-    if (t[i] == '!') {
-        i++;
-        *out = GramQuery::none();
-        return Status::OK();
-    }
-    if ((t[i] != '&' && t[i] != '|') || i + 1 >= t.size() || t[i + 1] != '(') {
-        return Status::InvalidArgument("gram query bad token at {}", i);
-    }
-    bool is_and = t[i] == '&';
-    i += 2;
-    GramQuery acc = is_and ? GramQuery::all() : GramQuery::none();
-    size_t count = 0;
-    while (true) {
-        if (i >= t.size()) {
-            return Status::InvalidArgument("gram query truncated");
-        }
-        if (t[i] == ')') {
-            break;
-        }
-        GramQuery item;
-        if (t[i] == '&' || t[i] == '|' || t[i] == '*' || t[i] == '!') {
-            RETURN_IF_ERROR(parse_at(t, i, depth + 1, &item));
-        } else {
-            RETURN_IF_ERROR(parse_gram_token(t, i, &item));
-        }
-        count++;
-        acc = is_and ? GramQuery::and_(std::move(acc), std::move(item))
-                     : GramQuery::or_(std::move(acc), std::move(item));
-        if (i < t.size() && t[i] == ',') {
-            i++;
-            if (i < t.size() && t[i] == ')') {
-                return Status::InvalidArgument("gram query trailing comma at {}", i);
-            }
-            continue;
-        }
-        break;
-    }
-    if (i >= t.size() || t[i] != ')') {
-        return Status::InvalidArgument("gram query missing ')'");
-    }
-    i++;
-    if (count == 0) {
-        return Status::InvalidArgument("gram query empty {} group", is_and ? "AND" : "OR");
-    }
-    *out = std::move(acc);
-    return Status::OK();
-}
-
-} // namespace
-
-} // namespace gram_query_detail
-
-Status GramQuery::parse(std::string_view text, GramQuery* out) {
-    size_t i = 0;
-    // Parse into a local first: *out is written only when the whole parse succeeds (with no
-    // trailing input), so a caller never observes a half-built tree on failure (the old
-    // implementation, for instance, had already written the top-level token's partial result
-    // into *out in the trailing-input case).
-    GramQuery local;
-    RETURN_IF_ERROR(gram_query_detail::parse_at(text, i, /*depth=*/1, &local));
-    if (i != text.size()) {
-        return Status::InvalidArgument("gram query trailing input");
-    }
-    *out = std::move(local);
-    return Status::OK();
 }
 
 std::string GramQuery::to_debug_string() const {

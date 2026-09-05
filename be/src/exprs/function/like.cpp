@@ -36,12 +36,10 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "exprs/function/simple_function_factory.h"
-#include "runtime/exec_env.h"
-#include "storage/index/inverted/gram/gram_family.h"
-#include "storage/index/inverted/gram/regex_gram_compiler.h"
+#include "exprs/vexpr.h"
+#include "exprs/vliteral.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/index/snii/snii_index_reader.h"
 #include "util/hyperscan_util.h"
 
 namespace doris {
@@ -1116,203 +1114,44 @@ Status FunctionRegexpLike::open(FunctionContext* context,
     return Status::OK();
 }
 
-// R8 (unity build): the storage target merges several .cpp files into one translation unit, so
-// identically named symbols in anonymous namespaces collide across files; file-scope helpers
-// always go into a namespace private to this file.
+bool FunctionLikeBase::can_evaluate_inverted_index(const VExprSPtrs& function_arguments) const {
+    if (function_arguments.size() != 2 &&
+        !(get_name() == FunctionLike::name && function_arguments.size() == 3)) {
+        return false;
+    }
+    // VExpr subsequently validates that stripping this cast preserves the storage type.
+    if (!VExpr::expr_without_cast(function_arguments[0])->is_slot_ref() ||
+        !function_arguments[1]->is_literal()) {
+        return false;
+    }
+    if (function_arguments.size() == 3) {
+        if (!function_arguments[2]->is_literal()) {
+            return false;
+        }
+        const auto* escape = assert_cast<const VLiteral*>(function_arguments[2].get());
+        Field escape_field;
+        escape->get_column_ptr()->get(0, escape_field);
+        // The gram compiler implements the default LIKE escaping semantics only.
+        if (escape_field.is_null() || escape_field.get<TYPE_STRING>() != "\\") {
+            return false;
+        }
+    }
+    return true;
+}
+
+// R8 (unity build): file-scope helpers use a namespace private to this file.
 namespace like_gram_index_detail {
 
-// Conservative shape check for the LIKE ESCAPE clause. Only two shapes may be pushed down:
-//   * arguments.size() == 1: no ESCAPE clause. Nereids' like function has only the 2-ary
-//     (col, pattern) and the 3-ary (col, pattern, escape) signature
-//     (fe/.../nereids/trees/expressions/Like.java:37-48), and the column reaches iterators as a
-//     slot_ref, so "arguments holds only the pattern" is equivalent to "there is no third
-//     argument" -- provided ESCAPE is always a literal.
-//   * arguments.size() == 2, the second argument is a constant column, and its value is exactly
-//     the default backslash.
-// Any other shape (more than 2 arguments, a non-constant ESCAPE column, a NULL ESCAPE, an
-// ESCAPE that is not a backslash) is refused -- the P0 compiler only implements the default
-// backslash escaping semantics.
-//
-// Known limitation (accepted in P0, tightened in P1): VExpr::_evaluate_inverted_index only
-// collects **literal** sub-expressions into arguments (be/src/exprs/vexpr.cpp:998-1002). On the
-// FE side ESCAPE is an arbitrary expression (getExpression(ctx.escape) in
-// LogicalPlanBuilder.java:5116-5126), so a non-literal ESCAPE sub-expression never appears in
-// arguments:
-//   - if it is a slot_ref carrying an index, iterators gains an extra entry and is rejected by
-//     the iterators.size() != 1 check above;
-//   - if it is a slot_ref without an index, iterators still holds one entry and arguments still
-//     holds only the pattern, which is indistinguishable here from "no ESCAPE clause". The
-//     function-side signature has no VExpr, so get_num_children() is out of reach and P0 cannot
-//     decide at this layer; P1 needs to pass the original child count (or the ESCAPE
-//     sub-expression itself) into evaluate_inverted_index and tighten this.
-bool like_escape_is_default_backslash(const ColumnsWithTypeAndName& arguments) {
-    if (arguments.size() == 1) {
-        return true;
-    }
-    if (arguments.size() != 2) {
-        VLOG_DEBUG << "gram index push-down skipped: unexpected LIKE argument count "
-                   << arguments.size();
-        return false;
-    }
-    if (!is_column_const(*arguments[1].column)) {
-        VLOG_DEBUG << "gram index push-down skipped: LIKE ESCAPE is not a constant column";
-        return false;
-    }
-    Field escape_field;
-    arguments[1].column->get(0, escape_field);
-    if (escape_field.is_null() || escape_field.get<TYPE_STRING>() != "\\") {
-        VLOG_DEBUG << "gram index push-down skipped: custom LIKE ESCAPE is not supported";
-        return false;
-    }
-    return true;
-}
-
-// Preconditions: master switch / iterator shape / arguments and data_type_with_names shape /
-// LIKE ESCAPE shape (see like_escape_is_default_backslash) / pattern being a non-NULL constant.
-// Writes the pattern into *pattern and returns true when all of them hold; returns false as
-// soon as one does not -- the caller then simply returns OK() without writing bitmap_result
-// (Ruling R26: an inapplicable index may only cost the speedup, it must never raise an error).
-bool check_preconditions(bool is_like, const ColumnsWithTypeAndName& arguments,
-                         const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
-                         const std::vector<segment_v2::IndexIterator*>& iterators,
-                         std::string* pattern) {
-    if (!config::enable_gram_index_regexp) {
-        VLOG_DEBUG << "gram index push-down skipped: enable_gram_index_regexp is false";
-        return false;
-    }
-    if (iterators.size() != 1 || iterators[0] == nullptr) {
-        VLOG_DEBUG << "gram index push-down skipped: unsupported iterators shape (size="
-                   << iterators.size() << ")";
-        return false;
-    }
-    if (arguments.empty() || data_type_with_names.size() != 1) {
-        VLOG_DEBUG << "gram index push-down skipped: unsupported arguments/column shape";
-        return false;
-    }
-    if (is_like && !like_escape_is_default_backslash(arguments)) {
-        return false;
-    }
-    if (!is_column_const(*arguments[0].column)) {
-        VLOG_DEBUG << "gram index push-down skipped: pattern column is not constant";
-        return false;
-    }
-    Field pattern_field;
-    arguments[0].column->get(0, pattern_field);
-    if (pattern_field.is_null()) {
-        VLOG_DEBUG << "gram index push-down skipped: pattern is NULL";
-        return false;
-    }
-    *pattern = pattern_field.get<TYPE_STRING>();
-    return true;
-}
-
-// Resolve the gram scheme from the iterator's FULLTEXT reader properties. nullopt is returned
-// when there is no FULLTEXT reader, the reader is not a SNII reader (storage-format fence, see
-// below), resolve_gram_scheme decides this is not a gram-family analyzer, or the policy manager
-// throws because a policy is missing -- all of these mean "this index cannot use gram
-// acceleration", not a query error.
-//
-// Storage-format fence (Ruling R30, layer 1): only SniiIndexReader understands
-// GRAM_BOOLEAN_QUERY. Segments in CLucene format (V1/V2/V3, whose reader is
-// FullTextIndexReader / StringTypeInvertedIndexReader) must never receive a GRAM_BOOLEAN_QUERY
-// even when their property table names a gram-family analyzer (old segments of the very same
-// table look exactly like that: identical index definition, different segment format) -- their
-// query() would hand the serialized boolean query to QueryFactory as ordinary text to be
-// tokenized, with unpredictable results. So right after obtaining the reader we determine its
-// concrete type with dynamic_cast: anything that is not a SNII reader counts as "no usable
-// scheme" and silently skips the acceleration.
-// Layer 2 of the fence sits at the query() entry of the CLucene readers
-// (inverted_index_reader.cpp), and layer 3 is the catch-all degradation in dispatch_query --
-// the three hold independently, so bypassing any one of them still cannot produce a wrong
-// result.
-//
-// Scheme invariance (Ruling R28): P0 simply takes "the scheme resolved at query time" to be
-// "the scheme used at write time", because in P0 the two are necessarily identical:
-//   * FE has no ALTER INDEX POLICY statement at all (indexpolicy/ only has CREATE / DROP /
-//     SHOW), so a policy's properties are immutable once created;
-//   * dropping a referenced policy is refused: when an analyzer is referenced by an index,
-//     IndexPolicyMgr.checkAnalyzerNotUsedByIndex (IndexPolicyMgr.java:612-634) throws
-//     DdlException; when a tokenizer / token_filter / char_filter is referenced by an analyzer
-//     or a normalizer, IndexPolicyMgr.checkPolicyNotReferenced (same file, 670-699, together
-//     with checkFilterReference 701-713) throws DdlException; dropIndexPolicy (566-600) chains
-//     both checks.
-// That is, no link of the "index -> analyzer -> tokenizer" chain can be modified or dropped
-// while the index still exists. On top of that, P1 will also compare the gram_scheme recorded
-// in the segment (the core metadata written by Task 12), covering the scheme drift that future
-// ALTER or cross-version rebuilds could introduce.
-std::optional<segment_v2::gram::GramScheme> resolve_scheme(segment_v2::IndexIterator* iter) {
-    auto reader = iter->get_reader(segment_v2::InvertedIndexReaderType::FULLTEXT);
-    if (reader == nullptr) {
-        VLOG_DEBUG << "gram index push-down skipped: no FULLTEXT reader";
-        return std::nullopt;
-    }
-    auto* snii_reader = dynamic_cast<segment_v2::SniiIndexReader*>(reader.get());
-    if (snii_reader == nullptr) {
-        VLOG_DEBUG << "gram index push-down skipped: reader is not a SNII reader "
-                      "(GRAM_BOOLEAN_QUERY is not supported by CLucene-format indexes)";
-        return std::nullopt;
-    }
-    try {
-        auto scheme = segment_v2::gram::resolve_gram_scheme(
-                snii_reader->get_index_properties(), ExecEnv::GetInstance()->index_policy_mgr());
-        if (!scheme.has_value()) {
-            VLOG_DEBUG << "gram index push-down skipped: index is not a gram-family analyzer";
-        }
-        return scheme;
-    } catch (const Exception& e) {
-        VLOG_DEBUG << "gram index push-down skipped: gram scheme resolution threw: " << e.what();
-        return std::nullopt;
-    } catch (const std::exception& e) {
-        VLOG_DEBUG << "gram index push-down skipped: gram scheme resolution threw: " << e.what();
-        return std::nullopt;
-    }
-}
-
-// Compile pattern into a GramQuery and issue a GRAM_BOOLEAN_QUERY to the iterator. An internal
-// compiler failure, a compilation result of ALL (gram_index_uncompilable, counted in Task 11),
-// and **any** non-OK status returned by read_from_index all collapse into OK without writing
-// *bitmap_result.
-//
-// Catch-all degradation (Ruling R29): deliberately no allow-list of "error codes known to be
-// degradable" is kept here. The gram index is purely an accelerator -- rows outside the bitmap
-// certainly do not match, and rows inside it are re-verified by the row-level path -- so
-// whatever goes wrong on the index side (a corrupted segment, an S3 read timeout, an error code
-// added in the future, ...), the only correct behaviour is always the same: skip the
-// acceleration and fall back to a full scan. An allow-list that misses one error code turns a
-// LIKE/REGEXP query that could have returned results into a failure, which is a worse
-// regression than being slow.
-//
-// The only exceptions are the two kinds of status that mean "the query as a whole should
-// already be stopping"; swallowing them would only let the query keep doing useless work (and
-// hide the real cause), so they are rethrown as-is:
-//   * ErrorCode::CANCELLED -- the query has been cancelled;
-//   * ErrorCode::MEM_LIMIT_EXCEEDED / ErrorCode::MEM_ALLOC_FAILED -- memory limit exceeded /
-//     allocation failed; falling back to a full scan would only use more memory.
-Status dispatch_query(bool is_like, const segment_v2::gram::GramScheme& scheme,
-                      const std::string& pattern, segment_v2::IndexIterator* iter,
+// Index acceleration may be skipped, but cancellation and memory failures stop the query.
+Status dispatch_query(bool is_like, const std::string& pattern, segment_v2::IndexIterator* iter,
                       const IndexFieldNameAndTypePair& data_type_with_name, uint32_t num_rows,
                       segment_v2::InvertedIndexResultBitmap* bitmap_result) {
-    segment_v2::gram::RegexGramCompiler compiler(scheme);
-    segment_v2::gram::GramQuery query;
-    Status compile_status = is_like ? compiler.compile_like(pattern, &query)
-                                    : compiler.compile_regexp(pattern, &query);
-    if (!compile_status.ok()) {
-        // compile_* only returns non-OK when an internal assertion fails; even then, a problem
-        // on the index side may only degrade to "no acceleration", it must never make the
-        // LIKE/REGEXP query fail.
-        VLOG_DEBUG << "gram index push-down skipped: compiler returned " << compile_status;
-        return Status::OK();
-    }
-    if (query.is_all()) {
-        VLOG_DEBUG << "gram index push-down skipped: compiled gram query is ALL";
-        return Status::OK();
-    }
-
     segment_v2::InvertedIndexParam param;
     param.column_name = data_type_with_name.first;
     param.column_type = data_type_with_name.second;
-    param.query_value = Field::create_field<TYPE_STRING>(query.serialize());
-    param.query_type = segment_v2::InvertedIndexQueryType::GRAM_BOOLEAN_QUERY;
+    param.query_value = Field::create_field<TYPE_STRING>(pattern);
+    param.query_type = is_like ? segment_v2::InvertedIndexQueryType::LIKE_GRAM_QUERY
+                               : segment_v2::InvertedIndexQueryType::REGEXP_GRAM_QUERY;
     param.num_rows = num_rows;
     param.roaring = std::make_shared<roaring::Roaring>();
 
@@ -1321,8 +1160,11 @@ Status dispatch_query(bool is_like, const segment_v2::gram::GramScheme& scheme,
         if (query_status.is<ErrorCode::CANCELLED>() ||
             query_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
             query_status.is<ErrorCode::MEM_ALLOC_FAILED>()) {
-            // The query as a whole should already be stopping: rethrow as-is (see above).
             return query_status;
+        }
+        if (query_status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>() ||
+            query_status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) {
+            return Status::OK();
         }
         // Every other error only degrades to "no acceleration". LOG_EVERY_N rather than VLOG,
         // because this path already means "the index could not be used" and deserves a trace at
@@ -1346,21 +1188,23 @@ Status FunctionLikeBase::evaluate_gram_index(
         std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
     const bool is_like = (kind == GramCompileKind::LIKE);
-
-    std::string pattern;
-    if (!like_gram_index_detail::check_preconditions(is_like, arguments, data_type_with_names,
-                                                     iterators, &pattern)) {
+    if (!config::enable_gram_index_regexp) {
         return Status::OK();
     }
-
-    auto* iter = iterators[0];
-    auto scheme = like_gram_index_detail::resolve_scheme(iter);
-    if (!scheme.has_value()) {
+    // Operand roles were accepted before VExpr separated literals and indexed fields.
+    DORIS_CHECK_EQ(iterators.size(), 1);
+    DORIS_CHECK_EQ(data_type_with_names.size(), 1);
+    DORIS_CHECK(!arguments.empty());
+    DORIS_CHECK(is_column_const(*arguments[0].column));
+    Field pattern_field;
+    arguments[0].column->get(0, pattern_field);
+    if (pattern_field.is_null()) {
         return Status::OK();
     }
+    const auto& pattern = pattern_field.get<TYPE_STRING>();
 
     return like_gram_index_detail::dispatch_query(
-            is_like, *scheme, pattern, iter, data_type_with_names[0], num_rows, &bitmap_result);
+            is_like, pattern, iterators[0], data_type_with_names[0], num_rows, &bitmap_result);
 }
 
 void register_function_like(SimpleFunctionFactory& factory) {

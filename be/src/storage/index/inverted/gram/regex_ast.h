@@ -38,9 +38,10 @@ namespace doris::segment_v2::gram {
 //     children hanging off kids;
 //   - REPEAT: the bounded quantifier `{m}` / `{m,}` / `{m,n}`; rmax=-1 means no upper bound
 //     (`{m,}`).
-// Once the `(?i)` flag is on, a literal or class item that is an ASCII letter expands into both
-// cases as two code points ('a' produces CLASS{'A','a'}), so that a caller matching
-// case-insensitively can still fold literals into a gram query safely.
+// Under `(?i)`, ASCII letters expand into both cases, including the Unicode equivalents of
+// K (Kelvin sign) and S (long s). Non-ASCII literals become ANY, and a small class containing
+// a non-ASCII item becomes a big class: their Unicode case variants are not fully enumerated.
+// This weakens only those leaves, preserving the constraints from surrounding literals.
 struct RegexNode {
     enum class Type : uint8_t { EMPTY, LIT, CLASS, ANY, CAT, ALT, STAR, PLUS, QUEST, REPEAT };
     Type type = Type::EMPTY;
@@ -52,10 +53,11 @@ struct RegexNode {
 };
 
 // Parse a pattern in the RE2 syntax subset into a RegexNode AST. Supported: literals; escapes
-// (`\. \n \t \r \xHH \x{...} \Q..\E`); classes (`[...]`, negation, ranges, POSIX classes,
-// `\d \w \s \D \W \S \pL \p{..}`); `.`; groups (capturing, `(?:`, `(?P<name>`, `(?<name>`);
+// (`\. \a \f \n \t \r \ooo \xHH \x{...} \Q..\E`, where \ooo is three octal digits);
+// classes (`[...]`, negation, ranges, POSIX classes, `\d \w \s \v \D \W \S \pL \p{..}`);
+// `.`; groups (capturing, `(?:`, `(?P<name>`, `(?<name>`);
 // the flags `(?i) (?s) (?m) (?U)` and `(?i:...)`; the quantifiers `* + ? {m} {m,} {m,n}` and
-// their lazy suffixes; the anchors `^ $ \b \B \A \z`; `|`.
+// their lazy suffixes; the anchors `^ $ \b \B \A \Z \z`; `|`.
 // On success *root owns the whole tree and *case_insensitive says whether `(?i)` appeared in
 // the pattern; on failure (syntax error, unclosed group/class, dangling escape, group nesting
 // too deep, ...) Status::InvalidArgument is returned and neither *root nor *case_insensitive is

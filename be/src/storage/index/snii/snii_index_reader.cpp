@@ -44,6 +44,7 @@
 #include "storage/index/inverted/analyzer/segment_analyzer_context.h"
 #include "storage/index/inverted/common/single_flight.h"
 #include "storage/index/inverted/gram/gram_query.h"
+#include "storage/index/inverted/gram/regex_gram_compiler.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/token_filter/common_grams_filter.h"
@@ -412,14 +413,24 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
                                                     max_expansions);
         emitted_to_sink = true;
         break;
-    case InvertedIndexQueryType::GRAM_BOOLEAN_QUERY: {
-        // search_str is the output of gram::GramQuery::serialize() (see the raw-string
-        // passthrough branch of _parse_query_terms) and is parsed straight back into a query
-        // tree without tokenization. A parse failure is a real error (not a "no match"), so it
-        // is returned upwards, letting the caller give up this index acceleration rather than
-        // return a wrong result.
+    case InvertedIndexQueryType::LIKE_GRAM_QUERY:
+    case InvertedIndexQueryType::REGEXP_GRAM_QUERY: {
+        // Compile against the same physical dictionary that supplies the postings. Current
+        // policies can differ from the scheme that was used when this segment was written.
+        const auto& scheme = logical_reader.gram_scheme();
+        if (!scheme.has_value()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                    "SNII index is not a gram-family index");
+        }
+        gram::RegexGramCompiler compiler(*scheme);
         gram::GramQuery gram_query;
-        RETURN_IF_ERROR(gram::GramQuery::parse(search_str, &gram_query));
+        RETURN_IF_ERROR(query_type == InvertedIndexQueryType::LIKE_GRAM_QUERY
+                                ? compiler.compile_like(search_str, &gram_query)
+                                : compiler.compile_regexp(search_str, &gram_query));
+        if (gram_query.is_all()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                    "Pattern has no prunable grams");
+        }
         ::doris::snii::query::LogicalIndexPostingSource gram_posting_source(logical_reader);
         status = ::doris::snii::query::gram_boolean_query(gram_posting_source, gram_query,
                                                           cast_set<uint32_t>(rows_of_segment),
@@ -482,8 +493,7 @@ Status SniiIndexReader::_parse_query_terms(
         std::optional<inverted_index::AnalysisPurpose> purpose_override) {
     DCHECK(query_info != nullptr);
     if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
-        query_type == InvertedIndexQueryType::WILDCARD_QUERY ||
-        query_type == InvertedIndexQueryType::GRAM_BOOLEAN_QUERY) {
+        query_type == InvertedIndexQueryType::WILDCARD_QUERY || is_gram_query(query_type)) {
         query_info->term_infos.emplace_back(search_str, 0);
         return Status::OK();
     }
@@ -659,17 +669,13 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
             (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY && query_info.slop == 0) ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
     const bool common_grams_query_eligible = common_grams_phrase_shape && !actual_similarity;
-    // The "raw string passthrough" query types: query_value is not text to be tokenized but a
-    // string that carries its own semantics (a regex or wildcard pattern, or the output of
-    // gram::GramQuery::serialize()). None of these three depends on the segment's analyzer
-    // contract, and _parse_query_terms also puts the whole string straight into term_infos (see
-    // :482-487), so they need no maybe_rebuild_segment_analyzer_context validation and may use
-    // the result cache before the logical index is even opened -- raw_query_bytes in the cache
-    // key is that very string (raw_semantic.raw_query_bytes = search_str), which identifies the
-    // query uniquely.
+    // Raw patterns bypass current analyzer policies. Gram patterns are compiled using the
+    // selected logical reader's persisted scheme during execution. The result cache includes
+    // the immutable physical index identity, query type and original pattern, so a hit can be
+    // reused before opening the logical reader without resolving any current policy.
     const bool raw_pattern_query = query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
                                    query_type == InvertedIndexQueryType::WILDCARD_QUERY ||
-                                   query_type == InvertedIndexQueryType::GRAM_BOOLEAN_QUERY;
+                                   is_gram_query(query_type);
     // A physical keyword-lane index has no analyzer contract for the open below to validate:
     // SniiIndexColumnWriter::init() refuses a CommonGrams metadata seed whenever should_analyzer()
     // is false, so such a segment can never carry gram terms. Key this on the writer-side

@@ -44,6 +44,7 @@
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_storage_format.h"
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
@@ -111,6 +112,8 @@ public:
         // the prx region compresses at snii_prx_zstd_level_direct_load;
         // compaction / schema change / ADD INDEX keep snii_prx_zstd_level.
         bool is_direct_load = false;
+        // The exact gram tokenizer scheme that produced this index's dictionary.
+        std::optional<gram::GramScheme> gram_scheme;
         // Present only for a CommonGrams writer that has a complete immutable
         // capability identity. These are semantic BM25 inputs; physical TTF is
         // still derived from every emitted unigram and gram posting.

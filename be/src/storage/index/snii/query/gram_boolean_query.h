@@ -65,7 +65,7 @@ private:
 // and returns early as soon as the intersection is empty, and finally intersects with each
 // sub-query the same way (an AND with neither leaves nor sub-queries degenerates to ALL); OR
 // unions the postings of every leaf with the result of every sub-query. The recursion depth is
-// bounded by the tree GramQuery::parse produces (which is capped at construction time).
+// bounded by the query tree produced by RegexGramCompiler's depth-limited analysis.
 Status gram_boolean_query(GramPostingSource& src, const segment_v2::gram::GramQuery& q,
                           uint32_t num_docs, roaring::Roaring* out);
 

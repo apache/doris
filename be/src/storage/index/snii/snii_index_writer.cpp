@@ -517,6 +517,7 @@ Status SniiIndexColumnWriter::finish() {
     _report_null_docids_capacity(/*release_all=*/true);
     IndexFileWriter::SniiAddIndexOptions options {};
     options.is_direct_load = _is_direct_load;
+    options.gram_scheme = _gram_scheme;
     if (_uses_common_grams) {
         options.encoded_norms = std::move(_encoded_norms);
         options.common_grams_metadata = _build_common_grams_metadata();

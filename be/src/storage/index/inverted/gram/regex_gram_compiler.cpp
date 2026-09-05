@@ -565,6 +565,12 @@ private:
 RegexGramCompiler::RegexGramCompiler(const GramScheme& scheme) : _extractor(scheme) {}
 
 Status RegexGramCompiler::compile_regexp(std::string_view pattern, GramQuery* out) {
+    // Hyperscan compiles a C string, while scalar string fast paths and RE2 use the full
+    // length. No constraints after a raw NUL are universally required across those paths.
+    if (pattern.find('\0') != std::string_view::npos) {
+        *out = GramQuery::all();
+        return Status::OK();
+    }
     std::unique_ptr<RegexNode> root;
     bool case_insensitive = false;
     // A parse failure always falls back conservatively to ALL; never return an error and fail
@@ -583,6 +589,12 @@ Status RegexGramCompiler::compile_regexp(std::string_view pattern, GramQuery* ou
 }
 
 Status RegexGramCompiler::compile_like(std::string_view like_pattern, GramQuery* out) {
+    // LIKE-to-regex conversion preserves raw NUL, so its Hyperscan path has the same
+    // C-string truncation as REGEXP. Length-aware scalar fast paths can still use all bytes.
+    if (like_pattern.find('\0') != std::string_view::npos) {
+        *out = GramQuery::all();
+        return Status::OK();
+    }
     regex_gram_compiler_detail::CoxAnalyzer analyzer(_extractor);
     GramQuery q = GramQuery::all();
     std::string seg;

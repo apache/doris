@@ -284,6 +284,7 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.null_docids = std::move(null_docids);
     input.encoded_norms = std::move(options.encoded_norms);
     input.common_grams_metadata = std::move(options.common_grams_metadata);
+    input.gram_scheme = options.gram_scheme;
     input.common_grams_posting_policy = options.common_grams_posting_policy;
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;

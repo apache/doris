@@ -59,17 +59,12 @@ public:
 
     const GramScheme& scheme() const { return _scheme; }
 
-    // Boundary test: is the byte pair (a,b) a CDC boundary? A 65536-entry bitmap, computed once
-    // at construction from (hash_version, density_permille), so this is an O(1) bit test.
-    bool is_boundary(uint8_t a, uint8_t b) const {
-        unsigned idx = ((unsigned)a << 8) | b;
-        return (_boundary_bits[idx >> 3] >> (idx & 7)) & 1;
-    }
+    // Boundary test for one byte pair. Compute the deterministic hash on demand: tokenizers
+    // are created per indexed value, so enumerating all 65536 pairs in the constructor would
+    // dominate short-row extraction (and do entirely unused work in DENSE mode).
+    bool is_boundary(uint8_t a, uint8_t b) const;
 
 private:
-    // Build the boundary bitmap: mix64((((uint64_t)a<<8)|b) ^ 0x5bd1e995) & 0xFFFF <
-    // density_permille * 65536 / 1000.
-    void _build_boundary_table();
     // Split one pure-ASCII segment into grams per the scheme (DENSE fixed-length sliding window
     // / SPARSE CDC rule).
     void _ascii_segment(std::string_view seg, std::vector<std::string_view>* out);
@@ -77,7 +72,7 @@ private:
     void _dedupe(std::vector<std::string_view>* out);
 
     GramScheme _scheme;
-    std::vector<uint8_t> _boundary_bits; // 65536-bit boundary bitmap, 8192 bytes
+    uint64_t _boundary_threshold;
     std::string _folded; // ASCII-folded copy used when lower_case; output views may point here
     std::vector<uint8_t> _is_boundary_at; // per-position boundary flags reused in SPARSE mode
 };

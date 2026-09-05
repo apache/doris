@@ -90,7 +90,7 @@ TEST(RegexAstTest, ClassesAndEscapes) {
     EXPECT_EQ(parse_dump("[ab]"), "cat([ab],)");
     EXPECT_EQ(parse_dump("[a-z]"), "cat([big],)");
     EXPECT_EQ(parse_dump("[^a]"), "cat([big],)");
-    EXPECT_EQ(parse_dump("\\.\\Qa.b\\E"), "cat('.',cat('a','.','b',),)");
+    EXPECT_EQ(parse_dump("\\.\\Qa.b\\E"), "cat('.','a','.','b',)");
     EXPECT_EQ(parse_dump("\\x41"), "cat('A',)");
     EXPECT_EQ(parse_dump("手机"), "cat('手','机',)");
 }

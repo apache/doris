@@ -52,60 +52,26 @@ TEST(GramQueryTest, FlattenDedupeAbsorb) {
     EXPECT_EQ(s.to_debug_string(), "(\"a\" & \"b\")");
 }
 
-TEST(GramQueryTest, SerializeRoundTrip) {
-    auto q = GramQuery::and_(
-            GramQuery::of_gram("or: co"),
-            GramQuery::or_(GramQuery::and_(GramQuery::of_gram("Una"), GramQuery::of_gram("abl")),
-                           GramQuery::of_gram("Int,ernal)")));
-    std::string text = q.serialize();
-    GramQuery back;
-    ASSERT_TRUE(GramQuery::parse(text, &back).ok());
-    EXPECT_EQ(back.serialize(), text);
-    EXPECT_EQ(back.to_debug_string(), q.to_debug_string());
-    EXPECT_EQ(GramQuery::all().serialize(), "*");
-    EXPECT_EQ(GramQuery::none().serialize(), "!");
-    GramQuery bad;
-    EXPECT_FALSE(GramQuery::parse("&(", &bad).ok());
+TEST(GramQueryTest, StructuralKeyIgnoresOperandOrder) {
+    auto left = GramQuery::or_(GramQuery::of_gram("a"), GramQuery::of_gram("b"));
+    auto right = GramQuery::or_(GramQuery::of_gram("c"), GramQuery::of_gram("d"));
+    auto query = GramQuery::and_(left, right);
+    EXPECT_EQ(query.structural_key(), GramQuery::and_(right, left).structural_key());
+    EXPECT_EQ(left.structural_key(),
+              GramQuery::or_(GramQuery::of_gram("b"), GramQuery::of_gram("a")).structural_key());
+    auto deduplicated = GramQuery::and_(query, left);
+    EXPECT_EQ(deduplicated.leaf_count(), 4U);
+    EXPECT_EQ(deduplicated.structural_key(), query.structural_key());
 }
 
-TEST(GramQueryTest, ParseRejectsMalformedInput) {
-    // A 65-level nested "&(" prefix must be rejected by the depth cap before the stack overflows.
-    std::string deep;
-    for (int i = 0; i < 65; i++) {
-        deep += "&(";
-    }
-    GramQuery too_deep;
-    EXPECT_FALSE(GramQuery::parse(deep, &too_deep).ok());
-
-    GramQuery bad;
-    EXPECT_FALSE(GramQuery::parse("&()", &bad).ok());      // AND with no operand
-    EXPECT_FALSE(GramQuery::parse("&(,)", &bad).ok());     // leading comma -> empty item
-    EXPECT_FALSE(GramQuery::parse("&(a,,b)", &bad).ok());  // consecutive commas -> empty item
-    EXPECT_FALSE(GramQuery::parse("&(YQ==,)", &bad).ok()); // trailing comma -> empty item
-    EXPECT_FALSE(GramQuery::parse("&(@@)", &bad).ok());    // invalid base64
-    EXPECT_FALSE(GramQuery::parse("*x", &bad).ok());       // trailing input
-
-    // On a parse failure *out must keep its value from before the call, with no half-built tree
-    // left behind.
-    GramQuery preserved = GramQuery::of_gram("z");
-    EXPECT_FALSE(GramQuery::parse("&()", &preserved).ok());
-    EXPECT_EQ(preserved.to_debug_string(), "(\"z\")");
-}
-
-TEST(GramQueryTest, ParseRebuildsViaCombinators) {
-    // "&(*)" has a single operand *, folded through the and_ combinator: and_(all(), all())
-    // short-circuits to all() instead of literally producing an AND node holding one ALL
-    // sub-query.
-    GramQuery all_query;
-    ASSERT_TRUE(GramQuery::parse("&(*)", &all_query).ok());
-    EXPECT_TRUE(all_query.is_all());
-
-    // The gram "a" (YQ==) is already in the OR, so the child AND(a,b) containing "a" is absorbed
-    // while being rebuilt through the or_ combinator, instead of being assembled verbatim into a
-    // tree that or_() would never produce.
-    GramQuery absorbed;
-    ASSERT_TRUE(GramQuery::parse("|(YQ==,&(YQ==,Yg==))", &absorbed).ok());
-    EXPECT_EQ(absorbed.to_debug_string(), "(\"a\")");
+TEST(GramQueryTest, StructuralKeyDistinguishesGramBytesFromOperators) {
+    EXPECT_NE(GramQuery::of_gram("a,b").structural_key(),
+              GramQuery::and_(GramQuery::of_gram("a"), GramQuery::of_gram("b")).structural_key());
+    EXPECT_NE(GramQuery::of_gram("*").structural_key(), GramQuery::all().structural_key());
+    EXPECT_NE(GramQuery::of_gram("!").structural_key(), GramQuery::none().structural_key());
+    EXPECT_NE(GramQuery::all().structural_key(), GramQuery::none().structural_key());
+    EXPECT_NE(GramQuery::of_gram(std::string("a\0b", 3)).structural_key(),
+              GramQuery::of_gram("a").structural_key());
 }
 
 } // namespace doris::segment_v2::gram

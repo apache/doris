@@ -41,8 +41,7 @@ namespace doris::segment_v2::gram {
 // serves to skip rows that cannot possibly match.
 //
 // An instance holds GramExtractor's internal buffers, so both compile_* methods are non-const
-// and not thread-safe: every thread that uses one constructs its own (construction only computes
-// an 8 KB boundary bitmap).
+// and not thread-safe: every thread that uses one constructs its own. Construction is O(1).
 class RegexGramCompiler {
 public:
     explicit RegexGramCompiler(const GramScheme& scheme);
