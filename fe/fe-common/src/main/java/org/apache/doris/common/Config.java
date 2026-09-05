@@ -2644,6 +2644,17 @@ public class Config extends ConfigBase {
     @ConfField(description = "Maximum number of connections for the Arrow Flight Server per FE.")
     public static int arrow_flight_max_connections = 4096;
 
+    @ConfField(mutable = true, description = "Arrow Flight SQL only. A query that scans an external table in "
+            + "batch mode keeps its FE coordinator alive after GetFlightInfo, so the BE can keep fetching splits "
+            + "while the client pulls the results (DoGet); that coordinator is normally released when the "
+            + "session runs its next query or is closed. Most Flight clients never close a session, so the "
+            + "coordinator, and with it the query's workload group queue slot and its active_queries entry, "
+            + "would otherwise stay held until wait_timeout. If the session stays idle for longer than this "
+            + "many seconds after the query started, the coordinator is released anyway. The bound is never "
+            + "shorter than the query's own execution timeout, and the session itself is not killed "
+            + "(wait_timeout still governs that). 0 disables the bound.")
+    public static int arrow_flight_deferred_query_idle_timeout_second = 3600;
+
     @ConfField(mutable = true, masterOnly = true, description = "In auto bucketing, the number of buckets is "
             + "estimated based on the partition size. For storage "
             + "and computing integration, a partition size of 5GB " + "is estimated as one bucket, but for cloud, a "

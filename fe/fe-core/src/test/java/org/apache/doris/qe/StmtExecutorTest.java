@@ -78,6 +78,39 @@ public class StmtExecutorTest extends TestWithFeService {
         Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
+    // The deferral gate (#67503): a coordinator is kept alive past GetFlightInfo only when the BE
+    // still fetches splits from it (Coordinator.hasBatchSplitSource), and the execution timeout it
+    // ran with is frozen at that moment. SET_VAR hint values are reverted when execute() ends, so
+    // the idle reaper must not read the session value later.
+    @Test
+    public void testDeferForArrowFlightFreezesExecTimeoutInEffect() throws Exception {
+        int savedQueryTimeout = connectContext.getSessionVariable().getQueryTimeoutS();
+        int savedIdleTimeout = Config.arrow_flight_deferred_query_idle_timeout_second;
+        connectContext.setQueryId(new TUniqueId(0x67503L, 0x1L));
+        try {
+            Config.arrow_flight_deferred_query_idle_timeout_second = 1;
+            connectContext.getSessionVariable().setQueryTimeoutS(1234);
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+            Assertions.assertFalse(stmtExecutor.isDeferredForArrowFlight());
+            Assertions.assertEquals(-1, stmtExecutor.getDeferredExecTimeoutS());
+
+            stmtExecutor.deferForArrowFlight();
+
+            Assertions.assertTrue(stmtExecutor.isDeferredForArrowFlight());
+            Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
+            // the reaper's bound is floored at the frozen value ...
+            Assertions.assertEquals(1234L, connectContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+            // ... even after the session value moved on, as it does when a SET_VAR hint is reverted
+            connectContext.getSessionVariable().setQueryTimeoutS(5);
+            Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
+            Assertions.assertEquals(1234L, connectContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+        } finally {
+            connectContext.closeFlightSqlDeferredExecutors();
+            connectContext.getSessionVariable().setQueryTimeoutS(savedQueryTimeout);
+            Config.arrow_flight_deferred_query_idle_timeout_second = savedIdleTimeout;
+        }
+    }
+
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259);
     // it is released later by finalizeArrowFlightQuery(), which closes the coordinator and then
     // unregisters the query. The close and the unregister must be independent: if coord.close()
