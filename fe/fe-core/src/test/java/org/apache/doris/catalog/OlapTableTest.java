@@ -452,6 +452,25 @@ public class OlapTableTest {
     }
 
     @Test
+    public void testHasData() {
+        OlapTable table = new OlapTable();
+        Assert.assertFalse(table.hasData());
+
+        MaterializedIndex idx1 = new MaterializedIndex(10, MaterializedIndex.IndexState.NORMAL);
+        Partition p1 = new Partition(11, "p1", idx1, new RandomDistributionInfo());
+        table.addPartition(p1);
+        Assert.assertFalse(table.hasData());
+
+        p1.setVisibleVersionAndTime(2, System.currentTimeMillis());
+        Assert.assertTrue(table.hasData());
+
+        MaterializedIndex idx2 = new MaterializedIndex(20, MaterializedIndex.IndexState.NORMAL);
+        Partition p2 = new Partition(21, "p2", idx2, new RandomDistributionInfo());
+        table.addPartition(p2);
+        Assert.assertTrue(table.hasData());
+    }
+
+    @Test
     public void testGetPartitionRowCount() {
         OlapTable olapTable = new OlapTable();
         // Partition is null.

@@ -89,7 +89,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             return;
         }
         // For empty table, write empty result directly, no need to run SQL to collect stats.
-        if (info.rowCount == 0 && tableSample != null) {
+        // Only take the fast path when no partition has ever been loaded.
+        if (info.rowCount == 0 && tableSample != null
+                && tbl instanceof OlapTable && !((OlapTable) tbl).hasData()) {
             StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
                     info.tblId, info.indexId, info.colName, null);
             job.appendBuf(this, Collections.singletonList(new ColStatsData(statsId)));
