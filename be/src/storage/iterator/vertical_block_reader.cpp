@@ -30,6 +30,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
+#include "runtime/runtime_state.h"
 #include "storage/compaction/compaction.h"
 #include "storage/iterator/vertical_merge_iterator.h"
 #include "storage/iterators.h"
@@ -112,7 +113,11 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
                      << ", version:" << read_params.version;
         return res;
     }
+    RuntimeState* runtime_state = read_params.runtime_state;
     for (const auto& rs_split : read_params.rs_splits) {
+        if (runtime_state != nullptr) {
+            RETURN_IF_CANCELLED(runtime_state);
+        }
         RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
         const auto rowset = rs_split.rs_reader->rowset();
         // segment iterator will be inited here

@@ -31,6 +31,7 @@
 
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -45,20 +46,24 @@
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
+#include "core/field.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "json2pb/json_to_pb.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/iterator/vertical_merge_iterator.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"
+#include "storage/olap_tuple.h"
 #include "storage/options.h"
 #include "storage/rowid_conversion.h"
 #include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/beta_rowset_reader.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -679,6 +684,155 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
             }
         }
     }
+}
+
+TEST_F(VerticalCompactionTest, MergeHonorsRuntimeStateCancellation) {
+    constexpr int num_segments = 1;
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(1, num_segments, 10, NONOVERLAPPING, input_data);
+    auto tablet_schema = create_schema();
+    auto input_rowset = create_rowset(tablet_schema, NONOVERLAPPING, input_data.front(), 0);
+    auto tablet = create_tablet(*tablet_schema, false);
+
+    for (const bool is_vertical : {false, true}) {
+        RowsetReaderSharedPtr input_reader;
+        ASSERT_TRUE(input_rowset->create_reader(&input_reader).ok());
+        std::vector<RowsetReaderSharedPtr> input_readers = {std::move(input_reader)};
+        auto writer_context =
+                create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, {0, 0});
+        auto writer_result =
+                RowsetFactory::create_rowset_writer(*engine_ref, writer_context, is_vertical);
+        ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+        auto output_writer = std::move(writer_result).value();
+
+        RuntimeState runtime_state;
+        runtime_state.cancel(Status::Cancelled("injected compaction cancellation"));
+        Merger::Statistics stats;
+        Status status;
+        if (is_vertical) {
+            status = Merger::vertical_merge_rowsets(
+                    tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema, input_readers,
+                    output_writer.get(), 100, num_segments, &stats, nullptr, std::nullopt,
+                    std::nullopt, &runtime_state);
+        } else {
+            status = Merger::vmerge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
+                                            *tablet_schema, input_readers, output_writer.get(),
+                                            &stats, std::nullopt, std::nullopt, &runtime_state);
+        }
+        EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status;
+    }
+}
+
+TEST_F(VerticalCompactionTest, MergeHonorsKeyRanges) {
+    constexpr int num_rows = 10;
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(1, 1, num_rows, NONOVERLAPPING, input_data);
+    auto tablet_schema = create_schema();
+    auto input_rowset = create_rowset(tablet_schema, NONOVERLAPPING, input_data.front(), 0);
+    auto tablet = create_tablet(*tablet_schema, false);
+
+    auto make_key = [](int32_t value) {
+        OlapTuple key;
+        key.add_field(Field::create_field<TYPE_INT>(value));
+        return key;
+    };
+    auto run_case = [&](bool is_vertical, Merger::KeyRange key_range, int32_t expected_begin,
+                        int32_t expected_end) {
+        RowsetReaderSharedPtr input_reader;
+        ASSERT_TRUE(input_rowset->create_reader(&input_reader).ok());
+        std::vector<RowsetReaderSharedPtr> input_readers = {std::move(input_reader)};
+        auto writer_context =
+                create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 100, {0, 0});
+        auto writer_result =
+                RowsetFactory::create_rowset_writer(*engine_ref, writer_context, is_vertical);
+        ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+        auto output_writer = std::move(writer_result).value();
+
+        Merger::Statistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions query_options;
+        query_options.__set_enable_file_cache(false);
+        query_options.__set_disable_file_cache(false);
+        runtime_state.set_query_options(query_options);
+        Status status;
+        if (is_vertical) {
+            status = Merger::vertical_merge_rowsets(
+                    tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema, input_readers,
+                    output_writer.get(), 100, 1, &stats, nullptr, std::nullopt,
+                    std::move(key_range), &runtime_state);
+        } else {
+            status = Merger::vmerge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
+                                            *tablet_schema, input_readers, output_writer.get(),
+                                            &stats, std::nullopt, std::move(key_range),
+                                            &runtime_state);
+        }
+        ASSERT_TRUE(status.ok()) << status;
+        const auto& read_options =
+                assert_cast<const BetaRowsetReader&>(*input_readers.front())._read_options;
+        EXPECT_TRUE(read_options.io_ctx.read_file_cache);
+        EXPECT_TRUE(read_options.io_ctx.is_disposable);
+
+        RowsetSharedPtr output_rowset;
+        ASSERT_EQ(Status::OK(), output_writer->build(output_rowset));
+        ASSERT_TRUE(output_rowset);
+        ASSERT_EQ(expected_end - expected_begin, output_rowset->num_rows());
+
+        RowsetReaderContext reader_context;
+        reader_context.tablet_schema = tablet_schema;
+        reader_context.need_ordered_result = false;
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
+        reader_context.read_schema = read_schema;
+        RowsetReaderSharedPtr output_reader;
+        create_and_init_rowset_reader(output_rowset.get(), reader_context, &output_reader);
+
+        int32_t expected_key = expected_begin;
+        do {
+            auto block = read_schema->create_read_block();
+            status = output_reader->next_batch(&block);
+            const auto& columns = block.get_columns_with_type_and_name();
+            ASSERT_EQ(2, columns.size());
+            for (size_t row = 0; row < block.rows(); ++row) {
+                EXPECT_EQ(expected_key, columns[0].column->get_int(row));
+                EXPECT_EQ(expected_key + 1, columns[1].column->get_int(row));
+                ++expected_key;
+            }
+        } while (status.ok());
+        EXPECT_TRUE(status.is<END_OF_FILE>()) << status;
+        EXPECT_EQ(expected_end, expected_key);
+    };
+
+    for (bool is_vertical : {false, true}) {
+        run_case(is_vertical, {make_key(2), make_key(7), true, false}, 2, 7);
+        run_case(is_vertical, {std::nullopt, make_key(3), false, true}, 0, 4);
+        run_case(is_vertical, {make_key(6), std::nullopt, false, false}, 7, num_rows);
+    }
+
+    RowsetReaderSharedPtr input_reader;
+    ASSERT_TRUE(input_rowset->create_reader(&input_reader).ok());
+    std::vector<RowsetReaderSharedPtr> input_readers = {std::move(input_reader)};
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 100, {0, 0});
+    auto writer_result = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, false);
+    ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+    auto output_writer = std::move(writer_result).value();
+    Merger::Statistics stats;
+    auto expect_invalid = [&](const TabletSchema& schema, Merger::KeyRange key_range) {
+        auto status = Merger::vmerge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, schema,
+                                             input_readers, output_writer.get(), &stats,
+                                             std::nullopt, std::move(key_range));
+        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    };
+
+    auto wide_key = make_key(2);
+    wide_key.add_field(Field::create_field<TYPE_INT>(3));
+    expect_invalid(*tablet_schema, {std::move(wide_key), std::nullopt, true, false});
+
+    TabletSchemaPB zorder_schema_pb;
+    tablet_schema->to_schema_pb(&zorder_schema_pb);
+    zorder_schema_pb.set_sort_type(SortType::ZORDER);
+    TabletSchema zorder_schema;
+    zorder_schema.init_from_pb(zorder_schema_pb);
+    expect_invalid(zorder_schema, {make_key(2), std::nullopt, true, false});
 }
 
 TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
