@@ -169,8 +169,8 @@ public class TimeBasedChangeVisibleWaiter {
     }
 
     /**
-     * Return (tableId, endTSO) if the transaction is COMMITTED and its commit TSO is within the
-     * requested endTSO of one of its tables; otherwise null (no need to wait).
+     * Return (tableId, endTSO) if the transaction is COMMITTED and its commit TSO falls within the
+     * requested right-open end bound (commitTSO &lt; endTSO) of one of its tables; otherwise null.
      */
     private Pair<Long, Long> findMatchedTableEndTSO(TransactionState txn, Map<Long, Long> tableEndTSO) {
         long commitTSO = txn.getCommitTSO();
@@ -179,7 +179,7 @@ public class TimeBasedChangeVisibleWaiter {
         }
         for (Long tableId : txn.getTableIdList()) {
             Long endTSO = tableEndTSO.get(tableId);
-            if (endTSO != null && commitTSO <= endTSO) {
+            if (endTSO != null && commitTSO < endTSO) {
                 return Pair.of(tableId, endTSO);
             }
         }
@@ -228,9 +228,10 @@ public class TimeBasedChangeVisibleWaiter {
         return defaultEndTsMs;
     }
 
-    // Compose endTsMs into a full TSO and merge into dbId -> (tableId -> endTSO), keeping the max.
+    // Compose endTsMs into the right-open (exclusive) end TSO, i.e. the start of that millisecond,
+    // matching the @incr [startMs, endMs) scan upper bound. Merge as dbId -> (tableId -> max endTSO).
     private static void addTableEndTSO(Map<Long, Map<Long, Long>> dbToTableEndTSO, OlapTable table, long endTsMs) {
         dbToTableEndTSO.computeIfAbsent(table.getDatabase().getId(), ignored -> new HashMap<>())
-                .merge(table.getId(), TSOTimestamp.composeFullTimestamp(endTsMs), Math::max);
+                .merge(table.getId(), TSOTimestamp.composeEmptyCounterTSO(endTsMs), Math::max);
     }
 }
