@@ -127,6 +127,41 @@ suite("test_iceberg_arrow_flight_split_source", "p0,external") {
         def flightLimited = flightSql """ select * from ${table} limit 10 """
         assert flightLimited.size() > 0 && flightLimited.size() <= 10 : "unexpected row count: ${flightLimited.size()}"
 
+        // #67503, the other side of the deferral gate: the SAME external table scanned WITHOUT
+        // batch mode is not deferred. Its coordinator, and with it the query's workload group queue
+        // slot and its active_queries entry, is released at the end of GetFlightInfo, before the
+        // client pulls anything. That is the case the gate actually moved, so it needs its own
+        // coverage here: every other Flight query in this suite runs in batch mode.
+        flightSql """ set enable_external_table_batch_mode = false """
+
+        // Negative control, mirroring the batch assertion above: "(approximate)" is emitted only
+        // when isBatchMode(), so its absence proves this really is the synchronous split path and
+        // the assertions below cannot silently pass on the batch path.
+        def explainNonBatch = flightSql """ explain select * from ${table} """
+        boolean stillBatch = explainNonBatch.any { row ->
+            row.any { cell -> cell != null && cell.toString().contains("approximate") }
+        }
+        assert !stillBatch : "expected the non-batch split path in the Arrow Flight plan, got: ${explainNonBatch}"
+
+        // The scan must still be complete: the FE closed the coordinator at the end of
+        // GetFlightInfo, and the BE buffers the result independently of it.
+        def flightNonBatch = flightSql """ select * from ${table} """
+        assertEquals(expectedRows, (flightNonBatch.size() as long))
+
+        // ... and the release really was eager, unlike the batch-mode scan below. A distinct limit
+        // keeps this query's text apart from the other scans, and the LIKE pattern is assembled
+        // with CONCAT so that the probe statement's own text does not match it. No polling is
+        // needed: finalizeQuery() runs inside GetFlightInfo, so it has already happened by the time
+        // the client has the rows.
+        def flightNonBatchLimited = flightSql """ select * from ${table} limit 17 """
+        assertEquals(17, flightNonBatchLimited.size())
+        def nonBatchRegistered = sql """ select QUERY_ID from information_schema.active_queries
+                where SQL like CONCAT('%from ${table} limit', ' 17%') """
+        assert nonBatchRegistered.isEmpty() : "a non-batch Flight query must release its coordinator at the end of GetFlightInfo, still registered: ${nonBatchRegistered}"
+
+        // Back to batch mode: the idle reaper below needs a deferred coordinator to release.
+        flightSql """ set enable_external_table_batch_mode = true """
+
         // #67503: a batch-mode scan keeps its coordinator (and with it the query's workload group
         // queue slot and its active_queries entry) alive after GetFlightInfo, until the session
         // runs its next query or is closed. A client that does neither would hold them until
