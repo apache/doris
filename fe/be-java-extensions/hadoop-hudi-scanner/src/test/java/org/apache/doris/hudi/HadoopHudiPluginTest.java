@@ -45,11 +45,10 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.apache.parquet.avro.AvroParquetWriter;
 import org.apache.parquet.hadoop.ParquetWriter;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
@@ -87,14 +86,14 @@ public class HadoopHudiPluginTest {
             "_hoodie_partition_path", "_hoodie_file_name", "id", "name",
     };
 
-    @Rule
-    public TemporaryFolder tableRoot = new TemporaryFolder();
+    @TempDir
+    public File tableRoot;
 
     /**
      * A batch lives in memory BE allocates through a native method BE registers, which no plain JVM
      * can link. Off heap has a switch for exactly this, and it swaps in plain Unsafe allocation.
      */
-    @BeforeClass
+    @BeforeAll
     public static void allocateBatchesWithoutBe() {
         OffHeap.setTesting();
     }
@@ -105,15 +104,15 @@ public class HadoopHudiPluginTest {
                 HadoopHudiPluginTest.class.getClassLoader())) {
             found.add(plugin);
         }
-        Assert.assertEquals("this module must declare exactly one DorisPlugin in META-INF/services",
-                1, found.size());
+        Assertions.assertEquals(1, found.size(),
+                "this module must declare exactly one DorisPlugin in META-INF/services");
         return found.get(0);
     }
 
     /** The path the plugin registry takes: services file, plugin class, factory list. */
     @Test
     public void isDiscoverableThroughServiceLoader() {
-        Assert.assertTrue(loadPlugin() instanceof HadoopHudiPlugin);
+        Assertions.assertTrue(loadPlugin() instanceof HadoopHudiPlugin);
     }
 
     /** "reader", not "hudi": a factory is named for its job inside the plugin. */
@@ -123,14 +122,14 @@ public class HadoopHudiPluginTest {
         for (JniScannerFactory factory : loadPlugin().getScannerFactories()) {
             names.add(factory.getName());
         }
-        Assert.assertEquals(Collections.singletonList("reader"), names);
+        Assertions.assertEquals(Collections.singletonList("reader"), names);
     }
 
     /** A plugin declares only the kinds it provides; the rest stay empty rather than throwing. */
     @Test
     public void providesNeitherWritersNorUdfs() {
-        Assert.assertFalse(loadPlugin().getWriterFactories().iterator().hasNext());
-        Assert.assertFalse(loadPlugin().getUdfExecutorFactories().iterator().hasNext());
+        Assertions.assertFalse(loadPlugin().getWriterFactories().iterator().hasNext());
+        Assertions.assertFalse(loadPlugin().getUdfExecutorFactories().iterator().hasNext());
     }
 
     /**
@@ -168,9 +167,9 @@ public class HadoopHudiPluginTest {
         expected.put("abfs", "org.apache.hadoop.fs.azurebfs.AzureBlobFileSystem");
         expected.put("wasb", "org.apache.hadoop.fs.azure.NativeAzureFileSystem");
         for (Map.Entry<String, String> scheme : expected.entrySet()) {
-            Assert.assertEquals(scheme.getKey() + ":// must resolve inside the plugin",
-                    scheme.getValue(),
-                    FileSystem.getFileSystemClass(scheme.getKey(), conf).getName());
+            Assertions.assertEquals(scheme.getValue(),
+                    FileSystem.getFileSystemClass(scheme.getKey(), conf).getName(),
+                    scheme.getKey() + ":// must resolve inside the plugin");
         }
         // file:// is asserted by kind rather than by class, because isolation changed which
         // LocalFileSystem answers it. The repackaged hive declares a FileSystem provider of its
@@ -178,9 +177,10 @@ public class HadoopHudiPluginTest {
         // rename - is listed after hadoop's, so it is what a plugin registers for file. It could
         // not before: hadoop fills that registry once, from the classloader of whoever asks first,
         // and that was BE with only its system classpath in view.
-        Assert.assertTrue("file:// must be served by a local filesystem inside the plugin",
+        Assertions.assertTrue(
                 org.apache.hadoop.fs.LocalFileSystem.class.isAssignableFrom(
-                        FileSystem.getFileSystemClass("file", conf)));
+                        FileSystem.getFileSystemClass("file", conf)),
+                "file:// must be served by a local filesystem inside the plugin");
     }
 
     /**
@@ -206,8 +206,8 @@ public class HadoopHudiPluginTest {
         for (String name : contract) {
             String from = Class.forName(name).getProtectionDomain().getCodeSource()
                     .getLocation().getPath();
-            Assert.assertTrue(name + " must come from hive-apache-shade, not " + from,
-                    from.contains("hive-apache-shade"));
+            Assertions.assertTrue(from.contains("hive-apache-shade"),
+                    name + " must come from hive-apache-shade, not " + from);
         }
     }
 
@@ -226,11 +226,11 @@ public class HadoopHudiPluginTest {
      */
     @Test
     public void keepsTheStorageApiThatOrcIsCompiledAgainst() throws NoSuchMethodException {
-        Assert.assertTrue("a VectorizedRowBatch must be a MutableFilterContext",
-                MutableFilterContext.class.isAssignableFrom(VectorizedRowBatch.class));
-        Assert.assertNotNull("TimestampColumnVector must be able to change calendar",
-                TimestampColumnVector.class.getMethod("changeCalendar", boolean.class,
-                        boolean.class));
+        Assertions.assertTrue(MutableFilterContext.class.isAssignableFrom(VectorizedRowBatch.class),
+                "a VectorizedRowBatch must be a MutableFilterContext");
+        Assertions.assertNotNull(
+                TimestampColumnVector.class.getMethod("changeCalendar", boolean.class, boolean.class),
+                "TimestampColumnVector must be able to change calendar");
     }
 
     /**
@@ -246,7 +246,7 @@ public class HadoopHudiPluginTest {
         File baseFile = createCopyOnWriteTableWithTwoRows();
 
         Map<String, String> params = new HashMap<>();
-        params.put("base_path", tableRoot.getRoot().getAbsolutePath());
+        params.put("base_path", tableRoot.getAbsolutePath());
         params.put("data_file_path", baseFile.getAbsolutePath());
         params.put("data_file_length", String.valueOf(baseFile.length()));
         params.put("delta_file_paths", "");
@@ -261,10 +261,11 @@ public class HadoopHudiPluginTest {
         JniScanner scanner = loadPlugin().getScannerFactories().iterator().next().create(16, params);
         scanner.open();
         try {
-            Assert.assertNotEquals(0, scanner.getNextBatchMeta());
-            Assert.assertEquals(2, scanner.getTable().getNumRows());
+            Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
+            Assertions.assertEquals(2, scanner.getTable().getNumRows());
             scanner.releaseTable();
-            Assert.assertEquals("0 means end of stream", 0, scanner.getNextBatchMeta());
+            Assertions.assertEquals(0, scanner.getNextBatchMeta(),
+                    "0 means end of stream");
         } finally {
             scanner.close();
         }
@@ -277,7 +278,7 @@ public class HadoopHudiPluginTest {
      * hudi-client and is not something a reader has any business depending on.
      */
     private File createCopyOnWriteTableWithTwoRows() throws IOException {
-        String basePath = tableRoot.getRoot().getAbsolutePath();
+        String basePath = tableRoot.getAbsolutePath();
         HoodieTableMetaClient metaClient = HoodieTableMetaClient.newTableBuilder()
                 .setTableType(HoodieTableType.COPY_ON_WRITE)
                 .setTableName("t")
@@ -291,7 +292,7 @@ public class HadoopHudiPluginTest {
                 + fields
                 + "{\"name\":\"id\",\"type\":\"int\"},"
                 + "{\"name\":\"name\",\"type\":[\"null\",\"string\"],\"default\":null}]}");
-        File baseFile = new File(tableRoot.getRoot(),
+        File baseFile = new File(tableRoot,
                 FSUtils.makeBaseFileName(INSTANT, "0-0-0", FILE_ID, ".parquet"));
         try (ParquetWriter<GenericRecord> writer = AvroParquetWriter
                 .<GenericRecord>builder(new Path(baseFile.getAbsolutePath()))

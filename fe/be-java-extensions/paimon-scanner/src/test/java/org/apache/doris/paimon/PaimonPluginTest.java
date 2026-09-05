@@ -39,13 +39,13 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.utils.InstantiationUtil;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -68,14 +68,14 @@ import java.util.ServiceLoader;
  */
 public class PaimonPluginTest {
 
-    @Rule
-    public TemporaryFolder warehouse = new TemporaryFolder();
+    @TempDir
+    public Path warehouse;
 
     /**
      * A batch lives in memory BE allocates through a native method BE registers, which no plain JVM
      * can link. Off heap has a switch for exactly this, and it swaps in plain Unsafe allocation.
      */
-    @BeforeClass
+    @BeforeAll
     public static void allocateBatchesWithoutBe() {
         OffHeap.setTesting();
     }
@@ -86,15 +86,15 @@ public class PaimonPluginTest {
                 PaimonPluginTest.class.getClassLoader())) {
             found.add(plugin);
         }
-        Assert.assertEquals("this module must declare exactly one DorisPlugin in META-INF/services",
-                1, found.size());
+        Assertions.assertEquals(1, found.size(),
+                "this module must declare exactly one DorisPlugin in META-INF/services");
         return found.get(0);
     }
 
     /** The path the plugin registry takes: services file, plugin class, factory list. */
     @Test
     public void isDiscoverableThroughServiceLoader() {
-        Assert.assertTrue(loadPlugin() instanceof PaimonPlugin);
+        Assertions.assertTrue(loadPlugin() instanceof PaimonPlugin);
     }
 
     /** "reader", not "paimon": a factory is named for its job inside the plugin. */
@@ -104,14 +104,14 @@ public class PaimonPluginTest {
         for (JniScannerFactory factory : loadPlugin().getScannerFactories()) {
             names.add(factory.getName());
         }
-        Assert.assertEquals(Collections.singletonList("reader"), names);
+        Assertions.assertEquals(Collections.singletonList("reader"), names);
     }
 
     /** A plugin declares only the kinds it provides; the rest stay empty rather than throwing. */
     @Test
     public void providesNeitherWritersNorUdfs() {
-        Assert.assertFalse(loadPlugin().getWriterFactories().iterator().hasNext());
-        Assert.assertFalse(loadPlugin().getUdfExecutorFactories().iterator().hasNext());
+        Assertions.assertFalse(loadPlugin().getWriterFactories().iterator().hasNext());
+        Assertions.assertFalse(loadPlugin().getUdfExecutorFactories().iterator().hasNext());
     }
 
     /** The factory builds the scanner rather than merely naming it. */
@@ -121,7 +121,7 @@ public class PaimonPluginTest {
         params.put("required_fields", "id");
         params.put("columns_types", "int");
         params.put("serialized_table_cache_key", "k");
-        Assert.assertTrue(loadPlugin().getScannerFactories().iterator().next().create(1024, params)
+        Assertions.assertTrue(loadPlugin().getScannerFactories().iterator().next().create(1024, params)
                 instanceof PaimonJniScanner);
     }
 
@@ -149,9 +149,8 @@ public class PaimonPluginTest {
         expected.put("wasb", "org.apache.hadoop.fs.azure.NativeAzureFileSystem");
         expected.put("file", "org.apache.hadoop.fs.LocalFileSystem");
         for (Map.Entry<String, String> scheme : expected.entrySet()) {
-            Assert.assertEquals(scheme.getKey() + ":// must resolve inside the plugin",
-                    scheme.getValue(),
-                    FileSystem.getFileSystemClass(scheme.getKey(), conf).getName());
+            Assertions.assertEquals(scheme.getValue(), FileSystem.getFileSystemClass(scheme.getKey(), conf).getName(),
+                    scheme.getKey() + ":// must resolve inside the plugin");
         }
     }
 
@@ -168,8 +167,10 @@ public class PaimonPluginTest {
                 org.apache.paimon.fs.FileIOLoader.class, PaimonPluginTest.class.getClassLoader())) {
             schemes.add(loader.getScheme());
         }
-        Assert.assertTrue("paimon-s3 provides s3://, seen: " + schemes, schemes.contains("s3"));
-        Assert.assertTrue("paimon-jindo provides oss://, seen: " + schemes, schemes.contains("oss"));
+        Assertions.assertTrue(schemes.contains("s3"),
+                "paimon-s3 provides s3://, seen: " + schemes);
+        Assertions.assertTrue(schemes.contains("oss"),
+                "paimon-jindo provides oss://, seen: " + schemes);
     }
 
     /**
@@ -183,7 +184,8 @@ public class PaimonPluginTest {
     public void readsBackWhatItWrote() throws Exception {
         Table table = createTableWithTwoRows();
         List<Split> splits = table.newReadBuilder().newScan().plan().splits();
-        Assert.assertEquals("one bucket, one split", 1, splits.size());
+        Assertions.assertEquals(1, splits.size(),
+                "one bucket, one split");
 
         Map<String, String> params = new HashMap<>();
         params.put("serialized_table", encode(table));
@@ -196,10 +198,11 @@ public class PaimonPluginTest {
         JniScanner scanner = loadPlugin().getScannerFactories().iterator().next().create(16, params);
         scanner.open();
         try {
-            Assert.assertNotEquals(0, scanner.getNextBatchMeta());
-            Assert.assertEquals(2, scanner.getTable().getNumRows());
+            Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
+            Assertions.assertEquals(2, scanner.getTable().getNumRows());
             scanner.releaseTable();
-            Assert.assertEquals("0 means end of stream", 0, scanner.getNextBatchMeta());
+            Assertions.assertEquals(0, scanner.getNextBatchMeta(),
+                    "0 means end of stream");
         } finally {
             scanner.close();
         }
@@ -207,7 +210,7 @@ public class PaimonPluginTest {
 
     private Table createTableWithTwoRows() throws Exception {
         Options options = new Options();
-        options.set("warehouse", warehouse.getRoot().getAbsolutePath());
+        options.set("warehouse", warehouse.toAbsolutePath().toString());
         Catalog catalog = CatalogFactory.createCatalog(CatalogContext.create(options));
         catalog.createDatabase("db", true);
         Identifier identifier = Identifier.create("db", "t");

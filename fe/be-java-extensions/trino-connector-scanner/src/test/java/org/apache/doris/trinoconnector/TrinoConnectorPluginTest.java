@@ -27,10 +27,10 @@ import io.trino.connector.ConnectorName;
 import io.trino.server.PluginClassLoader;
 import io.trino.spi.connector.ConnectorFactory;
 import io.trino.spi.type.BigintType;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -78,7 +78,7 @@ public class TrinoConnectorPluginTest {
      * A batch lives in memory BE allocates through a native method BE registers, which no plain JVM
      * can link. Off heap has a switch for exactly this, and it swaps in plain Unsafe allocation.
      */
-    @BeforeClass
+    @BeforeAll
     public static void installOneTrinoConnector() throws Exception {
         OffHeap.setTesting();
         pluginsDir = Files.createTempDirectory("trino_plugins").toFile();
@@ -90,14 +90,14 @@ public class TrinoConnectorPluginTest {
 
         ConnectorFactory factory = TrinoConnectorPluginLoader.getTrinoConnectorPluginManager()
                 .getConnectorFactories().get(new ConnectorName(TestingTrinoPlugin.CONNECTOR_NAME));
-        Assert.assertNotNull("the installed Trino connector must have been loaded from "
-                + pluginsDir + " - if this is null the plugin directory parameter never arrived",
-                factory);
+        Assertions.assertNotNull(factory,
+                "the installed Trino connector must have been loaded from "
+                + pluginsDir + " - if this is null the plugin directory parameter never arrived");
         connectorClassLoader = factory.getClass().getClassLoader();
         handleJson = serializeHandlesOfTheInstalledConnector();
     }
 
-    @AfterClass
+    @AfterAll
     public static void removeInstalledConnector() throws IOException {
         deleteRecursively(pluginsDir);
     }
@@ -108,15 +108,15 @@ public class TrinoConnectorPluginTest {
                 TrinoConnectorPluginTest.class.getClassLoader())) {
             found.add(plugin);
         }
-        Assert.assertEquals("this module must declare exactly one DorisPlugin in META-INF/services",
-                1, found.size());
+        Assertions.assertEquals(1, found.size(),
+                "this module must declare exactly one DorisPlugin in META-INF/services");
         return found.get(0);
     }
 
     /** The path the plugin registry takes: services file, plugin class, factory list. */
     @Test
     public void isDiscoverableThroughServiceLoader() {
-        Assert.assertTrue(loadPlugin() instanceof TrinoConnectorPlugin);
+        Assertions.assertTrue(loadPlugin() instanceof TrinoConnectorPlugin);
     }
 
     /** "reader", not "trino-connector": a factory is named for its job inside the plugin. */
@@ -126,14 +126,14 @@ public class TrinoConnectorPluginTest {
         for (JniScannerFactory factory : loadPlugin().getScannerFactories()) {
             names.add(factory.getName());
         }
-        Assert.assertEquals(Collections.singletonList("reader"), names);
+        Assertions.assertEquals(Collections.singletonList("reader"), names);
     }
 
     /** A plugin declares only the kinds it provides; the rest stay empty rather than throwing. */
     @Test
     public void providesNeitherWritersNorUdfs() {
-        Assert.assertFalse(loadPlugin().getWriterFactories().iterator().hasNext());
-        Assert.assertFalse(loadPlugin().getUdfExecutorFactories().iterator().hasNext());
+        Assertions.assertFalse(loadPlugin().getWriterFactories().iterator().hasNext());
+        Assertions.assertFalse(loadPlugin().getUdfExecutorFactories().iterator().hasNext());
     }
 
     /**
@@ -149,22 +149,22 @@ public class TrinoConnectorPluginTest {
      */
     @Test
     public void loadsAnInstalledConnectorInItsOwnClassloader() {
-        Assert.assertTrue("Trino must load an installed connector through its own PluginClassLoader",
-                connectorClassLoader instanceof PluginClassLoader);
-        Assert.assertNotSame("the connector's classes must be its own copy, not this classpath's",
-                TestingTrinoPlugin.Factory.class,
-                classOfTheInstalledConnector(TestingTrinoPlugin.Factory.class.getName()));
+        Assertions.assertTrue(connectorClassLoader instanceof PluginClassLoader,
+                "Trino must load an installed connector through its own PluginClassLoader");
+        Assertions.assertNotSame(TestingTrinoPlugin.Factory.class,
+                classOfTheInstalledConnector(TestingTrinoPlugin.Factory.class.getName()),
+                "the connector's classes must be its own copy, not this classpath's");
 
         for (ClassLoader parent = connectorClassLoader.getParent(); parent != null;
                 parent = parent.getParent()) {
-            Assert.assertNotSame("an installed connector must not reach this plugin's classpath",
-                    TrinoConnectorPluginTest.class.getClassLoader(), parent);
+            Assertions.assertNotSame(TrinoConnectorPluginTest.class.getClassLoader(), parent,
+                    "an installed connector must not reach this plugin's classpath");
         }
 
-        Assert.assertSame("the Trino SPI must be one class on both sides of the boundary",
-                io.trino.spi.connector.ConnectorFactory.class,
+        Assertions.assertSame(io.trino.spi.connector.ConnectorFactory.class,
                 classOfTheInstalledConnector(TestingTrinoPlugin.Factory.class.getName())
-                        .getInterfaces()[0]);
+                        .getInterfaces()[0],
+                "the Trino SPI must be one class on both sides of the boundary");
     }
 
     /**
@@ -190,10 +190,11 @@ public class TrinoConnectorPluginTest {
                 .create(16, params);
         scanner.open();
         try {
-            Assert.assertNotEquals(0, scanner.getNextBatchMeta());
-            Assert.assertEquals(ROWS, scanner.getTable().getNumRows());
+            Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
+            Assertions.assertEquals(ROWS, scanner.getTable().getNumRows());
             scanner.releaseTable();
-            Assert.assertEquals("0 means end of stream", 0, scanner.getNextBatchMeta());
+            Assertions.assertEquals(0, scanner.getNextBatchMeta(),
+                    "0 means end of stream");
         } finally {
             scanner.close();
         }
@@ -222,7 +223,7 @@ public class TrinoConnectorPluginTest {
         try {
             scanner.getNextBatchMeta();
             scanner.releaseTable();
-            Assert.assertEquals(Collections.singleton("timer:AppendDataTime[0]"),
+            Assertions.assertEquals(Collections.singleton("timer:AppendDataTime[0]"),
                     scanner.getStatistics().keySet());
         } finally {
             scanner.close();
@@ -281,14 +282,14 @@ public class TrinoConnectorPluginTest {
      * ends up inside every serialized handle.
      */
     private static void packageTestingConnectorInto(File installDir) throws Exception {
-        Assert.assertTrue(installDir.mkdirs());
+        Assertions.assertTrue(installDir.mkdirs());
         File classesRoot = new File(TestingTrinoPlugin.class.getProtectionDomain()
                 .getCodeSource().getLocation().toURI());
         String packagePath = TestingTrinoPlugin.class.getPackage().getName().replace('.', '/');
         File[] classFiles = new File(classesRoot, packagePath).listFiles(
                 (dir, name) -> name.endsWith(".class"));
-        Assert.assertNotNull("the fixture connector must be compiled before it can be installed",
-                classFiles);
+        Assertions.assertNotNull(classFiles,
+                "the fixture connector must be compiled before it can be installed");
 
         try (JarOutputStream jar = new JarOutputStream(
                 new FileOutputStream(new File(installDir, "testing-connector.jar")))) {

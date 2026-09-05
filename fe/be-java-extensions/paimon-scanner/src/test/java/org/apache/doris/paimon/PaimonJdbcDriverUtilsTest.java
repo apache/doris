@@ -19,9 +19,9 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -44,7 +44,7 @@ public class PaimonJdbcDriverUtilsTest {
     private final List<Driver> registeredDrivers = new ArrayList<>();
     private final List<Path> tempJars = new ArrayList<>();
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         for (Driver driver : registeredDrivers) {
             DriverManager.deregisterDriver(driver);
@@ -78,12 +78,13 @@ public class PaimonJdbcDriverUtilsTest {
 
         Driver driver = DriverManager.getDriver("jdbc:dummy:test");
         registeredDrivers.add(driver);
-        Assert.assertSame("the registered driver must belong to this plugin, not to the driver jar",
-                PaimonJdbcDriverUtils.class.getClassLoader(), driver.getClass().getClassLoader());
-        Assert.assertNotSame("...and the driver underneath must be the one from the jar",
-                PaimonJdbcDriverUtils.class.getClassLoader(), driverFromJar(driverJar).getClassLoader());
-        Assert.assertTrue("and must still be the user's driver underneath",
-                driver.acceptsURL("jdbc:dummy:test"));
+        Assertions.assertSame(PaimonJdbcDriverUtils.class.getClassLoader(), driver.getClass().getClassLoader(),
+                "the registered driver must belong to this plugin, not to the driver jar");
+        Assertions.assertNotSame(PaimonJdbcDriverUtils.class.getClassLoader(),
+                driverFromJar(driverJar).getClassLoader(),
+                "...and the driver underneath must be the one from the jar");
+        Assertions.assertTrue(driver.acceptsURL("jdbc:dummy:test"),
+                "and must still be the user's driver underneath");
     }
 
     /** The driver jar gets its own classloader below the plugin's, so it can see Paimon but not
@@ -96,9 +97,9 @@ public class PaimonJdbcDriverUtilsTest {
 
         ClassLoader driverClassLoader = JdbcDriverUtils.driverClassLoader(url, parent);
 
-        Assert.assertNotSame(parent, driverClassLoader);
-        Assert.assertSame(parent, driverClassLoader.getParent());
-        Assert.assertSame(driverClassLoader, JdbcDriverUtils.driverClassLoader(url, parent));
+        Assertions.assertNotSame(parent, driverClassLoader);
+        Assertions.assertSame(parent, driverClassLoader.getParent());
+        Assertions.assertSame(driverClassLoader, JdbcDriverUtils.driverClassLoader(url, parent));
     }
 
     @Test
@@ -106,9 +107,9 @@ public class PaimonJdbcDriverUtilsTest {
         Map<String, String> params = new HashMap<>();
         params.put(PaimonJdbcDriverUtils.PAIMON_JDBC_DRIVER_URL, "file:///tmp/postgresql-42.5.0.jar");
 
-        IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> PaimonJdbcDriverUtils.registerDriverIfNeeded(params, getClass().getClassLoader()));
-        Assert.assertTrue(exception.getMessage().contains("driver_class"));
+        Assertions.assertTrue(exception.getMessage().contains("driver_class"));
     }
 
     /** The class the jar really holds, which is not the one on this test's classpath. */
@@ -124,7 +125,7 @@ public class PaimonJdbcDriverUtilsTest {
         String resourceName = DummyJdbcDriver.class.getName().replace('.', '/') + ".class";
         try (JarOutputStream jarOutputStream = new JarOutputStream(Files.newOutputStream(jarPath));
                 InputStream inputStream = DummyJdbcDriver.class.getClassLoader().getResourceAsStream(resourceName)) {
-            Assert.assertNotNull(inputStream);
+            Assertions.assertNotNull(inputStream);
             jarOutputStream.putNextEntry(new JarEntry(resourceName));
             byte[] buffer = new byte[4096];
             int bytesRead;
