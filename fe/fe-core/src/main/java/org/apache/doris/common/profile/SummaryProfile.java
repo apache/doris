@@ -1046,11 +1046,19 @@ public class SummaryProfile {
     }
 
     public String getPrettyNereidsPreRewriteByMvTime() {
-        return getPrettyTime(nereidsPreRewriteByMvFinishTime, nereidsCollectTablePartitionFinishTime, TUnit.TIME_MS);
+        long start = nereidsCollectTablePartitionFinishTime != -1
+                ? nereidsCollectTablePartitionFinishTime
+                : nereidsRewriteFinishTime;
+        return getPrettyTime(nereidsPreRewriteByMvFinishTime, start, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsOptimizeTime() {
-        return getPrettyTime(nereidsOptimizeFinishTime, nereidsPreRewriteByMvFinishTime, TUnit.TIME_MS);
+        long start = nereidsPreRewriteByMvFinishTime != -1
+                ? nereidsPreRewriteByMvFinishTime
+                : (nereidsCollectTablePartitionFinishTime != -1
+                        ? nereidsCollectTablePartitionFinishTime
+                        : nereidsRewriteFinishTime);
+        return getPrettyTime(nereidsOptimizeFinishTime, start, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsTranslateTime() {
