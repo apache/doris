@@ -17,11 +17,14 @@
 
 package org.apache.doris.catalog.constraint;
 
+import org.apache.doris.binlog.BinlogManager;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -34,6 +37,7 @@ import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -205,6 +209,72 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         DataInput input = new DataInputStream(inputStream);
         ConstraintManager loadedMgr = ConstraintManager.read(input);
         Assertions.assertEquals(1, loadedMgr.getConstraints(extTni).size());
+    }
+
+    @Test
+    void distributionMappingTablePropertyJournalReplayTest() throws Exception {
+        OlapTable table = (OlapTable) RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv(), Optional.empty());
+        TableNameInfo tableNameInfo = new TableNameInfo(table.getNameWithFullQualifiers());
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_replay", "mapping_replay", List.of("k2"), List.of("k1"));
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        TableProperty mappingProperty = new TableProperty(Maps.newHashMap());
+        mappingProperty.addDistributionMappingConstraint(mapping);
+
+        JournalEntity addJournal = new JournalEntity();
+        addJournal.setData(new ModifyTablePropertyOperationLog(
+                table.getDatabase().getId(), table.getId(), table.getName(),
+                mappingProperty.getDistributionMappingConstraintProperties()));
+        addJournal.setOpCode(OperationType.OP_MODIFY_TABLE_PROPERTIES);
+        EditLog.loadJournal(Env.getCurrentEnv(), 0L, addJournal);
+
+        Assertions.assertNull(manager.getConstraint(tableNameInfo, mapping.getName()));
+        Assertions.assertEquals(mapping,
+                manager.getConstraint(tableNameInfo, table, mapping.getName()));
+
+        JournalEntity dropJournal = new JournalEntity();
+        mappingProperty.removeDistributionMappingConstraint(mapping.getName());
+        dropJournal.setData(new ModifyTablePropertyOperationLog(
+                table.getDatabase().getId(), table.getId(), table.getName(),
+                mappingProperty.getDistributionMappingConstraintProperties()));
+        dropJournal.setOpCode(OperationType.OP_MODIFY_TABLE_PROPERTIES);
+        EditLog.loadJournal(Env.getCurrentEnv(), 0L, dropJournal);
+
+        Assertions.assertTrue(manager.getDistributionMappingConstraints(table).isEmpty());
+    }
+
+    @Test
+    void distributionMappingReplayDoesNotPublishTablePropertyBinlog() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        BinlogManager binlogManager = Mockito.mock(BinlogManager.class);
+        Mockito.when(env.getBinlogManager()).thenReturn(binlogManager);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("k2"), List.of("k1"));
+        TableProperty mappingProperty = new TableProperty(Maps.newHashMap());
+        mappingProperty.addDistributionMappingConstraint(mapping);
+        ModifyTablePropertyOperationLog mappingLog = new ModifyTablePropertyOperationLog(
+                1L, 2L, "table", mappingProperty.getDistributionMappingConstraintProperties());
+        JournalEntity mappingJournal = new JournalEntity();
+        mappingJournal.setData(mappingLog);
+        mappingJournal.setOpCode(OperationType.OP_MODIFY_TABLE_PROPERTIES);
+
+        EditLog.loadJournal(env, 3L, mappingJournal);
+
+        Mockito.verify(env).replayModifyTableProperty(
+                OperationType.OP_MODIFY_TABLE_PROPERTIES, mappingLog);
+        Mockito.verifyNoInteractions(binlogManager);
+
+        ModifyTablePropertyOperationLog propertyLog = new ModifyTablePropertyOperationLog(
+                1L, 2L, "table", Map.of("in_memory", "false"));
+        JournalEntity propertyJournal = new JournalEntity();
+        propertyJournal.setData(propertyLog);
+        propertyJournal.setOpCode(OperationType.OP_MODIFY_TABLE_PROPERTIES);
+
+        EditLog.loadJournal(env, 4L, propertyJournal);
+
+        Mockito.verify(binlogManager).addModifyTableProperty(propertyLog, 4L);
     }
 
     @Test

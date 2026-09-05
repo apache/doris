@@ -73,7 +73,7 @@ public class ShowConstraintsCommand extends ShowCommand {
         TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(
                 tableIf.getDatabase().getCatalog(), tableIf.getDatabase(), tableIf);
         Map<String, Constraint> constraints = Env.getCurrentEnv().getConstraintManager()
-                .getConstraints(tableNameInfo);
+                .getConstraints(tableNameInfo, tableIf);
         List<List<String>> res = constraints.entrySet().stream()
                 .map(e -> Lists.newArrayList(e.getKey(),
                         e.getValue().getType().getName(),
