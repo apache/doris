@@ -314,6 +314,15 @@ under the License.
                         </goals>
                         <phase>process-classes</phase>
                         <configuration>
+                            <!-- Write the shaded jar straight to the module's artifact path instead of
+                                 going through shade's replace-the-main-artifact step. That step reads
+                                 project.getArtifact().getFile(), which Maven only populates in the
+                                 package phase — but this shade runs in process-classes (see the
+                                 maven-jar-plugin comment above for why it must). Without this the build
+                                 fails with "Failed to create shaded artifact, project main artifact does
+                                 not exist" even though maven-jar-plugin did create the jar. The path is
+                                 the default artifact path, so downstream consumers are unaffected. -->
+                            <outputFile>${project.build.directory}/${project.artifactId}-${project.version}.jar</outputFile>
                             <!-- WHITELIST, not blacklist. The fat hive-catalog-shade used a short
                                  exclude list and tolerated a huge tail of transitive junk (hadoop-yarn,
                                  curator, jersey, jetty, kerby, ehcache, nimbus-jose, mssql-jdbc, guice,
