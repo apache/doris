@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -142,6 +143,27 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         this.schemaAtMemo = schemaAtMemo;
         this.latestSnapshotCache = latestSnapshotCache;
         this.partitionViewCache = partitionViewCache;
+    }
+
+    @Override
+    public ConnectorTransaction beginTransaction(ConnectorSession session) {
+        return new PaimonConnectorTransaction(session.allocateTransactionId(), context);
+    }
+
+    @Override
+    public void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> staticPartitionColumnNames) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        Set<String> partitionNames = new HashSet<>();
+        for (String name : paimonHandle.getPartitionKeys()) {
+            partitionNames.add(name.toLowerCase(java.util.Locale.ROOT));
+        }
+        for (String name : staticPartitionColumnNames) {
+            if (!partitionNames.contains(name.toLowerCase(java.util.Locale.ROOT))) {
+                throw new DorisConnectorException("Column '" + name
+                        + "' is not a partition column of Paimon table");
+            }
+        }
     }
 
     @Override

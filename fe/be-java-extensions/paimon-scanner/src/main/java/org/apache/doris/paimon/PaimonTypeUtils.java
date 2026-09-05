@@ -43,6 +43,7 @@ import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VariantType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -166,6 +167,11 @@ public class PaimonTypeUtils {
             PaimonColumnType paimonColumnType = new PaimonColumnType(Type.DATETIMEV2);
             paimonColumnType.setPrecision(localZonedTimestampType.getPrecision());
             return paimonColumnType;
+        }
+
+        @Override
+        public PaimonColumnType visit(VariantType variantType) {
+            return new PaimonColumnType(Type.VARIANT);
         }
 
         @Override
