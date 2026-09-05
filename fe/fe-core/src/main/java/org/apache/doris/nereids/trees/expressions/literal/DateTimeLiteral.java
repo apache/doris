@@ -283,8 +283,8 @@ public class DateTimeLiteral extends DateLiteral {
      *
      * <p>For normal local times, there is one valid offset. For fall-back overlap times, two offsets
      * are valid and the first one is the pre-transition offset. For spring-forward gap times, the
-     * local time does not exist, so any value inside the skipped interval maps to the transition
-     * instant.
+     * local time does not exist, so the whole-second part maps to the transition instant while the
+     * fractional-second part is preserved.
      */
     public static Instant convertLocalToInstant(LocalDateTime localDateTime, ZoneId fromZone) {
         ZoneRules rules = fromZone.getRules();
@@ -295,9 +295,10 @@ public class DateTimeLiteral extends DateLiteral {
         if (size == 1 || size == 2) {
             return localDateTime.atOffset(validOffsets.get(0)).toInstant();
         }
-        // Skipped local time maps to the transition instant, e.g. 2021-03-28 02:15 Europe/Paris.
+        // Match BE DateV2Value::unix_timestamp by preserving the sub-second part separately when
+        // the civil second maps to the transition instant.
         ZoneOffsetTransition transition = rules.getTransition(localDateTime);
-        return transition.getInstant();
+        return transition.getInstant().plusNanos(localDateTime.getNano());
     }
 
     public boolean checkRange() {

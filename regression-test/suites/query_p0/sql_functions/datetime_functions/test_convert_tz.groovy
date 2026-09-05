@@ -37,4 +37,23 @@ suite("test_convert_tz") {
     """
     sql "set debug_skip_fold_constant=true;"
     qt_spring_gp_with_micro_sec "select convert_tz('2021-03-28 02:30:00.00323', 'Europe/Paris','UTC');"
+    sql "set time_zone='+00:00';"
+    qt_spring_gap_preserve_fraction_be """
+        SELECT
+            CAST('2024-03-10 02:30:00.123456789America/New_York' AS datetimev2(6)),
+            CONVERT_TZ(
+                CAST('2024-03-10 02:30:00.123456789' AS datetimev2(6)),
+                'America/New_York',
+                '+00:00'
+            );
+    """
+
+    sql "set debug_skip_fold_constant=false;"
+    qt_spring_gap_preserve_fraction_fe """
+        SELECT CONVERT_TZ(
+            CAST('2024-03-10 02:30:00.123456789' AS datetimev2(6)),
+            'America/New_York',
+            '+00:00'
+        );
+    """
 }

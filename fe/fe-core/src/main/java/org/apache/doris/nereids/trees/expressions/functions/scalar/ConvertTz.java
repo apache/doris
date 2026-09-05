@@ -44,6 +44,8 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.zone.ZoneOffsetTransition;
+import java.time.zone.ZoneRules;
 import java.util.List;
 
 /**
@@ -107,11 +109,8 @@ public class ConvertTz extends ScalarFunction
         if (fromZone == null || toZone == null) {
             return false;
         }
-        if (toZone.getRules().isFixedOffset()) {
-            return true;
-        }
         if (lower == null || upper == null) {
-            return false;
+            return toZone.getRules().isFixedOffset() && !mayHaveFractionalSecondSourceGap(fromZone);
         }
         LocalDateTime lowerDateTime = toLocalDateTime(lower);
         LocalDateTime upperDateTime = toLocalDateTime(upper);
@@ -124,15 +123,24 @@ public class ConvertTz extends ScalarFunction
         if (upperDateTime.isBefore(lowerDateTime)) {
             return false;
         }
+        if (mayHaveFractionalSecondSourceGap(fromZone)
+                && hasGapResetInRange(fromZone, lowerDateTime, upperDateTime)) {
+            return false;
+        }
+        if (toZone.getRules().isFixedOffset()) {
+            return true;
+        }
         /*
          * convert_tz can be treated as a composition of two mappings:
          *
          *   source local time x -> instant by from_tz -> target local time by to_tz.
          *
-         * After PR #64029, the first mapping is monotonic non-decreasing. A spring gap in from_tz
-         * flattens skipped local times to the transition instant, and a fall-back overlap uses the
-         * pre-transition offset before jumping forward at the overlap end. Neither case makes the
-         * instant move backward as x increases.
+         * For whole-second values, the first mapping is monotonic non-decreasing. A spring gap in
+         * from_tz flattens skipped local times to the transition instant, and a fall-back overlap
+         * uses the pre-transition offset before jumping forward at the overlap end. For fractional
+         * values, each skipped civil second preserves its fraction, so crossing an integer-second
+         * boundary inside the gap resets that fraction and makes the mapping non-monotonic. That
+         * case is rejected above.
          *
          * The second mapping, instant -> to_tz local time, is also monotonic non-decreasing except
          * at a to_tz fall-back transition, where the displayed local time jumps backward. Therefore
@@ -148,6 +156,34 @@ public class ConvertTz extends ScalarFunction
             return false;
         }
         return !DateUtils.hasFallbackTransitionInInstantRange(toZone, lowerInstant, upperInstant);
+    }
+
+    private boolean mayHaveFractionalSecondSourceGap(ZoneId fromZone) {
+        return child(0).getDataType() instanceof DateTimeV2Type
+                && ((DateTimeV2Type) child(0).getDataType()).getScale() > 0
+                && !fromZone.getRules().isFixedOffset();
+    }
+
+    private boolean hasGapResetInRange(ZoneId fromZone, LocalDateTime lower, LocalDateTime upper) {
+        ZoneRules rules = fromZone.getRules();
+        Instant lowerInstant = DateTimeLiteral.convertLocalToInstant(lower, fromZone);
+        ZoneOffsetTransition transition = rules.getTransition(lower);
+        if (transition == null) {
+            transition = rules.nextTransition(lowerInstant.minusNanos(1));
+        }
+        while (transition != null && !transition.getDateTimeBefore().isAfter(upper)) {
+            if (transition.isGap()) {
+                LocalDateTime firstReset = transition.getDateTimeBefore().plusSeconds(1);
+                LocalDateTime lastReset = transition.getDateTimeAfter();
+                LocalDateTime nextReset = lower.isBefore(firstReset)
+                        ? firstReset : lower.withNano(0).plusSeconds(1);
+                if (!nextReset.isAfter(upper) && !nextReset.isAfter(lastReset)) {
+                    return true;
+                }
+            }
+            transition = rules.nextTransition(transition.getInstant());
+        }
+        return false;
     }
 
     @Override

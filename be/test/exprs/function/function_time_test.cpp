@@ -332,7 +332,10 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
                                            PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {{{std::string {"2021-03-28 02:15:30.123456"},
                               std::string {"Europe/Paris"}, std::string {"UTC"}},
-                             std::string("2021-03-28 01:00:00.000000")},
+                             std::string("2021-03-28 01:00:00.123456")},
+                            {{std::string {"2024-03-10 02:30:00.123457"},
+                              std::string {"America/New_York"}, std::string {"+00:00"}},
+                             std::string("2024-03-10 07:00:00.123457")},
                             {{std::string {"2021-03-28 03:00:30.123456"},
                               std::string {"Europe/Paris"}, std::string {"UTC"}},
                              std::string("2021-03-28 01:00:30.123456")},
