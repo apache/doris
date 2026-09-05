@@ -349,6 +349,15 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     if (task.__isset.format) {
         ctx->format = task.format;
     }
+    if (task.__isset.enclose) {
+        ctx->enclose = task.enclose;
+    }
+    if (task.__isset.escape) {
+        ctx->escape = task.escape;
+    }
+    if (task.__isset.empty_field_as_null) {
+        ctx->empty_field_as_null = task.empty_field_as_null;
+    }
     // the routine load task'txn has already began in FE.
     // so it need to rollback if encounter error.
     ctx->need_rollback = true;
