@@ -21,26 +21,47 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.credentials.CredentialUtils;
+import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonTransaction;
+import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.paimon.PaimonWriteBinding;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.PaimonInsertCommandContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPaimonNativeWriteInfo;
 import org.apache.doris.thrift.TPaimonTableSink;
 import org.apache.doris.thrift.TPaimonWriteBackendType;
 import org.apache.doris.thrift.TPaimonWriteMode;
 
 import com.google.common.base.Preconditions;
+import org.apache.paimon.CoreOptions;
+import org.apache.paimon.table.BucketMode;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.LocalZonedTimestampType;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -51,8 +72,8 @@ import java.util.Set;
  * metadata, Hadoop authentication config, transaction identity, write mode,
  * and sink column names.
  *
- * The upstream Exchange may establish concurrent HASH_FIXED writer ownership;
- * partition and bucket handling inside each writer remains delegated to the SDK.
+ * The upstream Exchange may establish concurrent writer ownership. Partition
+ * and fixed-bucket routing remain on the SDK path until later native phases.
  */
 public class PaimonTableSink extends BaseExternalTableDataSink {
     public static final String ROW_KIND_COLUMN = "__DORIS_PAIMON_ROW_KIND__";
@@ -130,7 +151,6 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         // exact table instance instead of loading catalog metadata independently.
         tSink.setSerializedTable(binding.getSerializedTable());
 
-        tSink.setBackendType(TPaimonWriteBackendType.JNI);
         if (isChangelogWrite()) {
             tSink.setWriteMode(TPaimonWriteMode.CHANGELOG);
         } else if (ctx.isOverwrite()) {
@@ -139,7 +159,13 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
             tSink.setWriteMode(TPaimonWriteMode.APPEND);
         }
 
-        tSink.setHadoopConfig(binding.getHadoopConfig());
+        if (usePhaseOneNativeWriter(binding.getTable(), ctx)) {
+            tSink.setBackendType(TPaimonWriteBackendType.NATIVE);
+            configurePhaseOneNativeWriter(tSink, binding);
+        } else {
+            tSink.setBackendType(TPaimonWriteBackendType.JNI);
+            tSink.setHadoopConfig(binding.getHadoopConfig());
+        }
 
         tSink.setColumnNames(outputColumnNames);
 
@@ -167,6 +193,171 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         return dmlCommandType == DMLCommandType.UPDATE
                 || dmlCommandType == DMLCommandType.DELETE
                 || dmlCommandType == DMLCommandType.MERGE;
+    }
+
+    private boolean usePhaseOneNativeWriter(FileStoreTable table,
+            PaimonInsertCommandContext ctx) {
+        ConnectContext connectContext = ConnectContext.get();
+        if ((connectContext != null
+                && !connectContext.getSessionVariable().isPaimonNativeInsertMode())
+                || isChangelogWrite()
+                || ctx.isOverwrite()
+                || !table.primaryKeys().isEmpty()
+                || !table.partitionKeys().isEmpty()
+                || table.bucketMode() != BucketMode.BUCKET_UNAWARE) {
+            return false;
+        }
+
+        CoreOptions options = CoreOptions.fromMap(table.options());
+        String dataFilePrefix = options.dataFilePrefix();
+        if (!CoreOptions.FILE_FORMAT_PARQUET.equals(options.formatType())
+                || options.rowTrackingEnabled()
+                || !isPhaseOneStatsMode(table, options)
+                || options.dataFilePathDirectory() != null
+                || options.fileSuffixIncludeCompression()
+                || !isPhaseOneCompression(options.fileCompression())
+                || dataFilePrefix == null
+                || dataFilePrefix.isEmpty()
+                || dataFilePrefix.contains("/")
+                || dataFilePrefix.contains("\\")) {
+            return false;
+        }
+
+        // Defaults and partial-column inserts are still normalized by the Java writer in phase 1.
+        // Native mode is selected only when the BE receives the complete pinned table schema.
+        List<DataField> fields = table.schema().fields();
+        if (cols.size() != fields.size()) {
+            return false;
+        }
+        for (int i = 0; i < fields.size(); i++) {
+            if (!fields.get(i).name().equalsIgnoreCase(cols.get(i).getName())
+                    || !isPhaseOneNativeType(fields.get(i).type())) {
+                return false;
+            }
+        }
+
+        // Native phase 1 does not emit Paimon sidecar indexes or external data paths.
+        for (String key : table.options().keySet()) {
+            if (key.startsWith("file-index.")
+                    || key.startsWith("index.")
+                    || (key.startsWith("fields.") && key.endsWith(".file-index"))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isPhaseOneStatsMode(FileStoreTable table, CoreOptions options) {
+        if (!"none".equalsIgnoreCase(options.statsMode())) {
+            return false;
+        }
+        for (String levelMode : options.statsModePerLevel().values()) {
+            if (!"none".equalsIgnoreCase(levelMode)) {
+                return false;
+            }
+        }
+        for (Map.Entry<String, String> entry : table.options().entrySet()) {
+            if (entry.getKey().startsWith("fields.")
+                    && entry.getKey().endsWith(".stats-mode")
+                    && !"none".equalsIgnoreCase(entry.getValue())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isPhaseOneNativeType(DataType type) {
+        switch (type.getTypeRoot()) {
+            case BOOLEAN:
+            case TINYINT:
+            case SMALLINT:
+            case INTEGER:
+            case BIGINT:
+            case FLOAT:
+            case DOUBLE:
+            case CHAR:
+            case VARCHAR:
+            case BINARY:
+            case VARBINARY:
+            case DECIMAL:
+            case DATE:
+                return true;
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                // Paimon encodes precision > 6 as INT96. Doris DATETIMEV2 is microsecond based,
+                // so keeping those tables on the SDK path avoids silent precision loss.
+                return ((TimestampType) type).getPrecision() <= 6;
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                return ((LocalZonedTimestampType) type).getPrecision() <= 6;
+            case ARRAY:
+                return isPhaseOneNativeType(((ArrayType) type).getElementType());
+            case MAP:
+                MapType map = (MapType) type;
+                return isPhaseOneNativeType(map.getKeyType())
+                        && isPhaseOneNativeType(map.getValueType());
+            case ROW:
+                for (DataField field : ((RowType) type).getFields()) {
+                    if (!isPhaseOneNativeType(field.type())) {
+                        return false;
+                    }
+                }
+                return true;
+            default:
+                // VARIANT is added in phase 2. TIME, MULTISET and BLOB are intentionally
+                // kept on the SDK path until Doris has lossless native representations.
+                return false;
+        }
+    }
+
+    private static boolean isPhaseOneCompression(String compression) {
+        if (compression == null) {
+            return false;
+        }
+        switch (compression.toLowerCase(Locale.ROOT)) {
+            case "none":
+            case "uncompressed":
+            case "snappy":
+            case "zstd":
+            case "lz4":
+            case "gzip":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void configurePhaseOneNativeWriter(TPaimonTableSink tSink, PaimonWriteBinding binding)
+            throws AnalysisException {
+        FileStoreTable table = binding.getTable();
+        CoreOptions options = CoreOptions.fromMap(table.options());
+        PaimonExternalCatalog catalog = (PaimonExternalCatalog) targetTable.getCatalog();
+        Map<StorageProperties.Type, StorageProperties> storagePropertiesMap =
+                VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                        catalog.getCatalogProperty().getMetastoreProperties(),
+                        catalog.getCatalogProperty().getStoragePropertiesMap(), table);
+        TPaimonNativeWriteInfo nativeInfo = new TPaimonNativeWriteInfo();
+        nativeInfo.setSchema(PaimonUtil.getSchemaInfo(table.schema(), true, true));
+
+        String tableLocation = table.location().toString();
+        String bucketPath = (tableLocation.endsWith("/") ? tableLocation : tableLocation + "/")
+                + "bucket-0";
+        LocationPath locationPath = LocationPath.of(bucketPath, storagePropertiesMap);
+        nativeInfo.setOutputPath(locationPath.toStorageLocation().toString());
+        TFileType fileType = locationPath.getTFileTypeForBE();
+        nativeInfo.setFileType(fileType);
+        nativeInfo.setFileFormat(TFileFormatType.FORMAT_PARQUET);
+        nativeInfo.setCompressionType(getTFileCompressType(options.fileCompression()));
+        nativeInfo.setTargetFileSizeBytes(options.targetFileSize(false));
+        nativeInfo.setDataFilePrefix(options.dataFilePrefix());
+        if (fileType == TFileType.FILE_BROKER) {
+            nativeInfo.setBrokerAddresses(getBrokerAddresses(targetTable.getCatalog().bindBrokerName()));
+        }
+
+        Map<String, String> backendProperties = new java.util.HashMap<>(binding.getHadoopConfig());
+        backendProperties.putAll(
+                CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap));
+        // Hadoop authentication settings in the transaction binding are also required by HDFS.
+        tSink.setHadoopConfig(backendProperties);
+        tSink.setNativeWriteInfo(nativeInfo);
     }
 
 }

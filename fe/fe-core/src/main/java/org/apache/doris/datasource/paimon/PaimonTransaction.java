@@ -20,16 +20,27 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TPaimonCommitMessage;
+import org.apache.doris.thrift.TPaimonNativeCommitData;
 import org.apache.doris.transaction.Transaction;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.format.SimpleColStats;
+import org.apache.paimon.io.CompactIncrement;
+import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.io.DataIncrement;
 import org.apache.paimon.io.DataInputDeserializer;
+import org.apache.paimon.manifest.FileSource;
+import org.apache.paimon.stats.SimpleStats;
+import org.apache.paimon.stats.SimpleStatsConverter;
 import org.apache.paimon.table.sink.CommitMessage;
+import org.apache.paimon.table.sink.CommitMessageImpl;
 import org.apache.paimon.table.sink.CommitMessageSerializer;
 import org.apache.paimon.table.sink.InnerTableCommit;
+import org.apache.paimon.types.RowType;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -75,6 +86,8 @@ public class PaimonTransaction implements Transaction {
 
     private final List<byte[]> commitPayloads = Lists.newArrayList();
     private final Set<CommitPayloadKey> commitPayloadSet = new HashSet<>();
+    private final List<TPaimonNativeCommitData> nativeCommitData = Lists.newArrayList();
+    private final Set<String> nativeFileNames = new HashSet<>();
 
     public PaimonTransaction(PaimonMetadataOps ops, long transactionId) {
         this.ops = Preconditions.checkNotNull(ops, "Paimon metadata ops must not be null");
@@ -99,16 +112,19 @@ public class PaimonTransaction implements Transaction {
     public void commit() throws UserException {
         PaimonWriteBinding writeBinding = requireBinding();
         List<byte[]> rawPayloads = snapshotPayloads();
-        if (rawPayloads.isEmpty() && !writeBinding.isOverwrite()) {
+        List<TPaimonNativeCommitData> nativeFiles = snapshotNativeCommitData();
+        if (rawPayloads.isEmpty() && nativeFiles.isEmpty() && !writeBinding.isOverwrite()) {
             LOG.info("Skip empty PaimonTransaction commit, txnId={}, table={}",
                     transactionId, tableName());
             markPreparedTransactionCommitted();
             return;
         }
         try {
-            List<CommitMessage> allMessages = deserializePayloads(rawPayloads);
-            LOG.info("Commit PaimonTransaction, txnId={}, table={}, payloads={}, messages={}, overwrite={}",
-                    transactionId, tableName(), rawPayloads.size(), allMessages.size(),
+            List<CommitMessage> allMessages = collectCommitMessages(
+                    writeBinding, rawPayloads, nativeFiles);
+            LOG.info("Commit PaimonTransaction, txnId={}, table={}, payloads={}, nativeFiles={}, "
+                            + "messages={}, overwrite={}",
+                    transactionId, tableName(), rawPayloads.size(), nativeFiles.size(), allMessages.size(),
                     writeBinding.isOverwrite());
             if (allMessages.isEmpty() && !writeBinding.isOverwrite()) {
                 throw new RuntimeException(
@@ -136,14 +152,16 @@ public class PaimonTransaction implements Transaction {
             return;
         }
         List<byte[]> rawPayloads = snapshotPayloads();
-        if (rawPayloads.isEmpty()) {
+        List<TPaimonNativeCommitData> nativeFiles = snapshotNativeCommitData();
+        if (rawPayloads.isEmpty() && nativeFiles.isEmpty()) {
             LOG.info("Skip empty PaimonTransaction rollback, txnId={}, table={}",
                     transactionId, tableName());
             return;
         }
         try {
             PaimonWriteBinding writeBinding = requireBinding();
-            List<CommitMessage> allMessages = deserializePayloads(rawPayloads);
+            List<CommitMessage> allMessages = collectCommitMessages(
+                    writeBinding, rawPayloads, nativeFiles);
             if (allMessages.isEmpty()) {
                 LOG.info("Skip PaimonTransaction rollback with empty decoded messages, "
                         + "txnId={}, table={}", transactionId, tableName());
@@ -174,17 +192,23 @@ public class PaimonTransaction implements Transaction {
     }
 
     private void addPayload(TPaimonCommitMessage message) {
-        if (message == null || !message.isSetPayload()) {
+        if (message == null) {
             return;
         }
-        byte[] payload = message.getPayload();
-        if (payload == null || payload.length == 0) {
-            return;
+        if (message.isSetNativeCommitData()) {
+            TPaimonNativeCommitData data = message.getNativeCommitData();
+            if (data != null
+                    && (!data.isSetFileName() || nativeFileNames.add(data.getFileName()))) {
+                nativeCommitData.add(data.deepCopy());
+            }
         }
-        // Treat the Thrift payload as immutable after report handling and adopt it directly. The
-        // report is not reused, so copying it would only create a second full representation.
-        if (commitPayloadSet.add(new CommitPayloadKey(payload))) {
-            commitPayloads.add(payload);
+        if (message.isSetPayload()) {
+            byte[] payload = message.getPayload();
+            if (payload != null && payload.length > 0
+                    && commitPayloadSet.add(new CommitPayloadKey(payload))) {
+                // Treat the Thrift payload as immutable after report handling and adopt it directly.
+                commitPayloads.add(payload);
+            }
         }
     }
 
@@ -368,6 +392,83 @@ public class PaimonTransaction implements Transaction {
     private List<byte[]> snapshotPayloads() {
         synchronized (this) {
             return new ArrayList<>(commitPayloads);
+        }
+    }
+
+    private List<TPaimonNativeCommitData> snapshotNativeCommitData() {
+        synchronized (this) {
+            return new ArrayList<>(nativeCommitData);
+        }
+    }
+
+    private static List<CommitMessage> collectCommitMessages(PaimonWriteBinding writeBinding,
+            List<byte[]> payloads, List<TPaimonNativeCommitData> nativeFiles) throws IOException {
+        List<CommitMessage> messages = deserializePayloads(payloads);
+        if (!nativeFiles.isEmpty()) {
+            messages.addAll(buildNativeCommitMessages(writeBinding, nativeFiles));
+        }
+        return messages;
+    }
+
+    static List<CommitMessage> buildNativeCommitMessages(PaimonWriteBinding writeBinding,
+            List<TPaimonNativeCommitData> nativeFiles) throws IOException {
+        RowType rowType = writeBinding.getTable().rowType();
+        long pinnedSchemaId = writeBinding.getTable().schema().id();
+        SimpleColStats[] noColumnStats = new SimpleColStats[rowType.getFieldCount()];
+        Arrays.fill(noColumnStats, SimpleColStats.NONE);
+        SimpleStats rowStats = new SimpleStatsConverter(rowType).toBinaryAllMode(noColumnStats);
+
+        List<CommitMessage> messages = new ArrayList<>(nativeFiles.size());
+        for (TPaimonNativeCommitData file : nativeFiles) {
+            validateNativeCommitData(file, pinnedSchemaId);
+            DataFileMeta fileMeta = DataFileMeta.forAppend(
+                    file.getFileName(),
+                    file.getFileSize(),
+                    file.getRowCount(),
+                    rowStats,
+                    file.getMinSequenceNumber(),
+                    file.getMaxSequenceNumber(),
+                    file.getSchemaId(),
+                    Collections.emptyList(),
+                    null,
+                    FileSource.APPEND,
+                    null,
+                    null,
+                    null,
+                    null);
+            messages.add(new CommitMessageImpl(
+                    BinaryRow.EMPTY_ROW,
+                    file.getBucket(),
+                    file.getTotalBuckets(),
+                    new DataIncrement(Collections.singletonList(fileMeta),
+                            Collections.emptyList(), Collections.emptyList()),
+                    CompactIncrement.emptyIncrement()));
+        }
+        return messages;
+    }
+
+    private static void validateNativeCommitData(TPaimonNativeCommitData file,
+            long pinnedSchemaId) throws IOException {
+        if (!file.isSetFileName() || file.getFileName().isEmpty()
+                || file.getFileName().contains("/") || file.getFileName().contains("\\")) {
+            throw new IOException("Invalid Paimon native data file name");
+        }
+        if (!file.isSetFileSize() || file.getFileSize() <= 0
+                || !file.isSetRowCount() || file.getRowCount() <= 0
+                || !file.isSetMinSequenceNumber() || file.getMinSequenceNumber() < 0
+                || !file.isSetMaxSequenceNumber()
+                || file.getMaxSequenceNumber() < file.getMinSequenceNumber()
+                || file.getMaxSequenceNumber() - file.getMinSequenceNumber()
+                        != file.getRowCount() - 1) {
+            throw new IOException("Invalid Paimon native data file statistics for "
+                    + file.getFileName());
+        }
+        if (!file.isSetSchemaId() || file.getSchemaId() != pinnedSchemaId) {
+            throw new IOException("Paimon native data file schema id does not match pinned schema");
+        }
+        if (!file.isSetBucket() || file.getBucket() != 0
+                || !file.isSetTotalBuckets() || file.getTotalBuckets() != -1) {
+            throw new IOException("Phase-one Paimon native writer requires bucket=0 and totalBuckets=-1");
         }
     }
 
