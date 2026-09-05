@@ -21,6 +21,7 @@
 #include <gtest/gtest-test-part.h>
 
 #include "gtest/gtest_pred_impl.h"
+#include "util/coding.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 
@@ -204,6 +205,27 @@ TEST_F(TestHll, InvalidPtr) {
         HyperLogLog hll(Slice(buf, 1));
         EXPECT_EQ(0, hll.estimate_cardinality());
     }
+}
+
+// A crafted sparse encoding can carry a register index past HLL_REGISTERS_COUNT.
+// is_valid only checks the slice length, so deserialize is the layer that has to
+// reject the index, otherwise it writes out of bounds of the register array.
+TEST_F(TestHll, SparseRegisterIndexOutOfRange) {
+    uint8_t buf[8];
+    uint8_t* ptr = buf;
+    *ptr++ = HLL_DATA_SPARSE;
+    encode_fixed32_le(ptr, 1); // a single register entry
+    ptr += 4;
+    encode_fixed16_le(ptr, HLL_REGISTERS_COUNT); // one past the last valid index
+    ptr += 2;
+    *ptr++ = 0x41; // register value
+
+    Slice str((char*)buf, ptr - buf);
+    // the length is well-formed, only the index is out of range
+    EXPECT_TRUE(HyperLogLog::is_valid(str));
+
+    HyperLogLog hll(str);
+    EXPECT_EQ(0, hll.estimate_cardinality());
 }
 
 } // namespace doris
