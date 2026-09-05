@@ -362,7 +362,7 @@ public class Config extends ConfigBase {
     @ConfField(description = "Path to the FE TLS private key.")
     public static String tls_private_key_path = "";
 
-    @ConfField(description = "Password for the FE TLS private key.")
+    @ConfField(sensitive = true, description = "Password for the FE TLS private key.")
     public static String tls_private_key_password = "";
 
     @ConfField(description = "Path to the FE TLS CA certificate.")
@@ -393,7 +393,7 @@ public class Config extends ConfigBase {
     public static String key_store_path =  EnvUtils.getDorisHome()
             + "/conf/ssl/doris_ssl_certificate.keystore";
 
-    @ConfField(description = "The key store password of FE https service")
+    @ConfField(sensitive = true, description = "The key store password of FE https service")
     public static String key_store_password = "";
 
     @ConfField(description = "The key store type of FE https service")
