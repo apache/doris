@@ -214,6 +214,7 @@ public class FEOpExecutor {
             if (null != ctx.getPrepareExecuteBuffer()) {
                 params.setPrepareExecuteBuffer(ctx.getPrepareExecuteBuffer());
             }
+            params.setCursorFetchRequested(ctx.isCursorFetchRequested());
         }
 
         ctx.getSessionContext().getDelegatedCredential().ifPresent((DelegatedCredential credential) -> {
@@ -256,6 +257,20 @@ public class FEOpExecutor {
             return null;
         }
         return result.packet;
+    }
+
+    public boolean isClientDeprecatedEofApplied() {
+        return result != null && result.isSetClientDeprecatedEofApplied()
+                && result.isClientDeprecatedEofApplied();
+    }
+
+    public boolean hasQueryResultPackets() {
+        return result != null && result.isSetQueryResultBufList()
+                && !result.getQueryResultBufList().isEmpty();
+    }
+
+    public long getAffectedRows() {
+        return result != null && result.isSetAffectedRows() ? result.getAffectedRows() : 0;
     }
 
     public TUniqueId getQueryId() {

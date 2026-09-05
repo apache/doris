@@ -654,8 +654,23 @@ public abstract class ConnectProcessor {
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
-                executor.sendProxyQueryResult();
-                packet = executor.getOutputPacket();
+                if (ctx.getMysqlChannel().clientDeprecatedEOF()
+                        && !executor.isForwardedClientDeprecatedEofApplied()
+                        && executor.getProxyStatusCode() == 0) {
+                    if (executor.hasForwardedQueryResultPackets()) {
+                        ctx.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET,
+                                "The master FE cannot preserve CLIENT_DEPRECATE_EOF while forwarding this query. "
+                                        + "Connect to the master FE or finish the FE rolling upgrade");
+                    } else {
+                        // An old master has already completed a DDL/DML operation. Rebuild its final OK locally
+                        // instead of returning an upgrade error that could make the client retry side effects.
+                        ctx.getState().setOk(executor.getForwardedAffectedRows(), 0, null);
+                    }
+                    packet = getResultPacket();
+                } else {
+                    executor.sendProxyQueryResult();
+                    packet = executor.getOutputPacket();
+                }
             } else {
                 executor.sendResultSet(resultSet);
                 packet = getResultPacket();
@@ -729,6 +744,8 @@ public abstract class ConnectProcessor {
         if (request.isSetClientDeprecatedEOF() && request.isClientDeprecatedEOF()) {
             ctx.getMysqlChannel().setClientDeprecatedEOF();
         }
+        ctx.setCursorFetchRequested(request.isSetCursorFetchRequested()
+                && request.isCursorFetchRequested());
 
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
@@ -818,6 +835,7 @@ public abstract class ConnectProcessor {
             ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
         }
         result.setPacket(getResultPacket());
+        result.setClientDeprecatedEofApplied(ctx.getMysqlChannel().clientDeprecatedEOF());
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);

@@ -56,27 +56,20 @@ public class MysqlOkPacketTest {
         // assert warnings, int2: 0
         Assert.assertEquals(0x00, MysqlProto.readInt2(buffer));
 
-        // When infoMessage is empty, an empty len-encoded string (0x00) should still be written.
-        // This is required because OkPacket.parse() in MySQL Connector/J unconditionally reads
-        // STRING_LENENC for info. Without this byte, the driver throws
-        // ArrayIndexOutOfBoundsException when CLIENT_DEPRECATE_EOF is negotiated.
-        Assert.assertEquals(0x00, MysqlProto.readVInt(buffer));
         Assert.assertEquals(0, buffer.remaining());
     }
 
     @Test
-    public void testWritePayloadSizeGreaterThan5() {
-        // When CLIENT_DEPRECATE_EOF is negotiated, the driver distinguishes between
-        // EOF packets (payload <= 5) and ResultSet OK packets (payload > 5).
-        // MysqlOkPacket payload must be > 5 to avoid being misidentified as EOF.
-        // Payload: 0x00(1) + affected_rows(1) + last_insert_id(1) + status(2) + warnings(2) + info_len(1) = 8
+    public void testWriteEmptyInfoWithDeprecatedEof() {
+        capability = new MysqlCapability(MysqlCapability.Flag.CLIENT_PROTOCOL_41.getFlagBit()
+                | MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit());
         MysqlOkPacket packet = new MysqlOkPacket(new QueryState());
         MysqlSerializer serializer = MysqlSerializer.newInstance(capability);
         packet.writeTo(serializer);
 
         ByteBuffer buffer = serializer.toByteBuffer();
-        int payloadLength = buffer.remaining();
-        Assert.assertTrue("OK packet payload should be > 5 for CLIENT_DEPRECATE_EOF compatibility, got: "
-                + payloadLength, payloadLength > 5);
+        buffer.position(7);
+        Assert.assertEquals(0x00, MysqlProto.readVInt(buffer));
+        Assert.assertEquals(0, buffer.remaining());
     }
 }

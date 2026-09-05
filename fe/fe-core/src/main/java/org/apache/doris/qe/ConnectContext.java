@@ -283,6 +283,9 @@ public class ConnectContext {
     @Setter
     private ByteBuffer prepareExecuteBuffer;
 
+    // Whether the current COM_STMT_EXECUTE requested a server-side read-only cursor.
+    private boolean cursorFetchRequested;
+
     private MysqlHandshakePacket mysqlHandshakePacket;
 
     public void setUserQueryTimeout(int queryTimeout) {
@@ -507,6 +510,14 @@ public class ConnectContext {
             return;
         }
         this.connectAttributes = new HashMap<>(connectAttributes);
+    }
+
+    public boolean isCursorFetchRequested() {
+        return cursorFetchRequested;
+    }
+
+    public void setCursorFetchRequested(boolean cursorFetchRequested) {
+        this.cursorFetchRequested = cursorFetchRequested;
     }
 
     public boolean isTxnModel() {
@@ -997,6 +1008,7 @@ public class ConnectContext {
         statementContext = null;
         loadBackendSelectionDecision = null;
         loadBackendSelectionHint = null;
+        cursorFetchRequested = false;
     }
 
     // Arrow Flight SQL only.
