@@ -91,6 +91,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.common.util.Util;
@@ -3739,10 +3740,12 @@ public class Env {
                 sb.append(",");
             }
             Column column = columns.get(i);
-            sb.append(column.getName());
+            // quote the column name to keep the generated DDL re-executable when the column name
+            // contains special characters (e.g. created via string literal alias like select 1 as '(第一列)')
+            sb.append(SqlUtils.getIdentSql(column.getName()));
             if (!StringUtils.isEmpty(column.getComment())) {
                 sb.append(" comment '");
-                sb.append(column.getComment());
+                sb.append(column.getComment().replace("'", "\\'"));
                 sb.append("'");
             }
         }
