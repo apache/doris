@@ -31,12 +31,14 @@
 #include "common/status.h"
 #include "io/cache/file_cache_common.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "util/slice.h"
 #include "util/threadpool.h"
 
 namespace doris::io {
 
 class BlockFileCache;
 class AsyncCacheWriteEpochRegistry;
+class InflightWriteBufferIndex;
 
 /// Cache admission attributes captured on the query thread and replayed by a write worker.
 struct CacheAdmissionContext {
@@ -106,6 +108,55 @@ struct AsyncCacheWriteEpoch {
     std::shared_ptr<AsyncCacheWriteEpochToken> key_token;
 };
 
+enum class AsyncCacheWriteBlockSubmitResult : uint8_t {
+    /// The manager accepted ownership of a complete block buffer.
+    SUBMITTED,
+    /// The cache invalidation fence changed before submission.
+    STALE_EPOCH,
+    /// The copy-based submission could not allocate its tracked block buffer.
+    BUFFER_ALLOCATION_FAILED,
+    /// The same cache block already has a buffer indexed by an accepted write task.
+    ALREADY_INFLIGHT,
+    /// The manager is unavailable or its admission policy found no queue capacity.
+    REJECTED,
+};
+
+enum class AsyncCacheWriteAdmissionMode : uint8_t {
+    /// Normal work may replace the oldest queued task when pending capacity is full.
+    ALLOW_OLDEST_QUEUED_EVICTION,
+    /// Lower-priority work is accepted only from currently unused pending capacity.
+    REQUIRE_SPARE_CAPACITY,
+};
+
+/// Transient source bytes and immutable metadata for one complete cache-block submission.
+/// `data` is copied before try_submit_block() returns. `buffer_size` is the fixed cache block
+/// allocation size; only the physical EOF block may provide a shorter data slice.
+struct AsyncCacheWriteBlockRequest {
+    UInt128Wrapper cache_hash;
+    size_t file_offset {0};
+    Slice data;
+    size_t buffer_size {0};
+    CacheAdmissionContext admission_ctx;
+    AsyncCacheWriteEpoch write_epoch;
+    /// Optional index whose lifetime must cover every accepted write task.
+    InflightWriteBufferIndex* inflight_index {nullptr};
+};
+
+/// Owned complete cache-block payload. The buffer must come from allocate_tracked_buffer() on the
+/// target manager and is transferred without another data copy.
+struct AsyncCacheWriteOwnedBlockRequest {
+    UInt128Wrapper cache_hash;
+    size_t file_offset {0};
+    size_t write_size {0};
+    AsyncCacheWriteBufferPtr buffer;
+    CacheAdmissionContext admission_ctx;
+    AsyncCacheWriteEpoch write_epoch;
+    AsyncCacheWriteAdmissionMode admission_mode {
+            AsyncCacheWriteAdmissionMode::ALLOW_OLDEST_QUEUED_EVICTION};
+    /// Optional index whose lifetime must cover every accepted write task.
+    InflightWriteBufferIndex* inflight_index {nullptr};
+};
+
 /// One cache-block write. The sole production submitter allocates every `buffer` with exactly
 /// `file_cache_each_block_size` bytes. `write_size` is the valid prefix starting at `file_offset`;
 /// only the physical EOF block may use less than the full buffer. `write_epoch` prevents a worker
@@ -163,15 +214,44 @@ public:
     Status start();
 
     /// Admit `task` into the memory-bounded FIFO without waiting for disk I/O. Because all tasks
-    /// have one fixed cache-block buffer capacity, a full queue displaces exactly one oldest queued
-    /// task. Active tasks are never displaced. After a runtime limit decrease, submissions continue
-    /// to replace the oldest queued task without increasing pending bytes, even while existing
-    /// pending bytes exceed the new limit. This call can briefly wait for the queue mutex and
-    /// finalizes a displaced task before returning.
+    /// have one fixed cache-block buffer capacity, normal admission to a full queue displaces
+    /// exactly one oldest queued task. REQUIRE_SPARE_CAPACITY instead rejects a full-queue
+    /// submission so lower-priority work cannot displace normal writes. Active tasks are never
+    /// displaced. After a runtime limit decrease, normal submissions continue to replace the
+    /// oldest queued task without increasing pending bytes, even while existing pending bytes
+    /// exceed the new limit. This call can briefly wait for the queue mutex and finalizes a
+    /// displaced task before returning.
     /// @return true if ownership was transferred to the queue; false when workers have not been
     /// started, during shutdown, or on backpressure. A rejected task's finalization callback is
     /// not invoked.
-    bool try_submit(AsyncCacheWriteTask task);
+    bool try_submit(AsyncCacheWriteTask task,
+                    AsyncCacheWriteAdmissionMode admission_mode =
+                            AsyncCacheWriteAdmissionMode::ALLOW_OLDEST_QUEUED_EVICTION);
+
+    /// Copy and submit one complete cache block through the same epoch, inflight-deduplication,
+    /// memory-accounting, and queue path used by remote cache-miss reads.
+    /// @return ALREADY_INFLIGHT when another accepted task already owns this block; in that case
+    /// the request data is not copied.
+    AsyncCacheWriteBlockSubmitResult try_submit_block(AsyncCacheWriteBlockRequest request);
+
+    /// Submit an already owned complete cache block without copying its payload. This is the
+    /// handoff used after background hole filling completes a tracked block buffer.
+    /// The manager retains the buffer after this call only when SUBMITTED is returned.
+    AsyncCacheWriteBlockSubmitResult try_submit_owned_block(
+            AsyncCacheWriteOwnedBlockRequest request);
+
+    /// Return whether a fixed-size task fits in currently unused pending capacity. The result is a
+    /// point-in-time scheduling hint: a concurrent foreground submission may consume the capacity
+    /// before the caller hands off its task.
+    bool can_accept_without_eviction(size_t buffer_size) const;
+
+    /// Return how many fixed-size tasks fit in the same point-in-time spare capacity. Background
+    /// schedulers use this to avoid launching multiple remote reads against one available slot.
+    size_t available_slots_without_eviction(size_t buffer_size) const;
+
+    /// Return whether the manager currently accepts submissions. This is a point-in-time hint;
+    /// submission methods still make the race-safe final decision.
+    bool accepting() const;
 
     /// Allocate `size` payload bytes charged to the manager tracker and return them in `buffer`.
     Status allocate_tracked_buffer(size_t size, AsyncCacheWriteBufferPtr* buffer);

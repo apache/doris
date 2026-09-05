@@ -36,10 +36,12 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/exception.h"
 #include "common/signal_handler.h"
 #include "core/block/block.h" // Block
 #include "core/column/column.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "exec/scan/file_scanner.h"
@@ -55,6 +57,8 @@
 #include "storage/olap_common.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/rowid_read_ahead.h"
+#include "storage/segment/segment_read_ahead.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
@@ -174,6 +178,83 @@ struct DorisFormatReadBatch {
     std::vector<std::pair<segment_v2::rowid_t, size_t>> row_ids_with_positions;
 };
 
+static Status try_read_doris_format_row_with_read_ahead(
+        const BaseTabletSPtr& tablet, const BetaRowsetSharedPtr& rowset,
+        const SegmentSharedPtr& segment, const std::vector<uint32_t>& row_ids,
+        std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+        RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
+        int64_t* lookup_row_data_ms, io::FileCacheMissPolicy file_cache_miss_policy,
+        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context, Block& result_block,
+        bool* handled) {
+    DORIS_CHECK(read_ahead_context != nullptr);
+    DORIS_CHECK(handled != nullptr);
+    *handled = false;
+
+    StorageReadOptions read_ahead_options;
+    read_ahead_options.stats = &stats;
+    read_ahead_options.use_page_cache = !config::disable_storage_page_cache;
+    read_ahead_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_ahead_options.io_ctx.file_cache_stats = &stats.file_cache_stats;
+    read_ahead_options.io_ctx.file_cache_miss_policy = file_cache_miss_policy;
+    std::unique_ptr<segment_v2::SegmentReadAhead> read_ahead;
+    const auto status = segment_v2::SegmentReadAhead::create_for_query(
+            segment->file_reader(), ExecEnv::GetInstance(), read_ahead_context, read_ahead_options,
+            &read_ahead);
+    if (!status.ok()) {
+        LOG_EVERY_N(WARNING, 100)
+                << "failed to initialize row-id read-ahead; use the original read path: " << status;
+        return Status::OK();
+    }
+    DORIS_CHECK(read_ahead != nullptr);
+    *handled = true;
+
+    auto result_columns_guard = result_block.mutate_columns_scoped();
+    MutableColumns& result_columns = result_columns_guard.mutable_columns();
+    if (!row_store_read_struct.default_values.empty()) {
+        if (!tablet->tablet_schema()->has_row_store_for_all_columns()) {
+            return Status::InternalError("Tablet {} does not have row store for all columns",
+                                         tablet->tablet_id());
+        }
+        const auto& row_store_column =
+                *DORIS_TRY(rowset->tablet_schema()->column(BeConsts::ROW_STORE_COL));
+        MutableColumnPtr encoded_rows = ColumnString::create();
+        std::unique_ptr<ColumnIterator> iterator;
+        RETURN_IF_ERROR(scope_timer_run(
+                [&]() {
+                    return segment_v2::read_column_by_rowids_with_read_ahead(
+                            *segment, row_store_column, row_ids, encoded_rows, read_ahead_options,
+                            iterator, *read_ahead);
+                },
+                lookup_row_data_ms));
+        DORIS_CHECK_EQ(encoded_rows->size(), row_ids.size());
+        for (size_t index = 0; index < row_ids.size(); ++index) {
+            const auto encoded_row = encoded_rows->get_data_at(index);
+            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
+                    row_store_read_struct.serdes, encoded_row.data, encoded_row.size,
+                    row_store_read_struct.col_uid_to_idx, result_columns,
+                    row_store_read_struct.default_values, {}));
+        }
+        return Status::OK();
+    }
+
+    std::vector<StorageReadOptions> read_options(slots.size());
+    std::vector<std::unique_ptr<ColumnIterator>> iterators(slots.size());
+    std::vector<segment_v2::RowIdColumnRead> column_reads;
+    column_reads.reserve(slots.size());
+    for (size_t index = 0; index < slots.size(); ++index) {
+        read_options[index].stats = &stats;
+        read_options[index].io_ctx.reader_type = ReaderType::READER_QUERY;
+        read_options[index].io_ctx.file_cache_miss_policy = file_cache_miss_policy;
+        set_slot_access_paths(slots[index], full_read_schema, read_options[index]);
+        column_reads.push_back({.slot = &slots[index],
+                                .result = &result_columns[index],
+                                .read_options = &read_options[index],
+                                .iterator = &iterators[index]});
+    }
+    return segment_v2::read_columns_by_rowids_with_read_ahead(*segment, full_read_schema, row_ids,
+                                                              column_reads, *read_ahead);
+}
+
 static void scatter_scan_blocks_to_result_block(
         const std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
         const std::vector<Block>& scan_blocks, Block& result_block) {
@@ -204,6 +285,12 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         std::vector<Block> result_blocks(request.request_block_descs_size());
 
         OlapReaderStatistics stats;
+        std::shared_ptr<io::FileRangeReadContext> read_ahead_context;
+        if (segment_v2::SegmentReadAhead::enabled()) {
+            auto* scheduler = ExecEnv::GetInstance()->file_range_read_scheduler();
+            DORIS_CHECK(scheduler != nullptr);
+            read_ahead_context = scheduler->create_context();
+        }
         int64_t acquire_tablet_ms = 0;
         int64_t acquire_rowsets_ms = 0;
         int64_t acquire_segments_ms = 0;
@@ -259,7 +346,8 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                         RETURN_IF_ERROR(read_batch_doris_format_row(
                                 request_block_desc, id_file_map, slots, tquery_id, result_blocks[i],
                                 stats, &acquire_tablet_ms, &acquire_rowsets_ms,
-                                &acquire_segments_ms, &lookup_row_data_ms, file_cache_miss_policy));
+                                &acquire_segments_ms, &lookup_row_data_ms, file_cache_miss_policy,
+                                read_ahead_context));
                     } else {
                         RETURN_IF_ERROR(read_batch_external_row(
                                 request.wg_id(), request_block_desc, id_file_map, slots,
@@ -320,7 +408,8 @@ Status RowIdStorageReader::read_batch_doris_format_row(
         std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
         OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
         int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
-        io::FileCacheMissPolicy file_cache_miss_policy) {
+        io::FileCacheMissPolicy file_cache_miss_policy,
+        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context) {
     if (result_block.is_empty_column()) [[likely]] {
         result_block = Block(slots, request_block_desc.row_id_size());
     }
@@ -402,7 +491,7 @@ Status RowIdStorageReader::read_batch_doris_format_row(
                 id_file_map, scan_batch.file_mapping, row_ids, slots, full_read_schema,
                 row_store_read_struct, stats, acquire_tablet_ms, acquire_rowsets_ms,
                 acquire_segments_ms, lookup_row_data_ms, seg_map, iterator_map,
-                file_cache_miss_policy, scan_blocks[batch_idx]));
+                file_cache_miss_policy, read_ahead_context, scan_blocks[batch_idx]));
     }
 
     scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
@@ -887,7 +976,8 @@ Status RowIdStorageReader::read_doris_format_row(
         int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
         int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
         std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
-        io::FileCacheMissPolicy file_cache_miss_policy, Block& result_block) {
+        io::FileCacheMissPolicy file_cache_miss_policy,
+        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context, Block& result_block) {
     auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
     SegKey seg_key {.tablet_id = tablet_id, .rowset_id = rowset_id, .segment_id = segment_id};
 
@@ -947,6 +1037,17 @@ Status RowIdStorageReader::read_doris_format_row(
         tablet = seg_item.tablet;
         rowset = seg_item.rowset;
         segment = seg_item.segment;
+    }
+
+    if (read_ahead_context != nullptr) {
+        bool handled = false;
+        RETURN_IF_ERROR(try_read_doris_format_row_with_read_ahead(
+                tablet, rowset, segment, row_ids, slots, full_read_schema, row_store_read_struct,
+                stats, lookup_row_data_ms, file_cache_miss_policy, read_ahead_context, result_block,
+                &handled));
+        if (handled) {
+            return Status::OK();
+        }
     }
 
     // if row_store_read_struct not empty, means the line we should read from row_store
