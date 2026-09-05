@@ -1214,8 +1214,7 @@ Status LanceTableReader::_fill_block_from_record_batch(
                 continue;
             }
             std::shared_ptr<arrow::Array> normalized_column;
-            RETURN_IF_ERROR(
-                    normalize_lance_arrow_array(field, arrow_column, &normalized_column));
+            RETURN_IF_ERROR(normalize_lance_arrow_array(field, arrow_column, &normalized_column));
             RETURN_IF_ERROR(columns_guard.get_datatype_by_position(output_idx)
                                     ->get_serde()
                                     ->read_column_from_arrow(*columns[output_idx],

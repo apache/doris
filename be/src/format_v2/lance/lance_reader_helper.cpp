@@ -18,9 +18,11 @@
 #include "format_v2/lance/lance_reader_helper.h"
 
 #include <arrow/array.h>
+#include <arrow/buffer_builder.h>
 #include <arrow/builder.h>
 #include <arrow/extension_type.h>
 #include <arrow/type.h>
+#include <arrow/util/bitmap_ops.h>
 #include <arrow/util/key_value_metadata.h>
 #include <fmt/format.h>
 #include <lance/lance.h>
