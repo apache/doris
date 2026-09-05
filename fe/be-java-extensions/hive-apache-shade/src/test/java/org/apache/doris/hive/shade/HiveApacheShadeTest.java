@@ -17,8 +17,8 @@
 
 package org.apache.doris.hive.shade;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -53,8 +53,8 @@ public class HiveApacheShadeTest {
     @Test
     public void theStandaloneStorageApiWinsEveryClassItPublishes() throws IOException {
         Map<String, Long> storageApi = classesIn(standaloneStorageApi);
-        Assert.assertFalse("the storage API jar was not found at " + standaloneStorageApi,
-                storageApi.isEmpty());
+        Assertions.assertFalse(storageApi.isEmpty(),
+                "the storage API jar was not found at " + standaloneStorageApi);
         List<String> wrong = new ArrayList<>();
         for (Map.Entry<String, Long> clazz : storageApi.entrySet()) {
             Long actual = checksumOfMerged(clazz.getKey());
@@ -62,8 +62,8 @@ public class HiveApacheShadeTest {
                 wrong.add(clazz.getKey() + (actual == null ? " (missing)" : " (other copy)"));
             }
         }
-        Assert.assertEquals("classes not taken from hive-storage-api: " + wrong,
-                0, wrong.size());
+        Assertions.assertEquals(0, wrong.size(),
+                "classes not taken from hive-storage-api: " + wrong);
     }
 
     /**
@@ -75,8 +75,8 @@ public class HiveApacheShadeTest {
     public void everythingOnlyTheRepackagedHiveHasSurvivesUnchanged() throws IOException {
         Map<String, Long> hive = classesIn(repackagedHive);
         Map<String, Long> storageApi = classesIn(standaloneStorageApi);
-        Assert.assertFalse("the repackaged hive jar was not found at " + repackagedHive,
-                hive.isEmpty());
+        Assertions.assertFalse(hive.isEmpty(),
+                "the repackaged hive jar was not found at " + repackagedHive);
         List<String> wrong = new ArrayList<>();
         for (Map.Entry<String, Long> clazz : hive.entrySet()) {
             if (storageApi.containsKey(clazz.getKey())) {
@@ -87,7 +87,8 @@ public class HiveApacheShadeTest {
                 wrong.add(clazz.getKey() + (actual == null ? " (missing)" : " (altered)"));
             }
         }
-        Assert.assertEquals("classes lost or altered from hive-apache: " + wrong, 0, wrong.size());
+        Assertions.assertEquals(0, wrong.size(),
+                "classes lost or altered from hive-apache: " + wrong);
     }
 
     /**
@@ -104,8 +105,8 @@ public class HiveApacheShadeTest {
                 overlap++;
             }
         }
-        Assert.assertTrue("the two jars no longer share classes; this module has nothing to do",
-                overlap > 0);
+        Assertions.assertTrue(overlap > 0,
+                "the two jars no longer share classes; this module has nothing to do");
     }
 
     private Long checksumOfMerged(String entry) throws IOException {

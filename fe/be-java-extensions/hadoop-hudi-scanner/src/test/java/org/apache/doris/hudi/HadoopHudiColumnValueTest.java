@@ -23,8 +23,8 @@ import org.apache.hadoop.hive.common.type.Timestamp;
 import org.apache.hadoop.hive.serde2.io.TimestampWritableV2;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
 import org.apache.hadoop.io.LongWritable;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -36,7 +36,7 @@ public class HadoopHudiColumnValueTest {
         value.setField(ColumnType.parseType("ts", "datetimev2(6)"), null);
         value.setRow(new LongWritable(0));
 
-        Assert.assertEquals(LocalDateTime.of(1969, 12, 31, 16, 0), value.getDateTime());
+        Assertions.assertEquals(LocalDateTime.of(1969, 12, 31, 16, 0), value.getDateTime());
     }
 
     @Test
@@ -46,6 +46,6 @@ public class HadoopHudiColumnValueTest {
                 PrimitiveObjectInspectorFactory.writableTimestampObjectInspector);
         value.setRow(new TimestampWritableV2(Timestamp.ofEpochSecond(0)));
 
-        Assert.assertEquals(LocalDateTime.of(1969, 12, 31, 16, 0), value.getDateTime());
+        Assertions.assertEquals(LocalDateTime.of(1969, 12, 31, 16, 0), value.getDateTime());
     }
 }

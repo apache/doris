@@ -67,13 +67,14 @@ under the License.
         <property name="fileExtensions" value=".java"/>
     </module>
     <!--
-      JUnit 4 is gone from this reactor. It is not a style preference: junit-vintage-engine is
-      still declared in fe/pom.xml only because the be-java-extensions modules have not been
-      migrated yet, and it is what drags in junit:junit - the one EPL-1.0 artifact in the build,
-      and a licence the Dependency License Review workflow has to carry a package exception for.
-      Every JUnit 4 test that comes back keeps both of those alive, so the gate is here rather
-      than in review. checkstyle runs at the validate phase with includeTestSourceDirectory, so
-      this fires on a plain `mvn test` too, not only in CI.
+      JUnit 4 is gone from this reactor and junit-vintage-engine with it, so nothing here runs
+      a JUnit 4 test. Note that the classpath does NOT enforce that: junit:junit is no longer
+      declared, but it still arrives transitively - through guava-testlib in fe-core, and through
+      hive-exec -> zookeeper -> jline in hive-udf - so a JUnit 4 test still compiles. What it no
+      longer does is run: with no vintage engine the jupiter engine silently IGNORES it, which
+      makes it disappear rather than fail. That is the failure this rule exists to catch, which
+      is why it is a gate here and not a note in review. checkstyle runs at the validate phase
+      with includeTestSourceDirectory, so this fires on a plain `mvn test` too, not only in CI.
 
       The pattern deliberately matches anywhere on the line, not just an import: a fully
       qualified `@org.junit.After` needs no import, and the jupiter engine silently IGNORES it
