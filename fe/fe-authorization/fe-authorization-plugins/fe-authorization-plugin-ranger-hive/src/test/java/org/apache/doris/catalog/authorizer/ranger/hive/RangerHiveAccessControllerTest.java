@@ -32,6 +32,7 @@ import org.apache.ranger.plugin.model.RangerPolicy;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
+import org.apache.ranger.plugin.policyengine.RangerPolicyEngine;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -132,6 +133,19 @@ public class RangerHiveAccessControllerTest {
     }
 
     /**
+     * How a Hive access type is spelled to Ranger. Lower case, because that is what the stock Hive service
+     * definition declares, and USE asks for any access at all rather than for an access type of its own -
+     * a Hive service has no privilege standing for "may see that this exists".
+     */
+    @Test
+    public void testAccessTypeIsSpelledTheWayAHiveServiceDeclaresIt() {
+        Assertions.assertEquals("select", RangerHiveAccessController.toRangerAccessType(HiveAccessType.SELECT));
+        Assertions.assertEquals("update", RangerHiveAccessController.toRangerAccessType(HiveAccessType.UPDATE));
+        Assertions.assertEquals(RangerPolicyEngine.ANY_ACCESS,
+                RangerHiveAccessController.toRangerAccessType(HiveAccessType.USE));
+    }
+
+    /**
      * Which row-filter and masking policies a Hive service returns depends on the access type the lookup
      * asks with, and that string reaches a Ranger server nobody rebuilds when Doris changes.
      *
@@ -223,14 +237,13 @@ public class RangerHiveAccessControllerTest {
 
             IllegalStateException refused = Assertions.assertThrows(IllegalStateException.class,
                     () -> controller.getRowFilters(SUBJECT, table, AccessContext.NONE));
-            Assertions.assertTrue(refused.getMessage(),
-                    refused.getMessage().contains(RangerHiveAccessController.NAME));
+            Assertions.assertTrue(refused.getMessage().contains(RangerHiveAccessController.NAME), refused.getMessage());
             Assertions.assertThrows(IllegalStateException.class,
                     () -> controller.getDataMasks(SUBJECT, table, ImmutableSet.of("col1"), AccessContext.NONE));
             AccessDeniedException denied = Assertions.assertThrows(AccessDeniedException.class,
                     () -> controller.checkPrivilege(SUBJECT, table, AccessRequirements.SELECT,
                             AccessContext.NONE));
-            Assertions.assertTrue(denied.getMessage(), denied.getMessage().contains("has been closed"));
+            Assertions.assertTrue(denied.getMessage().contains("has been closed"), denied.getMessage());
         }
     }
 
@@ -304,7 +317,7 @@ public class RangerHiveAccessControllerTest {
                 ArgumentCaptor<Collection<RangerAccessRequest>> asked =
                         ArgumentCaptor.forClass(Collection.class);
                 Mockito.verify(plugin.constructed().get(0)).isAccessAllowed(asked.capture(), Mockito.any());
-                Assertions.assertEquals("one request per column, in one call", 2, asked.getValue().size());
+                Assertions.assertEquals(2, asked.getValue().size(), "one request per column, in one call");
                 Set<String> columnsAsked = new LinkedHashSet<>();
                 for (RangerAccessRequest request : asked.getValue()) {
                     Assertions.assertEquals("select", request.getAccessType());
@@ -347,8 +360,8 @@ public class RangerHiveAccessControllerTest {
                 AccessDeniedException denied = Assertions.assertThrows(AccessDeniedException.class,
                         () -> controller.checkPrivilege(SUBJECT, AuthorizedResource.columns("ctl", "db", "tbl",
                                 ImmutableSet.of("col1")), AccessRequirements.SELECT, AccessContext.NONE));
-                Assertions.assertTrue(denied.getMessage(),
-                        denied.getMessage().contains(RangerHiveAccessController.NAME));
+                Assertions.assertTrue(denied.getMessage().contains(RangerHiveAccessController.NAME),
+                        denied.getMessage());
             } finally {
                 controller.close();
             }
@@ -373,13 +386,12 @@ public class RangerHiveAccessControllerTest {
             RangerHiveAccessController controller = new RangerHiveAccessController(
                     ImmutableMap.of("ranger.service.name", "hive"), context);
             ScheduledFuture<?> scheduled = controller.logFlushFuture;
-            Assertions.assertNotNull("no audit flush task was scheduled, so this binding audits nothing",
-                    scheduled);
+            Assertions.assertNotNull(scheduled, "no audit flush task was scheduled, so this binding audits nothing");
 
             controller.close();
 
-            Assertions.assertTrue("the audit flush task outlived the binding that scheduled it",
-                    scheduled.isCancelled() || scheduled.isDone());
+            Assertions.assertTrue(scheduled.isCancelled() || scheduled.isDone(),
+                    "the audit flush task outlived the binding that scheduled it");
             Assertions.assertNull(controller.logFlushFuture);
 
             RangerHiveAuditHandler handler = audit.constructed().get(0);

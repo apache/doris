@@ -30,8 +30,8 @@ import org.apache.doris.common.AuthorizationException;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
@@ -76,31 +76,31 @@ public class LegacyAccessControllerPluginTest {
     public void testGlobalGoesToTheGlobalCheck() {
         Mockito.when(controller.checkGlobalPriv(USER, PrivPredicate.SELECT)).thenReturn(true);
 
-        Assert.assertTrue(allows(AuthorizedResource.global()));
+        Assertions.assertTrue(allows(AuthorizedResource.global()));
     }
 
     @Test
     public void testCatalogGoesToTheCatalogCheck() {
         Mockito.when(controller.checkCtlPriv(USER, "ctl", PrivPredicate.SELECT)).thenReturn(true);
 
-        Assert.assertTrue(allows(AuthorizedResource.catalog("ctl")));
-        Assert.assertFalse(allows(AuthorizedResource.catalog("other")));
+        Assertions.assertTrue(allows(AuthorizedResource.catalog("ctl")));
+        Assertions.assertFalse(allows(AuthorizedResource.catalog("other")));
     }
 
     @Test
     public void testDatabaseGoesToTheDatabaseCheck() {
         Mockito.when(controller.checkDbPriv(USER, "ctl", "db", PrivPredicate.SELECT)).thenReturn(true);
 
-        Assert.assertTrue(allows(AuthorizedResource.database("ctl", "db")));
-        Assert.assertFalse(allows(AuthorizedResource.database("ctl", "other")));
+        Assertions.assertTrue(allows(AuthorizedResource.database("ctl", "db")));
+        Assertions.assertFalse(allows(AuthorizedResource.database("ctl", "other")));
     }
 
     @Test
     public void testTableGoesToTheTableCheck() {
         Mockito.when(controller.checkTblPriv(USER, "ctl", "db", "tbl", PrivPredicate.SELECT)).thenReturn(true);
 
-        Assert.assertTrue(allows(AuthorizedResource.table("ctl", "db", "tbl")));
-        Assert.assertFalse(allows(AuthorizedResource.table("ctl", "db", "other")));
+        Assertions.assertTrue(allows(AuthorizedResource.table("ctl", "db", "tbl")));
+        Assertions.assertFalse(allows(AuthorizedResource.table("ctl", "db", "other")));
     }
 
     /**
@@ -114,9 +114,9 @@ public class LegacyAccessControllerPluginTest {
         Mockito.when(controller.checkWorkloadGroupPriv(USER, "name", PrivPredicate.SELECT)).thenReturn(false);
         Mockito.when(controller.checkStorageVaultPriv(USER, "name", PrivPredicate.SELECT)).thenReturn(false);
 
-        Assert.assertTrue(allows(AuthorizedResource.resource("name")));
-        Assert.assertFalse(allows(AuthorizedResource.workloadGroup("name")));
-        Assert.assertFalse(allows(AuthorizedResource.storageVault("name")));
+        Assertions.assertTrue(allows(AuthorizedResource.resource("name")));
+        Assertions.assertFalse(allows(AuthorizedResource.workloadGroup("name")));
+        Assertions.assertFalse(allows(AuthorizedResource.storageVault("name")));
 
         Mockito.verify(controller).checkResourcePriv(USER, "name", PrivPredicate.SELECT);
         Mockito.verify(controller).checkWorkloadGroupPriv(USER, "name", PrivPredicate.SELECT);
@@ -129,8 +129,8 @@ public class LegacyAccessControllerPluginTest {
         Mockito.when(controller.checkCloudPriv(USER, "cg", PrivPredicate.SELECT, ResourceTypeEnum.CLUSTER))
                 .thenReturn(true);
 
-        Assert.assertTrue(allows(AuthorizedResource.cloud(ResourceKind.CLOUD_COMPUTE_GROUP, "cg")));
-        Assert.assertFalse(allows(AuthorizedResource.cloud(ResourceKind.CLOUD_STAGE, "cg")));
+        Assertions.assertTrue(allows(AuthorizedResource.cloud(ResourceKind.CLOUD_COMPUTE_GROUP, "cg")));
+        Assertions.assertFalse(allows(AuthorizedResource.cloud(ResourceKind.CLOUD_STAGE, "cg")));
     }
 
     @Test
@@ -158,15 +158,15 @@ public class LegacyAccessControllerPluginTest {
                 Mockito.any(), Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
                 Mockito.any(), Mockito.any());
 
-        AccessDeniedException denied = Assert.assertThrows(AccessDeniedException.class,
+        AccessDeniedException denied = Assertions.assertThrows(AccessDeniedException.class,
                 () -> plugin.checkPrivilege(SUBJECT,
                         AuthorizedResource.columns("ctl", "db", "tbl", ImmutableSet.of("col1", "col2")),
                         SELECT, AccessContext.NONE));
 
-        Assert.assertEquals("the wording naming the column was restated on the way out, so what the user"
-                        + " reads no longer says which column was refused",
-                "no privilege on [col2]", denied.getMessage());
-        Assert.assertEquals("legacy", denied.getDeniedBy().orElse(null));
+        Assertions.assertEquals("no privilege on [col2]", denied.getMessage(),
+                "the wording naming the column was restated on the way out, so what the user"
+                + " reads no longer says which column was refused");
+        Assertions.assertEquals("legacy", denied.getDeniedBy().orElse(null));
     }
 
     /**
@@ -185,8 +185,8 @@ public class LegacyAccessControllerPluginTest {
                 AuthorizedResource.table("ctl", "db", "tbl"),
                 new LinkedHashSet<>(ImmutableSet.of("col1", "col2")), AccessContext.NONE);
 
-        Assert.assertEquals(ImmutableSet.of("col1"), masks.keySet());
-        Assert.assertSame(spec, masks.get("col1"));
+        Assertions.assertEquals(ImmutableSet.of("col1"), masks.keySet());
+        Assertions.assertSame(spec, masks.get("col1"));
     }
 
     /**
@@ -203,9 +203,9 @@ public class LegacyAccessControllerPluginTest {
     public void testAGlobalGrantIsHonouredWithoutAskingTheController() throws Exception {
         grantedAtGlobalScope = true;
 
-        Assert.assertTrue(allows(AuthorizedResource.catalog("ctl")));
-        Assert.assertTrue(allows(AuthorizedResource.database("ctl", "db")));
-        Assert.assertTrue(allows(AuthorizedResource.table("ctl", "db", "tbl")));
+        Assertions.assertTrue(allows(AuthorizedResource.catalog("ctl")));
+        Assertions.assertTrue(allows(AuthorizedResource.database("ctl", "db")));
+        Assertions.assertTrue(allows(AuthorizedResource.table("ctl", "db", "tbl")));
         plugin.checkPrivilege(SUBJECT, AuthorizedResource.columns("ctl", "db", "tbl",
                 ImmutableSet.of("col1")), SELECT, AccessContext.NONE);
 
@@ -229,15 +229,15 @@ public class LegacyAccessControllerPluginTest {
         grantedAtGlobalScope = true;
         Mockito.when(controller.checkGlobalPriv(USER, PrivPredicate.SELECT)).thenReturn(false);
 
-        Assert.assertFalse(allows(AuthorizedResource.global()));
-        Assert.assertFalse(allows(AuthorizedResource.resource("name")));
-        Assert.assertFalse(allows(AuthorizedResource.workloadGroup("name")));
-        Assert.assertFalse(allows(AuthorizedResource.storageVault("name")));
+        Assertions.assertFalse(allows(AuthorizedResource.global()));
+        Assertions.assertFalse(allows(AuthorizedResource.resource("name")));
+        Assertions.assertFalse(allows(AuthorizedResource.workloadGroup("name")));
+        Assertions.assertFalse(allows(AuthorizedResource.storageVault("name")));
         // The cloud kinds too, all four of them: they are system-wide names as well, and none of them had a
         // hasGlobal form either - checkCloudPriv came in one shape only.
         for (ResourceKind kind : ImmutableList.of(ResourceKind.CLOUD_GENERAL, ResourceKind.CLOUD_COMPUTE_GROUP,
                 ResourceKind.CLOUD_STAGE, ResourceKind.CLOUD_STORAGE_VAULT)) {
-            Assert.assertFalse(kind.name(), allows(AuthorizedResource.cloud(kind, "name")));
+            Assertions.assertFalse(allows(AuthorizedResource.cloud(kind, "name")), kind.name());
         }
 
         Mockito.verify(controller).checkGlobalPriv(USER, PrivPredicate.SELECT);
@@ -266,11 +266,11 @@ public class LegacyAccessControllerPluginTest {
             }
         };
 
-        Assert.assertThrows(AccessDeniedException.class, () -> adapter.checkPrivilege(SUBJECT,
+        Assertions.assertThrows(AccessDeniedException.class, () -> adapter.checkPrivilege(SUBJECT,
                 AuthorizedResource.table("ctl", "db", "tbl"), SELECT, given));
 
-        Assert.assertSame("the question was asked about circumstances nobody stated",
-                given, seenByTheAuthority.get());
+        Assertions.assertSame(given, seenByTheAuthority.get(),
+                "the question was asked about circumstances nobody stated");
     }
 
     /**
@@ -293,14 +293,14 @@ public class LegacyAccessControllerPluginTest {
                 .thenReturn((Optional) Optional.of(new Object()));
 
         AuthorizedResource.Table table = AuthorizedResource.table("ctl", "db", "tbl");
-        IllegalStateException refusedFilter = Assert.assertThrows(IllegalStateException.class,
+        IllegalStateException refusedFilter = Assertions.assertThrows(IllegalStateException.class,
                 () -> plugin.getRowFilters(SUBJECT, table, AccessContext.NONE));
-        Assert.assertTrue(refusedFilter.getMessage(), refusedFilter.getMessage().contains("legacy"));
-        Assert.assertTrue(refusedFilter.getMessage(), refusedFilter.getMessage().contains("recompiled"));
+        Assertions.assertTrue(refusedFilter.getMessage().contains("legacy"), refusedFilter.getMessage());
+        Assertions.assertTrue(refusedFilter.getMessage().contains("recompiled"), refusedFilter.getMessage());
 
-        IllegalStateException refusedMask = Assert.assertThrows(IllegalStateException.class,
+        IllegalStateException refusedMask = Assertions.assertThrows(IllegalStateException.class,
                 () -> plugin.getDataMasks(SUBJECT, table, ImmutableSet.of("col1"), AccessContext.NONE));
-        Assert.assertTrue(refusedMask.getMessage(), refusedMask.getMessage().contains("recompiled"));
+        Assertions.assertTrue(refusedMask.getMessage().contains("recompiled"), refusedMask.getMessage());
     }
 
     /**
@@ -325,8 +325,8 @@ public class LegacyAccessControllerPluginTest {
             throw new AssertionError(e);
         }
 
-        Assert.assertSame("the adapter handed the controller the other constant of the colliding pair",
-                PrivPredicate.SHOW_WORKLOAD_GROUP, asked.getValue());
+        Assertions.assertSame(PrivPredicate.SHOW_WORKLOAD_GROUP, asked.getValue(),
+                "the adapter handed the controller the other constant of the colliding pair");
     }
 
     @Test

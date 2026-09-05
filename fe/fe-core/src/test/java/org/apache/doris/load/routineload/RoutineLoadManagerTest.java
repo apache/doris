@@ -979,7 +979,7 @@ public class RoutineLoadManagerTest {
         CreateRoutineLoadInfo multiTableInfo = new CreateRoutineLoadInfo(new LabelNameInfo("db1", "job1"), "",
                 loadPropertyMap, properties, LoadDataSourceType.KAFKA.name(), customProperties,
                 LoadTask.MergeType.APPEND, "");
-        Assert.assertTrue(multiTableInfo.isMultiTable());
+        Assertions.assertTrue(multiTableInfo.isMultiTable());
         // Resolved by checkDBTable(), which needs a real catalog; the check under test only reads it.
         Deencapsulation.setField(multiTableInfo, "dbName", "db1");
 
@@ -1000,10 +1000,10 @@ public class RoutineLoadManagerTest {
                     Mockito.anyString(), Mockito.eq(PrivPredicate.LOAD))).thenReturn(false);
 
             RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-            AnalysisException refused = Assert.assertThrows(AnalysisException.class,
+            AnalysisException refused = Assertions.assertThrows(AnalysisException.class,
                     () -> routineLoadManager.createRoutineLoadJob(multiTableInfo, connectContext));
-            Assert.assertTrue("the refusal must name the database, not a table nobody granted on: "
-                    + refused.getMessage(), refused.getMessage().contains("database 'db1'"));
+            Assertions.assertTrue(refused.getMessage().contains("database 'db1'"),
+                    "the refusal must name the database, not a table nobody granted on: " + refused.getMessage());
             Mockito.verify(accessManager).checkDbPriv(Mockito.nullable(ConnectContext.class),
                     Mockito.anyString(), Mockito.anyString(), Mockito.eq(PrivPredicate.LOAD));
         }
@@ -1054,12 +1054,12 @@ public class RoutineLoadManagerTest {
 
             Mockito.when(accessManager.checkDbPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
                     Mockito.anyString(), Mockito.eq(PrivPredicate.LOAD))).thenReturn(false);
-            Assert.assertTrue("a multi table job reached a caller holding no database level LOAD",
-                    routineLoadManager.checkPrivAndGetAllJobs("db1").isEmpty());
+            Assertions.assertTrue(routineLoadManager.checkPrivAndGetAllJobs("db1").isEmpty(),
+                    "a multi table job reached a caller holding no database level LOAD");
 
             Mockito.when(accessManager.checkDbPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
                     Mockito.anyString(), Mockito.eq(PrivPredicate.LOAD))).thenReturn(true);
-            Assert.assertEquals(Lists.newArrayList(multiTableJob),
+            Assertions.assertEquals(Lists.newArrayList(multiTableJob),
                     routineLoadManager.checkPrivAndGetAllJobs("db1"));
         }
     }

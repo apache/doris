@@ -26,8 +26,8 @@ import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.common.AuthorizationException;
 
 import com.google.common.collect.ImmutableSet;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 /**
@@ -72,7 +72,7 @@ public class InternalAuthorizationPluginTest {
     public void testCatalogCheckIsSkippedWhenPrivilegeIsHeldGlobally() {
         holdsGlobally(true);
 
-        Assert.assertTrue(allows(AuthorizedResource.catalog("ctl")));
+        Assertions.assertTrue(allows(AuthorizedResource.catalog("ctl")));
         Mockito.verify(auth, Mockito.never()).checkCtlPriv(Mockito.any(), Mockito.anyString(), Mockito.any());
     }
 
@@ -81,15 +81,15 @@ public class InternalAuthorizationPluginTest {
         holdsGlobally(false);
         Mockito.when(auth.checkCtlPriv(USER, "ctl", PrivPredicate.SELECT)).thenReturn(true);
 
-        Assert.assertTrue(allows(AuthorizedResource.catalog("ctl")));
-        Assert.assertFalse(allows(AuthorizedResource.catalog("other_ctl")));
+        Assertions.assertTrue(allows(AuthorizedResource.catalog("ctl")));
+        Assertions.assertFalse(allows(AuthorizedResource.catalog("other_ctl")));
     }
 
     @Test
     public void testDatabaseCheckIsSkippedWhenPrivilegeIsHeldGlobally() {
         holdsGlobally(true);
 
-        Assert.assertTrue(allows(AuthorizedResource.database("ctl", "db")));
+        Assertions.assertTrue(allows(AuthorizedResource.database("ctl", "db")));
         Mockito.verify(auth, Mockito.never())
                 .checkDbPriv(Mockito.any(), Mockito.anyString(), Mockito.anyString(), Mockito.any());
     }
@@ -99,15 +99,15 @@ public class InternalAuthorizationPluginTest {
         holdsGlobally(false);
         Mockito.when(auth.checkDbPriv(USER, "ctl", "db", PrivPredicate.SELECT)).thenReturn(true);
 
-        Assert.assertTrue(allows(AuthorizedResource.database("ctl", "db")));
-        Assert.assertFalse(allows(AuthorizedResource.database("ctl", "other_db")));
+        Assertions.assertTrue(allows(AuthorizedResource.database("ctl", "db")));
+        Assertions.assertFalse(allows(AuthorizedResource.database("ctl", "other_db")));
     }
 
     @Test
     public void testTableCheckIsSkippedWhenPrivilegeIsHeldGlobally() {
         holdsGlobally(true);
 
-        Assert.assertTrue(allows(AuthorizedResource.table("ctl", "db", "tbl")));
+        Assertions.assertTrue(allows(AuthorizedResource.table("ctl", "db", "tbl")));
         Mockito.verify(auth, Mockito.never()).checkTblPriv(
                 Mockito.any(), Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.any());
     }
@@ -117,8 +117,8 @@ public class InternalAuthorizationPluginTest {
         holdsGlobally(false);
         Mockito.when(auth.checkTblPriv(USER, "ctl", "db", "tbl", PrivPredicate.SELECT)).thenReturn(true);
 
-        Assert.assertTrue(allows(AuthorizedResource.table("ctl", "db", "tbl")));
-        Assert.assertFalse(allows(AuthorizedResource.table("ctl", "db", "other_tbl")));
+        Assertions.assertTrue(allows(AuthorizedResource.table("ctl", "db", "tbl")));
+        Assertions.assertFalse(allows(AuthorizedResource.table("ctl", "db", "other_tbl")));
     }
 
     @Test
@@ -158,14 +158,14 @@ public class InternalAuthorizationPluginTest {
         Mockito.doThrow(fromThePrivilegeModel).when(auth).checkColsPriv(
                 USER, "ctl", "db", "tbl", ImmutableSet.of("col1"), PrivPredicate.SELECT);
 
-        AccessDeniedException denied = Assert.assertThrows(AccessDeniedException.class,
+        AccessDeniedException denied = Assertions.assertThrows(AccessDeniedException.class,
                 () -> plugin.checkPrivilege(SUBJECT,
                         AuthorizedResource.columns("ctl", "db", "tbl", ImmutableSet.of("col1")),
                         SELECT, AccessContext.NONE));
 
-        Assert.assertEquals("the wording naming the column was restated on the way out, so what the user"
-                        + " reads no longer says which column was refused",
-                "denied on col1", denied.getMessage());
+        Assertions.assertEquals("denied on col1", denied.getMessage(),
+                "the wording naming the column was restated on the way out, so what the user"
+                + " reads no longer says which column was refused");
     }
 
     /**
@@ -178,7 +178,7 @@ public class InternalAuthorizationPluginTest {
         Mockito.when(auth.checkGlobalPriv(USER, PrivPredicate.OPERATOR)).thenReturn(true);
         Mockito.when(auth.checkDbPriv(USER, "ctl", "db", PrivPredicate.OPERATOR)).thenReturn(false);
 
-        Assert.assertTrue(allows(AuthorizedResource.database("ctl", "db"),
+        Assertions.assertTrue(allows(AuthorizedResource.database("ctl", "db"),
                 AccessTranslation.requirementOf(PrivPredicate.OPERATOR)));
     }
 
@@ -191,7 +191,7 @@ public class InternalAuthorizationPluginTest {
     public void testSystemWideObjectsAreLeftEntirelyToTheGrantLookup() {
         Mockito.when(auth.checkResourcePriv(USER, "res", PrivPredicate.SELECT)).thenReturn(true);
 
-        Assert.assertTrue(allows(AuthorizedResource.resource("res")));
+        Assertions.assertTrue(allows(AuthorizedResource.resource("res")));
         Mockito.verify(auth, Mockito.never()).checkGlobalPriv(Mockito.any(), Mockito.any());
     }
 }

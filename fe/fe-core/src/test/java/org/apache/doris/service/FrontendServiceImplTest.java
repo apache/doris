@@ -66,7 +66,6 @@ import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowUserRequest;
-import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTableStatus;
