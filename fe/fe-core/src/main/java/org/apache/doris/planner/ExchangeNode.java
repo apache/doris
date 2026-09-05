@@ -59,6 +59,9 @@ public class ExchangeNode extends PlanNode {
 
     private boolean isRightChildOfBroadcastHashJoin = false;
     private TPartitionType partitionType;
+    // Nereids freezes this query-level decision before receiver assignment. Null keeps the
+    // legacy planner's session-based behavior.
+    private Boolean effectiveEnableLocalShufflePlanner;
 
     /**
      * use for Nereids only.
@@ -133,6 +136,11 @@ public class ExchangeNode extends PlanNode {
         isRightChildOfBroadcastHashJoin = value;
     }
 
+    /** Freeze the query-level planner mode used by receiver assignment and Thrift serialization. */
+    public void setEffectiveEnableLocalShufflePlanner(boolean enableLocalShufflePlanner) {
+        this.effectiveEnableLocalShufflePlanner = enableLocalShufflePlanner;
+    }
+
     /**
      * If table `t1` has unique key `k1` and value column `v1`.
      * Now use plan below to load data into `t1`:
@@ -165,7 +173,10 @@ public class ExchangeNode extends PlanNode {
 
     @Override
     public boolean isSerialOperatorOnBe(ConnectContext context) {
-        if (context != null && context.getSessionVariable().isEnableLocalShufflePlanner()) {
+        boolean useLocalShufflePlanner = effectiveEnableLocalShufflePlanner != null
+                ? effectiveEnableLocalShufflePlanner
+                : context != null && context.getSessionVariable().isEnableLocalShufflePlanner();
+        if (useLocalShufflePlanner) {
             // When FE local shuffle planner is on, decouple exchange from scan's serial flag.
             // Scan pooling is handled by LE(PT) after scan; exchange keeps its own parallelism.
             return fragment != null

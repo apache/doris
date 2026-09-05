@@ -753,8 +753,10 @@ public class LocalShuffleNodeCoverageTest {
         // Output is still PASSTHROUGH (hardcoded for useSerialSource + ScanNode child).
         SerialTrackingScanNode serialScan = new SerialTrackingScanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
         SortNode scanSort = new SortNode(nextPlanNodeId(), serialScan, sortInfo, false);
-        scanSort.fragment = Mockito.mock(PlanFragment.class);
-        Mockito.when(scanSort.fragment.useSerialSource(Mockito.any())).thenReturn(true);
+        PlanFragment serialSortFragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(serialSortFragment.useSerialSource(Mockito.any())).thenReturn(true);
+        scanSort.setFragment(serialSortFragment);
+        serialScan.setFragment(serialSortFragment);
         Pair<PlanNode, LocalExchangeType> scanOutput = scanSort.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.noRequire());
         // Non-merge, non-analytic SortNode: isSerialNode()=true, requireChild=noRequire,
@@ -826,12 +828,14 @@ public class LocalShuffleNodeCoverageTest {
                 Collections.emptyList(), Collections.singletonList(Mockito.mock(Expr.class)),
                 Collections.singletonList(new OrderByElement(Mockito.mock(Expr.class), true, true)),
                 null, new TupleDescriptor(new TupleId(NEXT_ID.getAndIncrement())));
-        orderedAnalytic.fragment = Mockito.mock(PlanFragment.class);
-        Mockito.when(orderedAnalytic.fragment.useSerialSource(Mockito.any())).thenReturn(true);
+        PlanFragment orderedAnalyticFragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(orderedAnalyticFragment.useSerialSource(Mockito.any())).thenReturn(true);
+        orderedAnalytic.setFragment(orderedAnalyticFragment);
+        serialScan.setFragment(orderedAnalyticFragment);
         Pair<PlanNode, LocalExchangeType> orderedOutput = orderedAnalytic.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.noRequire());
-        // Serial AnalyticEval returns NOOP — lets framework serial check handle fan-out
-        Assertions.assertEquals(LocalExchangeType.NOOP, orderedOutput.second);
+        Assertions.assertEquals(LocalExchangeType.PASSTHROUGH, orderedOutput.second);
+        assertChildLocalExchangeType(orderedAnalytic, 0, LocalExchangeType.PASSTHROUGH);
     }
 
     @Test

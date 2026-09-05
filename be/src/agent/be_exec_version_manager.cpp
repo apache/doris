@@ -131,8 +131,10 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 // 13: start from master
 //   a. support strict ownership hash routing for external table sink writers.
 //   b. support Paimon default fixed-bucket routing in the external sink exchange.
+// 14: start from master
+//   a. support unconditional PASS_TO_ONE local exchanges.
 
-const int BeExecVersionManager::max_be_exec_version = 13;
+const int BeExecVersionManager::max_be_exec_version = 14;
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
 std::set<std::string> BeExecVersionManager::_function_restrict_map;
