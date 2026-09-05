@@ -41,7 +41,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedList;
@@ -121,7 +121,7 @@ public class CooldownConfHandlerTest extends TestWithFeService {
                 break;
             }
         }
-        Assert.assertTrue(matched);
-        Assert.assertEquals(101, cooldownTerm);
+        Assertions.assertTrue(matched);
+        Assertions.assertEquals(101, cooldownTerm);
     }
 }

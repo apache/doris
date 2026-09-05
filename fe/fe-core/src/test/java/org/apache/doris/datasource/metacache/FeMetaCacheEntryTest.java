@@ -19,8 +19,8 @@ package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.connector.cache.CacheSpec;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -46,19 +46,19 @@ public class FeMetaCacheEntryTest {
             FeMetaCacheEntry<String, Integer> entry = new FeMetaCacheEntry<>(
                     "objects", key -> loads.incrementAndGet(), ENABLED, executor, false, 8);
 
-            Assert.assertEquals(Integer.valueOf(1), entry.get("key"));
-            Assert.assertEquals(Integer.valueOf(1), entry.get("key"));
-            Assert.assertEquals(1, loads.get());
-            Assert.assertEquals(Integer.valueOf(2), entry.compute("key", (key, value) -> value + 1));
-            Assert.assertEquals(Integer.valueOf(2), entry.getIfPresent("key"));
+            Assertions.assertEquals(Integer.valueOf(1), entry.get("key"));
+            Assertions.assertEquals(Integer.valueOf(1), entry.get("key"));
+            Assertions.assertEquals(1, loads.get());
+            Assertions.assertEquals(Integer.valueOf(2), entry.compute("key", (key, value) -> value + 1));
+            Assertions.assertEquals(Integer.valueOf(2), entry.getIfPresent("key"));
             entry.invalidateKey("key");
-            Assert.assertNull(entry.getIfPresent("key"));
+            Assertions.assertNull(entry.getIfPresent("key"));
 
             MetaCacheEntryStats stats = entry.stats();
-            Assert.assertTrue(stats.isEffectiveEnabled());
-            Assert.assertEquals(1L, stats.getLoadSuccessCount());
-            Assert.assertTrue(stats.getRequestCount() >= 4L);
-            Assert.assertTrue(stats.getInvalidateCount() >= 1L);
+            Assertions.assertTrue(stats.isEffectiveEnabled());
+            Assertions.assertEquals(1L, stats.getLoadSuccessCount());
+            Assertions.assertTrue(stats.getRequestCount() >= 4L);
+            Assertions.assertTrue(stats.getInvalidateCount() >= 1L);
         } finally {
             executor.shutdownNow();
         }
@@ -70,17 +70,17 @@ public class FeMetaCacheEntryTest {
         try {
             FeMetaCacheEntry<String, Integer> contextual = new FeMetaCacheEntry<>(
                     "contextual", null, ENABLED, executor, false, true);
-            Assert.assertThrows(UnsupportedOperationException.class, () -> contextual.get("key"));
-            Assert.assertEquals(Integer.valueOf(3), contextual.get("key", String::length));
+            Assertions.assertThrows(UnsupportedOperationException.class, () -> contextual.get("key"));
+            Assertions.assertEquals(Integer.valueOf(3), contextual.get("key", String::length));
 
             CacheSpec disabledSpec = CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 100L);
             AtomicInteger actions = new AtomicInteger();
             FeMetaCacheEntry<String, Integer> disabled = new FeMetaCacheEntry<>(
                     "disabled", String::length, disabledSpec, executor, false);
-            Assert.assertEquals(Integer.valueOf(3), disabled.getAndRunIfCurrent(
+            Assertions.assertEquals(Integer.valueOf(3), disabled.getAndRunIfCurrent(
                     "key", (key, value) -> actions.incrementAndGet()));
-            Assert.assertEquals(1, actions.get());
-            Assert.assertNull(disabled.getIfPresent("key"));
+            Assertions.assertEquals(1, actions.get());
+            Assertions.assertNull(disabled.getIfPresent("key"));
         } finally {
             executor.shutdownNow();
         }
@@ -98,9 +98,9 @@ public class FeMetaCacheEntryTest {
 
             AtomicBoolean loaded = entry.get("db");
 
-            Assert.assertSame(usable, loaded);
-            Assert.assertTrue(loaded.get());
-            Assert.assertNull(entry.getIfPresent("db"));
+            Assertions.assertSame(usable, loaded);
+            Assertions.assertTrue(loaded.get());
+            Assertions.assertNull(entry.getIfPresent("db"));
         } finally {
             executor.shutdownNow();
         }
@@ -130,9 +130,9 @@ public class FeMetaCacheEntryTest {
             continuePublication.countDown();
 
             AtomicBoolean returned = load.get(3L, TimeUnit.SECONDS);
-            Assert.assertSame(usable, returned);
-            Assert.assertTrue(returned.get());
-            Assert.assertNull(entry.getIfPresent("db"));
+            Assertions.assertSame(usable, returned);
+            Assertions.assertTrue(returned.get());
+            Assertions.assertNull(entry.getIfPresent("db"));
         } finally {
             continuePublication.countDown();
             worker.shutdownNow();
@@ -149,12 +149,12 @@ public class FeMetaCacheEntryTest {
                     "objects", String::length, ENABLED, executor, false);
 
             entry.computeAndRun("table", (key, value) -> 5, () -> index.add("table"));
-            Assert.assertEquals(Integer.valueOf(5), entry.getIfPresent("table"));
-            Assert.assertEquals(List.of("table"), index);
+            Assertions.assertEquals(Integer.valueOf(5), entry.getIfPresent("table"));
+            Assertions.assertEquals(List.of("table"), index);
 
             entry.invalidateKeyAndRun("table", index::clear);
-            Assert.assertNull(entry.getIfPresent("table"));
-            Assert.assertTrue(index.isEmpty());
+            Assertions.assertNull(entry.getIfPresent("table"));
+            Assertions.assertTrue(index.isEmpty());
         } finally {
             executor.shutdownNow();
         }
@@ -168,13 +168,13 @@ public class FeMetaCacheEntryTest {
                     "objects", String::length, ENABLED, executor, false);
             entry.put("table", 1);
 
-            Assert.assertThrows(IllegalStateException.class,
+            Assertions.assertThrows(IllegalStateException.class,
                     () -> entry.computeWithCommitAction(
                             "table", (key, value) -> 2, () -> {
                                 throw new IllegalStateException("identity conflict");
                             }));
 
-            Assert.assertEquals(Integer.valueOf(1), entry.getIfPresent("table"));
+            Assertions.assertEquals(Integer.valueOf(1), entry.getIfPresent("table"));
         } finally {
             executor.shutdownNow();
         }
@@ -195,18 +195,18 @@ public class FeMetaCacheEntryTest {
                     entry, index, 1L, prechecksComplete, startPublication));
             Future<Long> second = workers.submit(() -> publishIdentity(
                     entry, index, 2L, prechecksComplete, startPublication));
-            Assert.assertTrue(prechecksComplete.await(3L, TimeUnit.SECONDS));
+            Assertions.assertTrue(prechecksComplete.await(3L, TimeUnit.SECONDS));
             startPublication.countDown();
 
             Long firstResult = resultOrNull(first);
             Long secondResult = resultOrNull(second);
-            Assert.assertTrue((firstResult == null) != (secondResult == null));
+            Assertions.assertTrue((firstResult == null) != (secondResult == null));
 
             long winner = firstResult == null ? secondResult : firstResult;
             long loser = winner == 1L ? 2L : 1L;
-            Assert.assertEquals(Long.valueOf(winner), entry.getIfPresent("table"));
-            Assert.assertEquals("table", index.getName(winner));
-            Assert.assertNull(index.getName(loser));
+            Assertions.assertEquals(Long.valueOf(winner), entry.getIfPresent("table"));
+            Assertions.assertEquals("table", index.getName(winner));
+            Assertions.assertNull(index.getName(loser));
         } finally {
             startPublication.countDown();
             workers.shutdownNow();
@@ -233,14 +233,14 @@ public class FeMetaCacheEntryTest {
 
             Future<Integer> load = worker.submit(() -> entry.getAndRunIfCurrent(
                     "table", (key, value) -> actions.incrementAndGet()));
-            Assert.assertTrue(valueLoaded.await(3L, TimeUnit.SECONDS));
+            Assertions.assertTrue(valueLoaded.await(3L, TimeUnit.SECONDS));
             entry.invalidateKey("table");
             continueAction.countDown();
 
-            Assert.assertEquals(Integer.valueOf(5), load.get(3L, TimeUnit.SECONDS));
-            Assert.assertEquals(0, actions.get());
-            Assert.assertNull(entry.getIfPresent("table"));
-            Assert.assertEquals(0, entry.activeActionReferenceCountForTest());
+            Assertions.assertEquals(Integer.valueOf(5), load.get(3L, TimeUnit.SECONDS));
+            Assertions.assertEquals(0, actions.get());
+            Assertions.assertNull(entry.getIfPresent("table"));
+            Assertions.assertEquals(0, entry.activeActionReferenceCountForTest());
         } finally {
             continueAction.countDown();
             worker.shutdownNow();
@@ -287,14 +287,14 @@ public class FeMetaCacheEntryTest {
             releaseLoader.countDown();
             await(publicationReady);
 
-            Assert.assertNull(entry.getIfPresent("table"));
-            Assert.assertTrue(index.isEmpty());
+            Assertions.assertNull(entry.getIfPresent("table"));
+            Assertions.assertTrue(index.isEmpty());
 
             releaseStripe.countDown();
-            Assert.assertEquals(Integer.valueOf(1), blocker.get(3L, TimeUnit.SECONDS));
-            Assert.assertEquals(Integer.valueOf(5), load.get(3L, TimeUnit.SECONDS));
-            Assert.assertEquals(Integer.valueOf(5), entry.getIfPresent("table"));
-            Assert.assertEquals(List.of("table"), index);
+            Assertions.assertEquals(Integer.valueOf(1), blocker.get(3L, TimeUnit.SECONDS));
+            Assertions.assertEquals(Integer.valueOf(5), load.get(3L, TimeUnit.SECONDS));
+            Assertions.assertEquals(Integer.valueOf(5), entry.getIfPresent("table"));
+            Assertions.assertEquals(List.of("table"), index);
         } finally {
             releaseLoader.countDown();
             releaseStripe.countDown();
@@ -353,7 +353,7 @@ public class FeMetaCacheEntryTest {
                             "db", (key, current) -> database, () -> {
                             })));
             await(firstObjectPublished);
-            Assert.assertSame(database, objects.getIfPresent("db"));
+            Assertions.assertSame(database, objects.getIfPresent("db"));
             objectInitialized.set(true);
 
             // Model an auto-refresh replacing the outer name snapshot after the first nested object publish.
@@ -361,12 +361,12 @@ public class FeMetaCacheEntryTest {
             names.putSharedForTest("names", Set.of("initial", "refreshed"));
             continueNamePublication.countDown();
 
-            Assert.assertEquals(Set.of("initial", "refreshed", "incremental"),
+            Assertions.assertEquals(Set.of("initial", "refreshed", "incremental"),
                     update.get(3L, TimeUnit.SECONDS));
-            Assert.assertSame(database, objects.getIfPresent("db"));
-            Assert.assertTrue(objectInitialized.get());
-            Assert.assertEquals(0, objectRemovals.get());
-            Assert.assertEquals(2, nameAttempts.get());
+            Assertions.assertSame(database, objects.getIfPresent("db"));
+            Assertions.assertTrue(objectInitialized.get());
+            Assertions.assertEquals(0, objectRemovals.get());
+            Assertions.assertEquals(2, nameAttempts.get());
         } finally {
             continueNamePublication.countDown();
             worker.shutdownNow();
@@ -417,17 +417,17 @@ public class FeMetaCacheEntryTest {
                         objectEntryUpdated.set(true);
                     }));
             await(firstObjectCommitFinished);
-            Assert.assertEquals("database", index.getName(1L));
+            Assertions.assertEquals("database", index.getName(1L));
 
             names.putSharedForTest("names", Set.of("database"));
-            Assert.assertSame(queryDatabase, objects.get("database"));
+            Assertions.assertSame(queryDatabase, objects.get("database"));
             continueNamePublication.countDown();
 
-            Assert.assertEquals(Set.of("database"), update.get(3L, TimeUnit.SECONDS));
-            Assert.assertSame(queryDatabase, objects.getIfPresent("database"));
-            Assert.assertTrue(queryDatabase.get());
-            Assert.assertEquals(0, objectRemovals.get());
-            Assert.assertEquals(2, nameAttempts.get());
+            Assertions.assertEquals(Set.of("database"), update.get(3L, TimeUnit.SECONDS));
+            Assertions.assertSame(queryDatabase, objects.getIfPresent("database"));
+            Assertions.assertTrue(queryDatabase.get());
+            Assertions.assertEquals(0, objectRemovals.get());
+            Assertions.assertEquals(2, nameAttempts.get());
         } finally {
             continueNamePublication.countDown();
             worker.shutdownNow();
@@ -468,11 +468,11 @@ public class FeMetaCacheEntryTest {
             objects.putSharedForTest("database", queryDatabase);
             continueObjectPublication.countDown();
 
-            Assert.assertSame(eventDatabase, update.get(3L, TimeUnit.SECONDS));
-            Assert.assertSame(eventDatabase, objects.getIfPresent("database"));
-            Assert.assertFalse(queryDatabase.get());
-            Assert.assertEquals(1, objectRemovals.get());
-            Assert.assertEquals(2, attempts.get());
+            Assertions.assertSame(eventDatabase, update.get(3L, TimeUnit.SECONDS));
+            Assertions.assertSame(eventDatabase, objects.getIfPresent("database"));
+            Assertions.assertFalse(queryDatabase.get());
+            Assertions.assertEquals(1, objectRemovals.get());
+            Assertions.assertEquals(2, attempts.get());
         } finally {
             continueObjectPublication.countDown();
             worker.shutdownNow();
@@ -523,19 +523,19 @@ public class FeMetaCacheEntryTest {
                         objectEntryUpdated.set(true);
                     }));
             await(firstObjectCommitFinished);
-            Assert.assertSame(eventDatabase, objects.getIfPresent("database"));
+            Assertions.assertSame(eventDatabase, objects.getIfPresent("database"));
 
             names.putSharedForTest("names", Set.of("database"));
             objects.invalidateKey("database");
-            Assert.assertFalse(eventDatabase.get());
-            Assert.assertSame(queryDatabase, objects.get("database"));
+            Assertions.assertFalse(eventDatabase.get());
+            Assertions.assertSame(queryDatabase, objects.get("database"));
             continueNamePublication.countDown();
 
-            Assert.assertEquals(Set.of("database"), update.get(3L, TimeUnit.SECONDS));
-            Assert.assertSame(queryDatabase, objects.getIfPresent("database"));
-            Assert.assertTrue(queryDatabase.get());
-            Assert.assertEquals(2, objectRemovals.get());
-            Assert.assertEquals(2, nameAttempts.get());
+            Assertions.assertEquals(Set.of("database"), update.get(3L, TimeUnit.SECONDS));
+            Assertions.assertSame(queryDatabase, objects.getIfPresent("database"));
+            Assertions.assertTrue(queryDatabase.get());
+            Assertions.assertEquals(2, objectRemovals.get());
+            Assertions.assertEquals(2, nameAttempts.get());
         } finally {
             continueNamePublication.countDown();
             worker.shutdownNow();
@@ -562,17 +562,17 @@ public class FeMetaCacheEntryTest {
 
             Future<Integer> load = worker.submit(() -> entry.getAndRunIfCurrent(
                     "table", (key, value) -> actions.incrementAndGet()));
-            Assert.assertTrue(valueLoaded.await(3L, TimeUnit.SECONDS));
-            Assert.assertThrows(IllegalStateException.class,
+            Assertions.assertTrue(valueLoaded.await(3L, TimeUnit.SECONDS));
+            Assertions.assertThrows(IllegalStateException.class,
                     () -> entry.computeAfterValidation(
                             "table", (key, value) -> 6, () -> {
                                 throw new IllegalStateException("identity conflict");
                             }));
             continueAction.countDown();
 
-            Assert.assertEquals(Integer.valueOf(5), load.get(3L, TimeUnit.SECONDS));
-            Assert.assertEquals(1, actions.get());
-            Assert.assertEquals(Integer.valueOf(5), entry.getIfPresent("table"));
+            Assertions.assertEquals(Integer.valueOf(5), load.get(3L, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, actions.get());
+            Assertions.assertEquals(Integer.valueOf(5), entry.getIfPresent("table"));
         } finally {
             continueAction.countDown();
             worker.shutdownNow();
@@ -588,11 +588,11 @@ public class FeMetaCacheEntryTest {
             FeMetaCacheEntry<String, Integer> entry = FeMetaCacheEntry.withSyncRemovalListener(
                     "objects", String::length, ENABLED, executor, 8,
                     (key, value, cause) -> removals.add(key + "=" + value));
-            Assert.assertEquals(0, entry.initializedStripeCountForTest());
+            Assertions.assertEquals(0, entry.initializedStripeCountForTest());
             entry.put("table", 5);
-            Assert.assertEquals(1, entry.initializedStripeCountForTest());
+            Assertions.assertEquals(1, entry.initializedStripeCountForTest());
             entry.invalidateAll();
-            Assert.assertEquals(List.of("table=5"), removals);
+            Assertions.assertEquals(List.of("table=5"), removals);
         } finally {
             executor.shutdownNow();
         }
@@ -638,9 +638,9 @@ public class FeMetaCacheEntryTest {
             continuePublication.countDown();
 
             Set<String> expected = Set.of("initial", "refreshed", "incremental");
-            Assert.assertEquals(expected, remap.get(3L, TimeUnit.SECONDS));
-            Assert.assertEquals(expected, entry.getIfPresent("names"));
-            Assert.assertEquals(2, attempts.get());
+            Assertions.assertEquals(expected, remap.get(3L, TimeUnit.SECONDS));
+            Assertions.assertEquals(expected, entry.getIfPresent("names"));
+            Assertions.assertEquals(2, attempts.get());
         } finally {
             continuePublication.countDown();
             worker.shutdownNow();
@@ -660,7 +660,7 @@ public class FeMetaCacheEntryTest {
         try {
             return future.get(3L, TimeUnit.SECONDS);
         } catch (ExecutionException e) {
-            Assert.assertTrue(e.getCause() instanceof IllegalStateException);
+            Assertions.assertTrue(e.getCause() instanceof IllegalStateException);
             return null;
         }
     }

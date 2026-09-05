@@ -44,8 +44,8 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPushAggOp;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
@@ -110,10 +110,10 @@ public class PluginDrivenScanNodeCompatibilityTest {
         Backend backend = new Backend(7L, "127.0.0.1", 9050);
         backend.setSmoothUpgradeSrc(true);
 
-        UserException exception = Assert.assertThrows(UserException.class,
+        UserException exception = Assertions.assertThrows(UserException.class,
                 () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
                         true, Collections.singletonList(backend)));
-        Assert.assertTrue(exception.getMessage().contains("backend 7"));
+        Assertions.assertTrue(exception.getMessage().contains("backend 7"));
     }
 
     @Test
@@ -132,10 +132,10 @@ public class PluginDrivenScanNodeCompatibilityTest {
             Config.be_exec_version = VARIANT_EXEC_VERSION - 1;
             Backend backend = new Backend(8L, "127.0.0.1", 9050);
 
-            UserException exception = Assert.assertThrows(UserException.class,
+            UserException exception = Assertions.assertThrows(UserException.class,
                     () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
                             true, Collections.singletonList(backend)));
-            Assert.assertTrue(exception.getMessage().contains("execution version"));
+            Assertions.assertTrue(exception.getMessage().contains("execution version"));
         } finally {
             Config.be_exec_version = original;
         }
@@ -155,8 +155,8 @@ public class PluginDrivenScanNodeCompatibilityTest {
             TupleDescriptor tuple = context.generateTupleDesc();
             context.createSlotDesc(tuple, slot);
 
-            Assert.assertTrue(PluginDrivenScanNode.projectsComputeVariant(tuple));
-            Assert.assertTrue(tuple.getSlots().get(0).getType().toThrift()
+            Assertions.assertTrue(PluginDrivenScanNode.projectsComputeVariant(tuple));
+            Assertions.assertTrue(tuple.getSlots().get(0).getType().toThrift()
                     .types.get(1).scalar_type.variant_is_v2);
         } finally {
             Config.enable_variant_v2 = originalEnableVariantV2;
@@ -192,7 +192,7 @@ public class PluginDrivenScanNodeCompatibilityTest {
                             true, true, Collections.singletonList(countRange)),
                     backends);
 
-            Assert.assertThrows(UserException.class,
+            Assertions.assertThrows(UserException.class,
                     () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
                             PluginDrivenScanNode.plannedScanDecodesVariant(
                                     true, true, Arrays.asList(countRange, dataRange)),
@@ -211,7 +211,7 @@ public class PluginDrivenScanNodeCompatibilityTest {
 
         node.checkVariantBackendCompatibilityForCurrentScan(Collections.singletonList(oldBackend()));
 
-        Assert.assertTrue((Boolean) Deencapsulation.getField(node, "variantCompatibilityDeferred"));
+        Assertions.assertTrue((Boolean) Deencapsulation.getField(node, "variantCompatibilityDeferred"));
     }
 
     @Test
@@ -231,7 +231,7 @@ public class PluginDrivenScanNodeCompatibilityTest {
 
         node.checkVariantBackendCompatibilityForCurrentScan(Collections.singletonList(oldBackend()));
 
-        Assert.assertFalse(node.isBatchMode());
+        Assertions.assertFalse(node.isBatchMode());
     }
 
     private static ConnectorScanPlanProvider metadataCountProvider() {

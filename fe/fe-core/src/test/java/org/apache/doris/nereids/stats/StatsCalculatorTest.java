@@ -143,7 +143,7 @@ public class StatsCalculatorTest {
 
     // a, b are in (0,100)
     // a=200 and b=300 => output: 0 rows
-    @org.junit.Test
+    @Test
     public void testFilterOutofRange() {
         List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);

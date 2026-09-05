@@ -25,10 +25,10 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -44,7 +44,7 @@ public class BackendsProcDirTest {
     private EditLog editLog = Mockito.mock(EditLog.class);
     private MockedStatic<Env> mockedEnvStatic;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         b1 = new Backend(1000, "host1", 10000);
         b1.updateOnce(10001, 10003, 10005);
@@ -64,7 +64,7 @@ public class BackendsProcDirTest {
         mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
@@ -76,36 +76,38 @@ public class BackendsProcDirTest {
         BackendsProcDir dir;
 
         dir = new BackendsProcDir(systemInfoService);
-        Assert.assertFalse(dir.register("100000", new BaseProcDir()));
+        Assertions.assertFalse(dir.register("100000", new BaseProcDir()));
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testLookupNormal() throws AnalysisException {
-        BackendsProcDir dir;
-        ProcNodeInterface node;
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            BackendsProcDir dir;
+            ProcNodeInterface node;
 
-        dir = new BackendsProcDir(systemInfoService);
-        try {
-            node = dir.lookup("1000");
-            Assert.assertNotNull(node);
-            Assert.assertTrue(node instanceof BackendProcNode);
-        } catch (AnalysisException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+            dir = new BackendsProcDir(systemInfoService);
+            try {
+                node = dir.lookup("1000");
+                Assertions.assertNotNull(node);
+                Assertions.assertTrue(node instanceof BackendProcNode);
+            } catch (AnalysisException e) {
+                e.printStackTrace();
+                Assertions.fail();
+            }
 
-        dir = new BackendsProcDir(systemInfoService);
-        try {
-            node = dir.lookup("1001");
-            Assert.assertNotNull(node);
-            Assert.assertTrue(node instanceof BackendProcNode);
-        } catch (AnalysisException e) {
-            Assert.fail();
-        }
+            dir = new BackendsProcDir(systemInfoService);
+            try {
+                node = dir.lookup("1001");
+                Assertions.assertNotNull(node);
+                Assertions.assertTrue(node instanceof BackendProcNode);
+            } catch (AnalysisException e) {
+                Assertions.fail();
+            }
 
-        dir = new BackendsProcDir(systemInfoService);
-        node = dir.lookup("1002");
-        Assert.fail();
+            dir = new BackendsProcDir(systemInfoService);
+            node = dir.lookup("1002");
+            Assertions.fail();
+        });
     }
 
     @Test
@@ -133,8 +135,8 @@ public class BackendsProcDirTest {
 
         dir = new BackendsProcDir(systemInfoService);
         result = dir.fetchResult();
-        Assert.assertNotNull(result);
-        Assert.assertTrue(result instanceof BaseProcResult);
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result instanceof BaseProcResult);
     }
 
     @Test
@@ -157,9 +159,9 @@ public class BackendsProcDirTest {
         int runningTasksIdx = columnNames.indexOf("RunningTasks");
         int nodeRoleIdx = columnNames.indexOf("NodeRole");
 
-        Assert.assertTrue("CpuCores should be before Memory", cpuCoresIdx < memoryIdx);
-        Assert.assertTrue("Memory should be before LiveSince", memoryIdx < liveSinceIdx);
-        Assert.assertTrue("LiveSince should be before RunningTasks", liveSinceIdx < runningTasksIdx);
-        Assert.assertTrue("RunningTasks should be before NodeRole", runningTasksIdx < nodeRoleIdx);
+        Assertions.assertTrue(cpuCoresIdx < memoryIdx, "CpuCores should be before Memory");
+        Assertions.assertTrue(memoryIdx < liveSinceIdx, "Memory should be before LiveSince");
+        Assertions.assertTrue(liveSinceIdx < runningTasksIdx, "LiveSince should be before RunningTasks");
+        Assertions.assertTrue(runningTasksIdx < nodeRoleIdx, "RunningTasks should be before NodeRole");
     }
 }

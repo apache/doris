@@ -76,11 +76,11 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -110,7 +110,7 @@ public class OlapQueryCacheTest {
     private MockedStatic<Env> mockedEnv;
     private MockedStatic<ConnectContext> mockedConnectContext;
 
-    @BeforeClass
+    @BeforeAll
     public static void start() {
         MetricRepo.init();
         try {
@@ -126,7 +126,7 @@ public class OlapQueryCacheTest {
         }
     }
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         state = new QueryState();
         scheduler = new ConnectScheduler(10);
@@ -207,7 +207,7 @@ public class OlapQueryCacheTest {
         db.registerTable(view4);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedUtil != null) {
             mockedUtil.close();
@@ -276,7 +276,7 @@ public class OlapQueryCacheTest {
             partInfo.setItem(partition.getId(), false, new RangePartitionItem(rangeP1));
         } catch (AnalysisException e) {
             LOG.warn("Part,an_ex={}", e);
-            Assert.fail(e.getMessage());
+            Assertions.fail(e.getMessage());
         }
     }
 
@@ -456,7 +456,7 @@ public class OlapQueryCacheTest {
             stmt = adapter;
         } catch (Throwable throwable) {
             LOG.warn("Part,an_ex={}", throwable);
-            Assert.fail(throwable.getMessage());
+            Assertions.fail(throwable.getMessage());
         }
         return stmt;
     }
@@ -477,13 +477,13 @@ public class OlapQueryCacheTest {
 
         Types.PUniqueId key1 = Types.PUniqueId.newBuilder().setHi(1L).setLo(1L).build();
         Backend bk = cp.findBackend(key1);
-        Assert.assertNotNull(bk);
-        Assert.assertEquals(bk.getId(), 3);
+        Assertions.assertNotNull(bk);
+        Assertions.assertEquals(bk.getId(), 3);
 
         key1 = key1.toBuilder().setHi(669560558156283345L).build();
         bk = cp.findBackend(key1);
-        Assert.assertNotNull(bk);
-        Assert.assertEquals(bk.getId(), 1);
+        Assertions.assertNotNull(bk);
+        Assertions.assertEquals(bk.getId(), 1);
     }
 
     @Test
@@ -492,7 +492,7 @@ public class OlapQueryCacheTest {
         List<ScanNode> scanNodes = Lists.newArrayList();
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(0);
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.NoNeed);
+        Assertions.assertEquals(ca.getCacheMode(), CacheMode.NoNeed);
     }
 
     @Test
@@ -505,7 +505,7 @@ public class OlapQueryCacheTest {
         List<ScanNode> scanNodes = Lists.newArrayList(createProfileScanNode(selectedPartitionIds));
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(0);
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
+        Assertions.assertEquals(ca.getCacheMode(), CacheMode.Sql);
     }
 
     @Test
@@ -518,7 +518,7 @@ public class OlapQueryCacheTest {
         List<ScanNode> scanNodes = Lists.newArrayList(createProfileScanNode(selectedPartitionIds));
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(1579024800000L);  // 2020-1-15 02:00:00
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.None);
+        Assertions.assertEquals(ca.getCacheMode(), CacheMode.None);
     }
 
     @Test
@@ -527,10 +527,10 @@ public class OlapQueryCacheTest {
         byte[] buffer = new byte[] {10, 50, 48, 50, 48, 45, 48, 51, 45, 49, 48, 1, 51, 2, 67, 78};
         PartitionRange.PartitionKeyType key1 = sb.getKeyFromRow(buffer, 0, Type.DATE);
         LOG.info("real value key1 {}", key1.realValue());
-        Assert.assertEquals(key1.realValue(), 20200310);
+        Assertions.assertEquals(key1.realValue(), 20200310);
         PartitionRange.PartitionKeyType key2 = sb.getKeyFromRow(buffer, 1, Type.INT);
         LOG.info("real value key2 {}", key2.realValue());
-        Assert.assertEquals(key2.realValue(), 3);
+        Assertions.assertEquals(key2.realValue(), 3);
     }
 
     @Test
@@ -544,7 +544,7 @@ public class OlapQueryCacheTest {
         List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode(selectedPartitionIds));
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(1579053661000L); // 2020-1-15 10:01:01
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
+        Assertions.assertEquals(ca.getCacheMode(), CacheMode.Sql);
     }
 
     @Test
@@ -558,13 +558,13 @@ public class OlapQueryCacheTest {
         List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode(selectedPartitionIds));
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(1579053661000L); // 2020-1-15 10:01:01
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
+        Assertions.assertEquals(ca.getCacheMode(), CacheMode.Sql);
 
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey,
+        Assertions.assertEquals(cacheKey,
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate|");
-        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
+        Assertions.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
     @Test
@@ -578,12 +578,12 @@ public class OlapQueryCacheTest {
         List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode(selectedPartitionIds));
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(1579053661000L); // 2020-1-15 10:01:01
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
+        Assertions.assertEquals(ca.getCacheMode(), CacheMode.Sql);
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
         Types.PUniqueId sqlKey2 = CacheProxy.getMd5(cacheKey.replace("北京", "上海"));
-        Assert.assertNotEquals(CacheProxy.getMd5(sqlCache.getSqlWithViewStmt()), sqlKey2);
-        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
+        Assertions.assertNotEquals(CacheProxy.getMd5(sqlCache.getSqlWithViewStmt()), sqlKey2);
+        Assertions.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
     @Test
@@ -594,14 +594,14 @@ public class OlapQueryCacheTest {
         List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode(selectedPartitionIds));
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(1579053661000L); // 2020-1-15 10:01:01
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
+        Assertions.assertEquals(ca.getCacheMode(), CacheMode.Sql);
 
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT * from testDb.view1|SELECT `eventdate` AS `eventdate`, "
+        Assertions.assertEquals(cacheKey, "SELECT * from testDb.view1|SELECT `eventdate` AS `eventdate`, "
                 + "count(`userid`) AS `__count_1` FROM `testDb`.`appevent` "
                 + "WHERE ((`eventdate` >= '2020-01-12') AND (`eventdate` <= '2020-01-14')) GROUP BY `eventdate`");
-        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
+        Assertions.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
     @Test
@@ -619,17 +619,17 @@ public class OlapQueryCacheTest {
         List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode(selectedPartitionIds));
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(1579053661000L); // 2020-1-15 10:01:01
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
+        Assertions.assertEquals(ca.getCacheMode(), CacheMode.Sql);
 
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "select origin.eventdate as eventdate, origin.userid as userid\n"
+        Assertions.assertEquals(cacheKey, "select origin.eventdate as eventdate, origin.userid as userid\n"
                 + "from (\n"
                 + "    select view2.eventdate as eventdate, view2.userid as userid \n"
                 + "    from testDb.view2 view2 \n"
                 + "    where view2.eventdate >=\"2020-01-12\" and view2.eventdate <= \"2020-01-14\"\n"
                 + ") origin|SELECT `eventdate` AS `eventdate`, `userid` AS `userid` FROM `testDb`.`appevent`");
-        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
+        Assertions.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
     @Test
@@ -640,15 +640,15 @@ public class OlapQueryCacheTest {
         List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode(selectedPartitionIds));
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(1579053661000L); // 2020-1-15 10:01:01
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
+        Assertions.assertEquals(ca.getCacheMode(), CacheMode.Sql);
 
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT * from testDb.view4|SELECT `eventdate` AS `eventdate`, "
+        Assertions.assertEquals(cacheKey, "SELECT * from testDb.view4|SELECT `eventdate` AS `eventdate`, "
                 + "count(`userid`) AS `__count_1` FROM `testDb`.`view2` WHERE ((`eventdate` >= '2020-01-12') "
                 + "AND (`eventdate` <= '2020-01-14')) GROUP BY `eventdate`|SELECT `eventdate` AS `eventdate`, "
                 + "`userid` AS `userid` FROM `testDb`.`appevent`");
-        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
+        Assertions.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
     @Test
@@ -669,7 +669,7 @@ public class OlapQueryCacheTest {
         List<ScanNode> scanNodes = Lists.newArrayList(scanNode, scanNode, scanNode);
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(0);
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
-        Assert.assertEquals(selectedPartitionIds.size() * 3, ((SqlCache) ca.getCache()).getSumOfPartitionNum());
+        Assertions.assertEquals(ca.getCacheMode(), CacheMode.Sql);
+        Assertions.assertEquals(selectedPartitionIds.size() * 3, ((SqlCache) ca.getCache()).getSumOfPartitionNum());
     }
 }

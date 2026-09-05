@@ -17,8 +17,8 @@
 
 package org.apache.doris.mysql;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class MysqlCommandTest {
 
@@ -27,16 +27,16 @@ public class MysqlCommandTest {
         MysqlCommand command;
 
         command = MysqlCommand.fromCode(3);
-        Assert.assertEquals(command, MysqlCommand.COM_QUERY);
+        Assertions.assertEquals(command, MysqlCommand.COM_QUERY);
 
         command = MysqlCommand.fromCode(32);
-        Assert.assertNull(command);
+        Assertions.assertNull(command);
     }
 
     @Test
     public void testToString() {
         MysqlCommand command = MysqlCommand.fromCode(1);
-        Assert.assertEquals("Quit", command.toString());
+        Assertions.assertEquals("Quit", command.toString());
     }
 
 }

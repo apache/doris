@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.io;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -35,9 +35,9 @@ public class ByteBufferNetworkInputStreamTest {
         inputStream.markFinished();
 
         BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(inputStream));
-        Assert.assertEquals(bufferedReader.readLine(), "1\t2");
-        Assert.assertEquals(bufferedReader.readLine(), "2\t3");
-        Assert.assertNull(bufferedReader.readLine());
+        Assertions.assertEquals(bufferedReader.readLine(), "1\t2");
+        Assertions.assertEquals(bufferedReader.readLine(), "2\t3");
+        Assertions.assertNull(bufferedReader.readLine());
         bufferedReader.close();
     }
 
@@ -65,18 +65,18 @@ public class ByteBufferNetworkInputStreamTest {
                 int count = 0;
                 String line = bufferedReader.readLine();
                 while (line != null) {
-                    Assert.assertEquals(line, String.format("%d\t%d", count, count + 1));
+                    Assertions.assertEquals(line, String.format("%d\t%d", count, count + 1));
                     count++;
                     line = bufferedReader.readLine();
                 }
-                Assert.assertEquals(count, num);
+                Assertions.assertEquals(count, num);
             } catch (Exception e) {
                 e.printStackTrace();
             }
         });
         thread2.start();
         thread2.join();
-        Assert.assertFalse(thread1.isAlive());
+        Assertions.assertFalse(thread1.isAlive());
         inputStream.close();
     }
 
@@ -104,19 +104,19 @@ public class ByteBufferNetworkInputStreamTest {
                 int count = 0;
                 String line = bufferedReader.readLine();
                 while (line != null) {
-                    Assert.assertEquals(line, String.format("%d\t%d", count, count + 1));
+                    Assertions.assertEquals(line, String.format("%d\t%d", count, count + 1));
                     count++;
                     Thread.sleep(500);
                     line = bufferedReader.readLine();
                 }
-                Assert.assertEquals(count, num);
+                Assertions.assertEquals(count, num);
             } catch (Exception e) {
                 e.printStackTrace();
             }
         });
         thread2.start();
         thread2.join();
-        Assert.assertFalse(thread1.isAlive());
+        Assertions.assertFalse(thread1.isAlive());
         inputStream.close();
     }
 }

@@ -27,9 +27,9 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.Privilege;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -41,7 +41,7 @@ import java.util.Arrays;
 
 public class PrivInfoTest {
 
-    @Before
+    @BeforeEach
     public void setUp() {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
@@ -64,8 +64,8 @@ public class PrivInfoTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         PrivInfo anotherPrivInfo = PrivInfo.read(dis);
-        Assert.assertTrue(Arrays.equals(privInfo.getPasswd(), anotherPrivInfo.getPasswd()));
-        Assert.assertEquals(privInfo.getPasswordOptions().getExpirePolicySecond(), anotherPrivInfo.getPasswordOptions()
+        Assertions.assertTrue(Arrays.equals(privInfo.getPasswd(), anotherPrivInfo.getPasswd()));
+        Assertions.assertEquals(privInfo.getPasswordOptions().getExpirePolicySecond(), anotherPrivInfo.getPasswordOptions()
                 .getExpirePolicySecond());
         // 3. delete files
         dis.close();
@@ -88,9 +88,9 @@ public class PrivInfoTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         PrivInfo anotherPrivInfo = PrivInfo.read(dis);
-        Assert.assertTrue(Arrays.equals(privInfo.getPasswd(), anotherPrivInfo.getPasswd()));
-        Assert.assertEquals(PasswordOptions.UNSET, anotherPrivInfo.getPasswordOptions().getExpirePolicySecond());
-        Assert.assertEquals(privInfo.getTblPattern().getTbl(), anotherPrivInfo.getTblPattern().getTbl());
+        Assertions.assertTrue(Arrays.equals(privInfo.getPasswd(), anotherPrivInfo.getPasswd()));
+        Assertions.assertEquals(PasswordOptions.UNSET, anotherPrivInfo.getPasswordOptions().getExpirePolicySecond());
+        Assertions.assertEquals(privInfo.getTblPattern().getTbl(), anotherPrivInfo.getTblPattern().getTbl());
 
         // 3. delete files
         dis.close();
@@ -113,9 +113,9 @@ public class PrivInfoTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         PrivInfo anotherPrivInfo = PrivInfo.read(dis);
-        Assert.assertTrue(Arrays.equals(privInfo.getPasswd(), anotherPrivInfo.getPasswd()));
-        Assert.assertEquals(PasswordOptions.UNSET, anotherPrivInfo.getPasswordOptions().getExpirePolicySecond());
-        Assert.assertEquals(privInfo.getResourcePattern(), anotherPrivInfo.getResourcePattern());
+        Assertions.assertTrue(Arrays.equals(privInfo.getPasswd(), anotherPrivInfo.getPasswd()));
+        Assertions.assertEquals(PasswordOptions.UNSET, anotherPrivInfo.getPasswordOptions().getExpirePolicySecond());
+        Assertions.assertEquals(privInfo.getResourcePattern(), anotherPrivInfo.getResourcePattern());
 
         // 3. delete files
         dis.close();

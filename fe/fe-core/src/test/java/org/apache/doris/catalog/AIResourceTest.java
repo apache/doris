@@ -33,9 +33,9 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -62,7 +62,7 @@ public class AIResourceTest {
     private String retryDelaySecond;
     private Map<String, String> aiProperties;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         name = "openai-gpt";
         type = "ai";
@@ -102,20 +102,20 @@ public class AIResourceTest {
             createResourceCommand.getInfo().validate();
 
             AIResource aiResource = (AIResource) Resource.fromCommand(createResourceCommand);
-            Assert.assertEquals(name, aiResource.getName());
-            Assert.assertEquals(type, aiResource.getType().name().toLowerCase());
-            Assert.assertEquals(endpoint, aiResource.getProperty(AIProperties.ENDPOINT));
-            Assert.assertEquals(providerType.toUpperCase(), aiResource.getProperty(AIProperties.PROVIDER_TYPE));
-            Assert.assertEquals(apiKey, aiResource.getProperty(AIProperties.API_KEY));
-            Assert.assertEquals(modelName, aiResource.getProperty(AIProperties.MODEL_NAME));
+            Assertions.assertEquals(name, aiResource.getName());
+            Assertions.assertEquals(type, aiResource.getType().name().toLowerCase());
+            Assertions.assertEquals(endpoint, aiResource.getProperty(AIProperties.ENDPOINT));
+            Assertions.assertEquals(providerType.toUpperCase(), aiResource.getProperty(AIProperties.PROVIDER_TYPE));
+            Assertions.assertEquals(apiKey, aiResource.getProperty(AIProperties.API_KEY));
+            Assertions.assertEquals(modelName, aiResource.getProperty(AIProperties.MODEL_NAME));
 
-            Assert.assertEquals(AIProperties.DEFAULT_TEMPERATURE,
+            Assertions.assertEquals(AIProperties.DEFAULT_TEMPERATURE,
                     aiResource.getProperty(AIProperties.TEMPERATURE));
-            Assert.assertEquals(AIProperties.DEFAULT_MAX_TOKEN,
+            Assertions.assertEquals(AIProperties.DEFAULT_MAX_TOKEN,
                     aiResource.getProperty(AIProperties.MAX_TOKEN));
-            Assert.assertEquals(AIProperties.DEFAULT_MAX_RETRIES,
+            Assertions.assertEquals(AIProperties.DEFAULT_MAX_RETRIES,
                     aiResource.getProperty(AIProperties.MAX_RETRIES));
-            Assert.assertEquals(AIProperties.DEFAULT_RETRY_DELAY_SECOND,
+            Assertions.assertEquals(AIProperties.DEFAULT_RETRY_DELAY_SECOND,
                     aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
 
             // with no default settings
@@ -129,16 +129,16 @@ public class AIResourceTest {
             createResourceCommand.getInfo().validate();
 
             aiResource = (AIResource) Resource.fromCommand(createResourceCommand);
-            Assert.assertEquals(name, aiResource.getName());
-            Assert.assertEquals(type, aiResource.getType().name().toLowerCase());
-            Assert.assertEquals(endpoint, aiResource.getProperty(AIProperties.ENDPOINT));
-            Assert.assertEquals(providerType.toUpperCase(), aiResource.getProperty(AIProperties.PROVIDER_TYPE));
-            Assert.assertEquals(apiKey, aiResource.getProperty(AIProperties.API_KEY));
-            Assert.assertEquals(modelName, aiResource.getProperty(AIProperties.MODEL_NAME));
-            Assert.assertEquals(temperature, aiResource.getProperty(AIProperties.TEMPERATURE));
-            Assert.assertEquals(maxToken, aiResource.getProperty(AIProperties.MAX_TOKEN));
-            Assert.assertEquals(maxRetries, aiResource.getProperty(AIProperties.MAX_RETRIES));
-            Assert.assertEquals(retryDelaySecond, aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
+            Assertions.assertEquals(name, aiResource.getName());
+            Assertions.assertEquals(type, aiResource.getType().name().toLowerCase());
+            Assertions.assertEquals(endpoint, aiResource.getProperty(AIProperties.ENDPOINT));
+            Assertions.assertEquals(providerType.toUpperCase(), aiResource.getProperty(AIProperties.PROVIDER_TYPE));
+            Assertions.assertEquals(apiKey, aiResource.getProperty(AIProperties.API_KEY));
+            Assertions.assertEquals(modelName, aiResource.getProperty(AIProperties.MODEL_NAME));
+            Assertions.assertEquals(temperature, aiResource.getProperty(AIProperties.TEMPERATURE));
+            Assertions.assertEquals(maxToken, aiResource.getProperty(AIProperties.MAX_TOKEN));
+            Assertions.assertEquals(maxRetries, aiResource.getProperty(AIProperties.MAX_RETRIES));
+            Assertions.assertEquals(retryDelaySecond, aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
         }
     }
 
@@ -165,57 +165,61 @@ public class AIResourceTest {
             createResourceCommand.getInfo().validate();
 
             AIResource aiResource = (AIResource) Resource.fromCommand(createResourceCommand);
-            Assert.assertEquals("anthropic-claude", aiResource.getName());
-            Assert.assertEquals("ANTHROPIC", aiResource.getProperty(AIProperties.PROVIDER_TYPE));
-            Assert.assertEquals("https://api.anthropic.com/v1/messages",
+            Assertions.assertEquals("anthropic-claude", aiResource.getName());
+            Assertions.assertEquals("ANTHROPIC", aiResource.getProperty(AIProperties.PROVIDER_TYPE));
+            Assertions.assertEquals("https://api.anthropic.com/v1/messages",
                     aiResource.getProperty(AIProperties.ENDPOINT));
-            Assert.assertEquals("claude-opus-4-20250514", aiResource.getProperty(AIProperties.MODEL_NAME));
-            Assert.assertEquals("2023-06-01", aiResource.getProperty(AIProperties.ANTHROPIC_VERSION));
+            Assertions.assertEquals("claude-opus-4-20250514", aiResource.getProperty(AIProperties.MODEL_NAME));
+            Assertions.assertEquals("2023-06-01", aiResource.getProperty(AIProperties.ANTHROPIC_VERSION));
         }
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testAbnormalResource() throws UserException {
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            Env env = Mockito.mock(Env.class);
-            EditLog editLog = Mockito.mock(EditLog.class);
-            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getEditLog()).thenReturn(editLog);
-            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
-            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
-                    .thenReturn(true);
+        Assertions.assertThrows(DdlException.class, () -> {
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                Env env = Mockito.mock(Env.class);
+                EditLog editLog = Mockito.mock(EditLog.class);
+                AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                Mockito.when(env.getEditLog()).thenReturn(editLog);
+                Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+                Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                        .thenReturn(true);
 
-            aiProperties.remove("ai.endpoint");
-            CreateResourceCommand createResourceCommand = new CreateResourceCommand(
-                    new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
-            createResourceCommand.getInfo().validate();
+                aiProperties.remove("ai.endpoint");
+                CreateResourceCommand createResourceCommand = new CreateResourceCommand(
+                        new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
+                createResourceCommand.getInfo().validate();
 
-            Resource.fromCommand(createResourceCommand);
-        }
+                Resource.fromCommand(createResourceCommand);
+            }
+        });
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testInvalidProvider() throws UserException {
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            Env env = Mockito.mock(Env.class);
-            EditLog editLog = Mockito.mock(EditLog.class);
-            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getEditLog()).thenReturn(editLog);
-            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
-            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
-                    .thenReturn(true);
+        Assertions.assertThrows(DdlException.class, () -> {
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                Env env = Mockito.mock(Env.class);
+                EditLog editLog = Mockito.mock(EditLog.class);
+                AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                Mockito.when(env.getEditLog()).thenReturn(editLog);
+                Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+                Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                        .thenReturn(true);
 
-            // Invalid provider type
-            aiProperties.put("ai.provider_type", "invalid_provider");
+                // Invalid provider type
+                aiProperties.put("ai.provider_type", "invalid_provider");
 
-            CreateResourceCommand createResourceCommand = new CreateResourceCommand(
-                    new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
-            createResourceCommand.getInfo().validate();
+                CreateResourceCommand createResourceCommand = new CreateResourceCommand(
+                        new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
+                createResourceCommand.getInfo().validate();
 
-            Resource.fromCommand(createResourceCommand);
-        }
+                Resource.fromCommand(createResourceCommand);
+            }
+        });
     }
 
     @Test
@@ -250,17 +254,17 @@ public class AIResourceTest {
         AIResource rAiResource1 = (AIResource) Resource.read(aiDis);
         AIResource rAiResource2 = (AIResource) Resource.read(aiDis);
 
-        Assert.assertEquals("ai_1", rAiResource1.getName());
-        Assert.assertEquals("ai_2", rAiResource2.getName());
+        Assertions.assertEquals("ai_1", rAiResource1.getName());
+        Assertions.assertEquals("ai_2", rAiResource2.getName());
 
-        Assert.assertEquals(rAiResource2.getProperty(AIProperties.ENDPOINT), endpoint);
-        Assert.assertEquals(rAiResource2.getProperty(AIProperties.PROVIDER_TYPE), providerType.toUpperCase());
-        Assert.assertEquals(rAiResource2.getProperty(AIProperties.API_KEY), apiKey);
-        Assert.assertEquals(rAiResource2.getProperty(AIProperties.MODEL_NAME), modelName);
-        Assert.assertEquals(rAiResource2.getProperty(AIProperties.TEMPERATURE), AIProperties.DEFAULT_TEMPERATURE);
-        Assert.assertEquals(rAiResource2.getProperty(AIProperties.MAX_TOKEN), AIProperties.DEFAULT_MAX_TOKEN);
-        Assert.assertEquals(rAiResource2.getProperty(AIProperties.MAX_RETRIES), AIProperties.DEFAULT_MAX_RETRIES);
-        Assert.assertEquals(rAiResource2.getProperty(AIProperties.RETRY_DELAY_SECOND),
+        Assertions.assertEquals(rAiResource2.getProperty(AIProperties.ENDPOINT), endpoint);
+        Assertions.assertEquals(rAiResource2.getProperty(AIProperties.PROVIDER_TYPE), providerType.toUpperCase());
+        Assertions.assertEquals(rAiResource2.getProperty(AIProperties.API_KEY), apiKey);
+        Assertions.assertEquals(rAiResource2.getProperty(AIProperties.MODEL_NAME), modelName);
+        Assertions.assertEquals(rAiResource2.getProperty(AIProperties.TEMPERATURE), AIProperties.DEFAULT_TEMPERATURE);
+        Assertions.assertEquals(rAiResource2.getProperty(AIProperties.MAX_TOKEN), AIProperties.DEFAULT_MAX_TOKEN);
+        Assertions.assertEquals(rAiResource2.getProperty(AIProperties.MAX_RETRIES), AIProperties.DEFAULT_MAX_RETRIES);
+        Assertions.assertEquals(rAiResource2.getProperty(AIProperties.RETRY_DELAY_SECOND),
                             AIProperties.DEFAULT_RETRY_DELAY_SECOND);
 
         // 3. delete
@@ -286,8 +290,8 @@ public class AIResourceTest {
         modify.put("ai.temperature", "0.9");
         aiResource.modifyProperties(modify);
 
-        Assert.assertEquals("new_api_key", aiResource.getProperty(AIProperties.API_KEY));
-        Assert.assertEquals("0.9", aiResource.getProperty(AIProperties.TEMPERATURE));
+        Assertions.assertEquals("new_api_key", aiResource.getProperty(AIProperties.API_KEY));
+        Assertions.assertEquals("0.9", aiResource.getProperty(AIProperties.TEMPERATURE));
     }
 
     @Test
@@ -337,9 +341,9 @@ public class AIResourceTest {
         AIResource localResource = new AIResource("local-resource");
         localResource.setProperties(ImmutableMap.copyOf(localProps));
 
-        Assert.assertEquals("OPENAI", openaiResource.getProperty(AIProperties.PROVIDER_TYPE));
-        Assert.assertEquals("GEMINI", geminiResource.getProperty(AIProperties.PROVIDER_TYPE));
-        Assert.assertEquals("ANTHROPIC", anthropicResource.getProperty(AIProperties.PROVIDER_TYPE));
-        Assert.assertEquals("LOCAL", localResource.getProperty(AIProperties.PROVIDER_TYPE));
+        Assertions.assertEquals("OPENAI", openaiResource.getProperty(AIProperties.PROVIDER_TYPE));
+        Assertions.assertEquals("GEMINI", geminiResource.getProperty(AIProperties.PROVIDER_TYPE));
+        Assertions.assertEquals("ANTHROPIC", anthropicResource.getProperty(AIProperties.PROVIDER_TYPE));
+        Assertions.assertEquals("LOCAL", localResource.getProperty(AIProperties.PROVIDER_TYPE));
     }
 }

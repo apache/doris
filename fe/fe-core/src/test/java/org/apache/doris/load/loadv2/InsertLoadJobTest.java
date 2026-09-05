@@ -25,8 +25,8 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -58,10 +58,10 @@ public class InsertLoadJobTest {
             Mockito.when(table.getName()).thenReturn(tableName);
 
             Set<String> tableNames = insertLoadJob.getTableNamesForShow();
-            Assert.assertEquals(1, tableNames.size());
-            Assert.assertTrue(tableNames.contains(tableName));
-            Assert.assertEquals(JobState.FINISHED, insertLoadJob.getState());
-            Assert.assertEquals(Integer.valueOf(100), Deencapsulation.getField(insertLoadJob, "progress"));
+            Assertions.assertEquals(1, tableNames.size());
+            Assertions.assertTrue(tableNames.contains(tableName));
+            Assertions.assertEquals(JobState.FINISHED, insertLoadJob.getState());
+            Assertions.assertEquals(Integer.valueOf(100), Deencapsulation.getField(insertLoadJob, "progress"));
         }
     }
 }

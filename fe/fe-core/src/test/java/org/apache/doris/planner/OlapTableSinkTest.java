@@ -29,8 +29,8 @@ import org.apache.doris.thrift.TOlapTablePartition;
 import org.apache.doris.thrift.TTabletLocation;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -62,7 +62,7 @@ public class OlapTableSinkTest {
             OlapTableSink sink = new OlapTableSink(table, null, Collections.emptyList());
             TOlapTableLocationParam location = sink.createDummyLocation(table);
 
-            Assert.assertEquals(Collections.singletonList(1L),
+            Assertions.assertEquals(Collections.singletonList(1L),
                     location.getTablets().get(0).getNodeIds());
             Mockito.verify(systemInfoService, Mockito.never()).getAllBackendIds(true);
             Mockito.verify(systemInfoService).getBackendsByCurrentCluster();
@@ -87,10 +87,10 @@ public class OlapTableSinkTest {
             OlapTableSink sink = new OlapTableSink(table, null, Collections.emptyList());
             TOlapTableLocationParam location = sink.createDummyLocation(table);
 
-            Assert.assertEquals(2, location.getTabletsSize());
-            Assert.assertEquals(Collections.singletonList(1L),
+            Assertions.assertEquals(2, location.getTabletsSize());
+            Assertions.assertEquals(Collections.singletonList(1L),
                     location.getTablets().get(0).getNodeIds());
-            Assert.assertEquals(Collections.singletonList(1L),
+            Assertions.assertEquals(Collections.singletonList(1L),
                     location.getTablets().get(1).getNodeIds());
         }
     }
@@ -115,26 +115,26 @@ public class OlapTableSinkTest {
                         Arrays.asList(10L, 20L), Arrays.asList(partition), locations, 2);
 
         AdaptiveBucketAssignment be10Assignment = assignments.get(10L).get(1000L);
-        Assert.assertEquals(0, be10Assignment.getLoadTabletIdx());
-        Assert.assertEquals(10L, be10Assignment.getBucketBeId());
-        Assert.assertEquals(Arrays.asList(0), be10Assignment.getLocalBucketSeqs());
+        Assertions.assertEquals(0, be10Assignment.getLoadTabletIdx());
+        Assertions.assertEquals(10L, be10Assignment.getBucketBeId());
+        Assertions.assertEquals(Arrays.asList(0), be10Assignment.getLocalBucketSeqs());
         assertIndexAssignment(be10Assignment, 1L, 10L, Arrays.asList(0));
         assertIndexAssignment(be10Assignment, 2L, 20L, Arrays.asList(0));
 
         AdaptiveBucketAssignment be20Assignment = assignments.get(20L).get(1000L);
-        Assert.assertEquals(1, be20Assignment.getLoadTabletIdx());
-        Assert.assertEquals(20L, be20Assignment.getBucketBeId());
-        Assert.assertEquals(Arrays.asList(1), be20Assignment.getLocalBucketSeqs());
+        Assertions.assertEquals(1, be20Assignment.getLoadTabletIdx());
+        Assertions.assertEquals(20L, be20Assignment.getBucketBeId());
+        Assertions.assertEquals(Arrays.asList(1), be20Assignment.getLocalBucketSeqs());
         assertIndexAssignment(be20Assignment, 1L, 20L, Arrays.asList(1));
         assertIndexAssignment(be20Assignment, 2L, 10L, Arrays.asList(1));
 
         OlapTableSink.applyAdaptiveRandomBucketAssignments(Arrays.asList(partition), assignments.get(10L));
-        Assert.assertEquals(10L, partition.getBucketBeId());
-        Assert.assertEquals(Arrays.asList(0), partition.getLocalBucketSeqs());
-        Assert.assertEquals(10L, partition.getIndexes().get(0).getBucketBeId());
-        Assert.assertEquals(Arrays.asList(0), partition.getIndexes().get(0).getLocalBucketSeqs());
-        Assert.assertEquals(20L, partition.getIndexes().get(1).getBucketBeId());
-        Assert.assertEquals(Arrays.asList(0), partition.getIndexes().get(1).getLocalBucketSeqs());
+        Assertions.assertEquals(10L, partition.getBucketBeId());
+        Assertions.assertEquals(Arrays.asList(0), partition.getLocalBucketSeqs());
+        Assertions.assertEquals(10L, partition.getIndexes().get(0).getBucketBeId());
+        Assertions.assertEquals(Arrays.asList(0), partition.getIndexes().get(0).getLocalBucketSeqs());
+        Assertions.assertEquals(20L, partition.getIndexes().get(1).getBucketBeId());
+        Assertions.assertEquals(Arrays.asList(0), partition.getIndexes().get(1).getLocalBucketSeqs());
     }
 
     @Test
@@ -161,28 +161,28 @@ public class OlapTableSinkTest {
                         Arrays.asList(10L, 20L, 30L, 40L), Arrays.asList(partition), locations, 4);
 
         AdaptiveBucketAssignment be10Assignment = assignments.get(10L).get(1001L);
-        Assert.assertEquals(0, be10Assignment.getLoadTabletIdx());
-        Assert.assertEquals(10L, be10Assignment.getBucketBeId());
-        Assert.assertEquals(Arrays.asList(0, 1), be10Assignment.getLocalBucketSeqs());
+        Assertions.assertEquals(0, be10Assignment.getLoadTabletIdx());
+        Assertions.assertEquals(10L, be10Assignment.getBucketBeId());
+        Assertions.assertEquals(Arrays.asList(0, 1), be10Assignment.getLocalBucketSeqs());
         assertIndexAssignment(be10Assignment, 2L, 30L, Arrays.asList(0, 1, 2, 3));
 
         AdaptiveBucketAssignment be20Assignment = assignments.get(20L).get(1001L);
-        Assert.assertEquals(2, be20Assignment.getLoadTabletIdx());
-        Assert.assertEquals(20L, be20Assignment.getBucketBeId());
-        Assert.assertEquals(Arrays.asList(2, 3), be20Assignment.getLocalBucketSeqs());
+        Assertions.assertEquals(2, be20Assignment.getLoadTabletIdx());
+        Assertions.assertEquals(20L, be20Assignment.getBucketBeId());
+        Assertions.assertEquals(Arrays.asList(2, 3), be20Assignment.getLocalBucketSeqs());
         assertIndexAssignment(be20Assignment, 2L, 30L, Arrays.asList(0, 1, 2, 3));
 
         AdaptiveBucketAssignment be30Assignment = assignments.get(30L).get(1001L);
-        Assert.assertEquals(be10Assignment.getLoadTabletIdx(), be30Assignment.getLoadTabletIdx());
-        Assert.assertEquals(be10Assignment.getBucketBeId(), be30Assignment.getBucketBeId());
-        Assert.assertEquals(be10Assignment.getLocalBucketSeqs(), be30Assignment.getLocalBucketSeqs());
+        Assertions.assertEquals(be10Assignment.getLoadTabletIdx(), be30Assignment.getLoadTabletIdx());
+        Assertions.assertEquals(be10Assignment.getBucketBeId(), be30Assignment.getBucketBeId());
+        Assertions.assertEquals(be10Assignment.getLocalBucketSeqs(), be30Assignment.getLocalBucketSeqs());
         assertIndexAssignment(be30Assignment, 1L, 10L, Arrays.asList(0, 1));
         assertIndexAssignment(be30Assignment, 2L, 30L, Arrays.asList(0, 1, 2, 3));
 
         AdaptiveBucketAssignment be40Assignment = assignments.get(40L).get(1001L);
-        Assert.assertEquals(be20Assignment.getLoadTabletIdx(), be40Assignment.getLoadTabletIdx());
-        Assert.assertEquals(be20Assignment.getBucketBeId(), be40Assignment.getBucketBeId());
-        Assert.assertEquals(be20Assignment.getLocalBucketSeqs(), be40Assignment.getLocalBucketSeqs());
+        Assertions.assertEquals(be20Assignment.getLoadTabletIdx(), be40Assignment.getLoadTabletIdx());
+        Assertions.assertEquals(be20Assignment.getBucketBeId(), be40Assignment.getBucketBeId());
+        Assertions.assertEquals(be20Assignment.getLocalBucketSeqs(), be40Assignment.getLocalBucketSeqs());
         assertIndexAssignment(be40Assignment, 1L, 20L, Arrays.asList(2, 3));
         assertIndexAssignment(be40Assignment, 2L, 30L, Arrays.asList(0, 1, 2, 3));
     }
@@ -190,9 +190,9 @@ public class OlapTableSinkTest {
     private void assertIndexAssignment(AdaptiveBucketAssignment assignment, long indexId, long bucketBeId,
             List<Integer> localBucketSeqs) {
         AdaptiveIndexBucketAssignment indexAssignment = assignment.getIndexAssignments().get(indexId);
-        Assert.assertNotNull(indexAssignment);
-        Assert.assertEquals(indexId, indexAssignment.getIndexId());
-        Assert.assertEquals(bucketBeId, indexAssignment.getBucketBeId());
-        Assert.assertEquals(localBucketSeqs, indexAssignment.getLocalBucketSeqs());
+        Assertions.assertNotNull(indexAssignment);
+        Assertions.assertEquals(indexId, indexAssignment.getIndexId());
+        Assertions.assertEquals(bucketBeId, indexAssignment.getBucketBeId());
+        Assertions.assertEquals(localBucketSeqs, indexAssignment.getLocalBucketSeqs());
     }
 }

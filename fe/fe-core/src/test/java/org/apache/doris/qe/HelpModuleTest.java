@@ -24,9 +24,9 @@ import org.apache.doris.qe.help.HelpTopic;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Ignore;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 
 import java.io.IOException;
 import java.net.URL;
@@ -45,7 +45,7 @@ public class HelpModuleTest {
     // Topic
     //      - SHOW TABLES
     //      - SELECT TIME
-    @Before
+    @BeforeEach
     public void setUp() {
         categories = Lists.newArrayList();
         topics = Lists.newArrayList();
@@ -98,83 +98,83 @@ public class HelpModuleTest {
         System.out.println(HelpModuleTest.class.getClassLoader().getResource(""));
     }
 
-    @Ignore
+    @Disabled
     public void testNormal() throws IOException, UserException {
         HelpModule module = new HelpModule();
         URL help = getClass().getClassLoader().getResource("data/help");
         module.setUp(help.getPath());
 
         HelpTopic topic = module.getTopic("SELECT TIME");
-        Assert.assertNotNull(topic);
+        Assertions.assertNotNull(topic);
 
         topic = module.getTopic("select time");
-        Assert.assertNotNull(topic);
+        Assertions.assertNotNull(topic);
 
         // Must ordered by alpha.
         List<String> categories = module.listCategoryByCategory("Admin");
-        Assert.assertEquals(2, categories.size());
-        Assert.assertTrue(Arrays.equals(categories.toArray(), Lists.newArrayList("Select", "Show").toArray()));
+        Assertions.assertEquals(2, categories.size());
+        Assertions.assertTrue(Arrays.equals(categories.toArray(), Lists.newArrayList("Select", "Show").toArray()));
         // topics
         List<String> topics = module.listTopicByKeyword("SHOW");
-        Assert.assertEquals(1, topics.size());
-        Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray()));
+        Assertions.assertEquals(1, topics.size());
+        Assertions.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray()));
 
         topics = module.listTopicByKeyword("SELECT");
-        Assert.assertEquals(1, topics.size());
-        Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SELECT TIME").toArray()));
+        Assertions.assertEquals(1, topics.size());
+        Assertions.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SELECT TIME").toArray()));
 
         topics = module.listTopicByCategory("selEct");
-        Assert.assertEquals(1, topics.size());
-        Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SELECT TIME").toArray()));
+        Assertions.assertEquals(1, topics.size());
+        Assertions.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SELECT TIME").toArray()));
 
         topics = module.listTopicByCategory("show");
-        Assert.assertEquals(1, topics.size());
-        Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray()));
+        Assertions.assertEquals(1, topics.size());
+        Assertions.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray()));
 
-        Assert.assertTrue(Arrays.equals(module.listCategoryByName("ADMIN").toArray(),
+        Assertions.assertTrue(Arrays.equals(module.listCategoryByName("ADMIN").toArray(),
                 Lists.newArrayList("Admin").toArray()));
     }
 
-    @Ignore
+    @Disabled
     public void testLoadFromZip() throws IOException, UserException {
         HelpModule module = new HelpModule();
         URL help = getClass().getClassLoader().getResource("test-help-resource.zip");
         module.setUpByZip(help.getPath());
 
         HelpTopic topic = module.getTopic("SELECT TIME");
-        Assert.assertNotNull(topic);
+        Assertions.assertNotNull(topic);
 
         topic = module.getTopic("select time");
-        Assert.assertNotNull(topic);
+        Assertions.assertNotNull(topic);
 
         // Must ordered by alpha.
         List<String> categories = module.listCategoryByCategory("Admin");
-        Assert.assertEquals(2, categories.size());
-        Assert.assertTrue(Arrays.equals(categories.toArray(), Lists.newArrayList("Select", "Show").toArray()));
+        Assertions.assertEquals(2, categories.size());
+        Assertions.assertTrue(Arrays.equals(categories.toArray(), Lists.newArrayList("Select", "Show").toArray()));
         // topics
         List<String> topics = module.listTopicByKeyword("SHOW");
-        Assert.assertEquals(1, topics.size());
-        Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray()));
+        Assertions.assertEquals(1, topics.size());
+        Assertions.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray()));
 
         topics = module.listTopicByKeyword("SELECT");
-        Assert.assertEquals(1, topics.size());
-        Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SELECT TIME").toArray()));
+        Assertions.assertEquals(1, topics.size());
+        Assertions.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SELECT TIME").toArray()));
 
         topics = module.listTopicByCategory("selEct");
-        Assert.assertEquals(1, topics.size());
-        Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SELECT TIME").toArray()));
+        Assertions.assertEquals(1, topics.size());
+        Assertions.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SELECT TIME").toArray()));
 
         topics = module.listTopicByCategory("show");
-        Assert.assertEquals(1, topics.size());
-        Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray()));
+        Assertions.assertEquals(1, topics.size());
+        Assertions.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray()));
 
-        Assert.assertTrue(Arrays.equals(module.listCategoryByName("ADMIN").toArray(),
+        Assertions.assertTrue(Arrays.equals(module.listCategoryByName("ADMIN").toArray(),
                 Lists.newArrayList("Admin").toArray()));
     }
 
     // Need first call docs/build_help_resource.sh to build real help resource.
     // And copy docs/build/help-resource.zip to fe/fe-core/src/test/resources/real-help-resource.zip
-    @Ignore
+    @Disabled
     public void testRealHelpZip() {
         try {
             HelpModule.getInstance().setUpModule("real-help-resource.zip");

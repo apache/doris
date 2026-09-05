@@ -27,11 +27,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -46,7 +44,7 @@ public class ListUtilTest {
     private static List<PartitionKey> listB = new ArrayList<>();
     private static List<PartitionKey> listC = new ArrayList<>();
 
-    @BeforeClass
+    @BeforeAll
     public static void setUp() throws AnalysisException {
         Column charString = new Column("char", PrimitiveType.CHAR);
         Column varchar = new Column("varchar", PrimitiveType.VARCHAR);
@@ -65,9 +63,6 @@ public class ListUtilTest {
         listC.add(pk3);
     }
 
-    @Rule
-    public ExpectedException expectedEx = ExpectedException.none();
-
     @Test
     public void testSplitBySizeNormal() {
         List<Integer> lists = Lists.newArrayList(1, 2, 3, 4, 5, 6, 7);
@@ -75,10 +70,10 @@ public class ListUtilTest {
 
         List<List<Integer>> splitLists = ListUtil.splitBySize(lists, expectSize);
 
-        Assert.assertEquals(splitLists.size(), 3);
-        Assert.assertEquals(splitLists.get(0).size(), 3);
-        Assert.assertEquals(splitLists.get(1).size(), 2);
-        Assert.assertEquals(splitLists.get(2).size(), 2);
+        Assertions.assertEquals(splitLists.size(), 3);
+        Assertions.assertEquals(splitLists.get(0).size(), 3);
+        Assertions.assertEquals(splitLists.get(1).size(), 2);
+        Assertions.assertEquals(splitLists.get(2).size(), 2);
     }
 
     @Test
@@ -88,8 +83,8 @@ public class ListUtilTest {
 
         List<List<Integer>> splitLists = ListUtil.splitBySize(lists, expectSize);
 
-        Assert.assertEquals(splitLists.size(), 1);
-        Assert.assertEquals(lists, splitLists.get(0));
+        Assertions.assertEquals(splitLists.size(), 1);
+        Assertions.assertEquals(lists, splitLists.get(0));
     }
 
     @Test
@@ -99,10 +94,10 @@ public class ListUtilTest {
 
         List<List<Integer>> splitLists = ListUtil.splitBySize(lists, expectSize);
 
-        Assert.assertEquals(splitLists.size(), lists.size());
-        Assert.assertEquals(1, (int) splitLists.get(0).get(0));
-        Assert.assertEquals(2, (int) splitLists.get(1).get(0));
-        Assert.assertEquals(3, (int) splitLists.get(2).get(0));
+        Assertions.assertEquals(splitLists.size(), lists.size());
+        Assertions.assertEquals(1, (int) splitLists.get(0).get(0));
+        Assertions.assertEquals(2, (int) splitLists.get(1).get(0));
+        Assertions.assertEquals(3, (int) splitLists.get(2).get(0));
     }
 
     @Test
@@ -112,7 +107,7 @@ public class ListUtilTest {
 
         List<List<Integer>> splitLists = ListUtil.splitBySize(lists, expectSize);
 
-        Assert.assertEquals(splitLists.size(), lists.size());
+        Assertions.assertEquals(splitLists.size(), lists.size());
     }
 
     @Test
@@ -120,10 +115,11 @@ public class ListUtilTest {
         List<Integer> lists = null;
         int expectSize = 10;
 
-        expectedEx.expect(NullPointerException.class);
-        expectedEx.expectMessage("list must not be null");
-
-        ListUtil.splitBySize(lists, expectSize);
+        NullPointerException e = Assertions.assertThrows(NullPointerException.class, () -> {
+            ListUtil.splitBySize(lists, expectSize);
+        });
+        Assertions.assertTrue(e.getMessage().contains("list must not be null"),
+                "unexpected message: " + e.getMessage());
     }
 
     @Test
@@ -131,10 +127,11 @@ public class ListUtilTest {
         List<Integer> lists = Lists.newArrayList(1, 2, 3);
         int expectSize = -1;
 
-        expectedEx.expect(IllegalArgumentException.class);
-        expectedEx.expectMessage("expectedSize must larger than 0");
-
-        ListUtil.splitBySize(lists, expectSize);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            ListUtil.splitBySize(lists, expectSize);
+        });
+        Assertions.assertTrue(e.getMessage().contains("expectedSize must larger than 0"),
+                "unexpected message: " + e.getMessage());
     }
 
     @Test
@@ -147,20 +144,24 @@ public class ListUtilTest {
 
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testListsMatchSameSize() throws DdlException {
-        List<PartitionItem> list1 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB));
-        List<PartitionItem> list2 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listC));
+        Assertions.assertThrows(DdlException.class, () -> {
+            List<PartitionItem> list1 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB));
+            List<PartitionItem> list2 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listC));
 
-        ListUtil.checkPartitionKeyListsMatch(list1, list2);
+            ListUtil.checkPartitionKeyListsMatch(list1, list2);
+        });
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testListMatchDiffSize() throws DdlException {
-        List<PartitionItem> list1 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB));
-        List<PartitionItem> list2 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB),
-                new ListPartitionItem(listC));
+        Assertions.assertThrows(DdlException.class, () -> {
+            List<PartitionItem> list1 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB));
+            List<PartitionItem> list2 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB),
+                    new ListPartitionItem(listC));
 
-        ListUtil.checkPartitionKeyListsMatch(list1, list2);
+            ListUtil.checkPartitionKeyListsMatch(list1, list2);
+        });
     }
 }

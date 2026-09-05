@@ -21,8 +21,8 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -35,7 +35,7 @@ import java.util.List;
 public class GlobalVarPersistInfoTest {
     private static String fileName = "./GlobalVarPersistInfoTest";
 
-    @After
+    @AfterEach
     public void tearDown() {
         File file = new File(fileName);
         file.delete();

@@ -20,8 +20,8 @@ package org.apache.doris.datasource.metacache;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.connector.cache.CacheSpec;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -85,7 +85,6 @@ public class MetaCacheDeadlockTest {
         executor.shutdown();
         boolean terminated = executor.awaitTermination(1, TimeUnit.SECONDS);
 
-        Assert.assertTrue("FeMetaCacheEntry deadlock detected. Ensure sync removal listeners use direct execution.",
-                completed && terminated);
+        Assertions.assertTrue(completed && terminated, "FeMetaCacheEntry deadlock detected. Ensure sync removal listeners use direct execution.");
     }
 }

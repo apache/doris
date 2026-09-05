@@ -25,8 +25,8 @@ import org.apache.doris.resource.workloadschedpolicy.WorkloadMetricType;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadQueryInfo;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -51,11 +51,11 @@ public class WorkloadSchedTest {
                 queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "101");
 
                 // match
-                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
                 // not match
                 queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
-                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
             }
 
             // 1.2 >=
@@ -72,11 +72,11 @@ public class WorkloadSchedTest {
                 queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
 
                 // match
-                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
                 // not match
                 queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "10");
-                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
             }
 
             // 1.3 =
@@ -93,11 +93,11 @@ public class WorkloadSchedTest {
                 queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
 
                 // match
-                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
                 // not match
                 queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "10");
-                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
             }
 
             // 1.4 <
@@ -114,11 +114,11 @@ public class WorkloadSchedTest {
                 queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "99");
 
                 // match
-                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
                 // not match
                 queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
-                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
             }
 
             // 1.5 <=
@@ -135,11 +135,11 @@ public class WorkloadSchedTest {
                 queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
 
                 // match
-                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
                 // not match
                 queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "101");
-                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
             }
 
             // 2 string compare
@@ -156,11 +156,11 @@ public class WorkloadSchedTest {
                 queryInfo.metricMap.put(WorkloadMetricType.USERNAME, "root");
 
                 // match
-                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
                 // not match
                 queryInfo.metricMap.put(WorkloadMetricType.USERNAME, "abc");
-                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
             }
 
             // 3 mixed condition
@@ -181,15 +181,15 @@ public class WorkloadSchedTest {
                 queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
 
                 // match
-                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
                 // not match 1
                 queryInfo.metricMap.remove(WorkloadMetricType.USERNAME);
-                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
 
                 // not match 2
                 queryInfo.metricMap.put(WorkloadMetricType.USERNAME, "abc");
-                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+                Assertions.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
             }
 
     }

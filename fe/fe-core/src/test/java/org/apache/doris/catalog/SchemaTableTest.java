@@ -35,8 +35,8 @@ import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 

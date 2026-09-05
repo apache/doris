@@ -23,8 +23,8 @@ import org.apache.doris.common.AuthorizationException;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
@@ -134,8 +134,8 @@ public class CatalogAccessControllerTest {
 
         boolean result = controller.checkCtlPriv(true, user, "ctl", PrivPredicate.SELECT);
 
-        Assert.assertTrue(result);
-        Assert.assertFalse(controller.ctlPrivCalled.get());
+        Assertions.assertTrue(result);
+        Assertions.assertFalse(controller.ctlPrivCalled.get());
     }
 
     @Test
@@ -145,8 +145,8 @@ public class CatalogAccessControllerTest {
 
         boolean result = controller.checkCtlPriv(false, user, "ctl", PrivPredicate.SELECT);
 
-        Assert.assertTrue(result);
-        Assert.assertTrue(controller.ctlPrivCalled.get());
+        Assertions.assertTrue(result);
+        Assertions.assertTrue(controller.ctlPrivCalled.get());
     }
 
     @Test
@@ -156,8 +156,8 @@ public class CatalogAccessControllerTest {
 
         boolean result = controller.checkCtlPriv(false, user, "ctl", PrivPredicate.SELECT);
 
-        Assert.assertFalse(result);
-        Assert.assertTrue(controller.ctlPrivCalled.get());
+        Assertions.assertFalse(result);
+        Assertions.assertTrue(controller.ctlPrivCalled.get());
     }
 
     @Test
@@ -167,8 +167,8 @@ public class CatalogAccessControllerTest {
 
         boolean result = controller.checkDbPriv(true, user, "ctl", "db", PrivPredicate.SELECT);
 
-        Assert.assertTrue(result);
-        Assert.assertFalse(controller.dbPrivCalled.get());
+        Assertions.assertTrue(result);
+        Assertions.assertFalse(controller.dbPrivCalled.get());
     }
 
     @Test
@@ -178,8 +178,8 @@ public class CatalogAccessControllerTest {
 
         boolean result = controller.checkDbPriv(false, user, "ctl", "db", PrivPredicate.SELECT);
 
-        Assert.assertTrue(result);
-        Assert.assertTrue(controller.dbPrivCalled.get());
+        Assertions.assertTrue(result);
+        Assertions.assertTrue(controller.dbPrivCalled.get());
     }
 
     @Test
@@ -189,8 +189,8 @@ public class CatalogAccessControllerTest {
 
         boolean result = controller.checkDbPriv(false, user, "ctl", "db", PrivPredicate.SELECT);
 
-        Assert.assertFalse(result);
-        Assert.assertTrue(controller.dbPrivCalled.get());
+        Assertions.assertFalse(result);
+        Assertions.assertTrue(controller.dbPrivCalled.get());
     }
 
     @Test
@@ -200,8 +200,8 @@ public class CatalogAccessControllerTest {
 
         boolean result = controller.checkTblPriv(true, user, "ctl", "db", "tbl", PrivPredicate.SELECT);
 
-        Assert.assertTrue(result);
-        Assert.assertFalse(controller.tblPrivCalled.get());
+        Assertions.assertTrue(result);
+        Assertions.assertFalse(controller.tblPrivCalled.get());
     }
 
     @Test
@@ -211,8 +211,8 @@ public class CatalogAccessControllerTest {
 
         boolean result = controller.checkTblPriv(false, user, "ctl", "db", "tbl", PrivPredicate.SELECT);
 
-        Assert.assertTrue(result);
-        Assert.assertTrue(controller.tblPrivCalled.get());
+        Assertions.assertTrue(result);
+        Assertions.assertTrue(controller.tblPrivCalled.get());
     }
 
     @Test
@@ -222,8 +222,8 @@ public class CatalogAccessControllerTest {
 
         boolean result = controller.checkTblPriv(false, user, "ctl", "db", "tbl", PrivPredicate.SELECT);
 
-        Assert.assertFalse(result);
-        Assert.assertTrue(controller.tblPrivCalled.get());
+        Assertions.assertFalse(result);
+        Assertions.assertTrue(controller.tblPrivCalled.get());
     }
 
     @Test
@@ -233,7 +233,7 @@ public class CatalogAccessControllerTest {
 
         controller.checkColsPriv(true, user, "ctl", "db", "tbl", ImmutableSet.of("col1"), PrivPredicate.SELECT);
 
-        Assert.assertFalse(controller.colsPrivCalled.get());
+        Assertions.assertFalse(controller.colsPrivCalled.get());
     }
 
     @Test
@@ -243,7 +243,7 @@ public class CatalogAccessControllerTest {
 
         controller.checkColsPriv(false, user, "ctl", "db", "tbl", ImmutableSet.of("col1"), PrivPredicate.SELECT);
 
-        Assert.assertTrue(controller.colsPrivCalled.get());
+        Assertions.assertTrue(controller.colsPrivCalled.get());
     }
 
     @Test
@@ -251,8 +251,8 @@ public class CatalogAccessControllerTest {
         StubAccessController controller = new StubAccessController(false, false, false, false);
         UserIdentity user = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
 
-        Assert.assertThrows(AuthorizationException.class, () ->
+        Assertions.assertThrows(AuthorizationException.class, () ->
                 controller.checkColsPriv(false, user, "ctl", "db", "tbl", ImmutableSet.of("col1"), PrivPredicate.SELECT));
-        Assert.assertTrue(controller.colsPrivCalled.get());
+        Assertions.assertTrue(controller.colsPrivCalled.get());
     }
 }
