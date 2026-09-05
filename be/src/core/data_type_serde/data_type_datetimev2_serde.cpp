@@ -104,7 +104,6 @@ Status append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
     static constexpr int64_t MICROS_PER_MINUTE = MICROS_PER_SECOND * 60;
     static constexpr int64_t MICROS_PER_HOUR = MICROS_PER_MINUTE * 60;
     static constexpr int64_t MICROS_PER_DAY = MICROS_PER_HOUR * 24;
-    static const int64_t EPOCH_DAYNR = calc_daynr(1970, 1, 1);
 
     int64_t days_since_epoch = timestamp_micros / MICROS_PER_DAY;
     int64_t micros_of_day = timestamp_micros % MICROS_PER_DAY;
@@ -113,11 +112,16 @@ Status append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
         --days_since_epoch;
     }
 
-    const int64_t daynr = EPOCH_DAYNR + days_since_epoch;
-    if (daynr <= 0) {
+    // A local Parquet timestamp carries a civil value whose day ordinal is defined in the
+    // proleptic Gregorian calendar, while Doris numbers days in MySQL's calendar, where year 0 is
+    // not a leap year. Adding `calc_daynr(1970, 1, 1)` directly conflates the two and shifts
+    // 0000-01-01 .. 0000-02-28 one day early. `epoch_days_to_daynr()` bridges them and returns 0
+    // for everything Doris cannot represent, including the proleptic-only 0000-02-29.
+    const int64_t daynr = epoch_days_to_daynr(days_since_epoch);
+    if (daynr == 0) {
         return Status::DataQualityError(
-                "Decoded DATETIMEV2 timestamp is out of range: micros={}, daynr={}",
-                timestamp_micros, daynr);
+                "Decoded DATETIMEV2 timestamp is out of range: micros={}, epoch_days={}",
+                timestamp_micros, days_since_epoch);
     }
 
     DateV2Value<DateTimeV2ValueType> datetime_value;
@@ -154,6 +158,11 @@ Status append_datetimev2_from_utc_epoch_micros(ColumnDateTimeV2::Container& data
     DateV2Value<DateTimeV2ValueType> datetime_value;
     datetime_value.from_unixtime(epoch_seconds, timezone);
     datetime_value.set_microsecond(static_cast<uint32_t>(micros_of_second));
+    // The civil range has to be checked here, after the offset is applied, not on the raw instant:
+    // a local 0001-01-01 00:00:00 east of UTC is an instant below the civil minimum, and a local
+    // 9999-12-31 23:59:59 west of it is an instant above the maximum. cctz resolves year 0 (it
+    // uses the proleptic Gregorian calendar), and a year outside 0..9999 fails the check below
+    // because `from_unixtime()` narrows it into a `uint16_t`.
     if (!datetime_value.is_valid_date()) {
         return Status::DataQualityError(
                 "Decoded DATETIMEV2 timestamp is outside the target timezone range: micros={}",

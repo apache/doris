@@ -588,6 +588,31 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
+    public void buildRangeYearZeroRendersProlepticYear() {
+        // day ordinal -719528 is 0000-01-01: Iceberg ordinals are proleptic Gregorian, where year 0
+        // exists. MUTATION: a "yyyy" (year-of-era) pattern renders 0001-01-01 here, colliding with
+        // the range of the real 0001-01-01 partition (ordinal -719162).
+        IcebergPartitionUtils.RangeBuild rb = IcebergPartitionUtils.buildRange(
+                "d_day=-719528", "-719528", "day", Types.DateType.get(), 1L, 1L);
+        Assertions.assertEquals(Collections.singletonList("0000-01-01"), rb.getLowerBound());
+        Assertions.assertEquals(Collections.singletonList("0000-01-02"), rb.getUpperBound());
+
+        IcebergPartitionUtils.RangeBuild year1 = IcebergPartitionUtils.buildRange(
+                "d_day=-719162", "-719162", "day", Types.DateType.get(), 1L, 1L);
+        Assertions.assertEquals(Collections.singletonList("0001-01-01"), year1.getLowerBound());
+        Assertions.assertNotEquals(rb.getLowerBound(), year1.getLowerBound());
+    }
+
+    @Test
+    public void buildRangeYearZeroHourRendersProlepticYear() {
+        // hour ordinal -17268672 is 0000-01-01 00:00:00 (-719528 * 24).
+        IcebergPartitionUtils.RangeBuild rb = IcebergPartitionUtils.buildRange(
+                "ts_hour=-17268672", "-17268672", "hour", Types.TimestampType.withoutZone(), 1L, 1L);
+        Assertions.assertEquals(Collections.singletonList("0000-01-01 00:00:00"), rb.getLowerBound());
+        Assertions.assertEquals(Collections.singletonList("0000-01-01 01:00:00"), rb.getUpperBound());
+    }
+
+    @Test
     public void buildRangeNullValueEmitsSuccessorSignal() {
         // A NULL partition value -> lower "0000-01-01" + EMPTY upper (the generic model derives lower.successor()).
         // MUTATION: rendering a concrete upper here would not match master's nullLowKey.successor() per scale.
