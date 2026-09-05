@@ -120,6 +120,7 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     tcolumn.__set_is_bloom_filter_column(true);
     tcolumn.__set_visible(false);
     tcolumn.__set_default_value("default_test");
+    tcolumn.__set_default_value_expr("CURRENT_TIMESTAMP(6)");
     tcolumn.__set_variant_enable_typed_paths_to_sparse(false);
     tcolumn.__set_pattern_type(TPatternType::MATCH_NAME_GLOB);
 
@@ -136,7 +137,17 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     EXPECT_FALSE(tablet_column.visible());
     EXPECT_TRUE(tablet_column.has_default_value());
     EXPECT_EQ("default_test", tablet_column.default_value());
+    EXPECT_TRUE(tablet_column.has_default_value_expr());
+    EXPECT_EQ("CURRENT_TIMESTAMP(6)", tablet_column.default_value_expr());
     EXPECT_FALSE(tablet_column.variant_enable_typed_paths_to_sparse());
+
+    ColumnPB column_pb;
+    tablet_column.to_schema_pb(&column_pb);
+    ASSERT_TRUE(column_pb.has_default_value_expr());
+    EXPECT_EQ("CURRENT_TIMESTAMP(6)", column_pb.default_value_expr());
+
+    TabletColumn restored_column(column_pb);
+    EXPECT_EQ(tablet_column, restored_column);
 }
 
 TEST_F(TabletSchemaTest, test_tablet_index_init_from_pb) {
