@@ -264,6 +264,14 @@ protected:
                 _old_enable_file_cache_write_from_s3_file_writer;
     }
 
+    // Most tests do not care about the handle they get back
+    Status append_small_file(const std::string& path, const Slice& data,
+                             const PackedAppendContext& info,
+                             PackedSliceHandlePtr* handle = nullptr) {
+        PackedSliceHandlePtr unused;
+        return manager->append_small_file(path, data, info, handle != nullptr ? handle : &unused);
+    }
+
     PackedAppendContext default_append_info() const {
         PackedAppendContext info;
         info.resource_id = _resource_id;
@@ -308,19 +316,19 @@ TEST_F(PackedFileManagerTest, AppendSmallFileSuccess) {
     Slice slice(payload);
 
     auto info = default_append_info();
-    Status st = manager->append_small_file("s/path", slice, info);
+    Status st = append_small_file("s/path", slice, info);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(writer->append_calls(), 1);
     EXPECT_EQ(writer->bytes_appended(), payload.size());
 
     auto it = manager->global_slice_locations_for_test().find("s/path");
     ASSERT_NE(it, manager->global_slice_locations_for_test().end());
-    EXPECT_EQ(it->second.size, payload.size());
-    EXPECT_EQ(it->second.offset, 0);
-    EXPECT_EQ(it->second.tablet_id, info.tablet_id);
-    EXPECT_EQ(it->second.rowset_id, info.rowset_id);
-    EXPECT_EQ(it->second.resource_id, info.resource_id);
-    EXPECT_EQ(it->second.txn_id, info.txn_id);
+    EXPECT_EQ(it->second->location().size, payload.size());
+    EXPECT_EQ(it->second->location().offset, 0);
+    EXPECT_EQ(it->second->location().tablet_id, info.tablet_id);
+    EXPECT_EQ(it->second->location().rowset_id, info.rowset_id);
+    EXPECT_EQ(it->second->location().resource_id, info.resource_id);
+    EXPECT_EQ(it->second->location().txn_id, info.txn_id);
 }
 
 TEST_F(PackedFileManagerTest, DisableFileCacheWriteFromS3FileWriter) {
@@ -334,7 +342,7 @@ TEST_F(PackedFileManagerTest, DisableFileCacheWriteFromS3FileWriter) {
 
     auto info = default_append_info();
     ASSERT_TRUE(info.write_file_cache);
-    EXPECT_TRUE(manager->append_small_file("s/no_cache", slice, info).ok());
+    EXPECT_TRUE(append_small_file("s/no_cache", slice, info).ok());
     EXPECT_EQ(writer->append_calls(), 1);
     EXPECT_EQ(writer->bytes_appended(), payload.size());
 }
@@ -345,7 +353,7 @@ TEST_F(PackedFileManagerTest, AppendFailsWithoutTxnId) {
     auto info = default_append_info();
     info.txn_id = 0;
 
-    Status st = manager->append_small_file("missing_txn", slice, info);
+    Status st = append_small_file("missing_txn", slice, info);
     EXPECT_EQ(st.code(), doris::ErrorCode::INVALID_ARGUMENT);
     EXPECT_EQ(manager->global_slice_locations_for_test().count("missing_txn"), 0);
 }
@@ -358,7 +366,7 @@ TEST_F(PackedFileManagerTest, AppendLargeFileSkipped) {
     std::string payload = "0123456789";
     Slice slice(payload);
     auto info = default_append_info();
-    Status st = manager->append_small_file("large", slice, info);
+    Status st = append_small_file("large", slice, info);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(writer->append_calls(), 0);
     EXPECT_EQ(manager->global_slice_locations_for_test().count("large"), 0);
@@ -372,7 +380,7 @@ TEST_F(PackedFileManagerTest, AppendWriterFailure) {
     std::string payload = "data";
     Slice slice(payload);
     auto info = default_append_info();
-    Status st = manager->append_small_file("broken", slice, info);
+    Status st = append_small_file("broken", slice, info);
     EXPECT_FALSE(st.ok());
     EXPECT_EQ(manager->global_slice_locations_for_test().count("broken"), 0);
 }
@@ -385,10 +393,10 @@ TEST_F(PackedFileManagerTest, AppendTriggersRotationWhenThresholdReached) {
     Slice slice2(payload2);
     auto info = default_append_info();
 
-    EXPECT_TRUE(manager->append_small_file("file1", slice1, info).ok());
+    EXPECT_TRUE(append_small_file("file1", slice1, info).ok());
 
     size_t create_before = file_system->created_paths().size();
-    EXPECT_TRUE(manager->append_small_file("file2", slice2, info).ok());
+    EXPECT_TRUE(append_small_file("file2", slice2, info).ok());
     EXPECT_EQ(file_system->created_paths().size(), create_before + 1);
     EXPECT_EQ(manager->uploading_packed_files_for_test().size(), 1);
 }
@@ -401,11 +409,11 @@ TEST_F(PackedFileManagerTest, AppendTriggersRotationWhenFileCountThresholdReache
     Slice slice(payload);
     auto info = default_append_info();
 
-    EXPECT_TRUE(manager->append_small_file("file1", slice, info).ok());
+    EXPECT_TRUE(append_small_file("file1", slice, info).ok());
     EXPECT_TRUE(manager->uploading_packed_files_for_test().empty());
 
     size_t created_before = file_system->created_paths().size();
-    EXPECT_TRUE(manager->append_small_file("file2", slice, info).ok());
+    EXPECT_TRUE(append_small_file("file2", slice, info).ok());
     EXPECT_EQ(manager->uploading_packed_files_for_test().size(), 1);
     EXPECT_EQ(file_system->created_paths().size(), created_before + 1);
 
@@ -442,7 +450,7 @@ TEST_F(PackedFileManagerTest, GetMergeFileIndexReturnsStoredValue) {
     std::string payload = "abc";
     Slice slice(payload);
     auto info = default_append_info();
-    EXPECT_TRUE(manager->append_small_file("stored", slice, info).ok());
+    EXPECT_TRUE(append_small_file("stored", slice, info).ok());
     PackedSliceLocation index;
     EXPECT_TRUE(manager->get_packed_slice_location("stored", &index).ok());
     EXPECT_EQ(index.size, payload.size());
@@ -456,7 +464,9 @@ TEST_F(PackedFileManagerTest, WaitWriteDoneReturnsOkWhenAlreadyUploaded) {
     std::string payload = "abc";
     Slice slice(payload);
     auto info = default_append_info();
-    ASSERT_TRUE(manager->append_small_file("path", slice, info).ok());
+    PackedSliceHandlePtr handle;
+    ASSERT_TRUE(append_small_file("path", slice, info, &handle).ok());
+    ASSERT_NE(handle, nullptr);
     ASSERT_TRUE(manager->mark_current_packed_file_for_upload(_resource_id).ok());
     ASSERT_EQ(manager->uploading_packed_files_for_test().size(), 1);
 
@@ -470,14 +480,15 @@ TEST_F(PackedFileManagerTest, WaitWriteDoneReturnsOkWhenAlreadyUploaded) {
     manager->uploading_packed_files_for_test().clear();
     uploading->upload_cv.notify_all();
 
-    EXPECT_TRUE(manager->wait_upload_done("path").ok());
+    EXPECT_TRUE(manager->wait_upload_done(handle).ok());
 }
 
 TEST_F(PackedFileManagerTest, WaitWriteDoneReturnsErrorWhenFailed) {
     std::string payload = "abc";
     Slice slice(payload);
     auto info = default_append_info();
-    ASSERT_TRUE(manager->append_small_file("bad", slice, info).ok());
+    PackedSliceHandlePtr handle;
+    ASSERT_TRUE(append_small_file("bad", slice, info, &handle).ok());
     ASSERT_TRUE(manager->mark_current_packed_file_for_upload(_resource_id).ok());
 
     auto uploading = manager->uploading_packed_files_for_test().begin()->second;
@@ -491,15 +502,13 @@ TEST_F(PackedFileManagerTest, WaitWriteDoneReturnsErrorWhenFailed) {
     manager->uploading_packed_files_for_test().clear();
     uploading->upload_cv.notify_all();
 
-    auto status = manager->wait_upload_done("bad");
+    auto status = manager->wait_upload_done(handle);
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("meta failed"), std::string::npos);
 }
 
-TEST_F(PackedFileManagerTest, WaitWriteDoneReturnsErrorWhenPathMissing) {
-    auto indices = manager->global_slice_locations_for_test().find("ghost");
-    ASSERT_EQ(indices, manager->global_slice_locations_for_test().end());
-    auto status = manager->wait_upload_done("ghost");
+TEST_F(PackedFileManagerTest, WaitWriteDoneReturnsErrorWhenLocationMissing) {
+    auto status = manager->wait_upload_done(nullptr);
     EXPECT_FALSE(status.ok());
 }
 
@@ -507,7 +516,8 @@ TEST_F(PackedFileManagerTest, WaitWriteDoneBlocksUntilUploadCompletes) {
     std::string payload = "abc";
     Slice slice(payload);
     auto info = default_append_info();
-    ASSERT_TRUE(manager->append_small_file("waiting", slice, info).ok());
+    PackedSliceHandlePtr handle;
+    ASSERT_TRUE(append_small_file("waiting", slice, info, &handle).ok());
 
     auto current_state = manager->current_packed_files_for_test()[_resource_id].get();
     ASSERT_NE(current_state, nullptr);
@@ -520,7 +530,7 @@ TEST_F(PackedFileManagerTest, WaitWriteDoneBlocksUntilUploadCompletes) {
     std::future<void> ready_future = ready.get_future();
     std::thread waiter([&] {
         ready.set_value();
-        auto status = manager->wait_upload_done("waiting");
+        auto status = manager->wait_upload_done(handle);
         EXPECT_TRUE(status.ok());
     });
 
@@ -560,7 +570,7 @@ TEST_F(PackedFileManagerTest, ProcessUploadingFilesSetsFailedWhenMetaUpdateFails
     std::string payload = "abc";
     Slice slice(payload);
     auto info = default_append_info();
-    ASSERT_TRUE(manager->append_small_file("meta_fail", slice, info).ok());
+    ASSERT_TRUE(append_small_file("meta_fail", slice, info).ok());
     ASSERT_TRUE(manager->mark_current_packed_file_for_upload(_resource_id).ok());
     ASSERT_EQ(manager->uploading_packed_files_for_test().size(), 1);
 
@@ -577,7 +587,7 @@ TEST_F(PackedFileManagerTest, ProcessUploadingFilesCompletesAsyncUpload) {
     std::string payload = "abc";
     Slice slice(payload);
     auto info = default_append_info();
-    ASSERT_TRUE(manager->append_small_file("async_success", slice, info).ok());
+    ASSERT_TRUE(append_small_file("async_success", slice, info).ok());
     ASSERT_TRUE(manager->mark_current_packed_file_for_upload(_resource_id).ok());
     ASSERT_EQ(manager->uploading_packed_files_for_test().size(), 1);
 
@@ -603,7 +613,7 @@ TEST_F(PackedFileManagerTest, ProcessUploadingFilesSetsFailedWhenAsyncCloseFails
     std::string payload = "abc";
     Slice slice(payload);
     auto info = default_append_info();
-    ASSERT_TRUE(manager->append_small_file("async_fail", slice, info).ok());
+    ASSERT_TRUE(append_small_file("async_fail", slice, info).ok());
     ASSERT_TRUE(manager->mark_current_packed_file_for_upload(_resource_id).ok());
     ASSERT_EQ(manager->uploading_packed_files_for_test().size(), 1);
 
@@ -630,7 +640,7 @@ TEST_F(PackedFileManagerTest, ProcessUploadingFilesPollsAsyncCloseWithoutBlockin
     std::string payload = "abc";
     Slice slice(payload);
     auto info = default_append_info();
-    ASSERT_TRUE(manager->append_small_file("async_poll_fail", slice, info).ok());
+    ASSERT_TRUE(append_small_file("async_poll_fail", slice, info).ok());
     ASSERT_TRUE(manager->mark_current_packed_file_for_upload(_resource_id).ok());
     ASSERT_EQ(manager->uploading_packed_files_for_test().size(), 1);
 
@@ -664,7 +674,7 @@ TEST_F(PackedFileManagerTest, AppendPackedFileInfoToFileTail) {
     std::string payload = "abc";
     Slice slice(payload);
     auto info = default_append_info();
-    ASSERT_TRUE(manager->append_small_file("trailer_path", slice, info).ok());
+    ASSERT_TRUE(append_small_file("trailer_path", slice, info).ok());
     ASSERT_TRUE(manager->mark_current_packed_file_for_upload(_resource_id).ok());
     ASSERT_EQ(manager->uploading_packed_files_for_test().size(), 1);
 
@@ -716,6 +726,93 @@ TEST_F(PackedFileManagerTest, CleanupExpiredDataRemovesOldEntries) {
     EXPECT_TRUE(manager->uploaded_packed_files_for_test().empty());
 }
 
+TEST_F(PackedFileManagerTest, WaitUploadDoneSurvivesRecycledIndexAndContext) {
+    std::string payload = "abc";
+    Slice slice(payload);
+    auto info = default_append_info();
+    PackedSliceHandlePtr handle;
+    ASSERT_TRUE(append_small_file("long_load", slice, info, &handle).ok());
+    ASSERT_TRUE(manager->mark_current_packed_file_for_upload(_resource_id).ok());
+    ASSERT_EQ(manager->uploading_packed_files_for_test().size(), 1);
+
+    auto uploading = manager->uploading_packed_files_for_test().begin()->second;
+    auto* writer = dynamic_cast<MockFileWriter*>(uploading->writer.get());
+    ASSERT_NE(writer, nullptr);
+    uploading->state = PackedFileManager::PackedFileState::UPLOADING;
+    ASSERT_TRUE(writer->close(true).ok());
+    writer->complete_async_close();
+    manager->process_uploading_packed_files();
+    ASSERT_EQ(manager->uploaded_packed_files_for_test().size(), 1);
+    EXPECT_EQ(handle->upload_state(), PackedSliceUploadState::UPLOADED);
+    EXPECT_EQ(handle->location().packed_file_size, uploading->total_size);
+
+    // A load that runs far longer than the retention time: both the index entry and the
+    // packed file context are recycled while the writer is still open.
+    config::uploaded_file_retention_seconds = 0;
+    manager->global_slice_locations_for_test()["long_load"]->create_time = 1;
+    manager->uploaded_packed_files_for_test().begin()->second->upload_time = 1;
+    manager->cleanup_expired_data();
+    ASSERT_TRUE(manager->global_slice_locations_for_test().empty());
+    ASSERT_TRUE(manager->uploaded_packed_files_for_test().empty());
+
+    EXPECT_TRUE(manager->wait_upload_done(handle).ok());
+}
+
+TEST_F(PackedFileManagerTest, WaitUploadDoneReportsFailureAfterContextRecycled) {
+    std::string payload = "abc";
+    Slice slice(payload);
+    auto info = default_append_info();
+    PackedSliceHandlePtr handle;
+    ASSERT_TRUE(append_small_file("long_load_fail", slice, info, &handle).ok());
+    ASSERT_TRUE(manager->mark_current_packed_file_for_upload(_resource_id).ok());
+
+    auto uploading = manager->uploading_packed_files_for_test().begin()->second;
+    auto* writer = dynamic_cast<MockFileWriter*>(uploading->writer.get());
+    ASSERT_NE(writer, nullptr);
+    uploading->state = PackedFileManager::PackedFileState::UPLOADING;
+    writer->set_close_status(Status::IOError("async close fail"));
+    ASSERT_TRUE(writer->close(true).ok());
+    writer->complete_async_close();
+    manager->process_uploading_packed_files();
+    ASSERT_EQ(manager->uploaded_packed_files_for_test().size(), 1);
+    EXPECT_EQ(handle->upload_state(), PackedSliceUploadState::FAILED);
+
+    config::uploaded_file_retention_seconds = 0;
+    manager->uploaded_packed_files_for_test().begin()->second->upload_time = 1;
+    manager->cleanup_expired_data();
+    ASSERT_TRUE(manager->uploaded_packed_files_for_test().empty());
+
+    auto status = manager->wait_upload_done(handle);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Packed file upload failed"), std::string::npos);
+}
+
+TEST_F(PackedFileManagerTest, RewritingTheSamePathKeepsBothLocationsIndependent) {
+    std::string payload = "abc";
+    Slice slice(payload);
+    auto info = default_append_info();
+    PackedSliceHandlePtr stale_handle;
+    ASSERT_TRUE(append_small_file("reused", slice, info, &stale_handle).ok());
+    ASSERT_TRUE(manager->mark_current_packed_file_for_upload(_resource_id).ok());
+    auto stale = manager->uploading_packed_files_for_test().begin()->second;
+
+    // The same path is written again, e.g. a retried publish rewriting the same segment
+    PackedSliceHandlePtr fresh_handle;
+    ASSERT_TRUE(append_small_file("reused", slice, info, &fresh_handle).ok());
+    ASSERT_NE(stale_handle, fresh_handle);
+
+    auto* writer = dynamic_cast<MockFileWriter*>(stale->writer.get());
+    ASSERT_NE(writer, nullptr);
+    stale->state = PackedFileManager::PackedFileState::UPLOADING;
+    ASSERT_TRUE(writer->close(true).ok());
+    writer->complete_async_close();
+    manager->process_uploading_packed_files();
+
+    // Finishing the older packed file says nothing about the newer write
+    EXPECT_EQ(stale_handle->upload_state(), PackedSliceUploadState::UPLOADED);
+    EXPECT_EQ(fresh_handle->upload_state(), PackedSliceUploadState::PENDING);
+}
+
 TEST_F(PackedFileManagerTest, MergeFileBvarMetricsUpdated) {
     manager->reset_packed_file_bvars_for_test();
     auto state = std::make_shared<PackedFileManager::PackedFileContext>();
@@ -724,8 +821,8 @@ TEST_F(PackedFileManagerTest, MergeFileBvarMetricsUpdated) {
     idx1.size = 100;
     PackedSliceLocation idx2;
     idx2.size = 200;
-    state->slice_locations["a"] = idx1;
-    state->slice_locations["b"] = idx2;
+    state->slice_locations["a"] = std::make_shared<PackedSliceHandle>(idx1);
+    state->slice_locations["b"] = std::make_shared<PackedSliceHandle>(idx2);
 
     manager->record_packed_file_metrics_for_test(state.get());
 
@@ -763,15 +860,15 @@ TEST_F(PackedFileManagerTest, MultipleSmallFilesTriggerMergeFile) {
         std::string payload(file_size, 'a' + (i % 26)); // 50 bytes per file
         Slice slice(payload);
 
-        Status st = manager->append_small_file(path, slice, info);
+        Status st = append_small_file(path, slice, info);
         EXPECT_TRUE(st.ok()) << "Failed to append file " << i << ": " << st.msg();
 
         // Verify file is in global index map
         auto it = manager->global_slice_locations_for_test().find(path);
         ASSERT_NE(it, manager->global_slice_locations_for_test().end());
-        EXPECT_EQ(it->second.size, file_size);
-        EXPECT_EQ(it->second.tablet_id, info.tablet_id);
-        EXPECT_EQ(it->second.rowset_id, info.rowset_id);
+        EXPECT_EQ(it->second->location().size, file_size);
+        EXPECT_EQ(it->second->location().tablet_id, info.tablet_id);
+        EXPECT_EQ(it->second->location().rowset_id, info.rowset_id);
     }
 
     // Verify all files are in global index map
@@ -784,9 +881,9 @@ TEST_F(PackedFileManagerTest, MultipleSmallFilesTriggerMergeFile) {
         auto it = manager->global_slice_locations_for_test().find(path);
         if (it != manager->global_slice_locations_for_test().end()) {
             total_files_in_index++;
-            total_size_in_index += it->second.size;
-            EXPECT_LT(it->second.size, config::small_file_threshold_bytes)
-                    << "File " << path << " size " << it->second.size
+            total_size_in_index += it->second->location().size;
+            EXPECT_LT(it->second->location().size, config::small_file_threshold_bytes)
+                    << "File " << path << " size " << it->second->location().size
                     << " should be less than threshold " << config::small_file_threshold_bytes;
         }
     }
@@ -819,7 +916,7 @@ TEST_F(PackedFileManagerTest, MultipleSmallFilesTriggerMergeFile) {
     Slice slice_trigger(payload_trigger);
 
     size_t create_before = file_system->created_paths().size();
-    Status st = manager->append_small_file(path_trigger, slice_trigger, info);
+    Status st = append_small_file(path_trigger, slice_trigger, info);
     EXPECT_TRUE(st.ok());
 
     // Should create new merge file when threshold is reached
@@ -853,13 +950,13 @@ TEST_F(PackedFileManagerTest, FilesNearThresholdBoundaryMergeFile) {
         std::string payload1(99, 'x'); // 99 bytes, just below threshold
         Slice slice1(payload1);
 
-        Status st = manager->append_small_file(path1, slice1, info);
+        Status st = append_small_file(path1, slice1, info);
         EXPECT_TRUE(st.ok());
 
         auto it = manager->global_slice_locations_for_test().find(path1);
         ASSERT_NE(it, manager->global_slice_locations_for_test().end());
-        EXPECT_EQ(it->second.size, 99);
-        EXPECT_LT(it->second.size, config::small_file_threshold_bytes);
+        EXPECT_EQ(it->second->location().size, 99);
+        EXPECT_LT(it->second->location().size, config::small_file_threshold_bytes);
     }
 
     // Files exactly at threshold (should be merged, uses > not >=, so 100 <= 100 means merged)
@@ -868,14 +965,14 @@ TEST_F(PackedFileManagerTest, FilesNearThresholdBoundaryMergeFile) {
         std::string payload2(100, 'y'); // 100 bytes, exactly at threshold
         Slice slice2(payload2);
 
-        Status st = manager->append_small_file(path2, slice2, info);
+        Status st = append_small_file(path2, slice2, info);
         EXPECT_TRUE(st.ok());
 
         // File at threshold should be merged (check uses >, so 100 is not > 100, so it's merged)
         auto it = manager->global_slice_locations_for_test().find(path2);
         ASSERT_NE(it, manager->global_slice_locations_for_test().end());
-        EXPECT_EQ(it->second.size, 100);
-        EXPECT_LE(it->second.size, config::small_file_threshold_bytes);
+        EXPECT_EQ(it->second->location().size, 100);
+        EXPECT_LE(it->second->location().size, config::small_file_threshold_bytes);
     }
 
     // Files at threshold + 1 (should NOT be merged)
@@ -885,7 +982,7 @@ TEST_F(PackedFileManagerTest, FilesNearThresholdBoundaryMergeFile) {
         Slice slice3(payload3);
 
         size_t append_calls_before = writer->append_calls();
-        Status st = manager->append_small_file(path3, slice3, info);
+        Status st = append_small_file(path3, slice3, info);
         EXPECT_TRUE(st.ok());
 
         // File above threshold should not be merged
@@ -904,14 +1001,14 @@ TEST_F(PackedFileManagerTest, FilesNearThresholdBoundaryMergeFile) {
         std::string payload(file_size, 'a' + (i % 26));
         Slice slice(payload);
 
-        Status st = manager->append_small_file(path, slice, info);
+        Status st = append_small_file(path, slice, info);
         EXPECT_TRUE(st.ok()) << "Failed to append file " << i << ": " << st.msg();
 
         // Verify file is merged
         auto it = manager->global_slice_locations_for_test().find(path);
         ASSERT_NE(it, manager->global_slice_locations_for_test().end());
-        EXPECT_EQ(it->second.size, file_size);
-        EXPECT_LT(it->second.size, config::small_file_threshold_bytes);
+        EXPECT_EQ(it->second->location().size, file_size);
+        EXPECT_LT(it->second->location().size, config::small_file_threshold_bytes);
     }
 
     // Verify merge file state
@@ -938,15 +1035,15 @@ TEST_F(PackedFileManagerTest, FilesNearThresholdBoundaryMergeFile) {
 
     // Verify all merged files are at or below threshold (uses >, so == threshold is merged)
     for (const auto& [path, index] : current_state->slice_locations) {
-        EXPECT_LE(index.size, config::small_file_threshold_bytes)
-                << "File " << path << " size " << index.size
+        EXPECT_LE(index->location().size, config::small_file_threshold_bytes)
+                << "File " << path << " size " << index->location().size
                 << " should be less than or equal to threshold "
                 << config::small_file_threshold_bytes;
     }
     for (const auto& [path, state] : manager->uploading_packed_files_for_test()) {
         for (const auto& [file_path, index] : state->slice_locations) {
-            EXPECT_LE(index.size, config::small_file_threshold_bytes)
-                    << "File " << file_path << " size " << index.size
+            EXPECT_LE(index->location().size, config::small_file_threshold_bytes)
+                    << "File " << file_path << " size " << index->location().size
                     << " should be less than or equal to threshold "
                     << config::small_file_threshold_bytes;
         }
@@ -991,7 +1088,7 @@ TEST_F(PackedFileManagerTest, TimeoutTriggersDirectUpload) {
     std::string payload = "small_file_data";
     Slice slice(payload);
     auto info = default_append_info();
-    ASSERT_TRUE(manager->append_small_file("small_file_1", slice, info).ok());
+    ASSERT_TRUE(append_small_file("small_file_1", slice, info).ok());
 
     // Get the merge file path before timeout
     PackedSliceLocation index_before;
@@ -1085,14 +1182,14 @@ TEST_F(PackedFileManagerTest, ModifyThresholdDuringContinuousImport) {
         std::string payload(file_size, 'a' + (i % 26));
         Slice slice(payload);
 
-        Status st = manager->append_small_file(path, slice, info);
+        Status st = append_small_file(path, slice, info);
         EXPECT_TRUE(st.ok()) << "Failed to append file " << i << ": " << st.msg();
 
         // Verify file is in global index map
         auto it = manager->global_slice_locations_for_test().find(path);
         ASSERT_NE(it, manager->global_slice_locations_for_test().end());
-        EXPECT_EQ(it->second.size, file_size);
-        EXPECT_LT(it->second.size, config::small_file_threshold_bytes);
+        EXPECT_EQ(it->second->location().size, file_size);
+        EXPECT_LT(it->second->location().size, config::small_file_threshold_bytes);
     }
 
     // Phase 2: Modify threshold to 200 bytes (larger than before)
@@ -1106,14 +1203,14 @@ TEST_F(PackedFileManagerTest, ModifyThresholdDuringContinuousImport) {
         std::string payload(file_size, 'x' + (i % 26));
         Slice slice(payload);
 
-        Status st = manager->append_small_file(path, slice, info);
+        Status st = append_small_file(path, slice, info);
         EXPECT_TRUE(st.ok()) << "Failed to append file phase2_" << i << ": " << st.msg();
 
         // Verify file is in global index map
         auto it = manager->global_slice_locations_for_test().find(path);
         ASSERT_NE(it, manager->global_slice_locations_for_test().end());
-        EXPECT_EQ(it->second.size, file_size);
-        EXPECT_LT(it->second.size, config::small_file_threshold_bytes);
+        EXPECT_EQ(it->second->location().size, file_size);
+        EXPECT_LT(it->second->location().size, config::small_file_threshold_bytes);
     }
 
     // Phase 4: Modify threshold to 30 bytes (smaller than file size)
@@ -1126,7 +1223,7 @@ TEST_F(PackedFileManagerTest, ModifyThresholdDuringContinuousImport) {
         std::string payload(file_size, 'z');
         Slice slice(payload);
 
-        Status st = manager->append_small_file(path, slice, info);
+        Status st = append_small_file(path, slice, info);
         EXPECT_TRUE(st.ok());
 
         // Verify file is NOT in global index map (should be skipped)
@@ -1162,7 +1259,7 @@ TEST_F(PackedFileManagerTest, ModifyThresholdDuringContinuousImport) {
         EXPECT_NE(it, manager->global_slice_locations_for_test().end())
                 << "Phase 1 file " << i << " should be in global index map";
         if (it != manager->global_slice_locations_for_test().end()) {
-            EXPECT_EQ(it->second.size, file_size);
+            EXPECT_EQ(it->second->location().size, file_size);
         }
     }
 
@@ -1172,7 +1269,7 @@ TEST_F(PackedFileManagerTest, ModifyThresholdDuringContinuousImport) {
         EXPECT_NE(it, manager->global_slice_locations_for_test().end())
                 << "Phase 2 file " << i << " should be in global index map";
         if (it != manager->global_slice_locations_for_test().end()) {
-            EXPECT_EQ(it->second.size, file_size);
+            EXPECT_EQ(it->second->location().size, file_size);
         }
     }
 
@@ -1189,7 +1286,7 @@ TEST_F(PackedFileManagerTest, ModifyThresholdDuringContinuousImport) {
         Slice slice_trigger(payload_trigger);
 
         size_t create_before = file_system->created_paths().size();
-        Status st = manager->append_small_file(path_trigger, slice_trigger, info);
+        Status st = append_small_file(path_trigger, slice_trigger, info);
         EXPECT_TRUE(st.ok());
 
         // Should create new merge file when threshold is reached (if not already)
@@ -1200,7 +1297,7 @@ TEST_F(PackedFileManagerTest, ModifyThresholdDuringContinuousImport) {
         EXPECT_NE(trigger_it, manager->global_slice_locations_for_test().end())
                 << "Trigger file should be in global index map after threshold change";
         if (trigger_it != manager->global_slice_locations_for_test().end()) {
-            EXPECT_EQ(trigger_it->second.size, trigger_file_size);
+            EXPECT_EQ(trigger_it->second->location().size, trigger_file_size);
         }
     }
 }
