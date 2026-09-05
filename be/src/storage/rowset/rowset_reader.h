@@ -21,6 +21,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <memory>
+#include <string>
 
 #include "core/block/block.h"
 #include "storage/iterators.h"
@@ -58,6 +59,7 @@ public:
                                          std::vector<RowwiseIteratorUPtr>* out_iters,
                                          bool use_cache = false) = 0;
     virtual void reset_read_options() = 0;
+    virtual void set_preferred_file_cache_peer(const std::string& host, int32_t port) = 0;
 
     virtual Status next_batch(Block* block) = 0;
     virtual Status next_batch(BlockView* block_view) = 0;

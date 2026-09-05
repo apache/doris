@@ -264,6 +264,8 @@ public:
 
     void reset_read_options() override {}
 
+    void set_preferred_file_cache_peer(const std::string&, int32_t) override {}
+
     Status next_batch(Block* block) override {
         return Status::NotSupported("MockRowsetReader::next_batch not implemented");
     }
