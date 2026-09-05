@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableSet;
@@ -87,6 +88,8 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     private final LabelNameInfo labelNameInfo;
     private final Map<String, LoadProperty> loadPropertyMap;
     private RoutineLoadDesc routineLoadDesc;
+    private OriginStatement originStatement;
+    private long sqlMode;
     private final Map<String, String> jobProperties;
     private final Map<String, String> dataSourceMapProperties;
     private boolean isPartialUpdate;
@@ -145,13 +148,33 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         return dataSourceProperties;
     }
 
+    public boolean hasLoadProperty() {
+        return MapUtils.isNotEmpty(loadPropertyMap);
+    }
+
     public RoutineLoadDesc getRoutineLoadDesc() {
         return routineLoadDesc;
+    }
+
+    public OriginStatement getOriginStatement() {
+        return originStatement;
+    }
+
+    public long getSqlMode() {
+        return sqlMode;
+    }
+
+    /** Analyze only the load-clause delta while replaying the persisted ALTER statement. */
+    public RoutineLoadDesc analyzeLoadProperties(ConnectContext ctx, RoutineLoadJob job) throws UserException {
+        return CreateRoutineLoadInfo.checkLoadProperties(ctx, loadPropertyMap,
+                job.getDbFullName(), job.getTableName(), job.isMultiTable(), job.getMergeType());
     }
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
+        originStatement = ctx.getStatementContext().getOriginStatement();
+        sqlMode = ctx.getSessionVariable().getSqlMode();
         ctx.getEnv().getRoutineLoadManager().alterRoutineLoadJob(this);
     }
 

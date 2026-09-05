@@ -687,9 +687,16 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             }
 
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
+            if (command.hasLoadProperty()) {
+                setRoutineLoadDesc(command.getRoutineLoadDesc());
+                updateLoadDefinitionSqlMode(command.getSqlMode());
+                mergeLoadDescToOriginStatement();
+            }
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
-                    jobProperties, dataSourceProperties);
+                    jobProperties, dataSourceProperties,
+                    command.hasLoadProperty() ? command.getOriginStatement() : null,
+                    command.hasLoadProperty() ? command.getSqlMode() : null);
             Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
         } finally {
             writeUnlock();
@@ -783,6 +790,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         try {
             modifyPropertiesInternal(log.getJobProperties(),
                     (KinesisDataSourceProperties) log.getDataSourceProperties());
+            replayLoadDefinition(log.getOriginStatement(), log.getSqlMode());
         } catch (UserException e) {
             LOG.error("failed to replay modify kinesis routine load job: {}", id, e);
         }

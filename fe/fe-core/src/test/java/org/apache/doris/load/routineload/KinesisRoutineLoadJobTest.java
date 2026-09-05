@@ -17,25 +17,46 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -227,6 +248,95 @@ public class KinesisRoutineLoadJobTest {
         KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
         Assert.assertEquals("101", progress.getSequenceNumberByShard("shard-1"));
         Assert.assertEquals("202", progress.getSequenceNumberByShard("shard-2"));
+    }
+
+    @Test
+    public void testAlterOriginStatementReplayKeepsCheckpointParity() throws Exception {
+        KinesisRoutineLoadJob leader = createPausedJobWithInitialLoadDesc();
+        KinesisRoutineLoadJob follower = createPausedJobWithInitialLoadDesc();
+
+        RoutineLoadDesc delta = new RoutineLoadDesc(new Separator(";", ";"), null,
+                null, null, null, null, null, LoadTask.MergeType.APPEND, "sequence_col");
+        OriginStatement alterStatement = new OriginStatement(
+                "ALTER ROUTINE LOAD FOR kinesis_routine_load_job "
+                        + "COLUMNS TERMINATED BY ';', ORDER BY sequence_col", 0);
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
+        Mockito.when(command.getDataSourceProperties()).thenReturn(null);
+        Mockito.when(command.getRoutineLoadDesc()).thenReturn(delta);
+        Mockito.when(command.getOriginStatement()).thenReturn(alterStatement);
+        Mockito.when(command.hasLoadProperty()).thenReturn(true);
+
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(catalog.getDb(1L)).thenReturn(Optional.of(database));
+        Mockito.when(catalog.getDb("db1")).thenReturn(Optional.of(database));
+        Mockito.when(catalog.getDbOrMetaException(1L)).thenReturn(database);
+        Mockito.when(catalog.getDbOrAnalysisException("db1")).thenReturn(database);
+        Mockito.when(database.getName()).thenReturn("db1");
+        Mockito.when(database.getFullName()).thenReturn("db1");
+        Mockito.when(database.getTableOrMetaException(1L)).thenReturn(table);
+        Mockito.when(database.getTableOrAnalysisException("table1")).thenReturn(table);
+        Mockito.when(table.getName()).thenReturn("table1");
+        Mockito.when(table.getFullSchema()).thenReturn(Lists.newArrayList());
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setDatabase("db1");
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            connectContext.setThreadLocalInfo();
+
+            leader.modifyProperties(command);
+            ArgumentCaptor<AlterRoutineLoadJobOperationLog> logCaptor =
+                    ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
+            Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
+            follower.replayModifyProperties(logCaptor.getValue());
+
+            Assert.assertTrue(leader.origStmt.originStmt.contains("FROM KINESIS"));
+            Assert.assertEquals(leader.origStmt.originStmt, follower.origStmt.originStmt);
+            assertAlterResult(leader);
+            assertAlterResult(follower);
+            assertAlterResult(imageRoundTrip(leader));
+            assertAlterResult(imageRoundTrip(follower));
+        } finally {
+            connectContext.cleanup();
+        }
+    }
+
+    private static KinesisRoutineLoadJob createPausedJobWithInitialLoadDesc() {
+        KinesisRoutineLoadJob job = new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+        job.setRoutineLoadDesc(new RoutineLoadDesc(new Separator("|", "|"), null,
+                null, null, null, null, null, LoadTask.MergeType.APPEND, null));
+        job.origStmt = new OriginStatement("CREATE ROUTINE LOAD db1.kinesis_routine_load_job ON table1 "
+                + "COLUMNS TERMINATED BY '|' FROM KINESIS "
+                + "(\"aws.region\" = \"us-east-1\", \"kinesis_stream\" = \"stream-1\")", 0);
+        return job;
+    }
+
+    private static void assertAlterResult(KinesisRoutineLoadJob job) {
+        Assert.assertEquals(";", job.getColumnSeparator().getSeparator());
+        Assert.assertNull(job.getLineDelimiter());
+        Assert.assertEquals("sequence_col", job.getSequenceCol());
+    }
+
+    private static KinesisRoutineLoadJob imageRoundTrip(RoutineLoadJob job) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            job.write(out);
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return (KinesisRoutineLoadJob) RoutineLoadJob.read(in);
+        }
     }
 
     @Test

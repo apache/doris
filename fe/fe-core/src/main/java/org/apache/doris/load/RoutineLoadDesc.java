@@ -18,18 +18,56 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class RoutineLoadDesc {
+    private static final Set<String> JSON_FUNCTIONS_WITH_ESCAPED_DISPLAY_SQL = ImmutableSet.of(
+            "json_quote", "json_array", "json_object", "json_insert", "json_replace", "json_set");
+
+    // Persisted expressions must be reparsed with the same value. The display visitor does not escape
+    // semantic backslashes in StringLiteral under the default SQL mode.
+    private static final ExprToSqlVisitor PERSISTED_EXPR_TO_SQL_VISITOR = new ExprToSqlVisitor() {
+        @Override
+        public String visitStringLiteral(StringLiteral expr, ToSqlParams context) {
+            String value = expr.getValue();
+            if (!SqlModeHelper.hasNoBackSlashEscapes()) {
+                value = value.replace("\\", "\\\\");
+            }
+            return "'" + value.replace("'", "''") + "'";
+        }
+
+        @Override
+        public String visitFunctionCallExpr(FunctionCallExpr expr, ToSqlParams context) {
+            String functionName = expr.getFnName().getFunction();
+            if (!JSON_FUNCTIONS_WITH_ESCAPED_DISPLAY_SQL.contains(functionName.toLowerCase(Locale.ROOT))) {
+                return super.visitFunctionCallExpr(expr, context);
+            }
+            return expr.getFnName() + "(" + expr.getChildren().stream()
+                    .map(child -> child.accept(this, context))
+                    .collect(Collectors.joining(", ")) + ")";
+        }
+    };
+
     private final Separator columnSeparator;
     private final Separator lineDelimiter;
     private final List<ImportColumnDesc> columnsInfo;
@@ -95,6 +133,55 @@ public class RoutineLoadDesc {
 
     public boolean hasSequenceCol() {
         return !Strings.isNullOrEmpty(sequenceColName);
+    }
+
+    /**
+     * Convert the effective load clauses to SQL so they can be persisted in RoutineLoadJob.origStmt.
+     */
+    public String toSql() {
+        List<String> clauses = new ArrayList<>();
+        // Routine Load SQL does not currently expose a line-delimiter clause.
+        if (columnSeparator != null) {
+            // oriSeparator is already the encoded spelling consumed by Separator.convertSeparator().
+            // Escaping its backslashes again would turn \t and \x01 into literal backslash sequences.
+            String separator = columnSeparator.getOriSeparator();
+            String quote = separator.contains("'") ? "\"" : "'";
+            clauses.add("COLUMNS TERMINATED BY " + quote + separator + quote);
+        }
+        if (columnsInfo != null) {
+            clauses.add("COLUMNS(" + columnsInfo.stream()
+                    .map(this::columnToSql)
+                    .collect(Collectors.joining(", ")) + ")");
+        }
+        if (precedingFilter != null) {
+            clauses.add("PRECEDING FILTER " + precedingFilter.accept(
+                    PERSISTED_EXPR_TO_SQL_VISITOR, ToSqlParams.WITHOUT_TABLE));
+        }
+        if (filter != null) {
+            clauses.add("WHERE " + filter.accept(PERSISTED_EXPR_TO_SQL_VISITOR, ToSqlParams.WITHOUT_TABLE));
+        }
+        if (partitionNamesInfo != null) {
+            String prefix = partitionNamesInfo.isTemp() ? "TEMPORARY PARTITION(" : "PARTITION(";
+            clauses.add(prefix + partitionNamesInfo.getPartitionNames().stream()
+                    .map(SqlUtils::getIdentSql)
+                    .collect(Collectors.joining(", ")) + ")");
+        }
+        if (deleteCondition != null) {
+            clauses.add("DELETE ON " + deleteCondition.accept(
+                    PERSISTED_EXPR_TO_SQL_VISITOR, ToSqlParams.WITHOUT_TABLE));
+        }
+        if (hasSequenceCol()) {
+            clauses.add("ORDER BY " + SqlUtils.getIdentSql(sequenceColName));
+        }
+        return String.join(", ", clauses);
+    }
+
+    private String columnToSql(ImportColumnDesc columnDesc) {
+        String sql = SqlUtils.getIdentSql(columnDesc.getColumnName());
+        if (columnDesc.getExpr() != null) {
+            sql += " = " + columnDesc.getExpr().accept(PERSISTED_EXPR_TO_SQL_VISITOR, ToSqlParams.WITHOUT_TABLE);
+        }
+        return sql;
     }
 
     public void analyze() throws UserException {

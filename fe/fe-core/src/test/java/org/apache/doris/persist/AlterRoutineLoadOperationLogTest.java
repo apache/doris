@@ -22,6 +22,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Maps;
 import org.junit.Assert;
@@ -60,8 +61,10 @@ public class AlterRoutineLoadOperationLogTest {
         routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
         routineLoadDataSourceProperties.analyze();
 
+        OriginStatement originStatement = new OriginStatement(
+                "ALTER ROUTINE LOAD FOR job WHERE mapped_col > 10", 0);
         AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId,
-                jobProperties, routineLoadDataSourceProperties);
+                jobProperties, routineLoadDataSourceProperties, originStatement, 123L);
         log.write(out);
         out.flush();
         out.close();
@@ -81,9 +84,32 @@ public class AlterRoutineLoadOperationLogTest {
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(0));
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(1));
+        Assert.assertEquals(originStatement.originStmt, log2.getOriginStatement().originStmt);
+        Assert.assertEquals(originStatement.idx, log2.getOriginStatement().idx);
+        Assert.assertEquals(Long.valueOf(123L), log2.getSqlMode());
 
         in.close();
     }
 
+    @Test
+    public void testDeserializeLegacyLogWithoutOriginStatement() throws IOException {
+        AlterRoutineLoadJobOperationLog legacyLog = new AlterRoutineLoadJobOperationLog(
+                7001L, Maps.newHashMap(), null);
+        File file = new File(fileName + "Legacy");
+        file.createNewFile();
+        file.deleteOnExit();
+        try (DataOutputStream out = new DataOutputStream(new FileOutputStream(file))) {
+            legacyLog.write(out);
+        }
 
+        try (DataInputStream in = new DataInputStream(new FileInputStream(file))) {
+            AlterRoutineLoadJobOperationLog restored = AlterRoutineLoadJobOperationLog.read(in);
+
+            Assert.assertEquals(7001L, restored.getJobId());
+            Assert.assertTrue(restored.getJobProperties().isEmpty());
+            Assert.assertNull(restored.getDataSourceProperties());
+            Assert.assertNull(restored.getOriginStatement());
+            Assert.assertNull(restored.getSqlMode());
+        }
+    }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -37,12 +38,28 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
     private Map<String, String> jobProperties;
     @SerializedName(value = "dataSourceProperties")
     private AbstractDataSourceProperties dataSourceProperties;
+    @SerializedName(value = "originStatement")
+    private OriginStatement originStatement;
+    @SerializedName(value = "sqlMode")
+    private Long sqlMode;
 
     public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
             AbstractDataSourceProperties dataSourceProperties) {
+        this(jobId, jobProperties, dataSourceProperties, null, null);
+    }
+
+    public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
+            AbstractDataSourceProperties dataSourceProperties, OriginStatement originStatement) {
+        this(jobId, jobProperties, dataSourceProperties, originStatement, null);
+    }
+
+    public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
+            AbstractDataSourceProperties dataSourceProperties, OriginStatement originStatement, Long sqlMode) {
         this.jobId = jobId;
         this.jobProperties = jobProperties;
         this.dataSourceProperties = dataSourceProperties;
+        this.originStatement = originStatement;
+        this.sqlMode = sqlMode;
     }
 
     public long getJobId() {
@@ -55,6 +72,14 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
 
     public AbstractDataSourceProperties getDataSourceProperties() {
         return dataSourceProperties;
+    }
+
+    public OriginStatement getOriginStatement() {
+        return originStatement;
+    }
+
+    public Long getSqlMode() {
+        return sqlMode;
     }
 
     public static AlterRoutineLoadJobOperationLog read(DataInput in) throws IOException {
