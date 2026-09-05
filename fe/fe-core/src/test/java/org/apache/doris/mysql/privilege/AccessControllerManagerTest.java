@@ -143,8 +143,9 @@ public class AccessControllerManagerTest {
             Mockito.when(catalog.getProperties()).thenReturn(ImmutableMap.of(
                     CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, InternalAuthorizationPlugin.NAME));
 
-            Assertions.assertFalse("a catalog naming the built-in model was exempted from its own grants",
-                    accessControllerManager.checkCtlPriv(userIdentity, "builtin_catalog", PrivPredicate.SELECT));
+            Assertions.assertFalse(
+                    accessControllerManager.checkCtlPriv(userIdentity, "builtin_catalog", PrivPredicate.SELECT),
+                    "a catalog naming the built-in model was exempted from its own grants");
         }
     }
 
@@ -429,13 +430,13 @@ public class AccessControllerManagerTest {
     @Test
     public void testACheckpointEnvBuildsNoAuthorizationSource() {
         Config.access_controller_type = "a-source-no-fe-has";
-        Assertions.assertThrows("a manager that authorizes for real must refuse a source it cannot find",
-                RuntimeException.class, () -> new AccessControllerManager(new Auth()));
+        Assertions.assertThrows(RuntimeException.class, () -> new AccessControllerManager(new Auth()),
+                "a manager that authorizes for real must refuse a source it cannot find");
 
         AccessControllerManager manager = new AccessControllerManager(new Auth(), true);
         AuthorizationPlugin governing = Deencapsulation.getField(manager, "defaultAccessController");
-        Assertions.assertTrue("a checkpoint Env built something other than the built-in model: " + governing,
-                governing instanceof InternalAuthorizationPlugin);
+        Assertions.assertTrue(governing instanceof InternalAuthorizationPlugin,
+                "a checkpoint Env built something other than the built-in model: " + governing);
 
         ExternalCatalog replayed = mockCatalog("replayed_on_a_checkpoint", 40L);
         withCurrentCatalog(replayed, () -> Assertions.assertSame(governing,
@@ -480,8 +481,8 @@ public class AccessControllerManagerTest {
                         PrivPredicate.SELECT));
             });
 
-            Assertions.assertEquals("the nested question was answered about another connection",
-                    "10.0.0.2", seenByTheAuthority.get());
+            Assertions.assertEquals("10.0.0.2", seenByTheAuthority.get(),
+                    "the nested question was answered about another connection");
         } finally {
             ConnectContext.remove();
         }

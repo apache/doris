@@ -27,8 +27,8 @@ import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.ResourceKind;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -80,16 +80,15 @@ public class AccessTranslationTest {
         for (Privilege privilege : Privilege.values()) {
             // Retired privileges are included on purpose: a stored grant read back in the mode that owns
             // its bit index comes out as one of them, and a missing entry would only fail at run time.
-            Assert.assertNotNull("privilege " + privilege + " has no access action",
-                    AccessTranslation.actionOf(privilege));
+            Assertions.assertNotNull(AccessTranslation.actionOf(privilege), "privilege " + privilege
+                    + " has no access action");
         }
     }
 
     @Test
     public void testEveryActionHasAPrivilege() {
         for (AccessAction action : AccessAction.values()) {
-            Assert.assertNotNull("action " + action + " has no privilege",
-                    AccessTranslation.privilegeOf(action));
+            Assertions.assertNotNull(AccessTranslation.privilegeOf(action), "action " + action + " has no privilege");
         }
     }
 
@@ -109,18 +108,18 @@ public class AccessTranslationTest {
         // this was written.
         Map<String, PrivPredicate> constants = allPrivPredicates();
         Set<String> askTheSameQuestion = CONSTANTS_ASKING_THE_SAME_QUESTION;
-        Assert.assertTrue("the pinned interchangeable constants no longer exist: " + askTheSameQuestion,
-                constants.keySet().containsAll(askTheSameQuestion));
+        Assertions.assertTrue(constants.keySet().containsAll(askTheSameQuestion),
+                "the pinned interchangeable constants no longer exist: " + askTheSameQuestion);
 
         for (Map.Entry<String, PrivPredicate> constant : constants.entrySet()) {
             PrivPredicate translated =
                     AccessTranslation.privPredicateOf(AccessTranslation.requirementOf(constant.getValue()));
             if (askTheSameQuestion.contains(constant.getKey())) {
                 // Two constants naming the same privileges with the same match are interchangeable.
-                Assert.assertEquals(bitsOf(constant.getValue()), bitsOf(translated));
+                Assertions.assertEquals(bitsOf(constant.getValue()), bitsOf(translated));
             } else {
-                Assert.assertSame("PrivPredicate." + constant.getKey() + " must translate back to itself",
-                        constant.getValue(), translated);
+                Assertions.assertSame(constant.getValue(), translated, "PrivPredicate." + constant.getKey()
+                        + " must translate back to itself");
             }
         }
     }
@@ -150,9 +149,9 @@ public class AccessTranslationTest {
 
         AccessRequirement requirement = AccessTranslation.requirementOf(wanted);
 
-        Assert.assertEquals(ActionMatch.ALL, requirement.getMatch());
-        Assert.assertEquals(EnumSet.of(AccessAction.SELECT, AccessAction.GRANT), requirement.getActions());
-        Assert.assertEquals(Operator.AND, AccessTranslation.privPredicateOf(requirement).getOp());
+        Assertions.assertEquals(ActionMatch.ALL, requirement.getMatch());
+        Assertions.assertEquals(EnumSet.of(AccessAction.SELECT, AccessAction.GRANT), requirement.getActions());
+        Assertions.assertEquals(Operator.AND, AccessTranslation.privPredicateOf(requirement).getOp());
     }
 
     @Test
@@ -162,8 +161,8 @@ public class AccessTranslationTest {
         // invent a privilege named SHOW that nobody can be granted.
         AccessRequirement requirement = AccessTranslation.requirementOf(PrivPredicate.SHOW);
 
-        Assert.assertEquals(ActionMatch.ANY, requirement.getMatch());
-        Assert.assertEquals(EnumSet.of(AccessAction.ADMIN, AccessAction.SELECT, AccessAction.LOAD,
+        Assertions.assertEquals(ActionMatch.ANY, requirement.getMatch());
+        Assertions.assertEquals(EnumSet.of(AccessAction.ADMIN, AccessAction.SELECT, AccessAction.LOAD,
                 AccessAction.ALTER, AccessAction.CREATE, AccessAction.DROP, AccessAction.SHOW_VIEW),
                 requirement.getActions());
     }
@@ -174,7 +173,7 @@ public class AccessTranslationTest {
         // would leave the built-in model unable to tell which of its three privilege bits was asked about.
         AccessRequirement requirement = AccessTranslation.requirementOf(PrivPredicate.USAGE);
 
-        Assert.assertTrue(requirement.getActions().containsAll(EnumSet.of(
+        Assertions.assertTrue(requirement.getActions().containsAll(EnumSet.of(
                 AccessAction.USAGE, AccessAction.CLUSTER_USAGE, AccessAction.STAGE_USAGE)));
         assertRoundTrips("PrivPredicate.USAGE", PrivPredicate.USAGE);
     }
@@ -185,20 +184,20 @@ public class AccessTranslationTest {
         // "any of". Passing it on would decide access by accident, so it fails where it is built instead.
         PrivPredicate empty = PrivPredicate.of(PrivBitSet.of(), Operator.AND);
 
-        Assert.assertThrows(IllegalArgumentException.class, () -> AccessTranslation.requirementOf(empty));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> AccessTranslation.requirementOf(empty));
     }
 
     @Test
     public void testCloudResourceKindsRoundTrip() {
         for (ResourceTypeEnum type : ResourceTypeEnum.values()) {
             ResourceKind kind = AccessTranslation.cloudKindOf(type);
-            Assert.assertEquals("cloud resource type " + type, type, AccessTranslation.cloudTypeOf(kind));
+            Assertions.assertEquals(type, AccessTranslation.cloudTypeOf(kind), "cloud resource type " + type);
         }
     }
 
     @Test
     public void testOnlyCloudKindsHaveACloudResourceType() {
-        Assert.assertThrows(IllegalArgumentException.class,
+        Assertions.assertThrows(IllegalArgumentException.class,
                 () -> AccessTranslation.cloudTypeOf(ResourceKind.TABLE));
     }
 
@@ -223,10 +222,10 @@ public class AccessTranslationTest {
                 new UserIdentity("user", "%"))) {
             UserIdentity translated = AccessTranslation.userIdentityOf(AccessTranslation.subjectOf(original));
 
-            Assert.assertEquals(original.toString(), original, translated);
-            Assert.assertEquals(original.toString(), original.getUser(), translated.getUser());
-            Assert.assertEquals(original.toString(), original.getHost(), translated.getHost());
-            Assert.assertEquals(original.toString(), original.isDomain(), translated.isDomain());
+            Assertions.assertEquals(original, translated, original.toString());
+            Assertions.assertEquals(original.getUser(), translated.getUser(), original.toString());
+            Assertions.assertEquals(original.getHost(), translated.getHost(), original.toString());
+            Assertions.assertEquals(original.isDomain(), translated.isDomain(), original.toString());
         }
     }
 
@@ -243,14 +242,14 @@ public class AccessTranslationTest {
         AuthorizedSubject inDomain = AccessTranslation.subjectOf(
                 UserIdentity.createAnalyzedUserIdentWithDomain("user", "192.168.%"));
 
-        Assert.assertNotEquals(anywhere, fromOffice);
-        Assert.assertNotEquals(fromOffice, inDomain);
+        Assertions.assertNotEquals(anywhere, fromOffice);
+        Assertions.assertNotEquals(fromOffice, inDomain);
     }
 
     private void assertRoundTrips(String what, PrivPredicate wanted) {
         PrivPredicate translated = AccessTranslation.privPredicateOf(AccessTranslation.requirementOf(wanted));
-        Assert.assertEquals(what + ": privileges changed", bitsOf(wanted), bitsOf(translated));
-        Assert.assertEquals(what + ": match changed", wanted.getOp(), translated.getOp());
+        Assertions.assertEquals(bitsOf(wanted), bitsOf(translated), what + ": privileges changed");
+        Assertions.assertEquals(wanted.getOp(), translated.getOp(), what + ": match changed");
     }
 
     private long bitsOf(PrivPredicate predicate) {
@@ -269,7 +268,7 @@ public class AccessTranslationTest {
                 }
             }
         }
-        Assert.assertFalse("no PrivPredicate constants found", sorted.isEmpty());
+        Assertions.assertFalse(sorted.isEmpty(), "no PrivPredicate constants found");
         return sorted;
     }
 }

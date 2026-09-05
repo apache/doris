@@ -21,9 +21,9 @@ import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
@@ -34,7 +34,7 @@ public class RangerHiveAccessControllerFactoryTest {
     private static final long PRODUCTION_GRACE_SECONDS =
             RangerHiveAccessControllerFactory.idleStackGraceSeconds;
 
-    @After
+    @AfterEach
     public void restoreTheGracePeriod() {
         RangerHiveAccessControllerFactory.idleStackGraceSeconds = PRODUCTION_GRACE_SECONDS;
     }
@@ -56,8 +56,8 @@ public class RangerHiveAccessControllerFactoryTest {
     public void testTheSelectorsThisSourceIsNamedBy() {
         RangerHiveAccessControllerFactory factory = new RangerHiveAccessControllerFactory();
 
-        Assert.assertEquals("ranger-hive", factory.name());
-        Assert.assertEquals(
+        Assertions.assertEquals("ranger-hive", factory.name());
+        Assertions.assertEquals(
                 "org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveAccessControllerFactory",
                 factory.getClass().getName());
     }
@@ -83,10 +83,9 @@ public class RangerHiveAccessControllerFactoryTest {
             AuthorizationPlugin first = new RangerHiveAccessControllerFactory().create(deferring, context);
             AuthorizationPlugin second = new RangerHiveAccessControllerFactory().create(strict, context);
 
-            Assert.assertNotSame("two differently configured bindings were served one controller",
-                    first, second);
-            Assert.assertEquals("a second Ranger plugin was started for a service already being polled",
-                    1, plugins.constructed().size());
+            Assertions.assertNotSame(first, second, "two differently configured bindings were served one controller");
+            Assertions.assertEquals(1, plugins.constructed().size(),
+                    "a second Ranger plugin was started for a service already being polled");
 
             stopPolling(first, second);
         }
@@ -124,8 +123,8 @@ public class RangerHiveAccessControllerFactoryTest {
 
             // And the next binding on that name starts a fresh one rather than reviving a stopped plugin.
             AuthorizationPlugin later = new RangerHiveAccessControllerFactory().create(properties, context);
-            Assert.assertEquals("re-acquiring a stopped service did not start a plugin for it",
-                    2, plugins.constructed().size());
+            Assertions.assertEquals(2, plugins.constructed().size(),
+                    "re-acquiring a stopped service did not start a plugin for it");
             stopPolling(later);
         }
     }
@@ -155,8 +154,8 @@ public class RangerHiveAccessControllerFactoryTest {
             AuthorizationPlugin reattached = new RangerHiveAccessControllerFactory()
                     .create(properties, context);
 
-            Assert.assertEquals("re-attaching a catalog built a second Ranger plugin for the same service",
-                    1, plugins.constructed().size());
+            Assertions.assertEquals(1, plugins.constructed().size(),
+                    "re-attaching a catalog built a second Ranger plugin for the same service");
             Mockito.verify(polling, Mockito.never()).cleanup();
 
             stopPolling(reattached);
@@ -175,8 +174,8 @@ public class RangerHiveAccessControllerFactoryTest {
     private static void awaitNothingPolled() {
         long deadline = System.currentTimeMillis() + 30_000;
         while (RangerHiveAccessControllerFactory.polledServiceCount() > 0) {
-            Assert.assertTrue("the stack of a service nothing reads is still polling it",
-                    System.currentTimeMillis() < deadline);
+            Assertions.assertTrue(System.currentTimeMillis() < deadline,
+                    "the stack of a service nothing reads is still polling it");
             try {
                 Thread.sleep(20);
             } catch (InterruptedException e) {

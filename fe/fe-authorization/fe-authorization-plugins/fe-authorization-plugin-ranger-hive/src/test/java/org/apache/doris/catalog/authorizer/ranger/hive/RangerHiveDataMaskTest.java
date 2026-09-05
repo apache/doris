@@ -20,9 +20,9 @@ package org.apache.doris.catalog.authorizer.ranger.hive;
 import org.apache.doris.authorization.spi.AuthorizationContext;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.Assert;
-import org.junit.Assume;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
@@ -69,9 +69,9 @@ public class RangerHiveDataMaskTest {
     public void testEachMaskTypeRendersInDorisDialect() {
         withController(controller -> {
             for (Map.Entry<String, String> maskType : EXPECTED.entrySet()) {
-                Assert.assertEquals("mask type " + maskType.getKey() + " no longer renders the expression"
-                                + " Doris applies for it",
-                        maskType.getValue(), controller.dataMaskExpressionOf(null, maskType.getKey()));
+                Assertions.assertEquals(maskType.getValue(), controller.dataMaskExpressionOf(null, maskType.getKey()),
+                        "mask type " + maskType.getKey() + " no longer renders the expression"
+                        + " Doris applies for it");
             }
         });
     }
@@ -86,11 +86,11 @@ public class RangerHiveDataMaskTest {
     @Test
     public void testAnUnknownMaskTypeIsRefusedNamingIt() {
         withController(controller -> {
-            IllegalStateException refused = Assert.assertThrows(IllegalStateException.class,
+            IllegalStateException refused = Assertions.assertThrows(IllegalStateException.class,
                     () -> controller.dataMaskExpressionOf(null, "MASK_SHOW_LAST_7"));
-            Assert.assertTrue("the refusal does not name the mask type it could not apply, which is the only"
-                            + " thing pointing at the Ranger policy to fix: " + refused.getMessage(),
-                    refused.getMessage().contains("MASK_SHOW_LAST_7"));
+            Assertions.assertTrue(refused.getMessage().contains("MASK_SHOW_LAST_7"),
+                    "the refusal does not name the mask type it could not apply, which is the only"
+                    + " thing pointing at the Ranger policy to fix: " + refused.getMessage());
         });
     }
 
@@ -109,14 +109,14 @@ public class RangerHiveDataMaskTest {
     @Test
     public void testTheExpressionsMatchTheDorisServiceDefinitionWhenOneIsCached() throws IOException {
         Path definition = cachedDorisServiceDefinition();
-        Assume.assumeTrue("no downloaded ranger-servicedef-doris.json to compare against", definition != null);
+        Assumptions.assumeTrue(definition != null, "no downloaded ranger-servicedef-doris.json to compare against");
 
         String json = new String(Files.readAllBytes(definition), StandardCharsets.UTF_8);
         for (Map.Entry<String, String> maskType : EXPECTED.entrySet()) {
-            Assert.assertEquals("the Doris service definition and this source disagree about what mask type "
-                            + maskType.getKey() + " means, so the same Ranger policy masks a column one way"
-                            + " through ranger-doris and another way through " + RangerHiveAccessController.NAME,
-                    maskType.getValue(), transformerOf(json, maskType.getKey()));
+            Assertions.assertEquals(maskType.getValue(), transformerOf(json, maskType.getKey()),
+                    "the Doris service definition and this source disagree about what mask type " + maskType.getKey()
+                    + " means, so the same Ranger policy masks a column one way"
+                    + " through ranger-doris and another way through " + RangerHiveAccessController.NAME);
         }
     }
 
@@ -129,11 +129,10 @@ public class RangerHiveDataMaskTest {
      */
     private static String transformerOf(String json, String maskType) {
         Matcher named = Pattern.compile("\"name\"\\s*:\\s*\"" + Pattern.quote(maskType) + "\"").matcher(json);
-        Assert.assertTrue("the Doris service definition no longer declares mask type " + maskType,
-                named.find());
+        Assertions.assertTrue(named.find(), "the Doris service definition no longer declares mask type " + maskType);
         Matcher transformer = Pattern.compile("\"transformer\"\\s*:\\s*\"([^\"]*)\"").matcher(json);
-        Assert.assertTrue("the Doris service definition declares no transformer after mask type " + maskType,
-                transformer.find(named.end()));
+        Assertions.assertTrue(transformer.find(named.end()),
+                "the Doris service definition declares no transformer after mask type " + maskType);
         return transformer.group(1);
     }
 

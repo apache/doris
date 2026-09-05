@@ -180,14 +180,14 @@ public class RangerDorisAccessControllerFactoryTest {
             second.close();
             other.close();
             Mockito.verify(plugin, Mockito.never()).cleanup();
-            Assert.assertEquals("releasing every binding built a second Ranger plugin",
-                    1, construction.constructed().size());
+            Assertions.assertEquals(1, construction.constructed().size(),
+                    "releasing every binding built a second Ranger plugin");
 
             // What a re-attach after ALTER CATALOG does: the plugin it gets is the one already holding the
             // service's policies, not a fresh one with none.
             new RangerDorisAccessControllerFactory().create(Collections.emptyMap(), context);
-            Assert.assertEquals("re-acquiring after the last release built a second Ranger plugin",
-                    1, construction.constructed().size());
+            Assertions.assertEquals(1, construction.constructed().size(),
+                    "re-acquiring after the last release built a second Ranger plugin");
             Mockito.verify(plugin, Mockito.never()).cleanup();
         }
     }
@@ -205,14 +205,14 @@ public class RangerDorisAccessControllerFactoryTest {
         AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
         try (MockedConstruction<RangerDorisPlugin> construction =
                 Mockito.mockConstruction(RangerDorisPlugin.class)) {
-            IllegalArgumentException refused = Assert.assertThrows(IllegalArgumentException.class,
+            IllegalArgumentException refused = Assertions.assertThrows(IllegalArgumentException.class,
                     () -> new RangerDorisAccessControllerFactory().create(
                             Collections.singletonMap(RangerAccessController.DEFER_TO_GLOBAL_SCOPE_AUTHORITY,
                                     "yes"), context));
-            Assert.assertTrue(refused.getMessage(),
-                    refused.getMessage().contains(RangerAccessController.DEFER_TO_GLOBAL_SCOPE_AUTHORITY));
-            Assert.assertTrue("a refused binding left a Ranger plugin polling behind it",
-                    construction.constructed().isEmpty());
+            Assertions.assertTrue(refused.getMessage().contains(RangerAccessController.DEFER_TO_GLOBAL_SCOPE_AUTHORITY),
+                    refused.getMessage());
+            Assertions.assertTrue(construction.constructed().isEmpty(),
+                    "a refused binding left a Ranger plugin polling behind it");
         }
     }
 
@@ -241,8 +241,8 @@ public class RangerDorisAccessControllerFactoryTest {
             IllegalStateException refused = Assertions.assertThrows(IllegalStateException.class,
                     () -> controller.getRowFilters(SUBJECT, AuthorizedResource.table("ctl", "db", "tbl"),
                             AccessContext.NONE));
-            Assertions.assertTrue(refused.getMessage(),
-                    refused.getMessage().contains(RangerDorisAccessController.NAME));
+            Assertions.assertTrue(refused.getMessage().contains(RangerDorisAccessController.NAME),
+                    refused.getMessage());
         }
     }
 }

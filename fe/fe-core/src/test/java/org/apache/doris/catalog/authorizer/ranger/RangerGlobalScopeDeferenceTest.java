@@ -34,8 +34,8 @@ import org.apache.doris.mysql.privilege.StubRangerPolicyEngine;
 
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.Map;
@@ -105,9 +105,9 @@ public class RangerGlobalScopeDeferenceTest {
 
         // Not merely an optimisation: the Ranger policy set denies this user everywhere, so had the request
         // reached the engine the answer would have been the opposite one.
-        Assert.assertEquals(0, engine.requests.get());
+        Assertions.assertEquals(0, engine.requests.get());
         // And what was deferred is the privilege at instance scope, not the table.
-        Assert.assertEquals(ResourceKind.GLOBAL, authority.askedAbout);
+        Assertions.assertEquals(ResourceKind.GLOBAL, authority.askedAbout);
     }
 
     @Test
@@ -116,7 +116,7 @@ public class RangerGlobalScopeDeferenceTest {
                 Collections.emptyMap());
 
         controller.checkPrivilege(RANGER_USER, ALLOWED_TABLE, AccessRequirements.SELECT, AccessContext.NONE);
-        Assert.assertThrows(AccessDeniedException.class,
+        Assertions.assertThrows(AccessDeniedException.class,
                 () -> controller.checkPrivilege(RANGER_USER,
                         AuthorizedResource.table("ctl", StubRangerPolicyEngine.ALLOWED_DB, "other_tbl"),
                         AccessRequirements.SELECT, AccessContext.NONE));
@@ -132,16 +132,16 @@ public class RangerGlobalScopeDeferenceTest {
         RangerDorisAccessController controller = rangerDeferringTo(authority, Collections.singletonMap(
                 RangerAccessController.DEFER_TO_GLOBAL_SCOPE_AUTHORITY, "false"));
 
-        Assert.assertThrows(AccessDeniedException.class,
+        Assertions.assertThrows(AccessDeniedException.class,
                 () -> controller.checkPrivilege(ADMIN, ALLOWED_TABLE, AccessRequirements.SELECT,
                         AccessContext.NONE));
-        Assert.assertNull("the authority must not even be asked", authority.askedAbout);
-        Assert.assertNotEquals("Ranger has to be the one deciding", 0, engine.requests.get());
+        Assertions.assertNull(authority.askedAbout, "the authority must not even be asked");
+        Assertions.assertNotEquals(0, engine.requests.get(), "Ranger has to be the one deciding");
     }
 
     @Test
     public void testUnreadableDeferenceSettingIsRejected() {
-        Assert.assertThrows(IllegalArgumentException.class,
+        Assertions.assertThrows(IllegalArgumentException.class,
                 () -> rangerDeferringTo(new Authority(ADMIN), Collections.singletonMap(
                         RangerAccessController.DEFER_TO_GLOBAL_SCOPE_AUTHORITY, "no")));
     }
@@ -156,7 +156,7 @@ public class RangerGlobalScopeDeferenceTest {
         int asCatalogSource = requestsWhile(new Authority(ADMIN));
         int asAuthority = requestsWhile(null);
 
-        Assert.assertEquals(asCatalogSource, asAuthority);
+        Assertions.assertEquals(asCatalogSource, asAuthority);
     }
 
     private int requestsWhile(Authority authority) throws Exception {
