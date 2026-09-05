@@ -197,6 +197,14 @@ std::string virtual_column_type_to_string(TableVirtualColumnType type) {
         return "LAST_UPDATED_SEQUENCE_NUMBER";
     case TableVirtualColumnType::ICEBERG_ROWID:
         return "ICEBERG_ROWID";
+    case TableVirtualColumnType::ICEBERG_FILE_PATH:
+        return "ICEBERG_FILE_PATH";
+    case TableVirtualColumnType::ICEBERG_ROW_POSITION:
+        return "ICEBERG_ROW_POSITION";
+    case TableVirtualColumnType::PAIMON_FILE_PATH:
+        return "PAIMON_FILE_PATH";
+    case TableVirtualColumnType::PAIMON_ROW_POSITION:
+        return "PAIMON_ROW_POSITION";
     }
     return "UNKNOWN";
 }
@@ -427,7 +435,10 @@ std::string TableColumnMapperOptions::debug_string() const {
     out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode)
         << ", reject_missing_required_field=" << reject_missing_required_field
         << ", allow_idless_complex_wrapper_projection=" << allow_idless_complex_wrapper_projection
-        << ", enable_row_lineage_virtual_columns=" << enable_row_lineage_virtual_columns << "}";
+        << ", enable_row_lineage_virtual_columns=" << enable_row_lineage_virtual_columns
+        << ", enable_iceberg_metadata_virtual_columns=" << enable_iceberg_metadata_virtual_columns
+        << ", enable_paimon_metadata_virtual_columns=" << enable_paimon_metadata_virtual_columns
+        << "}";
     return out.str();
 }
 
@@ -454,7 +465,8 @@ std::string ColumnDefinition::debug_string() const {
     } else {
         out << "unknown";
     }
-    out << ", is_partition_key=" << is_partition_key << "}";
+    out << ", is_partition_key=" << is_partition_key << ", is_synthesized=" << is_synthesized
+        << "}";
     return out.str();
 }
 
@@ -2259,14 +2271,47 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
     mapping->variant_access_paths = table_column.variant_access_paths;
+    const auto iceberg_metadata_type = [&] {
+        if (!_options.enable_iceberg_metadata_virtual_columns || !table_column.is_synthesized) {
+            return TableVirtualColumnType::INVALID;
+        }
+        if (iequal(table_column.name, BeConsts::ICEBERG_FILE_PATH_COL)) {
+            return TableVirtualColumnType::ICEBERG_FILE_PATH;
+        }
+        if (iequal(table_column.name, BeConsts::ICEBERG_ROW_POSITION_COL)) {
+            return TableVirtualColumnType::ICEBERG_ROW_POSITION;
+        }
+        return TableVirtualColumnType::INVALID;
+    }();
+    const auto paimon_metadata_type = [&] {
+        if (!_options.enable_paimon_metadata_virtual_columns || !table_column.is_synthesized) {
+            return TableVirtualColumnType::INVALID;
+        }
+        if (iequal(table_column.name, BeConsts::PAIMON_FILE_PATH_COL)) {
+            return TableVirtualColumnType::PAIMON_FILE_PATH;
+        }
+        if (iequal(table_column.name, BeConsts::PAIMON_ROW_POSITION_COL)) {
+            return TableVirtualColumnType::PAIMON_ROW_POSITION;
+        }
+        return TableVirtualColumnType::INVALID;
+    }();
     // Row-lineage names are Iceberg metadata contracts, not reserved names in generic Hive,
     // Hudi, or Paimon schemas. Only the Iceberg reader may opt into virtual synthesis.
     const auto row_lineage_type =
             _options.enable_row_lineage_virtual_columns
                     ? row_lineage_virtual_column_type(table_column, _options.mode)
                     : TableVirtualColumnType::INVALID;
-    if (const auto* partition_value = find_partition_value(table_column, _partition_values);
-        table_column.is_partition_key && partition_value != nullptr) {
+    if (iceberg_metadata_type != TableVirtualColumnType::INVALID) {
+        // Iceberg `_file` and `_pos` are metadata contracts only when the current FE explicitly
+        // classifies the slot as synthesized. Old FE plans can still read physical fields with the
+        // same spelling during a rolling upgrade.
+        mapping->virtual_column_type = iceberg_metadata_type;
+    } else if (paimon_metadata_type != TableVirtualColumnType::INVALID) {
+        // Paimon metadata is carried by RawFile. The explicit synthesized marker prevents a
+        // physical same-name field from being reinterpreted during a rolling upgrade.
+        mapping->virtual_column_type = paimon_metadata_type;
+    } else if (const auto* partition_value = find_partition_value(table_column, _partition_values);
+               table_column.is_partition_key && partition_value != nullptr) {
         // Partition values are split constants and must take precedence over defaults.
         _set_constant_mapping(mapping, VExprContext::create_shared(VLiteral::create_shared(
                                                mapping->table_type, *partition_value)));
