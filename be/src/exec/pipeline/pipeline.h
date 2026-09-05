@@ -177,4 +177,8 @@ private:
     // Parallelism of parent pipeline.
     const int _num_tasks_of_parent;
 };
+
+// Pipeline-breaking sink/destination pairs share per-task state and require one-to-one task
+// counts. Local exchange is the only pair allowed to redistribute between different counts.
+Status validate_paired_pipeline_task_count(const Pipelines& pipelines);
 } // namespace doris
