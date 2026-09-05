@@ -55,6 +55,14 @@ class CloudStorageEngine;
 
 static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
 static constexpr int64_t INVALID_COMPACTION_INITIATOR_ID = -100;
+
+bool should_cache_cloud_cumulative_compaction_output();
+bool should_cache_cloud_base_compaction_output(int64_t input_rowsets_cached_size,
+                                               int64_t input_rowsets_total_size);
+bool should_enable_compaction_cache_index_only(bool write_file_cache, ReaderType compaction_type,
+                                               bool enable_base_index_only,
+                                               bool enable_cumu_index_only);
+
 // This class is a base class for compaction.
 // The entrance of this class is compact()
 // Any compaction should go through four procedures.

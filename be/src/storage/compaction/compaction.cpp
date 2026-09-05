@@ -104,6 +104,23 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
+bool should_cache_cloud_cumulative_compaction_output() {
+    return !config::enable_file_cache_write_index_file_only;
+}
+
+bool should_cache_cloud_base_compaction_output(int64_t input_rowsets_cached_size,
+                                               int64_t input_rowsets_total_size) {
+    if (config::enable_file_cache_write_index_file_only) {
+        return false;
+    }
+    if (config::enable_file_cache_keep_base_compaction_output) {
+        return true;
+    }
+    return input_rowsets_total_size > 0 &&
+           double(input_rowsets_cached_size) / double(input_rowsets_total_size) >
+                   config::file_cache_keep_base_compaction_output_min_hit_ratio;
+}
+
 // Determine whether to enable index-only file cache mode for compaction output.
 // This function decides if only index files should be written to cache, based on:
 // - write_file_cache: whether file cache is enabled
@@ -2472,12 +2489,8 @@ int64_t CloudCompactionMixin::num_input_rowsets() const {
 }
 
 bool CloudCompactionMixin::should_cache_compaction_output() {
-    if (config::enable_file_cache_write_index_file_only) {
-        return false;
-    }
-
     if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
-        return true;
+        return should_cache_cloud_cumulative_compaction_output();
     }
 
     if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
@@ -2500,14 +2513,8 @@ bool CloudCompactionMixin::should_cache_compaction_output() {
                   << ", file_cache_keep_base_compaction_output_min_hit_ratio="
                   << config::file_cache_keep_base_compaction_output_min_hit_ratio;
 
-        if (config::enable_file_cache_keep_base_compaction_output) {
-            return true;
-        }
-
-        if (input_rowsets_hit_cache_ratio >
-            config::file_cache_keep_base_compaction_output_min_hit_ratio) {
-            return true;
-        }
+        return should_cache_cloud_base_compaction_output(_input_rowsets_cached_size,
+                                                         _input_rowsets_total_size);
     }
     return false;
 }
