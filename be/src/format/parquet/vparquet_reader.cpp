@@ -343,6 +343,12 @@ Status ParquetReader::_open_file() {
                                        : _file_reader;
     }
 
+    // A range size of -1 means reading from the range start to the end of the file. Resolve it
+    // after opening the file so row-group filtering can use the actual range boundary.
+    if (_range_size == -1) {
+        _range_size = cast_set<int64_t>(_tracing_file_reader->size()) - _range_start_offset;
+    }
+
     if (_file_metadata == nullptr) {
         SCOPED_RAW_TIMER(&_reader_statistics.parse_footer_time);
         if (_tracing_file_reader->size() <= sizeof(PARQUET_VERSION_NUMBER)) {
