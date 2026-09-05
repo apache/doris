@@ -171,6 +171,10 @@ suite("test_hash_function", "arrow_flight_sql") {
     qt_sql "SELECT xxhash_64(\"hello\");"
     qt_sql "SELECT xxhash_64(\"hello\", \"world\");"
 
+    qt_sql "SELECT xxhash_128(null);"
+    qt_sql "SELECT xxhash_128(\"hello\");"
+    qt_sql "SELECT xxhash_128(\"hello\", \"world\");"
+
     def xxhash_res = sql "SELECT xxhash_64(null);"
     def xxhash3_res = sql "SELECT xxhash3_64(null);"
     assertEquals(xxhash_res, xxhash3_res);
