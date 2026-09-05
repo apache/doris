@@ -323,6 +323,20 @@ TEST_F(TxnManagerTest, CommitTxnTwiceWithSameRowsetId) {
     EXPECT_TRUE(k_engine->pending_local_rowsets().contains(_rowset->rowset_id()));
 }
 
+TEST_F(TxnManagerTest, CommitTxnTwiceWithMovedFromPendingRowsetGuard) {
+    auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard), false);
+    ASSERT_TRUE(st.ok()) << st;
+
+    st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                             _tablet_uid, load_id, _rowset_same_id,
+                                             std::move(guard), false);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(k_engine->pending_local_rowsets().contains(_rowset->rowset_id()));
+}
+
 // 1. prepare twice should be success
 TEST_F(TxnManagerTest, PrepareNewTxnTwice) {
     auto st = k_engine->txn_manager()->prepare_txn(partition_id, transaction_id, tablet_id,
