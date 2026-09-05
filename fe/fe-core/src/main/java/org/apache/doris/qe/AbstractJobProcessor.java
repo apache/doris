@@ -61,6 +61,9 @@ public abstract class AbstractJobProcessor implements JobProcessor {
     protected abstract void doProcessReportExecStatus(
             TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask);
 
+    // Publish report diagnostics that must be visible before an error status releases waiters.
+    protected void publishReportDiagnosticsBeforeStatus(TReportExecStatusParams params) {}
+
     @Override
     public final void setPipelineExecutionTask(PipelineExecutionTask pipelineExecutionTask) {
         Preconditions.checkArgument(pipelineExecutionTask != null, "sqlPipelineTask can not be null");
@@ -134,6 +137,7 @@ public abstract class AbstractJobProcessor implements JobProcessor {
                         DebugUtil.printId(queryId), params.getFragmentId(),
                         DebugUtil.printId(params.getFragmentInstanceId()),
                         params.getBackendId(), status.toString());
+                publishReportDiagnosticsBeforeStatus(params);
                 coordinatorContext.updateStatusIfOk(status);
             }
         }
