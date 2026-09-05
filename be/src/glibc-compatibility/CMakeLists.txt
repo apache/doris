@@ -64,6 +64,9 @@ if (GLIBC_COMPATIBILITY)
     # libcalls. Workaround: Use object file so that linker will always take a
     # look at its symbol table.
     list(REMOVE_ITEM glibc_compatibility_sources musl/getrandom.c)
+    # NOTE: the OBJECT lib must always provide the resolv_shim symbol where it
+    # exists (resolv_shim.c is a no-op on glibc < 2.34); keep it out of the archive.
+    list(REMOVE_ITEM glibc_compatibility_sources resolv_shim.c)
     # NOTE(amos): sanitizers might generate memcpy references that are too late to
     # refer. Let's also extract memcpy definitions explicitly to avoid UNDEF GLIBC 2.14.
     #
@@ -74,11 +77,13 @@ if (GLIBC_COMPATIBILITY)
     if (ARCH_ARM AND (CMAKE_BUILD_TYPE STREQUAL "ASAN_UT" OR CMAKE_BUILD_TYPE STREQUAL "ASAN"))
         add_library(glibc-compatibility-explicit OBJECT
             musl/getrandom.c
+            resolv_shim.c
             ${lance_compatibility_source}
         )
     else()
         add_library(glibc-compatibility-explicit OBJECT
             musl/getrandom.c
+            resolv_shim.c
             ${MEMCPY_SOURCE}
             ${lance_compatibility_source}
         )
