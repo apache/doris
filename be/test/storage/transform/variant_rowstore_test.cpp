@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <numeric>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -33,8 +34,10 @@
 #include "core/column/column_variant.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
+#include "cpp/sync_point.h"
 #include "storage/mow/mow_transform_test_base.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/tablet/base_tablet.h"
 #include "storage/transform/block_transform.h"
 #include "testutil/variant_util.h"
 #include "util/jsonb/serialize.h"
@@ -506,6 +509,108 @@ TEST_F(VariantRowStoreTest, RowStoreSnapshotsVariantBeforeParse) {
     ASSERT_EQ(row_store.size(), 1U);
     Block decoded = decode_row_store_cell(schema, row_store.get_data_at(0));
     const std::string stored_variant = variant_row_json(decoded, 1, 0);
+    EXPECT_NE(stored_variant.find(R"("flag":true)"), std::string::npos) << stored_variant;
+    EXPECT_EQ(stored_variant.find(R"("flag":1)"), std::string::npos) << stored_variant;
+}
+
+// UPSERT publish-conflict rewrites share generate_new_block_for_partial_update with fixed partial
+// updates, but must keep reading the current row through row-store. Direct writes snapshot raw
+// Variant JSON before VariantParse, so switching this path to physical columns would silently turn
+// JSON boolean `true` into the normalized physical representation `1` in the rebuilt row store.
+TEST_F(VariantRowStoreTest, UpsertPublishConflictPreservesRawVariantRowStore) {
+    auto schema = create_variant_row_store_schema();
+    TabletSharedPtr tablet;
+    auto current_rowset = write_rowset_block(
+            schema, 8201, 2,
+            [&](Block& block) {
+                int32_t key = 1;
+                int8_t delete_sign = 0;
+                block.get_by_position(0).column->assert_mutable()->insert_data(
+                        reinterpret_cast<const char*>(&key), sizeof(key));
+                insert_variant_json(block, 1, R"({"flag":true})");
+                block.get_by_position(2).column->assert_mutable()->insert_data(
+                        reinterpret_cast<const char*>(&delete_sign), sizeof(delete_sign));
+                block.get_by_position(3).column->assert_mutable()->insert_default();
+            },
+            &tablet);
+
+    Block persisted;
+    ASSERT_TRUE(read_rowset(current_rowset, schema, &persisted).ok());
+    EXPECT_NE(variant_row_json(persisted, 1, 0).find(R"("flag":1)"), std::string::npos);
+    const auto& persisted_row_store =
+            assert_cast<const ColumnString&>(*persisted.get_by_position(3).column);
+    Block decoded_before_rewrite =
+            decode_row_store_cell(schema, persisted_row_store.get_data_at(0));
+    EXPECT_NE(variant_row_json(decoded_before_rewrite, 1, 0).find(R"("flag":true)"),
+              std::string::npos);
+
+    auto partial_update_info = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(partial_update_info
+                        ->init(kTabletId, /*txn_id=*/1, *schema, UniqueKeyUpdateModePB::UPSERT,
+                               PartialUpdateNewRowPolicyPB::APPEND, {}, /*is_strict_mode=*/false,
+                               /*timestamp_ms=*/0, /*nano_seconds=*/0, "UTC", "")
+                        .ok());
+    partial_update_info->update_cids.resize(schema->num_columns());
+    std::iota(partial_update_info->update_cids.begin(), partial_update_info->update_cids.end(), 0);
+
+    FixedReadPlan read_plan_update;
+    read_plan_update.prepare_to_read(
+            RowLocation {current_rowset->rowset_id(), /*segment_id=*/0, /*row_id=*/0},
+            /*dst_pos=*/0);
+    FixedReadPlan empty_historical_plan;
+    std::map<RowsetId, RowsetSharedPtr> rowsets {{current_rowset->rowset_id(), current_rowset}};
+
+    int row_store_reads = 0;
+    int batch_column_reads = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard row_store_read_guard;
+    SyncPoint::CallbackGuard batch_read_guard;
+    sync_point->set_call_back(
+            "BaseTablet::fetch_value_through_row_column",
+            [&](auto&& args) {
+                auto* rowset = try_any_cast<BetaRowset*>(args[0]);
+                if (rowset->rowset_id() == current_rowset->rowset_id()) {
+                    ++row_store_reads;
+                }
+            },
+            &row_store_read_guard);
+    sync_point->set_call_back(
+            "BaseTablet::fetch_values_by_rowids",
+            [&](auto&& args) {
+                auto* rowset = try_any_cast<BetaRowset*>(args[0]);
+                if (rowset->rowset_id() == current_rowset->rowset_id()) {
+                    ++batch_column_reads;
+                }
+            },
+            &batch_read_guard);
+    sync_point->enable_processing();
+
+    auto rebuilt = schema->create_storage_block();
+    auto rebuild_status = BaseTablet::generate_new_block_for_partial_update(
+            schema, partial_update_info.get(), empty_historical_plan, read_plan_update, rowsets,
+            &rebuilt);
+    sync_point->disable_processing();
+
+    ASSERT_TRUE(rebuild_status.ok()) << rebuild_status;
+    EXPECT_EQ(row_store_reads, 1);
+    EXPECT_EQ(batch_column_reads, 0);
+    EXPECT_NE(variant_row_json(rebuilt, 1, 0).find(R"("flag":true)"), std::string::npos);
+
+    RowsetWriterContext transient_context = direct_rwc(schema);
+    transient_context.partial_update_info = partial_update_info;
+    transient_context.is_transient_rowset_writer = true;
+    auto chain = build_transform_chain(transient_context);
+    EXPECT_EQ(chain.stage_names(),
+              (std::vector<std::string_view> {"Validate", "RowStoreFill", "VariantParse"}));
+    auto transform_context = exec_ctx(schema, &transient_context);
+    ASSERT_TRUE(chain.apply(transform_context, &rebuilt).ok());
+    ASSERT_TRUE(materialize_derived_columns(transform_context.derived_column, &rebuilt).ok());
+
+    EXPECT_NE(variant_row_json(rebuilt, 1, 0).find(R"("flag":1)"), std::string::npos);
+    const auto& rebuilt_row_store =
+            assert_cast<const ColumnString&>(*rebuilt.get_by_position(3).column);
+    Block decoded_after_rewrite = decode_row_store_cell(schema, rebuilt_row_store.get_data_at(0));
+    const std::string stored_variant = variant_row_json(decoded_after_rewrite, 1, 0);
     EXPECT_NE(stored_variant.find(R"("flag":true)"), std::string::npos) << stored_variant;
     EXPECT_EQ(stored_variant.find(R"("flag":1)"), std::string::npos) << stored_variant;
 }
