@@ -226,9 +226,8 @@ suite("mv_tpch_test") {
               p_partkey
             LIMIT 100;
     """
-    // contains limit, doesn't support now
-    order_qt_query2_before "${query2}"
-    async_mv_rewrite_success(db, mv2, query2, "mv2")
+    // contains multi join cluster, not support now
+    async_mv_rewrite_fail(db, mv2, query2, "mv2")
     order_qt_query2_after "${query2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2"""
 
@@ -1231,10 +1230,8 @@ suite("mv_tpch_test") {
                   l_partkey = p_partkey
               )
     """
-    // agg under join should rewrite successfully,
-    // but because AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION rule
-    // would rewrite to agg-window-join, so now doesn't support
-    async_mv_rewrite_fail(db, mv17, query17, "mv17")
+    order_qt_query17_before "${query17}"
+    async_mv_rewrite_success(db, mv17, query17, "mv17")
     order_qt_query17_after "${query17}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv17"""
 
