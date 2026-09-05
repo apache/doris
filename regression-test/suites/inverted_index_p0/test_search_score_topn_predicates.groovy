@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_score_topn_predicates", "p0") {
+suite("test_search_score_topn_predicates", "p0,nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_search_score_topn_predicates"
 
     sql """
