@@ -38,6 +38,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonStreamUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.GlobalVariable;
 
@@ -661,7 +662,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     private void writeTables(DataOutput out) throws IOException {
         out.writeInt(nameToTable.size());
         for (Table table : nameToTable.values()) {
-            Text.writeString(out, GsonUtils.GSON.toJson(table));
+            GsonStreamUtils.writeJson(out, table);
         }
     }
 
@@ -669,7 +670,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         nameToTable = Maps.newConcurrentMap();
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
-            Table table = Table.read(in);
+            Table table = GsonStreamUtils.readJson(in, Table.class);
             registerTable(table);
         }
     }
