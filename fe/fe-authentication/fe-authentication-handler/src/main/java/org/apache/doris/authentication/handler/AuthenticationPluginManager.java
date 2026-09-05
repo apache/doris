@@ -66,15 +66,19 @@ public class AuthenticationPluginManager {
 
     /** Family label in the process-wide {@link PluginRegistry}. */
     private static final String PLUGIN_FAMILY = "AUTHENTICATION";
+    private static final String LEGACY_UNVERSIONED_API_VERSION = "1.0";
 
     /**
      * The authentication plugin API contract this FE serves. Built from the version filtered into
      * fe-authentication-spi at build time, anchored on {@link AuthenticationPluginFactory} so that it is read
      * from the very artifact carrying the SPI. A missing or malformed resource is a build defect and fails
-     * class initialization loudly rather than degrading into a check that admits everything.
+     * class initialization loudly rather than degrading into a check that admits everything. Authentication
+     * plugins shipped before the manifest contract are treated as API 1.0 for upgrade compatibility; explicit
+     * malformed or incompatible declarations remain rejected.
      */
     private static final ApiVersionGate API_VERSION_GATE =
-            ApiVersionGate.forFamily("authentication", AuthenticationPluginFactory.class);
+            ApiVersionGate.forFamilyAllowingUnversioned(
+                    "authentication", AuthenticationPluginFactory.class, LEGACY_UNVERSIONED_API_VERSION);
 
     /** Factories by plugin name (e.g., "ldap", "oidc", "password") */
     private final Map<String, AuthenticationPluginFactory> factories = new ConcurrentHashMap<>();
