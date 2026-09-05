@@ -18,15 +18,22 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IPv4Literal;
+import org.apache.doris.analysis.IPv6Literal;
 import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LargeIntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.VarBinaryLiteral;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Tablet;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -34,6 +41,7 @@ import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigInteger;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -44,13 +52,9 @@ public class HashDistributionPrunerTest {
     @Test
     public void test() {
         List<Long> tabletIds = Lists.newArrayListWithExpectedSize(300);
-        List<Tablet> indexTablets = Lists.newArrayListWithExpectedSize(300);
         for (long i = 0; i < 300; i++) {
             tabletIds.add(i);
-            indexTablets.add(new LocalTablet(i));
         }
-        MaterializedIndex index = new MaterializedIndex();
-        index.appendTablets(indexTablets);
 
         // distribution columns
         Column dealDate = new Column("dealDate", PrimitiveType.DATE, false);
@@ -98,6 +102,7 @@ public class HashDistributionPrunerTest {
         filters.put("CHANNEL", channelFilter);
         filters.put("SHOP_TYPE", shopTypeFilter);
 
+        MaterializedIndex index = createMaterializedIndex(tabletIds);
         HashDistributionPruner pruner = new HashDistributionPruner(null, index, columns, filters, tabletIds.size(),
                 true);
 
@@ -146,6 +151,109 @@ public class HashDistributionPrunerTest {
         Assertions.assertEquals(39, tablets.size());
     }
 
+    // Identity bucketing treats each value's canonical bytes as an unsigned integer with its first
+    // byte least significant, then appends multiple columns before taking the bucket modulus. This
+    // must remain bit-identical with BE tablet routing and bucket-shuffle partitioning.
+    @Test
+    public void testIdentityPrune() {
+        List<Long> tabletIds = Lists.newArrayListWithExpectedSize(512);
+        for (long i = 0; i < 512; i++) {
+            tabletIds.add(i);
+        }
+        Column shardNum = new Column("shard_num", PrimitiveType.BIGINT, false);
+        List<Column> columns = Lists.newArrayList(shardNum);
+
+        // in-range: shard_num = 100 -> 100 % 512 = 100
+        assertIdentityBucket(tabletIds, columns, "SHARD_NUM", new IntLiteral(100), 100L);
+        // wraps: 600 % 512 = 88
+        assertIdentityBucket(tabletIds, columns, "SHARD_NUM", new IntLiteral(600), 88L);
+        // Two's-complement bytes are interpreted as unsigned. A power-of-two modulus therefore
+        // still maps -1 to the final bucket.
+        assertIdentityBucket(tabletIds, columns, "SHARD_NUM", new IntLiteral(-1), 511L);
+
+        // LARGEINT uses all 128 bits of its canonical little-endian representation.
+        Column bigId = new Column("big_id", PrimitiveType.LARGEINT, false);
+        List<Column> bigCols = Lists.newArrayList(bigId);
+        BigInteger huge = BigInteger.ONE.shiftLeft(100).add(BigInteger.valueOf(5));
+        long expected = huge.mod(BigInteger.valueOf(512)).longValue();
+        assertIdentityBucket(tabletIds, bigCols, "BIG_ID", new LargeIntLiteral(huge), expected);
+
+        // With a non-power-of-two bucket count, -1 is UINT32_MAX rather than signed -1.
+        List<Long> tenTablets = Lists.newArrayListWithExpectedSize(10);
+        for (long i = 0; i < 10; i++) {
+            tenTablets.add(i);
+        }
+        assertIdentityBucket(tenTablets, columns, "SHARD_NUM", new IntLiteral(-1), 5L);
+    }
+
+    @Test
+    public void testIdentityPruneWithMultipleTypedColumns() {
+        List<Long> tabletIds = Lists.newArrayListWithExpectedSize(257);
+        for (long i = 0; i < 257; i++) {
+            tabletIds.add(i);
+        }
+        List<Column> columns = Lists.newArrayList(
+                new Column("id", PrimitiveType.INT, false),
+                new Column("name", PrimitiveType.VARCHAR, false));
+
+        Map<String, PartitionColumnFilter> filters = new CaseInsensitiveMap();
+        PartitionColumnFilter idFilter = new PartitionColumnFilter();
+        idFilter.setLowerBound(new IntLiteral(1), true);
+        idFilter.setUpperBound(new IntLiteral(1), true);
+        filters.put("ID", idFilter);
+        PartitionColumnFilter nameFilter = new PartitionColumnFilter();
+        nameFilter.setLowerBound(new StringLiteral("A"), true);
+        nameFilter.setUpperBound(new StringLiteral("A"), true);
+        filters.put("NAME", nameFilter);
+
+        MaterializedIndex index = createMaterializedIndex(tabletIds);
+        HashDistributionPruner pruner = new HashDistributionPruner(null, index, columns, filters,
+                tabletIds.size(), true, HashType.IDENTITY);
+        // append(uint32_le(1), bytes("A")) = 1 * 256 + 65; 321 % 257 = 64
+        Assert.assertEquals(Lists.newArrayList(64L), pruner.prune());
+    }
+
+    @Test
+    public void testIdentityNullCanonicalBytes() {
+        PartitionKey nullKey = new PartitionKey();
+        nullKey.pushColumn(new NullLiteral(), PrimitiveType.INT);
+        Assert.assertEquals(0, nullKey.getIdentityHashValue(257));
+
+        nullKey.pushColumn(new StringLiteral("A"), PrimitiveType.VARCHAR);
+        Assert.assertEquals(65, nullKey.getIdentityHashValue(257));
+    }
+
+    @Test
+    public void testIdentityPruneWithIpAndVarBinaryCanonicalBytes() throws Exception {
+        PartitionKey ipv4 = new PartitionKey();
+        ipv4.pushColumn(new IPv4Literal("1.2.3.4"), PrimitiveType.IPV4);
+        Assert.assertEquals(2, ipv4.getIdentityHashValue(257));
+
+        PartitionKey ipv6 = new PartitionKey();
+        ipv6.pushColumn(new IPv6Literal("::1"), PrimitiveType.IPV6);
+        Assert.assertEquals(1, ipv6.getIdentityHashValue(257));
+
+        PartitionKey varBinary = new PartitionKey();
+        varBinary.pushColumn(new VarBinaryLiteral(new byte[] {(byte) 0xff, 0}), PrimitiveType.VARBINARY);
+        Assert.assertEquals(255, varBinary.getIdentityHashValue(257));
+    }
+
+    private void assertIdentityBucket(List<Long> tabletIds, List<Column> columns, String colName, Expr value,
+            long expectedBucket) {
+        PartitionColumnFilter filter = new PartitionColumnFilter();
+        filter.setLowerBound((LiteralExpr) value, true);
+        filter.setUpperBound((LiteralExpr) value, true);
+        Map<String, PartitionColumnFilter> filters = new CaseInsensitiveMap();
+        filters.put(colName, filter);
+
+        MaterializedIndex index = createMaterializedIndex(tabletIds);
+        HashDistributionPruner pruner = new HashDistributionPruner(null, index, columns, filters, tabletIds.size(),
+                true, HashType.IDENTITY);
+        Collection<Long> results = pruner.prune();
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals(Long.valueOf(expectedBucket), results.iterator().next());
+    }
+
     @Test
     public void testPruneWithMaterializedIndex() {
         List<Long> tabletIds = Lists.newArrayListWithExpectedSize(8);
@@ -183,6 +291,14 @@ public class HashDistributionPrunerTest {
         Collection<Long> allIndexTablets = new HashDistributionPruner(null, index, columns, emptyFilters,
                 tabletIds.size(), true).prune();
         Assertions.assertEquals(tabletIds, Lists.newArrayList(allIndexTablets));
+    }
+
+    private MaterializedIndex createMaterializedIndex(List<Long> tabletIds) {
+        MaterializedIndex index = new MaterializedIndex();
+        for (long tabletId : tabletIds) {
+            index.addTablet(new LocalTablet(tabletId), null, true);
+        }
+        return index;
     }
 
 }

@@ -326,6 +326,8 @@ struct TOlapTablePartitionParam {
     13: optional bool partitions_is_fake = false
     // remote insert fe master address
     14: optional Types.TNetworkAddress master_address
+    // hash function type; CRC32 (legacy behavior) is the default for backward compatibility
+    15: optional Types.TDistributionHashType distribution_hash_type = Types.TDistributionHashType.CRC32
 }
 
 struct TOlapTableIndex {

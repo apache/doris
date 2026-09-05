@@ -1136,6 +1136,8 @@ public enum ErrorCode {
             "Colocate tables distribution columns size must be same: %s should be %s"),
     ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_TYPE(5063, new byte[]{'4', '2', '0', '0', '0'},
             "Colocate tables distribution columns must have the same data type: %s should be %s"),
+    ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_HASH_TYPE(5063, new byte[]{'4', '2', '0', '0', '0'},
+            "Colocate tables must have same distribution hash type: %s should be %s"),
     ERR_COLOCATE_NOT_COLOCATE_TABLE(5064, new byte[]{'4', '2', '0', '0', '0'},
             "Table %s is not a colocated table"),
     ERR_INVALID_OPERATION(5065, new byte[]{'4', '2', '0', '0', '0'}, "Operation %s is invalid"),

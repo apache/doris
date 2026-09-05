@@ -23,6 +23,7 @@
 #include "exec/exchange/local_exchange_sink_operator.h"
 #include "exec/exchange/vdata_stream_sender.h"
 #include "runtime/thread_context.h"
+#include "util/raw_value.h"
 
 namespace doris {
 
@@ -80,6 +81,23 @@ void Crc32CHashPartitioner::_do_hash(const ColumnPtr& column, HashValType* __res
 Status Crc32CHashPartitioner::clone(RuntimeState* state,
                                     std::unique_ptr<PartitionerBase>& partitioner) {
     auto* new_partitioner = new Crc32CHashPartitioner(_partition_count);
+    partitioner.reset(new_partitioner);
+    return _clone_expr_ctxs(state, new_partitioner->_partition_expr_ctxs);
+}
+
+void IdentityHashPartitioner::_do_hash(const ColumnPtr& column, HashValType* __restrict result,
+                                       int idx) const {
+    const PrimitiveType type = _partition_expr_ctxs[idx]->root()->data_type()->get_primitive_type();
+    for (size_t row = 0; row < column->size(); ++row) {
+        auto val = column->get_data_at(row);
+        result[row] =
+                RawValue::identity_hash(val.data, val.size, type, result[row], _partition_count);
+    }
+}
+
+Status IdentityHashPartitioner::clone(RuntimeState* state,
+                                      std::unique_ptr<PartitionerBase>& partitioner) {
+    auto* new_partitioner = new IdentityHashPartitioner(_partition_count);
     partitioner.reset(new_partitioner);
     return _clone_expr_ctxs(state, new_partitioner->_partition_expr_ctxs);
 }

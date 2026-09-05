@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -287,5 +288,48 @@ public class JoinUtilsTest {
             conjuncts = Lists.newArrayList(new EqualTo(leftKey2, rightKey2));
             Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
         }
+    }
+
+    // Two NATURAL sides with the same non-crc32 hashType (IDENTITY) can still colocate: same storage
+    // hash means each side's bucket layout matches, so no reshuffle is needed.
+    @Test
+    public void testCouldColocateJoinForSameIdentityHashType() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+
+        DistributionSpecHash left = new DistributionSpecHash(Lists.newArrayList(new ExprId(1)),
+                ShuffleType.NATURAL, 1L, 1L, Collections.emptySet(), HashType.IDENTITY);
+        DistributionSpecHash right = new DistributionSpecHash(Lists.newArrayList(new ExprId(2)),
+                ShuffleType.NATURAL, 1L, 1L, Collections.emptySet(), HashType.IDENTITY);
+
+        Expression leftKey1 = new SlotReference(new ExprId(1), "c1",
+                TinyIntType.INSTANCE, false, Lists.newArrayList());
+        Expression rightKey1 = new SlotReference(new ExprId(2), "c1",
+                TinyIntType.INSTANCE, false, Lists.newArrayList());
+
+        List<Expression> conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1));
+        Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, conjuncts));
+    }
+
+    // Different hashType on the two NATURAL sides (crc32 vs identity) must NOT colocate: the storage
+    // bucket layouts differ, so a bucket-local join would read mismatched buckets — the correctness
+    // red line. Guarded by JoinUtils.couldColocateJoin's leftHashSpec/rightHashSpec hashType check.
+    @Test
+    public void testCouldNotColocateJoinForDifferentHashType() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+
+        DistributionSpecHash left = new DistributionSpecHash(Lists.newArrayList(new ExprId(1)),
+                ShuffleType.NATURAL, 1L, 1L, Collections.emptySet(), HashType.CRC32);
+        DistributionSpecHash right = new DistributionSpecHash(Lists.newArrayList(new ExprId(2)),
+                ShuffleType.NATURAL, 1L, 1L, Collections.emptySet(), HashType.IDENTITY);
+
+        Expression leftKey1 = new SlotReference(new ExprId(1), "c1",
+                TinyIntType.INSTANCE, false, Lists.newArrayList());
+        Expression rightKey1 = new SlotReference(new ExprId(2), "c1",
+                TinyIntType.INSTANCE, false, Lists.newArrayList());
+
+        List<Expression> conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1));
+        Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
     }
 }
