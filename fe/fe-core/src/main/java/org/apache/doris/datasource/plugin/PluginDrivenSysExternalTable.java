@@ -159,6 +159,12 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
         return false;
     }
 
+    /** The connector-wide capability covers native data tables, not system-table pushdown semantics. */
+    @Override
+    public boolean supportsStoragePredicatePruning() {
+        return false;
+    }
+
     /**
      * Compute the schema directly on this transient instance instead of going through the base
      * {@link ExternalTable#getSchemaCacheValue()}, which routes through {@code ExternalCatalog.getSchema()}

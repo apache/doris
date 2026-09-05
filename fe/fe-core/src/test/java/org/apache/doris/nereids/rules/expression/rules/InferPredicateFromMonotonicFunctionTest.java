@@ -31,12 +31,15 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekFloor;
@@ -46,9 +49,12 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeStampTzType;
@@ -56,6 +62,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
@@ -82,7 +89,7 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
 
         Expression extracted = PartitionPruneExpressionExtractor.extract(
                 filter, ImmutableSet.of(dateTimeSlot), cascadesContext);
-        Expression inferred = InferPredicateFromMonotonicFunction.inferForPartitionPrune(extracted);
+        Expression inferred = InferPredicateFromMonotonicFunction.inferForPruning(extracted);
 
         assertInferredBound(inferred, GreaterThanEqual.class, dateTimeSlot);
         assertInferredBound(inferred, LessThan.class, dateTimeSlot);
@@ -96,7 +103,7 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
         Expression original = typeCoercion(replaceUnboundSlot(PARSER.parseExpression(
                 "substring(VS, 1, 4) >= 'a-value-longer-than-four'"), slots));
 
-        Expression rewritten = InferPredicateFromMonotonicFunction.inferForPartitionPrune(original);
+        Expression rewritten = InferPredicateFromMonotonicFunction.inferForPruning(original);
 
         assertInferredBound(rewritten, GreaterThanEqual.class, slots.get("VS"));
         assertOriginalPreserved(rewritten, original);
@@ -113,12 +120,26 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
     }
 
     @Test
-    void inferPrefixEqualityAsLowerBound() {
+    void inferPrefixEqualityAsTightRange() {
         EqualTo original = new EqualTo(substring(stringSlot, 1, 4), new VarcharLiteral("abcd"));
 
         Expression rewritten = rewrite(original);
 
         assertInferredBound(rewritten, GreaterThanEqual.class, stringSlot);
+        ComparisonPredicate upperBound = findInferredBound(rewritten, LessThan.class, stringSlot);
+        Assertions.assertEquals("abce", ((StringLikeLiteral) upperBound.right()).getStringValue());
+        Assertions.assertEquals(3, ExpressionUtils.extractConjunction(rewritten).size());
+    }
+
+    @Test
+    void keepOnlyPrefixLowerBoundWhenNoSafeSuccessorExists() {
+        EqualTo nonAscii = new EqualTo(
+                substring(stringSlot, 1, 2), new VarcharLiteral("中文"));
+
+        Expression rewritten = rewrite(nonAscii);
+
+        assertInferredBound(rewritten, GreaterThanEqual.class, stringSlot);
+        assertNoInferredBound(rewritten, LessThan.class, stringSlot);
     }
 
     @Test
@@ -144,6 +165,22 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
     }
 
     @Test
+    void inferExactDateTruncAndToDateRanges() {
+        EqualTo dateTrunc = new EqualTo(
+                new DateTrunc(dateTimeSlot, new VarcharLiteral("month")),
+                new DateTimeV2Literal("2026-07-01 00:00:00"));
+        EqualTo toDate = new EqualTo(new ToDate(dateTimeSlot), new VarcharLiteral("2026-07-28"));
+
+        ComparisonPredicate dateTruncUpper = findInferredBound(
+                rewrite(dateTrunc), LessThan.class, dateTimeSlot);
+        ComparisonPredicate toDateUpper = findInferredBound(
+                rewrite(toDate), LessThan.class, dateTimeSlot);
+
+        Assertions.assertEquals(new DateTimeV2Literal("2026-08-01 00:00:00"), dateTruncUpper.right());
+        Assertions.assertEquals(new DateTimeV2Literal("2026-07-29 00:00:00"), toDateUpper.right());
+    }
+
+    @Test
     void inferFloorAndCeilBounds() {
         GreaterThan floor = new GreaterThan(
                 new DayFloor(dateTimeSlot), new DateTimeV2Literal("2026-07-28 00:00:00"));
@@ -163,6 +200,118 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
     }
 
     @Test
+    void inferExactFloorAndCeilEqualityRanges() {
+        DateTimeV2Literal boundary = new DateTimeV2Literal("2026-07-28 00:00:00");
+        EqualTo floor = new EqualTo(new DayFloor(dateTimeSlot), boundary);
+        EqualTo ceil = new EqualTo(new DayCeil(dateTimeSlot), boundary);
+
+        Expression floorRange = rewrite(floor);
+        Expression ceilRange = rewrite(ceil);
+
+        Assertions.assertEquals(new DateTimeV2Literal("2026-07-29 00:00:00"),
+                findInferredBound(floorRange, LessThan.class, dateTimeSlot).right());
+        Assertions.assertEquals(new DateTimeV2Literal("2026-07-27 00:00:00"),
+                findInferredBound(ceilRange, GreaterThan.class, dateTimeSlot).right());
+        assertInferredBound(floorRange, GreaterThanEqual.class, dateTimeSlot);
+        assertInferredBound(ceilRange, LessThanEqual.class, dateTimeSlot);
+    }
+
+    @Test
+    void inferExactRangeWithDefaultOriginAndPeriod() {
+        Map<String, Slot> slots = Maps.newHashMap();
+        Expression predicate = typeCoercion(replaceUnboundSlot(PARSER.parseExpression(
+                "date_floor(AA, interval 3 day) = '2026-07-28 00:00:00'"), slots));
+
+        ComparisonPredicate upperBound = findInferredBound(
+                InferPredicateFromMonotonicFunction.inferForPruning(predicate),
+                LessThan.class, slots.get("AA"));
+
+        Assertions.assertEquals(new DateTimeV2Literal("2026-07-31 00:00:00"), upperBound.right());
+    }
+
+    @Test
+    void inferTwoSidedRangesForAllFloorAndCeilUnits() {
+        Map<String, List<String>> unitBoundaries = ImmutableMap.<String, List<String>>builder()
+                .put("year", ImmutableList.of("2023-01-01 00:00:00", "2025-01-01 00:00:00"))
+                .put("quarter", ImmutableList.of("2023-10-01 00:00:00", "2024-04-01 00:00:00"))
+                .put("month", ImmutableList.of("2023-12-01 00:00:00", "2024-02-01 00:00:00"))
+                .put("week", ImmutableList.of("2023-12-25 00:00:00", "2024-01-08 00:00:00"))
+                .put("day", ImmutableList.of("2023-12-31 00:00:00", "2024-01-02 00:00:00"))
+                .put("hour", ImmutableList.of("2023-12-31 23:00:00", "2024-01-01 01:00:00"))
+                .put("minute", ImmutableList.of("2023-12-31 23:59:00", "2024-01-01 00:01:00"))
+                .put("second", ImmutableList.of("2023-12-31 23:59:59", "2024-01-01 00:00:01"))
+                .build();
+        DateTimeV2Literal boundary = new DateTimeV2Literal("2024-01-01 00:00:00");
+        for (Map.Entry<String, List<String>> entry : unitBoundaries.entrySet()) {
+            Map<String, Slot> slots = Maps.newHashMap();
+            Expression floor = typeCoercion(replaceUnboundSlot(PARSER.parseExpression(
+                    "date_floor(AA, interval 1 " + entry.getKey() + ") = '2024-01-01 00:00:00'"), slots));
+            Expression ceil = typeCoercion(replaceUnboundSlot(PARSER.parseExpression(
+                    "date_ceil(AA, interval 1 " + entry.getKey() + ") = '2024-01-01 00:00:00'"), slots));
+
+            Expression floorRange = InferPredicateFromMonotonicFunction.inferForPruning(floor);
+            Expression ceilRange = InferPredicateFromMonotonicFunction.inferForPruning(ceil);
+
+            Assertions.assertEquals(boundary,
+                    findInferredBound(floorRange, GreaterThanEqual.class, slots.get("AA")).right());
+            Assertions.assertEquals(new DateTimeV2Literal(entry.getValue().get(1)),
+                    findInferredBound(floorRange, LessThan.class, slots.get("AA")).right());
+            Assertions.assertEquals(new DateTimeV2Literal(entry.getValue().get(0)),
+                    findInferredBound(ceilRange, GreaterThan.class, slots.get("AA")).right());
+            Assertions.assertEquals(boundary,
+                    findInferredBound(ceilRange, LessThanEqual.class, slots.get("AA")).right());
+        }
+    }
+
+    @Test
+    void keepOnlySameDirectionBoundWithCustomCalendarOrigin() {
+        EqualTo floor = new EqualTo(
+                new MonthFloor(dateTimeSlot, new IntegerLiteral(1),
+                        new DateTimeV2Literal("2021-01-31 00:00:00")),
+                new DateTimeV2Literal("2021-02-28 00:00:00"));
+
+        Expression rewritten = rewrite(floor);
+
+        assertInferredBound(rewritten, GreaterThanEqual.class, dateTimeSlot);
+        assertNoInferredBound(rewritten, LessThan.class, dateTimeSlot);
+    }
+
+    @Test
+    void omitOverflowedQuarterBoundaries() {
+        IntegerLiteral period = new IntegerLiteral(1431655766);
+        DateTimeV2Literal origin = new DateTimeV2Literal("0001-01-01 00:00:00");
+        Assertions.assertEquals(origin, TimeRoundSeries.quarterFloor(
+                new DateTimeV2Literal("2026-01-01 00:00:00"), period));
+
+        Expression floorRange = rewrite(new EqualTo(
+                new QuarterFloor(dateTimeSlot, period), origin));
+        Expression ceilRange = rewrite(new EqualTo(
+                new QuarterCeil(dateTimeSlot, period), origin));
+
+        assertInferredBound(floorRange, GreaterThanEqual.class, dateTimeSlot);
+        assertNoInferredBound(floorRange, LessThan.class, dateTimeSlot);
+        assertInferredBound(ceilRange, LessThanEqual.class, dateTimeSlot);
+        assertNoInferredBound(ceilRange, GreaterThan.class, dateTimeSlot);
+    }
+
+    @Test
+    void omitUnrepresentableAdjacentBoundary() {
+        EqualTo floor = new EqualTo(
+                new DateTrunc(dateTimeSlot, new VarcharLiteral("year")),
+                new DateTimeV2Literal("9999-01-01 00:00:00"));
+        EqualTo ceil = new EqualTo(
+                new YearCeil(dateTimeSlot), new DateTimeV2Literal("0000-01-01 00:00:00"));
+
+        Expression floorRange = rewrite(floor);
+        Expression ceilRange = rewrite(ceil);
+
+        assertInferredBound(floorRange, GreaterThanEqual.class, dateTimeSlot);
+        assertNoInferredBound(floorRange, LessThan.class, dateTimeSlot);
+        assertInferredBound(ceilRange, LessThanEqual.class, dateTimeSlot);
+        assertNoInferredBound(ceilRange, GreaterThan.class, dateTimeSlot);
+    }
+
+    @Test
     void inferDateCeilBoundFromSqlSyntax() {
         Map<String, Slot> slots = Maps.newHashMap();
         Expression predicate = typeCoercion(replaceUnboundSlot(PARSER.parseExpression(
@@ -171,7 +320,7 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
 
         Assertions.assertInstanceOf(DayCeil.class, dateCeil);
         Assertions.assertEquals(3, dateCeil.arity());
-        assertInferredBound(InferPredicateFromMonotonicFunction.inferForPartitionPrune(predicate),
+        assertInferredBound(InferPredicateFromMonotonicFunction.inferForPruning(predicate),
                 LessThanEqual.class, slots.get("AA"));
     }
 
@@ -184,7 +333,7 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
 
         Assertions.assertInstanceOf(MonthCeil.class, dateCeil);
         Assertions.assertEquals(3, dateCeil.arity());
-        assertInferredBound(InferPredicateFromMonotonicFunction.inferForPartitionPrune(predicate),
+        assertInferredBound(InferPredicateFromMonotonicFunction.inferForPruning(predicate),
                 LessThanEqual.class, slots.get("AA"));
     }
 
@@ -200,10 +349,10 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
         Assertions.assertInstanceOf(Cast.class, floorPredicate.child(0).child(0));
 
         ComparisonPredicate ceilBound = findInferredBound(
-                InferPredicateFromMonotonicFunction.inferForPartitionPrune(ceilPredicate),
+                InferPredicateFromMonotonicFunction.inferForPruning(ceilPredicate),
                 LessThan.class, slots.get("CC"));
         ComparisonPredicate floorBound = findInferredBound(
-                InferPredicateFromMonotonicFunction.inferForPartitionPrune(floorPredicate),
+                InferPredicateFromMonotonicFunction.inferForPruning(floorPredicate),
                 GreaterThanEqual.class, slots.get("CC"));
         DateV2Literal nextDay = new DateV2Literal("2026-07-29");
         Assertions.assertEquals(nextDay, ceilBound.right());
@@ -254,13 +403,17 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
     }
 
     @Test
-    void doNotInferTimestampTzRoundingBound() {
+    void doNotInferTimestampTzBounds() {
         SlotReference timestampTzSlot = new SlotReference(
                 "ts", TimeStampTzType.SYSTEM_DEFAULT, true);
-        LessThanEqual predicate = new LessThanEqual(
+        LessThanEqual rounding = new LessThanEqual(
                 new DayCeil(timestampTzSlot), new TimestampTzLiteral("2026-07-28 00:00:00+00:00"));
+        EqualTo formatting = new EqualTo(
+                new DateFormat(timestampTzSlot, new VarcharLiteral("%Y-%m-%d")),
+                new VarcharLiteral("2026-07-28"));
 
-        Assertions.assertEquals(typeCoercion(predicate), rewrite(predicate));
+        Assertions.assertEquals(typeCoercion(rounding), rewrite(rounding));
+        Assertions.assertEquals(typeCoercion(formatting), rewrite(formatting));
     }
 
     @Test
@@ -269,8 +422,10 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
 
         Expression rewritten = rewrite(original);
 
-        assertInferredBound(rewritten, GreaterThanEqual.class, dateTimeSlot);
-        assertInferredBound(rewritten, LessThan.class, dateTimeSlot);
+        Assertions.assertInstanceOf(Literal.class,
+                findInferredBound(rewritten, GreaterThanEqual.class, dateTimeSlot).right());
+        Assertions.assertInstanceOf(Literal.class,
+                findInferredBound(rewritten, LessThan.class, dateTimeSlot).right());
         Assertions.assertEquals(3, ExpressionUtils.extractConjunction(rewritten).size());
     }
 
@@ -287,6 +442,102 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
     }
 
     @Test
+    void inferWhenLiteralIsOnTheLeft() {
+        LessThanEqual original = new LessThanEqual(
+                new IntegerLiteral(2026), new Year(dateTimeSlot));
+
+        Expression rewritten = rewrite(original);
+
+        assertOriginalPreserved(rewritten, original);
+        assertInferredBound(rewritten, GreaterThanEqual.class, dateTimeSlot);
+    }
+
+    @Test
+    void inferDateFormatLowerBound() {
+        GreaterThanEqual original = new GreaterThanEqual(
+                new DateFormat(dateTimeSlot, new VarcharLiteral("%Y-%m-%d")),
+                new VarcharLiteral("2026-07-28"));
+
+        ComparisonPredicate lowerBound = findInferredBound(
+                rewrite(original), GreaterThanEqual.class, dateTimeSlot);
+
+        Assertions.assertEquals(new DateTimeV2Literal("2026-07-28 00:00:00"), lowerBound.right());
+    }
+
+    @Test
+    void inferExactDateFormatEqualityRanges() {
+        Map<String, List<String>> formatBoundaries = ImmutableMap.<String, List<String>>builder()
+                .put("%Y", ImmutableList.of("2026", "2027-01-01 00:00:00"))
+                .put("%Y-%m", ImmutableList.of("2026-07", "2026-08-01 00:00:00"))
+                .put("%Y%m", ImmutableList.of("202607", "2026-08-01 00:00:00"))
+                .put("yyyyMMdd", ImmutableList.of("20260728", "2026-07-29 00:00:00"))
+                .put("yyyy-MM-dd", ImmutableList.of("2026-07-28", "2026-07-29 00:00:00"))
+                .put("%Y-%m-%d", ImmutableList.of("2026-07-28", "2026-07-29 00:00:00"))
+                .put("%Y%m%d", ImmutableList.of("20260728", "2026-07-29 00:00:00"))
+                .put("%Y-%m-%d %H", ImmutableList.of("2026-07-28 13", "2026-07-28 14:00:00"))
+                .put("%Y-%m-%d %H:%i",
+                        ImmutableList.of("2026-07-28 13:45", "2026-07-28 13:46:00"))
+                .put("yyyy-MM-dd HH:mm:ss",
+                        ImmutableList.of("2026-07-28 13:45:56", "2026-07-28 13:45:57"))
+                .put("%Y-%m-%d %H:%i:%s",
+                        ImmutableList.of("2026-07-28 13:45:56", "2026-07-28 13:45:57"))
+                .put("%Y-%m-%d %H:%i:%S",
+                        ImmutableList.of("2026-07-28 13:45:56", "2026-07-28 13:45:57"))
+                .put("%Y-%m-%d %T",
+                        ImmutableList.of("2026-07-28 13:45:56", "2026-07-28 13:45:57"))
+                .build();
+
+        for (Map.Entry<String, List<String>> entry : formatBoundaries.entrySet()) {
+            EqualTo original = new EqualTo(
+                    new DateFormat(dateTimeSlot, new VarcharLiteral(entry.getKey())),
+                    new VarcharLiteral(entry.getValue().get(0)));
+
+            Expression rewritten = rewrite(original);
+
+            assertInferredBound(rewritten, GreaterThanEqual.class, dateTimeSlot);
+            Assertions.assertEquals(new DateTimeV2Literal(entry.getValue().get(1)),
+                    findInferredBound(rewritten, LessThan.class, dateTimeSlot).right());
+        }
+    }
+
+    @Test
+    void inferDateFormatLowerBoundForDateV2Slot() {
+        SlotReference dateSlot = new SlotReference("d", DateV2Type.INSTANCE, true);
+        EqualTo original = new EqualTo(
+                new DateFormat(dateSlot, new VarcharLiteral("%Y-%m-%d")),
+                new VarcharLiteral("2026-07-28"));
+        Expression analyzed = typeCoercion(original);
+
+        Assertions.assertInstanceOf(Cast.class, analyzed.child(0).child(0));
+        ComparisonPredicate lowerBound = findInferredBound(
+                InferPredicateFromMonotonicFunction.inferForPruning(analyzed),
+                GreaterThanEqual.class, dateSlot);
+        Assertions.assertEquals(new DateV2Literal("2026-07-28"), lowerBound.right());
+        ComparisonPredicate upperBound = findInferredBound(
+                InferPredicateFromMonotonicFunction.inferForPruning(analyzed),
+                LessThan.class, dateSlot);
+        Assertions.assertEquals(new DateV2Literal("2026-07-29"), upperBound.right());
+    }
+
+    @Test
+    void doNotInferUnparseableDateFormatBoundary() {
+        GreaterThanEqual original = new GreaterThanEqual(
+                new DateFormat(dateTimeSlot, new VarcharLiteral("%Y-%m-%d")),
+                new VarcharLiteral("not-a-date"));
+
+        Assertions.assertEquals(typeCoercion(original), rewrite(original));
+    }
+
+    @Test
+    void doNotInferNonMonotonicDateFormat() {
+        EqualTo original = new EqualTo(
+                new DateFormat(dateTimeSlot, new VarcharLiteral("%m-%d-%Y")),
+                new VarcharLiteral("07-28-2026"));
+
+        Assertions.assertEquals(typeCoercion(original), rewrite(original));
+    }
+
+    @Test
     void inferYearAtDateDomainBounds() {
         EqualTo yearZero = new EqualTo(new Year(dateTimeSlot), new IntegerLiteral(0));
         Expression rewrittenYearZero = rewrite(yearZero);
@@ -295,9 +546,9 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
 
         EqualTo year9999 = new EqualTo(new Year(dateTimeSlot), new IntegerLiteral(9999));
         Expression rewrittenYear9999 = rewrite(year9999);
-        Expression expectedLowerBound = typeCoercion(
-                new GreaterThanEqual(dateTimeSlot, new DateV2Literal(9999, 1, 1))).withInferred(true);
-        Assertions.assertTrue(ExpressionUtils.extractConjunction(rewrittenYear9999).contains(expectedLowerBound));
+        ComparisonPredicate lowerBound = findInferredBound(
+                rewrittenYear9999, GreaterThanEqual.class, dateTimeSlot);
+        Assertions.assertEquals(new DateTimeV2Literal("9999-01-01 00:00:00"), lowerBound.right());
         Assertions.assertEquals(2, ExpressionUtils.extractConjunction(rewrittenYear9999).size());
 
         GreaterThan afterLastYear = new GreaterThan(new Year(dateTimeSlot), new IntegerLiteral(9999));
@@ -331,7 +582,7 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
         Expression duplicateConjunction = new And(ImmutableList.of(predicate, predicate));
 
         Expression rewritten = InferPredicateFromMonotonicFunction
-                .inferForPartitionPrune(duplicateConjunction);
+                .inferForPruning(duplicateConjunction);
 
         Assertions.assertInstanceOf(And.class, rewritten);
         Assertions.assertEquals(2, rewritten.children().size());
@@ -346,8 +597,8 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
         Expression original = ExpressionUtils.and(ImmutableList.of(prefix, dateFloor));
 
         Expression analyzedOriginal = typeCoercion(original);
-        Expression once = InferPredicateFromMonotonicFunction.inferForPartitionPrune(analyzedOriginal);
-        Expression twice = InferPredicateFromMonotonicFunction.inferForPartitionPrune(once);
+        Expression once = InferPredicateFromMonotonicFunction.inferForPruning(analyzedOriginal);
+        Expression twice = InferPredicateFromMonotonicFunction.inferForPruning(once);
         List<Expression> originalConjuncts = ExpressionUtils.extractConjunction(analyzedOriginal);
         List<Expression> rewrittenConjuncts = ExpressionUtils.extractConjunction(once);
 
@@ -364,7 +615,7 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
         GreaterThanEqual existingBound = new GreaterThanEqual(dateTimeSlot, boundary);
         Expression original = typeCoercion(ExpressionUtils.and(ImmutableList.of(dateFloor, existingBound)));
 
-        Expression rewritten = InferPredicateFromMonotonicFunction.inferForPartitionPrune(original);
+        Expression rewritten = InferPredicateFromMonotonicFunction.inferForPruning(original);
 
         Assertions.assertEquals(ExpressionUtils.extractConjunction(original),
                 ExpressionUtils.extractConjunction(rewritten));
@@ -385,7 +636,7 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
             Assertions.assertEquals(3, ExpressionUtils.extractConjunction(disjunction).size());
         }
         Assertions.assertEquals(rewritten,
-                InferPredicateFromMonotonicFunction.inferForPartitionPrune(rewritten));
+                InferPredicateFromMonotonicFunction.inferForPruning(rewritten));
     }
 
     @Test
@@ -419,7 +670,7 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
     }
 
     private Expression rewrite(Expression expression) {
-        return InferPredicateFromMonotonicFunction.inferForPartitionPrune(typeCoercion(expression));
+        return InferPredicateFromMonotonicFunction.inferForPruning(typeCoercion(expression));
     }
 
     private void assertOriginalPreserved(Expression rewritten, Expression original) {
@@ -442,5 +693,12 @@ class InferPredicateFromMonotonicFunctionTest extends ExpressionRewriteTestHelpe
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("missing inferred " + predicateType.getSimpleName()
                         + " bound on " + source + " in " + expression));
+    }
+
+    private void assertNoInferredBound(Expression expression,
+            Class<? extends ComparisonPredicate> predicateType, Expression source) {
+        Assertions.assertFalse(ExpressionUtils.extractConjunction(expression).stream()
+                .anyMatch(conjunct -> predicateType.isInstance(conjunct)
+                        && conjunct.child(0).equals(source) && conjunct.isInferred()));
     }
 }

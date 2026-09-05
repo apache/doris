@@ -266,6 +266,27 @@ suite("test_parquet_lazy_mat_profile", "p0,external") {
             assertTrue(metricValueAsLong(metrics["ReaderSelectRows"]) > 0)
         }
 
+        def monotonicPrefixPruning = {
+            sql """ set enable_file_scanner_v2 = true; """
+            sql """ set enable_parquet_filter_by_min_max = true; """
+            def token = UUID.randomUUID().toString()
+            def sqlResult = sql """
+                select *, "${token}" from fact_big
+                where substring(c4, 1, 5) = 'str_1' order by k;
+            """
+            assertEquals(11, sqlResult.size())
+
+            def profileText = getProfileWithToken(token)
+            assertTrue(profileText.contains("ParquetReader"), "Profile does not contain ParquetReader")
+            def metrics = extractProfileBlockMetrics(profileText, "ParquetReader")
+            logger.info("monotonic prefix pruning metrics = ${metrics}")
+            assertEquals("89", metrics["FilteredRowsByGroup"])
+            assertEquals("89", metrics["RowGroupsFiltered"])
+            assertEquals("89", metrics["RowGroupsFilteredByMinMax"])
+            assertEquals("11", metrics["RowGroupsReadNum"])
+            assertEquals("100", metrics["RowGroupsTotalNum"])
+        }
+
 
 
         def test_true_true = {
@@ -634,6 +655,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external") {
         test_false_false();
         test_false_true();
         q8();
+        monotonicPrefixPruning();
 
 
         sql """drop catalog ${catalog_name};"""
