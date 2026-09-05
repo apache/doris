@@ -114,7 +114,14 @@ public:
     Int32GreaterThanExpr(int column_id, int32_t value)
             : VExpr(std::make_shared<DataTypeUInt8>(), false),
               _column_id(column_id),
-              _value(value) {}
+              _value(value) {
+        _fn.name.function_name = "gt";
+        const auto int_type = std::make_shared<DataTypeInt32>();
+        // Keep the test double structurally equivalent to a scalar comparison because Page Index
+        // admission resolves the physical probe from expression children.
+        add_child(VSlotRef::create_shared(column_id, column_id, -1, int_type, "c0"));
+        add_child(VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(value)));
+    }
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
