@@ -105,7 +105,7 @@ public class TimeV2Literal extends Literal {
         this.microsecond = (int) (microsecond / Math.pow(10, 6 - scale)) * (int) Math.pow(10, 6 - scale);
         this.negative = negative;
         if (checkRange(this.hour, this.minute, this.second, this.microsecond) || scale > 6 || scale < 0) {
-            throw new AnalysisException("time literal is out of range [-838:59:59.999999, 838:59:59.999999]");
+            throw new AnalysisException("time literal is out of range [-838:59:59.000000, 838:59:59.000000]");
         }
     }
 
@@ -263,7 +263,7 @@ public class TimeV2Literal extends Literal {
 
     protected static boolean checkRange(double hour, int minute, int second, int microsecond) {
         return hour > 838 || minute > 59 || second > 59 || microsecond > 999999 || minute < 0 || second < 0
-                || microsecond < 0;
+                || microsecond < 0 || (hour == 838 && minute == 59 && second == 59 && microsecond != 0);
     }
 
     /**

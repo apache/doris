@@ -751,7 +751,7 @@ public class DateTimeExtractAndTransform {
 
         long totalMicrosecond = Math.abs(hourValue) * 3600L * 1000000
                 + minuteValue * 60L * 1000000 + Math.round(secondValue * 1000000);
-        long maxMicrosecond = 838L * 3600L * 1000000 + 59L * 60L * 1000000 + 59999999L;
+        long maxMicrosecond = 838L * 3600L * 1000000 + 59L * 60L * 1000000 + 59L * 1000000;
         totalMicrosecond = Math.min(totalMicrosecond, maxMicrosecond);
 
         int newHour = (int) (totalMicrosecond / 3600L / 1000000);

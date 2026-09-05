@@ -21,8 +21,10 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -34,6 +36,17 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 class DateTimeExtractAndTransformTest {
+    @Test
+    void testMakeTimeSaturatesAtMySqlEndpoint() {
+        TimeV2Literal positive = (TimeV2Literal) DateTimeExtractAndTransform.makeTime(
+                new BigIntLiteral(838), new BigIntLiteral(59), new DoubleLiteral(59.999999));
+        TimeV2Literal negative = (TimeV2Literal) DateTimeExtractAndTransform.makeTime(
+                new BigIntLiteral(-838), new BigIntLiteral(59), new DoubleLiteral(59.999999));
+
+        Assertions.assertEquals("838:59:59.000000", positive.getStringValue());
+        Assertions.assertEquals("-838:59:59.000000", negative.getStringValue());
+    }
+
     @Test
     void testSpecialDateWeeks() {
         // test week/yearweek for 0000-01-01/02
