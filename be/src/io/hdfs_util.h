@@ -80,6 +80,7 @@ extern bvar::LatencyRecorder hdfs_close_latency;
 extern bvar::LatencyRecorder hdfs_flush_latency;
 extern bvar::LatencyRecorder hdfs_hflush_latency;
 extern bvar::LatencyRecorder hdfs_hsync_latency;
+extern bvar::LatencyRecorder hdfs_get_path_info_latency;
 }; // namespace hdfs_bvar
 
 // if the format of path is hdfs://ip:port/path, replace it to /path.

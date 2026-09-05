@@ -143,6 +143,10 @@ public:
         return _position_delete_base(data_file_path, delete_files);
     }
 
+    Status TEST_read_equality_delete_file(const TIcebergDeleteFileDesc& delete_file) {
+        return _read_equality_delete_file(delete_file);
+    }
+
     void TEST_set_column_name_to_block_index(
             std::unordered_map<std::string, uint32_t>* column_name_to_block_index) {
         this->col_name_to_block_idx_ref() = column_name_to_block_index;
@@ -848,7 +852,7 @@ Status IcebergReaderMixin<BaseReader>::_read_equality_delete_file(
     delete_desc.path = delete_file.path;
     delete_desc.start_offset = 0;
     delete_desc.size = -1;
-    delete_desc.file_size = -1;
+    delete_desc.file_size = delete_file.__isset.file_size ? delete_file.file_size : -1;
 
     std::unique_ptr<GenericReader> reader = _create_equality_reader(delete_desc);
     RETURN_IF_ERROR(reader->init_schema_reader());
@@ -1290,7 +1294,8 @@ Status IcebergReaderMixin<BaseReader>::_position_delete_base(
                     delete_file_range.path = delete_file.path;
                     delete_file_range.start_offset = 0;
                     delete_file_range.size = -1;
-                    delete_file_range.file_size = -1;
+                    delete_file_range.file_size =
+                            delete_file.__isset.file_size ? delete_file.file_size : -1;
                     create_status =
                             _read_position_delete_file(&delete_file_range, position_delete.get());
                     if (!create_status) {
