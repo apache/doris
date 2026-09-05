@@ -370,6 +370,44 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
     }
 
+    public List<LancePhysicalIndexEntry> loadTableIndexEntries(
+            String dbName, String tableName) throws AnalysisException {
+        if (isRestCatalogConfigured()) {
+            throw new AnalysisException(
+                    "Lance index inspection is not supported for Lance REST catalogs");
+        }
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            throw indexMetadataLoadFailure(dbName, tableName, e, null, namespaceStorageOptions);
+        }
+
+        ResolvedTableAccess tableAccess = null;
+        try {
+            // Keep Directory namespace resolution on the caller while it owns the catalog's
+            // shared namespace and allocator. Moving that shared owner into a timed task would
+            // let catalog close release it after the caller returns but before the task ends.
+            // The deadline below covers the Dataset/JNI index metadata read itself.
+            tableAccess = resolveTableAccess(dbName, tableName);
+            String datasetUri = tableAccess.datasetUri;
+            Map<String, String> storageOptions = tableAccess.storageOptions;
+            return LanceMetadataReadExecutor.execute(() -> {
+                // The caller may return on deadline while JNI is still running. A task-owned
+                // allocator prevents catalog close from releasing native resources prematurely.
+                try (BufferAllocator readAllocator = new RootAllocator(ALLOCATOR_LIMIT)) {
+                    return LanceIndexMetadataLoader.loadPhysicalEntries(
+                            datasetUri, storageOptions, readAllocator);
+                }
+            });
+        } catch (Exception e) {
+            String datasetUri = tableAccess == null ? null : tableAccess.datasetUri;
+            Map<String, String> runtimeStorageOptions = tableAccess == null
+                    ? namespaceStorageOptions : tableAccess.storageOptions;
+            throw indexMetadataLoadFailure(
+                    dbName, tableName, e, datasetUri, runtimeStorageOptions);
+        }
+    }
+
     @VisibleForTesting
     RuntimeException indexMetadataLoadFailure(String dbName, String tableName,
             Throwable throwable, String datasetUri, Map<String, String> runtimeStorageOptions) {
