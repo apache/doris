@@ -20,8 +20,8 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.common.JobStatus;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -40,8 +40,8 @@ public class StreamingInsertJobStatusTransitionTest {
     public void testPendingIsPromotedToRunning() throws Exception {
         StreamingInsertJob job = newJob(JobStatus.PENDING);
 
-        Assert.assertTrue(job.updateJobStatusIfCurrent(JobStatus.PENDING, JobStatus.RUNNING));
-        Assert.assertEquals(JobStatus.RUNNING, job.getJobStatus());
+        Assertions.assertTrue(job.updateJobStatusIfCurrent(JobStatus.PENDING, JobStatus.RUNNING));
+        Assertions.assertEquals(JobStatus.RUNNING, job.getJobStatus());
     }
 
     @Test
@@ -51,8 +51,8 @@ public class StreamingInsertJobStatusTransitionTest {
         // job: it holds a canceled task, and only the PAUSED branch can auto resume it.
         StreamingInsertJob job = newJob(JobStatus.PAUSED);
 
-        Assert.assertFalse(job.updateJobStatusIfCurrent(JobStatus.PENDING, JobStatus.RUNNING));
-        Assert.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+        Assertions.assertFalse(job.updateJobStatusIfCurrent(JobStatus.PENDING, JobStatus.RUNNING));
+        Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
     }
 
     @Test
@@ -60,7 +60,7 @@ public class StreamingInsertJobStatusTransitionTest {
         // A concurrent DROP/STOP JOB leaves a terminal status that must not be revived either.
         StreamingInsertJob job = newJob(JobStatus.STOPPED);
 
-        Assert.assertFalse(job.updateJobStatusIfCurrent(JobStatus.PENDING, JobStatus.RUNNING));
-        Assert.assertEquals(JobStatus.STOPPED, job.getJobStatus());
+        Assertions.assertFalse(job.updateJobStatusIfCurrent(JobStatus.PENDING, JobStatus.RUNNING));
+        Assertions.assertEquals(JobStatus.STOPPED, job.getJobStatus());
     }
 }
