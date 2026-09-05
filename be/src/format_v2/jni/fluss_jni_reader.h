@@ -1,0 +1,54 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <map>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "format_v2/jni/jni_table_reader.h"
+#include "gen_cpp/PlanNodes_types.h"
+
+namespace doris::format::fluss {
+
+/**
+ * Reads one fluss scan range through org.apache.doris.fluss.FlussJniScanner.
+ *
+ * This layer holds no fluss logic. FE writes two untyped string maps - the scan-level
+ * `fluss_properties` (connection, table identity, client options) and the per-range `fluss_params`
+ * (which bucket, which offsets) - and the only decision made here is that the range wins where both
+ * set a key.
+ */
+class FlussJniReader final : public format::JniTableReader {
+public:
+    ~FlussJniReader() override = default;
+
+protected:
+    std::string connector_class() const override;
+    Status validate_scan_range(const TFileRangeDesc& range) const override;
+    Status build_scanner_params(std::map<std::string, std::string>* params) const override;
+    Status build_jni_columns(
+            std::vector<format::JniTableReader::JniColumn>* columns) const override;
+    Status finalize_jni_block(Block* jni_block, Block* output_block, size_t* rows) override;
+    // The fluss scanner resolves a pruned STRUCT's fields by name while decoding, and the legacy
+    // schema grammar lowercases those names. Publishing the encoded pair keeps their spelling.
+    bool publishes_encoded_schema() const override { return true; }
+};
+
+} // namespace doris::format::fluss

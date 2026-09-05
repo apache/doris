@@ -19,6 +19,7 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.common.jni.vec.JniSchemaParams;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
@@ -39,7 +40,9 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
 import org.apache.paimon.table.system.SystemTableLoader;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,11 +56,10 @@ import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -192,11 +194,30 @@ public class PaimonJniScanner extends JniScanner {
                             fields.length, paimonAllFieldNames.size()));
         }
         int[] projected = getProjected();
-        readBuilder.withProjection(projected);
+        List<DataField> readFields = new ArrayList<>(projected.length);
+        boolean hasReadTypeProjection = false;
+        for (int outputIndex = 0; outputIndex < projected.length; outputIndex++) {
+            DataField tableField = table.rowType().getFields().get(projected[outputIndex]);
+            // The engine may have pruned this complex column down to the sub-fields the query touches.
+            // Mirroring that shape with paimon's own types lets withReadType push the same projection
+            // through the ROW/ARRAY/MAP readers instead of reading the whole column and discarding it.
+            DataType projectedType =
+                    PaimonReadTypeProjection.project(tableField.type(), types[outputIndex]);
+            if (projectedType != tableField.type()) {
+                hasReadTypeProjection = true;
+            }
+            readFields.add(tableField.newType(projectedType));
+        }
+        if (hasReadTypeProjection) {
+            readBuilder.withReadType(new RowType(readFields));
+        } else {
+            readBuilder.withProjection(projected);
+        }
         readBuilder.withFilter(getPredicates());
         reader = newReadWithOptionalIOManager(readBuilder).executeFilter().createReader(getSplit());
-        paimonDataTypeList =
-                Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
+        // Decode with the types that were REQUESTED, not the table's: a pruned nested column comes back
+        // narrow, and taking table.rowType() here would misalign every one of them.
+        paimonDataTypeList = readFields.stream().map(DataField::type).collect(Collectors.toList());
     }
 
     private TableRead newReadWithOptionalIOManager(ReadBuilder readBuilder) throws IOException {
@@ -533,47 +554,15 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     static String[] requiredFields(Map<String, String> params) {
-        String encodedFields = params.get("required_fields_base64");
-        if (encodedFields == null) {
-            return splitParam(params.get("required_fields"), ",");
-        }
-        if (encodedFields.isEmpty()) {
-            return new String[0];
-        }
-        // Each identifier is encoded independently, so delimiters in quoted identifiers cannot
-        // change field cardinality. The legacy parameter remains the rolling-upgrade fallback.
-        return decodeSchemaValues(encodedFields);
+        return JniSchemaParams.requiredFields(params);
     }
 
     static String[] requiredTypes(Map<String, String> params) {
-        String encodedTypes = params.get("columns_types_base64");
-        return encodedTypes == null
-                ? splitParam(params.get("columns_types"), "#")
-                : decodeSchemaValues(encodedTypes);
+        return JniSchemaParams.requiredTypes(params);
     }
 
     private static boolean usesEncodedSchema(Map<String, String> params) {
-        boolean hasFields = params.containsKey("required_fields_base64");
-        boolean hasTypes = params.containsKey("columns_types_base64");
-        // Both halves describe one schema version; accepting a mixed pair would reintroduce the
-        // cardinality and nested-name ambiguity this protocol is intended to remove.
-        Preconditions.checkArgument(hasFields == hasTypes,
-                "required_fields_base64 and columns_types_base64 must be provided together");
-        return hasFields;
-    }
-
-    private static String[] decodeSchemaValues(String encodedValues) {
-        if (encodedValues.isEmpty()) {
-            return new String[0];
-        }
-        return Arrays.stream(encodedValues.split(",", -1))
-                .map(encoded -> {
-                    // A marker on every token preserves list arity when the encoded value itself is empty.
-                    Preconditions.checkArgument(encoded.startsWith("$"),
-                            "Encoded JNI schema token is missing its version marker");
-                    return new String(Base64.getDecoder().decode(encoded.substring(1)), StandardCharsets.UTF_8);
-                })
-                .toArray(String[]::new);
+        return JniSchemaParams.usesEncodedSchema(params);
     }
 
     static int countThreadsByNamePrefix(String threadNamePrefix) {
@@ -911,10 +900,4 @@ public class PaimonJniScanner extends JniScanner {
         }
     }
 
-    private static String[] splitParam(String value, String delimiter) {
-        if (value == null || value.isEmpty()) {
-            return new String[0];
-        }
-        return value.split(delimiter);
-    }
 }

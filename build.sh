@@ -802,7 +802,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Keep this list identical to the deploy loop's (search CONN_PLUGIN_DIR). A module missing here
     # but present there is not a no-op: the deploy step unzips whatever archive is left in the
     # module's target/ from some earlier build, so the plugin silently ships stale.
-    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc; do
+    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss; do
         if [[ -d "${DORIS_HOME}/fe/fe-connector/fe-connector-${_conn_mod}" ]]; then
             modules+=("fe-connector/fe-connector-${_conn_mod}")
         fi
@@ -822,6 +822,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/java-udf")
     modules+=("be-java-extensions/jdbc-scanner")
     modules+=("be-java-extensions/paimon-scanner")
+    modules+=("be-java-extensions/fluss-scanner")
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-connector")
     # lakesoul-scanner has been deprecated
@@ -1199,7 +1200,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Deploy connector provider plugins as independent plugin directories.
     # Each sub-directory is one connector backend loaded at runtime by ConnectorPluginManager.
     CONN_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/connector"
-    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc; do
+    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss; do
         conn_plugin_target="${CONN_PLUGIN_DIR}/${conn_module}"
         conn_module_dir="${DORIS_HOME}/fe/fe-connector/fe-connector-${conn_module}"
         if [ ! -d "${conn_module_dir}" ]; then
@@ -1328,6 +1329,7 @@ EOF
     extensions_modules+=("jdbc-scanner")
     extensions_modules+=("hadoop-hudi-scanner")
     extensions_modules+=("paimon-scanner")
+    extensions_modules+=("fluss-scanner")
     extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-connector")
     # lakesoul-scanner has been deprecated

@@ -20,7 +20,9 @@
 #include <gen_cpp/Exprs_types.h>
 
 #include <algorithm>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -212,6 +214,44 @@ bool EqualityDeletePredicate::_equal(const Block& data_block, size_t data_row,
         }
     }
     return true;
+}
+
+Block EqualityDeletePredicate::distinct_rows(const Block& keys) {
+    const size_t rows = keys.rows();
+    if (rows <= 1) {
+        return keys;
+    }
+    const auto hashes = _build_hashes(keys);
+    // Grouped by the same hash the matching uses, then settled by the same comparison: a hash collision
+    // must not be allowed to drop a key that is merely similar to one already kept.
+    std::unordered_map<uint64_t, std::vector<size_t>> kept_by_hash;
+    kept_by_hash.reserve(rows);
+    IColumn::Filter keep(rows, 0);
+    size_t distinct = 0;
+    for (size_t row = 0; row < rows; ++row) {
+        auto& candidates = kept_by_hash[hashes[row]];
+        const bool duplicate = std::ranges::any_of(candidates, [&](size_t candidate) {
+            for (size_t column_idx = 0; column_idx < keys.columns(); ++column_idx) {
+                const auto& column = keys.get_by_position(column_idx).column;
+                if (!column_value_equal(column, row, column, candidate)) {
+                    return false;
+                }
+            }
+            return true;
+        });
+        if (!duplicate) {
+            candidates.push_back(row);
+            keep[row] = 1;
+            ++distinct;
+        }
+    }
+    if (distinct == rows) {
+        // Nothing to drop, and filtering would copy every column to say so.
+        return keys;
+    }
+    Block distinct_block = keys;
+    Block::filter_block_internal(&distinct_block, keep);
+    return distinct_block;
 }
 
 std::string EqualityDeletePredicate::debug_string() const {
