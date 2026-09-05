@@ -555,11 +555,13 @@ void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>*
     VLOG_NOTICE << "begin to build all report cloud tablets info";
 
     HistogramStat tablet_version_num_hist;
+    HistogramStat tablet_approximate_num_rowsets_hist;
 
     auto handler = [&](const std::weak_ptr<CloudTablet>& tablet_wk) {
         auto tablet = tablet_wk.lock();
         if (!tablet) return;
         (*tablet_num)++;
+        tablet_approximate_num_rowsets_hist.add(tablet->fetch_add_approximate_num_rowsets(0));
         TTabletInfo tablet_info;
         tablet->build_tablet_report_info(&tablet_info);
         using namespace std::chrono;
@@ -581,6 +583,8 @@ void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>*
 
     DorisMetrics::instance()->tablet_version_num_distribution->set_histogram(
             tablet_version_num_hist);
+    DorisMetrics::instance()->tablet_approximate_num_rowsets_distribution->set_histogram(
+            tablet_approximate_num_rowsets_hist);
     LOG(INFO) << "success to build all cloud report tablets info. all_tablet_count=" << *tablet_num
               << " exceed drop time limit count=" << tablets_info->size();
 }
