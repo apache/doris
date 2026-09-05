@@ -999,6 +999,11 @@ public class CacheHotspotManagerTableFilterTest {
                 new TableFilterRule(RuleType.EXCLUDE, "*.tbl_00003"),
                 new TableFilterRule(RuleType.EXCLUDE, "*.tbl_00004"));
 
+        // JIT warm-up
+        for (String[] pair : names) {
+            filter.shouldWarmUp(pair[0], pair[1]);
+        }
+
         long start = System.nanoTime();
         int matched = 0;
         for (String[] pair : names) {
