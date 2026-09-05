@@ -23,7 +23,9 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class IndexTest {
 
@@ -160,5 +162,70 @@ public class IndexTest {
         Assert.assertEquals(Integer.valueOf(103), reverseUniqueIds.get(0));
         Assert.assertEquals(Integer.valueOf(102), reverseUniqueIds.get(1));
         Assert.assertEquals(Integer.valueOf(101), reverseUniqueIds.get(2));
+    }
+
+    private static Map<String, String> invertedProperties(String... keyValues) {
+        Map<String, String> properties = new HashMap<>();
+        for (int i = 0; i < keyValues.length; i += 2) {
+            properties.put(keyValues[i], keyValues[i + 1]);
+        }
+        return properties;
+    }
+
+    private static Index invertedIndex(Map<String, String> properties) {
+        List<String> columns = new ArrayList<>();
+        columns.add("body");
+        return new Index(1, "idx_body", columns, IndexType.INVERTED, properties, "");
+    }
+
+    // support_phrase asks the BE to store the position of every term. A position is
+    // only observable when a query can supply a second term to match against it, and
+    // below should_analyzer() the query string is never split -- so the option is kept
+    // exactly where the BE would run an analyzer and dropped everywhere else. Dropping
+    // it here keeps the option out of the tablet metadata entirely instead of having
+    // every BE consumer second-guess it.
+    @Test
+    public void testSupportPhraseKeptForTokenizingIndexes() {
+        Assert.assertEquals("true",
+                invertedIndex(invertedProperties("parser", "english"))
+                        .getProperties().get("support_phrase"));
+        Assert.assertEquals("true",
+                invertedIndex(invertedProperties("analyzer", "my_analyzer"))
+                        .getProperties().get("support_phrase"));
+        // An explicit value survives untouched.
+        Assert.assertEquals("false",
+                invertedIndex(invertedProperties("parser", "english", "support_phrase", "false"))
+                        .getProperties().get("support_phrase"));
+    }
+
+    // A normalizer must keep support_phrase, even though it emits a single token.
+    // BE's get_analyzer_name_from_properties() falls back to the "normalizer" key,
+    // so should_analyzer() is TRUE for such an index: it gets a FULLTEXT reader,
+    // and match.cpp rejects MATCH_PHRASE outright when support_phrase is absent
+    // from a FULLTEXT-served index. Dropping the key here would turn a working
+    // (degenerate, single-term) phrase query into a hard error.
+    @Test
+    public void testSupportPhraseKeptForNormalizerIndexes() {
+        Assert.assertEquals("true",
+                invertedIndex(invertedProperties("normalizer", "my_normalizer"))
+                        .getProperties().get("support_phrase"));
+        // An analyzer still wins over the normalizer fallback.
+        Assert.assertEquals("true",
+                invertedIndex(invertedProperties("analyzer", "a", "normalizer", "n"))
+                        .getProperties().get("support_phrase"));
+    }
+
+    @Test
+    public void testSupportPhraseDroppedForNonTokenizingIndexes() {
+        // parser=none is the untokenized lane spelled out.
+        Assert.assertFalse(invertedIndex(invertedProperties("parser", "none"))
+                .getProperties().containsKey("support_phrase"));
+        Assert.assertFalse(
+                invertedIndex(invertedProperties("parser", "NONE", "support_phrase", "true"))
+                        .getProperties().containsKey("support_phrase"));
+        // A user-written option on a keyword index is dropped as well.
+        Assert.assertFalse(
+                invertedIndex(invertedProperties("support_phrase", "true", "ignore_above", "256"))
+                        .getProperties().containsKey("support_phrase"));
     }
 }
