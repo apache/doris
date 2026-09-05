@@ -2599,8 +2599,13 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req) {
                 fmt::format("failed to clean Java UDF cache, function_signature={}, function_id={}",
                             clean_req.function_signature, clean_req.function_id));
     }
+
     if (drop_by_function_id) {
-        UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
+        auto status = UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to drop function cache for function_id="
+                         << clean_req.function_id << ": " << status.to_string();
+        }
         PythonServerManager::instance().clear_udaf_state_cache(clean_req.function_id);
     }
 

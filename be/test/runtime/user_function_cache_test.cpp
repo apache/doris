@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 #include <minizip/zip.h>
 
+#include <boost/process.hpp>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -27,8 +28,14 @@
 #include <vector>
 
 #include "common/status.h"
+#include "udf/python/python_env.h"
+#include "udf/python/python_server.h"
+#include "udf/python/python_udf_runtime.h"
+#include "util/defer_op.h"
 
 namespace doris {
+
+namespace bp = boost::process;
 
 class UserFunctionCacheTest : public ::testing::Test {
 protected:
@@ -510,6 +517,48 @@ TEST_F(UserFunctionCacheTest, LoadEntryFromLibPyZip) {
 
     // Verify entry was added to the map
     EXPECT_EQ(ufc._entry_map.count(12345), 1);
+}
+
+TEST_F(UserFunctionCacheTest, DropPythonCacheFailureKeepsEntryAndFilesForRetry) {
+    constexpr int64_t function_id = 23456;
+    std::string sub_dir = test_dir_ + "/0";
+    std::filesystem::create_directories(sub_dir);
+    std::string zip_name = "23456.abc123def456abc123def456abc1.retryable_udf.zip";
+    std::string zip_path = sub_dir + "/" + zip_name;
+    std::string extracted_path = zip_path.substr(0, zip_path.size() - 4);
+    ASSERT_TRUE(create_zip_file(zip_path, {{"main.py", "def evaluate(): return 1"}}));
+    ASSERT_TRUE(ufc._load_entry_from_lib(sub_dir, zip_name).ok());
+    ASSERT_TRUE(std::filesystem::exists(zip_path));
+    ASSERT_TRUE(std::filesystem::exists(extracted_path));
+
+    bp::ipstream output_stream;
+    std::string sleep_path =
+            std::filesystem::exists("/bin/sleep") ? "/bin/sleep" : "/usr/bin/sleep";
+    bp::child child(sleep_path, "60", bp::std_out > output_stream, bp::std_err > bp::null);
+    auto process = std::make_shared<PythonUDFProcess>(std::move(child), std::move(output_stream));
+    process->set_uri_for_test("invalid-python-flight-uri");
+
+    auto& manager = PythonServerManager::instance();
+    PythonVersion version("drop-cache-test", test_dir_, sleep_path);
+    manager.set_process_pool_for_test(version, {process});
+    Defer cleanup_process([&] {
+        manager.set_process_pool_for_test(version, {});
+        process->shutdown();
+    });
+
+    auto failed_status = ufc.drop_function_cache(function_id);
+    EXPECT_FALSE(failed_status.ok());
+    EXPECT_EQ(ufc._entry_map.count(function_id), 1);
+    EXPECT_TRUE(std::filesystem::exists(zip_path));
+    EXPECT_TRUE(std::filesystem::exists(extracted_path));
+
+    manager.set_process_pool_for_test(version, {});
+    process->shutdown();
+    auto retry_status = ufc.drop_function_cache(function_id);
+    EXPECT_TRUE(retry_status.ok()) << retry_status.to_string();
+    EXPECT_EQ(ufc._entry_map.count(function_id), 0);
+    EXPECT_FALSE(std::filesystem::exists(zip_path));
+    EXPECT_FALSE(std::filesystem::exists(extracted_path));
 }
 
 TEST_F(UserFunctionCacheTest, LoadEntryFromLibZipWithoutPython) {

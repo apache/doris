@@ -63,7 +63,7 @@ public:
                       std::string* libpath);
 
     // Drop the cached function library by function id.
-    void drop_function_cache(int64_t fid);
+    Status drop_function_cache(int64_t fid);
 
 #ifndef BE_TEST
 private:
