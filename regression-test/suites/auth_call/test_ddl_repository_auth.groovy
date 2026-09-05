@@ -81,7 +81,20 @@ suite("test_ddl_repository_auth","p0,auth_call") {
         def res = sql """SHOW CREATE REPOSITORY for ${repositoryName};"""
         assertTrue(res.size() > 0)
 
-        sql """DROP REPOSITORY `${repositoryName}`;"""
+        def maxDropRepositoryRetries = 15
+        for (int i = 0; i < maxDropRepositoryRetries; i++) {
+            try {
+                sql """DROP REPOSITORY `${repositoryName}`;"""
+                break
+            } catch (Exception e) {
+                if (i == maxDropRepositoryRetries - 1
+                        || !e.getMessage().contains("Another backup or restore job is being submitted")) {
+                    throw e
+                }
+                logger.warn("drop repository contended on global backup lock, retry ${i + 1}: ${e.getMessage()}")
+                sleep(2000)
+            }
+        }
         test {
             sql """SHOW CREATE REPOSITORY for ${repositoryName};"""
             exception "repository not exist"
