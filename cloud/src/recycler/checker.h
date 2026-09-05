@@ -39,6 +39,7 @@
 
 namespace doris {
 class RowsetMetaCloudPB;
+class PackedSliceLocationPB;
 } // namespace doris
 
 namespace doris::cloud {
@@ -46,6 +47,9 @@ class StorageVaultAccessor;
 class InstanceChecker;
 class TxnKv;
 class InstanceInfoPB;
+class DeleteBitmapStoragePB;
+class PackedFileInfoPB;
+class PackedSlicePB;
 
 struct PendingTableStreamDrop {
     int64_t base_db_id;
@@ -119,6 +123,13 @@ public:
     // Return negative if a temporary error occurred during the check process.
     int do_delete_bitmap_inverted_check();
 
+    // Check consistency among V2 delete bitmap (DBM) storage metadata, active rowsets,
+    // standalone objects, and packed slices.
+    // Return 0 if success.
+    // Return 1 if an inconsistency is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int do_delete_bitmap_storage_v2_check();
+
     // version = 1 : https://github.com/apache/doris/pull/40204
     // checks if https://github.com/apache/doris/pull/40204 works as expected
     // the stale delete bitmap will be cleared in MS when BE delete expired stale rowsets
@@ -185,6 +196,13 @@ public:
     bool stopped() const { return stopped_.load(std::memory_order_acquire); }
 
 private:
+    struct TabletRowsetCache {
+        int64_t tablet_id {-1};
+        std::unordered_set<std::string> active_rowset_ids;
+        // All rowsets in a tablet belong to the same storage vault.
+        std::string resource_id;
+    };
+
     struct RowsetIndexesFormatV1 {
         std::string rowset_id;
         std::unordered_set<int64_t> segment_ids;
@@ -214,8 +232,49 @@ private:
             std::unordered_map<int64_t, std::unordered_set<std::string>>& tmp_rowsets);
     int get_pending_delete_bitmap_keys(int64_t tablet_id,
                                        std::unordered_set<std::string>& pending_delete_bitmaps);
+    int scan_delete_bitmap_storage_v2(
+            const std::function<int(int64_t, std::string_view, const DeleteBitmapStoragePB&)>&
+                    callback);
+
+    int check_delete_bitmap_storage_from_kv();
+
+    int check_delete_bitmap_storage_from_object();
+
+    int check_delete_bitmap_storage_entry(int64_t tablet_id, std::string_view rowset_id,
+                                          const DeleteBitmapStoragePB& storage,
+                                          TabletRowsetCache* rowset_cache);
+    int check_standalone_delete_bitmap_object(int64_t tablet_id, std::string_view rowset_id,
+                                              std::string_view resource_id);
+
+    int check_packed_delete_bitmap_object(const DeleteBitmapStoragePB& storage,
+                                          std::string_view resource_id);
+
+    int check_packed_file_object(const std::string& packed_file_path,
+                                 const PackedFileInfoPB& packed_info);
+
+    int get_delete_bitmap_storage(int64_t tablet_id, std::string_view rowset_id,
+                                  DeleteBitmapStoragePB* storage);
+
+    int find_rowset(int64_t tablet_id, std::string_view rowset_id, TabletRowsetCache* rowset_cache);
+
     int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, bool has_sequence_col,
                                                 int64_t& abnormal_rowsets_num);
+
+    int check_delete_bitmap_packed_slice_location(std::string_view resource_id,
+                                                  std::string_view small_file_path,
+                                                  const PackedSliceLocationPB& location,
+                                                  long* num_small_file_ref_mismatch);
+
+    int check_delete_bitmap_packed_reference(int64_t tablet_id, std::string_view rowset_id,
+                                             const DeleteBitmapStoragePB& storage,
+                                             TabletRowsetCache* rowset_cache,
+                                             long* num_small_file_ref_mismatch);
+
+    int check_delete_bitmap_slice_reference(std::string_view packed_file_path,
+                                            const PackedSlicePB& slice,
+                                            TabletRowsetCache* rowset_cache,
+                                            std::string_view packed_file_resource_id,
+                                            long* num_small_file_ref_mismatch);
 
     int check_inverted_index_file_storage_format_v1(int64_t tablet_id, const std::string& file_path,
                                                     const std::string& rowset_info,
