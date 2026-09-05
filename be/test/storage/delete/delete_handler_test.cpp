@@ -53,6 +53,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
+#include "storage/utils.h"
 #include "util/cpu_info.h"
 
 using namespace std;
@@ -64,6 +65,12 @@ using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static std::unique_ptr<StorageEngine> k_engine;
+
+TEST(DeleteConditionValueTest, ValidDatetimeSupportsNanosecondScale) {
+    EXPECT_TRUE(valid_datetime("1970-01-01 00:00:00.123456789", 9));
+    EXPECT_FALSE(valid_datetime("1970-01-01 00:00:00.1234567890", 9));
+    EXPECT_FALSE(valid_datetime("1970-01-01 00:00:00.1234567", 6));
+}
 
 static void set_up() {
     char buffer[MAX_PATH_LEN];

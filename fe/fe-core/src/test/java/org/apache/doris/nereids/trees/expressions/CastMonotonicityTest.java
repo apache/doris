@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -111,8 +113,47 @@ class CastMonotonicityTest {
         Assertions.assertFalse(cast.isMonotonic(timestampTz("2024-11-03 07:00:00+00:00"), null));
     }
 
+    @Test
+    void testTimeStampTzToTimeStampNsRejectsFallback() {
+        Cast timestampNsCast = new Cast(
+                new SlotReference("tz", TimeStampTzType.of(6)), TimeStampNsType.INSTANCE);
+
+        setTimeZone("America/Los_Angeles");
+        Assertions.assertFalse(timestampNsCast.isMonotonic(
+                timestampTz("2024-11-03 08:30:00+00:00"),
+                timestampTz("2024-11-03 09:30:00+00:00")));
+
+        setTimeZone("+00:00");
+        Assertions.assertTrue(timestampNsCast.isMonotonic(
+                timestampTz("2024-11-03 08:30:00+00:00"),
+                timestampTz("2024-11-03 09:30:00+00:00")));
+    }
+
+    @Test
+    void testTimeStampNsToTimeStampTzRejectsDynamicZoneRounding() {
+        Cast timestampTzCast = new Cast(
+                new SlotReference("ts", TimeStampNsType.INSTANCE), TimeStampTzType.of(6));
+
+        setTimeZone("America/Los_Angeles");
+        Assertions.assertFalse(timestampTzCast.isMonotonic(
+                timestampNs("2024-03-10 02:00:00.000000000"),
+                timestampNs("2024-03-10 02:01:00.000000000")));
+        Assertions.assertTrue(timestampTzCast.isMonotonic(
+                timestampNs("2024-03-10 03:00:00.000000000"),
+                timestampNs("2024-03-10 04:00:00.000000000")));
+
+        setTimeZone("+00:00");
+        Assertions.assertTrue(timestampTzCast.isMonotonic(
+                timestampNs("2024-03-10 02:00:00.000000000"),
+                timestampNs("2024-03-10 02:01:00.000000000")));
+    }
+
     private TimestampTzLiteral timestampTz(String value) {
         return new TimestampTzLiteral(TimeStampTzType.of(6), value);
+    }
+
+    private TimeStampNsLiteral timestampNs(String value) {
+        return new TimeStampNsLiteral(value);
     }
 
     private Cast cast(int sourceScale, int destinationScale) {

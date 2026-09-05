@@ -84,5 +84,12 @@ public class MTMVRelatedPartitionDescSyncLimitGeneratorTest {
             // 2020-01-31
             Assert.assertEquals(1580400000L, nowTruncSubSec);
         }
+
+        dateTimeLiteral = new DateTimeV2Literal("1970-01-02 20:10:10");
+        try (MockedStatic<DateTimeAcquire> ms = Mockito.mockStatic(DateTimeAcquire.class)) {
+            ms.when(DateTimeAcquire::now).thenReturn(dateTimeLiteral);
+            long nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 3);
+            Assert.assertEquals(-115200L, nowTruncSubSec);
+        }
     }
 }

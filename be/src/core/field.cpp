@@ -125,6 +125,9 @@ void Field::create(Field&& field) {
     case PrimitiveType::TYPE_DATETIMEV2:
         create_concrete<TYPE_DATETIMEV2>(std::move(field.template get<TYPE_DATETIMEV2>()));
         return;
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        create_concrete<TYPE_TIMESTAMP_NS>(std::move(field.template get<TYPE_TIMESTAMP_NS>()));
+        return;
     case PrimitiveType::TYPE_DATEV2:
         create_concrete<TYPE_DATEV2>(std::move(field.template get<TYPE_DATEV2>()));
         return;
@@ -253,6 +256,9 @@ void Field::create(const Field& field) {
         return;
     case PrimitiveType::TYPE_DATETIMEV2:
         create_concrete<TYPE_DATETIMEV2>(field.template get<TYPE_DATETIMEV2>());
+        return;
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        create_concrete<TYPE_TIMESTAMP_NS>(field.template get<TYPE_TIMESTAMP_NS>());
         return;
     case PrimitiveType::TYPE_DATEV2:
         create_concrete<TYPE_DATEV2>(field.template get<TYPE_DATEV2>());
@@ -415,6 +421,9 @@ void Field::assign(Field&& field) {
     case PrimitiveType::TYPE_DATETIMEV2:
         assign_concrete<TYPE_DATETIMEV2>(std::move(field.template get<TYPE_DATETIMEV2>()));
         return;
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        assign_concrete<TYPE_TIMESTAMP_NS>(std::move(field.template get<TYPE_TIMESTAMP_NS>()));
+        return;
     case PrimitiveType::TYPE_DATETIME:
         assign_concrete<TYPE_DATETIME>(std::move(field.template get<TYPE_DATETIME>()));
         return;
@@ -523,6 +532,9 @@ void Field::assign(const Field& field) {
         return;
     case PrimitiveType::TYPE_DATETIMEV2:
         assign_concrete<TYPE_DATETIMEV2>(field.template get<TYPE_DATETIMEV2>());
+        return;
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        assign_concrete<TYPE_TIMESTAMP_NS>(field.template get<TYPE_TIMESTAMP_NS>());
         return;
     case PrimitiveType::TYPE_DATETIME:
         assign_concrete<TYPE_DATETIME>(field.template get<TYPE_DATETIME>());
@@ -709,6 +721,9 @@ std::strong_ordering Field::operator<=>(const Field& rhs) const {
     case PrimitiveType::TYPE_DATETIMEV2:
         return get<PrimitiveType::TYPE_DATETIMEV2>().to_date_int_val() <=>
                rhs.get<PrimitiveType::TYPE_DATETIMEV2>().to_date_int_val();
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        return get<PrimitiveType::TYPE_TIMESTAMP_NS>() <=>
+               rhs.get<PrimitiveType::TYPE_TIMESTAMP_NS>();
     case PrimitiveType::TYPE_DATEV2:
         return get<PrimitiveType::TYPE_DATEV2>().to_date_int_val() <=>
                rhs.get<PrimitiveType::TYPE_DATEV2>().to_date_int_val();
@@ -827,6 +842,7 @@ std::string_view Field::as_string_view() const {
     // MATCH_PRIMITIVE_TYPE(TYPE_QUANTILE_STATE);
     MATCH_PRIMITIVE_TYPE(TYPE_DATEV2);
     MATCH_PRIMITIVE_TYPE(TYPE_DATETIMEV2);
+    MATCH_PRIMITIVE_TYPE(TYPE_TIMESTAMP_NS);
     MATCH_PRIMITIVE_TYPE(TYPE_TIMEV2);
     MATCH_PRIMITIVE_TYPE(TYPE_DECIMAL32);
     MATCH_PRIMITIVE_TYPE(TYPE_DECIMAL64);
@@ -884,6 +900,8 @@ std::string Field::to_debug_string(int scale) const {
         return CastToString::from_datev2(get<TYPE_DATEV2>());
     case PrimitiveType::TYPE_DATETIMEV2:
         return CastToString::from_datetimev2(get<TYPE_DATETIMEV2>(), scale);
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        return get<TYPE_TIMESTAMP_NS>().to_string();
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return CastToString::from_timestamptz(get<TYPE_TIMESTAMPTZ>(), scale);
     case PrimitiveType::TYPE_DECIMALV2:
@@ -928,6 +946,8 @@ std::string Field::to_debug_string(int scale) const {
             typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType && rhs);                           \
     template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                              \
             typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType && rhs);                       \
+    template void Field::FUNC_NAME<TYPE_TIMESTAMP_NS>(                                            \
+            typename PrimitiveTypeTraits<TYPE_TIMESTAMP_NS>::CppType && rhs);                     \
     template void Field::FUNC_NAME<TYPE_DECIMAL32>(                                               \
             typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType && rhs);                        \
     template void Field::FUNC_NAME<TYPE_DECIMAL64>(                                               \
@@ -974,6 +994,8 @@ std::string Field::to_debug_string(int scale) const {
             const typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType& rhs);                       \
     template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                              \
             const typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType& rhs);                   \
+    template void Field::FUNC_NAME<TYPE_TIMESTAMP_NS>(                                            \
+            const typename PrimitiveTypeTraits<TYPE_TIMESTAMP_NS>::CppType& rhs);                 \
     template void Field::FUNC_NAME<TYPE_TIMESTAMPTZ>(                                             \
             const typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType& rhs);                  \
     template void Field::FUNC_NAME<TYPE_TIMESTAMPTZ>(                                             \
@@ -1071,6 +1093,7 @@ DECLARE_FUNCTION(TYPE_DATE)
 DECLARE_FUNCTION(TYPE_DATETIME)
 DECLARE_FUNCTION(TYPE_DATEV2)
 DECLARE_FUNCTION(TYPE_DATETIMEV2)
+DECLARE_FUNCTION(TYPE_TIMESTAMP_NS)
 DECLARE_FUNCTION(TYPE_TIMESTAMPTZ)
 DECLARE_FUNCTION(TYPE_DECIMAL32)
 DECLARE_FUNCTION(TYPE_DECIMAL64)

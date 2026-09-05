@@ -1465,6 +1465,34 @@ class FilterEstimationTest {
     }
 
     @Test
+    public void testStringRangeColToTimeStampNsLiteral() {
+        SlotReference timestamp = new SlotReference("timestamp", new VarcharType(30));
+        ColumnStatistic timestampStats = new ColumnStatisticBuilder(100)
+                .setNdv(100)
+                .setAvgSizeByte(30)
+                .setNumNulls(0)
+                .setMaxExpr(new StringLiteral(
+                        "2020-2-01 00:00:00.000000002").toLegacyLiteral())
+                .setMaxValue(new VarcharLiteral(
+                        "2020-2-01 00:00:00.000000002").getDouble())
+                .setMinExpr(new StringLiteral(
+                        "2020-1-01 00:00:00.000000001").toLegacyLiteral())
+                .setMinValue(new VarcharLiteral(
+                        "2020-1-01 00:00:00.000000001").getDouble())
+                .build();
+        Statistics baseStats = new StatisticsBuilder()
+                .setRowCount(100)
+                .putColumnStatistics(timestamp, timestampStats)
+                .build();
+
+        VarcharLiteral october = new VarcharLiteral("2020-10-01 00:00:00.000000003");
+        Statistics result = new FilterEstimation().estimate(
+                new LessThan(timestamp, october), baseStats);
+
+        Assertions.assertEquals(100, result.getRowCount());
+    }
+
+    @Test
     public void testStringRangeColToCol() {
         SlotReference a = new SlotReference("a", new VarcharType(25));
         ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder(100)

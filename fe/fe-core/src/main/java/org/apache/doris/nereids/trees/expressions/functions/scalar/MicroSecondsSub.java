@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
@@ -41,6 +42,7 @@ public class MicroSecondsSub extends ScalarFunction implements BinaryExpression,
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList
             .of(FunctionSignature.ret(DateTimeV2Type.MAX).args(DateTimeV2Type.MAX, BigIntType.INSTANCE),
+                FunctionSignature.ret(TimeStampNsType.INSTANCE).args(TimeStampNsType.INSTANCE, BigIntType.INSTANCE),
                 FunctionSignature.ret(TimeStampTzType.MAX).args(TimeStampTzType.MAX, BigIntType.INSTANCE)
     );
 
@@ -67,6 +69,9 @@ public class MicroSecondsSub extends ScalarFunction implements BinaryExpression,
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
+        if (signature.returnType instanceof TimeStampNsType) {
+            return signature;
+        }
         if (signature.argumentsTypes.get(0) instanceof TimeStampTzType) {
             return signature.withArgumentType(0, TimeStampTzType.MAX).withReturnType(TimeStampTzType.MAX);
         }
