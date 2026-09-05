@@ -139,7 +139,24 @@ suite("test_routine_load_property","p0") {
             sql "pause routine load for ${jobName}"
             def res = sql "show routine load for ${jobName}"
             log.info("routine load job properties: ${res[0][11].toString()}".toString())
-            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"enclose\" = \"g\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"enclose\" = \"^\", \"escape\" = \"?\");"
+            sql "truncate table ${tableName}"
+
+            def alteredProps = new Properties()
+            alteredProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
+            alteredProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                    "org.apache.kafka.common.serialization.StringSerializer")
+            alteredProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                    "org.apache.kafka.common.serialization.StringSerializer")
+            alteredProps.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000")
+            alteredProps.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
+            def alteredProducer = new KafkaProducer<>(alteredProps)
+            try {
+                alteredProducer.send(new ProducerRecord<>(kafkaCsvTpoics[0], null,
+                        "1,^ab,ced^,2023-07-15,d?e,2023-07-20 05:48:31,\"ghi\"")).get()
+            } finally {
+                alteredProducer.close()
+            }
             sql "resume routine load for ${jobName}"
             count = 0
             while (true) {
@@ -152,9 +169,7 @@ suite("test_routine_load_property","p0") {
                     break
                 }
                 if (count >= 120) {
-                    log.error("routine load can not visible for long time")
-                    assertEquals(20, res[0][0])
-                    break
+                    throw new IllegalStateException("altered routine load data can not be visible for long time")
                 }
                 sleep(1000)
                 count++
