@@ -576,33 +576,36 @@ struct TransferImpl {
     static void execute_utf8(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                              ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         std::string result;
+        const auto& root_locale = icu::Locale::getRoot();
         for (int64_t i = 0; i < offsets.size(); ++i) {
             const char* begin = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             uint32_t size = offsets[i] - offsets[i - 1];
 
             result.clear();
             if constexpr (std::is_same_v<OpName, NameToUpper>) {
-                to_upper_utf8(begin, size, result);
+                to_upper_utf8(begin, size, root_locale, result);
             } else if constexpr (std::is_same_v<OpName, NameToLower>) {
-                to_lower_utf8(begin, size, result);
+                to_lower_utf8(begin, size, root_locale, result);
             }
             StringOP::push_value_string(result, i, res_data, res_offsets);
         }
     }
 
-    static void to_upper_utf8(const char* data, uint32_t size, std::string& result) {
+    static void to_upper_utf8(const char* data, uint32_t size, const icu::Locale& locale,
+                              std::string& result) {
         icu::StringPiece sp;
         sp.set(data, size);
         icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
-        unicode_str.toUpper(icu::Locale::getRoot());
+        unicode_str.toUpper(locale);
         unicode_str.toUTF8String(result);
     }
 
-    static void to_lower_utf8(const char* data, uint32_t size, std::string& result) {
+    static void to_lower_utf8(const char* data, uint32_t size, const icu::Locale& locale,
+                              std::string& result) {
         icu::StringPiece sp;
         sp.set(data, size);
         icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
-        unicode_str.toLower(icu::Locale::getRoot());
+        unicode_str.toLower(locale);
         unicode_str.toUTF8String(result);
     }
 };
@@ -671,20 +674,22 @@ struct InitcapImpl {
                                   ColumnString::Chars& res_data,
                                   ColumnString::Offsets& res_offsets) {
         std::string result;
+        const auto& root_locale = icu::Locale::getRoot();
         for (int64_t i = 0; i < offsets.size(); ++i) {
             const char* begin = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             uint32_t size = offsets[i] - offsets[i - 1];
             result.clear();
-            to_initcap_utf8(begin, size, result);
+            to_initcap_utf8(begin, size, root_locale, result);
             StringOP::push_value_string(result, i, res_data, res_offsets);
         }
     }
 
-    static void to_initcap_utf8(const char* data, uint32_t size, std::string& result) {
+    static void to_initcap_utf8(const char* data, uint32_t size, const icu::Locale& locale,
+                                std::string& result) {
         icu::StringPiece sp;
         sp.set(data, size);
         icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
-        unicode_str.toLower(icu::Locale::getRoot());
+        unicode_str.toLower(locale);
         icu::UnicodeString output_str;
         bool need_capitalize = true;
         icu::StringCharacterIterator iter(unicode_str);
