@@ -113,6 +113,22 @@ public class ExternalDatabaseNameComparedLowercaseMetaCacheTrueTest extends Test
         Assertions.assertTrue(dbNames.contains("DATABASE2"));
     }
 
+    @Test
+    public void testWarmCaseInsensitiveMissRefreshesRemoteNames() {
+        ExternalCatalog catalog = (ExternalCatalog) env.getCatalogMgr().getCatalog("test1");
+        catalog.getDbNames();
+        ExternalDatabaseNameComparedLowercaseProvider.MOCKED_META.put(
+                "MiXeD_New_Database", Maps.newHashMap());
+        try {
+            ExternalDatabase database = (ExternalDatabase) catalog.getDbNullable("mixed_new_database");
+            Assertions.assertNotNull(database);
+            Assertions.assertEquals("MiXeD_New_Database", database.getFullName());
+        } finally {
+            ExternalDatabaseNameComparedLowercaseProvider.MOCKED_META.remove("MiXeD_New_Database");
+            catalog.onRefreshCache(false);
+        }
+    }
+
     public static class ExternalDatabaseNameComparedLowercaseProvider implements TestExternalCatalog.TestCatalogProvider {
         public static final Map<String, Map<String, List<Column>>> MOCKED_META;
 
