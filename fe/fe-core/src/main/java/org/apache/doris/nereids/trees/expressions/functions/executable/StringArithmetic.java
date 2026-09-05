@@ -977,6 +977,10 @@ public class StringArithmetic {
         return end < 0 ? value : value.substring(0, end);
     }
 
+    private static int findIpv6HostEnd(String host) {
+        return host.startsWith("[") ? host.indexOf(']') : -1;
+    }
+
     private static String parseUrlAuthority(String protocolEnd) {
         return substringEnd(protocolEnd, protocolEnd.indexOf('/'));
     }
@@ -1003,6 +1007,10 @@ public class StringArithmetic {
         int startPos = protocolEnd.indexOf('@');
         startPos = startPos < 0 ? 0 : startPos + 1;
         String hostStart = protocolEnd.substring(startPos);
+        int ipv6HostEnd = findIpv6HostEnd(hostStart);
+        if (ipv6HostEnd >= 0) {
+            return hostStart.substring(0, ipv6HostEnd + 1);
+        }
         int queryStartPos = hostStart.indexOf('?');
         if (queryStartPos > 0) {
             hostStart = hostStart.substring(0, queryStartPos);
@@ -1043,6 +1051,18 @@ public class StringArithmetic {
         int startPos = protocolEnd.indexOf('@');
         startPos = startPos < 0 ? 0 : startPos + 1;
         String hostStart = protocolEnd.substring(startPos);
+        if (hostStart.startsWith("[")) {
+            int endPos = findIpv6HostEnd(hostStart);
+            if (endPos < 0 || endPos + 1 >= hostStart.length() || hostStart.charAt(endPos + 1) != ':') {
+                return null;
+            }
+            String portStart = hostStart.substring(endPos + 2);
+            int portEndPos = portStart.indexOf('/');
+            if (portEndPos < 0) {
+                portEndPos = portStart.indexOf('?');
+            }
+            return substringEnd(portStart, portEndPos);
+        }
         int endPos = hostStart.indexOf(':');
         if (endPos < 0) {
             return null;
