@@ -693,6 +693,43 @@ TEST(SniiStreamedWriterSessionTest, NullDocidsStorageIsTransferredIntoStreamedWr
     assert_ok(compound.finish());
 }
 
+TEST(SniiStreamedWriterSessionTest, OrdinaryLargeNullHandoffTracksRetainedCapacity) {
+    constexpr uint32_t kNullCount = 1U << 20;
+    SniiIndexInput input = empty_input(119, "ordinary_null_handoff", kNullCount);
+    input.null_docids.resize(kNullCount);
+    std::iota(input.null_docids.begin(), input.null_docids.end(), 0U);
+    const uint64_t retained_null_bytes = input.null_docids.capacity() * sizeof(uint32_t);
+    const uint64_t bitmap_build_bytes = format::NullBitmapWriter::build_memory_upper_bound(
+            std::span<const uint32_t>(input.null_docids));
+
+    int64_t mirrored_bytes = 0;
+    int64_t peak_bytes = 0;
+    writer::MemoryReporter reporter([&](int64_t delta) {
+        mirrored_bytes += delta;
+        peak_bytes = std::max(peak_bytes, mirrored_bytes);
+    });
+    input.mem_reporter = &reporter;
+    std::vector<uint32_t> null_docids;
+    null_docids.swap(input.null_docids);
+    auto null_docids_reservation = reporter.make_reservation();
+    assert_ok(null_docids_reservation.set_bytes(retained_null_bytes));
+    writer::TrackedNullDocids tracked_null_docids(std::move(null_docids_reservation),
+                                                  std::move(null_docids));
+    EXPECT_EQ(reporter.current_bytes(), retained_null_bytes);
+    EXPECT_EQ(mirrored_bytes, retained_null_bytes);
+
+    MemoryFile file;
+    SniiCompoundWriter compound(&file);
+    assert_ok(compound.add_logical_index(input, std::move(tracked_null_docids)));
+
+    EXPECT_GE(peak_bytes, static_cast<int64_t>(retained_null_bytes + bitmap_build_bytes));
+    EXPECT_EQ(reporter.current_bytes(), 0);
+    EXPECT_EQ(mirrored_bytes, 0);
+    assert_ok(compound.finish());
+    EXPECT_EQ(reporter.current_bytes(), 0);
+    EXPECT_EQ(mirrored_bytes, 0);
+}
+
 TEST(SniiStreamedWriterSessionTest, NullBitmapFinalizationHonorsReporterCap) {
     SniiIndexInput input = empty_input(95, "null_memory_cap", 2);
     input.null_docids = {1};
