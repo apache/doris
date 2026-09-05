@@ -2046,7 +2046,7 @@ Status VTabletWriter::close(Status exec_status) {
                                                index_channel->each_node_channel_ids(), true);
 
             // Due to the non-determinism of compaction, the rowsets of each replica may be different from each other on different
-            // BE nodes. The number of rows filtered in SegmentWriter depends on the historical rowsets located in the correspoding
+            // BE nodes. The number of rows filtered in VerticalSegmentWriter depends on the historical rowsets located in the correspoding
             // BE node. So we check the number of rows filtered on each succeccful BE to ensure the consistency of the current load
             if (status.ok() && _schema->is_strict_mode() && _schema->is_partial_update()) {
                 if (Status st = index_channel->check_tablet_filtered_rows_consistency(); !st.ok()) {

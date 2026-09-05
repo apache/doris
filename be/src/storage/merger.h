@@ -35,7 +35,7 @@ class RowIdConversion;
 class RowsetWriter;
 
 namespace segment_v2 {
-class SegmentWriter;
+class VerticalSegmentWriter;
 } // namespace segment_v2
 
 class RowSourcesBuffer;
@@ -98,7 +98,7 @@ public:
     static Status vertical_compact_one_group(
             int64_t tablet_id, ReaderType reader_type, const ReadSchema& read_schema, bool is_key,
             RowSourcesBuffer* row_source_buf, VerticalBlockReader& src_block_reader,
-            segment_v2::SegmentWriter& dst_segment_writer, Statistics* stats_output,
+            segment_v2::VerticalSegmentWriter& dst_segment_writer, Statistics* stats_output,
             uint64_t* index_size, KeyBoundsPB& key_bounds, SimpleRowIdConversion* rowid_conversion);
 };
 
