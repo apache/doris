@@ -24,7 +24,12 @@
 #include <vector>
 
 #include "storage/index/index_writer.h"
+// AnalyzerProviderPtr is already in the include closure of inverted_index_parser.h (a path
+// almost every TU pulls in), so spelling it out here only makes the dependency visible and adds
+// no forward-closure cost.
+#include "storage/index/inverted/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/util/reader.h"
@@ -78,6 +83,7 @@ public:
     const std::vector<uint8_t>& encoded_norms_for_test() const { return _encoded_norms; }
     uint64_t scoring_token_count_for_test() const { return _scoring_token_count; }
     ::doris::snii::format::IndexConfig config_for_test() const { return _config; }
+    const std::optional<gram::GramScheme>& gram_scheme_for_test() const { return _gram_scheme; }
     bool has_common_grams_metadata_seed_for_test() const {
         return _common_grams_metadata_seed.has_value();
     }
@@ -93,6 +99,14 @@ public:
 #endif
 
 private:
+    // The first half of init(): build the char filter reader and (when _should_analyzer) the one
+    // analyzer provider, then let _apply_gram_family_scheme settle the gram-family decision. Must
+    // be called before SpimiTermBuffer is constructed. A CLuceneError / Exception thrown here is
+    // uniformly turned into INVERTED_INDEX_ANALYZER_ERROR.
+    Status _create_analyzer_provider(inverted_index::AnalyzerProviderPtr* analyzer_provider);
+    // Take the gram scheme from the provider and apply the consequences of the gram family
+    // (forcing docs-only).
+    void _apply_gram_family_scheme(const inverted_index::AnalyzerProviderPtr& analyzer_provider);
     Status _add_value_tokens(const Slice& value, uint32_t docid, uint32_t position_base,
                              uint32_t* max_position, uint32_t* semantic_length);
     inverted_index::CommonGramsSegmentMetadata _build_common_grams_metadata() const;
@@ -121,6 +135,12 @@ private:
     uint32_t _ignore_above = 0;
     uint32_t _rid = 0;
     ::doris::snii::format::IndexConfig _config = ::doris::snii::format::IndexConfig::kDocsOnly;
+    // Scheme parameters of a gram-family analyzer (an ngram tokenizer with a mode property);
+    // obtained by _apply_gram_family_scheme, before the term buffer is constructed, from the
+    // analyzer provider this writer created itself. Once it holds a value, docs-only is forced.
+    // A built-in analyzer, an analyzer carrying filters, and an index carrying an index-level
+    // char_filter all leave it nullopt (R21/R22).
+    std::optional<gram::GramScheme> _gram_scheme;
     InvertedIndexAnalyzerConfig _analyzer_config;
     inverted_index::ReaderPtr _char_string_reader;
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer;

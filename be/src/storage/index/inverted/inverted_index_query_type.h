@@ -83,6 +83,7 @@ enum class InvertedIndexQueryType {
     RANGE_QUERY = 13,
     LIST_QUERY = 14,
     SEARCH_DSL_QUERY = 15,
+    GRAM_BOOLEAN_QUERY = 16,
 };
 
 inline bool is_equal_query(InvertedIndexQueryType query_type) {
@@ -102,7 +103,8 @@ inline bool is_match_query(InvertedIndexQueryType query_type) {
             query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY);
+            query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY ||
+            query_type == InvertedIndexQueryType::GRAM_BOOLEAN_QUERY);
 }
 
 inline std::string query_type_to_string(InvertedIndexQueryType query_type) {
@@ -157,6 +159,9 @@ inline std::string query_type_to_string(InvertedIndexQueryType query_type) {
     }
     case InvertedIndexQueryType::SEARCH_DSL_QUERY: {
         return "SEARCH_DSL";
+    }
+    case InvertedIndexQueryType::GRAM_BOOLEAN_QUERY: {
+        return "GRAM_BOOLEAN";
     }
     default:
         return "";

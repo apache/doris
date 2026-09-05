@@ -387,6 +387,20 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                                   InvertedIndexQueryType query_type,
                                   std::shared_ptr<roaring::Roaring>& bit_map,
                                   const InvertedIndexAnalyzerCtx* analyzer_ctx) {
+    // Storage-format fence (Ruling R30, layer 2): the query_value of a GRAM_BOOLEAN_QUERY is a
+    // serialized gram boolean query tree that only the SNII reader understands. A CLucene-format
+    // index that carried on would feed that text to QueryFactory as ordinary text to tokenize,
+    // producing a meaningless or even wrong hit set. So it is rejected before any tokenization or
+    // cache lookup, and it must be an error rather than OK -- returning OK would leave the caller
+    // with an unwritten, empty bitmap that it would read as "the query matched nothing". The
+    // upstream LIKE/REGEXP push-down side (resolve_scheme in like.cpp) already checks the reader
+    // type once; this is a second, independent fence.
+    if (query_type == InvertedIndexQueryType::GRAM_BOOLEAN_QUERY) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "GRAM_BOOLEAN_QUERY requires SNII storage format, but column {} is served by a "
+                "CLucene-format FullTextIndexReader",
+                column_name);
+    }
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
@@ -432,7 +446,16 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                     "token parser result is empty for query, "
                     "please check your query: '{}' and index parser: '{}'",
                     search_str, get_parser_string_from_properties(_index_meta.properties()));
-            if (is_match_query(query_type)) {
+            // The lenient branch of is_match_query() returns OK without writing a bitmap when
+            // "tokenization produced nothing" -- which is correct for MATCH semantics (an empty
+            // token set means no filtering, and the caller treats it as a miss).
+            // GRAM_BOOLEAN_QUERY must never reach this point (the fence above already stopped
+            // it); excluding it once more here guarantees that even if the definition of
+            // is_match_query() widens later, it cannot return OK with an unwritten bitmap --
+            // which the layer above would read as "this column has no candidate rows" and
+            // silently drop results.
+            if (is_match_query(query_type) &&
+                query_type != InvertedIndexQueryType::GRAM_BOOLEAN_QUERY) {
                 LOG(WARNING) << msg;
                 return Status::OK();
             } else {
@@ -507,6 +530,15 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<roaring::Roaring>& bit_map,
                                             const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) {
+    // Storage-format fence (Ruling R30, layer 2): as explained in FullTextIndexReader::query --
+    // only the SNII reader understands GRAM_BOOLEAN_QUERY, so a CLucene-format keyword index must
+    // reject it explicitly before any lookup rather than returning OK with an empty bitmap.
+    if (query_type == InvertedIndexQueryType::GRAM_BOOLEAN_QUERY) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "GRAM_BOOLEAN_QUERY requires SNII storage format, but column {} is served by a "
+                "CLucene-format StringTypeInvertedIndexReader",
+                column_name);
+    }
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();

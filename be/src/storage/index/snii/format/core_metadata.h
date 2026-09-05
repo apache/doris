@@ -22,6 +22,7 @@
 
 #include "common/status.h"
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/format/format_constants.h"
@@ -54,6 +55,10 @@ struct CoreMetadata {
     SectionRefs section_refs;
     std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata> common_grams_metadata;
     CommonGramsPostingPolicy common_grams_posting_policy = CommonGramsPostingPolicy::kNone;
+    // The chunking scheme of a gram-family index, for P1's per-segment adaptive mode=auto. On
+    // the P0 write side it is always nullopt: only the field and its codec are reserved here,
+    // and the encoded bytes of any existing segment stay unchanged.
+    std::optional<segment_v2::gram::GramScheme> gram_scheme;
 };
 
 Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out);

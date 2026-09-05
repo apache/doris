@@ -1027,9 +1027,19 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         return res;
     }
     if (!result_bitmap.is_empty()) {
-        index_context->set_index_result_for_expr(this, result_bitmap);
-        for (int column_id : column_ids) {
-            index_context->set_true_for_index_status(this, column_id);
+        if (result_bitmap.approximate()) {
+            // Approximate (superset) result: it goes only into the approximate map -- not into
+            // the exact result map (fast_execute would otherwise pass the candidate bitmap off
+            // as the function result), and it does not set the column's index status to true
+            // (the column would otherwise be judged not to need its data read, leaving nothing
+            // for the expression to re-verify against). The expression stays in the push-down
+            // list and is re-verified by the row-level path.
+            index_context->set_approx_index_result_for_expr(this, result_bitmap);
+        } else {
+            index_context->set_index_result_for_expr(this, result_bitmap);
+            for (int column_id : column_ids) {
+                index_context->set_true_for_index_status(this, column_id);
+            }
         }
     }
     return Status::OK();

@@ -185,6 +185,12 @@ public:
     format::CommonGramsPostingPolicy common_grams_posting_policy() const {
         return core_.common_grams_posting_policy;
     }
+    // The chunking scheme of a gram-family index, from the core metadata. The P0 write side
+    // never sets this field, so it is always nullopt here; P1's per-segment adaptive mode=auto
+    // will consume this accessor.
+    const std::optional<segment_v2::gram::GramScheme>& gram_scheme() const {
+        return core_.gram_scheme;
+    }
     io::FileReader* reader() const { return reader_; }
 
     // Returns a reader over the validated norms section. The first call reads
