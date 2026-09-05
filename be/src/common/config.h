@@ -1376,14 +1376,9 @@ DECLARE_Int32(inverted_index_query_cache_shards);
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
 
-// Process-wide emergency switch for CommonGrams query plans.
-DECLARE_mBool(enable_common_grams_query_plan);
 // Build-only CommonGrams kill switch. Logical index writers snapshot it at construction; changing
 // it affects only writers created after the transition and never changes query/cache semantics.
-DECLARE_mBool(enable_common_grams_index_build);
 // Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
-DECLARE_mInt32(common_grams_plan_cost_ratio_percent);
-DECLARE_mInt32(common_grams_position_verify_factor);
 
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
@@ -1396,11 +1391,6 @@ DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
-// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
-// regions. Freq serves ONLY BM25 scoring (no production caller yet), so the
-// default (false) drops the layout; scoring-config indexes always keep freq.
-// Write-side only; segments are self-describing either way.
-DECLARE_mBool(snii_positions_index_write_freq);
 // G16-h: zstd levels for SNII dict blocks / prx windows. Default 3 (the
 // all-level-3 evaluation showed level 9 buys <=6.3% index size for 17-24%
 // import CPU; see the DEFINEs in config.cpp).

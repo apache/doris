@@ -83,7 +83,7 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     if (_analyzer_ctx->requires_analysis()) {
         _analyzer_provider =
                 inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(&config);
-        _analyzer = _analyzer_provider->get_analyzer(inverted_index::AnalysisPurpose::kPlainQuery);
+        _analyzer = _analyzer_provider->get_analyzer();
     }
 
     _analyzer_ctx->char_filter_map = std::move(config.char_filter_map);

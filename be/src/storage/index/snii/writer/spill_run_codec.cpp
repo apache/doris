@@ -49,17 +49,16 @@ constexpr size_t kWriteFlushBytes = 1u << 22; // 4 MiB
 // merge-phase peak RSS at low spill thresholds (each reader holds a window).
 constexpr size_t kReadChunkBytes = 1u << 16; // 64 KiB
 
+// 形状值 0 曾是 CommonGrams 的无频次 docs-only 记录，已删除；run 文件是构建期临时文件，
+// 读到 0 一律按损坏处理。
 enum class RunPostingShape : uint8_t {
-    kDocsOnlyStatless = 0,
     kDocsAndFreqs = 1,
     kPositioned = 2,
 };
 
 RunPostingShape posting_shape(const TermPostings& tp) {
-    if (tp.retain_positions) {
-        return RunPostingShape::kPositioned;
-    }
-    return tp.freqs.empty() ? RunPostingShape::kDocsOnlyStatless : RunPostingShape::kDocsAndFreqs;
+    DCHECK_EQ(tp.docids.size(), tp.freqs.size());
+    return tp.retain_positions ? RunPostingShape::kPositioned : RunPostingShape::kDocsAndFreqs;
 }
 
 // Writes the full byte range [data, data+len) to fd, looping over short writes.
@@ -190,9 +189,6 @@ Status RunWriter::write_term(uint32_t term_id, const TermPostings& tp) {
     DCHECK(tp.retain_positions || tp.positions_flat.empty());
     const RunPostingShape shape = posting_shape(tp);
     const size_t doc_count = tp.document_count();
-    if (shape != RunPostingShape::kDocsOnlyStatless) {
-        DCHECK_EQ(tp.docids.size(), tp.freqs.size());
-    }
     RETURN_IF_ERROR(append_varint(term_id));
     RETURN_IF_ERROR(append_varint(static_cast<uint8_t>(shape)));
     RETURN_IF_ERROR(append_varint(doc_count));
@@ -203,9 +199,7 @@ Status RunWriter::write_term(uint32_t term_id, const TermPostings& tp) {
     // larger run (no delta packing) costs ~0 extra real I/O. Absolute docids are
     // stored (the merge concatenates per-term across runs and re-deltas at encode).
     RETURN_IF_ERROR(append_raw_u32(tp.docids.data(), tp.docids.size()));
-    if (shape != RunPostingShape::kDocsOnlyStatless) {
-        RETURN_IF_ERROR(append_raw_u32(tp.freqs.data(), tp.freqs.size()));
-    }
+    RETURN_IF_ERROR(append_raw_u32(tp.freqs.data(), tp.freqs.size()));
     if (shape == RunPostingShape::kPositioned) {
         const uint64_t n_pos = tp.positions_flat.size();
         RETURN_IF_ERROR(append_varint(n_pos));
@@ -471,7 +465,8 @@ Status RunReader::advance() {
 
     uint64_t encoded_shape = 0;
     RETURN_IF_ERROR(read_varint(&encoded_shape));
-    if (encoded_shape > static_cast<uint8_t>(RunPostingShape::kPositioned)) {
+    if (encoded_shape < static_cast<uint8_t>(RunPostingShape::kDocsAndFreqs) ||
+        encoded_shape > static_cast<uint8_t>(RunPostingShape::kPositioned)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "run: unknown posting shape");
     }
@@ -479,10 +474,6 @@ Status RunReader::advance() {
     if (shape == RunPostingShape::kPositioned && !has_positions_) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "run: positioned record in docs-only run");
-    }
-    if (shape == RunPostingShape::kDocsOnlyStatless && !has_positions_) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "run: statless record requires a positioned mixed-shape run");
     }
 
     uint64_t n_docs = 0;
@@ -504,11 +495,6 @@ Status RunReader::advance() {
     current_.positions_flat.clear();
     pos_count_ = 0;
     pos_remaining_ = 0;
-    if (shape == RunPostingShape::kDocsOnlyStatless) {
-        current_.retain_positions = false;
-        return Status::OK();
-    }
-
     // Freqs: RAW u32 block (bulk read), matching the writer's AppendRawU32.
     RETURN_IF_ERROR(
             read_raw_u32(static_cast<size_t>(n_docs), &current_.freqs, &freqs_reservation_));
@@ -591,12 +577,11 @@ struct HeapGreater {
 void concat(TermPostings* dst, const TermPostings& src, RunPostingShape shape) {
     if (src.docids.empty()) return;
     const bool has_positions = shape == RunPostingShape::kPositioned;
-    const bool statless = shape == RunPostingShape::kDocsOnlyStatless;
     DCHECK(posting_shape(src) == shape);
     size_t start = 0;
     size_t src_pos_start = 0; // flat offset of src positions to append after splice
     if (!dst->docids.empty() && dst->docids.back() == src.docids.front()) {
-        const uint32_t head_fc = statless ? 0 : src.freqs.front();
+        const uint32_t head_fc = src.freqs.front();
         if (has_positions && head_fc != 0) {
             // Splice src's first-doc positions in right after dst's last-doc positions.
             // dst's last doc owns dst->freqs.back() entries at the tail of positions_flat
@@ -605,16 +590,12 @@ void concat(TermPostings* dst, const TermPostings& src, RunPostingShape shape) {
             flat.insert(flat.end(), src.positions_flat.begin(),
                         src.positions_flat.begin() + head_fc);
         }
-        if (!statless) {
-            dst->freqs.back() += head_fc;
-        }
+        dst->freqs.back() += head_fc;
         src_pos_start = head_fc;
         start = 1; // boundary doc folded in; append the rest
     }
     dst->docids.insert(dst->docids.end(), src.docids.begin() + start, src.docids.end());
-    if (!statless) {
-        dst->freqs.insert(dst->freqs.end(), src.freqs.begin() + start, src.freqs.end());
-    }
+    dst->freqs.insert(dst->freqs.end(), src.freqs.begin() + start, src.freqs.end());
     if (has_positions) {
         dst->positions_flat.insert(dst->positions_flat.end(),
                                    src.positions_flat.begin() + src_pos_start,
@@ -646,12 +627,10 @@ public:
             uint64_t frequency = 0;
             do {
                 const TermPostings& postings = current_postings(planned);
-                if (shape_ != RunPostingShape::kDocsOnlyStatless) {
-                    frequency += postings.freqs[planned.doc];
-                    if (frequency > std::numeric_limits<uint32_t>::max()) {
-                        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                                "run: coalesced frequency exceeds uint32");
-                    }
+                frequency += postings.freqs[planned.doc];
+                if (frequency > std::numeric_limits<uint32_t>::max()) {
+                    return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                            "run: coalesced frequency exceeds uint32");
                 }
                 advance(&planned);
                 normalize(&planned);
@@ -678,9 +657,8 @@ public:
         }
 
         MutableTermPostingSpan destination;
-        const bool has_freqs = shape_ != RunPostingShape::kDocsOnlyStatless;
-        RETURN_IF_ERROR(
-                out->grow_uninitialized(document_count, has_freqs, position_count, &destination));
+        RETURN_IF_ERROR(out->grow_uninitialized(document_count, /*has_freqs=*/true,
+                                                position_count, &destination));
         size_t position_offset = 0;
         for (size_t output = 0; output < document_count; ++output) {
             normalize(&cursor_);
@@ -689,7 +667,7 @@ public:
             uint64_t frequency = 0;
             do {
                 const TermPostings& postings = current_postings(cursor_);
-                const uint32_t run_frequency = has_freqs ? postings.freqs[cursor_.doc] : 0;
+                const uint32_t run_frequency = postings.freqs[cursor_.doc];
                 if (shape_ == RunPostingShape::kPositioned) {
                     RunReader* reader = (*readers_)[(*matching_)[cursor_.run]].get();
                     RETURN_IF_ERROR(reader->stream_positions(
@@ -704,9 +682,7 @@ public:
                 }
             } while (true);
             destination.docids[output] = docid;
-            if (has_freqs) {
-                destination.freqs[output] = static_cast<uint32_t>(frequency);
-            }
+            destination.freqs[output] = static_cast<uint32_t>(frequency);
         }
         DCHECK_EQ(position_offset, destination.positions_flat.size());
         normalize(&cursor_);
@@ -754,8 +730,7 @@ private:
 Status merge_run_sources(const std::vector<std::string>& run_paths,
                          const std::vector<std::string>& vocab,
                          const std::vector<uint32_t>& string_rank, bool has_positions,
-                         const StreamedTermConsumer& fn, TermKeyMaterializer materialize_term_key,
-                         MemoryReporter* memory_reporter) {
+                         const StreamedTermConsumer& fn, MemoryReporter* memory_reporter) {
     if (string_rank.size() != vocab.size()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                 "merge_run_sources: string_rank/vocab size mismatch");
@@ -795,9 +770,7 @@ Status merge_run_sources(const std::vector<std::string>& run_paths,
         }
 
         RunTermPostingSource source(&readers, &matching, shape);
-        StreamedTermPostings postings {.term = materialize_term_key
-                                                       ? materialize_term_key(vocab[id])
-                                                       : std::string(vocab[id]),
+        StreamedTermPostings postings {.term = std::string(vocab[id]),
                                        .retain_positions = shape == RunPostingShape::kPositioned,
                                        .source = &source};
         RETURN_IF_ERROR(fn(std::move(postings)));
@@ -888,7 +861,6 @@ Status compact_runs(const std::vector<std::string>& run_paths,
             }
         }
         const bool term_has_positions = shape == RunPostingShape::kPositioned;
-        const bool statless = shape == RunPostingShape::kDocsOnlyStatless;
         merged.retain_positions = term_has_positions;
         if (total_docs > std::numeric_limits<size_t>::max() ||
             total_pos > std::numeric_limits<size_t>::max()) {
@@ -897,10 +869,8 @@ Status compact_runs(const std::vector<std::string>& run_paths,
         }
         RETURN_IF_ERROR(reserve_vector_for_size(&merged.docids, static_cast<size_t>(total_docs),
                                                 memory_reporter, &merged_docids_reservation));
-        if (!statless) {
-            RETURN_IF_ERROR(reserve_vector_for_size(&merged.freqs, static_cast<size_t>(total_docs),
-                                                    memory_reporter, &merged_freqs_reservation));
-        }
+        RETURN_IF_ERROR(reserve_vector_for_size(&merged.freqs, static_cast<size_t>(total_docs),
+                                                memory_reporter, &merged_freqs_reservation));
         if (term_has_positions) {
             RETURN_IF_ERROR(reserve_vector_for_size(&merged.positions_flat,
                                                     static_cast<size_t>(total_pos), memory_reporter,

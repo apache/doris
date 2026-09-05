@@ -2013,19 +2013,13 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhraseUsesPlainTerms) {
     tokenizer.properties["type"] = "char_group";
     tokenizer.properties["tokenize_on_chars"] = "[whitespace]";
 
-    TIndexPolicy common_grams;
-    common_grams.id = 910021;
-    common_grams.name = "function_search_cg_filter";
-    common_grams.type = TIndexPolicyType::TOKEN_FILTER;
-    common_grams.properties["type"] = "common_grams";
-
     TIndexPolicy analyzer;
     analyzer.id = 910022;
     analyzer.name = "function_search_cg_analyzer";
     analyzer.type = TIndexPolicyType::ANALYZER;
     analyzer.properties["tokenizer"] = tokenizer.name;
-    analyzer.properties["token_filter"] = "lowercase," + common_grams.name;
-    policy_mgr->apply_policy_changes({tokenizer, common_grams, analyzer}, {});
+    analyzer.properties["token_filter"] = "lowercase";
+    policy_mgr->apply_policy_changes({tokenizer, analyzer}, {});
 
     TSearchClause clause;
     clause.clause_type = "PHRASE";
@@ -2067,7 +2061,7 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhraseUsesPlainTerms) {
     EXPECT_EQ(phrase->_term_infos[1].get_single_term(), "of");
     EXPECT_EQ(phrase->_term_infos[2].get_single_term(), "the");
     EXPECT_EQ(phrase->_term_infos[3].get_single_term(), "year");
-    policy_mgr->apply_policy_changes({}, {tokenizer.id, common_grams.id, analyzer.id});
+    policy_mgr->apply_policy_changes({}, {tokenizer.id, analyzer.id});
 }
 
 TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantMissingFieldReturnsUnknown) {
@@ -2546,19 +2540,13 @@ TEST_F(FunctionSearchTest, TestSniiNativePassesSelectedAnalyzerContext) {
     tokenizer.properties["type"] = "char_group";
     tokenizer.properties["tokenize_on_chars"] = "[whitespace]";
 
-    TIndexPolicy common_grams;
-    common_grams.id = 910031;
-    common_grams.name = "function_search_context_common_grams";
-    common_grams.type = TIndexPolicyType::TOKEN_FILTER;
-    common_grams.properties["type"] = "common_grams";
-
     TIndexPolicy analyzer;
     analyzer.id = 910032;
     analyzer.name = "function_search_context_analyzer";
     analyzer.type = TIndexPolicyType::ANALYZER;
     analyzer.properties["tokenizer"] = tokenizer.name;
-    analyzer.properties["token_filter"] = "lowercase," + common_grams.name;
-    scoped_policy_mgr.apply_policy_changes({tokenizer, common_grams, analyzer}, {});
+    analyzer.properties["token_filter"] = "lowercase";
+    scoped_policy_mgr.apply_policy_changes({tokenizer, analyzer}, {});
 
     auto context = std::make_shared<IndexQueryContext>();
     std::map<std::string, std::string> properties {
@@ -2596,8 +2584,6 @@ TEST_F(FunctionSearchTest, TestSniiNativePassesSelectedAnalyzerContext) {
     EXPECT_EQ(reader->last_analyzer_ctx->parser_type, InvertedIndexParserType::PARSER_NONE);
     EXPECT_TRUE(reader->last_analyzer_ctx->requires_analysis());
     ASSERT_NE(reader->last_analyzer_ctx->analyzer_provider, nullptr);
-    EXPECT_TRUE(reader->last_analyzer_ctx->analyzer_provider->uses_common_grams());
-    EXPECT_FALSE(reader->last_analyzer_ctx->analyzer_provider->base_analyzer_fingerprint().empty());
 }
 
 // default_operator "and" maps a multi-token TERM clause onto MATCH_ALL_QUERY instead of the
@@ -2849,7 +2835,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsDslSuffixBefor
             {INVERTED_INDEX_ANALYZER_NAME_KEY, analyzer.name}};
     ASSERT_TRUE(inverted_index::InvertedIndexAnalyzer::should_analyzer(properties));
     auto raw_terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-            "fail*", properties, inverted_index::AnalysisPurpose::kPhrasePrefixQuery);
+            "fail*", properties);
     ASSERT_EQ(1, raw_terms.size());
     EXPECT_EQ("fail*", raw_terms[0].get_single_term());
 

@@ -29,12 +29,6 @@
 namespace doris::snii::format {
 namespace {
 
-using segment_v2::inverted_index::CommonGramsCoverage;
-using segment_v2::inverted_index::CommonGramsSegmentMetadata;
-using segment_v2::inverted_index::PlainTermKeyVersion;
-using segment_v2::inverted_index::ScoringCoverage;
-using segment_v2::inverted_index::validate_common_grams_segment_metadata;
-using segment_v2::inverted_index::validate_snii_scoring_metadata;
 
 Status corrupted(std::string_view message) {
     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
@@ -48,7 +42,6 @@ Status validate_index_config(uint32_t value, IndexConfig* out) {
     switch (value) {
     case static_cast<uint32_t>(IndexConfig::kDocsOnly):
     case static_cast<uint32_t>(IndexConfig::kDocsPositions):
-    case static_cast<uint32_t>(IndexConfig::kDocsPositionsScoring):
         *out = static_cast<IndexConfig>(value);
         return Status::OK();
     default:
@@ -56,70 +49,9 @@ Status validate_index_config(uint32_t value, IndexConfig* out) {
     }
 }
 
-Status validate_posting_policy(uint32_t value, CommonGramsPostingPolicy* out) {
-    switch (value) {
-    case 0:
-        *out = CommonGramsPostingPolicy::kNone;
-        return Status::OK();
-    case 1:
-        *out = CommonGramsPostingPolicy::kHybridV1;
-        return Status::OK();
-    default:
-        return unsupported("core metadata: unsupported CommonGrams posting policy");
-    }
-}
-
-Status validate_plain_term_key_version(uint32_t value) {
-    switch (value) {
-    case static_cast<uint32_t>(PlainTermKeyVersion::kLegacyRaw):
-    case static_cast<uint32_t>(PlainTermKeyVersion::kEscapedV1):
-    case static_cast<uint32_t>(PlainTermKeyVersion::kRawNoInternal):
-        return Status::OK();
-    default:
-        return unsupported("core metadata: unsupported plain-term key version");
-    }
-}
-
-Status validate_common_grams_coverage(uint32_t value) {
-    switch (value) {
-    case static_cast<uint32_t>(CommonGramsCoverage::kNone):
-    case static_cast<uint32_t>(CommonGramsCoverage::kComplete):
-    case static_cast<uint32_t>(CommonGramsCoverage::kMixed):
-        return Status::OK();
-    default:
-        return unsupported("core metadata: unsupported CommonGrams coverage");
-    }
-}
-
-Status validate_scoring_coverage(uint32_t value) {
-    switch (value) {
-    case static_cast<uint32_t>(ScoringCoverage::kNone):
-    case static_cast<uint32_t>(ScoringCoverage::kComplete):
-        return Status::OK();
-    default:
-        return unsupported("core metadata: unsupported scoring coverage");
-    }
-}
-
 void encode_region_ref(const RegionRef& ref, doris::snii::SniiRegionRefPB* out) {
     out->set_offset(ref.offset);
     out->set_length(ref.length);
-}
-
-void encode_common_grams(const CommonGramsSegmentMetadata& metadata,
-                         doris::snii::SniiCommonGramsMetadataPB* out) {
-    out->set_plain_term_key_version(static_cast<uint32_t>(metadata.plain_term_key_version));
-    out->set_common_grams_coverage(static_cast<uint32_t>(metadata.common_grams_coverage));
-    out->set_common_grams_semantics_version(metadata.common_grams_semantics_version);
-    out->set_common_grams_key_version(metadata.common_grams_key_version);
-    out->set_common_grams_dictionary_identity(metadata.common_grams_dictionary_identity);
-    out->set_base_analyzer_fingerprint(metadata.base_analyzer_fingerprint);
-    out->set_common_grams_fingerprint(metadata.common_grams_fingerprint);
-    out->set_scoring_coverage(static_cast<uint32_t>(metadata.scoring_coverage));
-    out->set_scoring_stats_version(metadata.scoring_stats_version);
-    out->set_norm_semantics_version(metadata.norm_semantics_version);
-    out->set_scoring_doc_count(metadata.scoring_doc_count);
-    out->set_scoring_token_count(metadata.scoring_token_count);
 }
 
 Status decode_region_ref(const doris::snii::SniiRegionRefPB& input, RegionRef* out) {
@@ -130,36 +62,6 @@ Status decode_region_ref(const doris::snii::SniiRegionRefPB& input, RegionRef* o
     return Status::OK();
 }
 
-Status decode_common_grams(const doris::snii::SniiCommonGramsMetadataPB& input,
-                           CommonGramsSegmentMetadata* out) {
-    if (!input.has_plain_term_key_version() || !input.has_common_grams_coverage() ||
-        !input.has_common_grams_semantics_version() || !input.has_common_grams_key_version() ||
-        !input.has_common_grams_dictionary_identity() || !input.has_base_analyzer_fingerprint() ||
-        !input.has_common_grams_fingerprint() || !input.has_scoring_coverage() ||
-        !input.has_scoring_stats_version() || !input.has_norm_semantics_version() ||
-        !input.has_scoring_doc_count() || !input.has_scoring_token_count()) {
-        return corrupted("core metadata: missing CommonGrams metadata field");
-    }
-    RETURN_IF_ERROR(validate_plain_term_key_version(input.plain_term_key_version()));
-    RETURN_IF_ERROR(validate_common_grams_coverage(input.common_grams_coverage()));
-    RETURN_IF_ERROR(validate_scoring_coverage(input.scoring_coverage()));
-    *out = {.plain_term_key_version =
-                    static_cast<PlainTermKeyVersion>(input.plain_term_key_version()),
-            .common_grams_coverage =
-                    static_cast<CommonGramsCoverage>(input.common_grams_coverage()),
-            .common_grams_semantics_version = input.common_grams_semantics_version(),
-            .common_grams_key_version = input.common_grams_key_version(),
-            .common_grams_dictionary_identity = input.common_grams_dictionary_identity(),
-            .base_analyzer_fingerprint = input.base_analyzer_fingerprint(),
-            .common_grams_fingerprint = input.common_grams_fingerprint(),
-            .scoring_coverage = static_cast<ScoringCoverage>(input.scoring_coverage()),
-            .scoring_stats_version = input.scoring_stats_version(),
-            .norm_semantics_version = input.norm_semantics_version(),
-            .scoring_doc_count = input.scoring_doc_count(),
-            .scoring_token_count = input.scoring_token_count()};
-    return validate_common_grams_segment_metadata(*out);
-}
-
 Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata* out) {
     if (!input.has_index_config() || !input.has_stats() || !input.has_section_refs()) {
         return corrupted("core metadata: missing required field");
@@ -168,52 +70,45 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
 
     const auto& stats = input.stats();
     if (!stats.has_doc_count() || !stats.has_indexed_doc_count() || !stats.has_term_count() ||
-        !stats.has_sum_total_term_freq() || !stats.has_null_count()) {
+        !stats.has_null_count()) {
         return corrupted("core metadata: missing statistics field");
     }
+    // sum_total_term_freq（字段 5）与 norms（字段 5）是后加的可选字段：已上线的生产
+    // 3.1 系 writer 不写它们。缺失 = 该段没有打分统计 / 没有 norms，
+    // 只影响 BM25 打分是否可用，不影响任何过滤查询。
     out->stats = {.doc_count = stats.doc_count(),
                   .indexed_doc_count = stats.indexed_doc_count(),
                   .term_count = stats.term_count(),
-                  .sum_total_term_freq = stats.sum_total_term_freq(),
+                  .sum_total_term_freq =
+                          stats.has_sum_total_term_freq() ? stats.sum_total_term_freq() : 0,
                   .null_count = stats.null_count()};
 
     const auto& refs = input.section_refs();
-    if (!refs.has_dict_region() || !refs.has_posting_region() || !refs.has_norms() ||
-        !refs.has_null_bitmap() || !refs.has_bsbf()) {
+    if (!refs.has_dict_region() || !refs.has_posting_region() || !refs.has_null_bitmap() ||
+        !refs.has_bsbf()) {
         return corrupted("core metadata: missing section reference");
     }
     RETURN_IF_ERROR(decode_region_ref(refs.dict_region(), &out->section_refs.dict_region));
     RETURN_IF_ERROR(decode_region_ref(refs.posting_region(), &out->section_refs.posting_region));
-    RETURN_IF_ERROR(decode_region_ref(refs.norms(), &out->section_refs.norms));
+    if (refs.has_norms()) {
+        RETURN_IF_ERROR(decode_region_ref(refs.norms(), &out->section_refs.norms));
+    } else {
+        out->section_refs.norms = {};
+    }
     RETURN_IF_ERROR(decode_region_ref(refs.null_bitmap(), &out->section_refs.null_bitmap));
     RETURN_IF_ERROR(decode_region_ref(refs.bsbf(), &out->section_refs.bsbf));
 
-    if (input.has_common_grams()) {
-        CommonGramsSegmentMetadata common_grams;
-        RETURN_IF_ERROR(decode_common_grams(input.common_grams(), &common_grams));
-        out->common_grams_metadata = std::move(common_grams);
+    // 墓碑：CommonGrams 功能已删除。带过字段 4/5 的段只可能是用 CommonGrams analyzer 写出来的
+    // （含 gram 词项、键转义或混合 posting 策略），term 键与查询语义都已不可解释，必须重建索引。
+    // 生产 writer 从未写过这两个字段，所以升级路径不受影响。
+    if (input.has_legacy_common_grams() || input.has_legacy_common_grams_posting_policy()) {
+        return unsupported(
+                "core metadata: segment was written with CommonGrams, which is no longer "
+                "supported; rebuild the index");
     }
-
-    RETURN_IF_ERROR(validate_posting_policy(input.common_grams_posting_policy(),
-                                            &out->common_grams_posting_policy));
-    if (out->common_grams_posting_policy == CommonGramsPostingPolicy::kHybridV1 &&
-        (!out->common_grams_metadata.has_value() ||
-         out->common_grams_metadata->common_grams_coverage != CommonGramsCoverage::kMixed)) {
-        return corrupted("core metadata: hybrid policy requires mixed CommonGrams metadata");
-    }
-    const bool has_scoring_tier = out->index_config == IndexConfig::kDocsPositionsScoring;
-    if (has_scoring_tier) {
-        if (out->section_refs.norms.length == 0) {
-            return corrupted("core metadata: scoring index requires a norms region");
-        }
-    }
-    if (has_scoring_tier ||
-        (out->common_grams_metadata.has_value() &&
-         out->common_grams_metadata->scoring_coverage == ScoringCoverage::kComplete)) {
-        RETURN_IF_ERROR(validate_snii_scoring_metadata(
-                out->common_grams_metadata ? &*out->common_grams_metadata : nullptr,
-                out->stats.doc_count, out->stats.sum_total_term_freq, has_scoring_tier,
-                has_positions(out->index_config), out->section_refs.norms.length != 0));
+    // norms（每 doc 一字节的 BM25 文档长度）只对带位置的段有意义：打分的词频来自位置。
+    if (out->section_refs.norms.length != 0 && !has_positions(out->index_config)) {
+        return corrupted("core metadata: norms require positions");
     }
     return Status::OK();
 }
@@ -236,16 +131,12 @@ Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out) {
     auto* refs = core.mutable_section_refs();
     encode_region_ref(metadata.section_refs.dict_region, refs->mutable_dict_region());
     encode_region_ref(metadata.section_refs.posting_region, refs->mutable_posting_region());
-    encode_region_ref(metadata.section_refs.norms, refs->mutable_norms());
+    // 没有 norms 的段不写字段 5：与生产 writer 的字节形态一致，老 reader 也无需感知。
+    if (metadata.section_refs.norms.length != 0) {
+        encode_region_ref(metadata.section_refs.norms, refs->mutable_norms());
+    }
     encode_region_ref(metadata.section_refs.null_bitmap, refs->mutable_null_bitmap());
     encode_region_ref(metadata.section_refs.bsbf, refs->mutable_bsbf());
-    if (metadata.common_grams_metadata.has_value()) {
-        encode_common_grams(*metadata.common_grams_metadata, core.mutable_common_grams());
-    }
-    if (metadata.common_grams_posting_policy != CommonGramsPostingPolicy::kNone) {
-        core.set_common_grams_posting_policy(
-                static_cast<uint32_t>(metadata.common_grams_posting_policy));
-    }
 
     CoreMetadata validated;
     RETURN_IF_ERROR(decode_core_pb(core, &validated));

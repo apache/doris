@@ -901,9 +901,11 @@ struct OpaqueMatcherPlanCase {
     std::vector<bool> common;
 };
 
-constexpr std::string_view kReservedCommonGramPrefix =
+// 内部命名空间（\x1f 开头）里的不透明词项：这些用例直接驱动 phrase 计划执行器，
+// 验证"覆盖两个位置的不透明词项"与普通位置匹配的等价性，与任何具体分析器无关。
+constexpr std::string_view kOpaqueInternalTermPrefix =
         "\x1f"
-        "DORIS_COMMON_GRAM_V1"
+        "SNII_TEST_OPAQUE"
         "\x1f";
 
 std::string opaque_gram(std::string_view left, std::string_view right) {
@@ -911,7 +913,7 @@ std::string opaque_gram(std::string_view left, std::string_view right) {
 }
 
 std::string reserved_marker_opaque_gram(std::string_view left, std::string_view right) {
-    return std::string(kReservedCommonGramPrefix) + "opaque:CG(" + std::string(left) + "," +
+    return std::string(kOpaqueInternalTermPrefix) + "opaque:CG(" + std::string(left) + "," +
            std::string(right) + ")";
 }
 
@@ -1381,9 +1383,9 @@ TEST(SniiPhraseQueryTest, RepeatedTermPhraseUsesCachedPostingSpan) {
     EXPECT_EQ(docids, expected);
 }
 
-TEST(SniiPhraseMatcherInvariantTest, OpaqueCommonGramPlansMatchPlainPositionOracle) {
+TEST(SniiPhraseMatcherInvariantTest, OpaqueInternalTermPlansMatchPlainPositionOracle) {
     const std::vector<OpaqueMatcherPlanCase> cases = opaque_matcher_plan_cases();
-    ASSERT_TRUE(cases[1].gram_plan[1].starts_with(kReservedCommonGramPrefix));
+    ASSERT_TRUE(cases[1].gram_plan[1].starts_with(kOpaqueInternalTermPrefix));
     MemoryFile file;
     reader::SniiSegmentReader segment_reader;
     reader::LogicalIndexReader index_reader;
@@ -1520,7 +1522,7 @@ TEST(SniiPhraseMatcherInvariantTest, ResolvedPlanRejectsInvalidCoverageAndOffset
     unused_unique.unique_terms.push_back(unused_unique.unique_terms.front());
     EXPECT_FALSE(unused_unique.is_valid());
 
-    // Since the selective CommonGrams postings change, position offsets are only
+    // Since an opaque term may cover two positions, position offsets are only
     // required to start at 0 and ascend STRICTLY -- gaps are legal (a gram
     // covers two positions, so the next clause's offset jumps past it). The
     // fatal invariants are a nonzero first offset and a non-ascending step.

@@ -26,29 +26,6 @@
 namespace doris::snii::writer {
 namespace {
 
-TEST(SpimiDenseRankOrderTest, FullCommonGramVocabularyUsesDenseRankInverse) {
-    testing::reset_rank_ordering_counts();
-    SpimiTermBuffer buffer(/*has_positions=*/true);
-    buffer.enable_common_gram_pair_keys();
-
-    const PlainTermId z = buffer.intern_plain_term("z");
-    const PlainTermId a = buffer.intern_plain_term("a");
-    const PlainTermId middle = buffer.intern_plain_term("middle");
-    buffer.add_plain_token(z, /*docid=*/0, /*pos=*/0);
-    buffer.add_plain_token(a, /*docid=*/0, /*pos=*/1);
-    buffer.add_plain_token(middle, /*docid=*/0, /*pos=*/2);
-    buffer.add_common_gram(z, a, /*docid=*/0, /*pos=*/0, /*retain_positions=*/false);
-    buffer.add_common_gram(a, middle, /*docid=*/0, /*pos=*/1,
-                           /*retain_positions=*/false);
-
-    const std::vector<TermPostings> terms = buffer.finalize_sorted();
-    ASSERT_TRUE(buffer.status().ok()) << buffer.status();
-    ASSERT_EQ(terms.size(), 5U);
-    EXPECT_TRUE(std::ranges::is_sorted(terms, {}, &TermPostings::term));
-    EXPECT_EQ(testing::dense_rank_inversions(), 1U);
-    EXPECT_EQ(testing::rank_comparison_sorts(), 0U);
-}
-
 TEST(SpimiDenseRankOrderTest, PartialBorrowedVocabularyUsesComparisonSort) {
     testing::reset_rank_ordering_counts();
     const std::vector<std::string> vocabulary = {"z", "a", "middle", "b"};

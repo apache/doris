@@ -34,7 +34,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/io/file_reader.h"
@@ -161,21 +160,6 @@ inline std::vector<PostingDoc> docs_with_one_position(uint32_t begin, uint32_t e
 
 inline void assert_ok(const Status& status) {
     ASSERT_TRUE(status.ok()) << status.to_string();
-}
-
-inline segment_v2::inverted_index::CommonGramsSegmentMetadata make_plain_scoring_metadata(
-        uint64_t doc_count, uint64_t token_count) {
-    using namespace segment_v2::inverted_index;
-    CommonGramsSegmentMetadata metadata;
-    metadata.plain_term_key_version = PlainTermKeyVersion::kRawNoInternal;
-    metadata.common_grams_coverage = CommonGramsCoverage::kNone;
-    metadata.base_analyzer_fingerprint = "snii-test-plain-v1";
-    metadata.scoring_coverage = ScoringCoverage::kComplete;
-    metadata.scoring_stats_version = COMMON_GRAMS_SCORING_STATS_VERSION_V1;
-    metadata.norm_semantics_version = COMMON_GRAMS_NORM_SEMANTICS_VERSION_V1;
-    metadata.scoring_doc_count = doc_count;
-    metadata.scoring_token_count = token_count;
-    return metadata;
 }
 
 // The standard reader-side fixture: a 9000-doc kDocsPositions index whose

@@ -209,7 +209,7 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
     SniiIndexInput in;
     in.index_id = 1;
     in.index_suffix = "body";
-    in.config = IndexConfig::kDocsPositionsScoring; // positions (phrase) + norms (scoring)
+    in.config = IndexConfig::kDocsPositions; // positions (phrase) + norms (scoring)
     in.doc_count = c.doc_count;
     in.terms = std::move(terms);
     in.target_dict_block_bytes = 256;
@@ -218,11 +218,6 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
     for (uint32_t d = 0; d < c.doc_count; ++d) {
         in.encoded_norms[d] = doris::snii::query::encode_norm(c.doc_len[d]);
     }
-    uint64_t token_count = 0;
-    for (const auto& term : in.terms) {
-        token_count += term.positions_flat.size();
-    }
-    in.common_grams_metadata = snii_test::make_plain_scoring_metadata(in.doc_count, token_count);
 
     io::LocalFileWriter w;
     ASSERT_TRUE(w.open(path).ok());
@@ -232,10 +227,9 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
 }
 
 // Grouped-block byte totals of a windowed term (design 1.6): docs = dd-block
-// length (sum of per-window dd_disk_len); full = dd-block + freq-block lengths
-// (what scoring reads). Also returns prelude_len and window count.
+// length (sum of per-window dd_disk_len). Also returns prelude_len and window
+// count.
 struct FrqByteTotals {
-    uint64_t full = 0; // dd-block + freq-block on-disk bytes
     uint64_t docs = 0; // dd-block on-disk bytes (the contiguous docs-only run)
     uint64_t prelude_len = 0;
     uint32_t windows = 0;
@@ -254,7 +248,6 @@ FrqByteTotals MeasureFrqTotals(const LogicalIndexReader& idx, const std::string&
     EXPECT_TRUE(fetch_windowed_prelude(idx, entry, frq_base, &prelude).ok());
     t.windows = prelude.n_windows();
     t.docs = prelude.dd_block_len();
-    t.full = prelude.dd_block_len() + prelude.freq_block_len();
     return t;
 }
 
@@ -316,16 +309,14 @@ std::vector<ScoredDoc> ReferenceRanking(const Corpus& c, const std::vector<std::
 } // namespace
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-TEST(SniiByteSkip, DocidAndPhraseSkipFreqWhileScoringKeepsIt) {
+TEST(SniiByteSkip, DocidPathReadsWholeFrqSpanAndScoringReadsMore) {
     Corpus c = BuildCorpus();
     const std::string path = TempPath();
     WriteCorpus(c, path);
 
     io::LocalFileReader local;
     ASSERT_TRUE(local.open(path).ok());
-    // Fine-grained cache block (< a window's freq region) so the per-window
-    // freq-skip shows up in remote_bytes too: each window's freq region spans whole
-    // cache blocks that the docs-only path never touches.
+    // Fine-grained cache block so remote_bytes tracks the requested ranges closely.
     io::MeteredFileReader metered(&local, /*block_size=*/64);
 
     SniiSegmentReader seg;
@@ -334,13 +325,10 @@ TEST(SniiByteSkip, DocidAndPhraseSkipFreqWhileScoringKeepsIt) {
     ASSERT_TRUE(seg.open_index(1, "body", &idx).ok());
     ASSERT_EQ(idx.stats().doc_count, c.doc_count);
 
-    // The high-df term must span many windows for the freq-skip to be meaningful.
+    // The high-df term must span many windows for the byte accounting to be meaningful.
     const FrqByteTotals hi = MeasureFrqTotals(idx, "aa_hi");
     ASSERT_GE(hi.windows, 4U) << "high-df term should span multiple windows";
-    // PhaseA format invariant: the docs-only prefix is strictly smaller than the
-    // full window total (the freq region occupies real bytes).
-    ASSERT_LT(hi.docs, hi.full) << "docs-only prefix not smaller: docs=" << hi.docs
-                                << " full=" << hi.full;
+    ASSERT_GT(hi.docs, 0U);
 
     // ---- (a) term_query / phrase_query docids == ORACLE (unchanged) -----------
     const std::vector<std::string> terms_to_check = {"aa_hi", "aa_mid", "aa_quick", "aa_lazy",
@@ -372,28 +360,20 @@ TEST(SniiByteSkip, DocidAndPhraseSkipFreqWhileScoringKeepsIt) {
         EXPECT_EQ(got, c.phrase_oracle(p)) << "phrase oracle mismatch: [" << label << "]";
     }
 
-    // ---- (b) docid-only term_query on aa_hi skips the freq region -------------
-    // Format-level proof: the docs-only prefixes total far fewer bytes than the
-    // full windows (the freq region is real and is what the wire-level skip drops).
-    const uint64_t full_window_frq = hi.full; // pre-PhaseB .frq byte total
-    EXPECT_LT(hi.docs * 100, full_window_frq * 85)
-            << "freq-skip format reduction too small: docs=" << hi.docs
-            << " full=" << full_window_frq;
+    // ---- (b) docid-only term_query on aa_hi reads exactly the frq span ---------
     // Both A and B below share the SAME lookup + prelude overhead; the ONLY
-    // difference is whether each window fetches its docs-only prefix or the full
-    // window. So (B - A) isolates exactly the .frq freq-region bytes the docid-only
-    // path skips. A and B are measured live over the metered reader.
+    // difference is the entry point (term_query vs the generic windowed reader).
+    // With no freq region in the layout, both must request the same bytes.
     //
-    // A = PhaseB docid-only term_query (want_freq=false everywhere).
+    // A = docid-only term_query.
     metered.reset_metrics();
     std::vector<uint32_t> hi_docs;
     ASSERT_TRUE(query::term_query(idx, "aa_hi", &hi_docs).ok());
     const io::IoMetrics a = metered.metrics();
     ASSERT_EQ(hi_docs, c.term_oracle("aa_hi"));
 
-    // B = the pre-PhaseB full-window baseline: same lookup + prelude, then read
-    // every window IN FULL (want_freq=true). This is exactly what term_query used
-    // to fetch before the freq-skip landed.
+    // B = the generic windowed reader: same lookup + prelude, then read every
+    // window's dd region (docids only).
     metered.reset_metrics();
     {
         DictEntry entry;
@@ -402,40 +382,30 @@ TEST(SniiByteSkip, DocidAndPhraseSkipFreqWhileScoringKeepsIt) {
         ASSERT_TRUE(idx.lookup("aa_hi", &found, &entry, &fb, &pb).ok());
         ASSERT_TRUE(found);
         DecodedPosting full_posting;
-        ASSERT_TRUE(read_windowed_posting(idx, entry, fb, pb, /*want_positions=*/false,
-                                          /*want_freq=*/true, &full_posting)
+        ASSERT_TRUE(read_windowed_posting(idx, entry, fb, pb, /*want_positions=*/false, &full_posting)
                             .ok());
         EXPECT_EQ(full_posting.docids, c.term_oracle("aa_hi"));
-        EXPECT_EQ(full_posting.freqs.size(), full_posting.docids.size())
-                << "want_freq=true must decode per-doc freqs";
     }
     const io::IoMetrics b = metered.metrics();
 
-    // The docid-only path requests STRICTLY FEWER bytes on the wire (freq skipped).
-    EXPECT_LT(a.total_request_bytes, b.total_request_bytes)
-            << "docid-only did not skip freq bytes: a=" << a.total_request_bytes
+    // Both entry points request exactly the same bytes (the whole frq span).
+    EXPECT_EQ(a.total_request_bytes, b.total_request_bytes)
+            << "docid-only vs windowed reader request_bytes differ: a=" << a.total_request_bytes
             << " b=" << b.total_request_bytes;
-    // The skipped amount equals the full-vs-docs .frq delta (sum(frq_len-frq_docs_len)).
-    const uint64_t saved = b.total_request_bytes - a.total_request_bytes;
-    EXPECT_EQ(saved, hi.full - hi.docs) << "skipped bytes != freq-region size: saved=" << saved
-                                        << " freq_region=" << (hi.full - hi.docs);
-    // remote_bytes (cache-block granular) is also strictly below the full-window
-    // baseline: the freq region occupies whole cache blocks the docs path never hits.
-    EXPECT_LT(a.remote_bytes, b.remote_bytes)
-            << "docid-only remote_bytes not below full-window: a=" << a.remote_bytes
+    EXPECT_EQ(a.remote_bytes, b.remote_bytes)
+            << "docid-only vs windowed reader remote_bytes differ: a=" << a.remote_bytes
             << " b=" << b.remote_bytes;
 
-    // ---- (c) scoring_query STILL reads full windows (freq present) ------------
+    // ---- (c) scoring_query reads positions on top of the frq span -------------
     SniiStatsProvider stats;
     ASSERT_TRUE(SniiStatsProvider::open(&idx, &stats).ok());
     const Bm25Params params; // defaults
     const std::vector<std::string> score_terms = {"aa_hi", "aa_mid", "aa_rare"};
     const uint32_t kTopK = 10;
 
-    std::vector<ScoredDoc> exhaustive, wand;
+    std::vector<ScoredDoc> exhaustive;
     ASSERT_TRUE(query::scoring_query_exhaustive(idx, stats, score_terms, kTopK, params, &exhaustive)
                         .ok());
-    ASSERT_TRUE(query::scoring_query_wand(idx, stats, score_terms, kTopK, params, &wand).ok());
 
     const std::vector<ScoredDoc> ref = ReferenceRanking(c, score_terms, kTopK, params);
     ASSERT_EQ(exhaustive.size(), ref.size());
@@ -443,18 +413,10 @@ TEST(SniiByteSkip, DocidAndPhraseSkipFreqWhileScoringKeepsIt) {
         EXPECT_EQ(exhaustive[i].docid, ref[i].docid) << "scoring docid mismatch at " << i;
         EXPECT_NEAR(exhaustive[i].score, ref[i].score, 1e-9) << "scoring score mismatch at " << i;
     }
-    // WAND must equal the exhaustive ranking exactly (docid + score).
-    ASSERT_EQ(wand.size(), exhaustive.size());
-    for (size_t i = 0; i < wand.size(); ++i) {
-        EXPECT_EQ(wand[i].docid, exhaustive[i].docid) << "wand vs exhaustive at " << i;
-        EXPECT_NEAR(wand[i].score, exhaustive[i].score, 1e-9) << "wand vs exhaustive at " << i;
-    }
 
-    // Scoring reads the FULL .frq windows for the high-df term (freq region present),
-    // so a single-term scoring query requests STRICTLY MORE bytes than the
-    // docid-only term_query A (which skipped the freq region). Same lookup + .frq
-    // section; scoring additionally pulls the freq region (and norms/prelude), so
-    // its request total exceeds the docid-only path by at least the freq region.
+    // Scoring derives tf from positions, so a single-term scoring query over the
+    // high-df term requests STRICTLY MORE bytes than the docid-only term_query A:
+    // same lookup + frq span, plus the prx windows (and norms).
     metered.reset_metrics();
     std::vector<ScoredDoc> hi_only;
     ASSERT_TRUE(
@@ -462,9 +424,6 @@ TEST(SniiByteSkip, DocidAndPhraseSkipFreqWhileScoringKeepsIt) {
     const io::IoMetrics score_io = metered.metrics();
     const uint64_t score_frq_request = score_io.total_request_bytes;
     const uint64_t term_frq_request = a.total_request_bytes;
-    EXPECT_GE(score_frq_request, term_frq_request + (hi.full - hi.docs))
-            << "scoring did not read the full freq region: scoring=" << score_frq_request
-            << " docid=" << term_frq_request << " freq_region=" << (hi.full - hi.docs);
     EXPECT_GT(score_frq_request, term_frq_request)
             << "scoring should read MORE .frq bytes than docid-only: scoring=" << score_frq_request
             << " docid=" << term_frq_request;

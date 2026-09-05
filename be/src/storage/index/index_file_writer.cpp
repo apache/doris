@@ -45,16 +45,6 @@
 
 namespace doris::segment_v2 {
 
-// Resolves whether one segment index lays out freq regions (G16-c). Freq
-// serves ONLY BM25 scoring: a scoring config always keeps it; a plain
-// positions config keeps it only when the escape-hatch config asks for the
-// full T2 layout. NOT in the anonymous namespace on purpose -- the UT covers
-// this production policy line directly (a flipped operator or inverted flag
-// here would otherwise stay green: no BE test drives add_snii_index).
-bool snii_effective_write_freq(doris::snii::format::IndexConfig index_config) {
-    return doris::snii::format::has_scoring(index_config) ||
-           config::snii_positions_index_write_freq;
-}
 
 // Shared write-parameter resolution for one SNII index flush; `input->config`
 // must already be set. BOTH the build path (add_snii_index) and the T2.2
@@ -62,11 +52,8 @@ bool snii_effective_write_freq(doris::snii::format::IndexConfig index_config) {
 // merge fast path can never drift from the rebuild contract (the T2 semantic
 // golden invariant depends on parameter parity). NOT in the anonymous
 // namespace on purpose -- the UT pins the resolved values directly.
-void snii_resolve_index_write_params(bool is_direct_load,
+void snii_resolve_index_write_params(bool is_direct_load, bool has_norms,
                                      doris::snii::writer::SniiIndexInput* input) {
-    // G16-c: freq regions serve only BM25 scoring; a plain positions index
-    // drops them unless the escape hatch asks for the full T2 layout.
-    input->write_freq = snii_effective_write_freq(input->config);
     // G16-h: zstd levels. dict blocks accept zstd's full sane range; the prx
     // level floor is 3 because the writer passes -level into the prx builders
     // and -1 is the historic "auto at default level 3" sentinel -- a
@@ -283,11 +270,9 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.doc_count = doc_count;
     input.null_docids = std::move(null_docids);
     input.encoded_norms = std::move(options.encoded_norms);
-    input.common_grams_metadata = std::move(options.common_grams_metadata);
-    input.common_grams_posting_policy = options.common_grams_posting_policy;
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
-    snii_resolve_index_write_params(options.is_direct_load, &input);
+    snii_resolve_index_write_params(options.is_direct_load, !input.encoded_norms.empty(), &input);
     RETURN_IF_ERROR(_snii_compound_writer->add_logical_index(input));
     ++_snii_index_count;
     return Status::OK();
@@ -322,18 +307,13 @@ Status IndexFileWriter::add_snii_index_streamed(
         std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
         doris::snii::writer::SniiStreamedIndexSession** session) {
     return add_snii_index_streamed(index_meta, doc_count, std::move(null_docids),
-                                   doris::snii::writer::TrackedEncodedNorms(std::vector<uint8_t>()),
-                                   std::nullopt,
-                                   doris::snii::format::CommonGramsPostingPolicy::kNone,
-                                   index_config, std::move(mem_reporter), session);
+                                   /*write_norms=*/false, index_config, std::move(mem_reporter),
+                                   session);
 }
 
 Status IndexFileWriter::add_snii_index_streamed(
         const TabletIndex* index_meta, uint32_t doc_count,
-        doris::snii::writer::TrackedNullDocids null_docids,
-        doris::snii::writer::TrackedEncodedNorms encoded_norms,
-        std::optional<inverted_index::CommonGramsSegmentMetadata> common_grams_metadata,
-        doris::snii::format::CommonGramsPostingPolicy common_grams_posting_policy,
+        doris::snii::writer::TrackedNullDocids null_docids, bool write_norms,
         doris::snii::format::IndexConfig index_config,
         std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
         doris::snii::writer::SniiStreamedIndexSession** session) {
@@ -348,14 +328,9 @@ Status IndexFileWriter::add_snii_index_streamed(
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                 "SNII index file writer is null for {}", _index_path_prefix);
     }
-    const bool has_scoring = doris::snii::format::has_scoring(index_config);
-    const bool valid_scoring_shape =
-            has_scoring ? common_grams_metadata.has_value() && encoded_norms.size() == doc_count
-                        : !common_grams_metadata.has_value() && encoded_norms.empty();
-    if (!valid_scoring_shape) {
-        return Status::InternalError(
-                "SNII streamed merge scoring shape disagrees with eligibility for {}",
-                _index_path_prefix);
+    if (write_norms && !doris::snii::format::has_positions(index_config)) {
+        return Status::InternalError("SNII streamed merge cannot write norms without positions for {}",
+                                     _index_path_prefix);
     }
     if (_snii_file_writer == nullptr) {
         _snii_file_writer = std::make_unique<snii_doris::DorisSniiFileWriter>(_idx_v2_writer.get());
@@ -369,18 +344,17 @@ Status IndexFileWriter::add_snii_index_streamed(
     input.config = index_config;
     input.doc_count = doc_count;
     input.mem_reporter = mem_reporter.get();
-    input.common_grams_metadata = std::move(common_grams_metadata);
-    input.common_grams_posting_policy = common_grams_posting_policy;
+    input.write_norms = write_norms;
     // Merge output is always the settled-segment shape: COMPACTION prx level.
-    snii_resolve_index_write_params(/*is_direct_load=*/false, &input);
+    snii_resolve_index_write_params(/*is_direct_load=*/false, write_norms, &input);
     if (mem_reporter != nullptr) {
         constexpr uint64_t kMaxStreamedDictResidentBytes = 64ULL << 20;
         DORIS_CHECK_GE(mem_reporter->cap_bytes(), 8);
         input.dict_resident_cap_bytes =
                 std::min(kMaxStreamedDictResidentBytes, mem_reporter->cap_bytes() / 8);
     }
-    RETURN_IF_ERROR(_snii_compound_writer->begin_streamed_index(
-            std::move(input), std::move(null_docids), std::move(encoded_norms), session));
+    RETURN_IF_ERROR(_snii_compound_writer->begin_streamed_index(std::move(input),
+                                                                 std::move(null_docids), session));
     if (mem_reporter != nullptr) {
         _snii_memory_reporters.push_back(std::move(mem_reporter));
     }

@@ -24,18 +24,12 @@
 
 namespace doris::segment_v2 {
 
-enum class TermKeyKind : uint8_t {
-    kPlain = 0,
-    kCommonGram = 1,
-};
-
 class TermInfo {
 public:
     using Term = std::variant<std::string, std::vector<std::string>>;
 
     Term term;
     int32_t position = 0;
-    TermKeyKind key_kind = TermKeyKind::kPlain;
 
     bool is_single_term() const { return std::holds_alternative<std::string>(term); }
     bool is_multi_terms() const { return std::holds_alternative<std::vector<std::string>>(term); }
@@ -56,15 +50,6 @@ public:
 
     // for test
     bool use_mock_iter = false;
-
-    bool has_common_gram() const {
-        for (const auto& term_info : term_infos) {
-            if (term_info.key_kind == TermKeyKind::kCommonGram) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     std::string generate_tokens_key() const {
         std::string key;

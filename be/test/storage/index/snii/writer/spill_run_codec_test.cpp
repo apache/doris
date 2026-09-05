@@ -267,7 +267,7 @@ TEST(SniiSpillRunCodec, MergeRunSourcesAccountsReadersAndReleasesOnSuccess) {
                             during_callback = reporter.current_bytes();
                             return doris::snii::writer::consume_streamed_term(std::move(streamed));
                         },
-                        {}, &reporter)
+                        &reporter)
                         .ok());
     EXPECT_GT(during_callback, static_cast<int64_t>(encoded_input_bytes));
     EXPECT_EQ(reporter.current_bytes(), 0);
@@ -295,7 +295,7 @@ TEST(SniiSpillRunCodec, RunReaderDocidReservationFailureReleasesAllCharges) {
             [](doris::snii::writer::StreamedTermPostings&& streamed) {
                 return doris::snii::writer::consume_streamed_term(std::move(streamed));
             },
-            {}, &reporter);
+            &reporter);
     EXPECT_TRUE(status.is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>()) << status;
     EXPECT_EQ(reporter.current_bytes(), 0);
 }
@@ -358,7 +358,8 @@ TEST(SniiSpillRunCodec, RunWriterStreamsWideTermWithinAccountedBound) {
     TempRun run;
     std::vector<uint32_t> docids(kDocs);
     std::iota(docids.begin(), docids.end(), 0U);
-    TermPostings postings = MakeTerm(std::move(docids), {});
+    // 生产 SPIMI 落盘的 postings 一定带 freqs（to_postings 总会填充），run 记录没有无频次形状。
+    TermPostings postings = MakeTerm(std::move(docids), std::vector<uint32_t>(kDocs, 1));
 
     int64_t observed = 0;
     int64_t peak = 0;
@@ -378,7 +379,7 @@ TEST(SniiSpillRunCodec, RunWriterStreamsWideTermWithinAccountedBound) {
     RunReader reader;
     ASSERT_TRUE(reader.open(run.path, /*has_positions=*/true).ok());
     EXPECT_EQ(reader.current().docids, postings.docids);
-    EXPECT_TRUE(reader.current().freqs.empty());
+    EXPECT_EQ(reader.current().freqs, postings.freqs);
     EXPECT_TRUE(reader.current().positions_flat.empty());
     ASSERT_TRUE(reader.advance().ok());
     EXPECT_TRUE(reader.exhausted());
@@ -387,7 +388,7 @@ TEST(SniiSpillRunCodec, RunWriterStreamsWideTermWithinAccountedBound) {
 TEST(SniiSpillRunCodec, RunWriterGrowsStagingBufferGeometrically) {
     constexpr uint32_t kTerms = 4096;
     TempRun run;
-    const TermPostings postings = MakeTerm({7}, {});
+    const TermPostings postings = MakeTerm({7}, {1});
 
     int64_t observed = 0;
     uint32_t positive_reservations = 0;
@@ -421,7 +422,9 @@ TEST(SniiSpillRunCodec, CompactRunsMergedPostingReservationHonorsHardLimitAndRel
         std::iota(docids.begin(), docids.end(), static_cast<uint32_t>(run) * kDocsPerRun);
         RunWriter writer;
         ASSERT_TRUE(writer.open(run == 0 ? first.path : second.path).ok());
-        ASSERT_TRUE(writer.write_term(0, MakeTerm(std::move(docids), {})).ok());
+        ASSERT_TRUE(writer.write_term(0, MakeTerm(std::move(docids),
+                                                  std::vector<uint32_t>(kDocsPerRun, 1)))
+                            .ok());
         ASSERT_TRUE(writer.close().ok());
     }
 

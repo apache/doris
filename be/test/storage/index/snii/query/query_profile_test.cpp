@@ -31,7 +31,6 @@
 
 #include "common/status.h"
 #include "runtime/runtime_profile.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/format/prx_pod.h"
@@ -193,8 +192,7 @@ Corpus BuildDisjointTailGroupCorpus() {
     return corpus;
 }
 
-void WriteCorpus(const Corpus& c, const std::string& path, int prx_zstd_level = 3,
-                 bool write_freq = true) {
+void WriteCorpus(const Corpus& c, const std::string& path, int prx_zstd_level = 3) {
     SpimiTermBuffer buf(/*has_positions=*/true);
     for (uint32_t d = 0; d < c.docs.size(); ++d) {
         const std::vector<std::string>& terms = c.docs[d];
@@ -206,30 +204,13 @@ void WriteCorpus(const Corpus& c, const std::string& path, int prx_zstd_level = 
     SniiIndexInput in;
     in.index_id = 1;
     in.index_suffix = "body";
-    in.config = write_freq ? doris::snii::format::IndexConfig::kDocsPositionsScoring
-                           : doris::snii::format::IndexConfig::kDocsPositions;
+    in.config = doris::snii::format::IndexConfig::kDocsPositions;
     in.doc_count = static_cast<uint32_t>(c.docs.size());
-    if (write_freq) {
-        in.encoded_norms.assign(c.docs.size(), 1);
-        doris::segment_v2::inverted_index::CommonGramsSegmentMetadata metadata;
-        metadata.plain_term_key_version =
-                doris::segment_v2::inverted_index::PlainTermKeyVersion::kRawNoInternal;
-        metadata.scoring_coverage = doris::segment_v2::inverted_index::ScoringCoverage::kComplete;
-        metadata.scoring_stats_version =
-                doris::segment_v2::inverted_index::COMMON_GRAMS_SCORING_STATS_VERSION_V1;
-        metadata.norm_semantics_version =
-                doris::segment_v2::inverted_index::COMMON_GRAMS_NORM_SEMANTICS_VERSION_V1;
-        metadata.base_analyzer_fingerprint = "query-profile-test";
-        metadata.scoring_doc_count = c.docs.size();
-        for (const auto& terms : c.docs) {
-            metadata.scoring_token_count += terms.size();
-        }
-        in.common_grams_metadata = std::move(metadata);
-    }
+    // 分词 + 带位置的索引一律带 norms（A2），这样才能打分。
+    in.encoded_norms.assign(c.docs.size(), 1);
     in.terms = buf.finalize_sorted();
     in.target_dict_block_bytes = 512;
     in.prx_zstd_level = prx_zstd_level;
-    in.write_freq = write_freq;
 
     io::LocalFileWriter writer;
     ASSERT_TRUE(writer.open(path).ok());
@@ -424,15 +405,16 @@ LogicalIndexReader OpenMeteredIndex(io::MeteredFileReader* file, SniiSegmentRead
     return idx;
 }
 
-std::vector<query::internal::TermPlan> BuildStreamingRoutePlans(
-        const std::array<uint64_t, 2>& average_tfs) {
+// Two pod_ref plans whose prx spans sit exactly at the streaming work boundary
+// (800 bytes / 100 docs), so a caller-supplied rejection reason is what flips
+// the decision.
+std::vector<query::internal::TermPlan> BuildStreamingRoutePlans() {
     constexpr uint32_t kDf = 100;
     std::vector<query::internal::TermPlan> plans(2);
     for (size_t i = 0; i < plans.size(); ++i) {
         plans[i].entry.term = std::string(1, static_cast<char>('a' + i));
         plans[i].entry.df = kDf;
-        plans[i].entry.ttf_delta = average_tfs[i] * kDf;
-        plans[i].entry.term_stats_present = true;
+        plans[i].entry.prx_len = 800;
         plans[i].df = kDf;
     }
     return plans;
@@ -480,44 +462,8 @@ concept CanCallPhrasePrefixQuery = requires(Args... args) { query::phrase_prefix
 
 } // namespace
 
-TEST(SniiPhraseStreamingRouteTest, RejectsSumAverageTfAtBoundaryWhenEveryTermIsBelowMaximum) {
-    const auto plans = BuildStreamingRoutePlans({4, 4});
-    const std::vector<size_t> phrase_plan_index = {0, 1};
-
-    EXPECT_FALSE(ShouldUseStreamingExactPhrase(plans, phrase_plan_index, /*candidate_count=*/64,
-                                               /*needs_frequency=*/false, {},
-                                               query::internal::ExactPhrasePositionAccess::kAuto));
-}
-
-TEST(SniiPhraseStreamingRouteTest, SelectsMaximumAverageTfAndEstimateBoundaries) {
-    const auto plans = BuildStreamingRoutePlans({8, 8});
-    const std::vector<size_t> phrase_plan_index = {0, 1};
-
-    EXPECT_TRUE(ShouldUseStreamingExactPhrase(plans, phrase_plan_index, /*candidate_count=*/32,
-                                              /*needs_frequency=*/false, {},
-                                              query::internal::ExactPhrasePositionAccess::kAuto));
-}
-
-TEST(SniiPhraseStreamingRouteTest, RejectsMaximumAverageTfBelowBoundary) {
-    const auto plans = BuildStreamingRoutePlans({7, 7});
-    const std::vector<size_t> phrase_plan_index = {0, 1};
-
-    EXPECT_FALSE(ShouldUseStreamingExactPhrase(plans, phrase_plan_index, /*candidate_count=*/64,
-                                               /*needs_frequency=*/false, {},
-                                               query::internal::ExactPhrasePositionAccess::kAuto));
-}
-
-TEST(SniiPhraseStreamingRouteTest, RejectsEstimatedPositionsBelowBoundary) {
-    const auto plans = BuildStreamingRoutePlans({8, 65});
-    const std::vector<size_t> phrase_plan_index = {0, 1};
-
-    EXPECT_FALSE(ShouldUseStreamingExactPhrase(plans, phrase_plan_index, /*candidate_count=*/7,
-                                               /*needs_frequency=*/false, {},
-                                               query::internal::ExactPhrasePositionAccess::kAuto));
-}
-
 TEST(SniiPhraseStreamingRouteTest, RejectsSloppyPhrase) {
-    const auto plans = BuildStreamingRoutePlans({8, 8});
+    const auto plans = BuildStreamingRoutePlans();
     const std::vector<size_t> phrase_plan_index = {0, 1};
 
     EXPECT_FALSE(ShouldUseStreamingExactPhrase(plans, phrase_plan_index, /*candidate_count=*/64,
@@ -526,7 +472,7 @@ TEST(SniiPhraseStreamingRouteTest, RejectsSloppyPhrase) {
 }
 
 TEST(SniiPhraseStreamingRouteTest, RejectsFrequencyCollection) {
-    const auto plans = BuildStreamingRoutePlans({8, 8});
+    const auto plans = BuildStreamingRoutePlans();
     const std::vector<size_t> phrase_plan_index = {0, 1};
 
     EXPECT_FALSE(ShouldUseStreamingExactPhrase(plans, phrase_plan_index, /*candidate_count=*/64,
@@ -535,7 +481,7 @@ TEST(SniiPhraseStreamingRouteTest, RejectsFrequencyCollection) {
 }
 
 TEST(SniiPhraseStreamingRouteTest, RejectsRepeatedPhysicalPlanIndex) {
-    const auto plans = BuildStreamingRoutePlans({8, 8});
+    const auto plans = BuildStreamingRoutePlans();
     const std::vector<size_t> phrase_plan_index = {0, 0};
 
     EXPECT_FALSE(ShouldUseStreamingExactPhrase(plans, phrase_plan_index, /*candidate_count=*/64,
@@ -543,11 +489,9 @@ TEST(SniiPhraseStreamingRouteTest, RejectsRepeatedPhysicalPlanIndex) {
                                                query::internal::ExactPhrasePositionAccess::kAuto));
 }
 
-TEST(SniiPhraseStreamingRouteTest, SelectsPodRefWithoutStatsAtWorkBoundaries) {
-    auto plans = BuildStreamingRoutePlans({8, 8});
-    plans[0].entry.term_stats_present = false;
+TEST(SniiPhraseStreamingRouteTest, SelectsPodRefAtWorkBoundaries) {
+    auto plans = BuildStreamingRoutePlans();
     plans[0].entry.prx_len = 800;
-    plans[1].entry.term_stats_present = false;
     plans[1].entry.prx_len = 800;
     const std::vector<size_t> phrase_plan_index = {0, 1};
 
@@ -556,11 +500,10 @@ TEST(SniiPhraseStreamingRouteTest, SelectsPodRefWithoutStatsAtWorkBoundaries) {
                                               query::internal::ExactPhrasePositionAccess::kAuto));
 }
 
-TEST(SniiPhraseStreamingRouteTest, UsesRetainedPhysicalDocsForNoStatsWindowWork) {
-    auto plans = BuildStreamingRoutePlans({8, 8});
+TEST(SniiPhraseStreamingRouteTest, UsesRetainedPhysicalDocsForWindowWork) {
+    auto plans = BuildStreamingRoutePlans();
     std::vector<query::phrase_impl::PosSource> sources(plans.size());
     for (size_t plan_index = 0; plan_index < plans.size(); ++plan_index) {
-        plans[plan_index].entry.term_stats_present = false;
         plans[plan_index].df = 1000;
         sources[plan_index].logical_position_work = 800;
         sources[plan_index].logical_position_docs = 100;
@@ -572,11 +515,9 @@ TEST(SniiPhraseStreamingRouteTest, UsesRetainedPhysicalDocsForNoStatsWindowWork)
             /*needs_frequency=*/false, {}, query::internal::ExactPhrasePositionAccess::kAuto));
 }
 
-TEST(SniiPhraseStreamingRouteTest, RejectsPodRefWithoutStatsBelowMaximumWorkBoundary) {
-    auto plans = BuildStreamingRoutePlans({8, 8});
-    plans[0].entry.term_stats_present = false;
+TEST(SniiPhraseStreamingRouteTest, RejectsPodRefBelowMaximumWorkBoundary) {
+    auto plans = BuildStreamingRoutePlans();
     plans[0].entry.prx_len = 700;
-    plans[1].entry.term_stats_present = false;
     plans[1].entry.prx_len = 700;
     const std::vector<size_t> phrase_plan_index = {0, 1};
 
@@ -585,11 +526,9 @@ TEST(SniiPhraseStreamingRouteTest, RejectsPodRefWithoutStatsBelowMaximumWorkBoun
                                                query::internal::ExactPhrasePositionAccess::kAuto));
 }
 
-TEST(SniiPhraseStreamingRouteTest, RejectsPodRefWithoutStatsBelowEstimatedWorkBoundary) {
-    auto plans = BuildStreamingRoutePlans({8, 8});
-    plans[0].entry.term_stats_present = false;
+TEST(SniiPhraseStreamingRouteTest, RejectsPodRefBelowEstimatedWorkBoundary) {
+    auto plans = BuildStreamingRoutePlans();
     plans[0].entry.prx_len = 800;
-    plans[1].entry.term_stats_present = false;
     plans[1].entry.prx_len = 6500;
     const std::vector<size_t> phrase_plan_index = {0, 1};
 
@@ -598,11 +537,10 @@ TEST(SniiPhraseStreamingRouteTest, RejectsPodRefWithoutStatsBelowEstimatedWorkBo
                                                query::internal::ExactPhrasePositionAccess::kAuto));
 }
 
-TEST(SniiPhraseStreamingRouteTest, SelectsInlineWithoutStatsAtWorkBoundaries) {
-    auto plans = BuildStreamingRoutePlans({8, 8});
+TEST(SniiPhraseStreamingRouteTest, SelectsInlineAtWorkBoundaries) {
+    auto plans = BuildStreamingRoutePlans();
     for (auto& plan : plans) {
         plan.entry.kind = format::DictEntryKind::kInline;
-        plan.entry.term_stats_present = false;
         plan.entry.prx_bytes.resize(800);
     }
     const std::vector<size_t> phrase_plan_index = {0, 1};
@@ -612,19 +550,8 @@ TEST(SniiPhraseStreamingRouteTest, SelectsInlineWithoutStatsAtWorkBoundaries) {
                                               query::internal::ExactPhrasePositionAccess::kAuto));
 }
 
-TEST(SniiPhraseStreamingRouteTest, SelectsMixedStatsAndNoStatsAtWorkBoundaries) {
-    auto plans = BuildStreamingRoutePlans({8, 8});
-    plans[1].entry.term_stats_present = false;
-    plans[1].entry.prx_len = 800;
-    const std::vector<size_t> phrase_plan_index = {0, 1};
-
-    EXPECT_TRUE(ShouldUseStreamingExactPhrase(plans, phrase_plan_index, /*candidate_count=*/32,
-                                              /*needs_frequency=*/false, {},
-                                              query::internal::ExactPhrasePositionAccess::kAuto));
-}
-
 TEST(SniiPhraseStreamingRouteTest, RejectsMaterializedOnlyAccess) {
-    const auto plans = BuildStreamingRoutePlans({8, 8});
+    const auto plans = BuildStreamingRoutePlans();
     const std::vector<size_t> phrase_plan_index = {0, 1};
 
     EXPECT_FALSE(ShouldUseStreamingExactPhrase(
@@ -968,10 +895,10 @@ TEST(SniiQueryProfileTest, HighTfPhraseAndPrefixAggregateRetainedPrxStats) {
     std::remove(path.c_str());
 }
 
-TEST(SniiQueryProfileTest, FrequencyDroppedHighTfIndexUsesStreamingExactPhrase) {
+TEST(SniiQueryProfileTest, HighTfIndexUsesStreamingExactPhrase) {
     const Corpus corpus = BuildHighTfCorpus();
     const std::string path = TempPath();
-    WriteCorpus(corpus, path, /*prx_zstd_level=*/3, /*write_freq=*/false);
+    WriteCorpus(corpus, path, /*prx_zstd_level=*/3);
 
     io::LocalFileReader local;
     ASSERT_TRUE(local.open(path).ok());
@@ -979,16 +906,6 @@ TEST(SniiQueryProfileTest, FrequencyDroppedHighTfIndexUsesStreamingExactPhrase) 
     LogicalIndexReader index;
     ASSERT_TRUE(SniiSegmentReader::open(&local, &segment).ok());
     ASSERT_TRUE(segment.open_index(1, "body", &index).ok());
-
-    for (const std::string_view term : {std::string_view("alpha"), std::string_view("beta")}) {
-        bool found = false;
-        format::DictEntry entry;
-        uint64_t frq_base = 0;
-        uint64_t prx_base = 0;
-        ASSERT_TRUE(index.lookup(term, &found, &entry, &frq_base, &prx_base).ok());
-        ASSERT_TRUE(found);
-        EXPECT_FALSE(entry.term_stats_present);
-    }
 
     query::internal::testing::reset_streaming_exact_phrase_execution_count();
     DEFER(query::internal::testing::reset_streaming_exact_phrase_execution_count());
@@ -1439,23 +1356,6 @@ TEST(SniiQueryProfileTest, PhraseReaderAndRuntimeTotalsAreAdditiveAndNonZero) {
     delta.exact_candidate_visits = 2;
     delta.prefix_leading_candidate_docs = 3;
     delta.prefix_tail_candidate_visits = 4;
-    delta.common_grams_candidate_queries = 5;
-    delta.common_grams_plain_plans = 6;
-    delta.common_grams_gram_plans = 7;
-    delta.common_grams_fallback_no_gram = 8;
-    delta.common_grams_fallback_incompatible = 9;
-    delta.common_grams_fallback_kill_switch = 10;
-    delta.common_grams_fallback_cost = 11;
-    delta.common_grams_authoritative_empty = 12;
-    delta.common_grams_plain_posting_bytes = 13;
-    delta.common_grams_gram_posting_bytes = 14;
-    delta.common_grams_plain_estimated_candidate_df = 15;
-    delta.common_grams_gram_estimated_candidate_df = 16;
-    delta.common_grams_plain_estimated_cost = 17;
-    delta.common_grams_gram_estimated_cost = 18;
-    delta.common_grams_fallback_base_analyzer_mismatch = 19;
-    delta.common_grams_fallback_prefix_tail_empty = 20;
-    delta.common_grams_planning_ns = 23;
     delta.prx_streaming_frames = 3;
 
     doris::OlapReaderStatistics reader_stats;
@@ -1465,23 +1365,6 @@ TEST(SniiQueryProfileTest, PhraseReaderAndRuntimeTotalsAreAdditiveAndNonZero) {
     EXPECT_EQ(reader_stats.snii_stats.phrase_candidate_visits, 4);
     EXPECT_EQ(reader_stats.snii_stats.phrase_prefix_leading_candidate_docs, 6);
     EXPECT_EQ(reader_stats.snii_stats.phrase_prefix_tail_candidate_visits, 8);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_candidate_queries, 10);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_plain_plans, 12);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_gram_plans, 14);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_no_gram, 16);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_incompatible, 18);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_kill_switch, 20);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_cost, 22);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_authoritative_empty, 24);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_plain_posting_bytes, 26);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_gram_posting_bytes, 28);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_plain_estimated_candidate_df, 30);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_gram_estimated_candidate_df, 32);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_plain_estimated_cost, 34);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_gram_estimated_cost, 36);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_base_analyzer_mismatch, 38);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_prefix_tail_empty, 40);
-    EXPECT_EQ(reader_stats.snii_stats.common_grams_planning_ns, 46);
     EXPECT_EQ(reader_stats.snii_stats.prx_streaming_frames, 6);
 
     doris::RuntimeProfile runtime_profile("IndexFilter");
@@ -1498,23 +1381,6 @@ TEST(SniiQueryProfileTest, PhraseReaderAndRuntimeTotalsAreAdditiveAndNonZero) {
             {"SniiPhraseCandidateVisits", 8, doris::TUnit::UNIT},
             {"SniiPhrasePrefixLeadingCandidateDocs", 12, doris::TUnit::UNIT},
             {"SniiPhrasePrefixTailCandidateVisits", 16, doris::TUnit::UNIT},
-            {"SniiCommonGramsCandidateQueries", 20, doris::TUnit::UNIT},
-            {"SniiCommonGramsPlainPlans", 24, doris::TUnit::UNIT},
-            {"SniiCommonGramsGramPlans", 28, doris::TUnit::UNIT},
-            {"SniiCommonGramsFallbackNoGram", 32, doris::TUnit::UNIT},
-            {"SniiCommonGramsFallbackIncompatible", 36, doris::TUnit::UNIT},
-            {"SniiCommonGramsFallbackKillSwitch", 40, doris::TUnit::UNIT},
-            {"SniiCommonGramsFallbackCost", 44, doris::TUnit::UNIT},
-            {"SniiCommonGramsAuthoritativeEmpty", 48, doris::TUnit::UNIT},
-            {"SniiCommonGramsPlainPostingBytes", 52, doris::TUnit::BYTES},
-            {"SniiCommonGramsGramPostingBytes", 56, doris::TUnit::BYTES},
-            {"SniiCommonGramsPlainEstimatedCandidateDf", 60, doris::TUnit::UNIT},
-            {"SniiCommonGramsGramEstimatedCandidateDf", 64, doris::TUnit::UNIT},
-            {"SniiCommonGramsPlainEstimatedCost", 68, doris::TUnit::UNIT},
-            {"SniiCommonGramsGramEstimatedCost", 72, doris::TUnit::UNIT},
-            {"SniiCommonGramsFallbackBaseAnalyzerMismatch", 76, doris::TUnit::UNIT},
-            {"SniiCommonGramsFallbackPrefixTailEmpty", 80, doris::TUnit::UNIT},
-            {"SniiCommonGramsPlanningTime", 92, doris::TUnit::TIME_NS},
             {"SniiPhraseStreamingPrxFrames", 12, doris::TUnit::UNIT},
     };
 

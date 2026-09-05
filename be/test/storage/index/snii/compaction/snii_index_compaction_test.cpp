@@ -23,13 +23,12 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/compaction/posting_run_merger.h"
 #include "storage/index/snii/format/norms_pod.h"
 #include "storage/index/snii/io/file_writer.h"
@@ -76,56 +75,15 @@ SniiIndexInput make_input(uint32_t doc_count, std::vector<uint32_t> null_docids,
     input.doc_count = doc_count;
     input.null_docids = std::move(null_docids);
     input.terms = std::move(terms);
-    input.write_freq = false;
     return input;
 }
 
-inverted_index::CommonGramsSegmentMetadata common_grams_metadata(uint64_t doc_count,
-                                                                 uint64_t token_count) {
-    inverted_index::CommonGramsQueryIdentity identity {.common_grams_dictionary_identity = "dict-a",
-                                                       .base_analyzer_fingerprint = "base-a",
-                                                       .common_grams_fingerprint = "grams-a"};
-    auto metadata = inverted_index::make_common_grams_segment_metadata(identity);
-    metadata.scoring_doc_count = doc_count;
-    metadata.scoring_token_count = token_count;
-    return metadata;
-}
-
-std::string common_gram(std::string_view left, std::string_view right) {
-    auto encoded = inverted_index::encode_common_gram(left, right);
-    EXPECT_TRUE(encoded.has_value());
-    return encoded.has_value() ? std::move(encoded.value()) : std::string();
-}
-
-SniiIndexInput make_common_grams_input(uint32_t doc_count, std::vector<uint32_t> null_docids,
-                                       std::vector<uint8_t> norms, std::vector<TermPostings> terms,
-                                       uint64_t token_count) {
+// 带 norms 的 T2 输入（A2：分词 + 带位置的索引一律写 norms）。norms 由调用方给出，必须与
+// postings 的每 doc 词频一致，这样 compaction 从 postings 重建出的 norms 才能与之逐字节相同。
+SniiIndexInput make_norms_input(uint32_t doc_count, std::vector<uint32_t> null_docids,
+                                std::vector<uint8_t> norms, std::vector<TermPostings> terms) {
     SniiIndexInput input = make_input(doc_count, std::move(null_docids), std::move(terms));
-    input.config = format::IndexConfig::kDocsPositionsScoring;
-    input.write_freq = true;
     input.encoded_norms = std::move(norms);
-    input.common_grams_metadata = common_grams_metadata(doc_count, token_count);
-    return input;
-}
-
-TermPostings make_docs_only_gram(std::string term, std::vector<uint32_t> docids) {
-    TermPostings postings;
-    postings.term = std::move(term);
-    postings.docids = std::move(docids);
-    postings.retain_positions = false;
-    return postings;
-}
-
-SniiIndexInput make_hybrid_common_grams_input(uint32_t doc_count, std::vector<uint32_t> null_docids,
-                                              std::vector<uint8_t> norms,
-                                              std::vector<TermPostings> terms,
-                                              uint64_t token_count) {
-    std::ranges::sort(terms, [](const auto& lhs, const auto& rhs) { return lhs.term < rhs.term; });
-    SniiIndexInput input = make_common_grams_input(doc_count, std::move(null_docids),
-                                                   std::move(norms), std::move(terms), token_count);
-    input.common_grams_metadata->common_grams_coverage =
-            inverted_index::CommonGramsCoverage::kMixed;
-    input.common_grams_posting_policy = format::CommonGramsPostingPolicy::kHybridV1;
     return input;
 }
 
@@ -363,11 +321,9 @@ TEST(SniiIndexCompactionTest, DirectPostingRunsMatchPositionedOracleAcrossSource
     MergedRunHarness harness;
     assert_ok(make_merged_run_harness({&source_zero, &source_one}, "shared", validated.get(),
                                       &harness));
-    std::vector<uint64_t> semantic_token_counts(destination_rows.size(), 0);
     compaction::testing::reset_posting_run_merge_counters();
     compaction::MergedPostingRuns runs(std::move(harness.cursors), /*retain_positions=*/true,
-                                       /*counts_as_semantic_token=*/false, destination_rows,
-                                       semantic_token_counts);
+                                       destination_rows, /*destination_doc_lengths=*/ {});
     assert_ok(runs.init());
     std::vector<MergedPostingCopy> got;
     assert_ok(drain_merged_runs(&runs, /*max_run_docs=*/2, &got));
@@ -378,42 +334,6 @@ TEST(SniiIndexCompactionTest, DirectPostingRunsMatchPositionedOracleAcrossSource
     EXPECT_EQ(compaction::testing::posting_run_documents(), expected.size());
     EXPECT_EQ(compaction::testing::posting_run_shape_scan_documents(), expected.size());
     EXPECT_GT(compaction::testing::posting_run_emitted_runs(), 1U);
-    EXPECT_EQ(compaction::testing::posting_run_legacy_fill_calls(), 0U);
-    EXPECT_EQ(compaction::testing::posting_run_copied_documents(), 0U);
-}
-
-TEST(SniiIndexCompactionTest, DirectPostingRunsMatchSingleSourceDocsOnlyOracle) {
-    const std::string gram = common_gram("a", "term");
-    OpenedIndex source;
-    build_index(make_hybrid_common_grams_input(
-                        /*doc_count=*/5, /*null_docids=*/ {}, /*norms=*/ {1, 1, 1, 1, 1},
-                        {make_docs_only_gram(gram, {0, 2, 4}),
-                         make_term("plain", {{.docid = 1, .positions = {0}}})},
-                        /*token_count=*/1),
-                &source, reader::LogicalIndexOpenMode::kCompaction);
-
-    const RowIdConversionMap conversion = {{{0, 0}, {0, 1}, {0, 2}, {1, 0}, {1, 1}}};
-    const std::vector<uint32_t> destination_rows = {3, 2};
-    auto validated = make_validated_conversion(&conversion, {5}, destination_rows);
-    ASSERT_NE(validated, nullptr);
-
-    MergedRunHarness harness;
-    assert_ok(make_merged_run_harness({&source}, gram, validated.get(), &harness));
-    std::vector<uint64_t> semantic_token_counts(destination_rows.size(), 0);
-    compaction::testing::reset_posting_run_merge_counters();
-    compaction::MergedPostingRuns runs(std::move(harness.cursors), /*retain_positions=*/false,
-                                       /*counts_as_semantic_token=*/false, destination_rows,
-                                       semantic_token_counts);
-    assert_ok(runs.init());
-    std::vector<MergedPostingCopy> got;
-    assert_ok(drain_merged_runs(&runs, /*max_run_docs=*/1, &got));
-
-    EXPECT_EQ(got, (std::vector<MergedPostingCopy> {
-                           {0, 0, 0, {}},
-                           {0, 2, 0, {}},
-                           {1, 1, 0, {}},
-                   }));
-    EXPECT_EQ(compaction::testing::posting_run_shape_scan_documents(), got.size());
     EXPECT_EQ(compaction::testing::posting_run_legacy_fill_calls(), 0U);
     EXPECT_EQ(compaction::testing::posting_run_copied_documents(), 0U);
 }
@@ -589,25 +509,23 @@ TEST(SniiIndexCompactionTest, MergesTwentyFourRunSourcesByteIdenticallyToReferen
     }
 }
 
-TEST(SniiIndexCompactionTest, CommonGramsMergeMatchesRebuildAfterDeletesAndRemap) {
-    const std::string gram = common_gram("the", "cat");
+// A2 验收：目标写 norms 时，compaction 不重分词，而是在合并 postings 的同一趟里按每 doc Σfreq
+// 重建 norms；结果必须与"用同样 postings 与一致 norms 重新构建"的段逐字节相同。
+TEST(SniiIndexCompactionTest, NormsMergeMatchesRebuildAfterDeletesAndRemap) {
     OpenedIndex source_zero;
     OpenedIndex source_one;
-    build_index(make_common_grams_input(
-                        /*doc_count=*/3, /*null_docids=*/ {2}, /*norms=*/ {10, 20, 30},
-                        {make_term(gram, {{.docid = 0, .positions = {1}},
-                                          {.docid = 1, .positions = {1}}}),
-                         make_term("alpha", {{.docid = 0, .positions = {0, 2}},
+    // 源 0：doc0 = alpha×2，doc1 = alpha×1，doc2（null 但带 posting）= beta×1 → norms {2, 1, 1}
+    build_index(make_norms_input(
+                        /*doc_count=*/3, /*null_docids=*/ {2}, /*norms=*/ {2, 1, 1},
+                        {make_term("alpha", {{.docid = 0, .positions = {0, 2}},
                                              {.docid = 1, .positions = {0}}}),
-                         make_term("beta", {{.docid = 2, .positions = {0}}})},
-                        /*token_count=*/4),
+                         make_term("beta", {{.docid = 2, .positions = {0}}})}),
                 &source_zero, reader::LogicalIndexOpenMode::kCompaction);
-    build_index(make_common_grams_input(
-                        /*doc_count=*/2, /*null_docids=*/ {}, /*norms=*/ {40, 50},
-                        {make_term(gram, {{.docid = 1, .positions = {1}}}),
-                         make_term("alpha", {{.docid = 0, .positions = {0}}}),
-                         make_term("gamma", {{.docid = 1, .positions = {0, 2}}})},
-                        /*token_count=*/3),
+    // 源 1：doc0 = alpha×1，doc1 = gamma×2 → norms {1, 2}
+    build_index(make_norms_input(
+                        /*doc_count=*/2, /*null_docids=*/ {}, /*norms=*/ {1, 2},
+                        {make_term("alpha", {{.docid = 0, .positions = {0}}}),
+                         make_term("gamma", {{.docid = 1, .positions = {0, 2}}})}),
                 &source_one, reader::LogicalIndexOpenMode::kCompaction);
 
     const RowIdConversionMap conversion = {
@@ -617,18 +535,15 @@ TEST(SniiIndexCompactionTest, CommonGramsMergeMatchesRebuildAfterDeletesAndRemap
     const std::vector<uint32_t> destination_rows = {3, 1};
     auto validated = make_validated_conversion(&conversion, {3, 2}, destination_rows);
     ASSERT_NE(validated, nullptr);
-    compaction::SniiCompactionEligibility eligibility {
-            .kind = compaction::SniiStreamedMergeKind::kCommonGramsT3,
-            .common_grams_metadata_seed = common_grams_metadata(0, 0)};
+    compaction::SniiCompactionEligibility eligibility {.destination_writes_norms = true};
     std::unique_ptr<SniiPlainT2MergePlan> plan;
     assert_ok(SniiPlainT2MergePlan::prepare({&source_zero.index, &source_one.index}, *validated,
                                             eligibility,
                                             /*total_read_ahead_budget_bytes=*/1U << 20, &plan));
     ASSERT_NE(plan, nullptr);
+    EXPECT_TRUE(plan->destination_writes_norms());
     EXPECT_EQ(plan->destination_null_docids(0), (std::vector<uint32_t> {}));
     EXPECT_EQ(plan->destination_null_docids(1), (std::vector<uint32_t> {0}));
-    EXPECT_EQ(plan->destination_encoded_norms(0), (std::vector<uint8_t> {10, 40, 50}));
-    EXPECT_EQ(plan->destination_encoded_norms(1), (std::vector<uint8_t> {30}));
 
     std::array<MemoryFile, 2> merged_files;
     std::array<std::unique_ptr<SniiCompoundWriter>, 2> compounds;
@@ -637,31 +552,25 @@ TEST(SniiIndexCompactionTest, CommonGramsMergeMatchesRebuildAfterDeletesAndRemap
         compounds[i] = std::make_unique<SniiCompoundWriter>(&merged_files[i]);
         SniiIndexInput input = make_input(destination_rows[i], {}, {});
         input.config = plan->destination_index_config();
-        input.write_freq = true;
-        input.common_grams_metadata = plan->destination_common_grams_metadata(i);
+        input.write_norms = true;
         assert_ok(compounds[i]->begin_streamed_index(
-                std::move(input), plan->take_destination_null_docids(i),
-                plan->take_destination_encoded_norms(i), &sessions[i]));
+                std::move(input), plan->take_destination_null_docids(i), &sessions[i]));
     }
     assert_ok(plan->execute(sessions));
     for (auto& compound : compounds) {
         assert_ok(compound->finish());
     }
 
+    // 目标 0 = [源0 doc0, 源1 doc0, 源1 doc1] → norms {2, 1, 2}；目标 1 = [源0 doc2] → {1}
     std::array<OpenedIndex, 2> rebuilt;
-    build_index(make_common_grams_input(
-                        /*doc_count=*/3, /*null_docids=*/ {}, /*norms=*/ {10, 40, 50},
-                        {make_term(gram, {{.docid = 0, .positions = {1}},
-                                          {.docid = 2, .positions = {1}}}),
-                         make_term("alpha", {{.docid = 0, .positions = {0, 2}},
+    build_index(make_norms_input(
+                        /*doc_count=*/3, /*null_docids=*/ {}, /*norms=*/ {2, 1, 2},
+                        {make_term("alpha", {{.docid = 0, .positions = {0, 2}},
                                              {.docid = 1, .positions = {0}}}),
-                         make_term("gamma", {{.docid = 2, .positions = {0, 2}}})},
-                        /*token_count=*/5),
+                         make_term("gamma", {{.docid = 2, .positions = {0, 2}}})}),
                 &rebuilt[0]);
-    build_index(make_common_grams_input(
-                        /*doc_count=*/1, /*null_docids=*/ {0}, /*norms=*/ {30},
-                        {make_term("beta", {{.docid = 0, .positions = {0}}})},
-                        /*token_count=*/1),
+    build_index(make_norms_input(/*doc_count=*/1, /*null_docids=*/ {0}, /*norms=*/ {1},
+                                 {make_term("beta", {{.docid = 0, .positions = {0}}})}),
                 &rebuilt[1]);
     expect_identical_index_image(&merged_files[0], &rebuilt[0].file);
     expect_identical_index_image(&merged_files[1], &rebuilt[1].file);
@@ -671,20 +580,18 @@ TEST(SniiIndexCompactionTest, CommonGramsMergeMatchesRebuildAfterDeletesAndRemap
     for (size_t i = 0; i < merged_files.size(); ++i) {
         assert_ok(reader::SniiSegmentReader::open(&merged_files[i], &merged_segments[i]));
         assert_ok(merged_segments[i].open_index(kIndexId, kIndexSuffix, &merged_indexes[i]));
-        ASSERT_NE(merged_indexes[i].common_grams_metadata(), nullptr);
-        EXPECT_EQ(*merged_indexes[i].common_grams_metadata(),
-                  *rebuilt[i].index.common_grams_metadata());
+        EXPECT_TRUE(merged_indexes[i].has_norms());
     }
-    EXPECT_EQ(merged_indexes[0].common_grams_metadata()->scoring_token_count, 5U);
-    EXPECT_EQ(merged_indexes[1].common_grams_metadata()->scoring_token_count, 1U);
+    EXPECT_EQ(merged_indexes[0].stats().sum_total_term_freq, 5U);
+    EXPECT_EQ(merged_indexes[1].stats().sum_total_term_freq, 1U);
     format::NormsPodReader first_norms;
     format::NormsPodReader second_norms;
     assert_ok(merged_indexes[0].open_norms(&first_norms));
     assert_ok(merged_indexes[1].open_norms(&second_norms));
-    EXPECT_EQ(first_norms.encoded_norm(0), 10U);
-    EXPECT_EQ(first_norms.encoded_norm(1), 40U);
-    EXPECT_EQ(first_norms.encoded_norm(2), 50U);
-    EXPECT_EQ(second_norms.encoded_norm(0), 30U);
+    EXPECT_EQ(first_norms.encoded_norm(0), 2U);
+    EXPECT_EQ(first_norms.encoded_norm(1), 1U);
+    EXPECT_EQ(first_norms.encoded_norm(2), 2U);
+    EXPECT_EQ(second_norms.encoded_norm(0), 1U);
 
     std::vector<uint32_t> merged_docs;
     std::vector<uint32_t> rebuilt_docs;
@@ -696,233 +603,59 @@ TEST(SniiIndexCompactionTest, CommonGramsMergeMatchesRebuildAfterDeletesAndRemap
     EXPECT_EQ(merged_docs, rebuilt_docs);
 }
 
-TEST(SniiIndexCompactionTest, HybridCommonGramsMergePreservesPostingShapesAfterDeleteAndSplit) {
-    const std::string positioned_gram = common_gram("the", "of");
-    const std::string docs_only_gram = common_gram("of", "wolf");
-    const auto source_terms = [&] {
-        return std::vector<TermPostings> {
-                make_term(positioned_gram, {{.docid = 0, .positions = {0}},
-                                            {.docid = 1, .positions = {0}},
-                                            {.docid = 2, .positions = {0}}}),
-                make_docs_only_gram(docs_only_gram, {0, 1, 2}),
-                make_term("of", {{.docid = 0, .positions = {1}},
-                                 {.docid = 1, .positions = {1}},
-                                 {.docid = 2, .positions = {1}}}),
-                make_term("the", {{.docid = 0, .positions = {0}},
-                                  {.docid = 1, .positions = {0}},
-                                  {.docid = 2, .positions = {0}}}),
-                make_term("wolf", {{.docid = 0, .positions = {2}},
-                                   {.docid = 1, .positions = {2}},
-                                   {.docid = 2, .positions = {2}}})};
-    };
-    OpenedIndex source;
-    build_index(make_hybrid_common_grams_input(
-                        /*doc_count=*/4, /*null_docids=*/ {3}, /*norms=*/ {10, 20, 30, 40},
-                        source_terms(), /*token_count=*/9),
-                &source, reader::LogicalIndexOpenMode::kCompaction);
+// 老段（没有 norms 的 T2）参与 compaction 时同样能重建出 norms：这是生产升级后无需重建索引就
+// 获得打分能力的路径。空文档（无任何 token）编码为 1，超过 255 个 token 饱和到 255。
+TEST(SniiIndexCompactionTest, NormsAreReconstructedFromLegacySourcesWithSaturation) {
+    std::vector<uint32_t> long_positions(300);
+    std::iota(long_positions.begin(), long_positions.end(), 0U);
+    OpenedIndex legacy_source;
+    build_index(make_input(/*doc_count=*/3, /*null_docids=*/ {},
+                           {make_term("alpha", {{.docid = 0, .positions = long_positions},
+                                                {.docid = 2, .positions = {0}}})}),
+                &legacy_source, reader::LogicalIndexOpenMode::kCompaction);
+    ASSERT_FALSE(legacy_source.index.has_norms());
 
-    const RowIdConversionMap conversion = {{{0, 0}, kDeleted, {1, 0}, {1, 1}}};
-    const std::vector<uint32_t> destination_rows = {1, 2};
-    auto validated = make_validated_conversion(&conversion, {4}, destination_rows);
+    const RowIdConversionMap conversion = {{{0, 0}, {0, 1}, {0, 2}}};
+    auto validated = make_validated_conversion(&conversion, {3}, {3});
     ASSERT_NE(validated, nullptr);
-    compaction::SniiCompactionEligibility eligibility {
-            .kind = compaction::SniiStreamedMergeKind::kCommonGramsT3,
-            .common_grams_metadata_seed =
-                    [] {
-                        auto metadata = common_grams_metadata(0, 0);
-                        metadata.common_grams_coverage =
-                                inverted_index::CommonGramsCoverage::kMixed;
-                        return metadata;
-                    }(),
-            .common_grams_posting_policy = format::CommonGramsPostingPolicy::kHybridV1};
+    compaction::SniiCompactionEligibility eligibility {.destination_writes_norms = true};
     std::unique_ptr<SniiPlainT2MergePlan> plan;
-    assert_ok(SniiPlainT2MergePlan::prepare({&source.index}, *validated, eligibility,
-                                            /*total_read_ahead_budget_bytes=*/1U << 20, &plan));
-
-    std::array<MemoryFile, 2> merged_files;
-    std::array<std::unique_ptr<SniiCompoundWriter>, 2> compounds;
-    std::array<SniiStreamedIndexSession*, 2> sessions = {nullptr, nullptr};
-    for (size_t i = 0; i < compounds.size(); ++i) {
-        compounds[i] = std::make_unique<SniiCompoundWriter>(&merged_files[i]);
-        SniiIndexInput input = make_input(destination_rows[i], {}, {});
-        input.config = plan->destination_index_config();
-        input.write_freq = true;
-        input.common_grams_metadata = plan->destination_common_grams_metadata(i);
-        input.common_grams_posting_policy = plan->destination_common_grams_posting_policy();
-        assert_ok(compounds[i]->begin_streamed_index(
-                std::move(input), plan->take_destination_null_docids(i),
-                plan->take_destination_encoded_norms(i), &sessions[i]));
-    }
-    assert_ok(plan->execute(sessions));
-    for (auto& compound : compounds) {
-        assert_ok(compound->finish());
-    }
-
-    std::array<reader::SniiSegmentReader, 2> merged_segments;
-    std::array<reader::LogicalIndexReader, 2> merged_indexes;
-    for (size_t i = 0; i < merged_indexes.size(); ++i) {
-        assert_ok(reader::SniiSegmentReader::open(&merged_files[i], &merged_segments[i]));
-        assert_ok(merged_segments[i].open_index(kIndexId, kIndexSuffix, &merged_indexes[i]));
-        ASSERT_NE(merged_indexes[i].common_grams_metadata(), nullptr);
-        EXPECT_EQ(merged_indexes[i].common_grams_metadata()->common_grams_coverage,
-                  inverted_index::CommonGramsCoverage::kMixed);
-        EXPECT_EQ(merged_indexes[i].common_grams_posting_policy(),
-                  format::CommonGramsPostingPolicy::kHybridV1);
-
-        bool found = false;
-        format::DictEntry positioned_entry;
-        format::DictEntry docs_only_entry;
-        uint64_t frq_base = 0;
-        uint64_t prx_base = 0;
-        assert_ok(merged_indexes[i].lookup(positioned_gram, &found, &positioned_entry, &frq_base,
-                                           &prx_base));
-        ASSERT_TRUE(found);
-        assert_ok(merged_indexes[i].lookup(docs_only_gram, &found, &docs_only_entry, &frq_base,
-                                           &prx_base));
-        ASSERT_TRUE(found);
-        EXPECT_TRUE(compaction::posting_entry_has_positions(positioned_entry));
-        EXPECT_FALSE(compaction::posting_entry_has_positions(docs_only_entry));
-
-        std::vector<uint32_t> docs;
-        assert_ok(term_query(merged_indexes[i], docs_only_gram, &docs));
-        EXPECT_EQ(docs, (std::vector<uint32_t> {0}));
-        assert_ok(phrase_query(merged_indexes[i], {"the", "of", "wolf"}, &docs));
-        EXPECT_EQ(docs, (std::vector<uint32_t> {0}));
-    }
-    EXPECT_EQ(merged_indexes[0].common_grams_metadata()->scoring_token_count, 3U);
-    EXPECT_EQ(merged_indexes[1].common_grams_metadata()->scoring_token_count, 3U);
-}
-
-TEST(SniiIndexCompactionTest, HybridCommonGramsRejectsSameTermPositionShapeMismatch) {
-    const std::string gram = common_gram("the", "of");
-    OpenedIndex positioned;
-    OpenedIndex docs_only;
-    build_index(make_hybrid_common_grams_input(1, {}, {1},
-                                               {make_term(gram, {{.docid = 0, .positions = {0}}}),
-                                                make_term("the", {{.docid = 0, .positions = {0}}})},
-                                               1),
-                &positioned, reader::LogicalIndexOpenMode::kCompaction);
-    build_index(make_hybrid_common_grams_input(1, {}, {1},
-                                               {make_docs_only_gram(gram, {0}),
-                                                make_term("the", {{.docid = 0, .positions = {0}}})},
-                                               1),
-                &docs_only, reader::LogicalIndexOpenMode::kCompaction);
-
-    const RowIdConversionMap conversion = {{{0, 0}}, {{0, 1}}};
-    auto validated = make_validated_conversion(&conversion, {1, 1}, {2});
-    ASSERT_NE(validated, nullptr);
-    compaction::SniiCompactionEligibility eligibility {
-            .kind = compaction::SniiStreamedMergeKind::kCommonGramsT3,
-            .common_grams_metadata_seed =
-                    [] {
-                        auto metadata = common_grams_metadata(0, 0);
-                        metadata.common_grams_coverage =
-                                inverted_index::CommonGramsCoverage::kMixed;
-                        return metadata;
-                    }(),
-            .common_grams_posting_policy = format::CommonGramsPostingPolicy::kHybridV1};
-    std::unique_ptr<SniiPlainT2MergePlan> plan;
-    assert_ok(SniiPlainT2MergePlan::prepare({&positioned.index, &docs_only.index}, *validated,
-                                            eligibility, /*total_read_ahead_budget_bytes=*/1U << 20,
-                                            &plan));
-
-    MemoryFile merged_file;
-    SniiCompoundWriter compound(&merged_file);
-    SniiIndexInput input = make_input(2, {}, {});
-    input.config = plan->destination_index_config();
-    input.write_freq = true;
-    input.common_grams_metadata = plan->destination_common_grams_metadata(0);
-    input.common_grams_posting_policy = plan->destination_common_grams_posting_policy();
-    SniiStreamedIndexSession* session = nullptr;
-    assert_ok(compound.begin_streamed_index(std::move(input), plan->take_destination_null_docids(0),
-                                            plan->take_destination_encoded_norms(0), &session));
-    const Status status = plan->execute(std::span(&session, 1));
-    EXPECT_TRUE(status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
-}
-
-TEST(SniiIndexCompactionTest, CommonGramsWindowedMergeKeepsGramDocsOnlyAndPlainScoring) {
-    constexpr uint32_t kDocCount = 600;
-    const std::string gram = common_gram("the", "cat");
-    std::vector<PostingDoc> gram_docs;
-    std::vector<PostingDoc> plain_docs;
-    gram_docs.reserve(kDocCount);
-    plain_docs.reserve(kDocCount);
-    for (uint32_t docid = 0; docid < kDocCount; ++docid) {
-        gram_docs.push_back({.docid = docid, .positions = {1}});
-        plain_docs.push_back({.docid = docid, .positions = {0, 2}});
-    }
-
-    OpenedIndex source;
-    build_index(make_common_grams_input(kDocCount, /*null_docids=*/ {},
-                                        /*norms=*/std::vector<uint8_t>(kDocCount, 1),
-                                        {make_term(gram, std::move(gram_docs)),
-                                         make_term("alpha", std::move(plain_docs))},
-                                        /*token_count=*/2 * kDocCount),
-                &source, reader::LogicalIndexOpenMode::kCompaction);
-
-    RowIdConversionMap conversion(1);
-    conversion[0].reserve(kDocCount);
-    for (uint32_t docid = 0; docid < kDocCount; ++docid) {
-        conversion[0].emplace_back(0, docid);
-    }
-    auto validated = make_validated_conversion(&conversion, {kDocCount}, {kDocCount});
-    ASSERT_NE(validated, nullptr);
-    compaction::SniiCompactionEligibility eligibility {
-            .kind = compaction::SniiStreamedMergeKind::kCommonGramsT3,
-            .common_grams_metadata_seed = common_grams_metadata(0, 0)};
-    std::unique_ptr<SniiPlainT2MergePlan> plan;
-    assert_ok(SniiPlainT2MergePlan::prepare({&source.index}, *validated, eligibility,
+    assert_ok(SniiPlainT2MergePlan::prepare({&legacy_source.index}, *validated, eligibility,
                                             /*total_read_ahead_budget_bytes=*/1U << 20, &plan));
     ASSERT_NE(plan, nullptr);
 
     MemoryFile merged_file;
     SniiCompoundWriter compound(&merged_file);
-    SniiStreamedIndexSession* session = nullptr;
-    SniiIndexInput input = make_input(kDocCount, {}, {});
+    SniiIndexInput input = make_input(/*doc_count=*/3, {}, {});
     input.config = plan->destination_index_config();
-    input.write_freq = true;
-    input.common_grams_metadata = plan->destination_common_grams_metadata(0);
+    input.write_norms = true;
+    SniiStreamedIndexSession* session = nullptr;
     assert_ok(compound.begin_streamed_index(std::move(input), plan->take_destination_null_docids(0),
-                                            plan->take_destination_encoded_norms(0), &session));
+                                            &session));
     std::array<SniiStreamedIndexSession*, 1> sessions = {session};
     assert_ok(plan->execute(sessions));
     assert_ok(compound.finish());
+
+    OpenedIndex rebuilt;
+    build_index(make_norms_input(/*doc_count=*/3, /*null_docids=*/ {}, /*norms=*/ {255, 1, 1},
+                                 {make_term("alpha", {{.docid = 0, .positions = long_positions},
+                                                      {.docid = 2, .positions = {0}}})}),
+                &rebuilt);
+    expect_identical_index_image(&merged_file, &rebuilt.file);
 
     reader::SniiSegmentReader merged_segment;
     reader::LogicalIndexReader merged_index;
     assert_ok(reader::SniiSegmentReader::open(&merged_file, &merged_segment));
     assert_ok(merged_segment.open_index(kIndexId, kIndexSuffix, &merged_index));
-
-    for (const reader::LogicalIndexReader* index : {&source.index, &merged_index}) {
-        bool found = false;
-        format::DictEntry gram_entry;
-        format::DictEntry plain_entry;
-        uint64_t frq_base = 0;
-        uint64_t prx_base = 0;
-        assert_ok(index->lookup(gram, &found, &gram_entry, &frq_base, &prx_base));
-        ASSERT_TRUE(found);
-        assert_ok(index->lookup("alpha", &found, &plain_entry, &frq_base, &prx_base));
-        ASSERT_TRUE(found);
-
-        EXPECT_EQ(gram_entry.kind, format::DictEntryKind::kPodRef);
-        EXPECT_EQ(gram_entry.enc, format::DictEntryEnc::kWindowed);
-        EXPECT_FALSE(gram_entry.term_stats_present);
-        EXPECT_EQ(gram_entry.frq_len, gram_entry.frq_docs_len);
-        EXPECT_EQ(plain_entry.kind, format::DictEntryKind::kPodRef);
-        EXPECT_EQ(plain_entry.enc, format::DictEntryEnc::kWindowed);
-        EXPECT_TRUE(plain_entry.term_stats_present);
-        EXPECT_EQ(plain_entry.ttf_delta, 2 * kDocCount);
-        EXPECT_EQ(plain_entry.max_freq, 2U);
-        EXPECT_GT(plain_entry.frq_len, plain_entry.frq_docs_len);
-    }
-
-    ASSERT_NE(merged_index.common_grams_metadata(), nullptr);
-    EXPECT_EQ(merged_index.common_grams_metadata()->common_grams_coverage,
-              inverted_index::CommonGramsCoverage::kComplete);
-    EXPECT_EQ(merged_index.common_grams_metadata()->scoring_token_count, 2 * kDocCount);
+    ASSERT_TRUE(merged_index.has_norms());
+    format::NormsPodReader norms;
+    assert_ok(merged_index.open_norms(&norms));
+    EXPECT_EQ(norms.encoded_norm(0), 255U);
+    EXPECT_EQ(norms.encoded_norm(1), 1U);
+    EXPECT_EQ(norms.encoded_norm(2), 1U);
 }
 
-TEST(SniiIndexCompactionTest, CommonGramsMergeReclaimsResidentDictBeforeLargePlainTerm) {
+TEST(SniiIndexCompactionTest, NormsMergeReclaimsResidentDictBeforeLargePlainTerm) {
     constexpr size_t kGramPositions = 4096;
     constexpr size_t kPlainPositions = 16384;
     auto make_positions = [](size_t count, uint32_t salt) {
@@ -939,15 +672,15 @@ TEST(SniiIndexCompactionTest, CommonGramsMergeReclaimsResidentDictBeforeLargePla
     std::vector<TermPostings> source_terms;
     for (uint32_t i = 0; i < 32; ++i) {
         source_terms.push_back(
-                make_term(common_gram("the", std::string("gram-") + std::to_string(100 + i)),
+                make_term(std::string("the-gram-") + std::to_string(100 + i),
                           {{.docid = 0, .positions = make_positions(kGramPositions, i + 1)}}));
     }
     source_terms.push_back(make_term(
             "zeta", {{.docid = 0, .positions = make_positions(kPlainPositions, /*salt=*/99)}}));
 
-    SniiIndexInput source_input =
-            make_common_grams_input(/*doc_count=*/1, /*null_docids=*/ {}, /*norms=*/ {1},
-                                    std::move(source_terms), /*token_count=*/kPlainPositions);
+    // 单 doc 里的 token 远超 255，norm 饱和到 255。
+    SniiIndexInput source_input = make_norms_input(/*doc_count=*/1, /*null_docids=*/ {},
+                                                   /*norms=*/ {255}, std::move(source_terms));
     source_input.target_dict_block_bytes = 1;
     OpenedIndex source;
     build_index(std::move(source_input), &source, reader::LogicalIndexOpenMode::kCompaction);
@@ -958,9 +691,7 @@ TEST(SniiIndexCompactionTest, CommonGramsMergeReclaimsResidentDictBeforeLargePla
     constexpr size_t kReadAhead = SniiPlainT2MergePlan::kMinReadAheadBudgetPerSource;
     constexpr size_t kHardCap = 256U << 10;
     auto reporter = std::make_shared<MemoryReporter>(nullptr, kHardCap);
-    compaction::SniiCompactionEligibility eligibility {
-            .kind = compaction::SniiStreamedMergeKind::kCommonGramsT3,
-            .common_grams_metadata_seed = common_grams_metadata(0, 0)};
+    compaction::SniiCompactionEligibility eligibility {.destination_writes_norms = true};
     std::unique_ptr<SniiPlainT2MergePlan> plan;
     assert_ok(SniiPlainT2MergePlan::prepare({&source.index}, *validated, eligibility, kReadAhead,
                                             reporter, &plan));
@@ -970,14 +701,13 @@ TEST(SniiIndexCompactionTest, CommonGramsMergeReclaimsResidentDictBeforeLargePla
     SniiCompoundWriter compound(&merged_file);
     SniiIndexInput input = make_input(/*doc_count=*/1, {}, {});
     input.config = plan->destination_index_config();
-    input.write_freq = true;
     input.target_dict_block_bytes = 1;
     input.dict_resident_cap_bytes = kHardCap / 8;
     input.mem_reporter = reporter.get();
-    input.common_grams_metadata = plan->destination_common_grams_metadata(0);
+    input.write_norms = true;
     SniiStreamedIndexSession* session = nullptr;
     assert_ok(compound.begin_streamed_index(std::move(input), plan->take_destination_null_docids(0),
-                                            plan->take_destination_encoded_norms(0), &session));
+                                            &session));
     std::array<SniiStreamedIndexSession*, 1> sessions = {session};
     assert_ok(plan->execute(sessions));
     assert_ok(compound.finish());
@@ -989,6 +719,9 @@ TEST(SniiIndexCompactionTest, CommonGramsMergeReclaimsResidentDictBeforeLargePla
     std::vector<uint32_t> docs;
     assert_ok(term_query(merged_index, "zeta", &docs));
     EXPECT_EQ(docs, (std::vector<uint32_t> {0}));
+    format::NormsPodReader norms;
+    assert_ok(merged_index.open_norms(&norms));
+    EXPECT_EQ(norms.encoded_norm(0), 255U);
 }
 
 TEST(SniiIndexCompactionTest, DecodesWindowedSourceAndReencodesEachDestination) {
