@@ -118,6 +118,32 @@ public class PushProjectIntoUnionTest {
         }
     }
 
+    @Test
+    public void testProjectReferencingOuterSlotIsNotPushedIntoUnion() {
+        // A correlated subquery may carry a project that references an outer correlated slot
+        // (e.g. an aliased outer column `o.flag AS f` resolved back to its producer). Such a
+        // slot has no constant producer in the union, so pushing the project into the union
+        // would leave a dangling slot reference; the rule must refuse to fire for this shape.
+        SlotReference unionOutput = new SlotReference(new ExprId(10), "s",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference outerSlot = new SlotReference(new ExprId(20), "flag",
+                IntegerType.INSTANCE, true, ImmutableList.of("o"));
+        LogicalUnion union = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(unionOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+
+        Alias outerAlias = new Alias(new ExprId(100), outerSlot, "f");
+        LogicalProject<LogicalUnion> project = new LogicalProject<>(
+                ImmutableList.<NamedExpression>of(outerAlias), union);
+
+        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), project)
+                .applyTopDown(new PushProjectIntoUnion())
+                .getPlan();
+        // The rule must not fire: the project stays above the union.
+        Assertions.assertTrue(rewritten instanceof LogicalProject,
+                "project referencing an outer slot must not be pushed into the union");
+        Assertions.assertTrue(rewritten.child(0) instanceof LogicalUnion);
+    }
+
     private LogicalUnion findUnion(Plan p) {
         if (p instanceof LogicalUnion) {
             return (LogicalUnion) p;
