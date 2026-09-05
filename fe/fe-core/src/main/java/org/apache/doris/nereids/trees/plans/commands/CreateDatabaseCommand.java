@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.binlog.BinlogUtils;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -79,6 +80,11 @@ public class CreateDatabaseCommand extends Command implements ForwardWithSync, N
         FeNameFormat.checkCatalogName(ctlName);
         FeNameFormat.checkDbName(dbName);
         InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED)) {
+            throw new UserException("Property binlog.row_ttl_enabled is reserved for internal use");
+        }
+        PropertyAnalyzer.analyzeBinlogConfig(new HashMap<>(properties));
+        BinlogUtils.markExplicitRowTtl(properties);
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(ConnectContext.get(), ctlName, dbName, PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(

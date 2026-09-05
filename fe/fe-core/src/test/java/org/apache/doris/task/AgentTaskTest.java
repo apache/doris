@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.binlog.BinlogTestUtils;
 import org.apache.doris.catalog.AggregateType;
@@ -35,6 +36,7 @@ import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TEncryptionAlgorithm;
+import org.apache.doris.thrift.TRemoteTabletSnapshot;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletRole;
@@ -53,6 +55,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class AgentTaskTest {
@@ -122,7 +125,8 @@ public class AgentTaskTest {
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
                 TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize, false,
-                storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
+                storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, -1,
+                Optional.empty());
 
         // drop
         dropTask = new DropReplicaTask(backendId1, tabletId1, replicaId1, schemaHash1, false);
@@ -162,6 +166,34 @@ public class AgentTaskTest {
     }
 
     @Test
+    public void rowTtlTaskClassificationTest() {
+        Column ttlColumn = new Column(Column.TTL_COL, ScalarType.createDatetimeV2Type(6),
+                false, AggregateType.NONE, true, "row ttl", false);
+        AlterReplicaTask alterReplicaTask = new AlterReplicaTask(
+                backendId1, dbId, tableId, partitionId, indexId1, indexId2, tabletId1,
+                tabletId2, replicaId1, schemaHash1, schemaHash2, version, 1,
+                AlterJobV2.JobType.SCHEMA_CHANGE, null, null, List.of(ttlColumn),
+                new HashMap<>(), null, 0, "", null, null);
+        CloneTask rowTtlCloneTask = new CloneTask(
+                new TBackend("host2", 8290, 8390), backendId1, dbId, tableId, partitionId,
+                indexId1, tabletId1, replicaId1, schemaHash1,
+                List.of(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, 3600, true);
+        DownloadTask rowTtlDownloadTask = new DownloadTask(
+                null, backendId1, 1, 2, dbId, List.<TRemoteTabletSnapshot>of(), true);
+        DirMoveTask rowTtlDirMoveTask = new DirMoveTask(
+                null, backendId1, 1, 2, dbId, tableId, partitionId, indexId1,
+                tabletId1, "/snapshot", schemaHash1, true, true);
+
+        Assertions.assertTrue(alterReplicaTask.isRowTtlTask());
+        Assertions.assertTrue(rowTtlCloneTask.isRowTtlTask());
+        Assertions.assertTrue(rowTtlDownloadTask.isRowTtlTask());
+        Assertions.assertTrue(rowTtlDirMoveTask.isRowTtlTask());
+        Assertions.assertTrue(AgentBatchTask.isRowTtlTask(rowTtlCloneTask));
+        Assertions.assertFalse(cloneTask.isRowTtlTask());
+        Assertions.assertFalse(dropTask.isRowTtlTask());
+    }
+
+    @Test
     public void toThriftTest() throws Exception {
         Class<? extends AgentBatchTask> agentBatchTaskClass = agentBatchTask.getClass();
         Class[] typeParams = new Class[] { AgentTask.class };
@@ -174,6 +206,32 @@ public class AgentTaskTest {
         Assertions.assertEquals(createReplicaTask.getSignature(), request.getSignature());
         Assertions.assertNotNull(request.getCreateTabletReq());
 
+        List<Column> rowTtlColumns = new LinkedList<>();
+        rowTtlColumns.add(new Column("k1", ScalarType.createType(PrimitiveType.INT), true,
+                null, false, null, ""));
+        rowTtlColumns.add(new Column("event_time", ScalarType.createDatetimeV2Type(6),
+                false, AggregateType.NONE, true, null, ""));
+        rowTtlColumns.add(new Column(Column.TTL_COL, ScalarType.createDatetimeV2Type(6),
+                false, AggregateType.NONE, true, "row ttl", false));
+        AgentTask createWithRowTtl = new CreateReplicaTask(
+                backendId1, dbId, tableId, partitionId, indexId1, tabletId1, replicaId1,
+                shortKeyNum, schemaHash1, version, KeysType.DUP_KEYS, storageType,
+                TStorageMedium.SSD, rowTtlColumns, null, 0, latch, null, false,
+                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false,
+                false, "", 0, 0, 0, 0, 0, false, null, null, new HashMap<>(), rowStorePageSize,
+                false, storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize,
+                new HashMap<>(), 5, 86_400_000_000L, Optional.of(28_800));
+        TAgentTaskRequest requestWithRowTtl =
+                (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithRowTtl);
+        Assertions.assertEquals(2,
+                requestWithRowTtl.getCreateTabletReq().getTabletSchema().getTtlColIdx());
+        Assertions.assertEquals(86_400_000_000L,
+                requestWithRowTtl.getCreateTabletReq().getTabletSchema().getRowTtlDurationUs());
+        Assertions.assertEquals(28_800,
+                requestWithRowTtl.getCreateTabletReq().getTabletSchema().getRowTtlTimeZoneOffsetSeconds());
+        Assertions.assertFalse(requestWithRowTtl.getCreateTabletReq().getTabletSchema()
+                .getColumns().get(2).isVisible());
+
         // create with row binlog tablet
         BinlogConfig binlogConfig = BinlogTestUtils.newTestRowBinlogConfig(true, false);
         CreateReplicaTask createWithRowBinlog = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
@@ -181,13 +239,16 @@ public class AgentTaskTest {
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
                 TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false,
                 binlogConfig, null, objectPool, rowStorePageSize, false, storagePageSize,
-                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
+                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, 86_400_000_000L,
+                Optional.empty());
         createWithRowBinlog.setTabletRole(TTabletRole.TABLET_ROLE_ROW_BINLOG);
         TAgentTaskRequest requestWithRowBinlog =
                 (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithRowBinlog);
         Assertions.assertNotNull(requestWithRowBinlog.getCreateTabletReq());
         Assertions.assertEquals(TTabletRole.TABLET_ROLE_ROW_BINLOG,
                 requestWithRowBinlog.getCreateTabletReq().getTabletRole());
+        Assertions.assertEquals(-1,
+                requestWithRowBinlog.getCreateTabletReq().getTabletSchema().getRowTtlDurationUs());
 
         List<Index> bfIndexes = Arrays.asList(new Index(1L, "bf_k1", Arrays.asList("k1"),
                 IndexType.BLOOMFILTER, Map.of("bloom_filter_fpp", "0.02"), ""));
@@ -196,7 +257,7 @@ public class AgentTaskTest {
                 TStorageMedium.SSD, columns, null, 0, latch, bfIndexes, false,
                 TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0,
                 0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false, storagePageSize,
-                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
+                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, -1, Optional.empty());
         TAgentTaskRequest requestWithBfIndex =
                 (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithBfIndex);
         Assertions.assertNotNull(requestWithBfIndex.getCreateTabletReq());
@@ -219,7 +280,7 @@ public class AgentTaskTest {
                 TStorageMedium.SSD, columns, bfColumns, 0.02, latch, null, false,
                 TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0,
                 0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false, storagePageSize,
-                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
+                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, -1, Optional.empty());
         TAgentTaskRequest requestWithBfColumns =
                 (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithBfColumns);
         Assertions.assertNotNull(requestWithBfColumns.getCreateTabletReq());
@@ -237,7 +298,7 @@ public class AgentTaskTest {
                 TStorageMedium.SSD, shadowColumns, null, 0, latch, bfIndexes, false,
                 TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0,
                 0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false, storagePageSize,
-                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
+                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, -1, Optional.empty());
         TAgentTaskRequest requestWithShadowBfIndex =
                 (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithShadowBfIndex);
         Assertions.assertEquals("k1", requestWithShadowBfIndex.getCreateTabletReq().getTabletSchema()
@@ -252,7 +313,7 @@ public class AgentTaskTest {
                         IndexType.BLOOMFILTER, Map.of("bloom_filter_fpp", "0.03"), "")), false,
                 TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0,
                 0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false, storagePageSize,
-                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
+                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, -1, Optional.empty());
         TAgentTaskRequest requestWithFoldedBfIndex =
                 (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithFoldedBfIndex);
         Assertions.assertEquals("k1", requestWithFoldedBfIndex.getCreateTabletReq().getTabletSchema()
@@ -273,7 +334,8 @@ public class AgentTaskTest {
                 storageType, TStorageMedium.SSD, columns, emptyBfColumns, 0, latch,
                 bfIndexes, false, TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false,
                 "", false, false, "", 0, 0, 0, 0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false,
-                storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
+                storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, -1,
+                Optional.empty());
         TAgentTaskRequest requestWithEmptyBfColumnsAndBfIndex =
                 (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask,
                         createWithEmptyBfColumnsAndBfIndex);

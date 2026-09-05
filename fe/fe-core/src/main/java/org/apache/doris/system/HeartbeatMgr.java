@@ -328,6 +328,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     backendInfo.setBrpcPort(4);
                     backendInfo.setArrowFlightSqlPort(8);
                     backendInfo.setVersion("test-1234");
+                    backendInfo.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
                     result = new THeartbeatResult();
                     result.setStatus(new TStatus(TStatusCode.OK));
                     result.setBackendInfo(backendInfo);
@@ -372,9 +373,12 @@ public class HeartbeatMgr extends MasterDaemon {
                         isShutDown = tBackendInfo.isIsShutdown();
                     }
                     long beMemory = tBackendInfo.isSetBeMem() ? tBackendInfo.getBeMem() : 0;
-                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
+                    BackendHbResponse response = new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
                             System.currentTimeMillis(), beStartTime, version, nodeRole,
                             fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
+                    response.setNodeFeatureFlags(tBackendInfo.isSetNodeFeatureFlags()
+                            ? tBackendInfo.getNodeFeatureFlags() : 0);
+                    return response;
                 } else {
                     return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
                             result.getStatus().getErrorMsgs().isEmpty()
@@ -414,12 +418,15 @@ public class HeartbeatMgr extends MasterDaemon {
             if (fe.getHost().equals(selfNode.getHost())) {
                 // heartbeat to self
                 if (Env.getCurrentEnv().isReady()) {
-                    return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
+                    FrontendHbResponse response = new FrontendHbResponse(
+                            fe.getNodeName(), Config.query_port, Config.rpc_port,
                             Config.arrow_flight_sql_port, Env.getCurrentEnv().getMaxJournalId(),
                             System.currentTimeMillis(),
                             Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH,
                             ExecuteEnv.getInstance().getStartupTime(), ExecuteEnv.getInstance().getDiskInfos(),
                             ExecuteEnv.getInstance().getProcessUUID(), Config.local_resource_group);
+                    response.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
+                    return response;
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }
@@ -439,11 +446,14 @@ public class HeartbeatMgr extends MasterDaemon {
                 TFrontendPingFrontendResult result = client.ping(request);
                 ok = true;
                 if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
-                    return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
+                    FrontendHbResponse response = new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
                             result.getRpcPort(), result.getArrowFlightSqlPort(), result.getReplayedJournalId(),
                             System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime(),
                             FeDiskInfo.fromThrifts(result.getDiskInfos()), result.getProcessUUID(),
                             result.getLocalResourceGroup());
+                    response.setNodeFeatureFlags(result.isSetNodeFeatureFlags()
+                            ? result.getNodeFeatureFlags() : 0);
+                    return response;
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), result.getMsg());
                 }

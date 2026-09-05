@@ -26,25 +26,32 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.alter.CloudSchemaChangeHandler;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.BinlogGcInfo;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.BinlogGcTask;
+import org.apache.doris.task.UpdateTabletMetaInfoTask;
+import org.apache.doris.thrift.TTabletMetaInfo;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class BinlogGcer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(BinlogGcer.class);
     private static final long GC_DURATION_MS = 15 * 1000L; // 15s
-
-    // TODO(Drogon): use this to control gc frequency by real gc time waste sample
-    private long lastGcTime = 0L;
 
     public BinlogGcer() {
         super("binlog-gcer", GC_DURATION_MS);
@@ -56,6 +63,7 @@ public class BinlogGcer extends MasterDaemon {
             LOG.debug("start binlog syncer jobs.");
         }
         try {
+            syncRowBinlogTtlReferenceTso();
             List<BinlogTombstone> tombstones = Env.getCurrentEnv().getBinlogManager().gc();
             if (tombstones != null && !tombstones.isEmpty()) {
                 LOG.info("tombstones size: {}", tombstones.size());
@@ -79,6 +87,106 @@ public class BinlogGcer extends MasterDaemon {
             Env.getCurrentEnv().getEditLog().logGcBinlog(info);
         } catch (Throwable e) {
             LOG.warn("Failed to process one round of BinlogGcer", e);
+        }
+    }
+
+    void syncRowBinlogTtlReferenceTso() {
+        if (!Config.enable_feature_binlog) {
+            return;
+        }
+        List<OlapTable> ttlTables = Env.getCurrentInternalCatalog().getDbs().stream()
+                .flatMap(db -> db.getTables().stream())
+                .filter(OlapTable.class::isInstance)
+                .map(OlapTable.class::cast)
+                .filter(OlapTable::hasRowBinlogTtl)
+                .collect(Collectors.toList());
+        if (ttlTables.isEmpty()) {
+            return;
+        }
+        long referenceTso;
+        try {
+            referenceTso = Env.getCurrentTSOService().getTSO();
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to get row binlog TTL reference TSO; keep the previous GC boundary", e);
+            return;
+        }
+        if (referenceTso <= 0) {
+            LOG.warn("Ignore non-positive row binlog TTL reference TSO: {}", referenceTso);
+            return;
+        }
+
+        for (OlapTable table : ttlTables) {
+            syncTableRowBinlogTtl(table, referenceTso);
+        }
+    }
+
+    private void syncTableRowBinlogTtl(OlapTable table, long referenceTso) {
+        Map<Long, List<TTabletMetaInfo>> backendTabletInfos = Maps.newHashMap();
+        List<Long> cloudTabletIds = new ArrayList<>();
+        table.readLock();
+        try {
+            for (Partition partition : table.getPartitions()) {
+                for (MaterializedIndex index :
+                        partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+                    if (!index.isRowBinlog()) {
+                        continue;
+                    }
+                    for (Tablet tablet : index.getTablets()) {
+                        if (Config.isCloudMode()) {
+                            cloudTabletIds.add(tablet.getId());
+                            continue;
+                        }
+                        for (Replica replica : tablet.getReplicas()) {
+                            backendTabletInfos.computeIfAbsent(replica.getBackendIdWithoutException(),
+                                    ignored -> new ArrayList<>()).add(new TTabletMetaInfo()
+                                            .setTabletId(tablet.getId())
+                                            .setRowBinlogTtlReferenceTso(referenceTso));
+                        }
+                    }
+                }
+            }
+        } finally {
+            table.readUnlock();
+        }
+
+        if (Config.isCloudMode()) {
+            syncCloudRowBinlogTtl(table.getName(), cloudTabletIds, referenceTso);
+            return;
+        }
+        if (!FeConstants.runningUnitTest) {
+            AgentBatchTask batchTask = new AgentBatchTask();
+            backendTabletInfos.forEach((backendId, infos) ->
+                    batchTask.addTask(new UpdateTabletMetaInfoTask(backendId, infos)));
+            if (batchTask.getTaskNum() > 0) {
+                AgentTaskExecutor.submit(batchTask);
+            }
+        }
+    }
+
+    private void syncCloudRowBinlogTtl(String tableName, List<Long> tabletIds, long referenceTso) {
+        for (int index = 0; index < tabletIds.size();) {
+            int nextIndex = Math.min(index + Config.cloud_txn_tablet_batch_size, tabletIds.size());
+            Cloud.UpdateTabletRequest.Builder request = Cloud.UpdateTabletRequest.newBuilder()
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached());
+            while (index < nextIndex) {
+                request.addTabletMetaInfos(Cloud.TabletMetaInfoPB.newBuilder()
+                        .setTabletId(tabletIds.get(index++))
+                        .setRowBinlogTtlReferenceTso(referenceTso));
+            }
+            try {
+                Cloud.UpdateTabletResponse response = MetaServiceProxy.getInstance().updateTablet(request.build());
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                    LOG.warn("Failed to update row binlog TTL reference TSO for table {}: {}",
+                            tableName, response.getStatus().getMsg());
+                    continue;
+                }
+                CloudSchemaChangeHandler.notifyBackendsToSyncTabletMeta(tableName,
+                        request.getTabletMetaInfosList().stream()
+                                .map(Cloud.TabletMetaInfoPB::getTabletId)
+                                .collect(Collectors.toList()));
+            } catch (Exception e) {
+                LOG.warn("Failed to update row binlog TTL reference TSO for table {}", tableName, e);
+            }
         }
     }
 

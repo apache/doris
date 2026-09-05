@@ -40,6 +40,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/s3_file_system.h"
 #include "json2pb/json_to_pb.h"
+#include "storage/binlog.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
@@ -605,6 +606,18 @@ public:
     void set_output_rowset(RowsetSharedPtr rowset) { _output_rowset = std::move(rowset); }
 
     Status test_modify_rowsets() { return modify_rowsets(); }
+
+    Status advance_cumulative_point_before_pick_for_test(int64_t min_conflict_version) {
+        return advance_cumulative_point_before_pick(min_conflict_version);
+    }
+
+    void snapshot_row_binlog_ttl_for_test() { snapshot_row_binlog_ttl(); }
+
+    bool pick_expired_row_binlog_rowset_for_test(const std::vector<RowsetSharedPtr>& candidates) {
+        return pick_expired_row_binlog_rowset(candidates);
+    }
+
+    std::optional<int64_t> row_binlog_ttl_cutoff_tso() const { return _row_binlog_ttl_cutoff_tso; }
 };
 
 static TabletMetaSharedPtr create_cloud_compaction_test_tablet_meta(int64_t tablet_id) {
@@ -659,6 +672,85 @@ static std::shared_ptr<TestableCloudCumulativeCompaction> create_inflight_cumu_c
     auto compaction = std::make_shared<TestableCloudCumulativeCompaction>(engine, tablet);
     compaction->set_input_rowsets(input_rowsets);
     return compaction;
+}
+
+TEST_F(CloudCompactionTest, row_binlog_ttl_snapshot_selects_expired_rowset) {
+    auto tablet_meta = create_cloud_compaction_test_tablet_meta(10000);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    BinlogConfig binlog_config(true, 10, 1024, 10, BinlogFormatPB::ROW, false);
+    binlog_config.set_row_ttl_enabled(true);
+    tablet_meta->set_binlog_config(std::move(binlog_config));
+    constexpr int64_t kReferenceMs = 100000;
+    const int64_t reference_tso = kReferenceMs << kTsoLogicalBits;
+    tablet_meta->set_row_binlog_ttl_reference_tso(reference_tso);
+    auto tablet = std::make_shared<CloudTablet>(_engine, tablet_meta);
+    TestableCloudCumulativeCompaction compaction(_engine, tablet);
+
+    compaction.snapshot_row_binlog_ttl_for_test();
+    const int64_t cutoff = row_binlog_ttl_cutoff_tso(reference_tso, 10);
+    ASSERT_EQ(compaction.row_binlog_ttl_cutoff_tso(), cutoff);
+
+    auto expired = create_rowset(Version(2, 2), 1, false, 1024);
+    expired->rowset_meta()->set_num_rows(1);
+    expired->rowset_meta()->set_commit_tso(cutoff);
+    auto retained = create_rowset(Version(3, 3), 1, false, 1024);
+    retained->rowset_meta()->set_num_rows(1);
+    retained->rowset_meta()->set_commit_tso(cutoff + 1);
+
+    EXPECT_TRUE(compaction.pick_expired_row_binlog_rowset_for_test({expired, retained}));
+    ASSERT_EQ(compaction.input_rowsets().size(), 1);
+    EXPECT_EQ(compaction.input_rowsets().front(), expired);
+}
+
+TEST_F(CloudCompactionTest, row_binlog_ttl_prevents_cumulative_point_from_skipping_expired) {
+    auto old_parallel_cumu_compaction = config::enable_parallel_cumu_compaction;
+    Defer restore_config(
+            [&] { config::enable_parallel_cumu_compaction = old_parallel_cumu_compaction; });
+    config::enable_parallel_cumu_compaction = true;
+
+    auto tablet_meta = create_cloud_compaction_test_tablet_meta(10001);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    tablet_meta->set_compaction_policy(std::string(CUMULATIVE_BINLOG_POLICY));
+    BinlogConfig binlog_config(true, 0, 1024, 10, BinlogFormatPB::ROW, false);
+    binlog_config.set_row_ttl_enabled(true);
+    tablet_meta->set_binlog_config(std::move(binlog_config));
+    tablet_meta->set_row_binlog_ttl_reference_tso(200);
+    auto expired = create_rowset(Version(2, 2), 1, false, 128 * 1024 * 1024);
+    expired->rowset_meta()->set_num_rows(1);
+    expired->rowset_meta()->set_data_disk_size(128 * 1024 * 1024);
+    expired->rowset_meta()->set_compaction_level(
+            BinlogCumulativeCompactionPolicy::kBinlogCompactionMaxLevel - 1);
+    expired->rowset_meta()->set_commit_tso(100);
+    auto tablet = create_cloud_tablet_with_rowsets(_engine, tablet_meta, 2, {expired});
+
+    TestableCloudCumulativeCompaction compaction(_engine, tablet);
+    compaction.snapshot_row_binlog_ttl_for_test();
+    auto st = compaction.advance_cumulative_point_before_pick_for_test(
+            std::numeric_limits<int64_t>::max());
+    EXPECT_TRUE(st.ok()) << st;
+    EXPECT_EQ(tablet->cumulative_layer_point(), 2);
+}
+
+TEST_F(CloudCompactionTest, row_binlog_ttl_picks_expired_rowset_before_cumulative_point) {
+    auto tablet_meta = create_cloud_compaction_test_tablet_meta(10002);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    tablet_meta->set_compaction_policy(std::string(CUMULATIVE_BINLOG_POLICY));
+    BinlogConfig binlog_config(true, 0, 1024, 10, BinlogFormatPB::ROW, false);
+    binlog_config.set_row_ttl_enabled(true);
+    tablet_meta->set_binlog_config(std::move(binlog_config));
+    tablet_meta->set_row_binlog_ttl_reference_tso(200);
+    auto expired = create_rowset(Version(2, 2), 1, false, 128 * 1024 * 1024);
+    expired->rowset_meta()->set_num_rows(1);
+    expired->rowset_meta()->set_data_disk_size(128 * 1024 * 1024);
+    expired->rowset_meta()->set_compaction_level(
+            BinlogCumulativeCompactionPolicy::kBinlogCompactionMaxLevel - 1);
+    expired->rowset_meta()->set_commit_tso(100);
+    auto tablet = create_cloud_tablet_with_rowsets(_engine, tablet_meta, 3, {expired});
+
+    TestableCloudCumulativeCompaction compaction(_engine, tablet);
+    ASSERT_TRUE(compaction.prepare_compact().ok());
+    ASSERT_EQ(compaction.input_rowsets().size(), 1);
+    EXPECT_EQ(compaction.input_rowsets().front(), expired);
 }
 
 TEST_F(CloudCompactionTest, base_result_with_newer_cumulative_point_forces_sync) {

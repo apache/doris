@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SlotRef;
@@ -39,6 +41,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -64,6 +67,9 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlIsVisible;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -79,6 +85,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnary;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -180,34 +187,42 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     olapTable.getDatabase().getFullName() + "." + Util.getTempTableDisplayName(olapTable.getName()));
         }
+        if (olapTable.isLegacyDirectRowTtl()) {
+            throw new AnalysisException(PropertyAnalyzer.ROW_TTL_DIRECT_NOT_SUPPORTED);
+        }
+
+        Plan plan = planner.getPhysicalPlan();
+        try {
+            checkSubQuery(plan);
+        } catch (Exception e) {
+            runDeleteUsingFallback(ctx, executor, e);
+            return;
+        }
 
         Optional<PhysicalFilter<?>> optFilter = (planner.getPhysicalPlan()
                 .<PhysicalFilter<?>>collect(PhysicalFilter.class::isInstance)).stream()
                 .findAny();
         Preconditions.checkArgument(optFilter.isPresent(), "delete command must contain filter");
         PhysicalFilter<?> filter = optFilter.get();
+        Set<Expression> userConjuncts = filter.getConjuncts().stream()
+                .filter(conjunct -> !isInjectedRowTtlVisibilityConjunct(conjunct, olapTable))
+                .collect(Collectors.toSet());
+        if (userConjuncts.isEmpty()) {
+            throw new AnalysisException("delete command must contain a user predicate");
+        }
 
         // predicate check
         Set<String> columns = olapTable.getFullSchema().stream().map(Column::getName).collect(Collectors.toSet());
         try {
             // treat sql as simple `delete from t where keyC = ...`
-            Plan plan = planner.getPhysicalPlan();
-            checkSubQuery(plan);
-            for (Expression conjunct : filter.getConjuncts()) {
+            for (Expression conjunct : userConjuncts) {
                 conjunct.<SlotReference>collect(SlotReference.class::isInstance)
                         .forEach(s -> checkColumn(columns, s, olapTable));
                 checkPredicate(conjunct);
             }
         } catch (Exception e) {
-            try {
-                new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
-                        logicalQuery, Optional.empty(), false).run(ctx, executor);
-                return;
-            } catch (Exception e2) {
-                LOG.warn("delete from command failed", e2);
-                // Preserve both failure causes so the fallback execution error is not masked.
-                throw buildDeleteFallbackException(e, e2);
-            }
+            runDeleteUsingFallback(ctx, executor, e);
+            return;
         }
 
         // if table's enable_mow_light_delete is false, use `DeleteFromUsingCommand`
@@ -220,6 +235,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
         // call delete handler to process
         List<Predicate> predicates = planner.getScanNodes().get(0).getConjuncts().stream()
+                .filter(c -> !isInjectedRowTtlVisibilityConjunct(c, olapTable))
                 .filter(c -> {
                     // filter predicate __DORIS_DELETE_SIGN__ = 0
                     List<Expr> slotRefs = Lists.newArrayList();
@@ -253,7 +269,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         PhysicalOlapScan scan = optScan.get();
         UnboundRelation relation = optRelation.get();
         ArrayList<String> partitionNames = Lists.newArrayList(relation.getPartNames());
-        List<Partition> selectedPartitions = getSelectedPartitions(olapTable, filter, scan, partitionNames);
+        List<Partition> selectedPartitions = getSelectedPartitions(
+                olapTable, filter, ExpressionUtils.and(userConjuncts), scan, partitionNames);
 
         Env.getCurrentEnv()
                 .getDeleteHandler()
@@ -279,6 +296,69 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         }
     }
 
+    static boolean isInjectedRowTtlVisibilityConjunct(Expression expression, OlapTable olapTable) {
+        if (!(expression instanceof RowTtlIsVisible)) {
+            return false;
+        }
+        RowTtlIsVisible function = (RowTtlIsVisible) expression;
+        int expectedArity = olapTable.getRowTtlCol() == null ? 2 : 3;
+        if (function.arity() != expectedArity
+                || !(function.child(0) instanceof SlotReference)
+                || !(function.child(1) instanceof BigIntLiteral)) {
+            return false;
+        }
+        SlotReference ttlSlot = (SlotReference) function.child(0);
+        if (!ttlSlot.getOriginalColumn().map(Column::isTtlColumn).orElse(false)
+                || ((BigIntLiteral) function.child(1)).getValue() != olapTable.getRowTtlDurationMicros()) {
+            return false;
+        }
+        if (expectedArity == 2) {
+            return true;
+        }
+        Optional<Integer> expectedOffset = olapTable.getRowTtlTimeZoneOffsetSeconds();
+        return expectedOffset.isPresent()
+                && function.child(2) instanceof IntegerLiteral
+                && ((IntegerLiteral) function.child(2)).getValue().intValue() == expectedOffset.get();
+    }
+
+    static boolean isInjectedRowTtlVisibilityConjunct(Expr expression, OlapTable olapTable) {
+        if (!(expression instanceof FunctionCallExpr)) {
+            return false;
+        }
+        FunctionCallExpr function = (FunctionCallExpr) expression;
+        int expectedArity = olapTable.getRowTtlCol() == null ? 2 : 3;
+        if (!function.getFnName().getFunction().equalsIgnoreCase(RowTtlIsVisible.FUNCTION_NAME)
+                || function.getChildren().size() != expectedArity
+                || !(function.getChild(0) instanceof SlotRef)
+                || !(function.getChild(1) instanceof IntLiteral)) {
+            return false;
+        }
+        Column ttlColumn = ((SlotRef) function.getChild(0)).getColumn();
+        if (ttlColumn == null || !ttlColumn.isTtlColumn()
+                || ((IntLiteral) function.getChild(1)).getLongValue() != olapTable.getRowTtlDurationMicros()) {
+            return false;
+        }
+        if (expectedArity == 2) {
+            return true;
+        }
+        Optional<Integer> expectedOffset = olapTable.getRowTtlTimeZoneOffsetSeconds();
+        return expectedOffset.isPresent()
+                && function.getChild(2) instanceof IntLiteral
+                && ((IntLiteral) function.getChild(2)).getLongValue() == expectedOffset.get();
+    }
+
+    private void runDeleteUsingFallback(ConnectContext ctx, StmtExecutor executor,
+            Exception initialException) throws Exception {
+        try {
+            new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
+                    logicalQuery, Optional.empty(), false).run(ctx, executor);
+        } catch (Exception fallbackException) {
+            LOG.warn("delete from command failed", fallbackException);
+            // Preserve both failure causes so the fallback execution error is not masked.
+            throw buildDeleteFallbackException(initialException, fallbackException);
+        }
+    }
+
     // Build an exception that keeps both the initial predicate-check failure and the fallback failure.
     private AnalysisException buildDeleteFallbackException(Exception initialException,
             Exception fallbackException) {
@@ -295,7 +375,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
     }
 
     private List<Partition> getSelectedPartitions(
-            OlapTable olapTable, PhysicalFilter<?> filter,
+            OlapTable olapTable, PhysicalFilter<?> filter, Expression userPredicate,
             PhysicalOlapScan scan,
             List<String> partitionNames) {
         // For un_partitioned table, return all partitions.
@@ -336,7 +416,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             }
         }
         List<Long> prunedPartitions = PartitionPruner.prune(
-                partitionSlots, filter.getPredicate(), idToPartitions,
+                partitionSlots, userPredicate, idToPartitions,
                 CascadesContext.initContext(new StatementContext(), this, PhysicalProperties.ANY),
                 PartitionTableType.OLAP, sortedPartitionRanges).first;
         return prunedPartitions.stream().map(olapTable::getPartition).collect(Collectors.toList());

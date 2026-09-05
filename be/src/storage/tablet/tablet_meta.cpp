@@ -268,6 +268,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
           _delete_bitmap(b._delete_bitmap),
           _binlog_config(b._binlog_config),
+          _row_binlog_ttl_reference_tso(b._row_binlog_ttl_reference_tso),
           _tablet_role(b._tablet_role),
           _compaction_policy(b._compaction_policy),
           _time_series_compaction_goal_size_mbytes(b._time_series_compaction_goal_size_mbytes),
@@ -593,6 +594,16 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     if (tablet_schema.__isset.row_lsn_col_idx) {
         tablet_schema_pb->set_row_lsn_col_idx(tablet_schema.row_lsn_col_idx);
     }
+    if (tablet_schema.__isset.ttl_col_idx) {
+        tablet_schema_pb->set_ttl_col_idx(tablet_schema.ttl_col_idx);
+    }
+    if (tablet_schema.__isset.row_ttl_duration_us) {
+        tablet_schema_pb->set_row_ttl_duration_us(tablet_schema.row_ttl_duration_us);
+    }
+    if (tablet_schema.__isset.row_ttl_time_zone_offset_seconds) {
+        tablet_schema_pb->set_row_ttl_time_zone_offset_seconds(
+                tablet_schema.row_ttl_time_zone_offset_seconds);
+    }
     if (tablet_schema.__isset.store_row_column) {
         tablet_schema_pb->set_store_row_column(tablet_schema.store_row_column);
     }
@@ -901,6 +912,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     if (tablet_meta_pb.has_binlog_config()) {
         _binlog_config = tablet_meta_pb.binlog_config();
     }
+    _row_binlog_ttl_reference_tso = tablet_meta_pb.row_binlog_ttl_reference_tso();
     _tablet_role = tablet_meta_pb.tablet_role();
     _compaction_policy = tablet_meta_pb.compaction_policy();
     _time_series_compaction_goal_size_mbytes =
@@ -1004,6 +1016,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
         }
     }
     _binlog_config.to_pb(tablet_meta_pb->mutable_binlog_config());
+    tablet_meta_pb->set_row_binlog_ttl_reference_tso(_row_binlog_ttl_reference_tso);
     tablet_meta_pb->set_tablet_role(_tablet_role);
     tablet_meta_pb->set_compaction_policy(compaction_policy());
     tablet_meta_pb->set_time_series_compaction_goal_size_mbytes(

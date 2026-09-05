@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.alter;
 
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -24,6 +25,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -197,6 +199,88 @@ public class CloudSchemaChangeHandlerTest {
                     () -> handler.updateTableProperties(db, "tbl", properties));
             Assertions.assertTrue(exception.getMessage().contains("meta service rejected"));
         }
+    }
+
+    @Test
+    public void testUpdateBinlogConfigPersistsToCloudTabletMeta() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Database db = createMockDatabaseWithThreeTablets();
+        BinlogConfig binlogConfig = new BinlogConfig(true, 60, 1024, 10,
+                BinlogConfig.BinlogFormat.ROW, false);
+        binlogConfig.setRowTtlEnabled(true);
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
+
+        try (MockedStatic<MetaServiceProxy> metaProxyMock = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            metaProxyMock.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+            SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+            Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of());
+            envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            handler.updatePartitionProperties(db, "tbl", "p1", -1, -1, binlogConfig,
+                    null, null, -1, -1, -1);
+        }
+
+        ArgumentCaptor<Cloud.UpdateTabletRequest> captor =
+                ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
+        Mockito.verify(metaServiceProxy, Mockito.times(2)).updateTablet(captor.capture());
+        captor.getAllValues().stream()
+                .flatMap(request -> request.getTabletMetaInfosList().stream())
+                .forEach(info -> {
+                    Assertions.assertTrue(info.hasBinlogConfig());
+                    Assertions.assertEquals(60, info.getBinlogConfig().getTtlSeconds());
+                    Assertions.assertTrue(info.getBinlogConfig().getRowTtlEnabled());
+                });
+    }
+
+    @Test
+    public void testUpdateBinlogConfigSeparatesRowTtlAndRowBinlogTablets() throws Exception {
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex baseIndex = Mockito.mock(MaterializedIndex.class);
+        MaterializedIndex rowBinlogIndex = Mockito.mock(MaterializedIndex.class);
+        Tablet baseTablet = Mockito.mock(Tablet.class);
+        Tablet rowBinlogTablet = Mockito.mock(Tablet.class);
+        Mockito.when(db.getTableOrMetaException("tbl", Table.TableType.OLAP)).thenReturn(table);
+        Mockito.when(table.hasRowTtl()).thenReturn(true);
+        Mockito.when(table.getPartition("p1")).thenReturn(partition);
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
+                .thenReturn(Arrays.asList(baseIndex, rowBinlogIndex));
+        Mockito.when(baseIndex.getTablets()).thenReturn(Arrays.asList(baseTablet));
+        Mockito.when(rowBinlogIndex.isRowBinlog()).thenReturn(true);
+        Mockito.when(rowBinlogIndex.getTablets()).thenReturn(Arrays.asList(rowBinlogTablet));
+        Mockito.when(baseTablet.getId()).thenReturn(101L);
+        Mockito.when(rowBinlogTablet.getId()).thenReturn(102L);
+
+        BinlogConfig binlogConfig = new BinlogConfig(true, 60, 1024, 10,
+                BinlogConfig.BinlogFormat.ROW, false);
+        binlogConfig.setRowTtlEnabled(true);
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
+        Mockito.when(metaServiceProxy.updateTabletRowTtl(Mockito.any())).thenReturn(okUpdateTabletResponse());
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of());
+
+        try (MockedStatic<MetaServiceProxy> metaProxyMock = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            metaProxyMock.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+            envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            new CloudSchemaChangeHandler().updatePartitionProperties(db, "tbl", "p1",
+                    -1, -1, binlogConfig, null, null, -1, -1, -1);
+        }
+
+        ArgumentCaptor<Cloud.UpdateTabletRequest> regularCaptor =
+                ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
+        Mockito.verify(metaServiceProxy).updateTablet(regularCaptor.capture());
+        Assertions.assertEquals(Arrays.asList(102L), regularCaptor.getValue().getTabletMetaInfosList().stream()
+                .map(Cloud.TabletMetaInfoPB::getTabletId).collect(Collectors.toList()));
+
+        ArgumentCaptor<Cloud.UpdateTabletRequest> rowTtlCaptor =
+                ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
+        Mockito.verify(metaServiceProxy).updateTabletRowTtl(rowTtlCaptor.capture());
+        Assertions.assertEquals(Arrays.asList(101L), rowTtlCaptor.getValue().getTabletMetaInfosList().stream()
+                .map(Cloud.TabletMetaInfoPB::getTabletId).collect(Collectors.toList()));
     }
 
     @Test

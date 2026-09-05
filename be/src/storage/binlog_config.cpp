@@ -22,8 +22,17 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "common/logging.h"
+#include "storage/binlog.h"
 
 namespace doris {
+
+int64_t BinlogConfig::row_ttl_cutoff_tso(int64_t reference_tso) const {
+    if (!row_ttl_enabled() || reference_tso <= 0) {
+        return -1;
+    }
+    return doris::row_binlog_ttl_cutoff_tso(reference_tso, _ttl_seconds);
+}
+
 BinlogConfig& BinlogConfig::operator=(const TBinlogConfig& config) {
     if (config.__isset.enable) {
         _enable = config.enable;
@@ -49,6 +58,9 @@ BinlogConfig& BinlogConfig::operator=(const TBinlogConfig& config) {
     if (config.__isset.need_historical_value) {
         _need_historical_value = config.need_historical_value;
     }
+    if (config.__isset.row_ttl_enabled) {
+        _row_ttl_enabled = config.row_ttl_enabled;
+    }
     return *this;
 }
 
@@ -71,6 +83,9 @@ BinlogConfig& BinlogConfig::operator=(const BinlogConfigPB& config) {
     if (config.has_need_historical_value()) {
         _need_historical_value = config.need_historical_value();
     }
+    if (config.has_row_ttl_enabled()) {
+        _row_ttl_enabled = config.row_ttl_enabled();
+    }
     return *this;
 }
 
@@ -81,14 +96,15 @@ void BinlogConfig::to_pb(BinlogConfigPB* config_pb) const {
     config_pb->set_max_history_nums(_max_history_nums);
     config_pb->set_binlog_format(_binlog_format);
     config_pb->set_need_historical_value(_need_historical_value);
+    config_pb->set_row_ttl_enabled(_row_ttl_enabled);
 }
 
 std::string BinlogConfig::to_string() const {
     return fmt::format(
             "BinlogConfig enable: {}, ttl_seconds: {}, max_bytes: {}, max_history_nums: {}, "
-            "binlog_format: {}, need_historical_value: {}",
+            "binlog_format: {}, need_historical_value: {}, row_ttl_enabled: {}",
             _enable, _ttl_seconds, _max_bytes, _max_history_nums, _binlog_format,
-            _need_historical_value);
+            _need_historical_value, _row_ttl_enabled);
 }
 
 } // namespace doris

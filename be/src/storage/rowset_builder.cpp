@@ -497,7 +497,9 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
                 table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
                 table_schema_param->nano_seconds(), table_schema_param->timezone(),
                 table_schema_param->auto_increment_coulumn(),
-                table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
+                table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase,
+                table_schema_param->row_ttl_source_column_uid(),
+                table_schema_param->row_ttl_source_column()));
     }
     return Status::OK();
 }

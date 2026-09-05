@@ -30,6 +30,7 @@
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "storage/binlog.h"
 #include "storage/compaction/compaction.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/data_dir.h"
@@ -74,6 +75,20 @@ public:
     void set_input_rowsets(const std::vector<RowsetSharedPtr>& rowsets) {
         _input_rowsets = rowsets;
     }
+
+    void snapshot_row_binlog_ttl_for_test() { snapshot_row_binlog_ttl(); }
+
+    bool pick_expired_row_binlog_rowset_for_test(const std::vector<RowsetSharedPtr>& candidates) {
+        return pick_expired_row_binlog_rowset(candidates);
+    }
+
+    void filter_row_binlog_ttl_rowsets_for_test() { filter_row_binlog_ttl_rowsets(); }
+
+    const std::vector<RowsetSharedPtr>& input_rowsets() const { return _input_rowsets; }
+    const std::vector<RowsetSharedPtr>& data_input_rowsets() const { return _data_input_rowsets; }
+    int64_t row_binlog_ttl_filtered_rows() const { return _row_binlog_ttl_filtered_rows; }
+
+    std::optional<int64_t> row_binlog_ttl_cutoff_tso() const { return _row_binlog_ttl_cutoff_tso; }
 
     Status prepare_compact() override { return Status::OK(); }
 
@@ -350,6 +365,86 @@ TEST_F(CumulativeCompactionTest, TestCalcInputRowsetsRowNumUsesRowCount) {
 
     EXPECT_EQ(compaction.calc_input_rowsets_row_num(), 60);
     EXPECT_EQ(compaction.calc_input_rowsets_total_size(), 7168);
+}
+
+TEST_F(CumulativeCompactionTest, TestPickExpiredRowBinlogRowsetUsesFrozenCutoff) {
+    EngineOptions options;
+    StorageEngine storage_engine(options);
+
+    auto tablet_meta = std::make_shared<TabletMeta>(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6,
+                                                    std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                    TCompressionType::LZ4F);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    BinlogConfig binlog_config(true, 10, 1024, 10, BinlogFormatPB::ROW, false);
+    binlog_config.set_row_ttl_enabled(true);
+    tablet_meta->set_binlog_config(std::move(binlog_config));
+    constexpr int64_t kReferenceMs = 100000;
+    const int64_t reference_tso = kReferenceMs << kTsoLogicalBits;
+    tablet_meta->set_row_binlog_ttl_reference_tso(reference_tso);
+
+    auto tablet = std::make_shared<Tablet>(storage_engine, tablet_meta, nullptr,
+                                           CUMULATIVE_SIZE_BASED_POLICY);
+    TestableCumulativeCompactionMixin compaction(storage_engine, tablet);
+    compaction.snapshot_row_binlog_ttl_for_test();
+    const int64_t cutoff = row_binlog_ttl_cutoff_tso(reference_tso, 10);
+    ASSERT_EQ(compaction.row_binlog_ttl_cutoff_tso(), cutoff);
+
+    tablet_meta->set_row_binlog_ttl_reference_tso((kReferenceMs + 10000) << kTsoLogicalBits);
+    EXPECT_EQ(compaction.row_binlog_ttl_cutoff_tso(), cutoff);
+
+    auto empty = create_rowset({1, 1}, 0, false, 0);
+    empty->rowset_meta()->set_commit_tso(cutoff);
+    auto no_tso = create_rowset({2, 2}, 1, false, 1024);
+    no_tso->rowset_meta()->set_num_rows(10);
+    auto expired = create_rowset({3, 3}, 1, false, 1024);
+    expired->rowset_meta()->set_num_rows(10);
+    expired->rowset_meta()->set_commit_tso(cutoff);
+    auto retained = create_rowset({4, 4}, 1, false, 1024);
+    retained->rowset_meta()->set_num_rows(10);
+    retained->rowset_meta()->set_commit_tso(cutoff + 1);
+
+    EXPECT_TRUE(
+            compaction.pick_expired_row_binlog_rowset_for_test({empty, no_tso, expired, retained}));
+    ASSERT_EQ(compaction.input_rowsets().size(), 1);
+    EXPECT_EQ(compaction.input_rowsets().front(), expired);
+}
+
+TEST_F(CumulativeCompactionTest, TestFilterExpiredRowBinlogRowsets) {
+    EngineOptions options;
+    StorageEngine storage_engine(options);
+    auto tablet_meta = std::make_shared<TabletMeta>(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6,
+                                                    std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                    TCompressionType::LZ4F);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    BinlogConfig binlog_config(true, 0, 1024, 10, BinlogFormatPB::ROW, false);
+    binlog_config.set_row_ttl_enabled(true);
+    tablet_meta->set_binlog_config(std::move(binlog_config));
+    const int64_t reference_tso = 1000L << kTsoLogicalBits;
+    const int64_t cutoff = row_binlog_ttl_cutoff_tso(reference_tso, 0);
+    tablet_meta->set_row_binlog_ttl_reference_tso(reference_tso);
+    auto tablet = std::make_shared<Tablet>(storage_engine, tablet_meta, nullptr,
+                                           CUMULATIVE_SIZE_BASED_POLICY);
+    TestableCumulativeCompactionMixin compaction(storage_engine, tablet);
+    compaction.snapshot_row_binlog_ttl_for_test();
+
+    auto empty = create_rowset({1, 1}, 0, false, 0);
+    auto expired = create_rowset({2, 2}, 1, false, 1024);
+    expired->rowset_meta()->set_num_rows(10);
+    expired->rowset_meta()->set_commit_tso(cutoff);
+    auto retained = create_rowset({3, 3}, 1, false, 1024);
+    retained->rowset_meta()->set_num_rows(20);
+    retained->rowset_meta()->set_commit_tso(cutoff + 1);
+    auto unknown = create_rowset({4, 4}, 1, false, 1024);
+    unknown->rowset_meta()->set_num_rows(30);
+    compaction.set_input_rowsets({empty, expired, retained, unknown});
+
+    compaction.filter_row_binlog_ttl_rowsets_for_test();
+    ASSERT_EQ(compaction.data_input_rowsets().size(), 2);
+    EXPECT_EQ(compaction.data_input_rowsets()[0], retained);
+    EXPECT_EQ(compaction.data_input_rowsets()[1], unknown);
+    EXPECT_EQ(compaction.row_binlog_ttl_filtered_rows(), 10);
 }
 
 } // namespace doris

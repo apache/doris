@@ -24,12 +24,14 @@
 #include <gtest/gtest-test-part.h>
 
 #include <algorithm>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
@@ -59,6 +61,56 @@ using ::testing::SetArgPointee;
 using std::string;
 
 namespace doris {
+
+namespace {
+
+TColumn make_row_ttl_test_column(const std::string& name, TPrimitiveType::type type, bool is_key,
+                                 bool is_nullable, TAggregationType::type aggregation,
+                                 bool visible = true) {
+    TColumnType column_type;
+    column_type.__set_type(type);
+    TColumn column;
+    column.__set_column_name(name);
+    column.__set_column_type(column_type);
+    column.__set_is_key(is_key);
+    column.__set_is_allow_null(is_nullable);
+    column.__set_aggregation_type(aggregation);
+    column.__set_visible(visible);
+    return column;
+}
+
+TCreateTabletReq make_row_ttl_create_request(int64_t tablet_id, TKeysType::type keys_type,
+                                             TPrimitiveType::type ttl_type,
+                                             bool set_duration = false) {
+    auto key_column =
+            make_row_ttl_test_column("k", TPrimitiveType::INT, true, false, TAggregationType::NONE);
+    auto ttl_column = make_row_ttl_test_column(
+            TTL_COL, ttl_type, false, true,
+            keys_type == TKeysType::DUP_KEYS ? TAggregationType::NONE : TAggregationType::REPLACE,
+            false);
+
+    TTabletSchema tablet_schema;
+    tablet_schema.__set_short_key_column_count(1);
+    tablet_schema.__set_schema_hash(3333);
+    tablet_schema.__set_keys_type(keys_type);
+    tablet_schema.__set_storage_type(TStorageType::COLUMN);
+    tablet_schema.__set_columns({key_column, ttl_column});
+    tablet_schema.__set_ttl_col_idx(1);
+    if (set_duration) {
+        tablet_schema.__set_row_ttl_duration_us(1'000'000);
+    }
+    if (ttl_type != TPrimitiveType::BIGINT) {
+        tablet_schema.__set_row_ttl_time_zone_offset_seconds(0);
+    }
+
+    TCreateTabletReq request;
+    request.__set_tablet_schema(tablet_schema);
+    request.__set_tablet_id(tablet_id);
+    request.__set_version(2);
+    return request;
+}
+
+} // namespace
 
 class TabletMgrTest : public testing::Test {
 public:
@@ -285,6 +337,128 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     tablet.reset();
     Status trash_st = _tablet_mgr->start_trash_sweep();
     EXPECT_TRUE(trash_st == Status::OK());
+}
+
+TEST_F(TabletMgrTest, ValidateRowTtlSchema) {
+    std::vector<DataDir*> data_dirs {_data_dir};
+    RuntimeProfile profile("ValidateRowTtlSchema");
+    auto create_tablet = [&](const TCreateTabletReq& request) {
+        return _tablet_mgr->create_tablet(request, data_dirs, &profile);
+    };
+    auto expect_invalid = [&](const TCreateTabletReq& request, const std::string& message) {
+        Status status = create_tablet(request);
+        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+        EXPECT_THAT(status.to_string(), testing::HasSubstr(message));
+    };
+
+    auto aggregate_key =
+            make_row_ttl_create_request(201, TKeysType::AGG_KEYS, TPrimitiveType::BIGINT);
+    aggregate_key.tablet_schema.columns[1].__set_aggregation_type(TAggregationType::REPLACE);
+    expect_invalid(aggregate_key, "Row TTL is not supported for AGG KEY tables");
+
+    auto missing_index =
+            make_row_ttl_create_request(202, TKeysType::DUP_KEYS, TPrimitiveType::BIGINT);
+    missing_index.tablet_schema.__isset.ttl_col_idx = false;
+    expect_invalid(missing_index, "Row TTL column index is missing or out of range");
+
+    auto negative_index =
+            make_row_ttl_create_request(203, TKeysType::DUP_KEYS, TPrimitiveType::BIGINT);
+    negative_index.tablet_schema.__set_ttl_col_idx(-1);
+    expect_invalid(negative_index, "Row TTL column index is missing or out of range");
+
+    auto out_of_range =
+            make_row_ttl_create_request(204, TKeysType::DUP_KEYS, TPrimitiveType::BIGINT);
+    out_of_range.tablet_schema.__set_ttl_col_idx(2);
+    expect_invalid(out_of_range, "Row TTL column index is missing or out of range");
+
+    auto expect_invalid_column = [&](int64_t tablet_id,
+                                     const std::function<void(TColumn&)>& mutate) {
+        auto request =
+                make_row_ttl_create_request(tablet_id, TKeysType::DUP_KEYS, TPrimitiveType::BIGINT);
+        mutate(request.tablet_schema.columns[1]);
+        expect_invalid(request, "Row TTL column must be a hidden nullable temporal or BIGINT");
+    };
+    expect_invalid_column(205, [](TColumn& column) { column.__set_column_name("not_row_ttl"); });
+    expect_invalid_column(
+            206, [](TColumn& column) { column.column_type.__set_type(TPrimitiveType::INT); });
+    expect_invalid_column(207, [](TColumn& column) { column.__set_is_key(true); });
+    expect_invalid_column(208, [](TColumn& column) { column.__set_is_allow_null(false); });
+    expect_invalid_column(209, [](TColumn& column) { column.__set_visible(true); });
+    expect_invalid_column(
+            210, [](TColumn& column) { column.__set_aggregation_type(TAggregationType::REPLACE); });
+
+    auto temporal_without_duration =
+            make_row_ttl_create_request(211, TKeysType::DUP_KEYS, TPrimitiveType::TIMESTAMPTZ);
+    expect_invalid(temporal_without_duration,
+                   "Row TTL duration must be set only for a temporal hidden column");
+
+    auto direct_with_duration =
+            make_row_ttl_create_request(212, TKeysType::DUP_KEYS, TPrimitiveType::BIGINT, true);
+    expect_invalid(direct_with_duration,
+                   "Row TTL duration must be set only for a temporal hidden column");
+
+    auto temporal = make_row_ttl_create_request(213, TKeysType::DUP_KEYS,
+                                                TPrimitiveType::TIMESTAMPTZ, true);
+    ASSERT_TRUE(create_tablet(temporal).ok());
+    auto temporal_tablet = _tablet_mgr->get_tablet(temporal.tablet_id);
+    ASSERT_NE(temporal_tablet, nullptr);
+    EXPECT_EQ(temporal_tablet->tablet_schema()->ttl_col_idx(), 1);
+    EXPECT_EQ(temporal_tablet->tablet_schema()->row_ttl_duration_us(), 1'000'000);
+    ASSERT_TRUE(temporal_tablet->tablet_schema()->has_row_ttl_time_zone_offset_seconds());
+    EXPECT_EQ(temporal_tablet->tablet_schema()->row_ttl_time_zone_offset_seconds(), 0);
+    EXPECT_EQ(temporal_tablet->tablet_schema()->column(1).name(), TTL_COL);
+    EXPECT_EQ(temporal_tablet->tablet_schema()->column(1).type(),
+              FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ);
+
+    auto direct_without_restore =
+            make_row_ttl_create_request(214, TKeysType::UNIQUE_KEYS, TPrimitiveType::BIGINT);
+    expect_invalid(direct_without_restore,
+                   "Direct-expiration Row TTL tablets may only be created during restore");
+
+    auto direct = make_row_ttl_create_request(215, TKeysType::UNIQUE_KEYS, TPrimitiveType::BIGINT);
+    direct.__set_in_restore_mode(true);
+    ASSERT_TRUE(create_tablet(direct).ok());
+    auto direct_tablet = _tablet_mgr->get_tablet(direct.tablet_id);
+    ASSERT_NE(direct_tablet, nullptr);
+    EXPECT_EQ(direct_tablet->tablet_schema()->ttl_col_idx(), 1);
+    EXPECT_EQ(direct_tablet->tablet_schema()->row_ttl_duration_us(), -1);
+    EXPECT_EQ(direct_tablet->tablet_schema()->column(1).type(), FieldType::OLAP_FIELD_TYPE_BIGINT);
+    EXPECT_EQ(direct_tablet->tablet_schema()->column(1).aggregation(),
+              FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE);
+
+    auto missing_offset =
+            make_row_ttl_create_request(216, TKeysType::DUP_KEYS, TPrimitiveType::DATETIMEV2, true);
+    missing_offset.tablet_schema.__isset.row_ttl_time_zone_offset_seconds = false;
+    expect_invalid(missing_offset,
+                   "Row TTL time zone offset is required for a temporal hidden column");
+
+    auto legacy_restore = missing_offset;
+    legacy_restore.__set_tablet_id(217);
+    legacy_restore.__set_in_restore_mode(true);
+    ASSERT_TRUE(create_tablet(legacy_restore).ok());
+    auto legacy_restore_tablet = _tablet_mgr->get_tablet(legacy_restore.tablet_id);
+    ASSERT_NE(legacy_restore_tablet, nullptr);
+    EXPECT_FALSE(legacy_restore_tablet->tablet_schema()->has_row_ttl_time_zone_offset_seconds());
+
+    auto invalid_offset =
+            make_row_ttl_create_request(218, TKeysType::DUP_KEYS, TPrimitiveType::DATETIMEV2, true);
+    invalid_offset.tablet_schema.__set_row_ttl_time_zone_offset_seconds(8 * 60 * 60 + 1);
+    expect_invalid(invalid_offset,
+                   "Row TTL time zone offset 28801 must be a whole minute in [-43200, 50400]");
+
+    auto timestamp_non_utc = make_row_ttl_create_request(219, TKeysType::DUP_KEYS,
+                                                         TPrimitiveType::TIMESTAMPTZ, true);
+    timestamp_non_utc.tablet_schema.__set_row_ttl_time_zone_offset_seconds(60);
+    expect_invalid(timestamp_non_utc, "TIMESTAMPTZ Row TTL time zone offset must be 0");
+
+    ASSERT_TRUE(_tablet_mgr->drop_tablet(temporal.tablet_id, temporal.replica_id, false).ok());
+    ASSERT_TRUE(_tablet_mgr->drop_tablet(direct.tablet_id, direct.replica_id, false).ok());
+    ASSERT_TRUE(_tablet_mgr->drop_tablet(legacy_restore.tablet_id, legacy_restore.replica_id, false)
+                        .ok());
+    temporal_tablet.reset();
+    direct_tablet.reset();
+    legacy_restore_tablet.reset();
+    ASSERT_TRUE(_tablet_mgr->start_trash_sweep().ok());
 }
 
 TEST_F(TabletMgrTest, DropTablet) {

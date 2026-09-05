@@ -118,6 +118,7 @@ void MetaServerRegister::prepare_registry(ServiceRegistryPB* reg) {
     item.set_ctime_ms(now);
     item.set_mtime_ms(now);
     item.set_expiration_time_ms(now + config::meta_server_lease_ms);
+    item.set_feature_flags(META_SERVICE_FEATURE_ROW_TTL);
     if (!config::hostname.empty()) {
         item.set_host(config::hostname);
     }

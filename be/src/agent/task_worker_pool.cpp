@@ -1006,6 +1006,20 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             tablet->set_binlog_config(new_binlog_config);
             need_to_save = true;
         }
+        if (tablet_meta_info.__isset.row_binlog_ttl_reference_tso) {
+            if (tablet_meta_info.row_binlog_ttl_reference_tso <= 0) {
+                status = Status::InvalidArgument(
+                        "row binlog TTL reference TSO must be positive, tablet_id={}",
+                        tablet_meta_info.tablet_id);
+                continue;
+            }
+            {
+                std::unique_lock wlock(tablet->get_header_lock());
+                tablet->tablet_meta()->set_row_binlog_ttl_reference_tso(
+                        tablet_meta_info.row_binlog_ttl_reference_tso);
+            }
+            need_to_save = true;
+        }
         if (tablet_meta_info.__isset.disable_auto_compaction) {
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(
