@@ -81,6 +81,12 @@ suite("test_iceberg_arrow_flight_split_source", "p0,external") {
             "s3.region" = "us-east-1"
         );"""
 
+    // #67503: the idle reaper for a deferred batch-mode scan (see below). Set the bound low, and
+    // restore the FE's original value afterwards.
+    int idleTimeoutS = 10
+    def origIdleTimeout = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'arrow_flight_deferred_query_idle_timeout_second' """
+    assert origIdleTimeout.size() == 1 : "arrow_flight_deferred_query_idle_timeout_second not found in FE config"
+
     Connection flightConn = null
     try {
         // Baseline over the MySQL protocol (works regardless of the bug).
@@ -120,7 +126,39 @@ suite("test_iceberg_arrow_flight_split_source", "p0,external") {
         // deferred coordinator when the next query starts.
         def flightLimited = flightSql """ select * from ${table} limit 10 """
         assert flightLimited.size() > 0 && flightLimited.size() <= 10 : "unexpected row count: ${flightLimited.size()}"
+
+        // #67503: a batch-mode scan keeps its coordinator (and with it the query's workload group
+        // queue slot and its active_queries entry) alive after GetFlightInfo, until the session
+        // runs its next query or is closed. A client that does neither would hold them until
+        // wait_timeout, so the FE releases the coordinator once the session has been idle for
+        // arrow_flight_deferred_query_idle_timeout_second, never before the query's own execution
+        // timeout, and without killing the session.
+        sql """ ADMIN SET FRONTEND CONFIG ('arrow_flight_deferred_query_idle_timeout_second' = '${idleTimeoutS}') """
+        flightSql """ set query_timeout = ${idleTimeoutS} """
+        def flightReap = flightSql """ select * from ${table} limit 13 """
+        assertEquals(13, flightReap.size())
+
+        // The LIKE pattern is assembled with CONCAT so that this statement's own text does not
+        // match it.
+        def deferredQuery = { ->
+            sql """ select QUERY_ID from information_schema.active_queries
+                    where SQL like CONCAT('%from ${table} limit', ' 13%') """
+        }
+        // Right after the scan the query is still registered: its coordinator is deferred.
+        assert deferredQuery().size() == 1 : "expected the batch-mode Flight query to stay registered until the idle reaper releases it"
+
+        // Once the session has been idle for the bound, the reaper releases it ...
+        long deadline = System.currentTimeMillis() + 60_000L
+        while (!deferredQuery().isEmpty() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(1000)
+        }
+        assert deferredQuery().isEmpty() : "the idle reaper did not release the deferred Flight query within 60s"
+
+        // ... and the session survives: it still runs queries.
+        def afterReap = flightSql """ select * from ${table} limit 1 """
+        assertEquals(1, afterReap.size())
     } finally {
+        sql """ ADMIN SET FRONTEND CONFIG ('arrow_flight_deferred_query_idle_timeout_second' = '${origIdleTimeout[0][1]}') """
         // Close our own connection (best effort) so a dead endpoint cannot mask the real failure,
         // then drop the catalog over the reliable MySQL connection.
         if (flightConn != null) {
