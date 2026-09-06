@@ -35,12 +35,25 @@ import org.apache.doris.qe.ConnectContext;
 public class SetPassVarOp extends SetVarOp {
     private UserIdentity userIdent;
     private PassVar passVar;
+    // MySQL-compatible "RETAIN CURRENT PASSWORD": keep the previous password
+    // valid as the secondary password (dual password). Unlike a plain
+    // self-service password change, the clause is privileged even on one's
+    // OWN account (see validate) — otherwise anyone who briefly holds a
+    // password could park their own in the secondary slot as a persistent,
+    // invisible credential. MySQL gates the same clause behind
+    // APPLICATION_PASSWORD_ADMIN for exactly this reason.
+    private final boolean retainCurrentPassword;
 
     // The password in parameter is a hashed password.
     public SetPassVarOp(UserIdentity userIdent, PassVar passVar) {
+        this(userIdent, passVar, false);
+    }
+
+    public SetPassVarOp(UserIdentity userIdent, PassVar passVar, boolean retainCurrentPassword) {
         super(SetType.DEFAULT);
         this.userIdent = userIdent;
         this.passVar = passVar;
+        this.retainCurrentPassword = retainCurrentPassword;
     }
 
     @Override
@@ -63,13 +76,19 @@ public class SetPassVarOp extends SetVarOp {
         }
 
         // check privs.
-        // 1. this is user itself
-        if (isSelf) {
+        // 1. this is user itself. A plain password change on one's own
+        // account requires no privilege, but RETAIN CURRENT PASSWORD does
+        // (falls through to check 3): MySQL requires
+        // APPLICATION_PASSWORD_ADMIN for the clause even on one's own
+        // account, because otherwise anyone who briefly holds a password
+        // could park their own in the secondary slot as a persistent,
+        // invisible credential.
+        if (isSelf && !retainCurrentPassword) {
             return;
         }
 
         // 2. No user can set password for root expect for root user itself
-        if (userIdent.getQualifiedUser().equals(Auth.ROOT_USER)) {
+        if (!isSelf && userIdent.getQualifiedUser().equals(Auth.ROOT_USER)) {
             throw new AnalysisException("Can not set password for root user, except root itself");
         }
 
@@ -81,7 +100,7 @@ public class SetPassVarOp extends SetVarOp {
 
     @Override
     public void run(ConnectContext ctx) throws Exception {
-        ctx.getEnv().getAuth().setPassword(userIdent, passVar.getScrambled());
+        ctx.getEnv().getAuth().setPassword(userIdent, passVar.getScrambled(), retainCurrentPassword);
     }
 
     @Override
@@ -91,6 +110,9 @@ public class SetPassVarOp extends SetVarOp {
             sb.append(" FOR ").append(userIdent);
         }
         sb.append(" = '*XXX'");
+        if (retainCurrentPassword) {
+            sb.append(" RETAIN CURRENT PASSWORD");
+        }
         return sb.toString();
     }
 
