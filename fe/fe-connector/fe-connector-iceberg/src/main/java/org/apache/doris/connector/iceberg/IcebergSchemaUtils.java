@@ -288,9 +288,16 @@ public final class IcebergSchemaUtils {
         TSchema tSchema = new TSchema();
         tSchema.setSchemaId(CURRENT_SCHEMA_ID);
         TStructField root = new TStructField();
+        // Top-level names carry the REAL iceberg field case (== the Doris Column name == the BE
+        // scan-slot name), NOT the lowered request: BE's ParquetReader guards every projected
+        // slot name against this dict verbatim (has_children_column), and slots preserve case
+        // ('channelId'), so a lowercased dict fails every mixed-case column with "schema mapping
+        // is missing projected column" — legacy ExternalUtil keyed the dict off Doris Columns
+        // (real case) for exactly this reason. The lowered request is only the LOOKUP key
+        // (caseInsensitiveFindField); the emitted name is the schema's own.
         if (requestedLowerNames == null || requestedLowerNames.isEmpty()) {
             for (Types.NestedField field : schema.columns()) {
-                addField(root, buildField(field, field.name().toLowerCase(Locale.ROOT), nameMapping,
+                addField(root, buildField(field, field.name(), nameMapping,
                         hasNameMapping, enableVarbinary, enableTimestampTz));
             }
         } else {
@@ -301,7 +308,8 @@ public final class IcebergSchemaUtils {
                             + "' not found in the table schema");
                 }
                 addField(root, buildField(
-                        field, name, nameMapping, hasNameMapping, enableVarbinary, enableTimestampTz));
+                        field, field.name(), nameMapping, hasNameMapping, enableVarbinary,
+                        enableTimestampTz));
             }
         }
         tSchema.setRootField(root);
