@@ -66,6 +66,7 @@ public class PaimonDlfMetaStorePropertiesTest {
     public void providerExposesEveryCredentialAliasAsSensitive() {
         Assertions.assertTrue(new PaimonDlfMetaStoreProvider().sensitivePropertyKeys().containsAll(
                 java.util.Arrays.asList("dlf.access_key", "dlf.catalog.accessKeyId", "dlf.secret_key",
-                        "dlf.catalog.accessKeySecret", "dlf.session_token", "dlf.catalog.sessionToken")));
+                        "dlf.catalog.secret_key", "dlf.catalog.accessKeySecret", "dlf.session_token",
+                        "dlf.catalog.sessionToken", "dlf.catalog.securityToken")));
     }
 }

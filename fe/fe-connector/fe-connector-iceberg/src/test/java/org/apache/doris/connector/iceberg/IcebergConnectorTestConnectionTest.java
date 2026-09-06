@@ -107,8 +107,30 @@ public class IcebergConnectorTestConnectionTest {
         Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergCatalogProperties.TYPE_HMS));
         Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergCatalogProperties.TYPE_GLUE));
         Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergCatalogProperties.TYPE_S3_TABLES));
+        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergCatalogProperties.TYPE_DLF));
         Assertions.assertFalse(IcebergConnector.probesMetastore(IcebergCatalogProperties.TYPE_HADOOP));
         Assertions.assertFalse(IcebergConnector.probesMetastore(""));
+    }
+
+    @Test
+    public void dlfStorageProbeUsesBoundOssCredentialsAndNormalizedEndpoint() {
+        FakeS3CompatibleStorageProperties oss = new FakeS3CompatibleStorageProperties("OSS")
+                .endpoint("oss-cn-hangzhou-internal.aliyuncs.com")
+                .region("cn-hangzhou")
+                .accessKey("bound-ak")
+                .secretKey("bound-sk")
+                .sessionToken("bound-token")
+                .usePathStyle("false");
+
+        Map<String, String> ioProps = IcebergConnector.buildStorageProbeProperties(
+                IcebergCatalogProperties.TYPE_DLF, oss);
+
+        Assertions.assertEquals("http://s3.oss-cn-hangzhou-internal.aliyuncs.com", ioProps.get("s3.endpoint"));
+        Assertions.assertEquals("bound-ak", ioProps.get("s3.access-key-id"));
+        Assertions.assertEquals("bound-sk", ioProps.get("s3.secret-access-key"));
+        Assertions.assertEquals("bound-token", ioProps.get("s3.session-token"));
+        Assertions.assertEquals("cn-hangzhou", ioProps.get("client.region"));
+        Assertions.assertEquals("false", ioProps.get("s3.path-style-access"));
     }
 
     /** An HMS-backed catalog must name HMS in the failure, which is what the CREATE CATALOG regression asserts. */

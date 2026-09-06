@@ -73,6 +73,7 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
             description = "The endpoint of OSS.")
     private String endpoint = "";
 
+    // DLF aliases mirror native OSS binding so metadata and JindoFS never receive different STS credentials.
     @ConnectorProperty(names = {"oss.hdfs.access_key", "oss.access_key", "dlf.access_key", "dlf.catalog.accessKeyId",
             "fs.oss.accessKeyId"},
             sensitive = true,
@@ -80,7 +81,7 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
     private String accessKey = "";
 
     @ConnectorProperty(names = {"oss.hdfs.secret_key", "oss.secret_key", "dlf.secret_key", "dlf.catalog.secret_key",
-            "fs.oss.accessKeySecret"},
+            "dlf.catalog.accessKeySecret", "fs.oss.accessKeySecret"},
             sensitive = true,
             description = "The secret key of OSS.")
     private String secretKey = "";
@@ -99,7 +100,8 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
             description = "The xml files of Hadoop configuration.")
     private String hadoopConfigResources = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.security_token", "oss.security_token", "fs.oss.securityToken"},
+    @ConnectorProperty(names = {"oss.hdfs.security_token", "oss.security_token", "dlf.session_token",
+            "dlf.catalog.sessionToken", "dlf.catalog.securityToken", "fs.oss.securityToken"},
             required = false,
             sensitive = true,
             description = "The security token of OSS.")

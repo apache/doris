@@ -475,7 +475,10 @@ public class PaimonConnector implements Connector {
                 }
                 DlfMetaStoreProperties dlf = (DlfMetaStoreProperties)
                         MetaStoreProviders.bind(catalogProps.getRaw(), storageHadoopConfig);
-                HiveConf hc = PaimonCatalogFactory.assembleHiveConf(null, dlf.toDlfCatalogConf());
+                Map<String, String> dlfConf = new HashMap<>(dlf.toDlfCatalogConf());
+                dlfConf.put(PaimonCatalogFactory.DLF_CLIENT_POOL_IDENTITY,
+                        PaimonCatalogFactory.dlfClientPoolIdentity(dlfConf));
+                HiveConf hc = PaimonCatalogFactory.assembleHiveConf(null, dlfConf);
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
                         "Failed to create Paimon catalog with DLF metastore");
             }

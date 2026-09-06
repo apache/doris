@@ -56,7 +56,8 @@ public class DLFCatalog extends HiveCompatibleCatalog {
 
     @Override
     public void initialize(String name, Map<String, String> properties) {
-        super.initialize(name, initializeFileIO(properties, conf), new DLFCachedClientPool(conf, properties));
+        super.initialize(name, initializeFileIO(properties, conf),
+                new DLFCachedClientPool(conf, properties), properties);
     }
 
     @Override
@@ -76,12 +77,17 @@ public class DLFCatalog extends HiveCompatibleCatalog {
         return io;
     }
 
-    static String toS3CompatibleEndpoint(String endpoint, String region) {
-        String s3Endpoint = endpoint.replace("oss-" + region, "s3.oss-" + region);
-        if (!s3Endpoint.contains("://")) {
-            s3Endpoint = "http://" + s3Endpoint;
+    public static String toS3CompatibleEndpoint(String endpoint, String region) {
+        String endpointWithScheme = endpoint.contains("://") ? endpoint : "http://" + endpoint;
+        URI endpointUri = URI.create(endpointWithScheme);
+        String host = endpointUri.getHost();
+        String publicHost = "oss-" + region + ".aliyuncs.com";
+        String internalHost = "oss-" + region + "-internal.aliyuncs.com";
+        // Only an unprefixed OSS host is rewritten so repeated normalization cannot produce s3.s3.
+        if (publicHost.equalsIgnoreCase(host) || internalHost.equalsIgnoreCase(host)) {
+            return endpointWithScheme.replace(host, "s3." + host);
         }
-        return s3Endpoint;
+        return endpointWithScheme;
     }
 
     private static AwsCredentialsProvider buildCredentials(S3CompatibleFileSystemProperties oss) {

@@ -70,6 +70,9 @@ public final class OssFileSystemProperties
 
     private static final Pattern ENDPOINT_PATTERN =
             Pattern.compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$");
+    // Endpoint-only DLF catalogs need the same derived region to bind their OSS storage configuration.
+    private static final Pattern DLF_ENDPOINT_PATTERN =
+            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$");
 
     private static final String JINDO_OSS_FILE_SYSTEM_IMPL =
             "com.aliyun.jindodata.oss.JindoOssFileSystem";
@@ -91,7 +94,7 @@ public final class OssFileSystemProperties
 
     @ConnectorProperty(names = {SECRET_KEY, "s3.secret_key", "s3.secret-access-key",
             "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "dlf.secret_key",
-            "dlf.catalog.secret_key", "fs.oss.accessKeySecret", "OSS_SECRET_KEY"},
+            "dlf.catalog.secret_key", "dlf.catalog.accessKeySecret", "fs.oss.accessKeySecret", "OSS_SECRET_KEY"},
             required = false,
             sensitive = true,
             description = "The secret key of OSS.")
@@ -110,7 +113,8 @@ public final class OssFileSystemProperties
     private String dlfAccessPublic = "false";
 
     @ConnectorProperty(names = {SESSION_TOKEN, "s3.session_token", "s3.session-token",
-            "session_token", "fs.oss.securityToken", "OSS_SESSION_TOKEN", "OSS_TOKEN", "AWS_TOKEN"},
+            "session_token", "dlf.session_token", "dlf.catalog.sessionToken", "dlf.catalog.securityToken",
+            "fs.oss.securityToken", "OSS_SESSION_TOKEN", "OSS_TOKEN", "AWS_TOKEN"},
             required = false,
             sensitive = true,
             description = "The session token of OSS.")
@@ -406,6 +410,10 @@ public final class OssFileSystemProperties
 
     private static Optional<String> extractRegion(String endpoint) {
         Matcher matcher = ENDPOINT_PATTERN.matcher(endpoint.toLowerCase(Locale.ROOT));
+        if (matcher.matches()) {
+            return Optional.of(matcher.group(1));
+        }
+        matcher = DLF_ENDPOINT_PATTERN.matcher(endpoint.toLowerCase(Locale.ROOT));
         if (matcher.matches()) {
             return Optional.of(matcher.group(1));
         }
