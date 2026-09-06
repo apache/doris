@@ -125,6 +125,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -323,9 +324,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             SlotBinding localRelationBinding = bindSlotByRelationQualifierInThisScope(unboundSlot);
             bounded = localRelationBinding.getBoundSlots();
             foundInThisScope = !bounded.isEmpty();
-            relationQualifierOccupied = localRelationBinding.isRelationQualifierOccupied();
+            if (!foundInThisScope) {
+                relationQualifierOccupied = localRelationBinding.isRelationQualifierOccupied();
+            }
             if (!foundInThisScope && !relationQualifierOccupied) {
-                bounded = bindSlotByRelationQualifier(unboundSlot, outerScope.get()).getBoundSlots();
+                bounded = bindSlotsByRelationQualifier(unboundSlot, outerScope.get());
             }
         }
 
@@ -1195,8 +1198,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         );
         // we should return origin candidates slots if extract slots is empty,
         // and then throw an ambiguous exception
-        return new SlotBinding(!extractSlots.isEmpty() ? extractSlots : candidates,
-                binding.isRelationQualifierOccupied());
+        return binding.withBoundSlots(!extractSlots.isEmpty() ? extractSlots : candidates);
     }
 
     private List<Slot> addSqlIndexInfo(List<Slot> slots, Optional<Pair<Integer, Integer>> indexInSql) {
@@ -1244,6 +1246,14 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     /** Bind a multipart slot as a relation-qualified column, without treating its first part as a column. */
     protected SlotBinding bindSlotByRelationQualifier(UnboundSlot unboundSlot, Scope scope) {
+        List<? extends Expression> bounded = bindSlotsByRelationQualifier(unboundSlot, scope);
+        return bounded.isEmpty()
+                ? new SlotBinding(bounded,
+                        () -> containsRelationQualifier(unboundSlot.getNameParts(), scope))
+                : new SlotBinding(bounded, false);
+    }
+
+    private List<? extends Expression> bindSlotsByRelationQualifier(UnboundSlot unboundSlot, Scope scope) {
         List<String> nameParts = unboundSlot.getNameParts();
         Optional<Pair<Integer, Integer>> idxInSql = unboundSlot.getIndexInSqlString();
         List<? extends Expression> bounded;
@@ -1264,34 +1274,36 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                         unboundSlot, nameParts, idxInSql, scope, false);
                 break;
         }
-        return new SlotBinding(bounded, containsRelationQualifier(nameParts, scope));
+        return bounded;
     }
 
     private boolean containsRelationQualifier(List<String> nameParts, Scope scope) {
-        for (Slot slot : scope.getSlots()) {
-            List<String> qualifier = slot.getQualifier();
-            String catalogName = extractCatalogName(qualifier);
-            int lowerCaseTableNames = resolveLowerCaseTableNames(catalogName);
-            int lowerCaseDatabaseNames = resolveLowerCaseDatabaseNames(catalogName);
-            if (nameParts.size() >= 4 && qualifier.size() >= 3
-                    && qualifier.get(qualifier.size() - 3).equalsIgnoreCase(nameParts.get(0))
-                    && compareDbNameIgnoreClusterName(qualifier.get(qualifier.size() - 2),
-                            nameParts.get(1), lowerCaseDatabaseNames)
-                    && sameTableName(qualifier.get(qualifier.size() - 1),
-                            nameParts.get(2), lowerCaseTableNames)) {
-                return true;
-            }
-            if (nameParts.size() >= 3 && qualifier.size() >= 2
-                    && compareDbNameIgnoreClusterName(qualifier.get(qualifier.size() - 2),
-                            nameParts.get(0), lowerCaseDatabaseNames)
-                    && sameTableName(qualifier.get(qualifier.size() - 1),
-                            nameParts.get(1), lowerCaseTableNames)) {
-                return true;
-            }
-            if (!qualifier.isEmpty()
-                    && sameTableName(qualifier.get(qualifier.size() - 1),
-                            nameParts.get(0), lowerCaseTableNames)) {
-                return true;
+        int lastRelationNameIndex = Math.min(2, nameParts.size() - 2);
+        for (int relationNameIndex = 0; relationNameIndex <= lastRelationNameIndex; relationNameIndex++) {
+            for (List<String> qualifier
+                    : scope.findRelationQualifiersIgnoreCase(nameParts.get(relationNameIndex))) {
+                String catalogName = extractCatalogName(qualifier);
+                int lowerCaseTableNames = resolveLowerCaseTableNames(catalogName);
+                int lowerCaseDatabaseNames = resolveLowerCaseDatabaseNames(catalogName);
+                if (nameParts.size() >= 4 && qualifier.size() >= 3
+                        && qualifier.get(qualifier.size() - 3).equalsIgnoreCase(nameParts.get(0))
+                        && compareDbNameIgnoreClusterName(qualifier.get(qualifier.size() - 2),
+                                nameParts.get(1), lowerCaseDatabaseNames)
+                        && sameTableName(qualifier.get(qualifier.size() - 1),
+                                nameParts.get(2), lowerCaseTableNames)) {
+                    return true;
+                }
+                if (nameParts.size() >= 3 && qualifier.size() >= 2
+                        && compareDbNameIgnoreClusterName(qualifier.get(qualifier.size() - 2),
+                                nameParts.get(0), lowerCaseDatabaseNames)
+                        && sameTableName(qualifier.get(qualifier.size() - 1),
+                                nameParts.get(1), lowerCaseTableNames)) {
+                    return true;
+                }
+                if (sameTableName(qualifier.get(qualifier.size() - 1),
+                        nameParts.get(0), lowerCaseTableNames)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -1300,9 +1312,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     /** Relation-qualified binding candidates and whether that qualifier exists in the searched scope. */
     protected static class SlotBinding {
         private final List<Expression> boundSlots;
-        private final boolean relationQualifierOccupied;
+        private final Supplier<Boolean> relationQualifierOccupied;
 
         protected SlotBinding(List<? extends Expression> boundSlots, boolean relationQualifierOccupied) {
+            this(boundSlots, () -> relationQualifierOccupied);
+        }
+
+        private SlotBinding(List<? extends Expression> boundSlots, Supplier<Boolean> relationQualifierOccupied) {
             this.boundSlots = ImmutableList.copyOf(boundSlots);
             this.relationQualifierOccupied = relationQualifierOccupied;
         }
@@ -1312,7 +1328,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
 
         protected boolean isRelationQualifierOccupied() {
-            return relationQualifierOccupied;
+            return relationQualifierOccupied.get();
         }
 
         protected SlotBinding firstOrEmpty() {
@@ -1321,9 +1337,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     : new SlotBinding(ImmutableList.of(boundSlots.get(0)), relationQualifierOccupied);
         }
 
+        private SlotBinding withBoundSlots(List<? extends Expression> boundSlots) {
+            return new SlotBinding(boundSlots, relationQualifierOccupied);
+        }
+
         protected SlotBinding withQualifierOccupancyFrom(SlotBinding other) {
             return new SlotBinding(boundSlots,
-                    relationQualifierOccupied || other.relationQualifierOccupied);
+                    () -> relationQualifierOccupied.get() || other.relationQualifierOccupied.get());
         }
     }
 
