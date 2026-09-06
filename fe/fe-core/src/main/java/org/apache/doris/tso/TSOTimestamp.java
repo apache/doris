@@ -121,9 +121,13 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
      * row set as {@code x < nextTso(tso)}, and a lower bound that excludes {@code tso} itself is
      * {@code x >= nextTso(tso)}. Callers should use this instead of a bare {@code + 1} so the TSO
      * interval arithmetic stays in one place.
+     *
+     * <p>{@code Long.MAX_VALUE} is used as the "read everything" sentinel (e.g. FOR VERSION AS OF
+     * 9223372036854775807), so it saturates instead of overflowing to a negative bound: real commit
+     * TSOs never reach {@code Long.MAX_VALUE}, so {@code x < Long.MAX_VALUE} still selects all rows.
      */
     public static long nextTso(long tso) {
-        return tso + 1;
+        return tso == Long.MAX_VALUE ? Long.MAX_VALUE : tso + 1;
     }
 
     /**
