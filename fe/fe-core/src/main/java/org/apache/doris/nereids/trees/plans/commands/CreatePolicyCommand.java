@@ -33,6 +33,8 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.policy.FilterType;
@@ -45,6 +47,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -106,7 +109,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         return StmtType.CREATE;
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    public void validate(ConnectContext ctx) throws AnalysisException {
         switch (policyType) {
             case STORAGE:
                 if (!Config.enable_storage_policy) {
@@ -159,9 +162,53 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                                     "column not exist: " + slot.getName());
                         }
+                    } else if (expr instanceof SubqueryExpr) {
+                        // Exists/InSubquery/ScalarSubquery are leaf expressions: their subquery
+                        // plan isn't a child in the expression tree, so the foreach above never
+                        // looks inside it. A subquery that reaches back into tableIf (the row
+                        // policy's own table) is a correlated subquery, and this command has no
+                        // way to keep that reference resolvable once the policy is stored and
+                        // re-parsed at query time, so reject it here instead of silently
+                        // dropping the policy later.
+                        rejectCorrelatedSubquery((SubqueryExpr) expr, tableIf);
                     }
                 });
 
+        }
+    }
+
+    // ponytail: name-based, not a real bind. A subquery column that merely shares a name with
+    // an outer-table column gets rejected even when the subquery has its own local relation
+    // that would actually resolve it (e.g. a self-join on the policy's own table). That's the
+    // deliberate trade-off of Option A from apache/doris#62729: false rejections are safe here,
+    // silently dropping a policy is not. Upgrade to real correlation detection (Option B) if
+    // this starts blocking legitimate policies.
+    private static void rejectCorrelatedSubquery(SubqueryExpr subquery, TableIf outerTable) {
+        subquery.getQueryPlan().foreach(node -> {
+            for (Expression expr : ((Plan) node).getExpressions()) {
+                checkNoOuterReference(expr, outerTable);
+            }
+        });
+    }
+
+    private static void checkNoOuterReference(Expression expr, TableIf outerTable) {
+        if (expr instanceof UnboundSlot) {
+            // Use the last name part, not getName(): for a qualified reference like
+            // "main_table.ref_id", getName() returns the whole dotted string, which would
+            // never match a bare column name.
+            List<String> nameParts = ((UnboundSlot) expr).getNameParts();
+            String columnName = nameParts.get(nameParts.size() - 1);
+            if (outerTable.getColumn(columnName) != null) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Correlated subquery expressions in the USING clause are not supported for row "
+                                + "policies: found reference to outer column '" + columnName + "'");
+            }
+        }
+        if (expr instanceof SubqueryExpr) {
+            rejectCorrelatedSubquery((SubqueryExpr) expr, outerTable);
+        }
+        for (Expression child : expr.children()) {
+            checkNoOuterReference(child, outerTable);
         }
     }
 
