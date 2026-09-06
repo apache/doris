@@ -21,8 +21,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * The decision rule itself: major must match, minor and patch never matter, and anything a plugin did not
- * clearly declare is refused.
+ * The decision rule itself: major must match and minor and patch never matter. Strict gates refuse missing
+ * declarations; an explicitly configured legacy gate accepts only a genuinely absent declaration for the
+ * documented legacy major.
  *
  * <p>Each case here encodes a promise made to plugin authors, not just current behavior. The two-way minor
  * cases are the load-bearing ones: they are only sound because "major" is defined to cover <em>additions</em>
@@ -37,6 +38,8 @@ class ApiVersionGateTest {
 
     private static final ApiVersionGate GATE =
             ApiVersionGate.forFamily("test", ApiVersionGateTest.class);
+    private static final ApiVersionGate LEGACY_GATE =
+            ApiVersionGate.forFamilyAllowingUnversioned("test", ApiVersionGateTest.class, "7.0");
 
     @Test
     void testKernelVersionComesFromTheFilteredResource() {
@@ -114,6 +117,36 @@ class ApiVersionGateTest {
                 "the diagnostic must name the attribute the plugin has to add: " + reason);
         Assertions.assertNotNull(GATE.rejectionReason(""));
         Assertions.assertNotNull(GATE.rejectionReason("   "));
+    }
+
+    @Test
+    void testDocumentedLegacyUnversionedPluginIsAcceptedWithWarning() {
+        Assertions.assertNull(LEGACY_GATE.rejectionReason(null));
+        String warning = LEGACY_GATE.acceptanceWarning(null);
+        Assertions.assertNotNull(warning);
+        Assertions.assertTrue(warning.contains("legacy TEST plugin API 7.0"), warning);
+
+        Assertions.assertNotNull(LEGACY_GATE.rejectionReason(""),
+                "an explicit empty declaration is malformed, not a legacy artifact");
+        Assertions.assertNull(LEGACY_GATE.acceptanceWarning("7.0"),
+                "a versioned plugin must not be mislabeled as legacy");
+    }
+
+    @Test
+    void testLegacyUnversionedPluginIsRejectedAfterKernelMajorUpgrade() {
+        ApiVersionGate oldLegacy =
+                ApiVersionGate.forFamilyAllowingUnversioned("test", ApiVersionGateTest.class, "6.9");
+        String reason = oldLegacy.rejectionReason(null);
+        Assertions.assertNotNull(reason);
+        Assertions.assertTrue(reason.contains("6.9") && reason.contains("7.2"), reason);
+        Assertions.assertNull(oldLegacy.acceptanceWarning(null));
+    }
+
+    @Test
+    void testMalformedLegacyVersionConfigurationFailsLoudly() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> ApiVersionGate.forFamilyAllowingUnversioned(
+                        "test", ApiVersionGateTest.class, "legacy-v7"));
     }
 
     @Test

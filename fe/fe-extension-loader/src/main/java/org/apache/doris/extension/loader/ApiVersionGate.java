@@ -64,7 +64,9 @@ import java.util.jar.JarFile;
  *
  * <p>Major must match exactly; minor and patch are ignored in both directions. That is only sound because
  * "major" is defined as <em>any</em> change to the SPI surface — including additions — so a compatible minor
- * can never change the set of API elements a plugin can see.
+ * can never change the set of API elements a plugin can see. Families that distributed plugins before this
+ * manifest contract existed may explicitly map an absent declaration to their documented legacy version;
+ * strict rejection remains the default, and explicit declarations always follow the same major rule.
  */
 public final class ApiVersionGate {
 
@@ -75,14 +77,19 @@ public final class ApiVersionGate {
     private final String manifestAttribute;
     private final String expectedVersion;
     private final int expectedMajor;
+    private final String legacyUnversionedVersion;
+    private final int legacyUnversionedMajor;
     private final ClassLoader kernelClassLoader;
 
     private ApiVersionGate(String familyLabel, String manifestAttribute, String expectedVersion,
-            int expectedMajor, ClassLoader kernelClassLoader) {
+            int expectedMajor, String legacyUnversionedVersion, int legacyUnversionedMajor,
+            ClassLoader kernelClassLoader) {
         this.familyLabel = familyLabel;
         this.manifestAttribute = manifestAttribute;
         this.expectedVersion = expectedVersion;
         this.expectedMajor = expectedMajor;
+        this.legacyUnversionedVersion = legacyUnversionedVersion;
+        this.legacyUnversionedMajor = legacyUnversionedMajor;
         this.kernelClassLoader = kernelClassLoader;
     }
 
@@ -100,6 +107,29 @@ public final class ApiVersionGate {
      *         degrading into a check that admits everything.
      */
     public static ApiVersionGate forFamily(String family, Class<?> spiAnchor) {
+        return forFamily(family, spiAnchor, null);
+    }
+
+    /**
+     * Builds a gate that maps a genuinely absent manifest declaration to a documented legacy API version.
+     *
+     * <p>This is only for a plugin family that shipped external plugins before the manifest contract existed.
+     * It preserves upgrade compatibility for those artifacts without weakening validation for malformed
+     * declarations or explicitly incompatible majors. If the FE later moves to another major, unversioned
+     * plugins are rejected automatically because their legacy major no longer matches.
+     *
+     * @param family lower-case single-token family name
+     * @param spiAnchor a type from the family's SPI artifact
+     * @param legacyUnversionedVersion API version implemented by artifacts that predate the manifest contract
+     */
+    public static ApiVersionGate forFamilyAllowingUnversioned(
+            String family, Class<?> spiAnchor, String legacyUnversionedVersion) {
+        Objects.requireNonNull(legacyUnversionedVersion, "legacyUnversionedVersion");
+        return forFamily(family, spiAnchor, legacyUnversionedVersion);
+    }
+
+    private static ApiVersionGate forFamily(
+            String family, Class<?> spiAnchor, String legacyUnversionedVersion) {
         Objects.requireNonNull(family, "family");
         Objects.requireNonNull(spiAnchor, "spiAnchor");
         String resource = versionResourceOf(family);
@@ -110,8 +140,19 @@ public final class ApiVersionGate {
                     + " (from " + spiAnchor.getName() + "); expected major[.minor[.patch]]. This is a build"
                     + " defect: the maven property feeding this resource is missing or was not filtered.");
         }
+        int legacyMajor = -1;
+        if (legacyUnversionedVersion != null) {
+            OptionalInt parsedLegacyMajor = parseMajor(legacyUnversionedVersion);
+            if (!parsedLegacyMajor.isPresent()) {
+                throw new IllegalArgumentException("Malformed legacy unversioned API version='"
+                        + legacyUnversionedVersion + "' for " + family + "; expected major[.minor[.patch]]");
+            }
+            legacyUnversionedVersion = legacyUnversionedVersion.trim();
+            legacyMajor = parsedLegacyMajor.getAsInt();
+        }
         return new ApiVersionGate(family.toUpperCase(Locale.ROOT), manifestAttributeOf(family),
-                declared.trim(), major.getAsInt(), spiAnchor.getClassLoader());
+                declared.trim(), major.getAsInt(), legacyUnversionedVersion, legacyMajor,
+                spiAnchor.getClassLoader());
     }
 
     /** Kernel-side resource path for a family, by convention. */
@@ -155,18 +196,28 @@ public final class ApiVersionGate {
     /**
      * Judges what a plugin jar declared.
      *
-     * <p>Fail-closed: a jar that declares nothing is rejected, so that a plugin built without any awareness of
-     * this contract cannot slip through. A third party can still get in by declaring a version it was not
-     * built against, but that is an active false claim rather than an omission.
+     * <p>Strict gates reject a jar that declares nothing. A family that explicitly configures a legacy
+     * unversioned version may accept an absent declaration when that legacy major matches the FE. Blank,
+     * malformed, and explicitly incompatible declarations always remain fail-closed.
      *
      * @param declaredVersion the value of {@link #getManifestAttribute()} in the plugin jar, or null when absent
      * @return null when the plugin may load, otherwise a diagnostic naming the declared and expected values
      */
     public String rejectionReason(String declaredVersion) {
-        if (declaredVersion == null || declaredVersion.trim().isEmpty()) {
-            return "no " + manifestAttribute + " in the plugin jar MANIFEST; this FE serves " + familyLabel
-                    + " plugin API " + expectedVersion + ". Declare the attribute and rebuild the plugin"
-                    + " against this Doris release.";
+        if (declaredVersion == null) {
+            if (legacyUnversionedVersion == null) {
+                return missingDeclarationReason();
+            }
+            if (legacyUnversionedMajor != expectedMajor) {
+                return "unversioned legacy " + familyLabel + " plugin API " + legacyUnversionedVersion
+                        + " is incompatible with this FE, which serves plugin API " + expectedVersion
+                        + ". Rebuild the plugin against this Doris release.";
+            }
+            return null;
+        }
+        if (declaredVersion.trim().isEmpty()) {
+            return "empty " + manifestAttribute + " in the plugin jar MANIFEST; this FE serves " + familyLabel
+                    + " plugin API " + expectedVersion + ".";
         }
         OptionalInt major = parseMajor(declaredVersion);
         if (!major.isPresent()) {
@@ -183,19 +234,38 @@ public final class ApiVersionGate {
         return null;
     }
 
+    /**
+     * Returns an operator-facing warning when an accepted plugin relied on the legacy unversioned mapping.
+     */
+    public String acceptanceWarning(String declaredVersion) {
+        if (declaredVersion == null && legacyUnversionedVersion != null
+                && legacyUnversionedMajor == expectedMajor) {
+            return "plugin jar has no " + manifestAttribute + "; treating it as legacy " + familyLabel
+                    + " plugin API " + legacyUnversionedVersion + ". Rebuild the plugin with an explicit"
+                    + " API version declaration.";
+        }
+        return null;
+    }
+
     /** Applies the same manifest-major contract to a classpath-discovered provider. */
     public String rejectionReasonForClass(Class<?> pluginClass) {
         Path definingJar = ManifestVersions.jarOf(pluginClass);
         if (definingJar == null) {
             // Maven/IDE runs expose kernel-built providers as class directories, but an independently
             // loaded exploded provider has no immutable declaration and must remain fail-closed.
-            return pluginClass.getClassLoader() == kernelClassLoader ? null : rejectionReason((String) null);
+            return pluginClass.getClassLoader() == kernelClassLoader ? null : missingDeclarationReason();
         }
         try (JarFile jar = new JarFile(definingJar.toFile())) {
             return rejectionReason(ManifestVersions.mainAttribute(jar, manifestAttribute));
         } catch (IOException e) {
-            return rejectionReason((String) null);
+            return missingDeclarationReason();
         }
+    }
+
+    private String missingDeclarationReason() {
+        return "no " + manifestAttribute + " in the plugin jar MANIFEST; this FE serves " + familyLabel
+                + " plugin API " + expectedVersion + ". Declare the attribute and rebuild the plugin"
+                + " against this Doris release.";
     }
 
     /**
