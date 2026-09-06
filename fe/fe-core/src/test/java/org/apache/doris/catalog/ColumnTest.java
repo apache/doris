@@ -71,26 +71,26 @@ public class ColumnTest {
 
         TColumn thriftColumn = ColumnToThrift.toThrift(column);
 
-        Assert.assertEquals("2000-01-01 00:00:00.000000000", thriftColumn.getDefaultValue());
-        Assert.assertEquals("CURRENT_TIMESTAMP(9)", thriftColumn.getDefaultValueExpr());
-        Assert.assertEquals(ScalarType.TIMESTAMP_NS_PRECISION,
+        Assertions.assertEquals("2000-01-01 00:00:00.000000000", thriftColumn.getDefaultValue());
+        Assertions.assertEquals("CURRENT_TIMESTAMP(9)", thriftColumn.getDefaultValueExpr());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_PRECISION,
                 thriftColumn.getColumnType().getPrecision());
-        Assert.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, thriftColumn.getColumnType().getScale());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, thriftColumn.getColumnType().getScale());
 
         OlapFile.ColumnPB protobufColumn = ColumnToProtobuf.toPb(column, null, null);
-        Assert.assertEquals("2000-01-01 00:00:00.000000000",
+        Assertions.assertEquals("2000-01-01 00:00:00.000000000",
                 protobufColumn.getDefaultValue().toStringUtf8());
-        Assert.assertEquals("CURRENT_TIMESTAMP(9)", protobufColumn.getDefaultValueExpr().toStringUtf8());
-        Assert.assertEquals(ScalarType.TIMESTAMP_NS_PRECISION, protobufColumn.getPrecision());
-        Assert.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, protobufColumn.getFrac());
+        Assertions.assertEquals("CURRENT_TIMESTAMP(9)", protobufColumn.getDefaultValueExpr().toStringUtf8());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_PRECISION, protobufColumn.getPrecision());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, protobufColumn.getFrac());
 
         Column datetimeColumn = new Column("dt", ScalarType.createDatetimeV2Type(6), false, null, true,
                 "CURRENT_TIMESTAMP(6)", "", true, null, 2,
                 "2000-01-01 00:00:00.000000");
-        Assert.assertFalse(ColumnToThrift.toThrift(datetimeColumn).isSetDefaultValueExpr());
+        Assertions.assertFalse(ColumnToThrift.toThrift(datetimeColumn).isSetDefaultValueExpr());
         OlapFile.ColumnPB datetimeProtobufColumn = ColumnToProtobuf.toPb(datetimeColumn, null, null);
-        Assert.assertEquals("CURRENT_TIMESTAMP(6)", datetimeProtobufColumn.getDefaultValue().toStringUtf8());
-        Assert.assertFalse(datetimeProtobufColumn.hasDefaultValueExpr());
+        Assertions.assertEquals("CURRENT_TIMESTAMP(6)", datetimeProtobufColumn.getDefaultValue().toStringUtf8());
+        Assertions.assertFalse(datetimeProtobufColumn.hasDefaultValueExpr());
     }
 
 

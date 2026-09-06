@@ -160,10 +160,10 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
                     Lists.newArrayList(new PartitionValue("2262-04-11 23:00:00.000000000")),
                     Lists.newArrayList(PartitionValue.MAX_VALUE));
 
-            Assert.assertEquals(3, result.size());
-            Assert.assertEquals(Sets.newHashSet("one-nanosecond"), result.get(expectedOneNanosecond));
-            Assert.assertEquals(Sets.newHashSet("minimum"), result.get(expectedMinimum));
-            Assert.assertEquals(Sets.newHashSet("maximum"), result.get(expectedMaximum));
+            Assertions.assertEquals(3, result.size());
+            Assertions.assertEquals(Sets.newHashSet("one-nanosecond"), result.get(expectedOneNanosecond));
+            Assertions.assertEquals(Sets.newHashSet("minimum"), result.get(expectedMinimum));
+            Assertions.assertEquals(Sets.newHashSet("maximum"), result.get(expectedMaximum));
         }
     }
 

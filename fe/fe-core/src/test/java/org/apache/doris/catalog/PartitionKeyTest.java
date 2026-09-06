@@ -377,7 +377,7 @@ public class PartitionKeyTest {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         invalid.write(new DataOutputStream(bytes));
 
-        JsonParseException exception = Assert.assertThrows(JsonParseException.class, () -> PartitionKey.read(
+        JsonParseException exception = Assertions.assertThrows(JsonParseException.class, () -> PartitionKey.read(
                 new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))));
         Assertions.assertTrue(exception.getMessage().contains("Invalid TIMESTAMP_NS partition key"));
     }

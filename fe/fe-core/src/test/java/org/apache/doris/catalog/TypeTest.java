@@ -28,19 +28,19 @@ public class TypeTest {
 
     @Test
     public void testTimestampNsJavaUdfType() {
-        Assert.assertEquals(1,
+        Assertions.assertEquals(1,
                 Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS).size());
-        Assert.assertTrue(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+        Assertions.assertTrue(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
                 .contains(java.time.LocalDateTime.class));
-        Assert.assertFalse(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+        Assertions.assertFalse(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
                 .contains(org.joda.time.LocalDateTime.class));
-        Assert.assertFalse(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+        Assertions.assertFalse(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
                 .contains(org.joda.time.DateTime.class));
     }
 
     @Test
     public void testTimestampNsVariantSubtype() {
-        Assert.assertTrue(Type.getVariantSubTypes().contains(Type.TIMESTAMP_NS));
+        Assertions.assertTrue(Type.getVariantSubTypes().contains(Type.TIMESTAMP_NS));
     }
 
     // ===================== ArrayType =====================

@@ -221,12 +221,12 @@ public class MTMVPartitionUtilTest {
                 Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00")), columns);
         PartitionKeyDesc rangeDesc = new RangePartitionItem(Range.closedOpen(lower, upper)).toPartitionKeyDesc();
 
-        Assert.assertEquals(0, ((ScalarType) lower.getKeys().get(0).getType()).getScalarScale());
-        Assert.assertEquals(PartitionKeyDesc.createFixed(
+        Assertions.assertEquals(0, ((ScalarType) lower.getKeys().get(0).getType()).getScalarScale());
+        Assertions.assertEquals(PartitionKeyDesc.createFixed(
                         Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00")),
                         Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00"))),
                 rangeDesc);
-        Assert.assertEquals("p_20241026000000_20241027000000",
+        Assertions.assertEquals("p_20241026000000_20241027000000",
                 MTMVPartitionUtil.generatePartitionName(rangeDesc));
 
         lower = PartitionKey.createPartitionKey(
@@ -235,8 +235,8 @@ public class MTMVPartitionUtilTest {
                 Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00.654000")), columns);
         rangeDesc = new RangePartitionItem(Range.closedOpen(lower, upper)).toPartitionKeyDesc();
 
-        Assert.assertEquals(3, ((ScalarType) lower.getKeys().get(0).getType()).getScalarScale());
-        Assert.assertEquals("p_20241026000000123_20241027000000654",
+        Assertions.assertEquals(3, ((ScalarType) lower.getKeys().get(0).getType()).getScalarScale());
+        Assertions.assertEquals("p_20241026000000123_20241027000000654",
                 MTMVPartitionUtil.generatePartitionName(rangeDesc));
 
         columns = Lists.newArrayList(new Column("ts", ScalarType.createTimeStampNsType()));
@@ -246,7 +246,7 @@ public class MTMVPartitionUtilTest {
                 Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00.000000000")), columns);
         rangeDesc = new RangePartitionItem(Range.closedOpen(lower, upper)).toPartitionKeyDesc();
 
-        Assert.assertEquals("p_20241026000000000000000_20241027000000000000000",
+        Assertions.assertEquals("p_20241026000000000000000_20241027000000000000000",
                 MTMVPartitionUtil.generatePartitionName(rangeDesc));
     }
 

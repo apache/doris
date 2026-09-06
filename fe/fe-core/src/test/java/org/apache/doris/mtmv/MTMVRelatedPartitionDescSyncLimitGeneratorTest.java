@@ -89,7 +89,7 @@ public class MTMVRelatedPartitionDescSyncLimitGeneratorTest {
         try (MockedStatic<DateTimeAcquire> ms = Mockito.mockStatic(DateTimeAcquire.class)) {
             ms.when(DateTimeAcquire::now).thenReturn(dateTimeLiteral);
             long nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 3);
-            Assert.assertEquals(-115200L, nowTruncSubSec);
+            Assertions.assertEquals(-115200L, nowTruncSubSec);
         }
     }
 }
