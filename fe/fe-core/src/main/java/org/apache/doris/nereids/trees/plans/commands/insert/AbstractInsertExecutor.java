@@ -257,8 +257,8 @@ public abstract class AbstractInsertExecutor {
      * execute insert txn for insert into select command.
      */
     public void executeSingleInsert(StmtExecutor executor) throws Exception {
-        beforeExec();
         try {
+            beforeExec();
             executor.updateProfile(false);
             execImpl(executor);
             checkStrictModeAndFilterRatio();
@@ -290,8 +290,8 @@ public abstract class AbstractInsertExecutor {
      * needs to commit a partition delete.
      */
     public void executeEmptyInsert(StmtExecutor executor) throws Exception {
-        beforeExec();
         try {
+            beforeExec();
             for (InsertExecutorListener listener : listeners) {
                 listener.beforeComplete(this, executor, jobId);
             }

@@ -42,6 +42,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 
+import java.io.Closeable;
 import java.util.AbstractList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -58,6 +59,29 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class StatementContextTest {
+
+    @Test
+    public void testStatementResourceOutlivesPlannerResources() {
+        StatementContext statementContext = new StatementContext();
+        AtomicInteger closed = new AtomicInteger();
+        Closeable first = statementContext.getOrRegisterStatementResource("iceberg:1:db:tbl",
+                () -> closed::incrementAndGet);
+        Closeable second = statementContext.getOrRegisterStatementResource("iceberg:1:db:tbl",
+                () -> {
+                    throw new AssertionError("same statement resource must be reused");
+                });
+
+        org.junit.jupiter.api.Assertions.assertSame(first, second);
+        statementContext.releasePlannerResources();
+        org.junit.jupiter.api.Assertions.assertEquals(0, closed.get());
+
+        statementContext.close();
+        org.junit.jupiter.api.Assertions.assertEquals(1, closed.get());
+        statementContext.close();
+        org.junit.jupiter.api.Assertions.assertEquals(1, closed.get());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> statementContext.getOrRegisterStatementResource("late", () -> () -> { }));
+    }
 
     @Test
     public void testPreloadExternalTablesBeforeLock() {

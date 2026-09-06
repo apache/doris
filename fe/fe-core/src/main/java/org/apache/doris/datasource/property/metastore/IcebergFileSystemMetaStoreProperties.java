@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
+import org.apache.doris.datasource.iceberg.DorisHadoopCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -25,7 +26,6 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
 
 import java.util.List;
@@ -48,7 +48,7 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
         try {
             Configuration configuration = new Configuration();
             toFileIOProperties(storagePropertiesList, catalogProps, configuration);
-            catalogProps.put(CatalogProperties.CATALOG_IMPL, CatalogUtil.ICEBERG_CATALOG_HADOOP);
+            catalogProps.put(CatalogProperties.CATALOG_IMPL, DorisHadoopCatalog.class.getName());
             buildExecutionAuthenticator(storagePropertiesList);
             return this.executionAuthenticator.execute(() ->
                     buildIcebergCatalog(catalogName, catalogProps, configuration));

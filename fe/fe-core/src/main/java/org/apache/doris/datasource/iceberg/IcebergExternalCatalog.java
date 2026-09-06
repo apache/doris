@@ -24,21 +24,32 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalObjectLog;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
+import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
@@ -63,11 +74,26 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final long DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND = 48 * 60 * 60;
     protected String icebergCatalogType;
     protected Catalog catalog;
+    private IcebergCatalogResourceTracker resourceTracker = new IcebergCatalogResourceTracker();
 
     private AbstractIcebergProperties msProperties;
 
     public IcebergExternalCatalog(long catalogId, String name, String comment) {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
+    }
+
+    @Override
+    public synchronized void modifyCatalogProps(Map<String, String> props) {
+        // Keep property publication and runtime reset under the same monitor used by
+        // beginTableLoad(), so a load context cannot splice old runtime objects with new mapping
+        // options while ALTER CATALOG is between those two operations.
+        super.modifyCatalogProps(props);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        resourceTracker = new IcebergCatalogResourceTracker();
     }
 
     // Create catalog based on catalog type
@@ -85,21 +111,36 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     @Override
     public void checkProperties() throws DdlException {
-        super.checkProperties();
-        CacheSpec.checkBooleanProperty(catalogProperty.getOrDefault(ICEBERG_TABLE_CACHE_ENABLE, null),
+        checkProperties(catalogProperty);
+    }
+
+    @Override
+    public boolean validatePropertiesBeforeUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
+        Map<String, String> candidateProperties = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidateProperties.putAll(updatedProperties);
+        checkProperties(new CatalogProperty(null, candidateProperties));
+        return true;
+    }
+
+    @Override
+    protected void checkProperties(CatalogProperty property) throws DdlException {
+        super.checkProperties(property);
+        CacheSpec.checkBooleanProperty(property.getOrDefault(ICEBERG_TABLE_CACHE_ENABLE, null),
                 ICEBERG_TABLE_CACHE_ENABLE);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_TABLE_CACHE_TTL_SECOND, null),
+        CacheSpec.checkLongProperty(property.getOrDefault(ICEBERG_TABLE_CACHE_TTL_SECOND, null),
                 -1L, ICEBERG_TABLE_CACHE_TTL_SECOND);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_TABLE_CACHE_CAPACITY, null),
+        CacheSpec.checkLongProperty(property.getOrDefault(ICEBERG_TABLE_CACHE_CAPACITY, null),
                 0L, ICEBERG_TABLE_CACHE_CAPACITY);
 
-        CacheSpec.checkBooleanProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null),
+        CacheSpec.checkBooleanProperty(property.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null),
                 ICEBERG_MANIFEST_CACHE_ENABLE);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_TTL_SECOND, null),
+        CacheSpec.checkLongProperty(property.getOrDefault(ICEBERG_MANIFEST_CACHE_TTL_SECOND, null),
                 -1L, ICEBERG_MANIFEST_CACHE_TTL_SECOND);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_CAPACITY, null),
+        CacheSpec.checkLongProperty(property.getOrDefault(ICEBERG_MANIFEST_CACHE_CAPACITY, null),
                 0L, ICEBERG_MANIFEST_CACHE_CAPACITY);
-        catalogProperty.checkMetaStoreAndStorageProperties(AbstractIcebergProperties.class);
+        property.checkMetaStoreAndStorageProperties(AbstractIcebergProperties.class);
     }
 
     @Override
@@ -123,14 +164,14 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void initLocalObjectsImpl() {
         initCatalog();
         initPreExecutionAuthenticator();
-        IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
-        transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
                 ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE,
                 String.format("iceberg_catalog_%s_executor_pool", name),
                 true,
                 executionAuthenticator);
+        IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
+        transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
         metadataOps = ops;
     }
 
@@ -149,6 +190,32 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public Catalog getCatalog() {
         makeSureInitialized();
         return ((IcebergMetadataOps) metadataOps).getCatalog();
+    }
+
+    synchronized TableLoadContext beginTableLoad() {
+        makeSureInitialized();
+        return new TableLoadContext((IcebergMetadataOps) metadataOps, executionAuthenticator, icebergCatalogType,
+                catalogProperty.getMetastoreProperties(),
+                new HashMap<>(catalogProperty.getStoragePropertiesMap()),
+                catalogProperty.getEnableMappingVarbinary(), catalogProperty.getEnableMappingTimestampTz(),
+                resourceTracker.beginLoad());
+    }
+
+    synchronized IcebergCatalogResourceTracker.LoadGuard beginCatalogOperation(IcebergMetadataOps expectedOps) {
+        makeSureInitialized();
+        if (metadataOps != expectedOps) {
+            throw new IllegalStateException("Iceberg catalog runtime changed before the operation started");
+        }
+        return resourceTracker.beginOperation();
+    }
+
+    synchronized ExternalDatabase<? extends ExternalTable> getDbForCatalogOperation(
+            IcebergMetadataOps expectedOps, String dbName) {
+        makeSureInitialized();
+        if (metadataOps != expectedOps) {
+            throw new IllegalStateException("Iceberg catalog runtime changed before database resolution");
+        }
+        return getDbNullable(dbName);
     }
 
     public String getIcebergCatalogType() {
@@ -173,17 +240,108 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void onClose() {
+    public synchronized void onClose() {
+        ThreadPoolExecutor retiredExecutor = threadPoolWithPreAuth;
+        threadPoolWithPreAuth = null;
         super.onClose();
-        if (null != catalog) {
-            try {
-                if (catalog instanceof AutoCloseable) {
-                    ((AutoCloseable) catalog).close();
-                }
-                catalog = null;
-            } catch (Exception e) {
-                LOG.warn("Failed to close iceberg catalog: {}", getName(), e);
+        Catalog retiredCatalog = catalog;
+        catalog = null;
+        resourceTracker.retireCurrent(() -> {
+            closeCatalog(retiredCatalog);
+            if (retiredExecutor != null) {
+                ThreadPoolManager.shutdownExecutorService(retiredExecutor);
             }
+        });
+    }
+
+    @Override
+    public synchronized void resetToUninitialized(boolean invalidCache) {
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        resetCatalogRuntime(cacheMgr, invalidCache);
+    }
+
+    private void resetCatalogRuntime(ExternalMetaCacheMgr cacheMgr, boolean invalidCache) {
+        cacheMgr.removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
+        super.resetToUninitialized(invalidCache);
+    }
+
+    private void closeCatalog(Catalog retiredCatalog) {
+        if (retiredCatalog == null) {
+            return;
+        }
+        try {
+            if (retiredCatalog instanceof AutoCloseable) {
+                ((AutoCloseable) retiredCatalog).close();
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to close iceberg catalog: {}", getName(), e);
+        }
+    }
+
+    final class TableLoadContext implements AutoCloseable {
+        private final IcebergMetadataOps ops;
+        private final ExecutionAuthenticator authenticator;
+        private final String catalogType;
+        private final MetastoreProperties metastoreProperties;
+        private final Map<StorageProperties.Type, StorageProperties> storageProperties;
+        private final boolean enableMappingVarbinary;
+        private final boolean enableMappingTimestampTz;
+        private final IcebergCatalogResourceTracker.LoadGuard guard;
+
+        private TableLoadContext(IcebergMetadataOps ops, ExecutionAuthenticator authenticator, String catalogType,
+                MetastoreProperties metastoreProperties,
+                Map<StorageProperties.Type, StorageProperties> storageProperties,
+                boolean enableMappingVarbinary, boolean enableMappingTimestampTz,
+                IcebergCatalogResourceTracker.LoadGuard guard) {
+            this.ops = ops;
+            this.authenticator = authenticator;
+            this.catalogType = catalogType;
+            this.metastoreProperties = metastoreProperties;
+            this.storageProperties = storageProperties;
+            this.enableMappingVarbinary = enableMappingVarbinary;
+            this.enableMappingTimestampTz = enableMappingTimestampTz;
+            this.guard = guard;
+        }
+
+        IcebergMetadataOps getOps() {
+            return ops;
+        }
+
+        Table loadTable(String dbName, String tableName) throws Exception {
+            return authenticator.execute(() -> ops.loadTableWithinCatalogGeneration(dbName, tableName));
+        }
+
+        String getCatalogType() {
+            return catalogType;
+        }
+
+        ExecutionAuthenticator getAuthenticator() {
+            return authenticator;
+        }
+
+        MetastoreProperties getMetastoreProperties() {
+            return metastoreProperties;
+        }
+
+        Map<StorageProperties.Type, StorageProperties> getStorageProperties() {
+            return storageProperties;
+        }
+
+        boolean isEnableMappingVarbinary() {
+            return enableMappingVarbinary;
+        }
+
+        boolean isEnableMappingTimestampTz() {
+            return enableMappingTimestampTz;
+        }
+
+        IcebergCatalogResourceTracker.ResourceLease promote() {
+            return guard.promote();
+        }
+
+        @Override
+        public void close() {
+            guard.close();
         }
     }
 

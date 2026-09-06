@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -35,6 +36,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
@@ -42,6 +44,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 public class IcebergExternalTableTest {
 
@@ -79,7 +82,7 @@ public class IcebergExternalTableTest {
         Mockito.when(icebergTable.specs()).thenReturn(specs);
 
         Assertions.assertFalse(spyTable.isValidRelatedTableCached());
-        Assertions.assertFalse(spyTable.isValidRelatedTable());
+        Assertions.assertFalse(spyTable.isValidRelatedTable(icebergTable));
 
         Mockito.verify(icebergTable, Mockito.times(1)).specs();
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
@@ -94,7 +97,7 @@ public class IcebergExternalTableTest {
         List<PartitionField> fields = Lists.newArrayList();
         Mockito.when(spec.fields()).thenReturn(fields);
 
-        Assertions.assertFalse(spyTable.isValidRelatedTable());
+        Assertions.assertFalse(spyTable.isValidRelatedTable(icebergTable));
         Mockito.verify(spec, Mockito.times(1)).fields();
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertFalse(spyTable.validRelatedTableCache());
@@ -109,7 +112,7 @@ public class IcebergExternalTableTest {
         fields.add(null);
         Mockito.when(spec.fields()).thenReturn(fields);
 
-        Assertions.assertFalse(spyTable.isValidRelatedTable());
+        Assertions.assertFalse(spyTable.isValidRelatedTable(icebergTable));
         Mockito.verify(spec, Mockito.times(2)).fields();
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertFalse(spyTable.validRelatedTableCache());
@@ -125,7 +128,7 @@ public class IcebergExternalTableTest {
         Mockito.doReturn(mockTransform("hour")).when(field).transform();
         Mockito.when(field.sourceId()).thenReturn(1);
 
-        Assertions.assertTrue(spyTable.isValidRelatedTable());
+        Assertions.assertTrue(spyTable.isValidRelatedTable(icebergTable));
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertTrue(spyTable.validRelatedTableCache());
         Mockito.verify(schema, Mockito.times(1)).findColumnName(ArgumentMatchers.anyInt());
@@ -134,13 +137,13 @@ public class IcebergExternalTableTest {
         Mockito.when(field.sourceId()).thenReturn(1);
         spyTable.setIsValidRelatedTableCached(false);
         Assertions.assertFalse(spyTable.isValidRelatedTableCached());
-        Assertions.assertTrue(spyTable.isValidRelatedTable());
+        Assertions.assertTrue(spyTable.isValidRelatedTable(icebergTable));
 
         Mockito.doReturn(mockTransform("month")).when(field).transform();
         Mockito.when(field.sourceId()).thenReturn(1);
         spyTable.setIsValidRelatedTableCached(false);
         Assertions.assertFalse(spyTable.isValidRelatedTableCached());
-        Assertions.assertTrue(spyTable.isValidRelatedTable());
+        Assertions.assertTrue(spyTable.isValidRelatedTable(icebergTable));
         Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertTrue(spyTable.validRelatedTableCache());
     }
@@ -250,6 +253,37 @@ public class IcebergExternalTableTest {
 
     // ── helpers ────────────────────────────────────────────────────────────
 
+    @Test
+    public void testFullSchemaAndColumnWithoutConnectContextUseScopedSnapshotProjection() {
+        ConnectContext.remove();
+        IcebergExternalTable table = createSpyTable();
+        Column column = new Column("id", PrimitiveType.INT);
+        IcebergSchemaCacheValue schemaValue = new IcebergSchemaCacheValue(
+                Lists.newArrayList(column), Lists.newArrayList());
+        IcebergSnapshotCacheValue snapshotValue = Mockito.mock(IcebergSnapshotCacheValue.class);
+        Mockito.when(snapshotValue.getIcebergTable()).thenReturn(java.util.Optional.of(icebergTable));
+        Mockito.when(icebergTable.properties()).thenReturn(java.util.Collections.emptyMap());
+        Mockito.doThrow(new AssertionError("must not reacquire a statement-only table"))
+                .when(table).getIcebergTable();
+
+        try (MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(
+                IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            icebergUtils.when(() -> IcebergUtils.getSchemaCacheValue(table, snapshotValue))
+                    .thenReturn(schemaValue);
+            icebergUtils.when(() -> IcebergUtils.withLatestSnapshotCacheValue(
+                            Mockito.eq(table), Mockito.<Function<IcebergSnapshotCacheValue, Object>>any()))
+                    .thenAnswer(invocation -> {
+                        Function<IcebergSnapshotCacheValue, Object> action = invocation.getArgument(1);
+                        return action.apply(snapshotValue);
+                    });
+
+            Assertions.assertEquals(Lists.newArrayList(column), table.getFullSchema());
+            Assertions.assertSame(column, table.getColumn("ID"));
+            Assertions.assertSame(schemaValue, table.getSchemaCacheValue().orElseThrow(AssertionError::new));
+        }
+        Mockito.verify(table, Mockito.never()).getIcebergTable();
+    }
+
     private IcebergExternalTable createSpyTable() {
         IcebergExternalDatabase db = new IcebergExternalDatabase(mockCatalog, 1L, "db", "db");
         IcebergExternalTable t = new IcebergExternalTable(1, "tbl", "tbl", mockCatalog, db);
@@ -264,7 +298,7 @@ public class IcebergExternalTableTest {
         IcebergExternalTable spy = createSpyTable();
         Map<String, String> properties = Maps.newHashMap();
         properties.put("comment", "my-table-comment");
-        Mockito.when(icebergTable.properties()).thenReturn(properties);
+        Mockito.doReturn(properties).when(spy).properties();
 
         Assertions.assertEquals("my-table-comment", spy.getComment());
 
