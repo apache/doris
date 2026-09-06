@@ -166,6 +166,27 @@ public class ConfigTest {
     }
 
     @Test
+    public void testCloudWarmUpSchedulerIntervalMustBePositive() throws ConfigException {
+        int original = Config.cloud_warm_up_job_scheduler_interval_millisecond;
+        try {
+            ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "2000");
+            Assert.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+
+            ConfigException zeroException = Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "0"));
+            Assert.assertTrue(zeroException.getMessage().contains("must be greater than 0"));
+            Assert.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+
+            ConfigException negativeException = Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "-1"));
+            Assert.assertTrue(negativeException.getMessage().contains("must be greater than 0"));
+            Assert.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+        } finally {
+            Config.cloud_warm_up_job_scheduler_interval_millisecond = original;
+        }
+    }
+
+    @Test
     public void testValidateWebSqlStartupConfig() throws ConfigException {
         int originalIdleTimeout = Config.web_sql_session_idle_timeout_seconds;
         int originalMaxSessions = Config.web_sql_max_sessions;
