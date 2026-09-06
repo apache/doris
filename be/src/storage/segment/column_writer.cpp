@@ -1094,6 +1094,11 @@ Status ArrayColumnWriter::write_ann_index() {
 
 // batch append data for array
 Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+    return _append_data(ptr, num_rows, nullptr);
+}
+
+Status ArrayColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows,
+                                       const uint8_t* row_null_map) {
     // data_ptr contains
     // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
     auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
@@ -1112,10 +1117,18 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         // now only support nested type is scala
         if (writer != nullptr) {
             //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
-            RETURN_IF_ERROR(_inverted_index_writer->add_array_values(
-                    field_type_size(_item_writer->get_column()->type()),
-                    reinterpret_cast<const void*>(data),
-                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+            if (row_null_map == nullptr) {
+                RETURN_IF_ERROR(_inverted_index_writer->add_array_values(
+                        field_type_size(_item_writer->get_column()->type()),
+                        reinterpret_cast<const void*>(data),
+                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+            } else {
+                RETURN_IF_ERROR(_inverted_index_writer->add_nullable_array_values(
+                        field_type_size(_item_writer->get_column()->type()),
+                        reinterpret_cast<const void*>(data),
+                        reinterpret_cast<const uint8_t*>(nested_null_map), row_null_map,
+                        offsets_ptr, num_rows));
+            }
         }
     }
 
@@ -1148,11 +1161,8 @@ uint64_t ArrayColumnWriter::estimate_buffer_size() {
 
 Status ArrayColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                           size_t num_rows) {
-    RETURN_IF_ERROR(append_data(ptr, num_rows));
+    RETURN_IF_ERROR(_append_data(ptr, num_rows, null_map));
     if (is_nullable()) {
-        if (_opts.need_inverted_index) {
-            RETURN_IF_ERROR(_inverted_index_writer->add_array_nulls(null_map, num_rows));
-        }
         RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
     }
     return Status::OK();

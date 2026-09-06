@@ -3735,6 +3735,96 @@ TEST_F(IndexBuilderTest, SniiBuildAllSharesOneColumnScanAndOnePrefixCopy) {
                                  {{.index_id = 1, .index_suffix = ""}}, /*doc_count=*/2);
 }
 
+TEST_F(IndexBuilderTest, SniiBuildIndexAdvancesAcrossAllEmptyArrayBatches) {
+    constexpr uint32_t kEmptyRows = 4096 - 32;
+    const auto tablet_path = _absolute_dir + "/15701";
+
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    TabletColumn key_column;
+    key_column.set_unique_id(1);
+    key_column.set_name("k1");
+    key_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    key_column.set_length(4);
+    key_column.set_index_length(4);
+    key_column.set_is_key(true);
+    key_column.set_is_nullable(false);
+    tablet_schema->append_column(key_column);
+
+    TabletColumn array_column;
+    array_column.set_unique_id(2);
+    array_column.set_name("body");
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_is_nullable(false);
+    TabletColumn item_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_VARCHAR, true);
+    item_column.set_name("body_item");
+    item_column.set_length(65535);
+    array_column.add_sub_column(item_column);
+    tablet_schema->append_column(array_column);
+
+    TabletSharedPtr tablet;
+    ASSERT_TRUE(create_snii_drop_tablet(tablet_schema, tablet_path, &tablet).ok());
+
+    RowsetWriterContext writer_context;
+    writer_context.rowset_id.init(15701);
+    writer_context.tablet_id = tablet->tablet_id();
+    writer_context.tablet_schema_hash = tablet->schema_hash();
+    writer_context.partition_id = 10;
+    writer_context.rowset_type = BETA_ROWSET;
+    writer_context.tablet_path = tablet_path;
+    writer_context.rowset_state = VISIBLE;
+    writer_context.tablet_schema = tablet_schema;
+    writer_context.version = Version(10, 10);
+    auto rowset_writer_result =
+            RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
+    ASSERT_TRUE(rowset_writer_result.has_value()) << rowset_writer_result.error();
+    auto rowset_writer = std::move(rowset_writer_result).value();
+
+    Block block = tablet_schema->create_storage_block();
+    auto columns = std::move(block).mutate_columns();
+    auto& body = assert_cast<ColumnArray&>(*columns[1]);
+    for (uint32_t row = 0; row <= kEmptyRows; ++row) {
+        const int32_t key = cast_set<int32_t>(row);
+        columns[0]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+        Array value;
+        if (row == kEmptyRows) {
+            value.push_back(Field::create_field<TYPE_STRING>(std::string("alpha")));
+        }
+        body.insert(Field::create_field<TYPE_ARRAY>(value));
+    }
+    block.set_columns(std::move(columns));
+    ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+    ASSERT_TRUE(rowset_writer->flush().ok());
+    RowsetSharedPtr source_rowset;
+    ASSERT_TRUE(rowset_writer->build(source_rowset).ok());
+    ASSERT_EQ(source_rowset->num_segments(), 1);
+    ASSERT_TRUE(tablet->add_rowset(source_rowset).ok());
+
+    std::vector<RowsetSharedPtr> output_rowsets;
+    ASSERT_TRUE(build_snii_index(tablet,
+                                 {create_build_index(1, "body_idx", "body", 2,
+                                                     {{"parser", "english"},
+                                                      {"lower_case", "true"},
+                                                      {"support_phrase", "true"}})},
+                                 &output_rowsets)
+                        .ok());
+    ASSERT_EQ(output_rowsets.size(), 1U);
+    const auto& output_rowset = output_rowsets.front();
+    assert_snii_term(output_rowset, tablet->tablet_id(), 2, 1, "alpha", {kEmptyRows});
+
+    auto reader = open_snii_reader(output_rowset, tablet->tablet_id());
+    const auto index_metas = output_rowset->tablet_schema()->inverted_indexs(2);
+    ASSERT_EQ(index_metas.size(), 1U);
+    auto logical_index = reader->open_snii_index(index_metas.front());
+    ASSERT_TRUE(logical_index.has_value()) << logical_index.error();
+    EXPECT_EQ(logical_index.value()->stats().doc_count, kEmptyRows + 1);
+}
+
 // A retried build names an index the rowset schema already carries: the rowset
 // is skipped upstream (pick_candidate_rowsets_to_build_inverted_index), so no
 // analyzer, decode or encode runs and nothing is rewritten. The same-key-with-

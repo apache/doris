@@ -1028,6 +1028,82 @@ TEST_F(CollectionStatisticsTest, SniiCommonGramsUsesSemanticScoringStatistics) {
     expect_collected_term(L"1", L"alpha", 2);
 }
 
+// THE case this whole change exists for, driven through the public entry point
+// (CollectionStatistics::collect) rather than through SniiStatsProvider. An
+// ordinary analyzed SNII index -- no CommonGrams anywhere -- must yield
+// collection statistics instead of "SNII semantic scoring metadata is missing".
+// A per-segment test cannot catch this: the collector rejects the segment before
+// the scorer is ever reached.
+TEST_F(CollectionStatisticsTest, SniiPlainAnalyzedIndexCollectsScoringStatistics) {
+    auto tablet_schema = create_snii_schema();
+    auto expr_contexts = create_match_expr_contexts("alpha", "test-base-v1");
+
+    const std::string segment_path = test_dir_ + "/snii_plain_collect_0.dat";
+    auto write_status = write_plain_snii_scoring_segment(segment_path);
+    ASSERT_TRUE(write_status.ok()) << write_status;
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    auto status =
+            stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts, nullptr);
+
+    ASSERT_TRUE(status.ok()) << status;
+    // The fixture writes 2 docs / 3 tokens, with "alpha" in both.
+    expect_collected_stats(L"1", 2, 3);
+    expect_collected_term(L"1", L"alpha", 2);
+}
+
+// One field, two segment shapes: a CommonGrams segment and an ordinary analyzed
+// one, which is what a table gets when enable_common_grams_index_build is
+// toggled between loads. Their statistics ARE combinable -- a CommonGrams
+// segment's physical sum_total_term_freq is inflated by gram tokens, but its
+// metadata carries the un-grammed semantic count, and a plain segment's physical
+// count is already semantic. The plain postings are complete on both sides:
+// SpimiTermBuffer::add_common_gram_and_plain writes the gram AND the plain
+// posting for the token, so df is measured the same way.
+//
+// Only the CommonGrams shape records a base-analyzer identity, because its term
+// keys depend on the dictionary. An absent identity must not be read as "a
+// different analyzer" -- doing so rejected the whole mixed collection.
+TEST_F(CollectionStatisticsTest, SniiMixedCommonGramsAndPlainSegmentsCombine) {
+    auto tablet_schema = create_snii_schema();
+    auto expr_contexts = create_match_expr_contexts("alpha", "test-base-v1");
+    const auto* analyzer_ctx = expr_contexts.front()->root()->query_analyzer_ctx();
+    ASSERT_NE(analyzer_ctx, nullptr);
+    ASSERT_NE(analyzer_ctx->analyzer_provider, nullptr);
+
+    const std::string common_grams_path = test_dir_ + "/snii_mixed_cg_0.dat";
+    ASSERT_TRUE(write_snii_common_grams_segment(
+                        common_grams_path,
+                        std::string(analyzer_ctx->analyzer_provider->base_analyzer_fingerprint()))
+                        .ok());
+    const std::string plain_path = test_dir_ + "/snii_mixed_plain_0.dat";
+    ASSERT_TRUE(write_plain_snii_scoring_segment(plain_path).ok());
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(2);
+    rowset->set_segment_path(0, common_grams_path);
+    rowset->set_segment_path(1, plain_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    auto status =
+            stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts, nullptr);
+
+    ASSERT_TRUE(status.ok()) << status;
+    // Each fixture writes 2 docs / 3 semantic tokens with "alpha" in both, so the
+    // collection is the sum of the two -- the CommonGrams segment contributing
+    // its semantic token count, not its gram-inflated physical one.
+    expect_collected_stats(L"1", 4, 6);
+    expect_collected_term(L"1", L"alpha", 4);
+}
+
 TEST_F(CollectionStatisticsTest, SniiScoringLookupUsesCallerIoContext) {
     snii::snii_test::ScopedEnv force_nonresident_dict("SNII_DICT_RESIDENT_MAX", "0");
     auto tablet_schema = create_snii_schema();
@@ -1106,10 +1182,37 @@ TEST_F(CollectionStatisticsTest, SniiStatsProviderUsesSemanticCommonGramsTokenCo
     EXPECT_TRUE(provider.has_norms());
 }
 
-TEST_F(CollectionStatisticsTest, SniiWriterRejectsMissingSemanticScoringMetadata) {
-    const std::string segment_path = test_dir_ + "/snii_missing_scoring_metadata_0.dat";
+// A scoring index without CommonGrams metadata is the ORDINARY analyzed shape,
+// not a defect: CommonGrams only changes what the semantic token count means.
+// This used to be rejected at write time, which is what made an ordinary SNII
+// index unscoreable while V1/V2/V3 scored the same index.
+TEST_F(CollectionStatisticsTest, SniiScoringSegmentWithoutCommonGramsIsReadable) {
+    const std::string segment_path = test_dir_ + "/snii_plain_scoring_metadata_0.dat";
     auto write_status = write_plain_snii_scoring_segment(segment_path);
-    EXPECT_EQ(write_status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+    ASSERT_TRUE(write_status.ok()) << write_status;
+
+    const std::string index_path_prefix {
+            segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
+    segment_v2::IndexFileReader file_reader(io::global_local_filesystem(), index_path_prefix,
+                                            InvertedIndexStorageFormatPB::SNII);
+    ASSERT_TRUE(file_reader.init().ok());
+    auto tablet_schema = create_snii_schema();
+    const auto index_metas = tablet_schema->inverted_indexs(1);
+    ASSERT_EQ(index_metas.size(), 1);
+    auto logical_reader = file_reader.open_snii_index(index_metas.front());
+    ASSERT_TRUE(logical_reader.has_value()) << logical_reader.error();
+    EXPECT_EQ(logical_reader->get()->common_grams_metadata(), nullptr);
+
+    snii::stats::SniiStatsProvider provider;
+    ASSERT_TRUE(snii::stats::SniiStatsProvider::open(logical_reader->get(), &provider).ok());
+    // The physical statistics ARE the semantic ones here, so they are used as is.
+    EXPECT_EQ(provider.doc_count(), 2);
+    EXPECT_EQ(provider.sum_total_term_freq(), 3);
+    EXPECT_DOUBLE_EQ(provider.avgdl(), 1.5);
+    EXPECT_TRUE(provider.has_norms());
+    uint8_t norm = 0;
+    ASSERT_TRUE(provider.encoded_norm(0, &norm).ok());
+    EXPECT_EQ(norm, snii::query::encode_norm(2));
 }
 
 TEST_F(CollectionStatisticsTest, SniiScoringRejectsMissingSegmentForWholeCollection) {
@@ -1250,11 +1353,33 @@ Result<SniiScoringSegmentStats> resolve_snii_scoring_segment_for_test(
                                         /*has_positions=*/true, has_norms);
 }
 
-TEST(CollectionStatisticsCommonGramsTest, MissingMetadataWithoutPersistedProofRejectsScoring) {
-    auto result = resolve_snii_scoring_segment_for_test(std::nullopt, 3, true);
+// No CommonGrams metadata is the ORDINARY analyzed shape. Its postings carry no
+// gram tokens, so the physical statistics are already the semantic ones and its
+// term keys are raw.
+TEST(CollectionStatisticsCommonGramsTest, MissingMetadataOnAScoringSegmentIsThePlainShape) {
+    auto result = resolve_snii_scoring_segment(std::nullopt, /*index_doc_count=*/3,
+                                               /*physical_sum_total_term_freq=*/12,
+                                               /*has_scoring_tier=*/true,
+                                               /*has_positions=*/true, /*has_semantic_norms=*/true);
 
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result->doc_count, 3);
+    EXPECT_EQ(result->token_count, 12);
+    EXPECT_EQ(result->plain_term_key_version,
+              segment_v2::inverted_index::PlainTermKeyVersion::kLegacyRaw);
+    EXPECT_TRUE(result->base_analyzer_fingerprint.empty());
+}
+
+// ... but only when the segment actually persists what BM25 needs. Each missing
+// piece is rejected on its own so a partial shape can never slip through.
+TEST(CollectionStatisticsCommonGramsTest, MissingMetadataWithoutScoringDataIsRejected) {
+    for (const auto& [tier, positions, norms] : std::vector<std::tuple<bool, bool, bool>> {
+                 {false, true, true}, {true, false, true}, {true, true, false}}) {
+        auto result = resolve_snii_scoring_segment(std::nullopt, 3, 12, tier, positions, norms);
+        ASSERT_FALSE(result.has_value())
+                << "tier=" << tier << " positions=" << positions << " norms=" << norms;
+        EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+    }
 }
 
 TEST(CollectionStatisticsCommonGramsTest, RawNoInternalMetadataWithoutScoringProofIsRejected) {
@@ -1464,13 +1589,24 @@ TEST_F(CollectionStatisticsTest, LegacyAndUnprovedRawNoInternalRejectWholeCollec
     EXPECT_THROW(stats_->get_doc_num(), Exception);
 }
 
+// A LEGACY segment -- one that persists no scoring data at all -- still poisons
+// the whole collection when mixed with a scoring one: it can contribute neither
+// a document length nor a token count, so any average computed over the mix
+// would be wrong for part of it.
+//
+// The marker for "legacy" is the absence of SCORING DATA (no norms here), not
+// the absence of CommonGrams metadata. Those were the same thing while scoring
+// rode on CommonGrams; they are not any more, and a no-metadata segment that
+// does carry norms is the ordinary analyzed shape -- see
+// SniiMixedCommonGramsAndPlainSegmentsCombine.
 TEST_F(CollectionStatisticsTest, LegacyAndCommonGramsMixRejectsWholeCollection) {
     ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1",
                                             complete_snii_scoring_metadata("base-v1", 2, 6), 2,
                                             true)
                         .ok());
 
-    auto status = admit_snii_segment_for_test(stats_.get(), L"1", std::nullopt, 3, true);
+    auto status = admit_snii_segment_for_test(stats_.get(), L"1", std::nullopt, 3,
+                                              /*has_semantic_norms=*/false);
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     expect_no_collected_tokens(L"1");
