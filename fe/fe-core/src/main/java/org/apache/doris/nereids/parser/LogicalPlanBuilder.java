@@ -645,6 +645,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminSetAutoClusterSnapshot
 import org.apache.doris.nereids.trees.plans.commands.AdminSetClusterSnapshotFeatureSwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetEncryptionRootKeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
+import org.apache.doris.nereids.trees.plans.commands.HboStatisticsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
@@ -7107,6 +7108,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             NodeType.FRONTEND,
             configs,
             applyToAll);
+    }
+
+    @Override
+    public LogicalPlan visitHboSetStatistics(DorisParser.HboSetStatisticsContext ctx) {
+        checkHboStatementWords(ctx.hbo, ctx.statistics);
+        String fingerprint = stripQuotes(ctx.key.getText());
+        long rows = Long.parseLong(ctx.rows.getText());
+        return new HboStatisticsCommand(HboStatisticsCommand.Op.SET, fingerprint, rows);
+    }
+
+    @Override
+    public LogicalPlan visitHboDeleteStatistics(DorisParser.HboDeleteStatisticsContext ctx) {
+        checkHboStatementWords(ctx.hbo, ctx.statistics);
+        String fingerprint = stripQuotes(ctx.key.getText());
+        return new HboStatisticsCommand(HboStatisticsCommand.Op.DELETE, fingerprint, 0);
+    }
+
+    private void checkHboStatementWords(
+            org.antlr.v4.runtime.ParserRuleContext hboWord,
+            org.antlr.v4.runtime.ParserRuleContext statisticsWord) {
+        if (hboWord == null || !"hbo".equalsIgnoreCase(hboWord.getText())) {
+            throw new ParseException("expect 'HBO' at the beginning of hbo statement");
+        }
+        if (statisticsWord == null || !"statistics".equalsIgnoreCase(statisticsWord.getText())) {
+            throw new ParseException("expect 'STATISTICS' keyword in hbo statement");
+        }
     }
 
     @Override

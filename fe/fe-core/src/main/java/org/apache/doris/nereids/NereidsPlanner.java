@@ -54,6 +54,8 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
+import org.apache.doris.nereids.stats.GroupStructInfo;
+import org.apache.doris.nereids.stats.HboPlanInfoProvider;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -635,8 +637,23 @@ public class NereidsPlanner extends Planner {
      * @param context PlanTranslatorContext
      */
     private void collectHboPlanInfo(String queryId, PhysicalPlan root, PlanTranslatorContext context) {
+        // map of memo group id -> group, built lazily for the KEY_GROUP fallback of nodes that
+        // lost their group-expression back reference during post process (only needed when the
+        // struct-info fingerprint is in use)
+        Map<Integer, Group> groupsById = null;
+        if (Config.hbo_use_struct_info_fingerprint) {
+            groupsById = new HashMap<>();
+            for (Group group : cascadesContext.getMemo().getGroups()) {
+                groupsById.put(group.getGroupId().asInt(), group);
+            }
+        }
+        collectHboPlanInfo(queryId, root, context, groupsById);
+    }
+
+    private void collectHboPlanInfo(String queryId, PhysicalPlan root, PlanTranslatorContext context,
+            Map<Integer, Group> groupsById) {
         for (Object child : root.children()) {
-            collectHboPlanInfo(queryId, (PhysicalPlan) child, context);
+            collectHboPlanInfo(queryId, (PhysicalPlan) child, context, groupsById);
         }
         if (root instanceof AbstractPlan) {
             int nodeId = ((AbstractPlan) root).getId();
@@ -656,6 +673,22 @@ public class NereidsPlanner extends Planner {
                             .getHboPlanInfoProvider().putPlanToIdMap(queryId, planToIdMap);
                 }
                 planToIdMap.put(root, planId.asInt());
+                // snapshot the hbo fingerprint (simplified group struct info) per plan node id;
+                // consumed by the profile publish path after the memo has been released
+                if (Config.hbo_use_struct_info_fingerprint) {
+                    Optional<String> fingerprint = GroupStructInfo.fingerprintOfPlanNode(
+                            (AbstractPlan) root, groupsById);
+                    if (fingerprint.isPresent()) {
+                        HboPlanInfoProvider planInfoProvider = Env.getCurrentEnv()
+                                .getHboPlanStatisticsManager().getHboPlanInfoProvider();
+                        Map<Integer, String> nodeFingerprints = planInfoProvider
+                                .getNodeIdToFingerprintMap(queryId);
+                        if (nodeFingerprints.isEmpty()) {
+                            planInfoProvider.putNodeIdToFingerprintMap(queryId, nodeFingerprints);
+                        }
+                        nodeFingerprints.put(nodeId, fingerprint.get());
+                    }
+                }
             }
         }
     }

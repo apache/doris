@@ -68,6 +68,14 @@ statementBase
     | analyzeStatsStatement
     | transactionStatement
     | grantRevokeStatement
+    | hboStatement
+    ;
+
+// HBO manual statistics management. 'HBO' and 'STATISTICS' are not reserved keywords, so they
+// are matched as identifiers and validated in the logical plan builder.
+hboStatement
+    : hbo=identifier SET statistics=identifier key=STRING_LITERAL EQ rows=INTEGER_VALUE  #hboSetStatistics
+    | hbo=identifier DELETE statistics=identifier key=STRING_LITERAL                     #hboDeleteStatistics
     ;
 
 queryOrDmlStatement

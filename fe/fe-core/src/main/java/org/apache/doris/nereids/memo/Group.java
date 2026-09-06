@@ -22,6 +22,7 @@ import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.stats.GroupStructInfo;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -85,6 +86,14 @@ public class Group {
     private List<Integer> chosenEnforcerIdList = new ArrayList<>();
 
     private StructInfoMap structInfoMap = new StructInfoMap();
+
+    /**
+     * Cached simplified struct info (and its fingerprint) used by HBO. Computed lazily on the
+     * first HBO lookup; all group expressions of this group share the same struct info.
+     * Null means not computed yet; {@link GroupStructInfo#INVALID} means the group content is
+     * not supported by the simplified struct info.
+     */
+    private GroupStructInfo hboStructInfo;
 
     /**
      * Constructor for Group.
@@ -169,6 +178,19 @@ public class Group {
         Preconditions.checkArgument(logicalExpressions.size() == 1,
                 "There should be only one Logical Expression in Group");
         return logicalExpressions.get(0);
+    }
+
+    /**
+     * Get the simplified HBO struct info of this group, computing and caching it on first use.
+     * <p>
+     * NOTE: optimization is single threaded, so no synchronization is needed; the field is not
+     * volatile by design (group objects never leave the planner thread).
+     */
+    public GroupStructInfo getOrComputeHboStructInfo() {
+        if (hboStructInfo == null) {
+            hboStructInfo = GroupStructInfo.of(this);
+        }
+        return hboStructInfo;
     }
 
     public GroupExpression getFirstLogicalExpression() {
