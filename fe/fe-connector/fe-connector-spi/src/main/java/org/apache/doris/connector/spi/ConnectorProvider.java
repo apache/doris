@@ -118,6 +118,18 @@ public interface ConnectorProvider extends PluginFactory {
     }
 
     /**
+     * Validates whether this catalog configuration supports CREATE TABLE.
+     * Called before catalog initialization so an unsupported operation cannot trigger remote metadata access.
+     * Default implementation accepts the operation.
+     *
+     * @param properties persisted catalog configuration properties
+     * @throws DorisConnectorException if CREATE TABLE is unsupported for this configuration
+     */
+    default void validateCreateTable(Map<String, String> properties) {
+        // no-op by default
+    }
+
+    /**
      * Whether connectors of this type expose an incremental metadata-change source through
      * {@code Connector#getEventSource()}.
      *

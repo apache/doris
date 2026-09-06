@@ -113,6 +113,30 @@ class OssFileSystemPropertiesTest {
     }
 
     @Test
+    void bind_acceptsCanonicalDlfCredentialsAndToken() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "dlf.catalog.endpoint", "dlf.cn-hangzhou.aliyuncs.com",
+                "dlf.catalog.accessKeyId", "dlf-ak",
+                "dlf.catalog.accessKeySecret", "dlf-sk",
+                "dlf.catalog.securityToken", "dlf-token"));
+
+        Assertions.assertEquals("oss-cn-hangzhou-internal.aliyuncs.com", properties.getEndpoint());
+        Assertions.assertEquals("cn-hangzhou", properties.getRegion());
+        Assertions.assertEquals("dlf-ak", properties.getAccessKey());
+        Assertions.assertEquals("dlf-sk", properties.getSecretKey());
+        Assertions.assertEquals("dlf-token", properties.getSessionToken());
+    }
+
+    @Test
+    void bind_derivesRegionFromDlfVpcEndpoint() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "dlf.catalog.endpoint", "https://dlf-vpc.cn-shanghai.aliyuncs.com"));
+
+        Assertions.assertEquals("cn-shanghai", properties.getRegion());
+        Assertions.assertEquals("oss-cn-shanghai-internal.aliyuncs.com", properties.getEndpoint());
+    }
+
+    @Test
     void toBackendProperties_returnsOnlyAwsCompatibleKeysForBeAdapters() {
         OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
                 "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",

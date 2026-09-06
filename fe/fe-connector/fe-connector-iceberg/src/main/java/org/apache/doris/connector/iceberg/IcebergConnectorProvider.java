@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import java.util.Collections;
 import java.util.Map;
@@ -65,5 +66,12 @@ public class IcebergConnectorProvider implements ConnectorProvider {
     @Override
     public void validateProperties(Map<String, String> properties) {
         IcebergCatalogProperties.of(properties).checkCreateTimeOnlyRules();
+    }
+
+    @Override
+    public void validateCreateTable(Map<String, String> properties) {
+        if (IcebergCatalogProperties.TYPE_DLF.equals(IcebergCatalogProperties.of(properties).getFlavor())) {
+            throw new DorisConnectorException("CREATE TABLE is not supported for Iceberg DLF catalogs");
+        }
     }
 }

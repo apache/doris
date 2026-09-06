@@ -31,7 +31,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /** Catalog-scoped cache of DLF client pools. */
-public class DLFCachedClientPool implements ClientPool<IMetaStoreClient, TException> {
+public class DLFCachedClientPool implements ClientPool<IMetaStoreClient, TException>, AutoCloseable {
 
     private Cache<String, DLFClientPool> clientPoolCache;
     private final Configuration conf;
@@ -54,6 +54,7 @@ public class DLFCachedClientPool implements ClientPool<IMetaStoreClient, TExcept
     private void initializeClientPoolCache() {
         clientPoolCache = Caffeine.newBuilder()
                 .expireAfterAccess(evictionInterval, TimeUnit.MILLISECONDS)
+                .executor(Runnable::run)
                 .removalListener((key, value, cause) -> ((DLFClientPool) value).close())
                 .build();
     }
@@ -71,5 +72,12 @@ public class DLFCachedClientPool implements ClientPool<IMetaStoreClient, TExcept
     public <R> R run(Action<R, IMetaStoreClient, TException> action, boolean retry)
             throws TException, InterruptedException {
         return clientPool().run(action, retry);
+    }
+
+    @Override
+    public void close() {
+        // Synchronous removal guarantees all configuration-bound clients are released before catalog close returns.
+        clientPoolCache.invalidateAll();
+        clientPoolCache.cleanUp();
     }
 }

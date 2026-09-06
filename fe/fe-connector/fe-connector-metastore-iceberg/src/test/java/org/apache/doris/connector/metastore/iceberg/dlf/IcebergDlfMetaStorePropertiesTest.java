@@ -65,6 +65,20 @@ public class IcebergDlfMetaStorePropertiesTest {
     public void providerExposesEveryCredentialAliasAsSensitive() {
         Assertions.assertTrue(new IcebergDlfMetaStoreProvider().sensitivePropertyKeys().containsAll(
                 java.util.Arrays.asList("dlf.access_key", "dlf.catalog.accessKeyId", "dlf.secret_key",
-                        "dlf.catalog.accessKeySecret", "dlf.session_token", "dlf.catalog.sessionToken")));
+                        "dlf.catalog.secret_key", "dlf.catalog.accessKeySecret", "dlf.session_token",
+                        "dlf.catalog.sessionToken", "dlf.catalog.securityToken")));
+    }
+
+    @Test
+    public void canonicalAliasesPopulateDlfConfiguration() {
+        Map<String, String> conf = of(raw(
+                "dlf.catalog.accessKeyId", "ak",
+                "dlf.catalog.accessKeySecret", "sk",
+                "dlf.catalog.securityToken", "token",
+                "dlf.catalog.endpoint", "dlf.cn-hangzhou.aliyuncs.com")).toDlfCatalogConf();
+
+        Assertions.assertEquals("ak", conf.get("dlf.catalog.accessKeyId"));
+        Assertions.assertEquals("sk", conf.get("dlf.catalog.accessKeySecret"));
+        Assertions.assertEquals("token", conf.get("dlf.catalog.securityToken"));
     }
 }

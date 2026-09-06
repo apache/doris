@@ -30,15 +30,18 @@ import java.util.Map;
 public abstract class AbstractDlfMetaStoreProperties extends AbstractMetaStoreProperties
         implements DlfMetaStoreProperties {
 
+    // These aliases must stay aligned with both OSS binders so one credential set reaches metadata and storage.
     @ConnectorProperty(names = {"dlf.access_key", "dlf.catalog.accessKeyId"}, required = false, sensitive = true,
             description = "DLF access key id.")
     private String accessKey = "";
 
-    @ConnectorProperty(names = {"dlf.secret_key", "dlf.catalog.accessKeySecret"}, required = false, sensitive = true,
+    @ConnectorProperty(names = {"dlf.secret_key", "dlf.catalog.secret_key", "dlf.catalog.accessKeySecret"},
+            required = false, sensitive = true,
             description = "DLF access key secret.")
     private String secretKey = "";
 
-    @ConnectorProperty(names = {"dlf.session_token", "dlf.catalog.sessionToken"}, required = false, sensitive = true,
+    @ConnectorProperty(names = {"dlf.session_token", "dlf.catalog.sessionToken", "dlf.catalog.securityToken"},
+            required = false, sensitive = true,
             description = "DLF session/security token.")
     private String sessionToken = "";
 

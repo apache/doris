@@ -522,6 +522,14 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     @Override
     public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
+        Map<String, String> properties = getProperties();
+        try {
+            // Unsupported configuration-specific DDL must fail before initialization can touch a remote service.
+            ConnectorFactory.findProvider(getType(), properties)
+                    .ifPresent(provider -> provider.validateCreateTable(properties));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
         makeSureInitialized();
         // The database already has a remote identity; the new table name is itself the remote target.
         ExternalDatabase<? extends ExternalTable> db = getDbNullable(createTableInfo.getDbName());

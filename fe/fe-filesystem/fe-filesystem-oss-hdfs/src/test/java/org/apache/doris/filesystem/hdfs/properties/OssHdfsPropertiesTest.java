@@ -147,6 +147,23 @@ class OssHdfsPropertiesTest {
     }
 
     @Test
+    void canonicalDlfCredentialsAndTokenAreBoundEndToEnd() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("dlf.catalog.endpoint", "dlf-vpc.cn-beijing.aliyuncs.com");
+        raw.put("dlf.catalog.accessKeyId", "dlf-ak");
+        raw.put("dlf.catalog.accessKeySecret", "dlf-sk");
+        raw.put("dlf.catalog.securityToken", "dlf-token");
+
+        Map<String, String> resolved = resolve(raw);
+
+        Assertions.assertEquals("dlf-ak", resolved.get("fs.oss.accessKeyId"));
+        Assertions.assertEquals("dlf-sk", resolved.get("fs.oss.accessKeySecret"));
+        Assertions.assertEquals("dlf-token", resolved.get("fs.oss.securityToken"));
+        Assertions.assertEquals("cn-beijing", resolved.get("fs.oss.region"));
+        Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", resolved.get("fs.oss.endpoint"));
+    }
+
+    @Test
     void guessIsMeTrueForOssDlsEndpoint() {
         Map<String, String> raw = new HashMap<>();
         raw.put("oss.endpoint", "cn-beijing.oss-dls.aliyuncs.com");

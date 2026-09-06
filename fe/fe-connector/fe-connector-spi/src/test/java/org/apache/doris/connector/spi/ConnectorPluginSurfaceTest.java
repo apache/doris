@@ -75,8 +75,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Storage predicate pruning added a public ConnectorCapability constant. Major 7 lets an older FE
-        // reject a plugin using it before resolving the missing enum field.
+        // Storage predicate pruning and provider-level DDL validation both changed the public surface in
+        // major 7. An older FE must reject plugins using either addition before linking incompatible bytecode.
         Assertions.assertEquals("7.0", version.getProperty("api.version"));
     }
 

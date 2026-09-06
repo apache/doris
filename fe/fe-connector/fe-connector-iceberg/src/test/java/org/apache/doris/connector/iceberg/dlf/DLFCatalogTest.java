@@ -33,4 +33,16 @@ public class DLFCatalogTest {
         Assertions.assertEquals("https://s3.oss-cn-beijing.aliyuncs.com",
                 DLFCatalog.toS3CompatibleEndpoint("https://oss-cn-beijing.aliyuncs.com", "cn-beijing"));
     }
+
+    @Test
+    public void toS3CompatibleEndpointIsIdempotentForPublicEndpoint() {
+        Assertions.assertEquals("https://s3.oss-cn-beijing.aliyuncs.com",
+                DLFCatalog.toS3CompatibleEndpoint("https://s3.oss-cn-beijing.aliyuncs.com", "cn-beijing"));
+    }
+
+    @Test
+    public void toS3CompatibleEndpointIsIdempotentForInternalEndpoint() {
+        Assertions.assertEquals("http://s3.oss-cn-hangzhou-internal.aliyuncs.com",
+                DLFCatalog.toS3CompatibleEndpoint("s3.oss-cn-hangzhou-internal.aliyuncs.com", "cn-hangzhou"));
+    }
 }
