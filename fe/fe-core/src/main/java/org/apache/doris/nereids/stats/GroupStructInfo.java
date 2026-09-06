@@ -132,14 +132,35 @@ public class GroupStructInfo {
     }
 
     private static Optional<String> fingerprintOfGroup(Group group) {
+        return structInfoOfGroup(group).map(GroupStructInfo::getFingerprint);
+    }
+
+    /**
+     * Resolve the {@link GroupStructInfo} (with canonical string and fingerprint) of the group a
+     * plan node belongs to, using the group-expression back reference or the KEY_GROUP group-id
+     * state propagated by post processors (see {@link #fingerprintOfPlanNode}).
+     */
+    public static Optional<GroupStructInfo> structInfoOfPlanNode(AbstractPlan planNode, Map<Integer, Group> groupsById) {
+        Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
+        if (group == null) {
+            Optional<Object> groupState = planNode.getMutableState(MutableState.KEY_GROUP);
+            if (groupState.isPresent() && groupsById != null) {
+                try {
+                    group = groupsById.get(Integer.valueOf(groupState.get().toString()));
+                } catch (NumberFormatException ignored) {
+                    group = null;
+                }
+            }
+        }
+        return structInfoOfGroup(group);
+    }
+
+    private static Optional<GroupStructInfo> structInfoOfGroup(Group group) {
         if (group == null) {
             return Optional.empty();
         }
         GroupStructInfo structInfo = group.getOrComputeHboStructInfo();
-        if (!structInfo.isValid()) {
-            return Optional.empty();
-        }
-        return Optional.of(structInfo.getFingerprint());
+        return structInfo.isValid() ? Optional.of(structInfo) : Optional.empty();
     }
 
     /**
