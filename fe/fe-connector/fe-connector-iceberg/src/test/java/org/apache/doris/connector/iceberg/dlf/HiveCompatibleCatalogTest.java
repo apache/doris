@@ -22,6 +22,7 @@ import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.iceberg.BaseMetastoreTableOperations;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.ClientPool;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableOperations;
@@ -29,6 +30,8 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.metrics.MetricsReport;
+import org.apache.iceberg.metrics.MetricsReporter;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -36,6 +39,7 @@ import shade.doris.hive.org.apache.thrift.TException;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -58,6 +62,49 @@ public class HiveCompatibleCatalogTest {
 
         Assertions.assertEquals(List.of(TableIdentifier.of("db", "iceberg_table")),
                 catalog.listTables(Namespace.of("db")));
+    }
+
+    @Test
+    public void listTablesFetchesMetadataInBoundedChunks() {
+        List<String> names = new ArrayList<>();
+        List<Integer> batchSizes = new ArrayList<>();
+        for (int i = 0; i < 205; i++) {
+            names.add("table_" + i);
+        }
+        TestCatalog catalog = catalog(client((method, args) -> {
+            if (method.equals("getAllTables")) {
+                return names;
+            }
+            if (method.equals("getTableObjectsByName")) {
+                @SuppressWarnings("unchecked")
+                List<String> batch = (List<String>) args[1];
+                batchSizes.add(batch.size());
+                return batch.stream().map(name -> table(name, "ICEBERG")).collect(java.util.stream.Collectors.toList());
+            }
+            return null;
+        }));
+
+        Assertions.assertEquals(205, catalog.listTables(Namespace.of("db")).size());
+        Assertions.assertEquals(List.of(100, 100, 5), batchSizes);
+    }
+
+    @Test
+    public void catalogPropertiesInitializeAndCloseConfiguredMetricsReporter() throws Exception {
+        RecordingMetricsReporter.reset();
+        Map<String, String> properties = Map.of(
+                CatalogProperties.METRICS_REPORTER_IMPL, RecordingMetricsReporter.class.getName(),
+                "custom-catalog-property", "preserved");
+        TestCatalog catalog = new TestCatalog();
+        catalog.initialize("test", null, new RecordingClientPool(client((method, args) -> null)), properties);
+
+        Assertions.assertEquals(properties, catalog.catalogProperties());
+        catalog.initializeMetricsReporter();
+        Assertions.assertEquals(1, RecordingMetricsReporter.initializes.get());
+        Assertions.assertEquals("preserved", RecordingMetricsReporter.initializedProperties.get(
+                "custom-catalog-property"));
+
+        catalog.close();
+        Assertions.assertEquals(1, RecordingMetricsReporter.closes.get());
     }
 
     @Test
@@ -233,6 +280,41 @@ public class HiveCompatibleCatalogTest {
         @Override
         protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
             return null;
+        }
+
+        private Map<String, String> catalogProperties() {
+            return properties();
+        }
+
+        private void initializeMetricsReporter() {
+            metricsReporter();
+        }
+    }
+
+    public static final class RecordingMetricsReporter implements MetricsReporter {
+        private static final AtomicInteger initializes = new AtomicInteger();
+        private static final AtomicInteger closes = new AtomicInteger();
+        private static Map<String, String> initializedProperties;
+
+        private static void reset() {
+            initializes.set(0);
+            closes.set(0);
+            initializedProperties = null;
+        }
+
+        @Override
+        public void initialize(Map<String, String> properties) {
+            initializes.incrementAndGet();
+            initializedProperties = properties;
+        }
+
+        @Override
+        public void report(MetricsReport report) {
+        }
+
+        @Override
+        public void close() {
+            closes.incrementAndGet();
         }
     }
 }

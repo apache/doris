@@ -164,6 +164,18 @@ class OssHdfsPropertiesTest {
     }
 
     @Test
+    void mixedCaseDlfEndpointIsConvertedToOssDlsEndpoint() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("dlf.catalog.endpoint", "DLF-VPC.CN-BEIJING.ALIYUNCS.COM");
+        raw.put("dlf.catalog.accessKeyId", "dlf-ak");
+        raw.put("dlf.catalog.accessKeySecret", "dlf-sk");
+
+        Map<String, String> resolved = resolve(raw);
+
+        Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", resolved.get("fs.oss.endpoint"));
+    }
+
+    @Test
     void guessIsMeTrueForOssDlsEndpoint() {
         Map<String, String> raw = new HashMap<>();
         raw.put("oss.endpoint", "cn-beijing.oss-dls.aliyuncs.com");

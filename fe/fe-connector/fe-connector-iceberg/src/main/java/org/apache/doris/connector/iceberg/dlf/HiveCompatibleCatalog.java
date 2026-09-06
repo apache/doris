@@ -43,7 +43,9 @@ import shade.doris.hive.org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -58,6 +60,9 @@ public abstract class HiveCompatibleCatalog extends BaseMetastoreCatalog impleme
     protected String catalogName;
     private boolean listAllTables;
     private boolean closed;
+    private Map<String, String> catalogProperties = Collections.emptyMap();
+
+    private static final int GET_TABLES_BATCH_SIZE = 100;
 
     public void initialize(String name, FileIO fileIO, ClientPool<IMetaStoreClient, TException> clients) {
         initialize(name, fileIO, clients, Map.of());
@@ -68,6 +73,7 @@ public abstract class HiveCompatibleCatalog extends BaseMetastoreCatalog impleme
         this.catalogName = name;
         this.fileIO = fileIO;
         this.clients = clients;
+        this.catalogProperties = Collections.unmodifiableMap(new LinkedHashMap<>(properties));
         this.listAllTables = Boolean.parseBoolean(properties.getOrDefault(
                 HiveCatalog.LIST_ALL_TABLES, HiveCatalog.LIST_ALL_TABLES_DEFAULT));
     }
@@ -97,6 +103,11 @@ public abstract class HiveCompatibleCatalog extends BaseMetastoreCatalog impleme
     }
 
     @Override
+    protected Map<String, String> properties() {
+        return catalogProperties;
+    }
+
+    @Override
     public List<TableIdentifier> listTables(Namespace namespace) {
         if (!isValidNamespace(namespace)) {
             throw new NoSuchNamespaceException("Namespace does not exist: %s", namespace);
@@ -110,14 +121,21 @@ public abstract class HiveCompatibleCatalog extends BaseMetastoreCatalog impleme
                         .collect(Collectors.toList());
             }
             // DLF namespaces are format-shared; publishing non-Iceberg names creates unusable Doris tables.
-            List<Table> tables = clients.run(client -> client.getTableObjectsByName(dbName, tableNames));
-            return tables.stream()
-                    .filter(table -> table.getParameters() != null
-                            && BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE.equalsIgnoreCase(
-                                    table.getParameters().get(BaseMetastoreTableOperations.TABLE_TYPE_PROP)))
-                    .map(Table::getTableName)
-                    .map(table -> TableIdentifier.of(dbName, table))
-                    .collect(Collectors.toList());
+            List<TableIdentifier> icebergTables = new ArrayList<>();
+            // DLF forwards this method as one BatchGet request, whose service-side limit is 100 tables.
+            for (int start = 0; start < tableNames.size(); start += GET_TABLES_BATCH_SIZE) {
+                int end = Math.min(start + GET_TABLES_BATCH_SIZE, tableNames.size());
+                List<String> batch = tableNames.subList(start, end);
+                // Filter each response before fetching the next batch so full table descriptors stay bounded.
+                clients.run(client -> client.getTableObjectsByName(dbName, batch)).stream()
+                        .filter(table -> table.getParameters() != null
+                                && BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE.equalsIgnoreCase(
+                                        table.getParameters().get(BaseMetastoreTableOperations.TABLE_TYPE_PROP)))
+                        .map(Table::getTableName)
+                        .map(table -> TableIdentifier.of(dbName, table))
+                        .forEach(icebergTables::add);
+            }
+            return icebergTables;
         } catch (UnknownDBException e) {
             throw new NoSuchNamespaceException(e, "Namespace does not exist: %s", namespace);
         } catch (TException e) {

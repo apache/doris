@@ -522,13 +522,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     @Override
     public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
-        Map<String, String> properties = getProperties();
-        try {
-            // Unsupported configuration-specific DDL must fail before initialization can touch a remote service.
-            ConnectorFactory.findProvider(getType(), properties)
-                    .ifPresent(provider -> provider.validateCreateTable(properties));
-        } catch (DorisConnectorException e) {
-            throw new DdlException(e.getMessage(), e);
+        if (!createTableInfo.isIfNotExists()) {
+            validateCreateTableProperties(createTableInfo);
         }
         makeSureInitialized();
         // The database already has a remote identity; the new table name is itself the remote target.
@@ -554,6 +549,10 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             // Report the established MySQL error before a local-only conflict can create a remote duplicate.
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR,
                     createTableInfo.getTableName());
+        }
+        if (createTableInfo.isIfNotExists()) {
+            // Existing IF NOT EXISTS targets are required no-ops; validate only when a create will be attempted.
+            validateCreateTableProperties(createTableInfo);
         }
         ConnectorCreateTableRequest request = CreateTableInfoToConnectorRequestConverter
                 .convert(createTableInfo, db.getRemoteName());
@@ -581,6 +580,16 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         LOG.info("finished to create table {}.{}.{}", getName(),
                 createTableInfo.getDbName(), createTableInfo.getTableName());
         return false;
+    }
+
+    @Override
+    public void validateCreateTableProperties(CreateTableInfo createTableInfo) throws DdlException {
+        try {
+            // Provider preflight is configuration-only and must run before catalog initialization or remote lookup.
+            ConnectorFactory.validateCreateTable(getType(), getProperties());
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
     }
 
     /** Routes CREATE DATABASE through the connector SPI while enforcing IF NOT EXISTS on both FE and remote state. */

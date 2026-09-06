@@ -150,6 +150,20 @@ public class IcebergCatalogPropertiesTest {
     }
 
     @Test
+    public void createTimeRulesRejectExternalCatalogNameForDlf() {
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> IcebergCatalogProperties.of(props(
+                        "iceberg.catalog.type", "dlf",
+                        "external_catalog.name", "root",
+                        "dlf.access_key", "ak",
+                        "dlf.secret_key", "sk",
+                        "dlf.endpoint", "dlf.cn-hangzhou.aliyuncs.com"))
+                        .checkCreateTimeOnlyRules());
+
+        Assertions.assertTrue(e.getMessage().contains("external_catalog.name"), e.getMessage());
+    }
+
+    @Test
     public void toStringMasksSecretsCarriedInTheRawMap() {
         // WHY: this object is logged. It declares no sensitive field of its own, but the masking helper is
         // what keeps that true if one is ever added. MUTATION: switching to a plain field dump -> red.

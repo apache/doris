@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -104,6 +105,7 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         }
         LogicalPlan sinkQuery = null;
         if (!createTableInfo.isIfNotExists()) {
+            validateCreateTableProperties(ctx);
             // An existence probe is used only to preserve the catalog diagnostic; creation still
             // goes through the atomic catalog API and is the sole proof of ownership.
             if (targetTableExists(ctx)) {
@@ -146,6 +148,14 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         } catch (Exception e) {
             handleFallbackFailedCtas(ctx);
             throw new AnalysisException("Failed to execute CTAS Reason: " + e.getMessage(), e);
+        }
+    }
+
+    void validateCreateTableProperties(ConnectContext ctx) throws UserException {
+        List<String> qualifiedName = RelationUtil.getQualifierName(ctx, createTableInfo.getTableNameParts());
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(qualifiedName.get(0));
+        if (catalog != null) {
+            catalog.validateCreateTableProperties(createTableInfo);
         }
     }
 
