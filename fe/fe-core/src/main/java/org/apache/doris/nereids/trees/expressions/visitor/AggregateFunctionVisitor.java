@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAggIf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapAgg;
@@ -123,6 +124,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitArrayAgg(ArrayAgg arrayAgg, C context) {
         return visitAggregateFunction(arrayAgg, context);
+    }
+
+    default R visitArrayAggIf(ArrayAggIf arrayAggIf, C context) {
+        return visitAggregateFunction(arrayAggIf, context);
     }
 
     default R visitAvg(Avg avg, C context) {
