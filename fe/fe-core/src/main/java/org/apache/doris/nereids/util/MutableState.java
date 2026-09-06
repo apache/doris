@@ -29,6 +29,10 @@ public interface MutableState {
     String KEY_PARENT = "parent";
     String KEY_RF_JUMP = "rf-jump";
     String KEY_PUSH_TOPN_TO_AGG = "pushTopnToAgg";
+    /** hbo fingerprint attached at planning time for explain printing */
+    String KEY_HBO_FP = "hbo-fingerprint";
+    /** hbo simplified struct info canonical string attached at planning time for explain printing */
+    String KEY_HBO_STRUCT = "hbo-struct";
 
     <T> Optional<T> get(String key);
 
