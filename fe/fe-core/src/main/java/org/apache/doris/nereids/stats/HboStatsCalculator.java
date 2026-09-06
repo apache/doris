@@ -33,6 +33,7 @@ import org.apache.doris.statistics.model.Statistics;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * StatsCalculator by using hbo plan stats. to do estimation.
@@ -89,8 +90,23 @@ public class HboStatsCalculator extends StatsCalculator {
     }
 
     private Statistics getStatsFromHboPlanStats(AbstractPlan planNode, Statistics delegateStats) {
-        PlanNodeAndHash planNodeAndHash = HboUtils.getPlanNodeHash(planNode);
-        RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboPlanStats(planNodeAndHash);
+        Optional<PlanNodeAndHash> planNodeAndHashOpt = HboUtils.getHboPlanNodeAndHash(planNode);
+        if (!planNodeAndHashOpt.isPresent()) {
+            // no usable fingerprint (no group / unsupported struct info): fall back to legacy stats
+            return delegateStats;
+        }
+        Optional<String> hash = planNodeAndHashOpt.get().getHash();
+        if (hash.isPresent()) {
+            // manually injected (pinned) statistics are authoritative and bypass the learned
+            // entry matching
+            Optional<HboPlanStatisticsManager.PinnedHboStatistics> pinned = Env.getCurrentEnv()
+                    .getHboPlanStatisticsManager().getPinnedPlanStatistics(hash.get());
+            if (pinned.isPresent()) {
+                return delegateStats.withRowCountAndHboFlag(pinned.get().getRows());
+            }
+        }
+        RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider
+                .getHboPlanStats(planNodeAndHashOpt.get());
         PlanStatistics matchedPlanStatistics = HboUtils.getMatchedPlanStatistics(planStatistics,
                 cascadesContext.getConnectContext());
         if (matchedPlanStatistics != null) {

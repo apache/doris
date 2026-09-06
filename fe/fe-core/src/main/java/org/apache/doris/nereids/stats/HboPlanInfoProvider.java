@@ -34,7 +34,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * HboPlanInfoProvider maintains 3 kinds of cache for each queryId:
+ * HboPlanInfoProvider maintains 4 kinds of cache for each queryId:
  * - scanToFilterCache:
  *   scan relation id <-> filter expr sets on the scan
  *   collected during rewriting stage
@@ -44,11 +44,16 @@ import java.util.concurrent.ConcurrentHashMap;
  * - planToIdCache:
  *   physical plan <-> real plan id(not nereids id)
  *   collected the same time as idToPlanCache
+ * - nodeIdToFingerprintCache:
+ *   nereids plan node id <-> hbo fingerprint (simplified group struct info sha256)
+ *   collected at the same time as idToPlanCache; consumed later by the profile publish
+ *   path after the memo has been released
  */
 public class HboPlanInfoProvider {
     private volatile Cache<String, Map<Integer, PhysicalPlan>> idToPlanCache;
     private volatile Cache<String, Map<PhysicalPlan, Integer>> planToIdCache;
     private volatile Cache<String, Map<RelationId, Set<Expression>>> scanToFilterCache;
+    private volatile Cache<String, Map<Integer, String>> nodeIdToFingerprintCache;
 
     /**
      * Hbo plan info provider.
@@ -66,6 +71,24 @@ public class HboPlanInfoProvider {
                 Config.hbo_plan_info_cache_num,
                 Config.expire_hbo_plan_info_cache_in_fe_second
         );
+        nodeIdToFingerprintCache = buildHboNodeIdToFingerprintCache(
+                Config.hbo_plan_info_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second
+        );
+    }
+
+    private static Cache<String, Map<Integer, String>> buildHboNodeIdToFingerprintCache(
+            int cacheNum, long expireAfterAccessSeconds) {
+        Caffeine<Object, Object> cacheBuilder = Caffeine.newBuilder()
+                .softValues();
+        if (cacheNum > 0) {
+            cacheBuilder.maximumSize(cacheNum);
+        }
+        if (expireAfterAccessSeconds > 0) {
+            cacheBuilder = cacheBuilder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSeconds));
+        }
+
+        return cacheBuilder.build();
     }
 
     private static Cache<String, Map<RelationId, Set<Expression>>> buildHboScanToFilterCache(
@@ -134,6 +157,14 @@ public class HboPlanInfoProvider {
         scanToFilterCache.put(queryId, scanToFilterMap);
     }
 
+    public Map<Integer, String> getNodeIdToFingerprintMap(String queryId) {
+        return nodeIdToFingerprintCache.asMap().getOrDefault(queryId, new ConcurrentHashMap<>());
+    }
+
+    public void putNodeIdToFingerprintMap(String queryId, Map<Integer, String> nodeIdToFingerprintMap) {
+        nodeIdToFingerprintCache.put(queryId, nodeIdToFingerprintMap);
+    }
+
     /**
      * NOTE: used in Config.hbo_plan_info_cache_num.callbackClassString and
      * Config.expire_hbo_plan_info_cache_in_fe_second.callbackClassString,
@@ -171,11 +202,17 @@ public class HboPlanInfoProvider {
                 Config.hbo_plan_info_cache_num,
                 Config.expire_hbo_plan_info_cache_in_fe_second
         );
+        Cache<String, Map<Integer, String>> nodeIdToFingerprintCache = buildHboNodeIdToFingerprintCache(
+                Config.hbo_plan_info_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second
+        );
         idToPlanCache.putAll(planInfoProvider.idToPlanCache.asMap());
         planInfoProvider.idToPlanCache = idToPlanCache;
         planToIdCache.putAll(planInfoProvider.planToIdCache.asMap());
         planInfoProvider.planToIdCache = planToIdCache;
         scanToFilterCache.putAll(planInfoProvider.scanToFilterCache.asMap());
         planInfoProvider.scanToFilterCache = scanToFilterCache;
+        nodeIdToFingerprintCache.putAll(planInfoProvider.nodeIdToFingerprintCache.asMap());
+        planInfoProvider.nodeIdToFingerprintCache = nodeIdToFingerprintCache;
     }
 }
