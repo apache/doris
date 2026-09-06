@@ -330,24 +330,31 @@ public class LanceScanNodeTest {
     public void testExternalSearchSelectsSameMetricIndexByName() throws Exception {
         UUID laterSegment = UUID.fromString("55555555-5555-5555-5555-555555555555");
         UUID firstSegment = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        UUID secondSegment = UUID.fromString("77777777-7777-7777-7777-777777777777");
         LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
                 "s3://bucket/table.lance",
                 42,
                 vectorSchema(),
-                Arrays.asList(new LanceFragmentInfo(1, 8, 8), new LanceFragmentInfo(2, 7, 7)),
+                Arrays.asList(
+                        new LanceFragmentInfo(1, 8, 8),
+                        new LanceFragmentInfo(2, 7, 7),
+                        new LanceFragmentInfo(3, 6, 6)),
                 Collections.singletonMap("vector", 9),
                 Arrays.asList(
                         new LanceIndexSegmentInfo(laterSegment, "z_l2", Collections.singletonList(9),
-                                Collections.singletonList(2L), "L2"),
+                                Arrays.asList(1L, 2L, 3L), "L2"),
                         new LanceIndexSegmentInfo(firstSegment, "a_l2", Collections.singletonList(9),
-                                Collections.singletonList(1L), "L2")),
+                                Collections.singletonList(1L), "L2"),
+                        new LanceIndexSegmentInfo(secondSegment, "a_l2", Collections.singletonList(9),
+                                Collections.singletonList(2L), "L2")),
                 Collections.emptyMap());
 
         List<Split> splits = newSearchNode(metadata, vectorSearchRequest(5, 0)).getSplits(2);
 
-        Assert.assertEquals(2, splits.size());
+        Assert.assertEquals(3, splits.size());
         assertIndexSplit(splits.get(0), firstSegment, Collections.singletonList(1L), 8, 100);
-        assertSplit(splits.get(1), 2, 8, 88);
+        assertIndexSplit(splits.get(1), secondSegment, Collections.singletonList(2L), 8, 88);
+        assertSplit(splits.get(2), 3, 8, 75);
     }
 
     @Test
