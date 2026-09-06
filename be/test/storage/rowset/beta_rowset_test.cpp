@@ -41,6 +41,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "core/block/block.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
@@ -56,6 +57,7 @@
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
+#include "storage/rowset/rowset_reader_context.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
@@ -72,10 +74,6 @@ class HeadObjectRequest;
 } // namespace Model
 } // namespace S3
 } // namespace Aws
-namespace doris {
-struct RowsetReaderContext;
-} // namespace doris
-
 using std::string;
 
 namespace doris {
@@ -367,6 +365,63 @@ TEST_F(BetaRowsetTest, ReadTest) {
         Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
+}
+
+TEST_F(BetaRowsetTest, PreferredPeerPropagatesToSegmentIoContext) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+    RowsetWriterContext writer_context;
+    create_rowset_writer_context(tablet_schema, &writer_context);
+
+    EngineOptions options;
+    StorageEngine engine(options);
+    BetaRowsetWriterForTest writer(engine);
+    ASSERT_TRUE(writer.init(writer_context).ok());
+
+    Block block = tablet_schema->create_storage_block();
+    auto columns = std::move(block).mutate_columns();
+    int32_t value = 1;
+    for (auto& column : columns) {
+        column->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+    }
+    block.set_columns(std::move(columns));
+    ASSERT_TRUE(writer.add_block(&block).ok());
+    ASSERT_TRUE(writer.flush().ok());
+
+    RowsetSharedPtr rowset;
+    ASSERT_TRUE(writer.build(rowset).ok());
+    RowsetReaderSharedPtr reader;
+    ASSERT_TRUE(rowset->create_reader(&reader).ok());
+    reader->set_preferred_file_cache_peer("preferred-peer", 8060);
+
+    auto read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1, 2}));
+    RowsetReaderContext reader_context;
+    reader_context.tablet_schema = tablet_schema;
+    reader_context.read_schema = read_schema;
+    reader_context.stats = &_stats;
+    ASSERT_TRUE(reader->init(&reader_context).ok());
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    bool observed_io_ctx = false;
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "Segment::_parse_footer::io_ctx",
+            [&](auto&& args) {
+                auto* io_ctx = try_any_cast<io::IOContext*>(args[0]);
+                observed_io_ctx = true;
+                EXPECT_EQ(io_ctx->preferred_peer_host, "preferred-peer");
+                EXPECT_EQ(io_ctx->preferred_peer_port, 8060);
+            },
+            &guard);
+
+    Block output_block = read_schema->create_read_block();
+    auto st = reader->next_batch(&output_block);
+    sp->disable_processing();
+
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(observed_io_ctx);
 }
 
 TEST_F(BetaRowsetTest, AddToBinlogTest) {
