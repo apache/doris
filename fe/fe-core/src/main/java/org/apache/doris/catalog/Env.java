@@ -6040,6 +6040,15 @@ public class Env {
         if (partitionInfo.getPartitionColumns().stream().anyMatch(c -> c.getName().equalsIgnoreCase(colName))) {
             throw new DdlException("Renaming partition columns has problems, forbidden in current Doris version");
         }
+        if (!isReplay) {
+            String mappingConstraint = constraintManager.findDistributionMappingConstraintWithColumn(table, colName);
+            if (mappingConstraint != null) {
+                throw new DdlException(String.format(
+                        "Cannot rename column '%s' because it is used by constraint '%s'. "
+                                + "Drop the constraint first.",
+                        colName, mappingConstraint));
+            }
+        }
 
         Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
@@ -6383,6 +6392,10 @@ public class Env {
 
     public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info)
             throws MetaNotFoundException {
+        if (info.hasDistributionMappingConstraintMutation()) {
+            replayDistributionMappingConstraint(info);
+            return;
+        }
         String ctlName = info.getCtlName();
         long dbId = info.getDbId();
         long tableId = info.getTableId();
@@ -6430,6 +6443,19 @@ public class Env {
             }
         } finally {
             olapTable.writeUnlock();
+        }
+    }
+
+    private void replayDistributionMappingConstraint(ModifyTablePropertyOperationLog info)
+            throws MetaNotFoundException {
+        Database db = getInternalCatalog().getDbOrMetaException(info.getDbId());
+        OlapTable table = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        table.writeLock();
+        try {
+            constraintManager.replayDistributionMappingConstraints(
+                    table, info.getProperties());
+        } finally {
+            table.writeUnlock();
         }
     }
 
@@ -6980,6 +7006,10 @@ public class Env {
                                 + " columns with " + column.getAggregationType() + " type.");
                     }
                 }
+            }
+            if (!constraintManager.getDistributionMappingConstraints(tbl).isEmpty()) {
+                throw new DdlException("Cannot change distribution type of table with"
+                        + " distribution mapping constraints. Drop the constraints first.");
             }
             if (!tbl.convertHashDistributionToRandomDistribution()) {
                 throw new DdlException("Table " + tbl.getName() + " is not hash distributed");

@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -37,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -67,8 +70,9 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableNameInfo tableNameInfo;
+        TableIf table = null;
         try {
-            TableIf table = extractTable(ctx, plan);
+            table = extractTable(ctx, plan);
             tableNameInfo = TableNameInfoUtils.fromCatalogDb(
                     table.getDatabase().getCatalog(), table.getDatabase(), table);
         } catch (Exception e) {
@@ -81,6 +85,14 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
         // must be checked on both paths above: table resolution failing (which includes an
         // authorization failure) falls back to a name-only lookup that binds nothing.
         checkAlterPriv(ctx, tableNameInfo);
+        if (table != null) {
+            Constraint mapping = Env.getCurrentEnv().getConstraintManager()
+                    .getConstraint(tableNameInfo, table, name);
+            if (mapping instanceof DistributionMappingConstraint) {
+                dropDistributionMapping(tableNameInfo, table);
+                return;
+            }
+        }
         Constraint constraint = Env.getCurrentEnv().getConstraintManager().getConstraint(tableNameInfo, name);
         if (constraint == null) {
             throw new AnalysisException(
@@ -99,6 +111,32 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
         Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
         MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                 String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
+    }
+
+    private void dropDistributionMapping(TableNameInfo tableNameInfo,
+            TableIf analyzedTable) throws Exception {
+        EditLog.EditLogItem logItem;
+        analyzedTable.getDatabase().readLock();
+        try {
+            if (analyzedTable.getDatabase().getCatalog().getDbNullable(tableNameInfo.getDb())
+                    != analyzedTable.getDatabase()
+                    || analyzedTable.getDatabase().getTableNullable(tableNameInfo.getTbl()) != analyzedTable) {
+                throw new AnalysisException("Table changed while dropping constraint on " + tableNameInfo);
+            }
+            analyzedTable.writeLock();
+            try {
+                OlapTable table = (OlapTable) analyzedTable;
+                table.checkNormalStateForAlter();
+                logItem = Env.getCurrentEnv().getConstraintManager()
+                        .dropDistributionMappingConstraint(
+                                tableNameInfo, table, name);
+            } finally {
+                analyzedTable.writeUnlock();
+            }
+        } finally {
+            analyzedTable.getDatabase().readUnlock();
+        }
+        logItem.await();
     }
 
     private void checkAlterPriv(ConnectContext ctx, TableNameInfo tableNameInfo)

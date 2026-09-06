@@ -26,6 +26,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableProperty;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -366,6 +367,21 @@ public class BackupJobTest {
         Assertions.assertNotNull(copied);
         Assertions.assertFalse(copied.dynamicPartitionExists());
         Assertions.assertTrue(copied.getTableProperty().hasInvalidDynamicPartition());
+    }
+
+    @Test
+    public void testBackupCopyPreservesDistributionMappingConstraint() {
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+        TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+        tableProperty.addDistributionMappingConstraint(mapping);
+        table2.setTableProperty(tableProperty);
+
+        OlapTable copied = table2.selectiveCopy(null, IndexExtState.VISIBLE, true);
+
+        Assert.assertNotNull(copied);
+        Assert.assertEquals(mapping, copied.getTableProperty()
+                .getDistributionMappingConstraints().get(mapping.getName()));
     }
 
     @Test
