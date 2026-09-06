@@ -341,6 +341,32 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
                 });
     }
 
+    /**
+     * Append the hbo fingerprint / simplified struct info (and, when the node used hbo
+     * statistics, a {@code hboUsed=true} marker) to the toString of a plan node, whenever they
+     * were attached at planning time ({@link MutableState#KEY_HBO_FP}). The caller is expected
+     * to attach them only when the session variable {@code show_hbo_fingerprint} was enabled at
+     * plan time, so the default explain output (no state) is not affected, while the physical
+     * plan text stays annotated regardless of the session that later renders it (e.g. the
+     * physical plan appendix of a stored profile).
+     */
+    protected String withHboExplainInfo(String text) {
+        Optional<Object> fingerprint = getMutableState(MutableState.KEY_HBO_FP);
+        if (!fingerprint.isPresent()) {
+            return text;
+        }
+        StringBuilder builder = new StringBuilder(text);
+        builder.append(" hboFingerprint=").append(fingerprint.get());
+        Optional<Object> struct = getMutableState(MutableState.KEY_HBO_STRUCT);
+        if (struct.isPresent()) {
+            builder.append(" hboStruct=").append(struct.get());
+        }
+        if (getMutableState(MutableState.KEY_HBO_USED).isPresent()) {
+            builder.append(" hboUsed=true");
+        }
+        return builder.toString();
+    }
+
     /** top toJson method, can be override by specific operator */
     public JSONObject toJson() {
         JSONObject json = new JSONObject();

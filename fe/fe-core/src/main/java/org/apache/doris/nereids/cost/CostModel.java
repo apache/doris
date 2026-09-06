@@ -478,15 +478,16 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             // hbo to adjust bc cost parameter to reduce bc cost
             if (context.getSessionVariable() != null
                     && context.getSessionVariable().isEnableHboOptimization()) {
-                PlanNodeAndHash planNodeAndHash = null;
+                Optional<PlanNodeAndHash> planNodeAndHashOpt;
                 try {
-                    planNodeAndHash = HboUtils.getPlanNodeHash(physicalHashJoin);
+                    planNodeAndHashOpt = HboUtils.getHboPlanNodeAndHash(physicalHashJoin);
                 } catch (IllegalStateException e) {
                     LOG.warn("failed to get plan node hash", e);
+                    planNodeAndHashOpt = Optional.empty();
                 }
-                if (planNodeAndHash != null) {
+                if (planNodeAndHashOpt.isPresent()) {
                     RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboPlanStats(
-                            planNodeAndHash);
+                            planNodeAndHashOpt.get());
                     PlanStatistics matchedPlanStatistics = HboUtils.getMatchedPlanStatistics(planStatistics,
                             context.getStatementContext().getConnectContext());
                     if (matchedPlanStatistics != null) {
