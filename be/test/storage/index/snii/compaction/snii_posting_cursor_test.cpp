@@ -29,8 +29,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/compaction/posting_cursor.h"
 #include "storage/index/snii/format/core_metadata.h"
 #include "storage/index/snii/format/dict_entry.h"
@@ -59,7 +57,7 @@ static_assert(!std::is_constructible_v<
 
 constexpr uint64_t kIndexId = 9;
 constexpr std::string_view kIndexSuffix = "body";
-constexpr uint32_t kDocCount = 640;
+constexpr uint32_t kDocCount = 20000; // slim 项的 docid 间距不规则，最大约 1.6 万
 constexpr uint32_t kFreqDroppedDocCount = 65536;
 constexpr auto kDeleted = std::pair<uint32_t, uint32_t> {std::numeric_limits<uint32_t>::max(),
                                                          std::numeric_limits<uint32_t>::max()};
@@ -82,13 +80,12 @@ struct TermRef {
 };
 
 Status build_source(std::vector<writer::TermPostings> terms, uint32_t doc_count,
-                    SourceFixture* fixture, bool write_freq = true) {
+                    SourceFixture* fixture) {
     writer::SniiIndexInput input;
     input.index_id = kIndexId;
     input.index_suffix = kIndexSuffix;
     input.config = format::IndexConfig::kDocsPositions;
     input.doc_count = doc_count;
-    input.write_freq = write_freq;
     input.terms = std::move(terms);
 
     writer::SniiCompoundWriter compound(&fixture->file);
@@ -98,44 +95,30 @@ Status build_source(std::vector<writer::TermPostings> terms, uint32_t doc_count,
     return fixture->segment.open_index(kIndexId, kIndexSuffix, &fixture->index);
 }
 
-Status build_hybrid_source(std::vector<writer::TermPostings> terms, uint32_t doc_count,
-                           SourceFixture* fixture) {
-    namespace inverted_index = doris::segment_v2::inverted_index;
-    inverted_index::CommonGramsQueryIdentity identity {.common_grams_dictionary_identity = "dict-a",
-                                                       .base_analyzer_fingerprint = "base-a",
-                                                       .common_grams_fingerprint = "grams-a"};
-    auto metadata = inverted_index::make_common_grams_segment_metadata(identity);
-    metadata.common_grams_coverage = inverted_index::CommonGramsCoverage::kMixed;
-    metadata.scoring_doc_count = doc_count;
-    metadata.scoring_token_count = 1;
-
-    terms.push_back(make_term("plain", {{.docid = 0, .positions = {0}}}));
-    std::ranges::sort(terms, [](const auto& lhs, const auto& rhs) { return lhs.term < rhs.term; });
-    writer::SniiIndexInput input;
-    input.index_id = kIndexId;
-    input.index_suffix = kIndexSuffix;
-    input.config = format::IndexConfig::kDocsPositionsScoring;
-    input.doc_count = doc_count;
-    input.write_freq = true;
-    input.encoded_norms.assign(doc_count, 1);
-    input.common_grams_metadata = std::move(metadata);
-    input.common_grams_posting_policy = format::CommonGramsPostingPolicy::kHybridV1;
-    input.terms = std::move(terms);
-
-    writer::SniiCompoundWriter compound(&fixture->file);
-    RETURN_IF_ERROR(compound.add_logical_index(input));
-    RETURN_IF_ERROR(compound.finish());
-    RETURN_IF_ERROR(reader::SniiSegmentReader::open(&fixture->file, &fixture->segment));
-    return fixture->segment.open_index(kIndexId, kIndexSuffix, &fixture->index);
+// 500 个 docid，间距 1..62 不规则：dd 区（PFOR）超过 256B 的 inline 阈值，
+// 且 df < 512，仍是 slim pod_ref。docid 0 一定在列表里。
+std::vector<uint32_t> slim_docids() {
+    std::vector<uint32_t> docids;
+    docids.reserve(500);
+    uint32_t docid = 0;
+    for (uint32_t i = 0; i < 500; ++i) {
+        if (i != 0) {
+            docid += 1 + (i * 73 + i * i * 19) % 62;
+        }
+        docids.push_back(docid);
+    }
+    return docids;
 }
 
-writer::TermPostings make_docs_only_gram(std::string left, std::string right,
-                                         std::vector<uint32_t> docids) {
-    writer::TermPostings term;
-    term.term = doris::segment_v2::inverted_index::encode_common_gram(left, right).value();
-    term.docids = std::move(docids);
-    term.retain_positions = false;
-    return term;
+// slim 项每个 doc 的位置只由 docid 决定（哈希取 1..97 个位置），测试据此重算期望。
+std::vector<uint32_t> slim_positions(uint32_t docid) {
+    uint32_t mixed = docid * 2654435761U;
+    mixed ^= mixed >> 16;
+    std::vector<uint32_t> positions(mixed % 97 + 1);
+    for (uint32_t i = 0; i < positions.size(); ++i) {
+        positions[i] = i * 3;
+    }
+    return positions;
 }
 
 std::vector<writer::TermPostings> posting_shapes() {
@@ -145,15 +128,8 @@ std::vector<writer::TermPostings> posting_shapes() {
 
     std::vector<PostingDoc> slim;
     slim.reserve(500);
-    for (uint32_t docid = 0; docid < 500; ++docid) {
-        uint32_t mixed = docid * 2654435761U;
-        mixed ^= mixed >> 16;
-        const uint32_t frequency = mixed % 97 + 1;
-        std::vector<uint32_t> positions(frequency);
-        for (uint32_t i = 0; i < frequency; ++i) {
-            positions[i] = i * 3;
-        }
-        slim.push_back({.docid = docid, .positions = std::move(positions)});
+    for (const uint32_t docid : slim_docids()) {
+        slim.push_back({.docid = docid, .positions = slim_positions(docid)});
     }
     terms.push_back(make_term("slim", std::move(slim)));
 
@@ -404,8 +380,6 @@ TEST(SniiPostingCursorTest, DecodesZstdDdWithoutMemoryReporter) {
     TermRef ref = lookup_term(source.index, "inline");
     ASSERT_EQ(ref.entry.kind, format::DictEntryKind::kInline);
 
-    const auto freq_begin = ref.entry.frq_bytes.begin() + ref.entry.inline_dd_disk_len;
-    std::vector<uint8_t> freq_bytes(freq_begin, ref.entry.frq_bytes.end());
     ByteSink dd_sink;
     format::FrqRegionMeta dd_meta;
     const std::array<uint32_t, 2> docids {1, 5};
@@ -414,9 +388,7 @@ TEST(SniiPostingCursorTest, DecodesZstdDdWithoutMemoryReporter) {
     ASSERT_TRUE(dd_meta.zstd);
 
     ref.entry.frq_bytes = dd_sink.take();
-    ref.entry.frq_bytes.insert(ref.entry.frq_bytes.end(), freq_bytes.begin(), freq_bytes.end());
     ref.entry.dd_meta = dd_meta;
-    ref.entry.inline_dd_disk_len = dd_meta.disk_len;
     ref.entry.frq_len = ref.entry.frq_bytes.size();
 
     auto trans = deleted_map();
@@ -438,28 +410,20 @@ TEST(SniiPostingCursorTest, DecodesSlimPodRefAcrossDestinations) {
     ASSERT_EQ(ref.entry.kind, format::DictEntryKind::kPodRef);
     ASSERT_EQ(ref.entry.enc, format::DictEntryEnc::kSlim);
 
+    const std::vector<uint32_t> docids = slim_docids();
     auto trans = deleted_map();
-    trans[0] = {0, 3};
-    trans[150] = {1, 0};
-    trans[499] = {1, 4};
+    trans[docids[0]] = {0, 3};
+    trans[docids[150]] = {1, 0};
+    trans[docids[499]] = {1, 4};
     auto read_context = make_read_context(&source.index);
     SniiPostingCursor cursor = make_cursor(read_context.get(), ref, trans, kTwoDestinationRows10);
     assert_ok(cursor.init());
 
     std::vector<PostingCopy> got;
     assert_ok(drain(&cursor, &got));
-    auto expected_positions = [](uint32_t docid) {
-        uint32_t mixed = docid * 2654435761U;
-        mixed ^= mixed >> 16;
-        std::vector<uint32_t> positions(mixed % 97 + 1);
-        for (uint32_t i = 0; i < positions.size(); ++i) {
-            positions[i] = i * 3;
-        }
-        return positions;
-    };
-    const std::vector<uint32_t> positions_0 = expected_positions(0);
-    const std::vector<uint32_t> positions_150 = expected_positions(150);
-    const std::vector<uint32_t> positions_499 = expected_positions(499);
+    const std::vector<uint32_t> positions_0 = slim_positions(docids[0]);
+    const std::vector<uint32_t> positions_150 = slim_positions(docids[150]);
+    const std::vector<uint32_t> positions_499 = slim_positions(docids[499]);
     EXPECT_EQ(got, (std::vector<PostingCopy> {
                            {0, 0, static_cast<uint32_t>(positions_0.size()), positions_0},
                            {1, 0, static_cast<uint32_t>(positions_150.size()), positions_150},
@@ -620,51 +584,6 @@ TEST(SniiPostingCursorTest, UsesChunkLevelNoDeletionFastPath) {
     EXPECT_FALSE(has_chunk);
 }
 
-TEST(SniiPostingCursorTest, DecodesFlatAndWindowedDocsOnlyWithoutInventingPayloads) {
-    constexpr uint32_t kWideDocs = format::kSlimDfThreshold;
-    std::vector<uint32_t> wide_docids(kWideDocs);
-    std::iota(wide_docids.begin(), wide_docids.end(), 0);
-    SourceFixture source;
-    assert_ok(build_hybrid_source({make_docs_only_gram("a", "of", {0, 4}),
-                                   make_docs_only_gram("z", "of", std::move(wide_docids))},
-                                  kWideDocs, &source));
-
-    const TermRef flat_ref = lookup_term(
-            source.index, doris::segment_v2::inverted_index::encode_common_gram("a", "of").value());
-    const TermRef windowed_ref = lookup_term(
-            source.index, doris::segment_v2::inverted_index::encode_common_gram("z", "of").value());
-    ASSERT_EQ(flat_ref.entry.enc, format::DictEntryEnc::kSlim);
-    ASSERT_EQ(windowed_ref.entry.enc, format::DictEntryEnc::kWindowed);
-
-    auto trans = deleted_map(kWideDocs);
-    trans[0] = {0, 1};
-    trans[4] = {0, 5};
-    {
-        auto read_context = make_read_context(&source.index);
-        SniiPostingCursor cursor =
-                make_cursor(read_context.get(), flat_ref, trans, kDestinationRows10);
-        assert_ok(cursor.init());
-        EXPECT_FALSE(cursor.has_positions());
-        std::vector<PostingCopy> got;
-        assert_ok(drain(&cursor, &got));
-        EXPECT_EQ(got, (std::vector<PostingCopy> {{0, 0, 0, {}}, {0, 1, 0, {}}}));
-    }
-
-    trans = deleted_map(kWideDocs);
-    trans[0] = {0, 0};
-    trans[kWideDocs - 1] = {0, 9};
-    {
-        auto read_context = make_read_context(&source.index);
-        SniiPostingCursor cursor =
-                make_cursor(read_context.get(), windowed_ref, trans, kDestinationRows10);
-        assert_ok(cursor.init());
-        EXPECT_FALSE(cursor.has_positions());
-        std::vector<PostingCopy> got;
-        assert_ok(drain(&cursor, &got));
-        EXPECT_EQ(got, (std::vector<PostingCopy> {{0, 0, 0, {}}, {0, 1, 0, {}}}));
-    }
-}
-
 TEST(SniiPostingCursorTest, RejectsOverflowAndOutOfFilePostingRegions) {
     format::RegionRef region;
     region.offset = std::numeric_limits<uint64_t>::max() - 3;
@@ -702,26 +621,13 @@ TEST(SniiPostingCursorTest, RejectsSourceDocOutsideIndexDocCount) {
     EXPECT_FALSE(has_chunk);
 }
 
-TEST(SniiPostingCursorTest, RejectsInconsistentTermStatisticsAndPositions) {
+TEST(SniiPostingCursorTest, RejectsInconsistentPositions) {
     SourceFixture source;
     assert_ok(build_source(posting_shapes(), kDocCount, &source));
-
-    TermRef stats_ref = lookup_term(source.index, "inline");
-    ++stats_ref.entry.ttf_delta;
     auto trans = deleted_map();
     trans[1] = {0, 1};
     trans[5] = {0, 2};
-    auto stats_read_context = make_read_context(&source.index);
-    SniiPostingCursor stats_cursor =
-            make_cursor(stats_read_context.get(), stats_ref, trans, kDestinationRows10);
-    assert_ok(stats_cursor.init());
-    std::vector<PostingCopy> ignored;
-    Status status = drain(&stats_cursor, &ignored);
-    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
-    const TermRef valid_stats_ref = lookup_term(source.index, "inline");
-    SniiPostingCursor stats_retry =
-            make_cursor(stats_read_context.get(), valid_stats_ref, trans, kDestinationRows10);
-    EXPECT_EQ(stats_retry.init(), status);
+    Status status;
 
     TermRef positions_ref = lookup_term(source.index, "inline");
     ASSERT_FALSE(positions_ref.entry.prx_bytes.empty());
@@ -742,59 +648,6 @@ TEST(SniiPostingCursorTest, RejectsInconsistentTermStatisticsAndPositions) {
             make_cursor(positions_read_context.get(), retry_ref, trans, kDestinationRows10);
     const Status retry_status = retry.init();
     EXPECT_EQ(retry_status, status);
-}
-
-TEST(SniiPostingCursorTest, RejectsWindowMaxFrequencyMismatchWithoutRescanningPositions) {
-    SourceFixture source;
-    assert_ok(build_source(posting_shapes(), kDocCount, &source));
-    const TermRef valid_ref = lookup_term(source.index, "windowed");
-    uint64_t dd_block_offset = 0;
-    uint64_t frq_payload_length = 0;
-    assert_ok(source.index.resolve_frq_window(valid_ref.entry, valid_ref.frq_base, &dd_block_offset,
-                                              &frq_payload_length));
-    ASSERT_GE(dd_block_offset, valid_ref.entry.prelude_len);
-    const uint64_t prelude_offset = dd_block_offset - valid_ref.entry.prelude_len;
-    const Slice original_prelude(source.file.data().data() + prelude_offset,
-                                 valid_ref.entry.prelude_len);
-    format::FrqPreludeReader prelude;
-    assert_ok(format::FrqPreludeReader::open(original_prelude, &prelude));
-
-    format::FrqPreludeColumns columns;
-    columns.has_freq = prelude.has_freq();
-    columns.has_prx = prelude.has_prx();
-    columns.group_size = 64;
-    for (uint32_t window = 0; window < prelude.n_windows(); ++window) {
-        format::WindowMeta meta;
-        assert_ok(prelude.window(window, &meta));
-        columns.windows.push_back(meta);
-    }
-    ASSERT_FALSE(columns.windows.empty());
-    ++columns.windows.front().max_freq;
-    ByteSink corrupt_prelude;
-    assert_ok(format::build_frq_prelude(columns, &corrupt_prelude));
-    ASSERT_EQ(corrupt_prelude.size(), valid_ref.entry.prelude_len);
-
-    std::vector<uint8_t> corrupt_file_bytes = source.file.data();
-    std::copy(corrupt_prelude.buffer().begin(), corrupt_prelude.buffer().end(),
-              corrupt_file_bytes.begin() + prelude_offset);
-    SourceFixture corrupt_source;
-    assert_ok(corrupt_source.file.append(Slice(corrupt_file_bytes)));
-    assert_ok(corrupt_source.file.finalize());
-    assert_ok(reader::SniiSegmentReader::open(&corrupt_source.file, &corrupt_source.segment));
-    assert_ok(corrupt_source.segment.open_index(kIndexId, kIndexSuffix, &corrupt_source.index));
-
-    const TermRef corrupt_ref = lookup_term(corrupt_source.index, "windowed");
-    auto trans = deleted_map();
-    trans[0] = {0, 0};
-    auto read_context = make_read_context(&corrupt_source.index);
-    SniiPostingCursor cursor =
-            make_cursor(read_context.get(), corrupt_ref, trans, kDestinationRows1);
-    assert_ok(cursor.init());
-    RemappedPostingChunk chunk;
-    bool has_chunk = false;
-    const Status status = cursor.next_chunk(&chunk, &has_chunk);
-    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
-    EXPECT_FALSE(has_chunk);
 }
 
 TEST(SniiPostingCursorTest, ReusesReadAheadAcrossConsecutivePodRefTerms) {
@@ -991,10 +844,9 @@ TEST(SniiPostingCursorTest, CorruptPreludePoisonsContextAndReleasesLease) {
     EXPECT_EQ(read_context->physical_read_bytes(), physical_bytes_after_failure);
 }
 
-TEST(SniiPostingCursorTest, DecodesAllShapesWithoutStoredFrequencies) {
+TEST(SniiPostingCursorTest, DecodesAllShapesWithPositionDerivedFrequencies) {
     SourceFixture source;
-    assert_ok(build_source(freq_dropped_posting_shapes(), kFreqDroppedDocCount, &source,
-                           /*write_freq=*/false));
+    assert_ok(build_source(freq_dropped_posting_shapes(), kFreqDroppedDocCount, &source));
     const TermRef inline_ref = lookup_term(source.index, "inline");
     const TermRef slim_ref = lookup_term(source.index, "slim");
     const TermRef windowed_ref = lookup_term(source.index, "windowed");
@@ -1003,9 +855,6 @@ TEST(SniiPostingCursorTest, DecodesAllShapesWithoutStoredFrequencies) {
     ASSERT_EQ(slim_ref.entry.enc, format::DictEntryEnc::kSlim);
     ASSERT_EQ(windowed_ref.entry.kind, format::DictEntryKind::kPodRef);
     ASSERT_EQ(windowed_ref.entry.enc, format::DictEntryEnc::kWindowed);
-    EXPECT_FALSE(inline_ref.entry.term_stats_present);
-    EXPECT_FALSE(slim_ref.entry.term_stats_present);
-    EXPECT_FALSE(windowed_ref.entry.term_stats_present);
 
     auto trans = deleted_map(kFreqDroppedDocCount);
     trans[1] = {0, 0};

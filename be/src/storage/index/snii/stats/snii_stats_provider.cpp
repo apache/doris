@@ -43,52 +43,27 @@ Status lookup_entry(const reader::LogicalIndexReader& idx, std::string_view term
 } // namespace
 
 Status SniiStatsProvider::open(const reader::LogicalIndexReader* idx, SniiStatsProvider* out) {
-    return open_impl(idx, out, true);
-}
-
-#ifdef BE_TEST
-Status SniiStatsProvider::open_legacy_for_test(const reader::LogicalIndexReader* idx,
-                                               SniiStatsProvider* out) {
-    return open_impl(idx, out, false);
-}
-#endif
-
-Status SniiStatsProvider::open_impl(const reader::LogicalIndexReader* idx, SniiStatsProvider* out,
-                                    bool require_semantic_metadata) {
     if (idx == nullptr || out == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("stats_provider: null argument");
     }
+    // 统计全部来自物理统计：doc_count / indexed_doc_count / sum_total_term_freq 由 writer 对
+    // 每个 posting 累加，avgdl 按注释定义用 indexed_doc_count（不含 NULL 行）。
     out->idx_ = idx;
     const auto& sb = idx->stats();
     out->doc_count_ = sb.doc_count;
     out->indexed_doc_count_ = sb.indexed_doc_count;
     out->sum_total_term_freq_ = sb.sum_total_term_freq;
-
     const RegionRef& norms = idx->section_refs().norms;
-    const auto* metadata = idx->common_grams_metadata();
-    if (metadata != nullptr) {
-        using namespace segment_v2::inverted_index;
-        RETURN_IF_ERROR(validate_snii_scoring_metadata(
-                metadata, sb.doc_count, sb.sum_total_term_freq,
-                idx->tier() == format::IndexTier::kT3, idx->has_positions(), norms.length != 0));
-        out->doc_count_ = metadata->scoring_doc_count;
-        out->indexed_doc_count_ = metadata->scoring_doc_count;
-        out->sum_total_term_freq_ = metadata->scoring_token_count;
-    } else if (require_semantic_metadata) {
-        RETURN_IF_ERROR(segment_v2::inverted_index::validate_snii_scoring_metadata(
-                nullptr, sb.doc_count, sb.sum_total_term_freq,
-                idx->tier() == format::IndexTier::kT3, idx->has_positions(), norms.length != 0));
-    }
     if (norms.length == 0) {
         out->has_norms_ = false;
         return Status::OK();
     }
 
     RETURN_IF_ERROR(idx->open_norms(&out->norms_reader_));
-    if (metadata != nullptr && out->norms_reader_.doc_count() != metadata->scoring_doc_count) {
+    if (out->norms_reader_.doc_count() != sb.doc_count) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "snii_stats: semantic norms doc count {} differs from scoring doc count {}",
-                out->norms_reader_.doc_count(), metadata->scoring_doc_count);
+                "snii_stats: norms doc count {} differs from segment doc count {}",
+                out->norms_reader_.doc_count(), sb.doc_count);
     }
     out->has_norms_ = true;
     return Status::OK();
@@ -107,28 +82,6 @@ Status SniiStatsProvider::doc_freq(std::string_view term, uint64_t* df) const {
     DictEntry entry;
     RETURN_IF_ERROR(lookup_entry(*idx_, term, &found, &entry));
     if (found) *df = entry.df;
-    return Status::OK();
-}
-
-Status SniiStatsProvider::total_term_freq(std::string_view term, uint64_t* ttf) const {
-    if (ttf == nullptr)
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("stats_provider: null ttf");
-    *ttf = 0;
-    bool found = false;
-    DictEntry entry;
-    RETURN_IF_ERROR(lookup_entry(*idx_, term, &found, &entry));
-    if (!found) return Status::OK();
-    // tier>=T2 entries carry the total term frequency directly in ttf_delta (the
-    // LogicalIndexWriter stores ttf there, not a delta from df). G16-f blocks
-    // (kNoTermStats: freq-dropped index) omit it -- fail with the semantic
-    // error instead of silently returning the default 0 (mixed old/new
-    // segments would otherwise disagree on the same term).
-    if (!entry.term_stats_present) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "snii_stats: ttf requested but the dict block carries no term stats "
-                "(freq-dropped index)");
-    }
-    *ttf = entry.ttf_delta;
     return Status::OK();
 }
 

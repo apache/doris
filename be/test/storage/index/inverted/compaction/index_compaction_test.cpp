@@ -1758,21 +1758,15 @@ TEST_F(IndexCompactionTest, test_inverted_index_ram_dir_disable_with_debug_point
 }
 
 TEST_F(IndexCompactionTest, snii_native_merge_validates_rowids_once_and_matches_raw_rebuild) {
-    const bool old_common_grams = config::enable_common_grams_index_build;
     const bool old_debug_points = config::enable_debug_points;
-    const bool old_write_freq = config::snii_positions_index_write_freq;
-    config::enable_common_grams_index_build = false;
     config::enable_debug_points = true;
-    config::snii_positions_index_write_freq = false;
     constexpr std::string_view kValidationPoint =
             "Compaction::snii_validated_rowid_conversion_created";
     constexpr std::string_view kReaderInitPoint = "Compaction::snii_eligibility_reader_initialized";
     DEFER({
         DebugPoints::instance()->remove(std::string(kValidationPoint));
         DebugPoints::instance()->remove(std::string(kReaderInitPoint));
-        config::enable_common_grams_index_build = old_common_grams;
         config::enable_debug_points = old_debug_points;
-        config::snii_positions_index_write_freq = old_write_freq;
     });
 
     _build_snii_multi_index_tablet();
@@ -1824,13 +1818,7 @@ TEST_F(IndexCompactionTest, snii_native_merge_validates_rowids_once_and_matches_
 // raw-builds from the column -- in the SAME compaction pass. The old behavior
 // AND-folded eligibility per column and fell back to raw for both.
 TEST_F(IndexCompactionTest, snii_native_merge_compacts_eligible_index_and_raw_builds_sibling) {
-    const bool old_common_grams = config::enable_common_grams_index_build;
-    const bool old_write_freq = config::snii_positions_index_write_freq;
-    config::enable_common_grams_index_build = false;
-    config::snii_positions_index_write_freq = false;
     DEFER({
-        config::enable_common_grams_index_build = old_common_grams;
-        config::snii_positions_index_write_freq = old_write_freq;
     });
 
     _build_snii_multi_index_tablet(/*second_supports_phrase=*/false);
@@ -1867,20 +1855,14 @@ TEST_F(IndexCompactionTest, snii_native_merge_compacts_eligible_index_and_raw_bu
 }
 
 TEST_F(IndexCompactionTest, snii_native_merge_aborts_after_partial_destination_creation) {
-    const bool old_common_grams = config::enable_common_grams_index_build;
     const bool old_debug_points = config::enable_debug_points;
-    const bool old_write_freq = config::snii_positions_index_write_freq;
-    config::enable_common_grams_index_build = false;
     config::enable_debug_points = true;
-    config::snii_positions_index_write_freq = false;
     constexpr std::string_view kFailurePoint = "Compaction::before_add_snii_destination_session";
     constexpr std::string_view kAbortPoint = "Compaction::snii_destination_session_aborted";
     DEFER({
         DebugPoints::instance()->remove(std::string(kFailurePoint));
         DebugPoints::instance()->remove(std::string(kAbortPoint));
-        config::enable_common_grams_index_build = old_common_grams;
         config::enable_debug_points = old_debug_points;
-        config::snii_positions_index_write_freq = old_write_freq;
     });
 
     _build_snii_multi_index_tablet();
@@ -1912,18 +1894,12 @@ TEST_F(IndexCompactionTest, snii_native_merge_aborts_after_partial_destination_c
 }
 
 TEST_F(IndexCompactionTest, snii_native_merge_mem_limit_arms_raw_rebuild_without_wrapping) {
-    const bool old_common_grams = config::enable_common_grams_index_build;
     const bool old_debug_points = config::enable_debug_points;
-    const bool old_write_freq = config::snii_positions_index_write_freq;
-    config::enable_common_grams_index_build = false;
     config::enable_debug_points = true;
-    config::snii_positions_index_write_freq = false;
     constexpr std::string_view kFailurePoint = "Compaction::before_execute_snii_merge";
     DEFER({
         DebugPoints::instance()->remove(std::string(kFailurePoint));
-        config::enable_common_grams_index_build = old_common_grams;
         config::enable_debug_points = old_debug_points;
-        config::snii_positions_index_write_freq = old_write_freq;
     });
 
     _build_snii_multi_index_tablet();
@@ -1946,18 +1922,12 @@ TEST_F(IndexCompactionTest, snii_native_merge_mem_limit_arms_raw_rebuild_without
 }
 
 TEST_F(IndexCompactionTest, snii_native_merge_corruption_arms_raw_rebuild_fallback) {
-    const bool old_common_grams = config::enable_common_grams_index_build;
     const bool old_debug_points = config::enable_debug_points;
-    const bool old_write_freq = config::snii_positions_index_write_freq;
-    config::enable_common_grams_index_build = false;
     config::enable_debug_points = true;
-    config::snii_positions_index_write_freq = false;
     constexpr std::string_view kFailurePoint = "Compaction::before_execute_snii_merge";
     DEFER({
         DebugPoints::instance()->remove(std::string(kFailurePoint));
-        config::enable_common_grams_index_build = old_common_grams;
         config::enable_debug_points = old_debug_points;
-        config::snii_positions_index_write_freq = old_write_freq;
     });
 
     _build_snii_multi_index_tablet();

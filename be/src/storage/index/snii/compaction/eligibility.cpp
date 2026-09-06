@@ -27,7 +27,6 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
@@ -64,71 +63,7 @@ Status validate_source_shape(const reader::LogicalIndexReader& source, size_t so
     if (!source.has_positions()) {
         return reject(fmt::format("source {} has no positions", source_ordinal));
     }
-    const auto& norms = source.section_refs().norms;
-    if (norms.offset != 0 || norms.length != 0) {
-        return reject(fmt::format("source {} carries scoring norms", source_ordinal));
-    }
-    if (source.common_grams_metadata() != nullptr) {
-        return reject(
-                fmt::format("source {} carries CommonGrams/scoring metadata", source_ordinal));
-    }
 
-    const auto& stats = source.stats();
-    if (stats.indexed_doc_count > stats.doc_count ||
-        stats.null_count != stats.doc_count - stats.indexed_doc_count) {
-        return reject(fmt::format("source {} document statistics violate indexed + null = doc",
-                                  source_ordinal));
-    }
-    return Status::OK();
-}
-
-inverted_index::CommonGramsSegmentMetadata static_common_grams_metadata(
-        const inverted_index::CommonGramsSegmentMetadata& metadata) {
-    auto seed = metadata;
-    seed.scoring_doc_count = 0;
-    seed.scoring_token_count = 0;
-    return seed;
-}
-
-Status validate_common_grams_source_shape(const reader::LogicalIndexReader& source,
-                                          size_t source_ordinal) {
-    if (source.tier() != format::IndexTier::kT3 || !source.has_positions()) {
-        return reject(fmt::format("source {} is not CommonGrams T3", source_ordinal));
-    }
-    if (source.section_refs().norms.length == 0) {
-        return reject(fmt::format("source {} has no scoring norms", source_ordinal));
-    }
-    const auto* metadata = source.common_grams_metadata();
-    if (metadata == nullptr) {
-        return reject(fmt::format("source {} has no CommonGrams metadata", source_ordinal));
-    }
-    const Status metadata_status =
-            inverted_index::validate_common_grams_segment_metadata(*metadata);
-    const bool complete_shape =
-            metadata->common_grams_coverage == inverted_index::CommonGramsCoverage::kComplete &&
-            source.common_grams_posting_policy() == format::CommonGramsPostingPolicy::kNone;
-    const bool hybrid_shape =
-            metadata->common_grams_coverage == inverted_index::CommonGramsCoverage::kMixed &&
-            source.common_grams_posting_policy() == format::CommonGramsPostingPolicy::kHybridV1;
-    if (!metadata_status.ok() || (!complete_shape && !hybrid_shape) ||
-        metadata->plain_term_key_version != inverted_index::PlainTermKeyVersion::kEscapedV1 ||
-        metadata->common_grams_semantics_version !=
-                inverted_index::COMMON_GRAMS_SEMANTICS_VERSION_V1 ||
-        metadata->common_grams_key_version != inverted_index::COMMON_GRAMS_KEY_VERSION_V1 ||
-        metadata->scoring_coverage != inverted_index::ScoringCoverage::kComplete ||
-        metadata->scoring_stats_version != inverted_index::COMMON_GRAMS_SCORING_STATS_VERSION_V1 ||
-        metadata->norm_semantics_version !=
-                inverted_index::COMMON_GRAMS_NORM_SEMANTICS_VERSION_V1) {
-        return reject(fmt::format("source {} has incomplete or unsupported CommonGrams metadata",
-                                  source_ordinal));
-    }
-    const Status scoring_status = inverted_index::validate_snii_scoring_metadata(
-            metadata, source.stats().doc_count, source.stats().sum_total_term_freq,
-            /*has_scoring_tier=*/true, /*has_positions=*/true, /*has_norms=*/true);
-    if (!scoring_status.ok()) {
-        return reject(fmt::format("source {} has incomplete scoring metadata: {}", source_ordinal,
-                                  scoring_status.to_string()));
-    }
     const auto& stats = source.stats();
     if (stats.indexed_doc_count > stats.doc_count ||
         stats.null_count != stats.doc_count - stats.indexed_doc_count) {
@@ -193,9 +128,6 @@ Status validate_destination_policy(const TabletIndex& destination_index,
     RETURN_IF_ERROR(resolve_destination_analyzer(destination_index, analyzer_provider_factory,
                                                  &analyzer_provider));
     DORIS_CHECK(analyzer_provider != nullptr);
-    if (config::enable_common_grams_index_build && analyzer_provider->uses_common_grams()) {
-        return reject("destination analyzer policy would build CommonGrams");
-    }
     return Status::OK();
 }
 
@@ -213,25 +145,8 @@ Status validate_plain_t2_source_eligibility(const reader::LogicalIndexReader& so
 
 Status validate_snii_source_eligibility(const reader::LogicalIndexReader& source,
                                         size_t source_ordinal,
-                                        const SniiCompactionEligibility& eligibility) {
-    if (eligibility.kind == SniiStreamedMergeKind::kPlainT2) {
-        return validate_plain_t2_source_eligibility(source, source_ordinal);
-    }
-    RETURN_IF_ERROR(validate_common_grams_source_shape(source, source_ordinal));
-    RETURN_IF_ERROR(reject_legacy_bigram(source, source_ordinal));
-    if (!eligibility.common_grams_metadata_seed.has_value()) {
-        return reject("CommonGrams eligibility has no metadata identity seed");
-    }
-    if (source.common_grams_posting_policy() != eligibility.common_grams_posting_policy) {
-        return reject(fmt::format("source {} CommonGrams posting policy differs from eligibility",
-                                  source_ordinal));
-    }
-    if (static_common_grams_metadata(*source.common_grams_metadata()) !=
-        *eligibility.common_grams_metadata_seed) {
-        return reject(fmt::format("source {} CommonGrams static identity differs from eligibility",
-                                  source_ordinal));
-    }
-    return Status::OK();
+                                        const SniiCompactionEligibility& /*eligibility*/) {
+    return validate_plain_t2_source_eligibility(source, source_ordinal);
 }
 
 Status validate_plain_t2_compaction_eligibility(
@@ -321,65 +236,16 @@ Status validate_snii_compaction_eligibility(
         return reject("destination properties differ from source properties");
     }
 
-    const format::IndexTier source_tier = sources.front().reader.get().tier();
-    if (source_tier == format::IndexTier::kT2) {
-        for (size_t source_ordinal = 0; source_ordinal < sources.size(); ++source_ordinal) {
-            if (sources[source_ordinal].reader.get().tier() != format::IndexTier::kT2) {
-                return reject("source streamed-merge shapes are not homogeneous");
-            }
-            RETURN_IF_ERROR(validate_plain_t2_source_eligibility(
-                    sources[source_ordinal].reader.get(), source_ordinal));
-        }
-        RETURN_IF_ERROR(validate_destination_policy(destination_index, analyzer_provider_factory));
-        out->kind = SniiStreamedMergeKind::kPlainT2;
-        return Status::OK();
-    }
-    if (source_tier != format::IndexTier::kT3) {
-        return reject("source streamed-merge shape is neither plain T2 nor CommonGrams T3");
-    }
-
-    std::optional<inverted_index::CommonGramsSegmentMetadata> source_seed;
-    std::optional<format::CommonGramsPostingPolicy> source_policy;
     for (size_t source_ordinal = 0; source_ordinal < sources.size(); ++source_ordinal) {
-        const auto& source = sources[source_ordinal].reader.get();
-        if (source.tier() != format::IndexTier::kT3) {
-            return reject("source streamed-merge shapes are not homogeneous");
+        if (sources[source_ordinal].reader.get().tier() != format::IndexTier::kT2) {
+            return reject(fmt::format("source {} is not a positional (T2) index", source_ordinal));
         }
-        RETURN_IF_ERROR(validate_common_grams_source_shape(source, source_ordinal));
-        RETURN_IF_ERROR(reject_legacy_bigram(source, source_ordinal));
-        const auto seed = static_common_grams_metadata(*source.common_grams_metadata());
-        if (!source_seed.has_value()) {
-            source_seed = seed;
-            source_policy = source.common_grams_posting_policy();
-        } else if (source.common_grams_posting_policy() != *source_policy) {
-            return reject("source CommonGrams posting policies are not homogeneous");
-        } else if (*source_seed != seed) {
-            return reject(fmt::format("source {} CommonGrams static identity differs from source 0",
-                                      source_ordinal));
-        }
+        RETURN_IF_ERROR(validate_plain_t2_source_eligibility(sources[source_ordinal].reader.get(),
+                                                             source_ordinal));
     }
-
-    if (!config::enable_common_grams_index_build) {
-        return reject("destination CommonGrams index build is disabled");
-    }
-    inverted_index::AnalyzerProviderPtr analyzer_provider;
-    RETURN_IF_ERROR(resolve_destination_analyzer(destination_index, analyzer_provider_factory,
-                                                 &analyzer_provider));
-    if (analyzer_provider == nullptr || !analyzer_provider->uses_common_grams()) {
-        return reject("destination analyzer does not build CommonGrams");
-    }
-    const auto* destination_identity = analyzer_provider->common_grams_identity();
-    if (destination_identity == nullptr) {
-        return reject("destination analyzer has no complete CommonGrams identity");
-    }
-    if (!source_seed.has_value() ||
-        !inverted_index::common_grams_identity_matches(*source_seed, *destination_identity)) {
-        return reject("destination CommonGrams identity differs from source identity");
-    }
-    out->kind = SniiStreamedMergeKind::kCommonGramsT3;
-    out->common_grams_metadata_seed = std::move(source_seed);
-    DORIS_CHECK(source_policy.has_value());
-    out->common_grams_posting_policy = *source_policy;
+    RETURN_IF_ERROR(validate_destination_policy(destination_index, analyzer_provider_factory));
+    out->destination_writes_norms =
+            inverted_index::InvertedIndexAnalyzer::should_analyzer(destination_index.properties());
     return Status::OK();
 }
 

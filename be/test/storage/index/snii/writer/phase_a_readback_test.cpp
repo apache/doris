@@ -48,14 +48,11 @@
 // PHASE A read-back self-validation (design 2026-06-18-snii-read-byte-optimizations
 // sections 1 + 3 + 4). Builds a scoring index with a high-df term that spans
 // multiple ADAPTIVE-size windows plus low-df terms, then asserts:
-//   (a) for every window, decoding ONLY the docs-only prefix slice
-//       [frq window start, +frq_docs_len) via read_frq_window_docs yields exactly
-//       the same docids as decoding the full window;
+//   (a) for every window, decoding its dd region ALONE (the contiguous dd-block
+//       run) yields exactly the window's docids;
 //   (b) sum of window doc_counts == df and the windows tile the posting in order;
-//   (c) max_norm is non-zero for windows whose docs have non-default norms and
-//       equals the tightest (smallest encoded) norm in the window;
-//   (d) term_query / phrase_query / scoring (exhaustive vs WAND) agree with the
-//       oracle docids.
+//   (d) term_query / phrase_query / exhaustive scoring agree with the oracle
+//       docids.
 namespace {
 
 using namespace doris::snii;         // NOLINT
@@ -74,7 +71,7 @@ std::string TempPath() {
 // Corpus: every doc has "hot" (very high df -> adaptive 1024-doc windows). "spark"
 // follows "hot" consecutively in docs where d % 7 == 0. "rare" is a tiny term.
 // Doc lengths vary by docid so encoded norms differ across windows and within a
-// window, exercising real max_norm.
+// window, exercising real norms in scoring.
 struct Corpus {
     uint32_t doc_count = 12000;       // df(hot)=12000 >= kAdaptiveWindowDfThreshold(8192)
     std::vector<uint32_t> hot_docs;   // every doc
@@ -117,7 +114,7 @@ SniiIndexInput MakeIndex(const Corpus& c) {
     SniiIndexInput in;
     in.index_id = 1;
     in.index_suffix = "body";
-    in.config = IndexConfig::kDocsPositionsScoring; // scoring -> norms available
+    in.config = IndexConfig::kDocsPositions; // norms 随 encoded_norms 一起写出
     in.doc_count = c.doc_count;
     in.target_dict_block_bytes = 1; // one block per term
     in.encoded_norms.resize(c.doc_count);
@@ -128,32 +125,14 @@ SniiIndexInput MakeIndex(const Corpus& c) {
     in.terms.push_back(MakePosTerm("hot", c.hot_docs, /*pos=*/0));
     in.terms.push_back(MakePosTerm("rare", c.rare_docs, /*pos=*/0));
     in.terms.push_back(MakePosTerm("spark", c.spark_docs, /*pos=*/1));
-    uint64_t token_count = 0;
-    for (const auto& term : in.terms) {
-        token_count += term.positions_flat.size();
-    }
-    in.common_grams_metadata = snii_test::make_plain_scoring_metadata(in.doc_count, token_count);
     return in;
-}
-
-// Smallest encoded norm across [start, end) docids (the tightest WAND norm).
-uint8_t WindowMinNorm(const std::vector<uint8_t>& norms, uint32_t start, uint32_t end) {
-    uint8_t best = std::numeric_limits<uint8_t>::max();
-    for (uint32_t d = start; d < end; ++d) {
-        best = std::min(best, norms[d]);
-    }
-    return best;
 }
 
 } // namespace
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-TEST(SniiPhaseAReadBack, DocsPrefixTilesAndMaxNormTightAndQueriesAgree) {
+TEST(SniiPhaseAReadBack, DdBlockTilesAndQueriesAgree) {
     const Corpus c = MakeCorpus();
-    std::vector<uint8_t> norms(c.doc_count);
-    for (uint32_t d = 0; d < c.doc_count; ++d) {
-        norms[d] = doris::snii::query::encode_norm(c.doc_len[d]);
-    }
 
     const std::string path = TempPath();
     {
@@ -202,8 +181,6 @@ TEST(SniiPhaseAReadBack, DocsPrefixTilesAndMaxNormTightAndQueriesAgree) {
     uint64_t summed = 0;
     uint64_t expect_win_base = 0;
     uint64_t expect_dd_off = 0;
-    uint32_t doc_cursor = 0;
-    bool any_nonzero_max_norm = false;
 
     for (uint32_t w = 0; w < prelude.n_windows(); ++w) {
         WindowMeta m;
@@ -213,7 +190,7 @@ TEST(SniiPhaseAReadBack, DocsPrefixTilesAndMaxNormTightAndQueriesAgree) {
         // (a) dd regions are contiguous in the dd-block (the docs-only run is one range).
         EXPECT_EQ(m.dd_off, expect_dd_off) << "dd_off contiguity w=" << w;
 
-        // Decode the window's dd region ALONE (the freq region bytes are NOT fetched).
+        // Decode the window's dd region ALONE (the prx region bytes are NOT fetched).
         FrqRegionMeta dd_meta;
         dd_meta.zstd = m.dd_zstd;
         dd_meta.uncomp_len = m.dd_uncomp_len;
@@ -226,18 +203,10 @@ TEST(SniiPhaseAReadBack, DocsPrefixTilesAndMaxNormTightAndQueriesAgree) {
                 << "dd decode w=" << w;
         ASSERT_EQ(dd_docs.size(), m.doc_count) << "w=" << w;
 
-        // (c) max_norm equals the tightest (smallest encoded) norm in the window.
-        const uint32_t exp_min_norm = WindowMinNorm(norms, doc_cursor, doc_cursor + m.doc_count);
-        EXPECT_EQ(m.max_norm, exp_min_norm) << "max_norm w=" << w;
-        if (m.max_norm != 0) {
-            any_nonzero_max_norm = true;
-        }
-
         // (b) tiling: doc_counts sum and concatenated docids stay ascending.
         summed += m.doc_count;
         expect_win_base = m.last_docid;
         expect_dd_off += m.dd_disk_len;
-        doc_cursor += m.doc_count;
         tiled.insert(tiled.end(), dd_docs.begin(), dd_docs.end());
     }
     // The dd-block length equals the sum of per-window dd region lengths.
@@ -251,10 +220,7 @@ TEST(SniiPhaseAReadBack, DocsPrefixTilesAndMaxNormTightAndQueriesAgree) {
     for (size_t i = 1; i < tiled.size(); ++i) {
         ASSERT_LT(tiled[i - 1], tiled[i]) << "non-ascending at " << i;
     }
-    // (c) at least one window's docs have non-default norms -> non-zero max_norm.
-    EXPECT_TRUE(any_nonzero_max_norm);
-
-    // --- slim/inline term frq_docs_len plumbing ('rare' is tiny -> inline) ---
+    // --- slim/inline term ('rare' is tiny -> inline) ---
     bool rfound = false;
     DictEntry rare;
     uint64_t rf = 0, rp = 0;
@@ -280,22 +246,21 @@ TEST(SniiPhaseAReadBack, DocsPrefixTilesAndMaxNormTightAndQueriesAgree) {
     ASSERT_TRUE(doris::snii::query::phrase_query(idx, {"hot", "spark"}, &phrase_q).ok());
     EXPECT_EQ(phrase_q, c.phrase_oracle);
 
-    // (d) scoring: WAND top-K == exhaustive top-K (uses the real per-window max_norm).
+    // (d) scoring: exhaustive top-K over the windowed term returns exactly K docs,
+    // ranked by descending score (ties by ascending docid), using the real norms.
     SniiStatsProvider stats;
     ASSERT_TRUE(SniiStatsProvider::open(&idx, &stats).ok());
     const Bm25Params params;
     for (uint32_t k : {1U, 5U, 50U}) {
-        std::vector<ScoredDoc> ex, wa;
+        std::vector<ScoredDoc> ex;
         ASSERT_TRUE(doris::snii::query::scoring_query_exhaustive(idx, stats, {"hot", "rare"}, k,
                                                                  params, &ex)
                             .ok());
-        ASSERT_TRUE(
-                doris::snii::query::scoring_query_wand(idx, stats, {"hot", "rare"}, k, params, &wa)
-                        .ok());
-        ASSERT_EQ(wa.size(), ex.size()) << "k=" << k;
-        for (size_t i = 0; i < ex.size(); ++i) {
-            EXPECT_EQ(wa[i].docid, ex[i].docid) << "k=" << k << " i=" << i;
-            EXPECT_NEAR(wa[i].score, ex[i].score, 1e-9) << "k=" << k << " i=" << i;
+        ASSERT_EQ(ex.size(), k) << "k=" << k;
+        for (size_t i = 1; i < ex.size(); ++i) {
+            EXPECT_TRUE(ex[i - 1].score > ex[i].score ||
+                        (ex[i - 1].score == ex[i].score && ex[i - 1].docid < ex[i].docid))
+                    << "k=" << k << " i=" << i;
         }
     }
 

@@ -819,8 +819,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
             if (minimum_should_match > 0 &&
                 inverted_index::InvertedIndexAnalyzer::should_analyzer(binding.index_properties)) {
                 auto term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                        value, binding.index_properties,
-                        inverted_index::AnalysisPurpose::kPlainQuery);
+                        value, binding.index_properties);
                 if (term_infos.size() > 1) {
                     return Status::NotSupported(
                             "SNII native SEARCH does not support minimum_should_match for TERM "
@@ -1026,8 +1025,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
             std::vector<TermInfo> term_infos =
                     inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            value, binding.index_properties,
-                            inverted_index::AnalysisPurpose::kPlainQuery);
+                            value, binding.index_properties);
             if (term_infos.empty()) {
                 LOG(WARNING) << "search: No terms found after tokenization for TERM query, field="
                              << field_name << ", value='" << value
@@ -1091,8 +1089,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
             std::vector<TermInfo> term_infos =
                     inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            value, binding.index_properties,
-                            inverted_index::AnalysisPurpose::kPlainQuery);
+                            value, binding.index_properties);
             if (term_infos.empty()) {
                 LOG(WARNING) << "search: No terms found after tokenization for PHRASE query, field="
                              << field_name << ", value='" << value
@@ -1149,8 +1146,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
             std::vector<TermInfo> term_infos =
                     inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            value, binding.index_properties,
-                            inverted_index::AnalysisPurpose::kPlainQuery);
+                            value, binding.index_properties);
             if (term_infos.empty()) {
                 LOG(WARNING) << "search: tokenization yielded no terms for clause '" << clause_type
                              << "', field=" << field_name << ", returning empty BitSetQuery";

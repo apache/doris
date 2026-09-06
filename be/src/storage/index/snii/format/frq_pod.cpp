@@ -52,11 +52,11 @@ inline constexpr int kDefaultZstdLevel = 3;
 // corrupted uncomp_len read from S3 that inflated to a huge value: sanity-check
 // before allocating/decompressing to avoid GB-scale allocations. Windows are
 // 256-doc aligned and normally far smaller than this.
-inline constexpr uint32_t kMaxRegionUncompBytes = 256u * 1024 * 1024;
+inline constexpr uint32_t kMaxRegionUncompBytes = 256U * 1024 * 1024;
 // Maximum doc count per .frq window (guards against a corrupted n). Window
 // baseline is 256, practical combined cap is 2048, so this is a loose but
 // astronomically-large-number-blocking upper bound.
-inline constexpr uint32_t kMaxWindowDocs = 1u << 24;
+inline constexpr uint32_t kMaxWindowDocs = 1U << 24;
 
 // Encode a uint32 array into multiple PFOR runs, each of 256 (kFrqBaseUnit)
 // elements. n / run count is not written: the number of runs is derived from
@@ -81,7 +81,9 @@ Status decode_pfor_runs(ByteSource* src, size_t n, std::vector<uint32_t>* out) {
 
 // Verifies docids are ascending and the first entry is not below win_base.
 Status validate_docs(std::span<const uint32_t> docs, uint64_t win_base) {
-    if (docs.empty()) return Status::OK();
+    if (docs.empty()) {
+        return Status::OK();
+    }
 #ifdef BE_TEST
     ::doris::snii::testing::note_frq_dd_validation_doc_visits(1);
 #endif
@@ -102,8 +104,12 @@ Status validate_docs(std::span<const uint32_t> docs, uint64_t win_base) {
 
 // Decision: given level and plaintext length, determine whether to compress.
 bool should_compress(int level, size_t plain_len) {
-    if (level == 0) return false;          // force raw
-    if (level > 0) return true;            // force zstd
+    if (level == 0) {
+        return false; // force raw
+    }
+    if (level > 0) {
+        return true; // force zstd
+    }
     return plain_len >= kAutoZstdMinBytes; // auto
 }
 
@@ -325,38 +331,24 @@ uint64_t frq_raw_region_copy_bytes() {
 
 namespace doris::snii::format {
 
-Status build_freq_region(std::span<const uint32_t> freqs, int zstd_level_or_neg_for_auto,
-                         ByteSink* out, FrqRegionMeta* meta) {
-    if (out == nullptr || meta == nullptr) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("frq: null freq region out");
-    }
-    if (zstd_level_or_neg_for_auto == 0) {
-        const size_t begin = out->size();
-        encode_pfor_runs(freqs, out);
-        finish_raw_region(out, begin, meta);
-        return Status::OK();
-    }
-    ByteSink plain;
-    encode_pfor_runs(freqs, &plain);
-    return emit_region(plain.view(), zstd_level_or_neg_for_auto, out, meta);
-}
-
 namespace {
 
 Status decode_dd_region_impl(Slice dd_disk, const FrqRegionMeta& meta, uint64_t win_base,
                              const uint32_t* expected_doc_count,
                              PrxCsrAllocationGate* allocation_gate, std::vector<uint32_t>* docids) {
-    if (docids == nullptr)
+    if (docids == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("frq: null docids out");
+    }
     std::vector<uint8_t> holder;
     Slice plain;
     RETURN_IF_ERROR(open_region(dd_disk, meta, &holder, allocation_gate, &plain));
     ByteSource src(plain);
     uint32_t n = 0;
     RETURN_IF_ERROR(src.get_varint32(&n));
-    if (n > kMaxWindowDocs)
+    if (n > kMaxWindowDocs) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "frq: doc count exceeds sane cap");
+    }
     if (expected_doc_count != nullptr && n != *expected_doc_count) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "frq: encoded doc count differs from metadata");
@@ -408,30 +400,6 @@ Status decode_dd_region(Slice dd_disk, const FrqRegionMeta& meta, uint64_t win_b
     }
     return decode_dd_region_impl(dd_disk, meta, win_base, &expected_doc_count, allocation_gate,
                                  docids);
-}
-
-Status decode_freq_region(Slice freq_disk, const FrqRegionMeta& meta, size_t doc_count,
-                          std::vector<uint32_t>* freqs) {
-    if (freqs == nullptr)
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("frq: null freqs out");
-    std::vector<uint8_t> holder;
-    Slice plain;
-    RETURN_IF_ERROR(open_region(freq_disk, meta, &holder, nullptr, &plain));
-    if (doc_count == 0) {
-        if (meta.uncomp_len != 0) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                    "frq: empty freq region expected");
-        }
-        freqs->clear();
-        return Status::OK();
-    }
-    ByteSource src(plain);
-    RETURN_IF_ERROR(decode_pfor_runs(&src, doc_count, freqs));
-    if (!src.eof()) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "frq: trailing bytes after freq region payload");
-    }
-    return Status::OK();
 }
 
 } // namespace doris::snii::format

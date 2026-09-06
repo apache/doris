@@ -35,15 +35,13 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
-#include "storage/index/inverted/common_grams/common_word_set.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/format/dict_block.h"
@@ -58,65 +56,12 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/slice.h"
 
-namespace doris::segment_v2 {
-bool snii_effective_write_freq(snii::format::IndexConfig index_config);
-}
 
 namespace {
 
 using doris::snii::ByteSink;
 using doris::snii::Slice;
 using namespace doris::snii::format; // NOLINT(google-build-using-namespace)
-
-class ScopedCommonGramsPolicies {
-public:
-    ScopedCommonGramsPolicies() {
-        auto* exec_env = doris::ExecEnv::GetInstance();
-        previous_ = exec_env->index_policy_mgr();
-        exec_env->_index_policy_mgr = &manager_;
-
-        doris::TIndexPolicy tokenizer;
-        tokenizer.id = 920010;
-        tokenizer.name = "snii_writer_cg_tokenizer";
-        tokenizer.type = doris::TIndexPolicyType::TOKENIZER;
-        tokenizer.properties["type"] = "char_group";
-        tokenizer.properties["tokenize_on_chars"] = "[\\u0020]";
-        tokenizer.properties["max_token_length"] = "16383";
-
-        doris::TIndexPolicy common_grams;
-        common_grams.id = 920011;
-        common_grams.name = "snii_writer_cg_filter";
-        common_grams.type = doris::TIndexPolicyType::TOKEN_FILTER;
-        common_grams.properties["type"] = "common_grams";
-
-        doris::TIndexPolicy analyzer;
-        analyzer.id = 920012;
-        analyzer.name = analyzer_name();
-        analyzer.type = doris::TIndexPolicyType::ANALYZER;
-        analyzer.properties["tokenizer"] = tokenizer.name;
-        analyzer.properties["token_filter"] = "lowercase," + common_grams.name;
-        manager_.apply_policy_changes({tokenizer, common_grams, analyzer}, {});
-    }
-
-    ~ScopedCommonGramsPolicies() { doris::ExecEnv::GetInstance()->_index_policy_mgr = previous_; }
-
-    static std::string analyzer_name() { return "snii_writer_cg_analyzer"; }
-
-    // Derive a metadata seed from the analyzer's real identity, the same
-    // way production derives it for a fresh segment; hand-rolled fingerprints can
-    // never match the provider identity and fail init's consistency check.
-    doris::segment_v2::inverted_index::CommonGramsSegmentMetadata metadata_seed() {
-        auto provider = manager_.get_analyzer_provider_by_name(analyzer_name());
-        DORIS_CHECK(provider != nullptr);
-        const auto* identity = provider->common_grams_identity();
-        DORIS_CHECK(identity != nullptr);
-        return doris::segment_v2::inverted_index::make_common_grams_segment_metadata(*identity);
-    }
-
-private:
-    doris::IndexPolicyMgr manager_;
-    doris::IndexPolicyMgr* previous_ = nullptr;
-};
 
 // A fatal assertion inside a helper FUNCTION only aborts the helper; the calling
 // test keeps running and may dereference state that failed to initialize (this
@@ -145,55 +90,51 @@ void init_failure_index_meta(doris::TabletIndex* index_meta, int64_t index_id) {
     doris::TabletIndexPB index_pb;
     index_pb.set_index_type(doris::IndexType::INVERTED);
     index_pb.set_index_id(index_id);
-    index_pb.set_index_name("common_grams_failure_latch");
+    index_pb.set_index_name("analyzer_failure_latch");
     index_pb.add_col_unique_id(0);
     index_pb.mutable_properties()->insert({"parser", "english"});
     index_pb.mutable_properties()->insert({"support_phrase", "true"});
     index_meta->init_from_pb(index_pb);
 }
 
-void init_common_grams_index_meta(doris::TabletIndex* index_meta, int64_t index_id) {
-    doris::TabletIndexPB index_pb;
-    index_pb.set_index_type(doris::IndexType::INVERTED);
-    index_pb.set_index_id(index_id);
-    index_pb.set_index_name("common_grams_typed_writer");
-    index_pb.add_col_unique_id(0);
-    index_pb.mutable_properties()->insert({"analyzer", ScopedCommonGramsPolicies::analyzer_name()});
-    index_pb.mutable_properties()->insert({"support_phrase", "true"});
-    index_meta->init_from_pb(index_pb);
-}
+// 分词过程中抛 INVERTED_INDEX_ANALYZER_ERROR 的分析器：模拟任何 token filter 的运行期失败
+// （以前由某个词元过滤器的 UTF-8 校验扮演这个角色）。
+class ThrowingTokenStream final : public lucene::analysis::TokenStream {
+public:
+    lucene::analysis::Token* next(lucene::analysis::Token*) override {
+        throw doris::Exception(doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                               "analyzer failure injected by test");
+    }
+    void close() override {}
+    void reset() override {}
+};
 
-std::string encoded_gram(std::string_view left, std::string_view right) {
-    auto encoded = doris::segment_v2::inverted_index::encode_common_gram(left, right);
-    EXPECT_TRUE(encoded.has_value()) << encoded.error();
-    return encoded.value();
-}
+class ThrowingAnalyzer final : public lucene::analysis::Analyzer {
+public:
+    bool isSDocOpt() override { return true; }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*, lucene::util::Reader*) override {
+        return new ThrowingTokenStream();
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       lucene::util::Reader*) override {
+        _reusable = std::make_unique<ThrowingTokenStream>();
+        return _reusable.get();
+    }
+
+private:
+    std::unique_ptr<ThrowingTokenStream> _reusable;
+};
 
 std::shared_ptr<lucene::analysis::Analyzer> create_failure_analyzer() {
-    using namespace doris::segment_v2::inverted_index; // NOLINT
-    Settings tokenizer_settings;
-    tokenizer_settings.set("tokenize_on_chars", "[whitespace]");
-    CustomAnalyzerConfig::Builder builder;
-    builder.with_tokenizer_config("char_group", tokenizer_settings);
-    builder.add_token_filter_config("lowercase", {});
-    builder.add_token_filter_config("common_grams", {});
-    return CustomAnalyzer::build_custom_analyzer(builder.build(), AnalysisPurpose::kIndex);
+    return std::make_shared<ThrowingAnalyzer>();
 }
 
 doris::Slice malformed_value_after_valid_token() {
     static const std::string input =
             std::string("VALID B") + static_cast<char>(0xFF) + std::string("AD");
     return doris::Slice(input);
-}
-
-TEST(SniiWriterTest, EffectiveWriteFreqResolver) {
-    const bool saved = doris::config::snii_positions_index_write_freq;
-    doris::config::snii_positions_index_write_freq = false;
-    EXPECT_FALSE(doris::segment_v2::snii_effective_write_freq(IndexConfig::kDocsPositions));
-    EXPECT_TRUE(doris::segment_v2::snii_effective_write_freq(IndexConfig::kDocsPositionsScoring));
-    doris::config::snii_positions_index_write_freq = true;
-    EXPECT_TRUE(doris::segment_v2::snii_effective_write_freq(IndexConfig::kDocsPositions));
-    doris::config::snii_positions_index_write_freq = saved;
 }
 
 // SampledTermIndexReader::heap_bytes(): all-SSO sample terms have no per-string
@@ -269,15 +210,10 @@ DictEntry make_pod_ref(std::string term) {
     e.kind = DictEntryKind::kPodRef;
     e.enc = DictEntryEnc::kSlim;
     e.df = 3;
-    e.ttf_delta = 6;
-    e.max_freq = 9;
     e.frq_off_delta = 0;
     e.frq_len = 128;
-    e.frq_docs_len = 64; // dd region on-disk length (<= frq_len)
     e.dd_meta.uncomp_len = 70;
     e.dd_meta.crc = 0xABCD1234U;
-    e.freq_meta.uncomp_len = 40;
-    e.freq_meta.crc = 0x55AA00FFU;
     e.prx_off_delta = 0;
     e.prx_len = 64;
     return e;
@@ -396,113 +332,6 @@ TEST(SniiWriterFailureLatch, AnalyzerFailureDiscardsStateAndBlocksFinish) {
     EXPECT_EQ(writer.finish().code(), doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
     EXPECT_EQ(writer.term_buffer_for_test(), nullptr);
     EXPECT_EQ(writer.memory_reporter_for_test(), nullptr);
-}
-
-TEST(SniiCommonGramsWriter, EncodesTypedTermsAndBuildsSemanticScoringInput) {
-    using doris::segment_v2::inverted_index::PLAIN_ESCAPE_PREFIX;
-    ScopedCommonGramsPolicies policies;
-    doris::TabletIndex index_meta;
-    init_common_grams_index_meta(&index_meta, 93);
-
-    doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &index_meta,
-                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                                    policies.metadata_seed());
-    ASSERT_OK(writer.init());
-
-    const std::string marker_plain = std::string("\x1f") + "raw";
-    const std::string first_text = marker_plain + " of the";
-    const std::string second_text = "plain terms";
-    const std::vector<doris::Slice> values = {doris::Slice(first_text), doris::Slice(second_text)};
-    ASSERT_OK(writer.add_values("", values.data(), values.size()));
-    ASSERT_OK(writer.add_nulls(1));
-
-    auto postings = writer.term_buffer_for_test()->finalize_sorted();
-    std::map<std::string, doris::snii::writer::TermPostings> by_term;
-    for (auto& posting : postings) {
-        EXPECT_FALSE(posting.term.starts_with(doris::snii::format::kPhraseBigramTermMarker));
-        const std::string term = posting.term;
-        by_term.emplace(term, std::move(posting));
-    }
-
-    const std::string escaped_plain = std::string(1, PLAIN_ESCAPE_PREFIX) + "Graw";
-    ASSERT_TRUE(by_term.contains(escaped_plain));
-    EXPECT_EQ(by_term.at(escaped_plain).docids, (std::vector<uint32_t> {0}));
-    EXPECT_EQ(by_term.at(escaped_plain).positions_flat, (std::vector<uint32_t> {1}));
-    ASSERT_TRUE(by_term.contains(encoded_gram(marker_plain, "of")));
-    EXPECT_EQ(by_term.at(encoded_gram(marker_plain, "of")).docids, (std::vector<uint32_t> {0}));
-    // A gram keeps positions only when BOTH sides are common words
-    // (add_common_gram_and_plain's retain flag); a mixed pair such as
-    // escaped-raw + common keeps co-occurrence docids but never participates
-    // in phrase-position semantics.
-    EXPECT_TRUE(by_term.at(encoded_gram(marker_plain, "of")).positions_flat.empty());
-    ASSERT_TRUE(by_term.contains(encoded_gram("of", "the")));
-    EXPECT_EQ(by_term.at(encoded_gram("of", "the")).positions_flat, (std::vector<uint32_t> {2}));
-    EXPECT_EQ(by_term.at("of").positions_flat, (std::vector<uint32_t> {2}));
-    EXPECT_EQ(by_term.at("the").positions_flat, (std::vector<uint32_t> {3}));
-    EXPECT_EQ(by_term.at("plain").positions_flat, (std::vector<uint32_t> {1}));
-    EXPECT_EQ(by_term.at("terms").positions_flat, (std::vector<uint32_t> {2}));
-
-    EXPECT_EQ(writer.encoded_norms_for_test(),
-              (std::vector<uint8_t> {doris::snii::query::encode_norm(3),
-                                     doris::snii::query::encode_norm(2),
-                                     doris::snii::query::encode_norm(0)}));
-    EXPECT_EQ(writer.scoring_token_count_for_test(), 5U);
-    const auto metadata = writer.common_grams_metadata_for_test();
-    EXPECT_EQ(metadata.scoring_doc_count, 3U);
-    EXPECT_EQ(metadata.scoring_token_count, 5U);
-}
-
-TEST(SniiCommonGramsWriter, EscapedPlainOverflowPoisonsAllAccumulatedState) {
-    ScopedCommonGramsPolicies policies;
-    doris::TabletIndex index_meta;
-    init_common_grams_index_meta(&index_meta, 94);
-
-    doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &index_meta,
-                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                                    policies.metadata_seed());
-    ASSERT_OK(writer.init());
-
-    const std::string valid_text = "man of the year";
-    const doris::Slice valid_value(valid_text);
-    ASSERT_OK(writer.add_values("", &valid_value, 1));
-    ASSERT_OK(writer.add_nulls(1));
-    ASSERT_NE(writer.term_buffer_for_test(), nullptr);
-    EXPECT_FALSE(writer.encoded_norms_for_test().empty());
-    EXPECT_FALSE(writer.null_docids_for_test().empty());
-    EXPECT_GT(writer.scoring_token_count_for_test(), 0U);
-
-    std::string oversized_after_escape(
-            doris::segment_v2::inverted_index::COMMON_GRAM_MAX_ENCODED_BYTES, 'x');
-    oversized_after_escape.front() = '\x1f';
-    const doris::Slice value(oversized_after_escape);
-    auto status = writer.add_values("", &value, 1);
-    ASSERT_EQ(status.code(), doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
-    ASSERT_EQ(writer.term_buffer_for_test(), nullptr);
-    ASSERT_EQ(writer.memory_reporter_for_test(), nullptr);
-    EXPECT_TRUE(writer.encoded_norms_for_test().empty());
-    EXPECT_TRUE(writer.null_docids_for_test().empty());
-    EXPECT_EQ(writer.scoring_token_count_for_test(), 0U);
-    EXPECT_EQ(writer.finish().code(), doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
-}
-
-TEST(SniiCommonGramsWriter, PlainControlKeepsRawTermsAndLegacyConfig) {
-    doris::TabletIndex index_meta;
-    init_failure_index_meta(&index_meta, 95);
-    doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &index_meta,
-                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
-    ASSERT_OK(writer.init());
-
-    const std::string raw = std::string("\x1f") + "literal";
-    const doris::Slice value(raw);
-    ASSERT_OK(writer.add_values("", &value, 1));
-    auto postings = writer.term_buffer_for_test()->finalize_sorted();
-    ASSERT_FALSE(postings.empty());
-    EXPECT_TRUE(std::ranges::none_of(postings, [](const auto& posting) {
-        return posting.term.starts_with(doris::segment_v2::inverted_index::PLAIN_ESCAPE_PREFIX);
-    }));
-    EXPECT_EQ(writer.config_for_test(), IndexConfig::kDocsPositions);
-    EXPECT_TRUE(writer.encoded_norms_for_test().empty());
-    EXPECT_FALSE(writer.has_common_grams_metadata_seed_for_test());
 }
 
 TEST(SniiDocIdSinkGrowth, AppendRangeGrowsGeometrically) {

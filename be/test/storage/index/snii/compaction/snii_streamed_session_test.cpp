@@ -31,8 +31,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/format/dict_entry.h"
 #include "storage/index/snii/format/format_constants.h"
@@ -73,7 +71,6 @@ using writer::TermPostings;
 using writer::StreamedTermPostings;
 using writer::TermPostingBuffer;
 using writer::TermPostingSource;
-namespace inverted_index = doris::segment_v2::inverted_index;
 
 static_assert(!std::is_move_constructible_v<SniiCompoundWriter>);
 static_assert(!std::is_move_assignable_v<SniiCompoundWriter>);
@@ -124,7 +121,6 @@ SniiIndexInput empty_input(uint64_t index_id, std::string suffix, uint32_t doc_c
     input.index_suffix = std::move(suffix);
     input.config = format::IndexConfig::kDocsPositions;
     input.doc_count = doc_count;
-    input.write_freq = false;
     return input;
 }
 
@@ -306,12 +302,11 @@ private:
     size_t fill_count_ = 0;
 };
 
-SniiIndexInput representative_input(bool write_freq = false) {
+SniiIndexInput representative_input() {
     SniiIndexInput input;
     input.index_id = 71;
     input.index_suffix = "body";
     input.config = format::IndexConfig::kDocsPositions;
-    input.write_freq = write_freq;
     input.target_dict_block_bytes = 256;
 
     input.terms.push_back(make_term("aa_inline", {{.docid = 7, .positions = {1}}}));
@@ -386,27 +381,12 @@ Status begin_scoring_session_from_local_input(SniiCompoundWriter* compound,
     SniiIndexInput input;
     input.index_id = 91;
     input.index_suffix = "owned_scoring_body_with_heap_storage";
-    input.config = format::IndexConfig::kDocsPositionsScoring;
+    input.config = format::IndexConfig::kDocsPositions;
     input.doc_count = 4;
     input.null_docids = {1, 3};
-    input.encoded_norms = {7, 11, 13, 17};
-    input.common_grams_metadata = make_plain_scoring_metadata(input.doc_count, 4);
+    // 流式会话的 norms 只能晚绑定（compaction 在合并 postings 之后才知道每 doc 长度）。
+    input.write_norms = true;
     return compound->begin_streamed_index(std::move(input), session);
-}
-
-SniiIndexInput common_grams_input(uint64_t index_id, std::string suffix) {
-    SniiIndexInput input;
-    input.index_id = index_id;
-    input.index_suffix = std::move(suffix);
-    input.config = format::IndexConfig::kDocsPositionsScoring;
-    input.doc_count = 1;
-    input.encoded_norms = {9};
-    inverted_index::CommonGramsQueryIdentity identity {.common_grams_dictionary_identity = "dict-a",
-                                                       .base_analyzer_fingerprint = "base-a",
-                                                       .common_grams_fingerprint = "grams-a"};
-    input.common_grams_metadata = inverted_index::make_common_grams_segment_metadata(identity);
-    input.common_grams_metadata->scoring_doc_count = input.doc_count;
-    return input;
 }
 
 // Block-boundary padding on the STREAMED path. This is the compaction merge output -- in
@@ -422,26 +402,35 @@ TEST(SniiStreamedWriterSessionTest, StreamedContainerPadsIdenticallyToOrdinary) 
         doris::config::enable_file_cache = saved_cache;
     }};
 
-    // Measure the unpadded size first, then pick a block the gate must accept: the container spans
-    // 2*kMinPaddingLeverage blocks, and pad is asserted to be both due and worth paying.
+    // Measure the unpadded size first, then pick a block the gate must accept: the container
+    // spans at least kMinPaddingLeverage blocks (we start the search at 2x that leverage and walk
+    // the block size up), and pad is asserted to be both due and worth paying.
     doris::config::enable_file_cache = false;
     MemoryFile unpadded_file;
-    assert_ok(write_streamed_index(representative_input(true), &unpadded_file));
+    assert_ok(write_streamed_index(representative_input(), &unpadded_file));
     const size_t unpadded = unpadded_file.data().size();
-    const auto block = static_cast<int64_t>(unpadded / (2 * writer::kMinPaddingLeverage));
-    ASSERT_GE(block, 2) << "fixture too small to derive a usable block size";
-    const auto block_size = static_cast<size_t>(block);
-    const size_t pad = (block_size - unpadded % block_size) % block_size;
-    ASSERT_GT(pad, 0U) << "fixture is an exact multiple of block " << block
+    size_t block_size = unpadded / (2 * writer::kMinPaddingLeverage);
+    ASSERT_GE(block_size, 2U) << "fixture too small to derive a usable block size";
+    size_t pad = 0;
+    for (; unpadded / block_size >= writer::kMinPaddingLeverage; ++block_size) {
+        pad = (block_size - unpadded % block_size) % block_size;
+        if (pad > 0 && 2 * pad < block_size) {
+            break;
+        }
+    }
+    ASSERT_GE(unpadded / block_size, writer::kMinPaddingLeverage)
+            << "no block size in the leverage range makes padding both due and worth paying";
+    ASSERT_GT(pad, 0U) << "fixture is an exact multiple of block " << block_size
                        << "; nothing would be padded and this test would pass vacuously";
     ASSERT_LT(2 * pad, block_size) << "the gate would decline this padding as not worth its cost";
+    const auto block = static_cast<int64_t>(block_size);
 
     doris::config::enable_file_cache = true;
     doris::config::file_cache_each_block_size = block;
     MemoryFile ordinary;
     MemoryFile streamed;
-    assert_ok(write_ordinary_index(representative_input(true), &ordinary));
-    assert_ok(write_streamed_index(representative_input(true), &streamed));
+    assert_ok(write_ordinary_index(representative_input(), &ordinary));
+    assert_ok(write_streamed_index(representative_input(), &streamed));
 
     EXPECT_EQ(streamed.data().size(), unpadded + pad);
     EXPECT_EQ(streamed.data().size() % block_size, 0U);
@@ -457,11 +446,11 @@ TEST(SniiStreamedWriterSessionTest, StreamedContainerPadsIdenticallyToOrdinary) 
 }
 
 TEST(SniiStreamedWriterSessionTest, OrdinaryAndStreamedImagesAreByteIdentical) {
-    for (bool write_freq : {false, true}) {
+    {
         MemoryFile ordinary;
         MemoryFile streamed;
-        assert_ok(write_ordinary_index(representative_input(write_freq), &ordinary));
-        assert_ok(write_streamed_index(representative_input(write_freq), &streamed));
+        assert_ok(write_ordinary_index(representative_input(), &ordinary));
+        assert_ok(write_streamed_index(representative_input(), &streamed));
 
         EXPECT_EQ(streamed.data(), ordinary.data());
 
@@ -479,203 +468,17 @@ TEST(SniiStreamedWriterSessionTest, OrdinaryAndStreamedImagesAreByteIdentical) {
         assert_ok(index.lookup("aa_inline", &found, &entry, &frq_base, &prx_base));
         ASSERT_TRUE(found);
         EXPECT_EQ(entry.kind, format::DictEntryKind::kInline);
-        EXPECT_EQ(entry.term_stats_present, write_freq);
 
         assert_ok(index.lookup("bb_slim", &found, &entry, &frq_base, &prx_base));
         ASSERT_TRUE(found);
         EXPECT_EQ(entry.kind, format::DictEntryKind::kPodRef);
         EXPECT_EQ(entry.enc, format::DictEntryEnc::kSlim);
-        EXPECT_EQ(entry.term_stats_present, write_freq);
 
         assert_ok(index.lookup("cc_windowed", &found, &entry, &frq_base, &prx_base));
         ASSERT_TRUE(found);
         EXPECT_EQ(entry.kind, format::DictEntryKind::kPodRef);
         EXPECT_EQ(entry.enc, format::DictEntryEnc::kWindowed);
-        EXPECT_EQ(entry.term_stats_present, write_freq);
     }
-}
-
-TEST(SniiStreamedWriterSessionTest, CompleteCommonGramSkipsTermFreqStatsScan) {
-    SniiIndexInput input = common_grams_input(113, "gram_freq_stats");
-    input.terms.push_back(make_term("plain", {{.docid = 0, .positions = {1}}}));
-    auto gram = inverted_index::encode_common_gram("of", "the");
-    ASSERT_TRUE(gram.has_value());
-    input.terms.push_back(make_term(std::move(gram.value()), {{.docid = 0, .positions = {0, 2}}}));
-    std::ranges::sort(input.terms, [](const TermPostings& lhs, const TermPostings& rhs) {
-        return lhs.term < rhs.term;
-    });
-
-    writer::testing::reset_term_freq_scans();
-    MemoryFile file;
-    std::vector<TermPostings> terms = std::move(input.terms);
-    SniiCompoundWriter compound(&file);
-    SniiStreamedIndexSession* session = nullptr;
-    assert_ok(compound.begin_streamed_index(std::move(input), &session));
-    assert_ok(session->set_semantic_token_count(1));
-    for (TermPostings& term : terms) {
-        assert_ok(push_materialized(session, std::move(term)));
-    }
-    assert_ok(session->finish());
-    assert_ok(compound.finish());
-
-    // The ordinary term still needs ttf/max_freq, while the statless gram can
-    // derive ttf from its already-known position count and has no max consumer.
-    EXPECT_EQ(writer::testing::term_freq_scans(), 1U);
-}
-
-TEST(SniiStreamedWriterSessionTest, CompleteWindowedCommonGramSkipsUnusedWandScans) {
-    constexpr uint32_t kDocs = format::kSlimDfThreshold;
-    SniiIndexInput input = common_grams_input(117, "gram_window_norm_stats");
-    input.doc_count = kDocs;
-    input.encoded_norms.resize(kDocs);
-    std::iota(input.encoded_norms.begin(), input.encoded_norms.end(), uint8_t {1});
-    input.common_grams_metadata->scoring_doc_count = kDocs;
-
-    std::vector<PostingDoc> docs;
-    docs.reserve(kDocs);
-    for (uint32_t docid = 0; docid < kDocs; ++docid) {
-        docs.push_back({.docid = docid, .positions = {docid}});
-    }
-    auto gram = inverted_index::encode_common_gram("of", "the");
-    ASSERT_TRUE(gram.has_value());
-    TermPostings term = make_term(std::move(gram.value()), docs);
-
-    writer::testing::reset_window_norm_doc_visits();
-    writer::testing::reset_window_freq_doc_visits();
-    MemoryFile file;
-    SniiCompoundWriter compound(&file);
-    SniiStreamedIndexSession* session = nullptr;
-    assert_ok(compound.begin_streamed_index(std::move(input), &session));
-    assert_ok(session->set_semantic_token_count(kDocs));
-    assert_ok(push_materialized(session, std::move(term)));
-    assert_ok(session->finish());
-    assert_ok(compound.finish());
-
-    EXPECT_EQ(writer::testing::window_norm_doc_visits(), 0U);
-    EXPECT_EQ(writer::testing::window_freq_doc_visits(), 0U);
-}
-
-TEST(SniiStreamedWriterSessionTest, CompleteDocsOnlyGramsOmitPrxInEveryEntryShape) {
-    constexpr uint32_t kDocs = format::kSlimDfThreshold;
-    SniiIndexInput input = common_grams_input(118, "gram_docs_only_shapes");
-    input.config = format::IndexConfig::kDocsPositions;
-    input.write_freq = false;
-    input.encoded_norms.clear();
-    input.common_grams_metadata->scoring_coverage = inverted_index::ScoringCoverage::kNone;
-    input.common_grams_metadata->scoring_stats_version = 0;
-    input.common_grams_metadata->norm_semantics_version = 0;
-    input.common_grams_metadata->scoring_doc_count = 0;
-
-    const auto make_docs_only_gram = [](std::string left, std::string right, uint32_t count,
-                                        uint32_t stride) {
-        TermPostings term;
-        term.term = inverted_index::encode_common_gram(left, right).value();
-        term.retain_positions = false;
-        term.docids.resize(count);
-        for (uint32_t i = 0; i < count; ++i) {
-            term.docids[i] = i * stride;
-        }
-        term.freqs.assign(count, 1U);
-        return term;
-    };
-    input.terms.push_back(make_docs_only_gram("a", "of", 1, 1));
-    input.terms.push_back(make_docs_only_gram("b", "of", 300, 100003));
-    input.terms.push_back(make_docs_only_gram("c", "of", kDocs, 1));
-    input.doc_count = input.terms[1].docids.back() + 1;
-    std::ranges::sort(input.terms, [](const TermPostings& lhs, const TermPostings& rhs) {
-        return lhs.term < rhs.term;
-    });
-
-    writer::testing::reset_term_freq_scans();
-    writer::testing::reset_window_norm_doc_visits();
-    writer::testing::reset_window_freq_doc_visits();
-    MemoryFile file;
-    SniiCompoundWriter compound(&file);
-    assert_ok(compound.add_logical_index(input));
-    assert_ok(compound.finish());
-
-    reader::SniiSegmentReader segment;
-    reader::LogicalIndexReader index;
-    assert_ok(reader::SniiSegmentReader::open(&file, &segment));
-    assert_ok(segment.open_index(118, "gram_docs_only_shapes", &index));
-    for (size_t i = 0; i < input.terms.size(); ++i) {
-        bool found = false;
-        format::DictEntry entry;
-        uint64_t frq_base = 0;
-        uint64_t prx_base = 0;
-        assert_ok(index.lookup(input.terms[i].term, &found, &entry, &frq_base, &prx_base));
-        ASSERT_TRUE(found);
-        if (i == 0) {
-            EXPECT_EQ(entry.kind, format::DictEntryKind::kInline);
-            EXPECT_TRUE(entry.prx_bytes.empty());
-        } else {
-            EXPECT_EQ(entry.kind, format::DictEntryKind::kPodRef);
-            EXPECT_EQ(entry.prx_len, 0U);
-        }
-    }
-    EXPECT_EQ(writer::testing::term_freq_scans(), 0U);
-    EXPECT_EQ(writer::testing::window_norm_doc_visits(), 0U);
-    EXPECT_EQ(writer::testing::window_freq_doc_visits(), 0U);
-}
-
-TEST(SniiStreamedWriterSessionTest, MixedCommonGramKeepsTermFreqStatsScan) {
-    SniiIndexInput input = common_grams_input(114, "mixed_gram_freq_stats");
-    input.common_grams_metadata->common_grams_coverage =
-            inverted_index::CommonGramsCoverage::kMixed;
-    auto gram = inverted_index::encode_common_gram("of", "the");
-    ASSERT_TRUE(gram.has_value());
-    TermPostings term = make_term(std::move(gram.value()), {{.docid = 0, .positions = {0, 2}}});
-
-    writer::testing::reset_term_freq_scans();
-    MemoryFile file;
-    SniiCompoundWriter compound(&file);
-    SniiStreamedIndexSession* session = nullptr;
-    assert_ok(compound.begin_streamed_index(std::move(input), &session));
-    assert_ok(session->set_semantic_token_count(1));
-    assert_ok(push_materialized(session, std::move(term)));
-    assert_ok(session->finish());
-    assert_ok(compound.finish());
-
-    EXPECT_EQ(writer::testing::term_freq_scans(), 1U);
-}
-
-TEST(SniiStreamedWriterSessionTest, StatlessCommonGramRejectsInvalidPositionPartition) {
-    SniiIndexInput input = common_grams_input(115, "invalid_gram_partition");
-    auto gram = inverted_index::encode_common_gram("of", "the");
-    ASSERT_TRUE(gram.has_value());
-    TermPostings term = make_term(std::move(gram.value()), {{.docid = 0, .positions = {0, 2}}});
-    term.freqs[0] = 1;
-
-    MemoryFile file;
-    SniiCompoundWriter compound(&file);
-    SniiStreamedIndexSession* session = nullptr;
-    assert_ok(compound.begin_streamed_index(std::move(input), &session));
-    assert_ok(session->set_semantic_token_count(1));
-    EXPECT_TRUE(push_materialized(session, std::move(term)).is<ErrorCode::INVALID_ARGUMENT>());
-}
-
-TEST(SniiStreamedWriterSessionTest, StatlessWindowedGramRejectsInvalidPositionPartition) {
-    constexpr uint32_t kDocs = format::kSlimDfThreshold;
-    SniiIndexInput input = common_grams_input(116, "invalid_windowed_gram_partition");
-    input.doc_count = kDocs;
-    input.encoded_norms.assign(kDocs, 1);
-    input.common_grams_metadata->scoring_doc_count = kDocs;
-    std::vector<PostingDoc> docs;
-    docs.reserve(kDocs);
-    for (uint32_t docid = 0; docid < kDocs; ++docid) {
-        docs.push_back({.docid = docid, .positions = {0}});
-    }
-    auto gram = inverted_index::encode_common_gram("of", "the");
-    ASSERT_TRUE(gram.has_value());
-    TermPostings term = make_term(std::move(gram.value()), std::move(docs));
-    term.freqs.back() = 2;
-
-    MemoryFile file;
-    SniiCompoundWriter compound(&file);
-    SniiStreamedIndexSession* session = nullptr;
-    assert_ok(compound.begin_streamed_index(std::move(input), &session));
-    assert_ok(session->set_semantic_token_count(kDocs));
-    EXPECT_TRUE(push_materialized(session, std::move(term)).is<ErrorCode::INVALID_ARGUMENT>());
 }
 
 TEST(SniiStreamedWriterSessionTest, NullDocidsStorageIsTransferredIntoStreamedWriter) {
@@ -782,7 +585,6 @@ TEST(SniiStreamedWriterSessionTest, TightPrxLimitsRecutSlimTermAtDocumentBoundar
     input.index_id = 72;
     input.index_suffix = "tight_prx";
     input.config = format::IndexConfig::kDocsPositions;
-    input.write_freq = true;
     input.doc_count = 3;
     input.prx_window_limits = {
             .max_docs = 8,
@@ -822,7 +624,6 @@ TEST(SniiStreamedWriterSessionTest, TightByteLimitKeepsReadableLegacySlimFrame) 
     input.index_id = 73;
     input.index_suffix = "tight_prx_readable";
     input.config = format::IndexConfig::kDocsPositions;
-    input.write_freq = true;
     input.doc_count = 3;
     input.prx_window_limits = {
             .max_docs = 8,
@@ -980,7 +781,6 @@ TEST(SniiStreamedWriterSessionTest, ByteLimitRecutReusesSourcePositionsAndFinalP
     input.index_id = 74;
     input.index_suffix = "byte_recut";
     input.config = format::IndexConfig::kDocsPositions;
-    input.write_freq = true;
     input.doc_count = kDocs;
     input.prx_window_limits = {
             .max_docs = 1024,
@@ -1016,7 +816,7 @@ TEST(SniiStreamedWriterSessionTest, ReleasesResidentDictAfterStreamingItIntoCont
     writer::MemoryReporter reporter;
     MemoryFile file;
     SniiCompoundWriter compound(&file);
-    SniiIndexInput input = representative_input(/*write_freq=*/false);
+    SniiIndexInput input = representative_input();
     std::vector<TermPostings> terms = std::move(input.terms);
     input.terms.clear();
     input.mem_reporter = &reporter;
@@ -1255,7 +1055,7 @@ TEST(SniiStreamedWriterSessionTest, SessionOwnsMovedInputUntilContainerFinish) {
                                                              {.docid = 2, .positions = {0}}})));
     assert_ok(push_materialized(session, make_term("beta", {{.docid = 0, .positions = {1}},
                                                             {.docid = 2, .positions = {2}}})));
-    assert_ok(session->set_semantic_token_count(4));
+    assert_ok(session->set_encoded_norms(writer::TrackedEncodedNorms({7, 11, 13, 17})));
     assert_ok(session->finish());
     assert_ok(compound.finish());
 
@@ -1325,38 +1125,73 @@ TEST(SniiStreamedWriterSessionTest, ActiveAndFinishedSessionLifecycleIsEnforced)
     EXPECT_FALSE(exists);
 }
 
-TEST(SniiStreamedWriterSessionTest, SemanticTokenCountIsLateBoundExactlyOnceBeforeFinish) {
+// A2：compaction 的目标会话先声明 write_norms，postings 合并完毕后才把重建出来的 norms 交给
+// 会话；必须恰好交付一次、长度等于 doc_count，finish 之前缺失则整个 compound 中毒。
+TEST(SniiStreamedWriterSessionTest, EncodedNormsAreLateBoundExactlyOnceBeforeFinish) {
     MemoryFile file;
     SniiCompoundWriter compound(&file);
     SniiStreamedIndexSession* session = nullptr;
-    assert_ok(compound.begin_streamed_index(common_grams_input(105, "common_grams"), &session));
-    assert_ok(push_materialized(session, make_term("alpha", {{.docid = 0, .positions = {0, 1}}})));
+    SniiIndexInput input = empty_input(105, "late_norms", /*doc_count=*/2);
+    // norms 需要词频（BM25 的 tf 来自位置计数，存储上要求 freq 区存在）。
+    input.write_norms = true;
+    assert_ok(compound.begin_streamed_index(std::move(input), &session));
+    ASSERT_NE(session, nullptr);
+    assert_ok(push_materialized(
+            session, make_term("alpha", {{.docid = 0, .positions = {0, 1}}, {.docid = 1, .positions = {0}}})));
 
-    assert_ok(session->set_semantic_token_count(2));
-    EXPECT_TRUE(session->set_semantic_token_count(2).is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_TRUE(session->set_encoded_norms(writer::TrackedEncodedNorms({2}))
+                        .is<ErrorCode::INVALID_ARGUMENT>());
+    assert_ok(session->set_encoded_norms(writer::TrackedEncodedNorms({2, 1})));
+    EXPECT_TRUE(session->set_encoded_norms(writer::TrackedEncodedNorms({2, 1}))
+                        .is<ErrorCode::INVALID_ARGUMENT>());
     assert_ok(session->finish());
-    EXPECT_TRUE(session->set_semantic_token_count(2).is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_TRUE(session->set_encoded_norms(writer::TrackedEncodedNorms({2, 1}))
+                        .is<ErrorCode::INVALID_ARGUMENT>());
     assert_ok(compound.finish());
 
     reader::SniiSegmentReader segment;
     reader::LogicalIndexReader index;
     assert_ok(reader::SniiSegmentReader::open(&file, &segment));
-    assert_ok(segment.open_index(105, "common_grams", &index));
-    ASSERT_NE(index.common_grams_metadata(), nullptr);
-    EXPECT_EQ(index.common_grams_metadata()->scoring_doc_count, 1U);
-    EXPECT_EQ(index.common_grams_metadata()->scoring_token_count, 2U);
+    assert_ok(segment.open_index(105, "late_norms", &index));
+    ASSERT_TRUE(index.has_norms());
+    format::NormsPodReader norms;
+    assert_ok(index.open_norms(&norms));
+    EXPECT_EQ(norms.encoded_norm(0), 2U);
+    EXPECT_EQ(norms.encoded_norm(1), 1U);
 }
 
-TEST(SniiStreamedWriterSessionTest, CommonGramsFinishRequiresSemanticTokenCount) {
+TEST(SniiStreamedWriterSessionTest, NormsRequiredFinishRejectsMissingNorms) {
     MemoryFile file;
     SniiCompoundWriter compound(&file);
     SniiStreamedIndexSession* session = nullptr;
-    assert_ok(compound.begin_streamed_index(common_grams_input(106, "missing_token_count"),
-                                            &session));
+    SniiIndexInput input = empty_input(106, "missing_norms", /*doc_count=*/1);
+    input.write_norms = true;
+    assert_ok(compound.begin_streamed_index(std::move(input), &session));
+    ASSERT_NE(session, nullptr);
     assert_ok(push_materialized(session, make_term("alpha", {{.docid = 0, .positions = {0}}})));
 
     EXPECT_TRUE(session->finish().is<ErrorCode::INVALID_ARGUMENT>());
     EXPECT_FALSE(session->finished());
+}
+
+TEST(SniiStreamedWriterSessionTest, SessionsWithoutNormsRejectLateBoundNorms) {
+    MemoryFile file;
+    SniiCompoundWriter compound(&file);
+    SniiStreamedIndexSession* session = nullptr;
+    assert_ok(compound.begin_streamed_index(empty_input(107, "no_norms", /*doc_count=*/1),
+                                            &session));
+    ASSERT_NE(session, nullptr);
+
+    EXPECT_TRUE(session->set_encoded_norms(writer::TrackedEncodedNorms({1}))
+                        .is<ErrorCode::INVALID_ARGUMENT>());
+    assert_ok(session->finish());
+    assert_ok(compound.finish());
+
+    reader::SniiSegmentReader segment;
+    reader::LogicalIndexReader index;
+    assert_ok(reader::SniiSegmentReader::open(&file, &segment));
+    assert_ok(segment.open_index(107, "no_norms", &index));
+    EXPECT_FALSE(index.has_norms());
 }
 
 TEST(SniiStreamedWriterSessionTest, TermOrderRejectionPoisonsCompoundSession) {
@@ -1460,14 +1295,13 @@ TEST(SniiStreamedWriterSessionTest, DictAppendFailureLeavesContainerUnsealable) 
 TEST(SniiStreamedWriterSessionTest, SourcePushMatchesMaterializedShapeMatrix) {
     uint64_t index_id = 151;
     auto expect_match = [&](std::string suffix, TermPostings postings, format::IndexConfig config,
-                            bool write_freq, format::PrxWindowLimits limits) {
-        SCOPED_TRACE(suffix + (write_freq ? "-freq" : "-no-freq"));
+                            format::PrxWindowLimits limits) {
+        SCOPED_TRACE(suffix);
         SniiIndexInput input;
         input.index_id = index_id++;
         input.index_suffix = std::move(suffix);
         input.config = config;
         input.doc_count = postings.docids.empty() ? 0 : postings.docids.back() + 1;
-        input.write_freq = write_freq;
         input.prx_window_limits = limits;
 
         SniiIndexInput expected_input = input;
@@ -1490,40 +1324,35 @@ TEST(SniiStreamedWriterSessionTest, SourcePushMatchesMaterializedShapeMatrix) {
             .max_positions = 2048,
             .max_uncomp_bytes = 2048,
     };
-    for (bool write_freq : {false, true}) {
-        expect_match("empty-key", make_uniform_term("", 1), format::IndexConfig::kDocsPositions,
-                     write_freq, default_limits);
-        expect_match("inline", make_uniform_term("inline", 1), format::IndexConfig::kDocsPositions,
-                     write_freq, default_limits);
-        expect_match("slim", make_sparse_slim_term("slim"), format::IndexConfig::kDocsPositions,
-                     write_freq, default_limits);
+    {
+        expect_match("empty-key", make_uniform_term("", 1), format::IndexConfig::kDocsPositions, default_limits);
+        expect_match("inline", make_uniform_term("inline", 1), format::IndexConfig::kDocsPositions, default_limits);
+        expect_match("slim", make_sparse_slim_term("slim"), format::IndexConfig::kDocsPositions, default_limits);
         expect_match("df-511", make_uniform_term("df-511", 511),
-                     format::IndexConfig::kDocsPositions, write_freq, default_limits);
+                     format::IndexConfig::kDocsPositions, default_limits);
         expect_match("df-512", make_uniform_term("df-512", 512),
-                     format::IndexConfig::kDocsPositions, write_freq, default_limits);
+                     format::IndexConfig::kDocsPositions, default_limits);
         expect_match("df-8191", make_uniform_term("df-8191", 8191),
-                     format::IndexConfig::kDocsPositions, write_freq, default_limits);
+                     format::IndexConfig::kDocsPositions, default_limits);
         expect_match("df-8192", make_uniform_term("df-8192", 8192),
-                     format::IndexConfig::kDocsPositions, write_freq, default_limits);
+                     format::IndexConfig::kDocsPositions, default_limits);
         expect_match("recut-full", make_adaptive_boundary_term(1024),
-                     format::IndexConfig::kDocsPositions, write_freq, recut_limits);
+                     format::IndexConfig::kDocsPositions, recut_limits);
         expect_match("recut-tail", make_adaptive_boundary_term(512),
-                     format::IndexConfig::kDocsPositions, write_freq, recut_limits);
+                     format::IndexConfig::kDocsPositions, recut_limits);
     }
 
     TermPostings docs_only = make_uniform_term("docs-only", 512);
     docs_only.retain_positions = false;
     docs_only.freqs.clear();
     docs_only.positions_flat.clear();
-    expect_match("docs-only", std::move(docs_only), format::IndexConfig::kDocsOnly,
-                 /*write_freq=*/false, default_limits);
+    expect_match("docs-only", std::move(docs_only), format::IndexConfig::kDocsOnly, default_limits);
 
     TermPostings docs_with_stats = make_uniform_term("docs-with-stats", 512);
     docs_with_stats.retain_positions = false;
     docs_with_stats.freqs.assign(docs_with_stats.docids.size(), 2);
     docs_with_stats.positions_flat.clear();
-    expect_match("docs-with-stats", std::move(docs_with_stats), format::IndexConfig::kDocsOnly,
-                 /*write_freq=*/false, default_limits);
+    expect_match("docs-with-stats", std::move(docs_with_stats), format::IndexConfig::kDocsOnly, default_limits);
 }
 
 TEST(SniiStreamedWriterSessionTest, SourcePushMatchesMaterializedAcrossAdaptiveBoundary) {

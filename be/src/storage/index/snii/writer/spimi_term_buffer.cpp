@@ -33,8 +33,6 @@
 #include <utility>
 
 #include "common/exception.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_word_set.h"
 #include "storage/index/snii/encoding/varint.h"
 #include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/writer/global_memory_limiter.h"
@@ -45,54 +43,7 @@ namespace doris::snii::writer {
 
 namespace {
 
-constexpr size_t kCommonGramPairKeySize = 10;
-constexpr char kCommonGramPairKeyTag = 'P';
-
-std::array<char, kCommonGramPairKeySize> EncodeCommonGramPairKey(PlainTermId left,
-                                                                 PlainTermId right) {
-    std::array<char, kCommonGramPairKeySize> key {};
-    key[0] = segment_v2::inverted_index::INTERNAL_TERM_NAMESPACE_BEGIN.front();
-    key[1] = kCommonGramPairKeyTag;
-    for (size_t byte = 0; byte < sizeof(uint32_t); ++byte) {
-        const size_t shift = (sizeof(uint32_t) - byte - 1) * 8;
-        key[2 + byte] = static_cast<char>((left.value >> shift) & 0xffU);
-        key[6 + byte] = static_cast<char>((right.value >> shift) & 0xffU);
-    }
-    return key;
-}
-
-bool is_common_gram_pair_key(std::string_view key) {
-    return key.size() == kCommonGramPairKeySize &&
-           key.front() == segment_v2::inverted_index::INTERNAL_TERM_NAMESPACE_BEGIN.front() &&
-           key[1] == kCommonGramPairKeyTag;
-}
-
-struct CommonGramPairIds {
-    PlainTermId left;
-    PlainTermId right;
-};
-
-uint32_t decode_big_endian_uint32_unchecked(const char* bytes) {
-    uint32_t value = 0;
-    for (size_t byte = 0; byte < sizeof(uint32_t); ++byte) {
-        value = (value << 8) | static_cast<uint8_t>(bytes[byte]);
-    }
-    return value;
-}
-
 #ifdef BE_TEST
-std::atomic<uint64_t> g_common_gram_pair_unchecked_decodes {0};
-std::atomic<uint64_t> g_common_gram_trusted_plain_decodes {0};
-std::atomic<uint64_t> g_common_gram_pair_cache_probes {0};
-std::atomic<uint64_t> g_common_gram_pair_cache_pair_hits {0};
-std::atomic<uint64_t> g_common_gram_pair_cache_same_doc_hits {0};
-std::atomic<uint64_t> g_common_gram_native_pair_probes {0};
-std::atomic<uint64_t> g_common_gram_native_pair_hits {0};
-std::atomic<uint64_t> g_common_gram_native_pair_inserts {0};
-std::atomic<uint64_t> g_common_gram_logical_validations {0};
-std::atomic<uint64_t> g_common_gram_plain_cache_probes {0};
-std::atomic<uint64_t> g_common_gram_plain_cache_hits {0};
-std::atomic<uint64_t> g_common_gram_plain_intern_table_probes {0};
 std::atomic<uint64_t> g_owned_term_full_byte_comparisons {0};
 std::atomic<bool> g_fail_next_owned_term_reserve {false};
 std::atomic<bool> g_fail_next_owned_term_emplace {false};
@@ -100,154 +51,8 @@ std::atomic<uint64_t> g_spill_gate_checks {0};
 std::atomic<uint64_t> g_compact_chain_varint_decodes {0};
 #endif
 
-CommonGramPairIds decode_common_gram_pair_key_unchecked(std::string_view key) {
-    DCHECK(is_common_gram_pair_key(key));
-#ifdef BE_TEST
-    g_common_gram_pair_unchecked_decodes.fetch_add(1, std::memory_order_relaxed);
-#endif
-    return {
-            .left = PlainTermId {.value = decode_big_endian_uint32_unchecked(key.data() + 2)},
-            .right = PlainTermId {.value = decode_big_endian_uint32_unchecked(key.data() + 6)},
-    };
-}
-
-class LogicalPlainKeyView {
-public:
-    explicit LogicalPlainKeyView(std::string_view physical) : physical_(physical) {
-        escaped_ = !physical.empty() &&
-                   physical.front() == segment_v2::inverted_index::PLAIN_ESCAPE_PREFIX;
-        if (escaped_) {
-            DCHECK_GE(physical.size(), 2U);
-            DCHECK(physical[1] == 'E' || physical[1] == 'G');
-        }
-    }
-
-    size_t size() const { return physical_.size() - (escaped_ ? 1 : 0); }
-
-    uint8_t operator[](size_t index) const {
-        DCHECK_LT(index, size());
-        if (!escaped_) {
-            return static_cast<uint8_t>(physical_[index]);
-        }
-        if (index == 0) {
-            return static_cast<uint8_t>(
-                    physical_[1] == 'E' ? segment_v2::inverted_index::PLAIN_ESCAPE_PREFIX : '\x1f');
-        }
-        return static_cast<uint8_t>(physical_[index + 1]);
-    }
-
-private:
-    std::string_view physical_;
-    bool escaped_ = false;
-};
-
-std::string_view decode_logical_plain_term_trusted(std::string_view physical,
-                                                   std::string* scratch) {
-    DCHECK(scratch != nullptr);
-#ifdef BE_TEST
-    g_common_gram_trusted_plain_decodes.fetch_add(1, std::memory_order_relaxed);
-#endif
-    scratch->clear();
-    if (physical.empty() || physical.front() != segment_v2::inverted_index::PLAIN_ESCAPE_PREFIX) {
-        DCHECK(!segment_v2::inverted_index::is_internal_term_key(physical));
-        return physical;
-    }
-
-    DCHECK_GE(physical.size(), 2U);
-    DCHECK(physical[1] == 'E' || physical[1] == 'G');
-    scratch->reserve(physical.size() - 1);
-    scratch->push_back(physical[1] == 'E'
-                               ? segment_v2::inverted_index::PLAIN_ESCAPE_PREFIX
-                               : segment_v2::inverted_index::INTERNAL_TERM_NAMESPACE_BEGIN.front());
-    scratch->append(physical.substr(2));
-    return std::string_view(*scratch);
-}
-
-int compare_logical_plain_keys(const LogicalPlainKeyView& left, const LogicalPlainKeyView& right) {
-    const size_t common = std::min(left.size(), right.size());
-    for (size_t i = 0; i < common; ++i) {
-        if (left[i] != right[i]) {
-            return left[i] < right[i] ? -1 : 1;
-        }
-    }
-    if (left.size() == right.size()) {
-        return 0;
-    }
-    return left.size() < right.size() ? -1 : 1;
-}
-
 } // namespace
 
-struct SpimiTermBuffer::CommonGramPairCache {
-    struct Entry {
-        uint64_t pair = 0;
-        uint32_t term_id = std::numeric_limits<uint32_t>::max();
-        uint32_t last_docid = 0;
-    };
-    static_assert(sizeof(Entry) == 16);
-
-    static constexpr size_t kEntryCount = 1024;
-    static constexpr uint64_t kHashMultiplier = 11400714819323198485ULL;
-    static constexpr uint32_t kInvalidTermId = std::numeric_limits<uint32_t>::max();
-
-    static size_t index(uint64_t pair) {
-        return static_cast<size_t>((pair * kHashMultiplier) >> 54);
-    }
-
-    std::array<Entry, kEntryCount> entries;
-    static_assert(sizeof(std::array<Entry, kEntryCount>) == 16 * 1024);
-};
-
-struct SpimiTermBuffer::CommonGramPlainTermCache {
-    struct Entry {
-        uint32_t fingerprint = 0;
-        uint32_t term_id = std::numeric_limits<uint32_t>::max();
-    };
-    static_assert(sizeof(Entry) == 8);
-
-    static constexpr size_t kSetCount = 1024;
-    static constexpr uint32_t kInvalidTermId = std::numeric_limits<uint32_t>::max();
-    using Set = std::array<Entry, 2>;
-    static_assert((kSetCount & (kSetCount - 1)) == 0);
-
-    static size_t index(size_t term_hash) { return term_hash & (kSetCount - 1); }
-
-    static uint32_t fingerprint(size_t term_hash) {
-        const auto hash = static_cast<uint64_t>(term_hash);
-        return static_cast<uint32_t>(hash ^ (hash >> 32));
-    }
-
-    static bool matches(const Entry& entry, uint32_t expected_fingerprint, std::string_view term,
-                        const std::vector<std::string>& vocab) {
-        if (entry.term_id == kInvalidTermId || entry.fingerprint != expected_fingerprint) {
-            return false;
-        }
-        DCHECK_LT(entry.term_id, vocab.size());
-        return std::string_view(vocab[entry.term_id]) == term;
-    }
-
-    uint32_t find(size_t term_hash, std::string_view term, const std::vector<std::string>& vocab) {
-        Set& set = sets[index(term_hash)];
-        const uint32_t expected_fingerprint = fingerprint(term_hash);
-        if (matches(set[0], expected_fingerprint, term, vocab)) {
-            return set[0].term_id;
-        }
-        if (matches(set[1], expected_fingerprint, term, vocab)) {
-            std::swap(set[0], set[1]);
-            return set[0].term_id;
-        }
-        return kInvalidTermId;
-    }
-
-    void remember(size_t term_hash, uint32_t term_id) {
-        Set& set = sets[index(term_hash)];
-        set[1] = set[0];
-        set[0] = Entry {.fingerprint = fingerprint(term_hash), .term_id = term_id};
-    }
-
-    std::array<Set, kSetCount> sets {};
-    static_assert(sizeof(std::array<Set, kSetCount>) == 16 * 1024);
-};
 
 bool SpimiTermBuffer::OwnedVocabEq::operator()(uint32_t stored,
                                                std::string_view probe) const noexcept {
@@ -414,122 +219,6 @@ void reset_rank_ordering_counts() {
 #ifdef BE_TEST
     g_dense_rank_inversions.store(0, std::memory_order_relaxed);
     g_rank_comparison_sorts.store(0, std::memory_order_relaxed);
-#endif
-}
-uint64_t common_gram_pair_unchecked_decode_count() {
-#ifdef BE_TEST
-    return g_common_gram_pair_unchecked_decodes.load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-uint64_t common_gram_trusted_plain_decode_count() {
-#ifdef BE_TEST
-    return g_common_gram_trusted_plain_decodes.load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-void reset_common_gram_pair_fast_path_counts() {
-#ifdef BE_TEST
-    g_common_gram_pair_unchecked_decodes.store(0, std::memory_order_relaxed);
-    g_common_gram_trusted_plain_decodes.store(0, std::memory_order_relaxed);
-#endif
-}
-uint64_t common_gram_pair_cache_probes() {
-#ifdef BE_TEST
-    return g_common_gram_pair_cache_probes.load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-uint64_t common_gram_pair_cache_pair_hits() {
-#ifdef BE_TEST
-    return g_common_gram_pair_cache_pair_hits.load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-uint64_t common_gram_pair_cache_same_doc_hits() {
-#ifdef BE_TEST
-    return g_common_gram_pair_cache_same_doc_hits.load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-void reset_common_gram_pair_cache_counts() {
-#ifdef BE_TEST
-    g_common_gram_pair_cache_probes.store(0, std::memory_order_relaxed);
-    g_common_gram_pair_cache_pair_hits.store(0, std::memory_order_relaxed);
-    g_common_gram_pair_cache_same_doc_hits.store(0, std::memory_order_relaxed);
-#endif
-}
-uint64_t common_gram_native_pair_probes() {
-#ifdef BE_TEST
-    return g_common_gram_native_pair_probes.load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-uint64_t common_gram_native_pair_hits() {
-#ifdef BE_TEST
-    return g_common_gram_native_pair_hits.load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-uint64_t common_gram_native_pair_inserts() {
-#ifdef BE_TEST
-    return g_common_gram_native_pair_inserts.load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-void reset_common_gram_native_pair_intern_counts() {
-#ifdef BE_TEST
-    g_common_gram_native_pair_probes.store(0, std::memory_order_relaxed);
-    g_common_gram_native_pair_hits.store(0, std::memory_order_relaxed);
-    g_common_gram_native_pair_inserts.store(0, std::memory_order_relaxed);
-#endif
-}
-uint64_t common_gram_logical_validation_count() {
-#ifdef BE_TEST
-    return g_common_gram_logical_validations.load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-void reset_common_gram_logical_validation_count() {
-#ifdef BE_TEST
-    g_common_gram_logical_validations.store(0, std::memory_order_relaxed);
-#endif
-}
-uint64_t common_gram_plain_cache_probes() {
-#ifdef BE_TEST
-    return g_common_gram_plain_cache_probes.load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-uint64_t common_gram_plain_cache_hits() {
-#ifdef BE_TEST
-    return g_common_gram_plain_cache_hits.load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-uint64_t common_gram_plain_intern_table_probes() {
-#ifdef BE_TEST
-    return g_common_gram_plain_intern_table_probes.load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-void reset_common_gram_plain_cache_counts() {
-#ifdef BE_TEST
-    g_common_gram_plain_cache_probes.store(0, std::memory_order_relaxed);
-    g_common_gram_plain_cache_hits.store(0, std::memory_order_relaxed);
-    g_common_gram_plain_intern_table_probes.store(0, std::memory_order_relaxed);
 #endif
 }
 uint64_t owned_term_full_byte_comparison_count() {
@@ -721,12 +410,7 @@ uint64_t SpimiTermBuffer::resident_bytes() const {
     // constant's comment).
     b += static_cast<uint64_t>(owned_vocab_.capacity()) * sizeof(std::string);
     b += owned_vocab_heap_bytes_;
-    b += static_cast<uint64_t>(common_word_classification_.capacity()) *
-         sizeof(CommonWordClassification);
-    b += static_cast<uint64_t>(intern_.size() + common_gram_pair_intern_.size()) *
-         kInternEntryEstimateBytes;
-    b += common_gram_pair_cache_bytes_;
-    b += common_gram_plain_term_cache_bytes_;
+    b += static_cast<uint64_t>(intern_.size()) * kInternEntryEstimateBytes;
     // Cached lexicographic ranks survive spills and are included by capacity.
     b += static_cast<uint64_t>(string_rank_.capacity()) * sizeof(uint32_t);
     return b;
@@ -768,7 +452,6 @@ void SpimiTermBuffer::put_varint(Term* t, uint64_t v) {
 void SpimiTermBuffer::accumulate_without_spill_gate(uint32_t term_id, uint32_t docid, uint32_t pos,
                                                     PostingChainShape shape) {
     const bool retain_positions = shape == PostingChainShape::kTaggedPositioned;
-    const bool statless_common_gram = shape == PostingChainShape::kStatlessDocsOnly;
     DCHECK(!retain_positions || has_positions_);
     bool new_term = false;
     Term& t = term_slot(term_id, &new_term);
@@ -789,27 +472,11 @@ void SpimiTermBuffer::accumulate_without_spill_gate(uint32_t term_id, uint32_t d
     // A token starts a new doc unless it continues the most-recent doc for this term.
     const bool first_token = !t.started;
     const bool new_doc = first_token || t.cur_docid != docid;
-    // A statless CommonGram singleton owns no chain. On its second distinct doc,
-    // backfill the first absolute docid before appending the current delta.
-    if (statless_common_gram && !first_token && t.head == kNoChain) {
-        DCHECK_EQ(t.ntok, 1U);
-        DCHECK_EQ(t.ndocs, 1U);
-        put_varint(&t, zigzag_encode(static_cast<int64_t>(t.cur_docid)));
-    }
-
-    // Positioned and ordinary docs-only terms retain the tagged token stream used
-    // to reconstruct frequency. A statless CommonGram is already deduplicated per
-    // document and has no frequency, so its new_doc tag would be the constant 1;
-    // omit it and store only the document delta.
-    if (!statless_common_gram) {
-        // Widen to 64-bit so a full 32-bit position survives the shift.
-        const uint64_t tagged = retain_positions
-                                        ? ((static_cast<uint64_t>(pos) << 1) | (new_doc ? 1U : 0U))
-                                        : (new_doc ? 1U : 0U);
-        put_varint(&t, tagged);
-    } else {
-        DCHECK(new_doc);
-    }
+    // Widen to 64-bit so a full 32-bit position survives the shift.
+    const uint64_t tagged = retain_positions
+                                    ? ((static_cast<uint64_t>(pos) << 1) | (new_doc ? 1U : 0U))
+                                    : (new_doc ? 1U : 0U);
+    put_varint(&t, tagged);
     if (new_doc) {
         // Out-of-order docids are tolerated (zigzag delta is signed) and reordered at
         // finalize; flag them so to_postings sorts. The delta base is the previous
@@ -819,9 +486,7 @@ void SpimiTermBuffer::accumulate_without_spill_gate(uint32_t term_id, uint32_t d
             t.sorted = false;
         }
         const int64_t delta = static_cast<int64_t>(docid) - base;
-        if (!first_token || !statless_common_gram) {
-            put_varint(&t, zigzag_encode(delta));
-        }
+        put_varint(&t, zigzag_encode(delta));
         t.cur_docid = docid;
         t.started = true;
         // Exact new-doc group count; out-of-order coalescing can only shrink it.
@@ -839,8 +504,7 @@ void SpimiTermBuffer::accumulate(uint32_t term_id, uint32_t docid, uint32_t pos,
     maybe_spill_after_token();
 }
 
-// Per-input-token gate-2 tail. Ordinary adds invoke it after one posting; the
-// fused CommonGrams path invokes it after its gram and right plain posting. It
+// Per-input-token gate-2 tail. Every add invokes it after one posting. It
 // reports the token's REAL resident growth FIRST so the writer's unified total
 // (reporter_->current_bytes()) reflects it before the gate check (single-source
 // diff; cheap: a subtraction + relaxed atomic add), then evaluates the spill triggers:
@@ -957,156 +621,8 @@ void SpimiTermBuffer::add_token(std::string_view term, uint32_t docid, uint32_t 
         }
         return;
     }
-    DCHECK(!common_gram_pair_keys_);
     const uint32_t term_id = find_or_intern_owned_term(term);
     accumulate(term_id, docid, pos, retain_positions);
-}
-
-PlainTermId SpimiTermBuffer::intern_plain_term(std::string_view physical_plain_term) {
-    DCHECK(common_gram_pair_keys_);
-    DCHECK(vocab_ == &owned_vocab_);
-    DCHECK(!physical_plain_term.empty());
-    DCHECK(!segment_v2::inverted_index::is_internal_term_key(physical_plain_term));
-    const size_t term_hash = intern_.hash(physical_plain_term);
-    uint32_t term_id = find_interned_plain_term(physical_plain_term, term_hash);
-    if (term_id == CommonGramPlainTermCache::kInvalidTermId) {
-        term_id = intern_owned_term(std::string(physical_plain_term), term_hash);
-        remember_plain_term(term_hash, term_id);
-    }
-    return PlainTermId {.value = term_id};
-}
-
-PlainTermId SpimiTermBuffer::intern_plain_term(std::string_view physical_plain_term,
-                                               std::string_view logical_plain_term) {
-    DCHECK(common_gram_pair_keys_);
-    DCHECK(vocab_ == &owned_vocab_);
-    DCHECK(!physical_plain_term.empty());
-    DCHECK(!logical_plain_term.empty());
-    DCHECK(!segment_v2::inverted_index::is_internal_term_key(physical_plain_term));
-
-    const size_t term_hash = intern_.hash(physical_plain_term);
-    uint32_t term_id = find_interned_plain_term(physical_plain_term, term_hash);
-    if (term_id != CommonGramPlainTermCache::kInvalidTermId) {
-        return PlainTermId {.value = term_id};
-    }
-
-#ifdef BE_TEST
-    g_common_gram_logical_validations.fetch_add(1, std::memory_order_relaxed);
-#endif
-    auto validation = segment_v2::inverted_index::validate_common_grams_logical_term(
-            logical_plain_term, "input token");
-    if (!validation.ok()) {
-        throw Exception(validation);
-    }
-    if (physical_plain_term.size() > segment_v2::inverted_index::COMMON_GRAM_MAX_ENCODED_BYTES) {
-        throw Exception(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "CommonGrams escaped plain term would exceed the 16383-byte key limit; "
-                "set enable_common_grams_index_build=false and retry the import in a new "
-                "transaction"));
-    }
-    term_id = intern_owned_term(std::string(physical_plain_term), term_hash);
-    remember_plain_term(term_hash, term_id);
-    return PlainTermId {.value = term_id};
-}
-
-ClassifiedPlainTerm SpimiTermBuffer::intern_classified_plain_term(
-        std::string_view physical_plain_term, std::string_view logical_plain_term,
-        const segment_v2::inverted_index::CommonWordSet& common_words) {
-    DCHECK(common_gram_pair_keys_);
-    const PlainTermId id = intern_plain_term(physical_plain_term, logical_plain_term);
-    DCHECK_EQ(common_word_classification_.size(), owned_vocab_.size());
-    DCHECK_LT(id.value, common_word_classification_.size());
-    CommonWordClassification& classification = common_word_classification_[id.value];
-    if (classification == CommonWordClassification::kUnknown) {
-        classification = common_words.contains(logical_plain_term)
-                                 ? CommonWordClassification::kCommon
-                                 : CommonWordClassification::kNotCommon;
-    }
-    return ClassifiedPlainTerm {
-            .id = id,
-            .is_common = classification == CommonWordClassification::kCommon,
-    };
-}
-
-void SpimiTermBuffer::add_plain_token(PlainTermId term_id, uint32_t docid, uint32_t pos) {
-    DCHECK(common_gram_pair_keys_);
-    DCHECK_LT(term_id.value, owned_vocab_.size());
-    DCHECK(!segment_v2::inverted_index::is_internal_term_key(owned_vocab_[term_id.value]));
-    accumulate(term_id.value, docid, pos, has_positions_);
-}
-
-void SpimiTermBuffer::add_common_gram_without_spill_gate(PlainTermId left, PlainTermId right,
-                                                         uint32_t docid, uint32_t pos,
-                                                         bool retain_positions) {
-    DCHECK(common_gram_pair_keys_);
-    DCHECK_LT(left.value, owned_vocab_.size());
-    DCHECK_LT(right.value, owned_vocab_.size());
-    DCHECK(!segment_v2::inverted_index::is_internal_term_key(owned_vocab_[left.value]));
-    DCHECK(!segment_v2::inverted_index::is_internal_term_key(owned_vocab_[right.value]));
-    DCHECK(common_gram_pair_cache_ != nullptr);
-    const PostingChainShape shape = retain_positions ? PostingChainShape::kTaggedPositioned
-                                                     : PostingChainShape::kStatlessDocsOnly;
-    const uint64_t pair = (static_cast<uint64_t>(left.value) << 32) | right.value;
-    CommonGramPairCache::Entry& entry =
-            common_gram_pair_cache_->entries[CommonGramPairCache::index(pair)];
-#ifdef BE_TEST
-    g_common_gram_pair_cache_probes.fetch_add(1, std::memory_order_relaxed);
-#endif
-    if (entry.term_id != CommonGramPairCache::kInvalidTermId && entry.pair == pair) {
-#ifdef BE_TEST
-        g_common_gram_pair_cache_pair_hits.fetch_add(1, std::memory_order_relaxed);
-#endif
-        DCHECK_LT(entry.term_id, slot_of_.size());
-        if (!retain_positions && entry.last_docid == docid) {
-#ifdef BE_TEST
-            g_common_gram_pair_cache_same_doc_hits.fetch_add(1, std::memory_order_relaxed);
-#endif
-            ++total_tokens_;
-            return;
-        }
-        entry.last_docid = docid;
-        accumulate_without_spill_gate(entry.term_id, docid, pos, shape);
-        return;
-    }
-
-    const uint32_t term_id = find_or_intern_common_gram_pair(left, right, pair);
-    DCHECK_NE(term_id, CommonGramPairCache::kInvalidTermId);
-    entry = CommonGramPairCache::Entry {.pair = pair, .term_id = term_id, .last_docid = docid};
-    accumulate_without_spill_gate(term_id, docid, pos, shape);
-}
-
-void SpimiTermBuffer::add_common_gram(PlainTermId left, PlainTermId right, uint32_t docid,
-                                      uint32_t pos, bool retain_positions) {
-    add_common_gram_without_spill_gate(left, right, docid, pos, retain_positions);
-    maybe_spill_after_token();
-}
-
-void SpimiTermBuffer::add_common_gram_and_plain(PlainTermId left, PlainTermId right, uint32_t docid,
-                                                uint32_t gram_pos, uint32_t plain_pos,
-                                                bool retain_gram_positions) {
-    add_common_gram_without_spill_gate(left, right, docid, gram_pos, retain_gram_positions);
-    DCHECK_LT(right.value, owned_vocab_.size());
-    DCHECK(!segment_v2::inverted_index::is_internal_term_key(owned_vocab_[right.value]));
-    accumulate_without_spill_gate(right.value, docid, plain_pos,
-                                  has_positions_ ? PostingChainShape::kTaggedPositioned
-                                                 : PostingChainShape::kTaggedDocsOnly);
-    maybe_spill_after_token();
-}
-
-void SpimiTermBuffer::enable_common_gram_pair_keys() {
-    DORIS_CHECK(vocab_ == &owned_vocab_);
-    DORIS_CHECK_EQ(total_tokens_, 0);
-    DORIS_CHECK(owned_vocab_.empty());
-    DORIS_CHECK(!common_gram_pair_keys_);
-    DORIS_CHECK(common_word_classification_.empty());
-    auto pair_cache = std::make_unique<CommonGramPairCache>();
-    auto plain_term_cache = std::make_unique<CommonGramPlainTermCache>();
-    common_gram_pair_keys_ = true;
-    common_gram_pair_cache_ = std::move(pair_cache);
-    common_gram_pair_cache_bytes_ = sizeof(CommonGramPairCache);
-    common_gram_plain_term_cache_ = std::move(plain_term_cache);
-    common_gram_plain_term_cache_bytes_ = sizeof(CommonGramPlainTermCache);
-    report_arena_delta();
 }
 
 uint32_t SpimiTermBuffer::find_or_intern_owned_term(std::string_view term) {
@@ -1124,143 +640,9 @@ uint32_t SpimiTermBuffer::find_or_intern_owned_term(std::string_view term) {
     return intern_owned_term(std::string(term), term_hash);
 }
 
-uint32_t SpimiTermBuffer::find_or_intern_common_gram_pair(PlainTermId left, PlainTermId right,
-                                                          uint64_t pair) {
-    DCHECK(common_gram_pair_keys_);
-    DCHECK_LT(left.value, owned_vocab_.size());
-    DCHECK_LT(right.value, owned_vocab_.size());
-    DCHECK(!segment_v2::inverted_index::is_internal_term_key(owned_vocab_[left.value]));
-    DCHECK(!segment_v2::inverted_index::is_internal_term_key(owned_vocab_[right.value]));
-#ifdef BE_TEST
-    g_common_gram_native_pair_probes.fetch_add(1, std::memory_order_relaxed);
-#endif
-    const auto found = common_gram_pair_intern_.find(pair);
-    if (found != common_gram_pair_intern_.end()) {
-#ifdef BE_TEST
-        g_common_gram_native_pair_hits.fetch_add(1, std::memory_order_relaxed);
-#endif
-        return found->second;
-    }
-
-    const auto key = EncodeCommonGramPairKey(left, right);
-    const uint32_t term_id = append_owned_vocab_term(std::string(key.data(), key.size()));
-    const auto [inserted_it, inserted] = common_gram_pair_intern_.try_emplace(pair, term_id);
-    DCHECK(inserted);
-    DCHECK_EQ(inserted_it->second, term_id);
-#ifdef BE_TEST
-    g_common_gram_native_pair_inserts.fetch_add(1, std::memory_order_relaxed);
-#endif
-    return term_id;
-}
-
-uint32_t SpimiTermBuffer::find_interned_plain_term(std::string_view term, size_t term_hash) {
-    DCHECK(common_gram_pair_keys_);
-    DCHECK(common_gram_plain_term_cache_ != nullptr);
-#ifdef BE_TEST
-    g_common_gram_plain_cache_probes.fetch_add(1, std::memory_order_relaxed);
-#endif
-    const uint32_t cached_term_id =
-            common_gram_plain_term_cache_->find(term_hash, term, owned_vocab_);
-    if (cached_term_id != CommonGramPlainTermCache::kInvalidTermId) {
-#ifdef BE_TEST
-        g_common_gram_plain_cache_hits.fetch_add(1, std::memory_order_relaxed);
-#endif
-        if (g11_prefetch_enabled()) {
-            __builtin_prefetch(slot_of_.data() + cached_term_id);
-        }
-        return cached_term_id;
-    }
-
-#ifdef BE_TEST
-    g_common_gram_plain_intern_table_probes.fetch_add(1, std::memory_order_relaxed);
-#endif
-    const auto found = intern_.find(term, term_hash);
-    if (found == intern_.end()) {
-        return CommonGramPlainTermCache::kInvalidTermId;
-    }
-    const uint32_t term_id = *found;
-    remember_plain_term(term_hash, term_id);
-    if (g11_prefetch_enabled()) {
-        __builtin_prefetch(slot_of_.data() + term_id);
-    }
-    return term_id;
-}
-
-void SpimiTermBuffer::remember_plain_term(size_t term_hash, uint32_t term_id) {
-    DCHECK(common_gram_pair_keys_);
-    DCHECK(common_gram_plain_term_cache_ != nullptr);
-    DCHECK_LT(term_id, owned_vocab_.size());
-    common_gram_plain_term_cache_->remember(term_hash, term_id);
-}
-
 bool SpimiTermBuffer::transient_term_less(uint32_t left_id, uint32_t right_id) const {
     const std::vector<std::string>& v = vocab();
-    const std::string_view left = v[left_id];
-    const std::string_view right = v[right_id];
-    if (!common_gram_pair_keys_) {
-        return left < right;
-    }
-
-    const bool left_is_pair = is_common_gram_pair_key(left);
-    const bool right_is_pair = is_common_gram_pair_key(right);
-    if (left_is_pair != right_is_pair) {
-        const std::string_view plain = left_is_pair ? right : left;
-        DCHECK(!plain.empty());
-        DCHECK(!segment_v2::inverted_index::is_internal_term_key(plain));
-        const bool pair_sorts_first =
-                static_cast<uint8_t>(
-                        segment_v2::inverted_index::INTERNAL_TERM_NAMESPACE_BEGIN.front()) <
-                static_cast<uint8_t>(plain.front());
-        return left_is_pair ? pair_sorts_first : !pair_sorts_first;
-    }
-    if (!left_is_pair) {
-        return left < right;
-    }
-
-    const CommonGramPairIds left_ids = decode_common_gram_pair_key_unchecked(left);
-    const CommonGramPairIds right_ids = decode_common_gram_pair_key_unchecked(right);
-    DCHECK_LT(left_ids.left.value, v.size());
-    DCHECK_LT(left_ids.right.value, v.size());
-    DCHECK_LT(right_ids.left.value, v.size());
-    DCHECK_LT(right_ids.right.value, v.size());
-
-    const LogicalPlainKeyView left_left_key(v[left_ids.left.value]);
-    const LogicalPlainKeyView left_right_key(v[left_ids.right.value]);
-    const LogicalPlainKeyView right_left_key(v[right_ids.left.value]);
-    const LogicalPlainKeyView right_right_key(v[right_ids.right.value]);
-    if (left_left_key.size() != right_left_key.size()) {
-        return left_left_key.size() < right_left_key.size();
-    }
-    const int left_component_order = compare_logical_plain_keys(left_left_key, right_left_key);
-    if (left_component_order != 0) {
-        return left_component_order < 0;
-    }
-    return compare_logical_plain_keys(left_right_key, right_right_key) < 0;
-}
-
-std::string SpimiTermBuffer::materialize_transient_term(std::string_view term) const {
-    if (!is_common_gram_pair_key(term)) {
-        return std::string(term);
-    }
-
-    DCHECK(common_gram_pair_keys_);
-    const CommonGramPairIds ids = decode_common_gram_pair_key_unchecked(term);
-    DCHECK_LT(ids.left.value, owned_vocab_.size());
-    DCHECK_LT(ids.right.value, owned_vocab_.size());
-    DCHECK(!is_common_gram_pair_key(owned_vocab_[ids.left.value]));
-    DCHECK(!is_common_gram_pair_key(owned_vocab_[ids.right.value]));
-
-    std::string left_scratch;
-    std::string right_scratch;
-    const std::string_view left =
-            decode_logical_plain_term_trusted(owned_vocab_[ids.left.value], &left_scratch);
-    const std::string_view right =
-            decode_logical_plain_term_trusted(owned_vocab_[ids.right.value], &right_scratch);
-    std::string output;
-    [[maybe_unused]] const bool encoded =
-            segment_v2::inverted_index::try_encode_common_gram_prevalidated(left, right, output);
-    DCHECK(encoded);
-    return output;
+    return std::string_view(v[left_id]) < std::string_view(v[right_id]);
 }
 
 // Prepared first-time insertion stores the string before emplace so every
@@ -1288,9 +670,6 @@ uint32_t SpimiTermBuffer::intern_owned_term(std::string&& term_str, size_t term_
         }
 #endif
         slot_of_.reserve(target_capacity);
-        if (common_gram_pair_keys_) {
-            common_word_classification_.reserve(target_capacity);
-        }
     } catch (...) {
         report_arena_delta();
         throw;
@@ -1306,9 +685,6 @@ uint32_t SpimiTermBuffer::intern_owned_term(std::string&& term_str, size_t term_
 #endif
         owned_vocab_heap_bytes_ -= string_heap_bytes(owned_vocab_.back());
         slot_of_.pop_back();
-        if (common_gram_pair_keys_) {
-            common_word_classification_.pop_back();
-        }
         owned_vocab_.pop_back();
         report_arena_delta();
     };
@@ -1340,10 +716,6 @@ uint32_t SpimiTermBuffer::intern_owned_term(std::string&& term_str, size_t term_
 uint32_t SpimiTermBuffer::append_owned_vocab_term(std::string&& term_str) {
     const uint32_t term_id = static_cast<uint32_t>(owned_vocab_.size());
     owned_vocab_.emplace_back(std::move(term_str));
-    if (common_gram_pair_keys_) {
-        common_word_classification_.push_back(CommonWordClassification::kUnknown);
-        DCHECK_EQ(common_word_classification_.size(), owned_vocab_.size());
-    }
     slot_of_.push_back(0); // vocab grows: new id starts with no live slot
     // G08: credit the stored string's heap payload (0 for SSO); the header is
     // charged via owned_vocab_.capacity().
@@ -1492,8 +864,7 @@ public:
     ArenaTermPostingSource(const CompactPostingPool* pool, const Term& term)
             : shape_(term.shape),
               remaining_docs_(term.ndocs),
-              remaining_tokens_(term.ntok),
-              inline_docid_(term.cur_docid) {
+              remaining_tokens_(term.ntok) {
         if (term.head != kNoChain) {
             doc_cursor_.emplace(pool->cursor(term.head, term.w.cur));
         }
@@ -1510,23 +881,7 @@ public:
             return Status::OK();
         }
 
-        if (shape_ == PostingChainShape::kStatlessDocsOnly) {
-            MutableTermPostingSpan destination;
-            RETURN_IF_ERROR(out->grow_uninitialized(count, /*has_freqs=*/false,
-                                                    /*position_count=*/0, &destination));
-            for (uint32_t i = 0; i < count; ++i) {
-                if (!doc_cursor_) {
-                    DCHECK_EQ(remaining_docs_, 1U);
-                    destination.docids[i] = inline_docid_;
-                } else {
-                    absolute_docid_ += zigzag_decode(decode_chain_varint(&*doc_cursor_));
-                    destination.docids[i] = static_cast<uint32_t>(absolute_docid_);
-                }
-            }
-            remaining_tokens_ -= count;
-        } else {
-            RETURN_IF_ERROR(fill_tagged(count, out));
-        }
+        RETURN_IF_ERROR(fill_tagged(count, out));
 
         remaining_docs_ -= count;
         *exhausted = remaining_docs_ == 0;
@@ -1592,7 +947,6 @@ private:
     std::optional<CompactPostingPool::Cursor> doc_cursor_;
     uint32_t remaining_docs_ = 0;
     uint32_t remaining_tokens_ = 0;
-    uint32_t inline_docid_ = 0;
     int64_t absolute_docid_ = 0;
     uint64_t pending_tagged_ = 0;
     bool pending_new_doc_ = false;
@@ -1613,10 +967,8 @@ Status SpimiTermBuffer::to_postings(std::string term, Term&& t,
 
     RETURN_IF_ERROR(reserve_tracked_vector(&postings.docids, t.ndocs, mem_reporter_,
                                            &tracked->docids_reservation));
-    if (t.shape != PostingChainShape::kStatlessDocsOnly) {
-        RETURN_IF_ERROR(reserve_tracked_vector(&postings.freqs, t.ndocs, mem_reporter_,
-                                               &tracked->freqs_reservation));
-    }
+    RETURN_IF_ERROR(reserve_tracked_vector(&postings.freqs, t.ndocs, mem_reporter_,
+                                           &tracked->freqs_reservation));
     if (t.shape == PostingChainShape::kTaggedPositioned) {
         RETURN_IF_ERROR(reserve_tracked_vector(&postings.positions_flat, t.ntok, mem_reporter_,
                                                &tracked->positions_reservation));
@@ -1635,11 +987,7 @@ Status SpimiTermBuffer::to_postings(std::string term, Term&& t,
                                        buffer.positions_flat().begin(),
                                        buffer.positions_flat().end());
     }
-    if (!t.sorted && t.shape == PostingChainShape::kStatlessDocsOnly) {
-        std::ranges::sort(postings.docids);
-        postings.docids.erase(std::unique(postings.docids.begin(), postings.docids.end()),
-                              postings.docids.end());
-    } else if (!t.sorted) {
+    if (!t.sorted) {
         RETURN_IF_ERROR(sort_by_docid(&postings.docids, &postings.freqs, &postings.positions_flat,
                                       postings.retain_positions, mem_reporter_,
                                       &tracked->docids_reservation, &tracked->freqs_reservation,
@@ -1655,111 +1003,12 @@ void SpimiTermBuffer::ensure_string_rank() const {
     }
     // Build the complete rank required by the first spill and by k-way merge
     // paths. Ordinary spills with a stale rank deliberately do not call here.
-    if (!common_gram_pair_keys_) {
-        std::vector<uint32_t> order(v.size());
-        std::iota(order.begin(), order.end(), 0U);
-        std::ranges::sort(order, [&](uint32_t a, uint32_t b) { return transient_term_less(a, b); });
-        string_rank_.assign(v.size(), 0U);
-        for (uint32_t rank = 0; rank < order.size(); ++rank) {
-            string_rank_[order[rank]] = rank;
-        }
-    } else {
-        size_t pair_count = 0;
-        for (const std::string& term : v) {
-            pair_count += is_common_gram_pair_key(term);
-        }
-
-        std::vector<uint32_t> plain_order;
-        std::vector<uint64_t> pair_order;
-        plain_order.reserve(v.size() - pair_count);
-        pair_order.reserve(pair_count);
-        for (uint32_t term_id = 0; term_id < v.size(); ++term_id) {
-            if (is_common_gram_pair_key(v[term_id])) {
-                pair_order.push_back(term_id);
-            } else {
-                plain_order.push_back(term_id);
-            }
-        }
-
-        // EscapedV1 preserves logical byte order: 0x1e maps to 0x1eE and 0x1f
-        // maps to 0x1eG. One physical sort therefore supplies both the final plain
-        // order and the logical component rank used by a gram's right term.
-        std::ranges::sort(plain_order,
-                          [&](uint32_t left, uint32_t right) { return v[left] < v[right]; });
-        string_rank_.assign(v.size(), 0U);
-        for (uint32_t rank = 0; rank < plain_order.size(); ++rank) {
-            string_rank_[plain_order[rank]] = rank;
-        }
-
-        // Decode each transient pair exactly once. The low word remains its term id;
-        // the high word temporarily carries the left plain id, while the pair's
-        // unused rank slot carries its right component's logical rank.
-        for (uint64_t& decorated_pair : pair_order) {
-            const uint32_t pair_term_id = static_cast<uint32_t>(decorated_pair);
-            const CommonGramPairIds ids = decode_common_gram_pair_key_unchecked(v[pair_term_id]);
-            DCHECK_LT(ids.left.value, v.size());
-            DCHECK_LT(ids.right.value, v.size());
-            DCHECK(!is_common_gram_pair_key(v[ids.left.value]));
-            DCHECK(!is_common_gram_pair_key(v[ids.right.value]));
-            string_rank_[pair_term_id] = string_rank_[ids.right.value];
-            decorated_pair = (static_cast<uint64_t>(ids.left.value) << 32) | pair_term_id;
-        }
-
-        // The physical gram key orders its left component by fixed-width encoded
-        // length, then by logical bytes. Stable per-length offsets convert the
-        // already-logically-sorted plain ids into that compound dense rank without
-        // another comparison sort.
-        std::vector<uint32_t> next_length_rank(
-                segment_v2::inverted_index::COMMON_GRAM_MAX_ENCODED_BYTES + 1, 0U);
-        for (uint32_t plain_id : plain_order) {
-            const size_t logical_size = LogicalPlainKeyView(v[plain_id]).size();
-            DCHECK_LT(logical_size, next_length_rank.size());
-            ++next_length_rank[logical_size];
-        }
-        uint32_t next_rank = 0;
-        for (uint32_t& length_count : next_length_rank) {
-            const uint32_t count = length_count;
-            length_count = next_rank;
-            next_rank += count;
-        }
-        DCHECK_EQ(next_rank, plain_order.size());
-        for (uint32_t plain_id : plain_order) {
-            const size_t logical_size = LogicalPlainKeyView(v[plain_id]).size();
-            string_rank_[plain_id] = next_length_rank[logical_size]++;
-        }
-        for (uint64_t& decorated_pair : pair_order) {
-            const uint32_t left_plain_id = static_cast<uint32_t>(decorated_pair >> 32);
-            const uint32_t pair_term_id = static_cast<uint32_t>(decorated_pair);
-            decorated_pair =
-                    (static_cast<uint64_t>(string_rank_[left_plain_id]) << 32) | pair_term_id;
-        }
-
-        std::ranges::sort(pair_order, [&](uint64_t left, uint64_t right) {
-            const uint32_t left_component_rank = static_cast<uint32_t>(left >> 32);
-            const uint32_t right_component_rank = static_cast<uint32_t>(right >> 32);
-            if (left_component_rank != right_component_rank) {
-                return left_component_rank < right_component_rank;
-            }
-            return string_rank_[static_cast<uint32_t>(left)] <
-                   string_rank_[static_cast<uint32_t>(right)];
-        });
-
-        // No EscapedV1 plain key enters 0x1f, so every materialized gram forms one
-        // contiguous namespace group between the two physical-plain ranges.
-        const auto pair_position = std::lower_bound(
-                plain_order.begin(), plain_order.end(), segment_v2::inverted_index::CG_V1_MARKER,
-                [&](uint32_t plain_id, std::string_view marker) { return v[plain_id] < marker; });
-        uint32_t final_rank = 0;
-        for (auto it = plain_order.begin(); it != pair_position; ++it) {
-            string_rank_[*it] = final_rank++;
-        }
-        for (uint64_t decorated_pair : pair_order) {
-            string_rank_[static_cast<uint32_t>(decorated_pair)] = final_rank++;
-        }
-        for (auto it = pair_position; it != plain_order.end(); ++it) {
-            string_rank_[*it] = final_rank++;
-        }
-        DCHECK_EQ(final_rank, v.size());
+    std::vector<uint32_t> order(v.size());
+    std::iota(order.begin(), order.end(), 0U);
+    std::ranges::sort(order, [&](uint32_t a, uint32_t b) { return transient_term_less(a, b); });
+    string_rank_.assign(v.size(), 0U);
+    for (uint32_t rank = 0; rank < order.size(); ++rank) {
+        string_rank_[order[rank]] = rank;
     }
 #ifdef BE_TEST
     g_string_rank_rebuilds.fetch_add(1, std::memory_order_relaxed);
@@ -1805,8 +1054,6 @@ Status SpimiTermBuffer::drain_sorted_streamed(const StreamedTermConsumer& fn) {
     order_ids_by_dense_rank(&touched_ids_, string_rank_);
     intern_ = decltype(intern_)(0, OwnedVocabHash {.vocab = &owned_vocab_},
                                 OwnedVocabEq {&owned_vocab_});
-    common_gram_pair_intern_ = decltype(common_gram_pair_intern_)();
-    std::vector<CommonWordClassification>().swap(common_word_classification_);
     std::vector<uint32_t>().swap(string_rank_);
     report_arena_delta();
 
@@ -1833,7 +1080,7 @@ Status SpimiTermBuffer::drain_sorted_streamed(const StreamedTermConsumer& fn) {
         slot_of_[id] = 0;
         --live_term_count_;
 
-        std::string output_term = materialize_transient_term(v[id]);
+        std::string output_term(v[id]);
         if (term.sorted) {
             ArenaTermPostingSource source(&pool_, term);
             StreamedTermPostings postings {
@@ -1876,10 +1123,6 @@ Status SpimiTermBuffer::drain_sorted_streamed(const StreamedTermConsumer& fn) {
     live_term_count_ = 0;
     std::vector<std::string>().swap(owned_vocab_);
     owned_vocab_heap_bytes_ = 0;
-    common_gram_pair_cache_.reset();
-    common_gram_pair_cache_bytes_ = 0;
-    common_gram_plain_term_cache_.reset();
-    common_gram_plain_term_cache_bytes_ = 0;
     report_arena_delta();
     return callback_status;
 }
@@ -1975,7 +1218,7 @@ Status SpimiTermBuffer::spill_to_run() {
     return w.close();
 }
 
-Status SpimiTermBuffer::prepare_run_merge(TermKeyMaterializer* materializer) {
+Status SpimiTermBuffer::prepare_run_merge() {
     if (!touched_ids_.empty()) {
         Status status = spill_to_run();
         if (!status.ok() && spill_status_.ok()) {
@@ -1990,12 +1233,6 @@ Status SpimiTermBuffer::prepare_run_merge(TermKeyMaterializer* materializer) {
     std::vector<uint32_t>().swap(free_slots_);
     std::vector<uint32_t>().swap(slot_of_);
     std::vector<uint32_t>().swap(touched_ids_);
-    common_gram_pair_cache_.reset();
-    common_gram_pair_cache_bytes_ = 0;
-    common_gram_plain_term_cache_.reset();
-    common_gram_plain_term_cache_bytes_ = 0;
-    common_gram_pair_intern_ = decltype(common_gram_pair_intern_)();
-    std::vector<CommonWordClassification>().swap(common_word_classification_);
     report_arena_delta();
 
     ensure_string_rank();
@@ -2003,9 +1240,6 @@ Status SpimiTermBuffer::prepare_run_merge(TermKeyMaterializer* materializer) {
     intern_ = decltype(intern_)(0, OwnedVocabHash {.vocab = &owned_vocab_},
                                 OwnedVocabEq {&owned_vocab_});
     report_arena_delta();
-    if (common_gram_pair_keys_) {
-        *materializer = [this](std::string_view term) { return materialize_transient_term(term); };
-    }
     return Status::OK();
 }
 
@@ -2017,10 +1251,9 @@ void SpimiTermBuffer::finish_run_merge() {
 }
 
 Status SpimiTermBuffer::merge_runs_streamed(const StreamedTermConsumer& fn) {
-    TermKeyMaterializer materializer;
-    RETURN_IF_ERROR(prepare_run_merge(&materializer));
-    Status status = merge_run_sources(run_paths_, vocab(), string_rank_, has_positions_, fn,
-                                      std::move(materializer), mem_reporter_);
+    RETURN_IF_ERROR(prepare_run_merge());
+    Status status =
+            merge_run_sources(run_paths_, vocab(), string_rank_, has_positions_, fn, mem_reporter_);
     finish_run_merge();
     return status;
 }

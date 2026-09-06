@@ -29,7 +29,6 @@
 
 namespace doris::snii::writer {
 
-using TermKeyMaterializer = std::function<std::string(std::string_view)>;
 
 // On-disk SPIMI "run" codec for the spill / k-way-merge out-of-core build path.
 //
@@ -214,7 +213,6 @@ Status merge_run_sources(const std::vector<std::string>& run_paths,
                          const std::vector<std::string>& vocab,
                          const std::vector<uint32_t>& string_rank, bool has_positions,
                          const StreamedTermConsumer& fn,
-                         TermKeyMaterializer materialize_term_key = {},
                          MemoryReporter* memory_reporter = nullptr);
 
 // G09 run-file cap support: k-way merges `run_paths` into ONE new run file at

@@ -29,9 +29,7 @@
 #include "common/logging.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
 #include "storage/index/inverted/query/query_info.h"
-#include "storage/index/inverted/token_filter/common_grams_filter.h"
 #include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/writer/global_memory_limiter.h"
 #include "storage/index/snii/writer/snii_build_memory_tracker.h"
@@ -40,33 +38,13 @@
 namespace doris::segment_v2 {
 namespace {
 
-Status validate_common_grams_metadata_seed(
-        const inverted_index::CommonGramsSegmentMetadata& metadata) {
-    using namespace inverted_index;
-    auto status = validate_common_grams_segment_metadata(metadata);
-    if (!status.ok() || metadata.plain_term_key_version != PlainTermKeyVersion::kEscapedV1 ||
-        metadata.common_grams_coverage != CommonGramsCoverage::kComplete ||
-        metadata.common_grams_semantics_version != COMMON_GRAMS_SEMANTICS_VERSION_V1 ||
-        metadata.common_grams_key_version != COMMON_GRAMS_KEY_VERSION_V1 ||
-        metadata.scoring_coverage != ScoringCoverage::kComplete ||
-        metadata.scoring_stats_version != COMMON_GRAMS_SCORING_STATS_VERSION_V1 ||
-        metadata.norm_semantics_version != COMMON_GRAMS_NORM_SEMANTICS_VERSION_V1) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "SNII CommonGrams metadata identity seed is incomplete or incompatible");
-    }
-    return Status::OK();
-}
-
 } // namespace
 
 SniiIndexColumnWriter::SniiIndexColumnWriter(
-        IndexFileWriter* index_file_writer, const TabletIndex* index_meta, FieldType value_type,
-        std::optional<inverted_index::CommonGramsSegmentMetadata> common_grams_metadata_seed)
+        IndexFileWriter* index_file_writer, const TabletIndex* index_meta, FieldType value_type)
         : _index_file_writer(index_file_writer),
           _index_meta(index_meta),
-          _is_char(value_type == FieldType::OLAP_FIELD_TYPE_CHAR),
-          _common_grams_build_enabled(config::enable_common_grams_index_build),
-          _common_grams_metadata_seed(std::move(common_grams_metadata_seed)) {}
+          _is_char(value_type == FieldType::OLAP_FIELD_TYPE_CHAR) {}
 
 Status SniiIndexColumnWriter::init() {
     _should_analyzer =
@@ -130,60 +108,7 @@ Status SniiIndexColumnWriter::init() {
             auto analyzer_provider =
                     inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(
                             &_analyzer_config);
-            const bool policy_uses_common_grams = analyzer_provider->uses_common_grams();
-            _uses_common_grams = _common_grams_build_enabled && policy_uses_common_grams;
-            if (policy_uses_common_grams && !_uses_common_grams) {
-                _common_grams_metadata_seed.reset();
-            }
-            if (_uses_common_grams) {
-                if (!_has_positions) {
-                    close_on_error();
-                    return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                            "SNII CommonGrams requires phrase positions");
-                }
-                const auto base_analyzer_fingerprint =
-                        analyzer_provider->base_analyzer_fingerprint();
-                if (base_analyzer_fingerprint.empty()) {
-                    close_on_error();
-                    return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                            "SNII CommonGrams analyzer has no immutable base fingerprint");
-                }
-                const auto* identity = analyzer_provider->common_grams_identity();
-                if (identity == nullptr) {
-                    close_on_error();
-                    return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                            "SNII CommonGrams analyzer has no immutable dictionary identity");
-                }
-                if (_common_grams_metadata_seed.has_value()) {
-                    if (!inverted_index::common_grams_identity_matches(*_common_grams_metadata_seed,
-                                                                       *identity)) {
-                        close_on_error();
-                        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                                "SNII CommonGrams metadata seed does not match the analyzer "
-                                "identity");
-                    }
-                } else {
-                    _common_grams_metadata_seed =
-                            inverted_index::make_common_grams_segment_metadata(*identity);
-                }
-                auto status = validate_common_grams_metadata_seed(*_common_grams_metadata_seed);
-                if (!status.ok()) {
-                    close_on_error();
-                    return status;
-                }
-                _config = ::doris::snii::format::IndexConfig::kDocsPositionsScoring;
-            } else if (_common_grams_metadata_seed.has_value()) {
-                close_on_error();
-                return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                        "SNII CommonGrams metadata cannot be attached to a plain analyzer");
-            }
-            _analyzer = analyzer_provider->get_analyzer(
-                    _uses_common_grams ? inverted_index::AnalysisPurpose::kSniiTransientIndex
-                                       : inverted_index::AnalysisPurpose::kPlainQuery);
-        } else if (_common_grams_metadata_seed.has_value()) {
-            close_on_error();
-            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                    "SNII CommonGrams metadata cannot be attached to a keyword analyzer");
+            _analyzer = analyzer_provider->get_analyzer();
         }
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
@@ -192,9 +117,10 @@ Status SniiIndexColumnWriter::init() {
         return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "SNII create analyzer failed: {}", e.what());
     }
-    if (_uses_common_grams) {
-        _term_buffer->enable_common_gram_pair_keys();
-    }
+    // A2：分词 + 带位置的索引一律写 norms（每 doc 的词元数，clamp 到 1..255），与 CLucene 的
+    // 打分能力对齐；keyword 或不带位置的索引不写。norms 是 core 元数据里的可选 region，
+    // 不认识它的老 reader 会原样忽略。
+    _writes_norms = _should_analyzer && _has_positions;
     return Status::OK();
 }
 
@@ -216,11 +142,11 @@ void SniiIndexColumnWriter::set_direct_load(bool is_direct_load) {
 
 Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t docid,
                                                 uint32_t position_base, uint32_t* max_position,
-                                                uint32_t* semantic_length) {
+                                                uint32_t* token_count) {
     DCHECK(max_position != nullptr);
-    DCHECK(semantic_length != nullptr);
+    DCHECK(token_count != nullptr);
     *max_position = position_base;
-    *semantic_length = 0;
+    *token_count = 0;
     const size_t logical_size = _is_char ? strnlen(value.data, value.size) : value.size;
     const std::string_view logical_value(value.data, logical_size);
     if ((!_should_analyzer && logical_value.size() > _ignore_above) ||
@@ -239,6 +165,7 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
                 _has_positions ? position_base + cast_set<uint32_t>(token_position) : 0;
         _term_buffer->add_token(term, docid, position, retain_positions);
         *max_position = std::max(*max_position, position);
+        ++*token_count;
     };
 
     if (!_should_analyzer) {
@@ -249,48 +176,7 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
         try {
             _char_string_reader->init(logical_value.data(), cast_set<int32_t>(logical_value.size()),
                                       false);
-            if (_uses_common_grams) {
-                auto* token_stream = _analyzer->reusableTokenStream(L"", _char_string_reader);
-                if (_common_grams_filter == nullptr) {
-                    _common_grams_filter =
-                            dynamic_cast<inverted_index::CommonGramsFilter*>(token_stream);
-                    DORIS_CHECK(_common_grams_filter != nullptr);
-                } else {
-                    DCHECK_EQ(static_cast<lucene::analysis::TokenStream*>(_common_grams_filter),
-                              token_stream);
-                }
-                _common_grams_filter->reset();
-
-                int32_t position = 0;
-                std::optional<::doris::snii::writer::ClassifiedPlainTerm> previous;
-                size_t previous_logical_term_size = 0;
-                inverted_index::SniiCommonGramsIndexEvent event;
-                while (_common_grams_filter->next_snii_index_event(&event)) {
-                    const auto current = _term_buffer->intern_classified_plain_term(
-                            event.plain_term, event.logical_term,
-                            _common_grams_filter->common_words());
-                    const bool has_preceding_gram =
-                            previous.has_value() && (previous->is_common || current.is_common) &&
-                            inverted_index::common_gram_component_sizes_encodable(
-                                    previous_logical_term_size, event.logical_term.size());
-                    const uint32_t gram_position = position_base + cast_set<uint32_t>(position);
-                    const uint32_t physical_position =
-                            position_base + cast_set<uint32_t>(position + 1);
-                    if (has_preceding_gram) {
-                        DCHECK(previous.has_value());
-                        _term_buffer->add_common_gram_and_plain(
-                                previous->id, current.id, docid, gram_position, physical_position,
-                                previous->is_common && current.is_common);
-                    } else {
-                        _term_buffer->add_plain_token(current.id, docid, physical_position);
-                    }
-                    ++position;
-                    ++*semantic_length;
-                    *max_position = std::max(*max_position, physical_position);
-                    previous = current;
-                    previous_logical_term_size = event.logical_term.size();
-                }
-            } else {
+            {
                 std::unique_ptr<lucene::analysis::TokenStream> owned_token_stream(
                         _analyzer->tokenStream(L"", _char_string_reader));
                 auto* token_stream = owned_token_stream.get();
@@ -328,12 +214,11 @@ Status SniiIndexColumnWriter::add_values(const std::string /*name*/, const void*
     const auto* v = reinterpret_cast<const Slice*>(values);
     for (size_t i = 0; i < count; ++i) {
         uint32_t max_position = 0;
-        uint32_t semantic_length = 0;
-        RETURN_IF_ERROR(_add_value_tokens(*v, _rid, 0, &max_position, &semantic_length));
-        if (_uses_common_grams) {
-            _encoded_norms.push_back(::doris::snii::query::encode_norm(semantic_length));
+        uint32_t token_count = 0;
+        RETURN_IF_ERROR(_add_value_tokens(*v, _rid, 0, &max_position, &token_count));
+        if (_writes_norms) {
+            _encoded_norms.push_back(::doris::snii::query::encode_norm(token_count));
             _report_encoded_norms_capacity();
-            _scoring_token_count += semantic_length;
         }
         ++v;
         ++_rid;
@@ -347,10 +232,6 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
     if (!_failure_status.ok()) {
         return _failure_status;
     }
-    if (_uses_common_grams) {
-        return _latch_analysis_failure(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "SNII CommonGrams does not support ARRAY fields"));
-    }
     if (count == 0) {
         return Status::OK();
     }
@@ -359,6 +240,7 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
     for (size_t i = 0; i < count; ++i) {
         auto array_elem_size = offsets[i + 1] - offsets[i];
         uint32_t position_base = 0;
+        uint64_t row_token_count = 0;
         for (auto j = start_off; j < start_off + array_elem_size; ++j) {
             if (nested_null_map != nullptr && nested_null_map[j] == 1) {
                 continue;
@@ -366,10 +248,17 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
             const auto* value = reinterpret_cast<const Slice*>(
                     reinterpret_cast<const uint8_t*>(value_ptr) + j * field_size);
             uint32_t max_position = position_base;
-            uint32_t semantic_length = 0;
+            uint32_t token_count = 0;
             RETURN_IF_ERROR(_add_value_tokens(*value, _rid, position_base, &max_position,
-                                              &semantic_length));
+                                              &token_count));
             position_base = max_position + 1;
+            row_token_count += token_count;
+        }
+        if (_writes_norms) {
+            // 一行 ARRAY 的文档长度 = 所有元素的词元数之和（NULL 行由 add_array_nulls 声明，
+            // 但同样经过这里，长度为 0）。
+            _encoded_norms.push_back(::doris::snii::query::encode_norm(row_token_count));
+            _report_encoded_norms_capacity();
         }
         start_off += array_elem_size;
         ++_rid;
@@ -422,7 +311,7 @@ Status SniiIndexColumnWriter::add_nulls(uint32_t count) {
         _null_docids.push_back(_rid + i);
     }
     _rid += count;
-    if (_uses_common_grams) {
+    if (_writes_norms) {
         _encoded_norms.insert(_encoded_norms.end(), count, ::doris::snii::query::encode_norm(0));
         _report_encoded_norms_capacity();
     }
@@ -463,11 +352,9 @@ Status SniiIndexColumnWriter::finish() {
     _report_null_docids_capacity(/*release_all=*/true);
     IndexFileWriter::SniiAddIndexOptions options {};
     options.is_direct_load = _is_direct_load;
-    if (_uses_common_grams) {
+    if (_writes_norms) {
+        DORIS_CHECK_EQ(_encoded_norms.size(), _rid);
         options.encoded_norms = std::move(_encoded_norms);
-        options.common_grams_metadata = _build_common_grams_metadata();
-        options.common_grams_posting_policy =
-                ::doris::snii::format::CommonGramsPostingPolicy::kHybridV1;
     }
     status = _index_file_writer->add_snii_index(
             _index_meta, cast_set<uint32_t>(_rid), std::move(_null_docids), _term_buffer.get(),
@@ -479,16 +366,6 @@ Status SniiIndexColumnWriter::finish() {
     return Status::OK();
 }
 
-inverted_index::CommonGramsSegmentMetadata SniiIndexColumnWriter::_build_common_grams_metadata()
-        const {
-    DORIS_CHECK(_uses_common_grams);
-    DORIS_CHECK(_common_grams_metadata_seed.has_value());
-    auto metadata = *_common_grams_metadata_seed;
-    metadata.common_grams_coverage = inverted_index::CommonGramsCoverage::kMixed;
-    metadata.scoring_doc_count = _rid;
-    metadata.scoring_token_count = _scoring_token_count;
-    return metadata;
-}
 
 Status SniiIndexColumnWriter::_latch_analysis_failure(Status status) {
     DORIS_CHECK(!status.ok());
@@ -506,7 +383,6 @@ void SniiIndexColumnWriter::close_on_error() {
     _memory_reporter.reset();
     _null_docids.clear();
     std::vector<uint8_t>().swap(_encoded_norms);
-    _scoring_token_count = 0;
 }
 
 } // namespace doris::segment_v2

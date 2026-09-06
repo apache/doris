@@ -182,8 +182,7 @@ TEST(SniiPostingInterleave, RoundTripWithPositionsContiguous) {
     ASSERT_TRUE(idx.lookup("aa_wide", &found, &wide_e, &fb, &pb).ok());
     ASSERT_TRUE(found);
     DecodedPosting dp;
-    ASSERT_TRUE(read_windowed_posting(idx, wide_e, fb, pb, /*want_positions=*/true,
-                                      /*want_freq=*/true, &dp)
+    ASSERT_TRUE(read_windowed_posting(idx, wide_e, fb, pb, /*want_positions=*/true, &dp)
                         .ok());
     ASSERT_EQ(dp.docids.size(), wide_docs.size());
     EXPECT_EQ(dp.docids, wide_docs);
@@ -199,8 +198,8 @@ TEST(SniiPostingInterleave, RoundTripWithPositionsContiguous) {
 
 // Test #2 / #3: byte-correctness of the combined region. Read the raw posting
 // region bytes; assert each term's [prx_off_delta, +prx_len) and
-// [frq_off_delta, +frq_len) sub-ranges, and that the docs-only prefix
-// [frq_off_delta, +frq_docs_len) stays INSIDE the frq span (never reads prx).
+// [frq_off_delta, +frq_len) sub-ranges, and that the frq span (prelude + dd
+// block) never overlaps the prx span.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(SniiPostingInterleave, ByteCorrectnessAndDocsPrefixStaysInFrqSpan) {
     SniiIndexInput in = BaseInput(1, "body", IndexConfig::kDocsPositions);
@@ -241,10 +240,10 @@ TEST(SniiPostingInterleave, ByteCorrectnessAndDocsPrefixStaysInFrqSpan) {
         // prx span ends exactly where frq span begins (contiguous, prx first).
         EXPECT_EQ(prx_in + e.prx_len, frq_in) << e.term;
 
-        // The docs-only prefix [frq_off_delta, +frq_docs_len) stays inside the frq span
-        // (begins after the prx span and fits within frq_len) -- it never reads prx.
-        EXPECT_GE(frq_in, prx_in + e.prx_len) << e.term; // prefix begins after prx
-        EXPECT_LE(e.frq_docs_len, e.frq_len) << e.term;  // prefix fits in frq span
+        // The frq span begins after the prx span and its prelude fits inside it -- a
+        // docid-only reader never touches prx.
+        EXPECT_GE(frq_in, prx_in + e.prx_len) << e.term; // frq begins after prx
+        EXPECT_LE(e.prelude_len, e.frq_len) << e.term;   // prelude fits in frq span
 
         // The absolute frq span stays inside the posting region (reader reads exactly
         // what the writer wrote).

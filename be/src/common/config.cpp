@@ -1323,25 +1323,6 @@ DEFINE_Int32(inverted_index_query_cache_shards, "256");
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
 
-namespace {
-
-bool valid_common_grams_cost_ratio(int32_t value) {
-    return value >= 0 && value <= 100;
-}
-
-bool valid_common_grams_verify_factor(int32_t value) {
-    return value >= 0;
-}
-
-} // namespace
-
-DEFINE_mBool(enable_common_grams_query_plan, "false");
-DEFINE_mBool(enable_common_grams_index_build, "true");
-DEFINE_mInt32(common_grams_plan_cost_ratio_percent, "85");
-DEFINE_Validator(common_grams_plan_cost_ratio_percent, valid_common_grams_cost_ratio);
-DEFINE_mInt32(common_grams_position_verify_factor, "0");
-DEFINE_Validator(common_grams_position_verify_factor, valid_common_grams_verify_factor);
-
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
 
@@ -1355,13 +1336,6 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
-// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
-// regions. Freq bytes serve ONLY BM25 scoring, which the Doris integration
-// does not reach yet (scoring_query has no production caller), so the default
-// drops them (textbench: -2.2 GB index). Scoring-config indexes always write
-// freq regardless. Applies at segment build (write side only); existing
-// segments keep whatever layout they were written with (self-describing).
-DEFINE_mBool(snii_positions_index_write_freq, "false");
 // G16-h: zstd levels for the SNII dict-block compression and the .prx window
 // auto mode. Level 9 (vs the historical 3) shrinks the two largest compressed
 // sections -- textbench: index -457 MB (0.918x -> 0.891x V3) -- for an import
@@ -2354,33 +2328,6 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         return Status::OK();                                                                       \
     }
 
-namespace {
-
-// UPDATE_FIELD invokes registered validators before assigning the candidate value. Validate the two
-// mutable planner coefficients explicitly so their startup and runtime constraints stay identical.
-Status validate_common_grams_runtime_config(const std::string& field, const std::string& value) {
-    bool (*validator)(int32_t) = nullptr;
-    if (field == "common_grams_plan_cost_ratio_percent") {
-        validator = valid_common_grams_cost_ratio;
-    } else if (field == "common_grams_position_verify_factor") {
-        validator = valid_common_grams_verify_factor;
-    } else {
-        return Status::OK();
-    }
-
-    int32_t candidate = 0;
-    if (!convert(value, candidate)) {
-        return Status::OK();
-    }
-    if (!validator(candidate)) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("validate {}={} failed", field,
-                                                                 candidate);
-    }
-    return Status::OK();
-}
-
-} // namespace
-
 // write config to be_custom.conf
 // the caller need to make sure that the given config is valid
 Status persist_config(const std::string& field, const std::string& value) {
@@ -2410,8 +2357,6 @@ Status set_config(const std::string& field, const std::string& value, bool need_
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(
                 "'{}' is not support to modify", field);
     }
-
-    RETURN_IF_ERROR(validate_common_grams_runtime_config(field, value));
 
     UPDATE_FIELD(it->second, value, bool, need_persist);
     UPDATE_FIELD(it->second, value, int16_t, need_persist);

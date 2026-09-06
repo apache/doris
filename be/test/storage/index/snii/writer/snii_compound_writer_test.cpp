@@ -33,7 +33,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "gen_cpp/snii.pb.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/bkd/staged_blob_file.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_source.h"
@@ -270,22 +269,6 @@ SniiIndexInput EmptyIndex(uint64_t index_id, std::string suffix) {
     return input;
 }
 
-doris::segment_v2::inverted_index::CommonGramsSegmentMetadata CompleteCommonGramsMetadata() {
-    using doris::segment_v2::inverted_index::CommonGramsCoverage;
-    using doris::segment_v2::inverted_index::PlainTermKeyVersion;
-    doris::segment_v2::inverted_index::CommonGramsSegmentMetadata metadata;
-    metadata.plain_term_key_version = PlainTermKeyVersion::kEscapedV1;
-    metadata.common_grams_coverage = CommonGramsCoverage::kComplete;
-    metadata.common_grams_semantics_version =
-            doris::segment_v2::inverted_index::COMMON_GRAMS_SEMANTICS_VERSION_V1;
-    metadata.common_grams_key_version =
-            doris::segment_v2::inverted_index::COMMON_GRAMS_KEY_VERSION_V1;
-    metadata.common_grams_dictionary_identity = "test:dictionary:v1";
-    metadata.base_analyzer_fingerprint = "test:base:v1";
-    metadata.common_grams_fingerprint = "test:grams:v1";
-    return metadata;
-}
-
 Status OpenBytes(const std::vector<uint8_t>& bytes, uint64_t index_id, std::string_view suffix,
                  bool open_index) {
     const std::string path = WriteTemp(bytes);
@@ -506,7 +489,6 @@ void ExpectClosedLogicalReader(const reader::LogicalIndexReader& index) {
     EXPECT_EQ(nullptr, index.reader());
     EXPECT_EQ(0U, index.stats().doc_count);
     EXPECT_EQ(0U, index.n_dict_blocks());
-    EXPECT_EQ(nullptr, index.common_grams_metadata());
 }
 
 // Builds a TermPostings with constant freq per doc and (optionally) positions.
@@ -574,7 +556,7 @@ SniiIndexInput MakeIndexWithAllAuxiliarySections(MemoryReporter* reporter) {
     SniiIndexInput in;
     in.index_id = 7;
     in.index_suffix = "body";
-    in.config = IndexConfig::kDocsPositionsScoring;
+    in.config = IndexConfig::kDocsPositions;
     in.doc_count = 3;
     in.null_docids = {2};
     in.encoded_norms = {1, 2, 3};
@@ -1113,25 +1095,6 @@ TEST(SniiCompoundWriter, PoisonReleasesBlobSourcesWithoutWaitingForFinish) {
             << "a poisoned compound kept its blob callback, pinning the staging file: " << path;
 }
 
-TEST(SniiCompoundWriter, ReopeningLogicalReaderClearsPreviousCommonGramsState) {
-    auto with_common_grams = EmptyIndex(7, "with");
-    with_common_grams.common_grams_metadata = CompleteCommonGramsMetadata();
-    const auto file = BuildIndexes({with_common_grams, EmptyIndex(8, std::string("without"))});
-    const std::string path = WriteTemp(file);
-    io::LocalFileReader local;
-    ASSERT_TRUE(local.open(path).ok());
-    reader::SniiSegmentReader segment;
-    ASSERT_TRUE(reader::SniiSegmentReader::open(&local, &segment).ok());
-
-    reader::LogicalIndexReader reused;
-    ASSERT_TRUE(segment.open_index(7, "with", &reused).ok());
-    ASSERT_NE(nullptr, reused.common_grams_metadata());
-    ASSERT_TRUE(segment.open_index(8, "without", &reused).ok());
-    EXPECT_EQ(nullptr, reused.common_grams_metadata());
-    EXPECT_EQ(CommonGramsPostingPolicy::kNone, reused.common_grams_posting_policy());
-    std::remove(path.c_str());
-}
-
 namespace {
 
 // Oracle for the multi-super-block read-back test. "hot" is a very high-df term;
@@ -1574,6 +1537,22 @@ void ExpectFixtureReadable(const std::vector<uint8_t>& file) {
 
 } // namespace
 
+// 夹具尺寸随格式演进漂移（core 元数据字段的增减就会改动几十字节）。从"跨 2*kMinPaddingLeverage
+// 个块"的导出值往下找第一个"确实要补齐、且补齐便宜（2*pad < block）"的块大小：块越小跨的块越多，
+// 阈值门只会更宽松，所以门不会成为这些用例的决定因素。
+int64_t CheapPaddingBlockSize(size_t unpadded) {
+    auto block = static_cast<int64_t>(unpadded / (2 * kMinPaddingLeverage));
+    while (block >= 2) {
+        const auto block_size = static_cast<size_t>(block);
+        const size_t pad = (block_size - unpadded % block_size) % block_size;
+        if (pad > 0 && 2 * pad < block_size) {
+            return block;
+        }
+        --block;
+    }
+    return block;
+}
+
 // A read confined to a file's last PARTIAL block costs a whole extra block: s_align_size clamps
 // the aligned window to the file end and back-pads by a full block when that clamp leaves it
 // short. Ending on a boundary makes the condition false.
@@ -1583,16 +1562,16 @@ void ExpectFixtureReadable(const std::vector<uint8_t>& file) {
 // how this test would rot into silently asserting the skipped branch instead.
 TEST(SniiCompoundWriter, PadsToBlockBoundaryWhenPaddingIsCheapRelativeToContainer) {
     const size_t unpadded = WriteFixtureAtBlockSize(0).size();
-    // At this block size the container spans 2*kMinPaddingLeverage blocks, comfortably clearing
-    // the floor, so the gate cannot be what decides this test.
-    const auto block = static_cast<int64_t>(unpadded / (2 * kMinPaddingLeverage));
+    // At this block size the container spans at least 2*kMinPaddingLeverage blocks, comfortably
+    // clearing the floor, so the gate cannot be what decides this test.
+    const auto block = CheapPaddingBlockSize(unpadded);
     ASSERT_GE(block, 2) << "fixture too small to derive a usable block size";
 
     // Without this the test can pass VACUOUSLY: if the fixture happens to be an exact multiple of
     // the derived block, pad is 0, the writer appends nothing, and "size % block == 0" is true for
-    // the wrong reason. The margin is thin -- at the current 1904 B fixture, +10 B or -19 B lands
-    // on such a multiple, and so does setting kMinPaddingLeverage to 64. Assert the padding was
-    // actually due, then assert its EXACT size so an over-pad (a whole spurious block) also fails.
+    // the wrong reason. CheapPaddingBlockSize already avoids that, but assert it (and the
+    // cheapness bound) rather than trusting the search, then assert the EXACT pad size so an
+    // over-pad (a whole spurious block) also fails.
     const auto block_size = static_cast<size_t>(block);
     const size_t pad = (block_size - unpadded % block_size) % block_size;
     ASSERT_GT(pad, 0U) << "fixture (" << unpadded << " B) is an exact multiple of block " << block
@@ -1639,7 +1618,7 @@ TEST(SniiCompoundWriter, SkipsPaddingWhenItWouldBeLargeRelativeToContainer) {
 // qualifies on every other count must still come out unpadded.
 TEST(SniiCompoundWriter, SkipsPaddingWhenTheFileCacheIsOff) {
     const size_t unpadded = WriteFixtureAtBlockSize(0).size();
-    const auto block = static_cast<int64_t>(unpadded / (2 * kMinPaddingLeverage));
+    const auto block = CheapPaddingBlockSize(unpadded);
     ASSERT_GE(block, 2) << "fixture too small to derive a usable block size";
     // Same block size the acceptance test uses, so the cache flag is the only difference.
     ASSERT_NE(WriteFixtureAtBlockSize(block, /*file_cache_on=*/true).size(), unpadded)

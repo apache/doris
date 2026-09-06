@@ -318,8 +318,7 @@ Status resolve_prx_range(const doris::snii::reader::LogicalIndexReader& reader,
     RETURN_IF_ERROR(doris::snii::reader::fetch_windowed_prelude(reader, entry, frq_base, &prelude));
     doris::snii::reader::WindowAbsRange window_range;
     RETURN_IF_ERROR(doris::snii::reader::windowed_window_range(reader, entry, frq_base, prx_base,
-                                                               prelude, 0, /*want_positions=*/true,
-                                                               /*want_freq=*/false, &window_range));
+                                                               prelude, 0, /*want_positions=*/true, &window_range));
     range->offset = window_range.prx_off;
     range->len = window_range.prx_len;
     return Status::OK();
