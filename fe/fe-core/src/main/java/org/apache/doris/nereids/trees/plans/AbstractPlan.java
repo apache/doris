@@ -35,6 +35,7 @@ import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -339,6 +340,29 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
                     }
                     return ((Plan) plan).displayExtraPlanFirst();
                 });
+    }
+
+    /**
+     * Append the hbo fingerprint / simplified struct info to the toString of a plan node, when
+     * they were attached at planning time ({@link MutableState#KEY_HBO_FP}) and the session
+     * variable {@code show_hbo_fingerprint} is enabled. Default (variable off or no state):
+     * the input text is returned unchanged, so existing explain outputs are not affected.
+     */
+    protected String withHboExplainInfo(String text) {
+        if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().isShowHboFingerprint()) {
+            return text;
+        }
+        Optional<Object> fingerprint = getMutableState(MutableState.KEY_HBO_FP);
+        if (!fingerprint.isPresent()) {
+            return text;
+        }
+        StringBuilder builder = new StringBuilder(text);
+        builder.append(" hboFingerprint=").append(fingerprint.get());
+        Optional<Object> struct = getMutableState(MutableState.KEY_HBO_STRUCT);
+        if (struct.isPresent()) {
+            builder.append(" hboStruct=").append(struct.get());
+        }
+        return builder.toString();
     }
 
     /** top toJson method, can be override by specific operator */

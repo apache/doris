@@ -89,11 +89,12 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalStorageLayerAggregate[" + relationId.asInt() + "]" + getGroupIdWithPrefix(),
+        return withHboExplainInfo(Utils.toSqlString("PhysicalStorageLayerAggregate[" + relationId.asInt() + "]"
+                + getGroupIdWithPrefix(),
                 "pushDownAggOp", aggOp,
                 "relation", relation,
                 "stats", statistics
-        );
+        ));
     }
 
     public PhysicalStorageLayerAggregate withPhysicalOlapScan(PhysicalOlapScan physicalOlapScan) {

@@ -83,6 +83,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.planner.AddLocalExchange;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNodeId;
@@ -357,6 +358,16 @@ public class NereidsPlanner extends Planner {
         }
 
         physicalPlan = postProcess(physicalPlan);
+        if (Config.hbo_use_struct_info_fingerprint && cascadesContext != null
+                && cascadesContext.getMemo() != null
+                && ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isShowHboFingerprint()) {
+            Map<Integer, Group> hboGroupsById = new HashMap<>();
+            for (Group group : cascadesContext.getMemo().getGroups()) {
+                hboGroupsById.put(group.getGroupId().asInt(), group);
+            }
+            attachHboExplainInfoToTree(physicalPlan, hboGroupsById);
+        }
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
             String tree = physicalPlan.treeString();
             LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), tree);
@@ -700,6 +711,47 @@ public class NereidsPlanner extends Planner {
         }
     }
 
+    /**
+     * Attach the hbo fingerprint and the simplified struct info to the mutable state of a plan
+     * node, so that the physical-plan node {@code toString()} can print them inline when the
+     * session variable {@code show_hbo_fingerprint} is enabled (no dependency on the memo or on
+     * {@code enable_hbo_info_collection} afterwards).
+     * <p>For join / aggregation / filter nodes only: a filter that sits above an olap scan
+     * (filter-on-scan) carries the fingerprint of the scan group, which is the read-side lookup
+     * key constraining the filter output row count.
+     */
+    private void attachHboExplainInfoToTree(Plan plan, Map<Integer, Group> groupsById) {
+        for (Plan child : plan.children()) {
+            attachHboExplainInfoToTree(child, groupsById);
+        }
+        if (plan instanceof AbstractPlan) {
+            attachHboExplainInfo((AbstractPlan) plan, groupsById);
+        }
+    }
+
+    private void attachHboExplainInfo(AbstractPlan node, Map<Integer, Group> groupsById) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null || !connectContext.getSessionVariable().isShowHboFingerprint()) {
+            return;
+        }
+        Optional<GroupStructInfo> structInfo;
+        if (node instanceof AbstractPhysicalJoin
+                || node instanceof PhysicalHashAggregate
+                || node instanceof PhysicalStorageLayerAggregate) {
+            structInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById);
+        } else if (node instanceof PhysicalFilter) {
+            AbstractPlan scan = findScanUnder((PhysicalFilter<?>) node);
+            structInfo = scan == null ? GroupStructInfo.structInfoOfPlanNode(node, groupsById)
+                    : GroupStructInfo.structInfoOfPlanNode(scan, groupsById);
+        } else {
+            return;
+        }
+        if (structInfo.isPresent()) {
+            node.setMutableState(MutableState.KEY_HBO_FP, structInfo.get().getFingerprint());
+            node.setMutableState(MutableState.KEY_HBO_STRUCT, structInfo.get().getCanonicalString());
+        }
+    }
+
     protected void splitFragments(PhysicalPlan resultPlan) {
         if (resultPlan instanceof PhysicalSqlCache) {
             return;
@@ -721,7 +773,12 @@ public class NereidsPlanner extends Planner {
                     .setNereidsTranslateTime(TimeUtils.getStartTimeMs());
         }
         String queryId = DebugUtil.printId(cascadesContext.getConnectContext().queryId());
-        if (StatisticsUtil.isEnableHboInfoCollection()) {
+        boolean showHboFingerprint = ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isShowHboFingerprint();
+        // plan-info registration runs for learned collection, and (with struct fingerprint) also
+        // whenever the hbo fingerprint/struct info must be printed inline in the physical plan
+        if (StatisticsUtil.isEnableHboInfoCollection()
+                || (Config.hbo_use_struct_info_fingerprint && showHboFingerprint)) {
             collectHboPlanInfo(queryId, physicalPlan, planTranslatorContext);
         }
 
