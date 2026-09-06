@@ -372,6 +372,8 @@ public final class OssFileSystemProperties
     }
 
     private void normalize() {
+        boolean dlfPublicAccess = ConnectorPropertiesUtils.parseBooleanProperty(
+                dlfAccessPublic, "dlf.access.public");
         // Legacy AbstractS3CompatibleProperties.setEndpointIfPossible leg 2 (inherited by fe-core
         // OSSProperties): derive the endpoint from the raw "uri" property when no endpoint key is
         // set; parse failures are swallowed exactly like fe-core. Runs before the endpoint/region
@@ -388,7 +390,7 @@ public final class OssFileSystemProperties
             region = extractRegion(endpoint).orElse("");
         }
         if (StringUtils.isBlank(endpoint) && StringUtils.isNotBlank(region)) {
-            endpoint = getOssEndpoint(region, Boolean.parseBoolean(dlfAccessPublic));
+            endpoint = getOssEndpoint(region, dlfPublicAccess);
         }
         // Align fe-core OSSProperties.initNormalizeAndCheckProps: any endpoint that is not a
         // standard OSS endpoint (e.g. the S3-compatible s3.<region>.aliyuncs.com spelling) is
@@ -396,7 +398,7 @@ public final class OssFileSystemProperties
         // with a blank region validate() throws first, exactly like fe-core.
         if (StringUtils.isNotBlank(region)
                 && (StringUtils.isBlank(endpoint) || !ENDPOINT_PATTERN.matcher(endpoint).matches())) {
-            endpoint = getOssEndpoint(region, Boolean.parseBoolean(dlfAccessPublic));
+            endpoint = getOssEndpoint(region, dlfPublicAccess);
         }
     }
 

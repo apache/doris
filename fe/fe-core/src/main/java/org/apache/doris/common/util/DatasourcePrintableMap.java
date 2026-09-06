@@ -62,6 +62,7 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.add("dlf.catalog.accessKeySecret");
         SENSITIVE_KEY.add("dlf.session_token");
         SENSITIVE_KEY.add("dlf.catalog.sessionToken");
+        SENSITIVE_KEY.add("dlf.catalog.securityToken");
         // Iceberg REST catalog secret keys. Formerly reflected off the fe-core IcebergRestProperties
         // (getSensitiveKeys). That class is removed with the fe-core iceberg property cluster; its
         // authoritative copy now lives connector-side (fe-connector-metastore-iceberg

@@ -21,6 +21,8 @@ suite("test_dlf_catalog", "p0,external") {
     sql "DROP CATALOG IF EXISTS test_iceberg_dlf_catalog_missing_secret"
     sql "DROP CATALOG IF EXISTS test_paimon_dlf_catalog_missing_secret"
     sql "DROP CATALOG IF EXISTS test_iceberg_dlf_catalog_unreachable"
+    sql "DROP CATALOG IF EXISTS test_iceberg_dlf_catalog_external_root"
+    sql "DROP CATALOG IF EXISTS test_paimon_dlf_catalog_unreachable"
 
     // test_connection=false keeps provider and alias validation independent of an external DLF service.
     sql """
@@ -92,6 +94,22 @@ suite("test_dlf_catalog", "p0,external") {
 
     test {
         sql """
+            CREATE CATALOG test_iceberg_dlf_catalog_external_root PROPERTIES (
+                "type" = "iceberg",
+                "iceberg.catalog.type" = "dlf",
+                "external_catalog.name" = "unsupported-root",
+                "warehouse" = "oss://dlf-regression-test/external-root",
+                "dlf.access_key" = "test-access-key",
+                "dlf.secret_key" = "test-secret-key",
+                "dlf.region" = "test-region",
+                "test_connection" = "false"
+            )
+        """
+        exception "external_catalog.name is not supported for Iceberg DLF catalogs"
+    }
+
+    test {
+        sql """
             CREATE CATALOG test_iceberg_dlf_catalog_unreachable PROPERTIES (
                 "type" = "iceberg",
                 "iceberg.catalog.type" = "dlf",
@@ -106,5 +124,23 @@ suite("test_dlf_catalog", "p0,external") {
             )
         """
         exception "Iceberg DLF connectivity test failed"
+    }
+
+    test {
+        sql """
+            CREATE CATALOG test_paimon_dlf_catalog_unreachable PROPERTIES (
+                "type" = "paimon",
+                "paimon.catalog.type" = "dlf",
+                "warehouse" = "oss://dlf-regression-test/unreachable",
+                "dlf.access_key" = "test-access-key",
+                "dlf.secret_key" = "test-secret-key",
+                "dlf.region" = "test-region",
+                "dlf.endpoint" = "http://127.0.0.1:1",
+                "oss.endpoint" = "oss-test-region.aliyuncs.com",
+                "oss.region" = "test-region",
+                "test_connection" = "true"
+            )
+        """
+        exception "Paimon DLF connectivity test failed"
     }
 }

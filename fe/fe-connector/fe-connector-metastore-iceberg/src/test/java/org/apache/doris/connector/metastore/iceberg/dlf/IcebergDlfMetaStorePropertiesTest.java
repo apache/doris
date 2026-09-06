@@ -62,6 +62,31 @@ public class IcebergDlfMetaStorePropertiesTest {
     }
 
     @Test
+    public void nonLiteralTruthyAccessPublicDerivesPublicEndpoint() {
+        for (String truthy : java.util.Arrays.asList("yes", "ON", "y")) {
+            Map<String, String> conf = of(raw(
+                    "dlf.access_key", "ak",
+                    "dlf.secret_key", "sk",
+                    "dlf.region", "cn-hangzhou",
+                    "dlf.access.public", truthy)).toDlfCatalogConf();
+
+            Assertions.assertEquals("dlf.cn-hangzhou.aliyuncs.com", conf.get("dlf.catalog.endpoint"));
+        }
+    }
+
+    @Test
+    public void invalidAccessPublicValueIsRejected() {
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> of(raw(
+                        "dlf.access_key", "ak",
+                        "dlf.secret_key", "sk",
+                        "dlf.endpoint", "dlf.cn-hangzhou.aliyuncs.com",
+                        "dlf.access.public", "truthy")).toDlfCatalogConf());
+
+        Assertions.assertTrue(e.getMessage().contains("dlf.access.public"), e.getMessage());
+    }
+
+    @Test
     public void providerExposesEveryCredentialAliasAsSensitive() {
         Assertions.assertTrue(new IcebergDlfMetaStoreProvider().sensitivePropertyKeys().containsAll(
                 java.util.Arrays.asList("dlf.access_key", "dlf.catalog.accessKeyId", "dlf.secret_key",

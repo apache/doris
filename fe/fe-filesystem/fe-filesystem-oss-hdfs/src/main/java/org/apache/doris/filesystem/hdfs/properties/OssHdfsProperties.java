@@ -25,6 +25,7 @@ import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 
 import java.net.URI;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -62,9 +63,11 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
     private static final Set<String> OSS_ENDPOINT_KEY_NAME = ImmutableSet.of("oss.hdfs.endpoint",
             "oss.endpoint", "dlf.endpoint", "dlf.catalog.endpoint");
 
+    private static final Pattern DLF_ENDPOINT_PATTERN =
+            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$");
     private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(
             Pattern.compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com"),
-            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
+            DLF_ENDPOINT_PATTERN);
 
     private static final Set<String> SUPPORT_SCHEMA = ImmutableSet.of("oss", "hdfs");
 
@@ -169,7 +172,8 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
     }
 
     private void convertDlfToOssEndpointIfNeeded() {
-        if (this.endpoint.contains("dlf")) {
+        // Region extraction accepts endpoint hosts case-insensitively, so conversion must use the same rule.
+        if (DLF_ENDPOINT_PATTERN.matcher(this.endpoint.toLowerCase(Locale.ROOT)).matches()) {
             this.endpoint = this.region + ".oss-dls.aliyuncs.com";
         }
     }

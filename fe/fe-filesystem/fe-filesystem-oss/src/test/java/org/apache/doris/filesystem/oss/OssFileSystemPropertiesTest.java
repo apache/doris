@@ -113,6 +113,17 @@ class OssFileSystemPropertiesTest {
     }
 
     @Test
+    void bind_usesSameDlfAccessPublicSemanticsAsMetastore() {
+        for (String truthy : java.util.Arrays.asList("yes", "ON", "y")) {
+            OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                    "dlf.region", "cn-hangzhou",
+                    "dlf.access.public", truthy));
+
+            Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", properties.getEndpoint());
+        }
+    }
+
+    @Test
     void bind_acceptsCanonicalDlfCredentialsAndToken() {
         OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
                 "dlf.catalog.endpoint", "dlf.cn-hangzhou.aliyuncs.com",

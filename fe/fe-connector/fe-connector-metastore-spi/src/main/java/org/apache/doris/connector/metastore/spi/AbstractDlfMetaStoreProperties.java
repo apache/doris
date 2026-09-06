@@ -18,9 +18,9 @@
 package org.apache.doris.connector.metastore.spi;
 
 import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
-import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.LinkedHashMap;
@@ -100,9 +100,11 @@ public abstract class AbstractDlfMetaStoreProperties extends AbstractMetaStorePr
 
     @Override
     public Map<String, String> toDlfCatalogConf() {
+        boolean publicAccess = ConnectorPropertiesUtils.parseBooleanProperty(
+                accessPublic, "dlf.access.public");
         String resolvedEndpoint = endpoint;
         if (StringUtils.isBlank(resolvedEndpoint) && StringUtils.isNotBlank(region)) {
-            resolvedEndpoint = BooleanUtils.toBoolean(accessPublic)
+            resolvedEndpoint = publicAccess
                     ? "dlf." + region + ".aliyuncs.com"
                     : "dlf-vpc." + region + ".aliyuncs.com";
         }
