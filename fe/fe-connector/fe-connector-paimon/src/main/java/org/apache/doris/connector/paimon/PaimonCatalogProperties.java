@@ -53,7 +53,7 @@ public final class PaimonCatalogProperties {
 
     private static final Logger LOG = LogManager.getLogger(PaimonCatalogProperties.class);
 
-    /** Paimon catalog backend type: filesystem, hms, rest, jdbc. */
+    /** Paimon catalog backend type: filesystem, hms, dlf, rest, jdbc. */
     public static final String PAIMON_CATALOG_TYPE = "paimon.catalog.type";
 
     /**
@@ -78,6 +78,7 @@ public final class PaimonCatalogProperties {
     // ---- Flavor literals (the accepted paimon.catalog.type values) ----
     public static final String FILESYSTEM = "filesystem";
     public static final String HMS = "hms";
+    public static final String DLF = "dlf";
     public static final String REST = "rest";
     public static final String JDBC = "jdbc";
 
@@ -93,7 +94,7 @@ public final class PaimonCatalogProperties {
     private static final String DEAD_TABLE_CACHE_PREFIX = "meta.cache.paimon.table.";
 
     @ConnectorProperty(names = {PAIMON_CATALOG_TYPE}, required = false,
-            description = "The metastore backend: filesystem, hms, rest or jdbc.")
+            description = "The metastore backend: filesystem, hms, dlf, rest or jdbc.")
     private String catalogType = DEFAULT_CATALOG_TYPE;
 
     @ConnectorProperty(names = {ENABLE_MAPPING_VARBINARY}, required = false,
