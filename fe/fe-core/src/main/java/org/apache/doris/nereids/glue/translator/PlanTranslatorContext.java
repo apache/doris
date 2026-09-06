@@ -133,6 +133,12 @@ public class PlanTranslatorContext {
     // root and across pipeline boundaries (see shouldResetSerialFlagForChild).
     private final Map<PlanNodeId, Boolean> serialAncestorInPipelineMap = Maps.newHashMap();
 
+    // Per-node "does this pipeline have a serial parent pipeline" flag. Mirrors BE's
+    // Pipeline::num_tasks_of_parent() gate in _add_local_exchange: a pipeline whose parent
+    // has one task must not be split by another local exchange, because that would raise only
+    // the new source side to N tasks while the paired sink/source operators stay one-to-one.
+    private final Map<PlanNodeId, Boolean> serialParentPipelineMap = Maps.newHashMap();
+
     // Per-node "is there a downstream operator that depends on hash distribution for
     // correctness, with HASH/NOOP path connecting it to me" flag.  Mirrors BE's
     // _followed_by_shuffled_operator propagation in pipeline_fragment_context.cpp.
@@ -290,6 +296,14 @@ public class PlanTranslatorContext {
 
     public boolean hasSerialAncestorInPipeline(PlanNode node) {
         return serialAncestorInPipelineMap.getOrDefault(node.getId(), false);
+    }
+
+    public void setHasSerialParentPipeline(PlanNode node, boolean value) {
+        serialParentPipelineMap.put(node.getId(), value);
+    }
+
+    public boolean hasSerialParentPipeline(PlanNode node) {
+        return serialParentPipelineMap.getOrDefault(node.getId(), false);
     }
 
     public void setHasShuffleForCorrectnessAncestor(PlanNode node, boolean value) {
