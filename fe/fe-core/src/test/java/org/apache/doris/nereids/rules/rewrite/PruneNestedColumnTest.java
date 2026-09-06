@@ -924,26 +924,25 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     @Test
     public void testPushDownThroughJoin() {
         PlanChecker.from(connectContext)
-                .analyze("select coalesce(element_at(s, 'city'), 'abc') from (select * from tbl)a join (select 100 id, 'f1' name)b on a.id=b.id")
+                .analyze("select coalesce(element_at(s, 'city'), 'abc') from (select * from tbl)a join (select id2 from tbl2)b on a.id=b.id2")
                 .rewrite()
                 .matches(
                     logicalResultSink(
                         logicalProject(
                             logicalJoin(
                                 logicalProject(
-                                    logicalFilter(
-                                        logicalOlapScan()
-                                    )
+                                    logicalOlapScan()
                                 ).when(p -> {
-                                    // the one-row relation's constant `id` is propagated into the
-                                    // left side (`id = 100` pushed into the filter below), so the
-                                    // project above the filter only keeps the pushed-down access
-                                    Assertions.assertEquals(1, p.getProjects().size());
-                                    Assertions.assertTrue(p.getProjects().get(0) instanceof Alias
-                                            && p.getProjects().get(0).child(0) instanceof ElementAt);
+                                    // left side keeps the join key `id` plus the pushed-down
+                                    // `element_at(s, 'city')` alias — 2 projects
+                                    Assertions.assertEquals(2, p.getProjects().size());
+                                    Assertions.assertTrue(p.getProjects().stream()
+                                            .anyMatch(o -> o instanceof Alias && o.child(0) instanceof ElementAt));
                                     return true;
                                 }),
-                                logicalOneRowRelation()
+                                logicalProject(
+                                    logicalOlapScan()
+                                )
                             )
                         ).when(p -> {
                             Assertions.assertTrue(p.getProjects().size() == 1 && p.getProjects().get(0) instanceof Alias

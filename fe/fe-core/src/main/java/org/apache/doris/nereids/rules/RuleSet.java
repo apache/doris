@@ -100,6 +100,7 @@ import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
 import org.apache.doris.nereids.rules.implementation.SplitAggWithoutDistinct;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
+import org.apache.doris.nereids.rules.rewrite.EliminateJoinByConstantOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.MaxMinFilterPushDown;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
@@ -175,6 +176,7 @@ public class RuleSet {
             new PushDownProjectThroughLimit(),
             new PushDownProject(),
             new EliminateOuterJoin(),
+            new EliminateJoinByConstantOneRowRelation(),
             new MergeProjectable(),
             new MergeFilters(),
             new MergeGenerates(),

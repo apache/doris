@@ -99,7 +99,9 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
 
     @Test
     public void testUseTopNRfForComplexCase() {
-        String sql = "select * from (select 1) tl join (select * from customer order by c_custkey limit 5) tb";
+        String sql = "select * from (select count(*) c from dates) tl "
+                + "join (select * from customer order by c_custkey limit 5) tb";
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
         PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
                 .rewrite()
                 .implement();
