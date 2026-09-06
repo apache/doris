@@ -197,15 +197,20 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     public void registerDatabase(long dbId, String dbName) {
+        registerDatabaseFromEvent(dbId, dbName, acquireMetadataLoadEpoch());
+    }
+
+    public boolean registerDatabaseFromEvent(long dbId, String dbName, long metadataLoadEpoch) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("create database [{}]", dbName);
         }
 
         ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
         if (isInitialized()) {
-            metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
-                    Util.genIdByName(name, db.getFullName()));
+            return metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
+                    Util.genIdByName(name, db.getFullName()), metadataLoadEpoch);
         }
+        return false;
     }
 
     @Override
