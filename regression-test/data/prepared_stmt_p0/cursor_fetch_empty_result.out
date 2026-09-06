@@ -3,3 +3,9 @@
 
 -- !non_empty_result --
 1
+
+-- !anonymous_empty --
+
+-- !anonymous_non_empty --
+1
+

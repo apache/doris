@@ -510,18 +510,6 @@ public class StmtExecutor {
         }
     }
 
-    public boolean isForwardedClientDeprecatedEofApplied() {
-        return masterOpExecutor != null && masterOpExecutor.isClientDeprecatedEofApplied();
-    }
-
-    public boolean hasForwardedQueryResultPackets() {
-        return masterOpExecutor != null && masterOpExecutor.hasQueryResultPackets();
-    }
-
-    public long getForwardedAffectedRows() {
-        return masterOpExecutor == null ? 0 : masterOpExecutor.getAffectedRows();
-    }
-
     /**
      * Whether this executor has actually forwarded to master and created a {@link MasterOpExecutor}.
      *
@@ -2031,7 +2019,7 @@ public class StmtExecutor {
     private boolean connectorJConsumesCursorMetadataTerminator() {
         return context.isCursorFetchRequested()
                 && MysqlCursorFetchCompatibility.resolve(context.getConnectAttributes())
-                        == MysqlCursorFetchCompatibility.Behavior.CONSUMES_METADATA_TERMINATOR;
+                        != MysqlCursorFetchCompatibility.Behavior.STANDARD;
     }
 
     public void sendResultSet(ResultSet resultSet) throws IOException {
@@ -2589,6 +2577,7 @@ public class StmtExecutor {
         if (masterOpExecutor == null) {
             return;
         }
+        masterOpExecutor.prepareQueryResultForClient();
         List<ByteBuffer> queryResultBufList = masterOpExecutor.getQueryResultBufList();
         for (ByteBuffer byteBuffer : queryResultBufList) {
             context.getMysqlChannel().sendOnePacket(byteBuffer);

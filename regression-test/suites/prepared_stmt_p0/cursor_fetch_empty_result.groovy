@@ -40,10 +40,7 @@ suite("cursor_fetch_empty_result") {
             context.config.jdbcUrl, "regression_test_prepared_stmt_p0") +
             "&useCursorFetch=true&defaultFetchSize=10000&connectionAttributes=none&socketTimeout=10000"
     connect(context.config.jdbcUser, context.config.jdbcPassword, unidentifiedClientUrl) {
-        test {
-            sql "SELECT 1 AS c WHERE 1 = 2"
-            exception "Cannot safely execute cursor fetch because the client did not provide identifiable " +
-                    "connection attributes"
-        }
+        qt_anonymous_empty "SELECT 1 AS c WHERE 1 = 2"
+        qt_anonymous_non_empty "SELECT 1 AS c WHERE 1 = 1"
     }
 }

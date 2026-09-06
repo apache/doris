@@ -32,10 +32,10 @@ public class MysqlConnectProcessorCursorFetchTest {
     private static final int CURSOR_TYPE_READ_ONLY = 1;
 
     @Test
-    public void testUnidentifiedDeprecatedEofCursorFailsBeforeExecution() throws Exception {
+    public void testUnidentifiedDeprecatedEofCursorReachesPreparedStatementLookup() throws Exception {
         ConnectContext context = execute(true, true, false);
         Assert.assertTrue(context.getState().getErrorMessage().contains(
-                "Cannot safely execute cursor fetch because the client did not provide identifiable"));
+                "Unknown prepared statement handler"));
     }
 
     @Test

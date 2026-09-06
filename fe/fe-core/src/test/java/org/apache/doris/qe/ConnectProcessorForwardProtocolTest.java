@@ -31,30 +31,35 @@ import java.nio.ByteBuffer;
 
 public class ConnectProcessorForwardProtocolTest {
     @Test
-    public void testOldMasterQueryFailsBeforeRawPacketsAreSent() throws Exception {
+    public void testOldMasterSuccessfulEofDoesNotBecomeError() throws Exception {
         TestContext context = new TestContext();
         StmtExecutor executor = forwardedExecutor();
-        Mockito.when(executor.hasForwardedQueryResultPackets()).thenReturn(true);
+        Mockito.when(executor.getProxyStatusCode()).thenReturn(1105);
+        ByteBuffer packet = ByteBuffer.wrap(new byte[] {(byte) 0xFE, 0, 0, 2, 0, 3, 0, 0});
+        Mockito.when(executor.getOutputPacket()).thenReturn(packet);
 
         new TestProcessor(context, executor).finalizeCommand();
 
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, context.getState().getStateType());
-        Assert.assertEquals(0xFF, MysqlProto.readInt1(context.channel.packet));
-        Mockito.verify(executor, Mockito.never()).sendProxyQueryResult();
+        Assert.assertEquals(packet, context.channel.packet);
+        Mockito.verify(executor).sendProxyQueryResult();
     }
 
     @Test
-    public void testOldMasterDmlRebuildsOkWithoutRetryRisk() throws Exception {
+    public void testOldMasterDmlPreservesCompleteOk() throws Exception {
         TestContext context = new TestContext();
         StmtExecutor executor = forwardedExecutor();
-        Mockito.when(executor.getForwardedAffectedRows()).thenReturn(7L);
+        QueryState state = new QueryState();
+        state.setOk(7, 3, "label=load_1,txnId=123,status=VISIBLE");
+        state.serverStatus = 2;
+        MysqlSerializer serializer = MysqlSerializer.newInstance();
+        state.toResponsePacket().writeTo(serializer);
+        ByteBuffer packet = serializer.toByteBuffer();
+        Mockito.when(executor.getOutputPacket()).thenReturn(packet);
 
         new TestProcessor(context, executor).finalizeCommand();
 
-        Assert.assertEquals(QueryState.MysqlStateType.OK, context.getState().getStateType());
-        Assert.assertEquals(0x00, MysqlProto.readInt1(context.channel.packet));
-        Assert.assertEquals(7L, MysqlProto.readVInt(context.channel.packet));
-        Mockito.verify(executor, Mockito.never()).sendProxyQueryResult();
+        Assert.assertEquals(packet, context.channel.packet);
+        Mockito.verify(executor).sendProxyQueryResult();
     }
 
     @Test
@@ -74,7 +79,6 @@ public class ConnectProcessorForwardProtocolTest {
     public void testNewMasterPacketsRemainUnchanged() throws Exception {
         TestContext context = new TestContext();
         StmtExecutor executor = forwardedExecutor();
-        Mockito.when(executor.isForwardedClientDeprecatedEofApplied()).thenReturn(true);
 
         new TestProcessor(context, executor).finalizeCommand();
 

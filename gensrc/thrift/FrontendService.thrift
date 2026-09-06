@@ -443,6 +443,8 @@ struct TMasterOpRequest {
     1007: optional string delegated_credential_session_id
     // Whether COM_STMT_EXECUTE requested CURSOR_TYPE_READ_ONLY.
     1008: optional bool cursor_fetch_requested
+    // Capabilities negotiated with the original MySQL client.
+    1009: optional i32 mysql_capability
 }
 
 struct TColumnDefinition {

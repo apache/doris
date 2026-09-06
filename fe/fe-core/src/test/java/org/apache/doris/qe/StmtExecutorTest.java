@@ -415,7 +415,7 @@ public class StmtExecutorTest extends TestWithFeService {
         Assertions.assertEquals(2, sendEmptyResultSet(true, "MySQL Connector/J", "9.5.0").size());
         Assertions.assertEquals(2, sendEmptyResultSet(false, "MySQL Connector/J", "8.2.0").size());
         Assertions.assertEquals(2, sendEmptyResultSet(true, "MariaDB Connector/J", "3.5.6").size());
-        Assertions.assertEquals(2, sendEmptyResultSet(true, Collections.emptyMap()).size());
+        Assertions.assertEquals(3, sendEmptyResultSet(true, Collections.emptyMap()).size());
 
         List<byte[]> legacyEofPackets = sendEmptyResultSet(true, "MySQL Connector/J", "8.2.0", false);
         Assertions.assertEquals(3, legacyEofPackets.size());

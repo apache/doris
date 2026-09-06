@@ -213,6 +213,28 @@ public class MysqlProtoTest {
     }
 
     @Test
+    public void testNegotiateUsesClientServerCapabilityIntersection() throws Exception {
+        mockChannel("user", true);
+        ByteBuffer handshake = channel.fetchOnePacket();
+        int clientFlags = MysqlCapability.DEFAULT_CAPABILITY.getFlags()
+                & ~MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+        handshake.putInt(0, Integer.reverseBytes(clientFlags));
+        mockPassword(true);
+        mockAccess();
+        ConnectContext context = createContext();
+        context.setEnv(env);
+        context.setThreadLocalInfo();
+        Assert.assertTrue(MysqlProto.negotiate(context));
+        Assert.assertEquals(clientFlags, context.getCapability().getFlags());
+        Assert.assertEquals(clientFlags, channel.getSerializer().getCapability().getFlags());
+        Mockito.verify(channel, Mockito.never()).setClientDeprecatedEOF();
+        MysqlSerializer serializer = channel.getSerializer();
+        serializer.reset();
+        new MysqlOkPacket(context.getState()).writeTo(serializer);
+        Assert.assertEquals(7, serializer.toByteBuffer().remaining());
+    }
+
+    @Test
     public void testNegotiateInitCatalog() throws Exception {
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         mockChannel("user", true);

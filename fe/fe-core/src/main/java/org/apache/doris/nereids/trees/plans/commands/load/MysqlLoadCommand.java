@@ -219,7 +219,7 @@ public class MysqlLoadCommand extends Command implements NoForward {
     private void handleMysqlLoadCommand(ConnectContext ctx) {
         try {
             LoadManager loadManager = ctx.getEnv().getLoadManager();
-            if (!ctx.getCapability().supportClientLocalFile()) {
+            if (mysqlDataDescription.isClientLocal() && !ctx.getCapability().supportClientLocalFile()) {
                 ctx.getState().setError(ErrorCode.ERR_NOT_ALLOWED_COMMAND, "This client is not support"
                         + " to load client local file.");
                 return;
