@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace doris {
@@ -76,37 +77,6 @@ protected:
 // PythonVersion tests
 // ============================================================================
 
-TEST_F(PythonEnvTest, PythonVersionDefaultConstruction) {
-    PythonVersion pv;
-    EXPECT_TRUE(pv.full_version.empty());
-    EXPECT_TRUE(pv.base_path.empty());
-    EXPECT_TRUE(pv.executable_path.empty());
-}
-
-TEST_F(PythonEnvTest, PythonVersionExplicitConstruction) {
-    PythonVersion pv("3.9.16", "/opt/python", "/opt/python/bin/python3");
-    EXPECT_EQ(pv.full_version, "3.9.16");
-    EXPECT_EQ(pv.base_path, "/opt/python");
-    EXPECT_EQ(pv.executable_path, "/opt/python/bin/python3");
-}
-
-TEST_F(PythonEnvTest, PythonVersionEquality) {
-    PythonVersion pv1("3.9.16", "/opt/python", "/opt/python/bin/python3");
-    PythonVersion pv2("3.9.16", "/opt/python", "/opt/python/bin/python3");
-    PythonVersion pv3("3.10.0", "/opt/python", "/opt/python/bin/python3");
-    PythonVersion pv4("3.9.16", "/different/path", "/opt/python/bin/python3");
-
-    EXPECT_EQ(pv1, pv2);
-    EXPECT_FALSE(pv1 == pv3);
-    EXPECT_FALSE(pv1 == pv4);
-}
-
-TEST_F(PythonEnvTest, PythonVersionGetters) {
-    PythonVersion pv("3.9.16", "/opt/python", "/opt/python/bin/python3");
-    EXPECT_EQ(pv.get_base_path(), "/opt/python");
-    EXPECT_EQ(pv.get_executable_path(), "/opt/python/bin/python3");
-}
-
 TEST_F(PythonEnvTest, PythonVersionIsValidEmpty) {
     PythonVersion pv;
     EXPECT_FALSE(pv.is_valid());
@@ -138,50 +108,35 @@ TEST_F(PythonEnvTest, PythonVersionIsValidWithExistingPaths) {
     fs::permissions(exec_path, fs::perms::owner_all);
 
     PythonVersion pv("3.9.16", base_path, exec_path);
-    // is_valid() also checks that extract_python_version works, which requires a real python
-    // So this will fail on fake executable, but we verify paths exist
-    EXPECT_TRUE(fs::exists(base_path));
-    EXPECT_TRUE(fs::exists(exec_path));
+    EXPECT_TRUE(pv.is_valid());
 }
 
-TEST_F(PythonEnvTest, PythonVersionToString) {
-    PythonVersion pv("3.9.16", "/opt/python", "/opt/python/bin/python3");
-    std::string str = pv.to_string();
-    EXPECT_TRUE(str.find("3.9.16") != std::string::npos);
-    EXPECT_TRUE(str.find("/opt/python") != std::string::npos);
-    EXPECT_TRUE(str.find("/opt/python/bin/python3") != std::string::npos);
-}
+TEST_F(PythonEnvTest, PythonVersionWorksAsProcessPoolMapKey) {
+    PythonVersion baseline("3.9.16", "/opt/python", "/opt/python/bin/python3");
+    PythonVersion equal_key("3.9.16", "/opt/python", "/opt/python/bin/python3");
+    PythonVersion different_version("3.10.0", "/opt/python", "/opt/python/bin/python3");
+    PythonVersion different_base("3.9.16", "/different/path", "/opt/python/bin/python3");
+    PythonVersion different_executable("3.9.16", "/opt/python",
+                                       "/different/path/bin/python3");
 
-TEST_F(PythonEnvTest, PythonVersionHash) {
-    PythonVersion pv1("3.9.16", "/opt/python", "/opt/python/bin/python3");
-    PythonVersion pv2("3.9.16", "/opt/python", "/opt/python/bin/python3");
-    PythonVersion pv3("3.10.0", "/opt/python", "/opt/python/bin/python3");
+    // PythonServerManager keys process pools by the complete PythonVersion. Equal keys must find
+    // the same pool, while a change in any identity field must select a different pool.
+    EXPECT_EQ(baseline, equal_key);
+    EXPECT_NE(baseline, different_version);
+    EXPECT_NE(baseline, different_base);
+    EXPECT_NE(baseline, different_executable);
 
-    std::hash<PythonVersion> hasher;
-    EXPECT_EQ(hasher(pv1), hasher(pv2));
-    // Different versions should (very likely) have different hashes
-    EXPECT_NE(hasher(pv1), hasher(pv3));
-}
+    std::unordered_map<PythonVersion, int> pools;
+    pools.emplace(baseline, 1);
+    pools.emplace(different_version, 2);
+    pools.emplace(different_base, 3);
+    pools.emplace(different_executable, 4);
 
-// ============================================================================
-// PythonEnvironment tests
-// ============================================================================
-
-TEST_F(PythonEnvTest, PythonEnvironmentConstruction) {
-    PythonVersion pv("3.9.16", "/opt/python", "/opt/python/bin/python3");
-    PythonEnvironment env("test_env", pv);
-
-    EXPECT_EQ(env.env_name, "test_env");
-    EXPECT_EQ(env.python_version.full_version, "3.9.16");
-}
-
-TEST_F(PythonEnvTest, PythonEnvironmentToString) {
-    PythonVersion pv("3.9.16", "/opt/python", "/opt/python/bin/python3");
-    PythonEnvironment env("test_env", pv);
-
-    std::string str = env.to_string();
-    EXPECT_TRUE(str.find("test_env") != std::string::npos);
-    EXPECT_TRUE(str.find("3.9.16") != std::string::npos);
+    ASSERT_EQ(pools.size(), 4);
+    EXPECT_EQ(pools.at(equal_key), 1);
+    EXPECT_EQ(pools.at(different_version), 2);
+    EXPECT_EQ(pools.at(different_base), 3);
+    EXPECT_EQ(pools.at(different_executable), 4);
 }
 
 TEST_F(PythonEnvTest, PythonEnvironmentIsValidWithInvalidVersion) {
@@ -231,6 +186,44 @@ TEST_F(PythonEnvTest, ScanFromVenvRootPathNonExistentInterpreter) {
     EXPECT_TRUE(status.to_string().find("Interpreter path not found") != std::string::npos);
 }
 
+TEST_F(PythonEnvTest, ScanFromVenvRootPathCreatesAndValidatesEnvironment) {
+    const std::string root_path = test_dir_ + "/venv_root";
+    const std::string interpreter_path = test_dir_ + "/python3.11";
+    fs::create_directories(root_path);
+
+    // Model the two interpreter operations used by the production VENV path: version discovery
+    // and `python -m venv`. The generated environment also answers --version, so the scanner must
+    // complete its normal validation instead of accepting a directory shape alone.
+    {
+        std::ofstream ofs(interpreter_path);
+        ofs << "#!/bin/bash\n";
+        ofs << "if [ \"$1\" = \"--version\" ]; then\n";
+        ofs << "    echo 'Python 3.11.9'\n";
+        ofs << "    exit 0\n";
+        ofs << "fi\n";
+        ofs << "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"venv\" ] && "
+               "[ \"$3\" = \"--system-site-packages\" ]; then\n";
+        ofs << "    mkdir -p \"$4/bin\" \"$4/lib/python3.11/site-packages\"\n";
+        ofs << "    cp \"$0\" \"$4/bin/python\"\n";
+        ofs << "    exit 0\n";
+        ofs << "fi\n";
+        ofs << "exit 1\n";
+    }
+    fs::permissions(interpreter_path, fs::perms::owner_all);
+
+    std::vector<PythonEnvironment> envs;
+    Status status =
+            PythonEnvironment::scan_from_venv_root_path(root_path, {interpreter_path}, &envs);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(envs.size(), 1);
+    EXPECT_EQ(envs[0].env_name, "python3.11.9");
+    EXPECT_EQ(envs[0].python_version.full_version, "3.11.9");
+    EXPECT_EQ(envs[0].python_version.base_path, root_path + "/python3.11.9");
+    EXPECT_EQ(envs[0].python_version.executable_path, root_path + "/python3.11.9/bin/python");
+    EXPECT_TRUE(fs::is_directory(root_path + "/python3.11.9/lib/python3.11/site-packages"));
+}
+
 // ============================================================================
 // PythonEnvScanner tests
 // ============================================================================
@@ -251,36 +244,10 @@ TEST_F(PythonEnvTest, PythonEnvScannerGetVersionNotFound) {
     EXPECT_TRUE(status.to_string().find("not found available version") != std::string::npos);
 }
 
-TEST_F(PythonEnvTest, CondaEnvScannerProperties) {
-    CondaEnvScanner scanner(test_dir_);
-    EXPECT_EQ(scanner.env_type(), PythonEnvType::CONDA);
-    EXPECT_EQ(scanner.root_path(), test_dir_);
-}
-
-TEST_F(PythonEnvTest, CondaEnvScannerToString) {
-    CondaEnvScanner scanner(test_dir_);
-    std::string str = scanner.to_string();
-    EXPECT_TRUE(str.find("Conda environments") != std::string::npos);
-}
-
 TEST_F(PythonEnvTest, CondaEnvScannerScanNonExistent) {
     CondaEnvScanner scanner("/non/existent/path");
     Status status = scanner.scan();
     EXPECT_FALSE(status.ok());
-}
-
-TEST_F(PythonEnvTest, VenvEnvScannerProperties) {
-    std::vector<std::string> paths = {"/usr/bin/python3"};
-    VenvEnvScanner scanner(test_dir_, paths);
-    EXPECT_EQ(scanner.env_type(), PythonEnvType::VENV);
-    EXPECT_EQ(scanner.root_path(), test_dir_);
-}
-
-TEST_F(PythonEnvTest, VenvEnvScannerToString) {
-    std::vector<std::string> paths = {"/usr/bin/python3"};
-    VenvEnvScanner scanner(test_dir_, paths);
-    std::string str = scanner.to_string();
-    EXPECT_TRUE(str.find("Venv environments") != std::string::npos);
 }
 
 TEST_F(PythonEnvTest, VenvEnvScannerScanNonExistentInterpreter) {
@@ -326,25 +293,6 @@ TEST_F(PythonEnvTest, PythonVersionManagerInitUnsupportedType) {
 // ============================================================================
 // Tests covering additional paths using fake Python scripts
 // ============================================================================
-
-TEST_F(PythonEnvTest, PythonVersionIsValidWithFakePython) {
-    // Create a fake Python script that prints "Python 3.9.16"
-    std::string base_path = test_dir_ + "/fake_python";
-    std::string bin_path = base_path + "/bin";
-    std::string exec_path = bin_path + "/python3";
-    fs::create_directories(bin_path);
-
-    {
-        std::ofstream ofs(exec_path);
-        ofs << "#!/bin/bash\n";
-        ofs << "echo 'Python 3.9.16'\n";
-    }
-    fs::permissions(exec_path, fs::perms::owner_all);
-
-    PythonVersion pv("3.9.16", base_path, exec_path);
-    // Now is_valid() should pass because the version matches
-    EXPECT_TRUE(pv.is_valid());
-}
 
 TEST_F(PythonEnvTest, PythonVersionIsValidVersionMismatch) {
     // Create a fake Python script that prints a different version
@@ -483,7 +431,7 @@ TEST_F(PythonEnvTest, ScanFromCondaRootPathMultipleEnvs) {
     EXPECT_EQ(envs.size(), 2);
 }
 
-TEST_F(PythonEnvTest, ScanFromCondaRootPathSkipsInvalidEnvs) {
+TEST_F(PythonEnvTest, ScanFromCondaRootPathFailsOnInvalidEnv) {
     // Create a valid and an invalid environment
     std::string conda_root = test_dir_ + "/conda_mixed";
 

@@ -67,9 +67,13 @@ public:
 
     std::vector<ProcessPtr> process_pool_snapshot_for_test(const PythonVersion& version);
 
-    bool process_pool_is_initializing_for_test(const PythonVersion& version);
-
     bool process_pool_is_initialized_for_test(const PythonVersion& version);
+
+    bool wait_for_process_pool_initialized_for_test(const PythonVersion& version,
+                                                    std::chrono::milliseconds timeout);
+
+    bool wait_for_process_pool_initialization_finished_for_test(
+            const PythonVersion& version, std::chrono::milliseconds timeout);
 
     Status broadcast_action_to_processes_for_test(const std::string& action_type,
                                                   const std::string& body,

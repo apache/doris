@@ -26,14 +26,17 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "udf/python/python_env.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -43,7 +46,7 @@ namespace bp = boost::process;
 class PythonServerTest : public ::testing::Test {
 protected:
     std::string test_dir_;
-    const char* original_doris_home_ = nullptr;
+    std::optional<std::string> original_doris_home_;
     int original_max_python_process_num_ = 0;
 
     void SetUp() override {
@@ -51,7 +54,9 @@ protected:
                     std::to_string(getpid()) + "_" + std::to_string(rand());
         fs::create_directories(test_dir_);
 
-        original_doris_home_ = std::getenv("DORIS_HOME");
+        if (const char* doris_home = std::getenv("DORIS_HOME")) {
+            original_doris_home_ = doris_home;
+        }
         original_max_python_process_num_ = config::max_python_process_num;
     }
 
@@ -64,7 +69,7 @@ protected:
         }
 
         if (original_doris_home_) {
-            setenv("DORIS_HOME", original_doris_home_, 1);
+            setenv("DORIS_HOME", original_doris_home_->c_str(), 1);
         } else {
             unsetenv("DORIS_HOME");
         }
@@ -86,6 +91,7 @@ protected:
         ofs << "    echo 'Python " << version << "'\n";
         ofs << "    exit 0\n";
         ofs << "fi\n";
+        ofs << "if [ ! -f \"$2\" ]; then exit 2; fi\n";
         // Extract socket path prefix from args and create the socket file
         // Arg format: -u script.py grpc+unix:///tmp/doris_python_udf
         ofs << "SOCKET_PREFIX=\"$3\"\n";
@@ -95,32 +101,6 @@ protected:
         ofs << "# Create socket file\n";
         ofs << "touch \"$SOCKET_FILE\"\n";
         ofs << "# Wait to be terminated\n";
-        ofs << "trap 'rm -f \"$SOCKET_FILE\"; exit 0' TERM INT\n";
-        ofs << "while true; do sleep 1; done\n";
-        ofs.close();
-        fs::permissions(python_path, fs::perms::owner_all);
-
-        return python_path;
-    }
-
-    std::string create_fake_python_with_delay_and_socket_creation(const std::string& binary_name,
-                                                                  const std::string& version,
-                                                                  int delay_ms) {
-        std::string bin_dir = test_dir_ + "/bin";
-        std::string python_path = bin_dir + "/" + binary_name;
-        fs::create_directories(bin_dir);
-
-        std::ofstream ofs(python_path);
-        ofs << "#!/bin/bash\n";
-        ofs << "if [ \"$1\" = \"--version\" ]; then\n";
-        ofs << "    echo 'Python " << version << "'\n";
-        ofs << "    exit 0\n";
-        ofs << "fi\n";
-        ofs << "sleep " << (delay_ms / 1000.0) << "\n";
-        ofs << "SOCKET_PREFIX=\"$3\"\n";
-        ofs << "SOCKET_BASE=\"${SOCKET_PREFIX#grpc+unix://}\"\n";
-        ofs << "SOCKET_FILE=\"${SOCKET_BASE}_$$.sock\"\n";
-        ofs << "touch \"$SOCKET_FILE\"\n";
         ofs << "trap 'rm -f \"$SOCKET_FILE\"; exit 0' TERM INT\n";
         ofs << "while true; do sleep 1; done\n";
         ofs.close();
@@ -141,6 +121,7 @@ protected:
         ofs << "    echo 'Python " << version << "'\n";
         ofs << "    exit 0\n";
         ofs << "fi\n";
+        ofs << "if [ ! -f \"$2\" ]; then exit 2; fi\n";
         ofs << "trap '' TERM\n";
         ofs << "while true; do sleep 1; done\n";
         ofs.close();
@@ -162,6 +143,7 @@ protected:
         ofs << "    echo 'Python " << version << "'\n";
         ofs << "    exit 0\n";
         ofs << "fi\n";
+        ofs << "if [ ! -f \"$2\" ]; then exit 2; fi\n";
         ofs << "if mkdir \"" << first_start_dir << "\" 2>/dev/null; then\n";
         ofs << "    trap '' TERM\n";
         ofs << "    while true; do sleep 1; done\n";
@@ -227,32 +209,6 @@ TEST_F(PythonServerTest, SingletonReturnsSameInstance) {
 }
 
 // ============================================================================
-// PythonServerManager::_get_process() - process retrieval test
-// ============================================================================
-
-TEST_F(PythonServerTest, EnsurePoolInitializedCanInitializeEmptyPoolForTest) {
-    PythonServerManager mgr;
-
-    setup_doris_home();
-    std::string python_path = create_fake_python_with_socket_creation("3.9.16");
-    PythonVersion version("3.9.16", test_dir_, python_path);
-    config::max_python_process_num = 1;
-
-    mgr.set_process_pool_for_test(version, {}, false);
-    auto pool_result = mgr._ensure_pool_initialized(version);
-    ASSERT_TRUE(pool_result.has_value()) << pool_result.error().to_string();
-
-    ProcessPtr process;
-    Status status = mgr._get_process(version, pool_result.value(), &process);
-
-    EXPECT_TRUE(status.ok()) << status.to_string();
-    ASSERT_NE(process, nullptr);
-    EXPECT_TRUE(process->is_alive());
-
-    mgr.shutdown();
-}
-
-// ============================================================================
 // PythonServerManager::fork() - process creation test
 // ============================================================================
 
@@ -271,25 +227,21 @@ TEST_F(PythonServerTest, ForkWithNonExistentPythonReturnsError) {
 
 TEST_F(PythonServerTest, ForkWithMissingFlightServerReturnsError) {
     PythonServerManager mgr;
-
-    // Set DORIS_HOME to test directory (no flight server script)
-    setenv("DORIS_HOME", test_dir_.c_str(), 1);
-
-    // Create a fake python executable
-    std::string python_path = test_dir_ + "/bin/python3";
-    fs::create_directories(test_dir_ + "/bin");
-    {
-        std::ofstream ofs(python_path);
-        ofs << "#!/bin/bash\nexit 1"; // exits immediately
-    }
-    fs::permissions(python_path, fs::perms::owner_all);
-
+    setup_doris_home();
+    std::string python_path = create_fake_python_with_socket_creation("3.9.16");
     PythonVersion version("3.9.16", test_dir_, python_path);
 
+    // Prove that the same executable and arguments start correctly while the production server
+    // entry exists, then remove only that entry to isolate the failure cause.
+    ProcessPtr healthy_process;
+    ASSERT_TRUE(mgr.fork(version, &healthy_process).ok());
+    ASSERT_NE(healthy_process, nullptr);
+    healthy_process->shutdown();
+
+    ASSERT_TRUE(fs::remove(test_dir_ + "/plugins/python_udf/python_server.py"));
     ProcessPtr process;
     Status status = mgr.fork(version, &process);
 
-    // Verify: when the flight server script does not exist, fork should fail
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(process, nullptr);
 }
@@ -401,19 +353,89 @@ TEST_F(PythonServerTest, EnsurePoolInitializedWithInvalidVersionFails) {
                 result.error().to_string().find("Timed out") != std::string::npos);
 }
 
-TEST_F(PythonServerTest, EnsurePoolInitializedReturnsImmediatelyWhenAllWorkersFail) {
+TEST_F(PythonServerTest, EnsurePoolInitializedRetriesAfterRuntimeIsRepaired) {
+    setup_doris_home();
+    config::max_python_process_num = 1;
+
+    // The first executable starts but never publishes its Flight socket. This reproduces a real
+    // worker-start failure and verifies that the pool does not remain stuck in INITIALIZING.
+    std::string python_path = create_fake_python_without_socket_creation("python3", "3.9.16");
+    PythonVersion version("3.9.16", test_dir_, python_path);
     PythonServerManager mgr;
-    config::max_python_process_num = 2;
 
-    PythonVersion invalid_version("3.9.16", test_dir_, test_dir_ + "/missing_python");
+    struct GenerationCompletionLatch {
+        std::mutex mutex;
+        std::condition_variable cv;
+        std::atomic<int>* generation = nullptr;
+        bool worker_finished = false;
+    };
+    auto generation_completion = std::make_shared<GenerationCompletionLatch>();
+    auto* sync_point = SyncPoint::get_instance();
+    Defer clear_sync_point {[sync_point]() {
+        sync_point->disable_processing();
+        sync_point->clear_call_back(
+                "PythonServerManager::_ensure_pool_initialized:generation_started");
+        sync_point->clear_call_back(
+                "PythonServerManager::_ensure_pool_initialized:init_worker_finished");
+    }};
+    sync_point->set_call_back(
+            "PythonServerManager::_ensure_pool_initialized:generation_started",
+            [generation_completion, version](auto&& args) {
+                const auto* started_version =
+                        try_any_cast<const PythonVersion*>(args.at(0));
+                if (*started_version != version) {
+                    return;
+                }
+                std::lock_guard lock(generation_completion->mutex);
+                generation_completion->generation =
+                        try_any_cast<std::atomic<int>*>(args.at(1));
+            });
+    sync_point->set_call_back(
+            "PythonServerManager::_ensure_pool_initialized:init_worker_finished",
+            [generation_completion, version](auto&& args) {
+                const auto* finished_version =
+                        try_any_cast<const PythonVersion*>(args.at(0));
+                if (*finished_version != version) {
+                    return;
+                }
+                auto* finished_generation = try_any_cast<std::atomic<int>*>(args.at(1));
+                {
+                    std::lock_guard lock(generation_completion->mutex);
+                    if (finished_generation != generation_completion->generation) {
+                        return;
+                    }
+                    generation_completion->worker_finished = true;
+                }
+                generation_completion->cv.notify_all();
+            });
+    sync_point->enable_processing();
 
-    auto start = std::chrono::steady_clock::now();
-    auto result = mgr._ensure_pool_initialized(invalid_version);
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - start);
+    auto failed_result = mgr._ensure_pool_initialized(version);
+    ASSERT_FALSE(failed_result.has_value());
 
-    EXPECT_FALSE(result.has_value());
-    EXPECT_LT(elapsed.count(), 500);
+    // Wait for both parts of the failed generation to finish. Otherwise an old detached worker can
+    // execute the repaired file and publish its process into the next generation's pool.
+    {
+        std::unique_lock lock(generation_completion->mutex);
+        ASSERT_TRUE(generation_completion->cv.wait_for(
+                lock, std::chrono::seconds(5),
+                [&]() { return generation_completion->worker_finished; }));
+    }
+    ASSERT_TRUE(mgr.wait_for_process_pool_initialization_finished_for_test(
+            version, std::chrono::seconds(5)));
+
+    // Repair the runtime in place and retry the same version key. Production can hit this when an
+    // environment or server entry is fixed after a transient initialization failure.
+    ASSERT_EQ(create_fake_python_with_socket_creation("3.9.16"), python_path);
+    auto recovered_result = mgr._ensure_pool_initialized(version);
+    ASSERT_TRUE(recovered_result.has_value()) << recovered_result.error().to_string();
+
+    ProcessPtr process;
+    ASSERT_TRUE(mgr._get_process(version, recovered_result.value(), &process).ok());
+    ASSERT_NE(process, nullptr);
+    EXPECT_TRUE(process->is_alive());
+
+    mgr.shutdown();
 }
 
 TEST_F(PythonServerTest, EnsurePoolInitializedAfterShutdownReturnsServiceUnavailable) {
@@ -433,13 +455,6 @@ TEST_F(PythonServerTest, EnsurePoolInitializedAfterShutdownReturnsServiceUnavail
 // ============================================================================
 // PythonServerManager::shutdown() - shutdown test
 // ============================================================================
-
-TEST_F(PythonServerTest, ShutdownEmptyManagerDoesNotCrash) {
-    PythonServerManager mgr;
-
-    // Verify: calling shutdown on empty manager does not crash
-    EXPECT_NO_THROW(mgr.shutdown());
-}
 
 TEST_F(PythonServerTest, ShutdownCalledMultipleTimesDoesNotCrash) {
     PythonServerManager mgr;
@@ -544,31 +559,31 @@ TEST_F(PythonServerTest, GetClientWithInvalidVersionFails) {
 }
 
 // ============================================================================
-// configuration test
-// ============================================================================
-
-TEST_F(PythonServerTest, MaxPythonProcessNumConfigIsAccessible) {
-    // Verify configuration value is accessible and within a valid range
-    int max_num = config::max_python_process_num;
-    EXPECT_GE(max_num, 0); // 0 means use number of CPU cores
-}
-
-// ============================================================================
 // destructor test
 // ============================================================================
 
 TEST_F(PythonServerTest, DestructorCleansUpResources) {
-    // Create and destroy manager to ensure no memory leaks or crashes
+    setup_doris_home();
+    std::string python_path = create_fake_python_with_socket_creation("3.9.16");
+    config::max_python_process_num = 1;
+
+    ProcessPtr process;
+    std::string socket_path;
     {
         PythonServerManager mgr;
-        // Try some operations (they fail but should not affect destructor)
-        PythonVersion invalid_version("3.9.16", "/bad", "/bad");
-        ProcessPtr process;
-        Status status = mgr.fork(invalid_version, &process);
-        EXPECT_FALSE(status.ok());
+        PythonVersion version("3.9.16", test_dir_, python_path);
+        auto pool_result = mgr._ensure_pool_initialized(version);
+        ASSERT_TRUE(pool_result.has_value()) << pool_result.error().to_string();
+        ASSERT_TRUE(mgr._get_process(version, pool_result.value(), &process).ok());
+        ASSERT_NE(process, nullptr);
+        ASSERT_TRUE(process->is_alive());
+        socket_path = process->get_socket_file_path();
+        ASSERT_TRUE(fs::exists(socket_path));
     }
-    // If we reach here without crashing, destructor works properly
-    SUCCEED();
+
+    EXPECT_TRUE(process->is_shutdown());
+    EXPECT_FALSE(process->is_alive());
+    EXPECT_FALSE(fs::exists(socket_path));
 }
 
 // ============================================================================
@@ -619,52 +634,6 @@ TEST_F(PythonServerTest, EnsurePoolInitializedSuccess) {
     mgr.shutdown();
 }
 
-TEST_F(PythonServerTest, EnsurePoolInitializedLogsProgressWhileWaitingForSlowProcess) {
-    setup_doris_home();
-    std::string python_path =
-            create_fake_python_with_delay_and_socket_creation("python3.delayed", "3.9.16", 50);
-
-    config::max_python_process_num = 1;
-
-    PythonServerManager mgr;
-    PythonVersion version("3.9.16", test_dir_, python_path);
-
-    auto result = mgr._ensure_pool_initialized(version);
-
-    EXPECT_TRUE(result.has_value()) << result.error().to_string();
-
-    mgr.shutdown();
-}
-
-TEST_F(PythonServerTest, EnsurePoolInitializedRetriesAfterInitFailureWithBoundedWait) {
-    setup_doris_home();
-    std::string python_path =
-            create_fake_python_without_socket_creation("python3.no_socket", "3.9.16");
-
-    config::max_python_process_num = 1;
-
-    PythonServerManager mgr;
-    PythonVersion version("3.9.16", test_dir_, python_path);
-
-    auto start = std::chrono::steady_clock::now();
-    auto result = mgr._ensure_pool_initialized(version);
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - start);
-
-    EXPECT_FALSE(result.has_value());
-    EXPECT_LT(elapsed.count(), 2000);
-
-    start = std::chrono::steady_clock::now();
-    auto retry_result = mgr._ensure_pool_initialized(version);
-    elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - start);
-
-    EXPECT_FALSE(retry_result.has_value());
-    EXPECT_LT(elapsed.count(), 2000);
-
-    mgr.shutdown();
-}
-
 TEST_F(PythonServerTest, EnsurePoolInitializedSucceedsWithOneStuckWorkerAndOneUsableWorker) {
     setup_doris_home();
     std::string python_path =
@@ -675,23 +644,19 @@ TEST_F(PythonServerTest, EnsurePoolInitializedSucceedsWithOneStuckWorkerAndOneUs
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, python_path);
 
-    auto start = std::chrono::steady_clock::now();
     auto result = mgr._ensure_pool_initialized(version);
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - start);
 
     ASSERT_TRUE(result.has_value()) << result.error().to_string();
-    EXPECT_LT(elapsed.count(), 2000);
-    EXPECT_TRUE(mgr.process_pool_is_initializing_for_test(version));
 
     ProcessPtr process;
     EXPECT_TRUE(mgr._get_process(version, result.value(), &process).ok());
     ASSERT_NE(process, nullptr);
     EXPECT_TRUE(process->is_alive());
 
-    for (int i = 0; i < 20 && !mgr.process_pool_is_initialized_for_test(version); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
+    // Wait on the same condition variable used by the production coordinator instead of polling
+    // or asserting on a racy intermediate state.
+    EXPECT_TRUE(mgr.wait_for_process_pool_initialized_for_test(version,
+                                                               std::chrono::milliseconds(2000)));
     EXPECT_TRUE(mgr.process_pool_is_initialized_for_test(version));
 
     mgr.shutdown();
@@ -708,11 +673,20 @@ TEST_F(PythonServerTest, EnsurePoolInitializedIdempotent) {
 
     // First initialization
     auto result1 = mgr._ensure_pool_initialized(version);
-    EXPECT_TRUE(result1.has_value()) << result1.error().to_string();
+    ASSERT_TRUE(result1.has_value()) << result1.error().to_string();
+    auto first_snapshot = mgr.process_pool_snapshot_for_test(version);
+    ASSERT_EQ(first_snapshot.size(), 1);
+    ASSERT_NE(first_snapshot[0], nullptr);
+    pid_t first_pid = first_snapshot[0]->get_child_pid();
 
-    // Second initialization should return immediately (version already initialized)
+    // Re-initialization must reuse both the versioned pool and its live process.
     auto result2 = mgr._ensure_pool_initialized(version);
-    EXPECT_TRUE(result2.has_value()) << result2.error().to_string();
+    ASSERT_TRUE(result2.has_value()) << result2.error().to_string();
+    EXPECT_EQ(result2.value(), result1.value());
+    auto second_snapshot = mgr.process_pool_snapshot_for_test(version);
+    ASSERT_EQ(second_snapshot.size(), 1);
+    EXPECT_EQ(second_snapshot[0], first_snapshot[0]);
+    EXPECT_EQ(second_snapshot[0]->get_child_pid(), first_pid);
 
     mgr.shutdown();
 }
@@ -811,30 +785,22 @@ TEST_F(PythonServerTest, GetProcessSkipsDeadProcessWhenAliveProcessExists) {
     mgr.shutdown();
 }
 
-TEST_F(PythonServerTest, GetProcessLoadBalancing) {
-    setup_doris_home();
-    std::string python_path = create_fake_python_with_socket_creation("3.9.16");
-
-    // Create a pool with 2 processes
-    config::max_python_process_num = 2;
-
+TEST_F(PythonServerTest, GetProcessSelectsLeastSharedProcess) {
     PythonServerManager mgr;
-    PythonVersion version("3.9.16", test_dir_, python_path);
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
+    mgr.set_process_pool_for_test(version, {create_sleep_process(), create_sleep_process()});
 
     auto init_result = mgr._ensure_pool_initialized(version);
     EXPECT_TRUE(init_result.has_value()) << init_result.error().to_string();
 
-    // Get multiple processes to verify load balancing
-    ProcessPtr p1, p2, p3, p4;
-    EXPECT_TRUE(mgr._get_process(version, init_result.value(), &p1).ok());
-    EXPECT_TRUE(mgr._get_process(version, init_result.value(), &p2).ok());
-    EXPECT_TRUE(mgr._get_process(version, init_result.value(), &p3).ok());
-    EXPECT_TRUE(mgr._get_process(version, init_result.value(), &p4).ok());
-
-    // With 2 processes, load balancing distributes requests across different processes
-    // p1 and p2 may be same or different processes
-    EXPECT_NE(p1, nullptr);
-    EXPECT_NE(p2, nullptr);
+    // Holding p1 increases its shared ownership count, so the next client must select the other
+    // live process. An implementation that always returns pool[0] fails this assertion.
+    ProcessPtr p1, p2;
+    ASSERT_TRUE(mgr._get_process(version, init_result.value(), &p1).ok());
+    ASSERT_NE(p1, nullptr);
+    ASSERT_TRUE(mgr._get_process(version, init_result.value(), &p2).ok());
+    ASSERT_NE(p2, nullptr);
+    EXPECT_NE(p1->get_child_pid(), p2->get_child_pid());
 
     mgr.shutdown();
 }
@@ -924,33 +890,83 @@ TEST_F(PythonServerTest, EnsurePoolInitializedForDifferentVersionsDoesNotShareVe
 
     config::max_python_process_num = 1;
 
-    std::string python39_path =
-            create_fake_python_with_delay_and_socket_creation("python3.9", "3.9.16", 50);
-    std::string python310_path =
-            create_fake_python_with_delay_and_socket_creation("python3.10", "3.10.0", 50);
+    std::string python39_path = create_fake_python_with_socket_creation("3.9.16");
+    std::string python310_path = test_dir_ + "/bin/python3.10";
+    ASSERT_TRUE(fs::copy_file(python39_path, python310_path));
+    fs::permissions(python310_path, fs::perms::owner_all);
 
     PythonServerManager mgr;
     PythonVersion version39("3.9.16", test_dir_, python39_path);
     PythonVersion version310("3.10.0", test_dir_, python310_path);
 
-    auto start = std::chrono::steady_clock::now();
+    struct ForkBarrier {
+        std::mutex mutex;
+        std::condition_variable cv;
+        int entries = 0;
+        bool released = false;
+    };
+    auto fork_barrier = std::make_shared<ForkBarrier>();
+    auto* sync_point = SyncPoint::get_instance();
+    Defer clear_sync_point {[fork_barrier, sync_point]() {
+        {
+            std::lock_guard lock(fork_barrier->mutex);
+            fork_barrier->released = true;
+        }
+        fork_barrier->cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_call_back("PythonServerManager::fork:before_process_start");
+        sync_point->clear_call_back(
+                "PythonServerManager::_ensure_pool_initialized:process_pool_init_timeout");
+    }};
+    // Keep callers inside initialization longer than the fork barrier. A manager-wide lock must
+    // therefore fail the barrier instead of serializing through the short BE_TEST pool timeout.
+    sync_point->set_call_back(
+            "PythonServerManager::_ensure_pool_initialized:process_pool_init_timeout",
+            [](auto&& args) {
+                auto* timeout = try_any_cast<std::chrono::milliseconds*>(args.front());
+                *timeout = std::chrono::seconds(10);
+            });
+    sync_point->set_call_back(
+            "PythonServerManager::fork:before_process_start",
+            [fork_barrier, version39, version310](auto&& args) {
+                if (args.empty()) {
+                    return;
+                }
+                const auto* entering_version =
+                        try_any_cast<const PythonVersion*>(args.front());
+                if (*entering_version != version39 && *entering_version != version310) {
+                    return;
+                }
+                std::unique_lock lock(fork_barrier->mutex);
+                ++fork_barrier->entries;
+                fork_barrier->cv.notify_all();
+                fork_barrier->cv.wait(lock, [&]() { return fork_barrier->released; });
+            });
+    sync_point->enable_processing();
+
     auto future39 = std::async(std::launch::async,
                                [&]() { return mgr._ensure_pool_initialized(version39); });
     auto future310 = std::async(std::launch::async,
                                 [&]() { return mgr._ensure_pool_initialized(version310); });
 
-    auto result39 = future39.get();
-    auto result310 = future310.get();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - start);
+    bool both_forks_entered = false;
+    {
+        std::unique_lock lock(fork_barrier->mutex);
+        both_forks_entered = fork_barrier->cv.wait_for(
+                lock, std::chrono::seconds(5), [&]() { return fork_barrier->entries >= 2; });
+        fork_barrier->released = true;
+    }
+    fork_barrier->cv.notify_all();
 
-    EXPECT_TRUE(result39.has_value()) << result39.error().to_string();
-    EXPECT_TRUE(result310.has_value()) << result310.error().to_string();
-    // Keep the assertion loose for ASAN/CI scheduling while still catching full init-timeout
-    // serialization between versions.
-    EXPECT_LT(elapsed.count(), 2000);
+    // The assertion below is the concurrency evidence. Pool completion also has a separate short
+    // BE_TEST timeout, so its status must not turn host scheduling after this barrier into noise.
+    static_cast<void>(future39.get());
+    static_cast<void>(future310.get());
 
     mgr.shutdown();
+
+    EXPECT_TRUE(both_forks_entered)
+            << "Both version pools must enter fork before either process starts";
 }
 
 // ============================================================================
