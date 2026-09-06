@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/detail/classification.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/trim.hpp>
 #include <fstream>
 #include <iterator>
@@ -75,7 +76,7 @@ void DiskInfo::get_device_names() {
         }
 
         // Remove the partition# from the name.  e.g. sda2 --> sda
-        boost::trim_right_if(name, boost::is_any_of("0123456789"));
+        name = strip_partition_suffix(name);
 
         // Create a mapping of all device ids (one per partition) to the disk id.
         int major_dev_id = atoi(fields[0].c_str());
@@ -127,6 +128,13 @@ void DiskInfo::get_device_names() {
             rotational.close();
         }
     }
+}
+
+std::string DiskInfo::strip_partition_suffix(std::string name) {
+    if (!boost::starts_with(name, "dm-")) {
+        boost::trim_right_if(name, boost::is_any_of("0123456789"));
+    }
+    return name;
 }
 
 void DiskInfo::init() {
@@ -206,11 +214,19 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
                 strncmp(path.c_str(), mount_path, mount_size) != 0) {
                 continue;
             }
-            std::string dev(basename(dev_path));
-            boost::trim_right_if(dev, boost::is_any_of("0123456789"));
-            if (_s_disk_name_to_disk_id.find(dev) != std::end(_s_disk_name_to_disk_id)) {
+            // Match by the device's actual major:minor (as /proc/partitions saw it),
+            // not by name. LVM/device-mapper mounts show up in /proc/mounts as
+            // /dev/mapper/<vg-lv>, a different name than the dm-N entry
+            // get_device_names() indexed, so a basename comparison never matches
+            // and the disk metrics for that mount stay empty.
+            struct stat dev_stat;
+            if (stat(dev_path, &dev_stat) != 0) {
+                continue;
+            }
+            auto dev_it = _s_device_id_to_disk_id.find(dev_stat.st_rdev);
+            if (dev_it != std::end(_s_device_id_to_disk_id)) {
                 max_mount_size = mount_size;
-                match_dev = dev;
+                match_dev = _s_disks[dev_it->second].name;
             }
         }
         if (ferror(fp) != 0) {
