@@ -765,10 +765,13 @@ fi
 
 # Apply Doris lance-c patches.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.8" ]]; then
+    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.9" ]]; then
         cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/lance-c-0.1.8-pr-69.patch"
+            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+                -p1 <"${TP_PATCH_DIR}/lance-c-0.1.9-pr-73.patch"
+            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+                -p1 <"${TP_PATCH_DIR}/lance-c-0.1.9-pr-74.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
