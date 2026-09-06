@@ -46,6 +46,7 @@ import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.analysis.AnalysisInfo.JobType;
 import org.apache.doris.statistics.analysis.BaseAnalysisTask.AnalyzeSampleAlgorithm;
+import org.apache.doris.statistics.repository.ColStatsData;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TStorageMedium;
@@ -242,6 +243,50 @@ public class OlapAnalysisTaskTest {
             true, null, null, null);
         olapAnalysisTask.setKeyColumnSampleTooManyRows(true);
         Assertions.assertTrue(olapAnalysisTask.needLimit());
+    }
+
+    @Test
+    public void testEmptyTableShortCircuit() throws Exception {
+        AnalysisJob job = Mockito.mock(AnalysisJob.class);
+        List<ColStatsData> captured = Lists.newArrayList();
+        Mockito.doAnswer(invocation -> {
+            List<ColStatsData> arg = invocation.getArgument(1);
+            captured.addAll(arg);
+            return null;
+        }).when(job).appendBuf(ArgumentMatchers.any(), ArgumentMatchers.any());
+
+        OlapAnalysisTask task = Mockito.spy(new OlapAnalysisTask());
+        Mockito.doNothing().when(task).doSample();
+        task.info = new AnalysisInfoBuilder().setRowCount(0).build();
+        task.col = new Column("c", PrimitiveType.INT);
+        task.tableSample = new TableSample(false, 100L);
+        task.job = job;
+        task.catalog = Mockito.mock(CatalogIf.class);
+        task.db = Mockito.mock(DatabaseIf.class);
+
+        // Case 1: fresh empty table (no partitions loaded, visibleVersion == INIT).
+        OlapTable emptyTable = new OlapTable();
+        MaterializedIndex idx1 = new MaterializedIndex(1, MaterializedIndex.IndexState.NORMAL);
+        emptyTable.addPartition(new Partition(11, "p1", idx1, new RandomDistributionInfo()));
+        task.tbl = emptyTable;
+        task.doExecute();
+        Assertions.assertEquals(1, captured.size(),
+                "empty table must go through the short-circuit and append one empty ColStatsData");
+        Mockito.verify(task, Mockito.never()).doSample();
+        captured.clear();
+
+        // Case 2: partition has been loaded (version != INIT). Even if the caller meet rowCount=0,
+        // we must NOT write zero stats -- fall through to doSample instead.
+        OlapTable loadedTable = new OlapTable();
+        MaterializedIndex idx2 = new MaterializedIndex(2, MaterializedIndex.IndexState.NORMAL);
+        Partition loaded = new Partition(21, "p1", idx2, new RandomDistributionInfo());
+        loaded.setVisibleVersionAndTime(2, System.currentTimeMillis());
+        loadedTable.addPartition(loaded);
+        task.tbl = loadedTable;
+        task.doExecute();
+        Assertions.assertTrue(captured.isEmpty(),
+                "loaded table with stale rowCount=0 must not write empty stats");
+        Mockito.verify(task, Mockito.times(1)).doSample();
     }
 
     @Test
