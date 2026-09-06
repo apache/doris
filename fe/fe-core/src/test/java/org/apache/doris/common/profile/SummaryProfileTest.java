@@ -132,11 +132,6 @@ public class SummaryProfileTest {
         Assertions.assertEquals(28, profile.getExternalCatalogMetaTimeMs());
     }
 
-    // Simulates a query where MV rewrite is disabled or the query doesn't touch any MV:
-    // InitMaterializationContextHook is never installed, so neither collectTablePartition
-    // nor preRewriteByMv marker is set, but optimize() still runs.
-    // Both pretty and numeric getters must fall back to rewrite so CBO's real elapsed
-    // shows up in the profile and audit / metrics stay valid.
     @Test
     public void testOptimizeTimeFallbackWhenPreMvSkipped() {
         SummaryProfile profile = new SummaryProfile();
@@ -147,7 +142,6 @@ public class SummaryProfileTest {
         profile.setNereidsLockTableFinishTime(10);
         profile.setNereidsAnalysisTime(15);
         profile.setNereidsRewriteTime(21);
-        // no InitMaterializationContextHook, no preMaterializedViewRewrite entry
         profile.setNereidsOptimizeTime(36);
         profile.setNereidsTranslateTime(45);
         profile.setNereidsDistributeTime(55);
@@ -161,10 +155,6 @@ public class SummaryProfileTest {
         Assertions.assertEquals(15, profile.getNereidsOptimizeTimeMs());
     }
 
-    // Simulates a query where preMaterializedViewRewrite was actually entered but no MV
-    // was chosen (rewrite returned null / caught exception / empty result). The phase
-    // must record its own finish so that its elapsed shows up under Pre Rewrite By Mv Time
-    // instead of silently leaking into Optimize Time.
     @Test
     public void testPreMvAttemptedButEmpty() {
         SummaryProfile profile = new SummaryProfile();
@@ -176,7 +166,6 @@ public class SummaryProfileTest {
         profile.setNereidsAnalysisTime(15);
         profile.setNereidsRewriteTime(21);
         profile.setNereidsCollectTablePartitionFinishTime(28);
-        // preMaterializedViewRewrite entered, took 30ms, produced nothing
         profile.setNereidsPreRewriteByMvFinishTime(58);
         profile.setNereidsOptimizeTime(60);
         profile.setNereidsTranslateTime(65);

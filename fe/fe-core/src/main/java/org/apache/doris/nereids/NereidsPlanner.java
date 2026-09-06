@@ -592,9 +592,6 @@ public class NereidsPlanner extends Planner {
                 LOG.debug("End pre rewrite plan by mv");
             }
         } finally {
-            // Record the finish time whenever the phase is actually entered, so that a
-            // near-timeout attempt that produced no MV plan is still attributed to
-            // "Pre Rewrite By Mv Time" instead of leaking into "Optimize Time".
             if (statementContext.getConnectContext().getExecutor() != null) {
                 statementContext.getConnectContext().getExecutor().getSummaryProfile()
                         .setNereidsPreRewriteByMvFinishTime(TimeUtils.getStartTimeMs());

@@ -945,9 +945,6 @@ public class SummaryProfile {
     }
 
     public int getNereidsOptimizeTimeMs() {
-        // Collection marker is only set by InitMaterializationContextHook, which
-        // is only installed when MV rewrite is enabled. Fall back to rewrite to
-        // keep numeric telemetry (metrics / audit log) valid on the no-hook path.
         long start = nereidsCollectTablePartitionFinishTime != -1
                 ? nereidsCollectTablePartitionFinishTime
                 : nereidsRewriteFinishTime;
@@ -1056,10 +1053,6 @@ public class SummaryProfile {
     }
 
     public String getPrettyNereidsOptimizeTime() {
-        // preRewriteByMvFinish is now recorded whenever the phase is actually
-        // entered, so a missing marker means the phase was truly skipped (e.g.
-        // MV rewrite disabled, DpHyper, non-MV query). Fall back through the
-        // earlier phase finish times so CBO's real elapsed still shows up.
         long start = nereidsPreRewriteByMvFinishTime != -1
                 ? nereidsPreRewriteByMvFinishTime
                 : (nereidsCollectTablePartitionFinishTime != -1
