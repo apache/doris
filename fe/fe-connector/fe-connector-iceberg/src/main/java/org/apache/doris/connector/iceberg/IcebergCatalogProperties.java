@@ -47,13 +47,14 @@ import java.util.Optional;
  */
 public final class IcebergCatalogProperties {
 
-    /** Iceberg catalog backend type: rest, hms, glue, jdbc, hadoop, s3tables. */
+    /** Iceberg catalog backend type: rest, hms, glue, dlf, jdbc, hadoop, s3tables. */
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
 
     // ---- Flavor literals (the accepted iceberg.catalog.type values) ----
     public static final String TYPE_REST = "rest";
     public static final String TYPE_HMS = "hms";
     public static final String TYPE_GLUE = "glue";
+    public static final String TYPE_DLF = "dlf";
     public static final String TYPE_JDBC = "jdbc";
     public static final String TYPE_HADOOP = "hadoop";
     public static final String TYPE_S3_TABLES = "s3tables";
@@ -81,7 +82,7 @@ public final class IcebergCatalogProperties {
     public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
 
     @ConnectorProperty(names = {ICEBERG_CATALOG_TYPE}, required = false,
-            description = "The metastore backend: rest, hms, glue, jdbc, hadoop or s3tables.")
+            description = "The metastore backend: rest, hms, glue, dlf, jdbc, hadoop or s3tables.")
     private String catalogType = "";
 
     @ConnectorProperty(names = {ENABLE_MAPPING_VARBINARY}, required = false,

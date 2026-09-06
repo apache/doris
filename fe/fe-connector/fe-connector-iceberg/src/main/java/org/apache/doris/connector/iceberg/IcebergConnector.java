@@ -19,6 +19,8 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.iceberg.dlf.DLFCatalog;
+import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
@@ -967,6 +969,10 @@ public class IcebergConnector implements Connector {
             return createS3TablesCatalog(catalogName, chosenS3);
         }
 
+        if (IcebergCatalogProperties.TYPE_DLF.equals(flavor)) {
+            return createDlfCatalog(catalogName, chosenS3);
+        }
+
         Map<String, String> catalogOptions =
                 IcebergCatalogFactory.buildCatalogProperties(catalogProps, chosenS3);
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
@@ -1033,6 +1039,23 @@ public class IcebergConnector implements Connector {
         keys = appendCacheKey(keys, "conf:hadoop.kerberos.principal");
         // Both settings are captured by the JVM-static SDK pool and must distinguish ALTER CATALOG generations.
         return appendCacheKey(keys, "conf:hive.metastore.sasl.enabled");
+    }
+
+    private Catalog createDlfCatalog(String catalogName,
+            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        if (!chosenS3.isPresent() || !"OSS".equals(chosenS3.get().providerName())) {
+            throw new DorisConnectorException("Iceberg dlf catalog requires OSS storage properties");
+        }
+        DlfMetaStoreProperties dlf = (DlfMetaStoreProperties) MetaStoreProviders.bindForType(
+                IcebergCatalogProperties.TYPE_DLF, properties, buildStorageHadoopConfig());
+        Configuration conf = IcebergCatalogFactory.buildDlfConfiguration(dlf.toDlfCatalogConf());
+        Map<String, String> catalogOptions = IcebergCatalogFactory.buildBaseCatalogProperties(properties);
+        return buildCatalogAuthenticated(IcebergCatalogProperties.TYPE_DLF, () -> {
+            DLFCatalog catalog = new DLFCatalog(chosenS3.get());
+            catalog.setConf(conf);
+            catalog.initialize(catalogName, catalogOptions);
+            return catalog;
+        });
     }
 
     static String appendCacheKey(String existing, String required) {

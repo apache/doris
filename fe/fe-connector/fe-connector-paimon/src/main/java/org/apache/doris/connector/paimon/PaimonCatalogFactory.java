@@ -115,6 +115,9 @@ public final class PaimonCatalogFactory {
             case PaimonCatalogProperties.JDBC:
                 appendJdbcOptions(props, options, (PaimonJdbcMetaStoreProperties) bound);
                 break;
+            case PaimonCatalogProperties.DLF:
+                appendDlfOptions(options);
+                break;
             default:
                 // filesystem: nothing custom.
                 break;
@@ -157,6 +160,7 @@ public final class PaimonCatalogFactory {
             case PaimonCatalogProperties.REST:
                 return "rest";
             case PaimonCatalogProperties.HMS:
+            case PaimonCatalogProperties.DLF:
                 // = org.apache.paimon.hive.HiveCatalogOptions.IDENTIFIER; kept as a literal to
                 // mirror the existing rest/jdbc style (this is a pure option string, not a type ref).
                 return "hive";
@@ -172,6 +176,12 @@ public final class PaimonCatalogFactory {
             }
         }
         return false;
+    }
+
+    private static void appendDlfOptions(Options options) {
+        options.set("metastore.client.class", "com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient");
+        // Paimon's client pool is JVM-static, so the DLF catalog id must remain part of its cache identity.
+        options.set("client-pool-cache.keys", "conf:dlf.catalog.id");
     }
 
     private static void appendJdbcOptions(Map<String, String> props, Options options,

@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
@@ -465,9 +466,27 @@ public class PaimonConnector implements Connector {
                         hmsAuth, storageHadoopConfig,
                         "Failed to create Paimon catalog with HMS metastore");
             }
+            case PaimonCatalogProperties.DLF: {
+                // Legacy DLF catalogs often expose OSS only through dlf.* aliases and an oss:// warehouse.
+                // Check the resolved storage bindings here so those catalogs remain valid while non-OSS
+                // backends cannot be passed to Paimon's DLF Hive catalog.
+                if (!hasDlfCompatibleStorage(storage().getStorageProperties())) {
+                    throw new IllegalStateException("Paimon DLF metastore requires OSS storage properties.");
+                }
+                DlfMetaStoreProperties dlf = (DlfMetaStoreProperties)
+                        MetaStoreProviders.bind(catalogProps.getRaw(), storageHadoopConfig);
+                HiveConf hc = PaimonCatalogFactory.assembleHiveConf(null, dlf.toDlfCatalogConf());
+                return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
+                        "Failed to create Paimon catalog with DLF metastore");
+            }
             default:
                 throw new IllegalArgumentException("Unknown paimon.catalog.type value: " + flavor);
         }
+    }
+
+    static boolean hasDlfCompatibleStorage(List<StorageProperties> storageProperties) {
+        return storageProperties.stream().anyMatch(storage -> "OSS".equals(storage.providerName())
+                || "OSS_HDFS".equals(storage.providerName()));
     }
 
     /**

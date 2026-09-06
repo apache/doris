@@ -131,18 +131,16 @@ public class IcebergConnectorTest {
     }
 
     @Test
-    public void removedDlfFlavorFailsLoudAtCatalogCreation() {
-        // WHY: iceberg.catalog.type=dlf (DLF 1.0 over the vendored thrift ProxyMetaStoreClient) was removed. A
-        // catalog still carrying it — e.g. one created before the removal and replayed from the image — must
-        // fail loud on first use naming the supported types, never silently route somewhere else. MUTATION:
-        // re-adding a dlf arm to resolveCatalogImpl -> red.
+    public void dlfFlavorRequiresOssStorage() {
+        // DLF metadata and table data must use the same OSS-backed catalog path; rejecting a missing OSS
+        // binding here avoids constructing a catalog that can reach metadata but cannot open table files.
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         IcebergConnector connector = new IcebergConnector(
                 Map.of("iceberg.catalog.type", "dlf", "warehouse", "oss://b/wh"), ctx);
         DorisConnectorException ex =
                 Assertions.assertThrows(DorisConnectorException.class, () -> connector.getMetadata(null));
-        Assertions.assertTrue(ex.getMessage().contains("Unknown iceberg.catalog.type"),
-                "expected the unknown-flavor rejection, got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("requires OSS storage properties"),
+                "expected the OSS storage rejection, got: " + ex.getMessage());
     }
 
     @Test
