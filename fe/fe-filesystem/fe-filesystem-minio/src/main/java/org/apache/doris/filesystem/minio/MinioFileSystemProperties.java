@@ -94,7 +94,8 @@ public final class MinioFileSystemProperties extends AbstractDelegatingS3Propert
             description = "Connection timeout in milliseconds.")
     private String connectionTimeoutMs = "10000";
 
-    @ConnectorProperty(names = {USE_PATH_STYLE, "use_path_style", "s3.path-style-access"},
+    @ConnectorProperty(names = {USE_PATH_STYLE, "use_path_style", "s3.path-style-access",
+            "s3.path.style.access"},
             required = false,
             description = "Whether to use path style URL for the storage.")
     private String usePathStyle = "false";
