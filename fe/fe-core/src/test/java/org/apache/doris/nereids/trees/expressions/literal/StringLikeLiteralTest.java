@@ -253,6 +253,35 @@ public class StringLikeLiteralTest {
     }
 
     @Test
+    void testUncheckedCastToTimeStampTzStrictDelimiterAndOffsetBoundaries() {
+        TimeStampTzType targetType = TimeStampTzType.of(6);
+
+        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(true);
+
+            TimestampTzLiteral colonDelimited = (TimestampTzLiteral) new StringLiteral(
+                    "2023-07-16:19:20:30 +08:00").uncheckedCastTo(targetType);
+            Assertions.assertEquals(2023, colonDelimited.year);
+            Assertions.assertEquals(7, colonDelimited.month);
+            Assertions.assertEquals(16, colonDelimited.day);
+            Assertions.assertEquals(11, colonDelimited.hour);
+            Assertions.assertEquals(20, colonDelimited.minute);
+            Assertions.assertEquals(30, colonDelimited.second);
+
+            Assertions.assertDoesNotThrow(() -> new StringLiteral("2023-07-16T19:20:30 +14:00")
+                    .uncheckedCastTo(targetType));
+            Assertions.assertDoesNotThrow(() -> new StringLiteral("2023-07-16T19:20:30 -12:00")
+                    .uncheckedCastTo(targetType));
+
+            for (String offset : new String[] {"-14:30", "-15:00", "+14:30"}) {
+                Assertions.assertThrows(CastException.class,
+                        () -> new StringLiteral("2023-07-16T19:20:30 " + offset)
+                                .uncheckedCastTo(targetType));
+            }
+        }
+    }
+
+    @Test
     void testUncheckedCastToTimeStampTzUsesSessionTimeZoneWithoutOffset() {
         try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);

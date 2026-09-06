@@ -251,6 +251,24 @@ testFoldConst("select cast(cast('-00:00:01' as time(0)) as datetime(0)), "
     testFoldConst("select cast('2023/6/10 3:55:33' as datetime(6)) ")
     qt_strict_1 "select cast('2023/6/10 3:55:33' as date) "
     testFoldConst("select cast('2023/6/10 3:55:33' as date) ")
+    testFoldConst("select cast('2023-07-16:19:20:30 +08:00' as timestamptz), "
+            + "cast('2023-07-16T19:20:30 +14:00' as timestamptz), "
+            + "cast('2023-07-16T19:20:30 -12:00' as timestamptz)")
+    def invalidTimestamptzOffsets = ["-14:30", "-15:00", "+14:30"]
+    sql "set debug_skip_fold_constant = true"
+    invalidTimestamptzOffsets.each { offset ->
+        test {
+            sql "select cast('2023-07-16T19:20:30 ${offset}' as timestamptz)"
+            exception "invalid"
+        }
+    }
+    sql "set debug_skip_fold_constant = false"
+    invalidTimestamptzOffsets.each { offset ->
+        test {
+            sql "select cast('2023-07-16T19:20:30 ${offset}' as timestamptz)"
+            exception "can't cast"
+        }
+    }
     test {
         sql "select cast('2023-07-16T19:20:30.123+08:00 ' as datetimev2)"
         exception "can't cast"
