@@ -432,6 +432,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HBO_RFSAFE_THRESHOLD = "hbo_rfsafe_threshold";
     public static final String HBO_ROW_MATCHING_THRESHOLD = "hbo_row_matching_threshold";
     public static final String HBO_SKEW_RATIO_THRESHOLD = "hbo_skew_ratio_threshold";
+    public static final String SHOW_HBO_FINGERPRINT = "show_hbo_fingerprint";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
     public static final String REQUIRED_GROUP_IDS = "required_group_ids";
 
@@ -2089,6 +2090,18 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = HBO_SKEW_RATIO_THRESHOLD, needForward = true)
     private int hboSkewRatioThreshold = 5;
+
+    public boolean isShowHboFingerprint() {
+        return showHboFingerprint;
+    }
+
+    /**
+     * When enabled, the physical plan shown by EXPLAIN appends per-node hbo fingerprint
+     * annotations (join/aggregation/filter), so users can copy a fingerprint and inject hbo
+     * statistics with the {@code HBO SET STATISTICS} statement.
+     */
+    @VarAttrDef.VarAttr(name = SHOW_HBO_FINGERPRINT)
+    private boolean showHboFingerprint = false;
 
     /**
      * as the new optimizer is not mature yet, use this var
