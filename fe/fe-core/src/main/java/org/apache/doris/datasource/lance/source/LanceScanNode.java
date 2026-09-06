@@ -56,6 +56,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.UUID;
 
 /**
@@ -333,23 +334,25 @@ public class LanceScanNode extends FileQueryScanNode {
                     + "' has no field ID in the Lance schema");
         }
 
-        List<LanceIndexSegmentInfo> matchingSegments = selectVectorIndexSegments(
-                metadata.getIndexSegments(), searchFieldId);
-        if (matchingSegments.isEmpty() || !metricMatches(vectorSearchParam, matchingSegments)) {
-            return Optional.empty();
-        }
+        for (List<LanceIndexSegmentInfo> indexSegments : selectVectorIndexSegmentGroups(
+                metadata.getIndexSegments(), searchFieldId)) {
+            if (!metricMatches(vectorSearchParam, indexSegments)) {
+                continue;
+            }
 
-        Optional<IndexSegmentSplitPlan> indexPlan = planIndexSegments(
-                metadata, matchingSegments, visibleFragments, false);
-        if (!indexPlan.isPresent()) {
-            return Optional.empty();
+            Optional<IndexSegmentSplitPlan> indexPlan = planIndexSegments(
+                    metadata, indexSegments, visibleFragments, false);
+            if (!indexPlan.isPresent()) {
+                continue;
+            }
+            IndexSegmentSplitPlan plan = indexPlan.get();
+            plannedIndexSegments = plan.splitCount();
+            plannedIndexFragments = plan.indexSegmentFragmentCount();
+            plannedUnindexedFragments = plannedFragments - plannedIndexFragments;
+            appendUnindexedFragmentSplits(plan, visibleFragments);
+            return Optional.of(plan.buildSplits());
         }
-        IndexSegmentSplitPlan plan = indexPlan.get();
-        plannedIndexSegments = plan.splitCount();
-        plannedIndexFragments = plan.indexSegmentFragmentCount();
-        plannedUnindexedFragments = plannedFragments - plannedIndexFragments;
-        appendUnindexedFragmentSplits(plan, visibleFragments);
-        return Optional.of(plan.buildSplits());
+        return Optional.empty();
     }
 
     private List<Split> createFullTextIndexSegmentSplits(LanceTableMetadata metadata,
@@ -385,22 +388,17 @@ public class LanceScanNode extends FileQueryScanNode {
         return plan.buildSplits();
     }
 
-    private static List<LanceIndexSegmentInfo> selectVectorIndexSegments(
+    private static List<List<LanceIndexSegmentInfo>> selectVectorIndexSegmentGroups(
             List<LanceIndexSegmentInfo> indexSegments, int fieldId) {
-        List<LanceIndexSegmentInfo> selectedSegments = new ArrayList<>();
-        String selectedIndexName = null;
+        // A stable order keeps index selection independent of Lance metadata ordering.
+        Map<String, List<LanceIndexSegmentInfo>> groupsByName = new TreeMap<>();
         for (LanceIndexSegmentInfo segment : indexSegments) {
             if (!segment.isVectorIndex() || !segment.getFieldIds().contains(fieldId)) {
                 continue;
             }
-            if (selectedIndexName == null) {
-                selectedIndexName = segment.getIndexName();
-            }
-            if (selectedIndexName.equals(segment.getIndexName())) {
-                selectedSegments.add(segment);
-            }
+            groupsByName.computeIfAbsent(segment.getIndexName(), ignored -> new ArrayList<>()).add(segment);
         }
-        return selectedSegments;
+        return new ArrayList<>(groupsByName.values());
     }
 
     private static List<LanceIndexSegmentInfo> selectFullTextIndexSegments(
