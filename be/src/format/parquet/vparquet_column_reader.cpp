@@ -553,6 +553,15 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         resolved_column = std::move(doris_column);
         restore_doris_column = true;
     }
+    // When reading directly into the dst column, doris_column has been moved out above and
+    // is only given back by _converter->convert() on the success path. If reading fails in
+    // between (e.g. EndOfFile returned when the query is cancelled), doris_column would stay
+    // nullptr. For nested readers doris_column aliases an inner sub-column (such as
+    // ColumnArray::data), so a nullptr here breaks the column invariant and crashes later in
+    // Block::clear_column_data() -> ColumnArray::is_exclusive(). Always move it back.
+    DEFER(if (doris_column.get() == nullptr && resolved_column.get() != nullptr) {
+        doris_column = std::move(resolved_column);
+    });
     DataTypePtr& resolved_type = _converter->get_physical_type();
     auto convert_column = [&]() -> Status {
         RETURN_IF_ERROR(_converter->convert(resolved_column, _field_schema->data_type, type,
