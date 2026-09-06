@@ -287,6 +287,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         List<Column> partitionColumns = getPartitionColumns();
         List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
         List<ConnectorPartitionInfo> parts = metadata.listPartitions(session, handle, Optional.empty());
+        int skipped = 0;
+        String firstSkippedName = null;
+        Exception firstSkippedCause = null;
         for (ConnectorPartitionInfo part : parts) {
             String partitionName = part.getPartitionName();
             nameToLastModifiedMillis.put(partitionName, part.getLastModifiedMillis());
@@ -308,9 +311,30 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                         toListPartitionItem(partitionName, types,
                                 part.getOrderedPartitionValues(), part.getPartitionValueNullFlags()));
             } catch (Exception e) {
-                LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",
-                        partitionColumns, partitionName, e);
+                // Both skip shapes are per-TABLE conditions, not per-partition ones: a spec whose values are
+                // not representable in the partition columns' types (e.g. an iceberg spec mixing an identity
+                // field with a month()/bucket() transform — the connector supplies the TRANSFORM result, such
+                // as the month ordinal 678, keyed under the source column) fails for EVERY partition on EVERY
+                // snapshot load, i.e. on every query planned against the table. One WARN with a stack trace
+                // per partition is then thousands of log lines per query — enough to fill the FE log volume.
+                // Summarize once per listing below; the per-partition detail stays available at DEBUG.
+                skipped++;
+                if (firstSkippedCause == null) {
+                    firstSkippedName = partitionName;
+                    firstSkippedCause = e;
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",
+                            partitionColumns, partitionName, e);
+                }
             }
+        }
+        if (skipped > 0) {
+            LOG.warn("Skipped {} of {} partitions of table {}.{} that could not be built into list partition"
+                    + " items; the table is treated as UNPARTITIONED for partition pruning. partitionColumns: {},"
+                    + " first failure: partitionName: {}, cause: {}",
+                    skipped, parts.size(), getDbName(), getName(), partitionColumns, firstSkippedName,
+                    firstSkippedCause.getMessage());
         }
     }
 
