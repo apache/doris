@@ -168,12 +168,6 @@ public class GroupStructInfo {
      * group's logical expression and its child groups.
      */
     public static GroupStructInfo of(Group group) {
-        if (group.getLogicalExpressions().size() != 1) {
-            // Group.getLogicalExpression() asserts a single logical expression (Group.java:168-172);
-            // if a group ever holds more (equivalence merge), fall back instead of throwing on the
-            // hot path (review M7).
-            return INVALID;
-        }
         Ctx ctx = new Ctx();
         StringBuilder sb = new StringBuilder();
         String minToken = visit(group, sb, ctx);
@@ -201,12 +195,10 @@ public class GroupStructInfo {
             // canonical tree, mark invalid so that callers fall back to legacy behavior
             return invalid(ctx);
         }
-        if (group.getLogicalExpressions().size() != 1) {
-            // Group.getLogicalExpression() asserts a single logical expression; child groups may
-            // hold more (equivalence merge), treat as unsupported instead of throwing
-            return invalid(ctx);
-        }
-        GroupExpression ge = group.getLogicalExpression();
+        // Use the first logical expression: memo may merge logically equivalent expressions
+        // (e.g. commuted inner joins) into one group; equivalents share the same canonical
+        // structure, so picking the first one is deterministic enough for the hbo fingerprint.
+        GroupExpression ge = group.getFirstLogicalExpression();
         if (ge == null) {
             ctx.valid = false;
             return null;

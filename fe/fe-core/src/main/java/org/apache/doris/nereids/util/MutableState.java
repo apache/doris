@@ -33,6 +33,8 @@ public interface MutableState {
     String KEY_HBO_FP = "hbo-fingerprint";
     /** hbo simplified struct info canonical string attached at planning time for explain printing */
     String KEY_HBO_STRUCT = "hbo-struct";
+    /** marks that the node statistics actually came from hbo (learned or pinned) */
+    String KEY_HBO_USED = "hbo-used";
 
     <T> Optional<T> get(String key);
 

@@ -7115,7 +7115,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         checkHboStatementWords(ctx.hbo, ctx.statistics);
         String fingerprint = stripQuotes(ctx.key.getText());
         long rows = Long.parseLong(ctx.rows.getText());
-        return new HboStatisticsCommand(HboStatisticsCommand.Op.SET, fingerprint, rows);
+        String structCanonical = "";
+        if (ctx.structWord != null && ctx.structCanonical != null) {
+            if (!"struct".equalsIgnoreCase(ctx.structWord.getText())) {
+                throw new ParseException("expect 'STRUCT' keyword in hbo set statistics statement");
+            }
+            structCanonical = stripQuotes(ctx.structCanonical.getText());
+        }
+        return new HboStatisticsCommand(HboStatisticsCommand.Op.SET, fingerprint, rows, structCanonical);
     }
 
     @Override

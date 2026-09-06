@@ -749,6 +749,24 @@ public class NereidsPlanner extends Planner {
         if (structInfo.isPresent()) {
             node.setMutableState(MutableState.KEY_HBO_FP, structInfo.get().getFingerprint());
             node.setMutableState(MutableState.KEY_HBO_STRUCT, structInfo.get().getCanonicalString());
+            // mark whether the node statistics actually came from hbo (learned or pinned): the
+            // optimizer overwrites the row count with withRowCountAndHboFlag, which propagates
+            // to the group statistics (and later to the node statistics shown as stats=(hbo))
+            Group nodeGroup = node.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
+            if (nodeGroup == null) {
+                Optional<Object> groupState = node.getMutableState(MutableState.KEY_GROUP);
+                if (groupState.isPresent()) {
+                    try {
+                        nodeGroup = groupsById.get(Integer.valueOf(groupState.get().toString()));
+                    } catch (NumberFormatException ignored) {
+                        nodeGroup = null;
+                    }
+                }
+            }
+            if (nodeGroup != null && nodeGroup.getStatistics() != null
+                    && nodeGroup.getStatistics().isFromHbo()) {
+                node.setMutableState(MutableState.KEY_HBO_USED, "true");
+            }
         }
     }
 

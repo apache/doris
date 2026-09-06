@@ -35,7 +35,6 @@ import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -343,15 +342,15 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     /**
-     * Append the hbo fingerprint / simplified struct info to the toString of a plan node, when
-     * they were attached at planning time ({@link MutableState#KEY_HBO_FP}) and the session
-     * variable {@code show_hbo_fingerprint} is enabled. Default (variable off or no state):
-     * the input text is returned unchanged, so existing explain outputs are not affected.
+     * Append the hbo fingerprint / simplified struct info (and, when the node used hbo
+     * statistics, a {@code hboUsed=true} marker) to the toString of a plan node, whenever they
+     * were attached at planning time ({@link MutableState#KEY_HBO_FP}). The caller is expected
+     * to attach them only when the session variable {@code show_hbo_fingerprint} was enabled at
+     * plan time, so the default explain output (no state) is not affected, while the physical
+     * plan text stays annotated regardless of the session that later renders it (e.g. the
+     * physical plan appendix of a stored profile).
      */
     protected String withHboExplainInfo(String text) {
-        if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().isShowHboFingerprint()) {
-            return text;
-        }
         Optional<Object> fingerprint = getMutableState(MutableState.KEY_HBO_FP);
         if (!fingerprint.isPresent()) {
             return text;
@@ -361,6 +360,9 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         Optional<Object> struct = getMutableState(MutableState.KEY_HBO_STRUCT);
         if (struct.isPresent()) {
             builder.append(" hboStruct=").append(struct.get());
+        }
+        if (getMutableState(MutableState.KEY_HBO_USED).isPresent()) {
+            builder.append(" hboUsed=true");
         }
         return builder.toString();
     }

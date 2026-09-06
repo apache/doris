@@ -48,6 +48,7 @@ public class HboStatisticsCommand extends Command {
     private final Op op;
     private final String fingerprint;
     private final long rows;
+    private final String structCanonical;
 
     /**
      * HboStatisticsCommand
@@ -56,10 +57,22 @@ public class HboStatisticsCommand extends Command {
      * @param rows injected output row count (only meaningful for SET)
      */
     public HboStatisticsCommand(Op op, String fingerprint, long rows) {
+        this(op, fingerprint, rows, "");
+    }
+
+    /**
+     * HboStatisticsCommand
+     * @param op SET or DELETE
+     * @param fingerprint hbo fingerprint (sha256 of the simplified group struct info)
+     * @param rows injected output row count (only meaningful for SET)
+     * @param structCanonical optional human-readable simplified struct info canonical string
+     */
+    public HboStatisticsCommand(Op op, String fingerprint, long rows, String structCanonical) {
         super(PlanType.HBO_STATISTICS_COMMAND);
         this.op = op;
         this.fingerprint = fingerprint;
         this.rows = rows;
+        this.structCanonical = structCanonical == null ? "" : structCanonical;
     }
 
     @Override
@@ -71,7 +84,7 @@ public class HboStatisticsCommand extends Command {
         HboPlanStatisticsManager hboManager = Env.getCurrentEnv().getHboPlanStatisticsManager();
         switch (op) {
             case SET:
-                hboManager.putPinnedPlanStatistics(fingerprint, rows, "");
+                hboManager.putPinnedPlanStatistics(fingerprint, rows, "", structCanonical);
                 break;
             case DELETE:
                 hboManager.removePinnedPlanStatistics(fingerprint);
@@ -96,5 +109,9 @@ public class HboStatisticsCommand extends Command {
 
     public long getRows() {
         return rows;
+    }
+
+    public String getStructCanonical() {
+        return structCanonical;
     }
 }

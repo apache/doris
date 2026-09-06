@@ -55,8 +55,17 @@ public class HboPlanStatisticsManager {
      * @param nodeType optional node kind recorded for diagnostics, may be null/empty
      */
     public void putPinnedPlanStatistics(String fingerprint, long rows, String nodeType) {
+        putPinnedPlanStatistics(fingerprint, rows, nodeType, "");
+    }
+
+    /**
+     * Inject (or overwrite) a pinned statistics entry.
+     * @param structCanonical optional human-readable simplified struct info canonical string
+     */
+    public void putPinnedPlanStatistics(String fingerprint, long rows, String nodeType, String structCanonical) {
         pinnedPlanStatistics.put(fingerprint,
-                new PinnedHboStatistics(fingerprint, rows, nodeType, System.currentTimeMillis()));
+                new PinnedHboStatistics(fingerprint, rows, nodeType, structCanonical,
+                        System.currentTimeMillis()));
     }
 
     public Optional<PinnedHboStatistics> getPinnedPlanStatistics(String fingerprint) {
@@ -82,12 +91,15 @@ public class HboPlanStatisticsManager {
         private final String fingerprint;
         private final long rows;
         private final String nodeType;
+        private final String structCanonical;
         private final long createTime;
 
-        PinnedHboStatistics(String fingerprint, long rows, String nodeType, long createTime) {
+        PinnedHboStatistics(String fingerprint, long rows, String nodeType, String structCanonical,
+                long createTime) {
             this.fingerprint = fingerprint;
             this.rows = rows;
             this.nodeType = nodeType == null ? "" : nodeType;
+            this.structCanonical = structCanonical == null ? "" : structCanonical;
             this.createTime = createTime;
         }
 
@@ -105,6 +117,10 @@ public class HboPlanStatisticsManager {
 
         public long getCreateTime() {
             return createTime;
+        }
+
+        public String getStructCanonical() {
+            return structCanonical;
         }
     }
 }
