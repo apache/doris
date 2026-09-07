@@ -19,6 +19,7 @@
 #include <glog/logging.h>
 
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <ostream>
 #include <utility>
@@ -163,7 +164,6 @@ public:
                                                 ColumnArray::ColumnOffsets::create());
         auto& result_data = result_array->get_data();
         auto& result_offsets = result_array->get_offsets();
-        result_data.reserve(src.array_col->get_data().size());
         result_offsets.resize(input_rows_count);
 
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -192,11 +192,26 @@ public:
             }
 
             const size_t keep = cardinality - size;
-            if (keep > 0) {
-                result_data.insert_range_from(src.array_col->get_data(), offset, keep);
+            if (UNLIKELY(result_offset > std::numeric_limits<size_t>::max() - keep)) {
+                return Status::InvalidArgument("result array size overflows");
             }
             result_offset += keep;
             result_offsets[row] = result_offset;
+        }
+
+        result_data.reserve(result_offset);
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            if (result_null_map_data[row]) {
+                continue;
+            }
+
+            const size_t array_row = index_check_const(row, array_is_const);
+            const size_t offset = (*src.offsets_ptr)[array_row - 1];
+            const size_t previous_result_offset = row == 0 ? 0 : result_offsets[row - 1];
+            const size_t keep = result_offsets[row] - previous_result_offset;
+            if (keep > 0) {
+                result_data.insert_range_from(src.array_col->get_data(), offset, keep);
+            }
         }
 
         if (block.get_by_position(result).type->is_nullable()) {

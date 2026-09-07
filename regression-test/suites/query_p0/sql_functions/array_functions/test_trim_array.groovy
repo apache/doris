@@ -17,6 +17,22 @@
 
 suite("test_trim_array") {
     testFoldConst("select trim_array([1, 2, 3, 4], 2)")
+    testFoldConst("select trim_array([1, 2, 3, 4], 0)")
+    testFoldConst("select trim_array([1, 2, 3, 4], 1)")
+    testFoldConst("select trim_array([1, 2, 3, 4], 4)")
+    testFoldConst("select trim_array(['a', 'b', 'c', 'd'], 1)")
+    testFoldConst("select trim_array(['a', 'b', null, 'd'], 1)")
+    testFoldConst("select trim_array([[1, 2, 3], [4, 5, 6]], 1)")
+    testFoldConst("select trim_array(cast([] as array<int>), 0)")
+    testFoldConst("select trim_array(cast([true, false, true] as array<boolean>), 1)")
+    testFoldConst("select trim_array(cast([-128, 0, 127] as array<tinyint>), 1)")
+    testFoldConst("select trim_array(cast([-9223372036854775808, 0, 9223372036854775807] as array<bigint>), 1)")
+    testFoldConst("select trim_array(cast([-1.7976931348623157E308, 0.0, 1.7976931348623157E308] as array<double>), 1)")
+    testFoldConst("select trim_array(cast([-99999999.99, 0.00, 99999999.99] as array<decimal(10, 2)>), 1)")
+    testFoldConst("select trim_array(cast(['0000-01-01', '2024-02-29', '9999-12-31'] as array<date>), 1)")
+    testFoldConst("select trim_array(cast(null as array<int>), 0)")
+    testFoldConst("select trim_array(cast(null as array<int>), 9223372036854775807)")
+    testFoldConst("select trim_array([1, 2, 3], cast(null as bigint))")
 
     qt_trim_two "select trim_array([1, 2, 3, 4], 2)"
     qt_trim_zero "select trim_array([1, 2, 3, 4], 0)"
