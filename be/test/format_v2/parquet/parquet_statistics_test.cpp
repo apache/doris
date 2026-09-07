@@ -1958,7 +1958,10 @@ TEST(NativeParquetStatisticsTest, WriterVersionControlsNullCountPruningTrust) {
     check_writer("parquet-mr version 1.9.0-cdh6.3.2 (build test)", true);
     check_writer("parquet-mr version 1.13.1 (build test)", false);
     check_writer("parquet-cpp version 1.2.8 (build test)", true);
-    check_writer("parquet-cpp version 1.3.0 (build test)", false);
+    check_writer("parquet-cpp version 1.5.1-SNAPSHOT", true);
+    check_writer("parquet-cpp-arrow version 4.0.1", true);
+    check_writer("parquet-cpp-arrow version 5.0.0", true);
+    check_writer("parquet-cpp-arrow version 6.0.0", false);
     check_writer("custom-writer version 1.0.0 (build test)", false);
     check_writer("", false);
 }
