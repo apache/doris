@@ -1054,14 +1054,22 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     public Pair<BinlogConfig, BinlogConfig> getBinlogConfigsForCreateTable(
             Map<String, String> tableProperties) {
         BinlogConfig dbBinlogConfig;
+        boolean dbHasRowBinlogTtl;
         readLock();
         try {
             dbBinlogConfig = new BinlogConfig(binlogConfig);
+            dbHasRowBinlogTtl = dbProperties.hasRowBinlogTtl();
         } finally {
             readUnlock();
         }
         BinlogConfig createTableBinlogConfig = new BinlogConfig(dbBinlogConfig);
         createTableBinlogConfig.mergeFromProperties(tableProperties);
+        if (tableProperties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
+            createTableBinlogConfig.applyExplicitRowTtl(createTableBinlogConfig.getTtlSeconds());
+        } else if (createTableBinlogConfig.getBinlogFormat() == BinlogConfig.BinlogFormat.ROW
+                && !dbHasRowBinlogTtl) {
+            createTableBinlogConfig.setTtlSeconds(BinlogConfig.NO_TTL);
+        }
         return Pair.of(dbBinlogConfig, createTableBinlogConfig);
     }
 

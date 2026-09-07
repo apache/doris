@@ -57,6 +57,11 @@ struct TTabletSchema {
     28: optional i32 binlog_tso_idx = -1
     29: optional i32 binlog_lsn_idx = -1
     30: optional i32 binlog_op_idx = -1
+    31: optional i32 ttl_col_idx = -1
+    32: optional i64 row_ttl_duration_us = -1
+    // Fixed UTC offset for temporal row TTL in [-43200, 50400].
+    // Unset means legacy unpinned metadata; 0 means UTC.
+    33: optional i32 row_ttl_time_zone_offset_seconds
 }
 
 // this enum stands for different storage format in src_backends
@@ -213,6 +218,7 @@ struct TBinlogConfig {
     4: optional i64 max_history_nums;
     5: optional TBinlogFormat binlog_format;
     6: optional bool need_historical_value;
+    7: optional bool row_ttl_enabled;
 }
 
 struct TCreateTabletReq {
@@ -569,6 +575,7 @@ struct TTabletMetaInfo {
     17: optional i64 time_series_compaction_empty_rowsets_threshold
     18: optional i64 time_series_compaction_level_threshold
     19: optional i32 vertical_compaction_num_columns_per_group
+    20: optional i64 row_binlog_ttl_reference_tso
 }
 
 struct TUpdateTabletMetaInfoReq {

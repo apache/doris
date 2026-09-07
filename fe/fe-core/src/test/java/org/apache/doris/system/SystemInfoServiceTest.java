@@ -102,6 +102,7 @@ public class SystemInfoServiceTest {
 
         BackendHbResponse writeResponse = new BackendHbResponse(1L, 1234, 1234, 1234, 1234, 1234, "test",
                 Tag.VALUE_COMPUTATION, 10, 100, false, 1234);
+        writeResponse.setNodeFeatureFlags(NodeFeature.ROW_TTL);
 
         // Write objects to file
         File file1 = new File("./BackendHbResponseSerialization");
@@ -122,6 +123,7 @@ public class SystemInfoServiceTest {
                 // Before meta version 121, nodeRole will not be read, so readResponse is not equal to writeResponse
                 Assertions.assertTrue(readResponse.toString().equals(writeResponse.toString()));
                 Assertions.assertTrue(Tag.VALUE_COMPUTATION.equals(readResponse.getNodeRole()));
+                Assertions.assertEquals(NodeFeature.ROW_TTL, readResponse.getNodeFeatureFlags());
             } catch (IOException e) {
                 e.printStackTrace();
                 Assertions.fail();

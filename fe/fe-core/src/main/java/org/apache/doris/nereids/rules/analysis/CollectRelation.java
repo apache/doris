@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -213,6 +214,7 @@ public class CollectRelation implements AnalysisRuleFactory {
             if (tableFrom == TableFrom.QUERY && unboundRelation.isPresent()) {
                 statementContext.registerExternalTableForPreload(table, unboundRelation.get().getTableSnapshot(),
                         Optional.ofNullable(unboundRelation.get().getScanParams()));
+                registerRowBinlogTtl(table, unboundRelation.get(), statementContext);
             }
             if (firstLevel) {
                 statementContext.getOneLevelTables().put(tableQualifier, table);
@@ -318,5 +320,24 @@ public class CollectRelation implements AnalysisRuleFactory {
         StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
         List<String> tableQualifier = tableStream.getBaseTableFullQualifiers();
         statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+    }
+
+    private void registerRowBinlogTtl(TableIf table, UnboundRelation relation,
+            StatementContext statementContext) {
+        if (table instanceof OlapTable) {
+            TableScanParams scanParams = relation.getScanParams();
+            if (scanParams != null && scanParams.incrementalRead()
+                    && ((OlapTable) table).hasRowBinlogTtl()) {
+                statementContext.requireRowBinlogReferenceTso();
+            }
+            return;
+        }
+        if (table instanceof BaseTableStream
+                && (relation.getScanParams() == null || relation.getScanParams().isSnapshot())) {
+            TableIf baseTable = ((BaseTableStream) table).getBaseTableNullable();
+            if (baseTable instanceof OlapTable && ((OlapTable) baseTable).hasRowBinlogTtl()) {
+                statementContext.requireRowBinlogReferenceTso();
+            }
+        }
     }
 }

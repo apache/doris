@@ -216,6 +216,47 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     Status status = _engine->tablet_manager()->create_tablet(create_tablet_req, stores, &profile);
     EXPECT_TRUE(status.ok()) << "Failed to create tablet: " << status;
 
+    TabletMetaPB incompatible_meta_pb = tablet_meta_pb;
+    incompatible_meta_pb.mutable_schema()->set_ttl_col_idx(0);
+    EXPECT_TRUE(TabletMeta::save(meta_file, incompatible_meta_pb).ok());
+    auto incompatible_top_level = _engine->snapshot_mgr()->convert_rowset_ids(
+            clone_dir, tablet_id, replica_id, table_id, partition_id, schema_hash);
+    ASSERT_FALSE(incompatible_top_level.has_value());
+    EXPECT_EQ(incompatible_top_level.error().code(), ErrorCode::INVALID_ARGUMENT);
+    TabletMetaPB unchanged_meta_pb;
+    EXPECT_TRUE(TabletMeta::load_from_file(meta_file, &unchanged_meta_pb).ok());
+    EXPECT_EQ(unchanged_meta_pb.schema().ttl_col_idx(), 0);
+
+    incompatible_meta_pb = tablet_meta_pb;
+    incompatible_meta_pb.mutable_rs_metas(0)->mutable_tablet_schema()->set_ttl_col_idx(0);
+    EXPECT_TRUE(TabletMeta::save(meta_file, incompatible_meta_pb).ok());
+    auto incompatible_embedded = _engine->snapshot_mgr()->convert_rowset_ids(
+            clone_dir, tablet_id, replica_id, table_id, partition_id, schema_hash);
+    ASSERT_FALSE(incompatible_embedded.has_value());
+    EXPECT_EQ(incompatible_embedded.error().code(), ErrorCode::INVALID_ARGUMENT);
+    EXPECT_TRUE(TabletMeta::load_from_file(meta_file, &unchanged_meta_pb).ok());
+    EXPECT_EQ(unchanged_meta_pb.rs_metas(0).tablet_schema().ttl_col_idx(), 0);
+
+    incompatible_meta_pb = tablet_meta_pb;
+    *incompatible_meta_pb.add_inc_rs_metas() = tablet_meta_pb.rs_metas(0);
+    incompatible_meta_pb.mutable_inc_rs_metas(0)->mutable_tablet_schema()->set_ttl_col_idx(0);
+    EXPECT_TRUE(TabletMeta::save(meta_file, incompatible_meta_pb).ok());
+    auto incompatible_incremental = _engine->snapshot_mgr()->convert_rowset_ids(
+            clone_dir, tablet_id, replica_id, table_id, partition_id, schema_hash);
+    ASSERT_FALSE(incompatible_incremental.has_value());
+    EXPECT_EQ(incompatible_incremental.error().code(), ErrorCode::INVALID_ARGUMENT);
+
+    incompatible_meta_pb = tablet_meta_pb;
+    *incompatible_meta_pb.add_stale_rs_metas() = tablet_meta_pb.rs_metas(0);
+    incompatible_meta_pb.mutable_stale_rs_metas(0)->mutable_tablet_schema()->set_ttl_col_idx(0);
+    EXPECT_TRUE(TabletMeta::save(meta_file, incompatible_meta_pb).ok());
+    auto incompatible_stale = _engine->snapshot_mgr()->convert_rowset_ids(
+            clone_dir, tablet_id, replica_id, table_id, partition_id, schema_hash);
+    ASSERT_FALSE(incompatible_stale.has_value());
+    EXPECT_EQ(incompatible_stale.error().code(), ErrorCode::INVALID_ARGUMENT);
+
+    EXPECT_TRUE(TabletMeta::save(meta_file, tablet_meta_pb).ok());
+
     auto result = _engine->snapshot_mgr()->convert_rowset_ids(clone_dir, tablet_id, replica_id,
                                                               table_id, partition_id, schema_hash);
     EXPECT_TRUE(result.has_value());

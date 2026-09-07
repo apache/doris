@@ -50,6 +50,10 @@ public class Frontend implements Writable {
     private String cloudUniqueId;
 
     private String version;
+    @SerializedName("nodeFeatureFlags")
+    private volatile long nodeFeatureFlags = 0;
+    @SerializedName("nodeFeatureIncompatible")
+    private volatile boolean nodeFeatureIncompatible = false;
     private transient String localResourceGroup = "";
 
     private int queryPort;
@@ -91,6 +95,23 @@ public class Frontend implements Writable {
 
     public String getVersion() {
         return version;
+    }
+
+    public long getNodeFeatureFlags() {
+        return nodeFeatureFlags;
+    }
+
+    public void setNodeFeatureFlags(long nodeFeatureFlags) {
+        this.nodeFeatureFlags = nodeFeatureFlags;
+    }
+
+    public boolean supportsNodeFeature(long feature) {
+        return NodeFeature.contains(nodeFeatureFlags, feature);
+    }
+
+    public boolean isNodeFeatureIncompatible() {
+        return nodeFeatureIncompatible || (Env.getCurrentEnv().isRowTtlActivated()
+                && !supportsNodeFeature(NodeFeature.ROW_TTL));
     }
 
     public String getLocalResourceGroup() {
@@ -183,13 +204,17 @@ public class Frontend implements Writable {
             }
 
             isAlive = true;
+            nodeFeatureFlags = hbResponse.getNodeFeatureFlags();
+            nodeFeatureIncompatible = Env.getCurrentEnv().isRowTtlActivated()
+                    && !supportsNodeFeature(NodeFeature.ROW_TTL);
             version = hbResponse.getVersion();
             queryPort = hbResponse.getQueryPort();
             rpcPort = hbResponse.getRpcPort();
             arrowFlightSqlPort = hbResponse.getArrowFlightSqlPort();
             replayedJournalId = hbResponse.getReplayedJournalId();
             lastUpdateTime = hbResponse.getHbTime();
-            heartbeatErrMsg = "";
+            heartbeatErrMsg = nodeFeatureIncompatible
+                    ? "frontend does not support the activated Row TTL feature" : "";
             lastStartupTime = hbResponse.getFeStartTime();
             diskInfos = hbResponse.getDiskInfos();
             if (hbResponse.getLocalResourceGroup() != null) {

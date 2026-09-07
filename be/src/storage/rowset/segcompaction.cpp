@@ -85,7 +85,7 @@ void SegcompactionWorker::init_mem_tracker(const RowsetWriterContext& rowset_wri
 Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
         ReadSchemaSPtr read_schema, OlapReaderStatistics* stat, RowSourcesBuffer& row_sources_buf,
-        bool is_key, std::vector<uint32_t>& key_group_cluster_key_idxes,
+        bool is_key, std::vector<uint32_t>& key_group_cluster_key_idxes, int64_t row_ttl_gc_now_us,
         std::unique_ptr<VerticalBlockReader>* reader) {
     const auto& ctx = _writer->_context;
     bool record_rowids = need_convert_delete_bitmap() && is_key;
@@ -132,6 +132,8 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     reader_params.tablet_schema = ctx.tablet_schema;
     reader_params.tablet = tablet;
     reader_params.read_schema = std::move(read_schema);
+    reader_params.reader_type = ReaderType::READER_SEGMENT_COMPACTION;
+    reader_params.row_ttl_gc_now_us = row_ttl_gc_now_us;
     reader_params.is_key_column_group = is_key;
     reader_params.use_page_cache = false;
     reader_params.record_rowids = record_rowids;
@@ -231,17 +233,13 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
     }
 
     DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_merged_rows", { merged_rows++; });
-    if ((output_rows + merged_rows) != raw_rows_read) {
-        return Status::Error<CHECK_LINES_ERROR>(
-                "segcompaction total row num does not match after merge. expect total row:{},  "
-                "actual total row:{}, (output_rows:{},merged_rows:{})",
-                raw_rows_read, output_rows + merged_rows, output_rows, merged_rows);
-    }
     DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_filtered_rows",
                     { filtered_rows++; });
-    if (filtered_rows != 0) {
+    if ((output_rows + merged_rows + filtered_rows) != raw_rows_read) {
         return Status::Error<CHECK_LINES_ERROR>(
-                "segcompaction should not have filtered rows but actual filtered rows:{}",
+                "segcompaction total row num does not match after merge. expect total row:{},  "
+                "actual total row:{}, (output_rows:{},merged_rows:{},filtered_rows:{})",
+                raw_rows_read, output_rows + merged_rows + filtered_rows, output_rows, merged_rows,
                 filtered_rows);
     }
     return Status::OK();
@@ -263,6 +261,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     uint32_t begin = (*(segments->begin()))->id();
     uint32_t end = (*(segments->end() - 1))->id();
     uint64_t begin_time = GetCurrentTimeMicros();
+    const int64_t row_ttl_gc_now_us = static_cast<int64_t>(begin_time);
     uint64_t index_size = 0;
     uint64_t total_index_size = 0;
     auto ctx = _writer->_context;
@@ -308,7 +307,8 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         OlapReaderStatistics reader_stats;
         std::unique_ptr<VerticalBlockReader> reader;
         auto s = _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
-                                           is_key, key_group_cluster_key_idxes, &reader);
+                                           is_key, key_group_cluster_key_idxes, row_ttl_gc_now_us,
+                                           &reader);
         if (UNLIKELY(reader == nullptr || !s.ok())) {
             return Status::Error<SEGCOMPACTION_INIT_READER>(
                     "failed to get segcompaction reader. err: {}", s.to_string());

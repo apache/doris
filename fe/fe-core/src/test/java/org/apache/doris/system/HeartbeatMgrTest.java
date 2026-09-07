@@ -109,6 +109,7 @@ public class HeartbeatMgrTest {
             Assertions.assertEquals(9141, hbResponse.getArrowFlightSqlPort());
             Assertions.assertEquals(HbStatus.OK, hbResponse.getStatus());
             Assertions.assertEquals("test", hbResponse.getVersion());
+            Assertions.assertEquals(0, hbResponse.getNodeFeatureFlags());
 
             Frontend fe2 = new Frontend(FrontendNodeType.FOLLOWER, "test2", "192.168.1.2", 9010);
             handler = new FrontendHeartbeatHandler(fe2, 12345, "abcde");

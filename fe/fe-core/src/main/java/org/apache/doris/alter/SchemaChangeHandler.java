@@ -2316,6 +2316,9 @@ public class SchemaChangeHandler extends AlterHandler {
     public void process(String rawSql, List<AlterOp> alterOps, Database db,
                         OlapTable olapTable)
             throws UserException {
+        if (olapTable.isLegacyDirectRowTtl()) {
+            throw new DdlException(PropertyAnalyzer.ROW_TTL_DIRECT_NOT_SUPPORTED);
+        }
         olapTable.writeLockOrDdlException();
         try {
             olapTable.checkNormalStateForAlter();
@@ -2383,6 +2386,9 @@ public class SchemaChangeHandler extends AlterHandler {
                                     entry -> entry.getKey().startsWith(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING))
                             .forEach(entry -> sequenceMappingSettings.put(entry.getKey(), entry.getValue()));
                 }
+            }
+            if (olapTable.hasRowTtl() && !sequenceMappingSettings.isEmpty()) {
+                throw new DdlException(PropertyAnalyzer.ROW_TTL_SEQUENCE_COLUMN_CONFLICT);
             }
 
             for (AlterOp alterOp : alterOps) {
@@ -3086,7 +3092,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
             }
 
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                 int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
@@ -3957,6 +3963,9 @@ public class SchemaChangeHandler extends AlterHandler {
                             newBinlogConfig.mergeFromProperties(binlogConfigMap, false);
                     if (!mergePropertiesStatus.first) {
                         throw new AnalysisException(mergePropertiesStatus.second);
+                    }
+                    if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
+                        newBinlogConfig.applyExplicitRowTtl(newBinlogConfig.getTtlSeconds());
                     }
                 }
             } catch (AnalysisException e) {

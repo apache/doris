@@ -25,7 +25,9 @@ import org.apache.doris.common.FeMetaVersion;
  */
 public class MetaContext {
 
-    private int metaVersion;
+    // Env shares one MetaContext with replay/checkpoint threads. Volatile makes an opt-in metadata
+    // barrier visible to request threads without replacing their thread-local context.
+    private volatile int metaVersion;
 
     private static ThreadLocal<MetaContext> threadLocalInfo = new ThreadLocal<MetaContext>();
 

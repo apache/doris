@@ -39,8 +39,10 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public class DatabaseTest {
@@ -52,6 +54,37 @@ public class DatabaseTest {
     private EditLog editLog = Mockito.mock(EditLog.class);
 
     private MockedStatic<Env> mockedEnvStatic;
+
+    @Test
+    public void rowBinlogTtlDefaultsAndInheritance() {
+        Map<String, String> tableProperties = new HashMap<>();
+        tableProperties.put("binlog.enable", "true");
+        tableProperties.put("binlog.format", "ROW");
+        BinlogConfig withoutTtl = db.getBinlogConfigsForCreateTable(tableProperties).second;
+        Assertions.assertEquals(BinlogConfig.NO_TTL, withoutTtl.getTtlSeconds());
+        Assertions.assertFalse(withoutTtl.isRowTtlEnabled());
+
+        tableProperties.put("binlog.ttl_seconds", "0");
+        BinlogConfig explicitTtl = db.getBinlogConfigsForCreateTable(tableProperties).second;
+        Assertions.assertEquals(0L, explicitTtl.getTtlSeconds());
+        Assertions.assertTrue(explicitTtl.isRowTtlEnabled());
+
+        db.replayUpdateDbProperties(Map.of(
+                "binlog.enable", "true",
+                "binlog.ttl_seconds", "7",
+                "binlog.row_ttl_enabled", "true"));
+        tableProperties.remove("binlog.ttl_seconds");
+        BinlogConfig inheritedTtl = db.getBinlogConfigsForCreateTable(tableProperties).second;
+        Assertions.assertEquals(7L, inheritedTtl.getTtlSeconds());
+        Assertions.assertTrue(inheritedTtl.isRowTtlEnabled());
+
+        db.replayUpdateDbProperties(Map.of(
+                "binlog.ttl_seconds", "-1",
+                "binlog.row_ttl_enabled", "false"));
+        BinlogConfig disabledTtl = db.getBinlogConfigsForCreateTable(tableProperties).second;
+        Assertions.assertEquals(BinlogConfig.NO_TTL, disabledTtl.getTtlSeconds());
+        Assertions.assertFalse(disabledTtl.isRowTtlEnabled());
+    }
 
     @BeforeEach
     public void setup() {
