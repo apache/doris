@@ -240,10 +240,12 @@ private:
 class IcebergTableReaderMappingModeTestHelper final
         : public doris::format::iceberg::IcebergTableReader {
 public:
-    TableColumnMappingMode mapping_mode_for_schema(std::vector<ColumnDefinition> file_schema,
-                                                   TFileScanRangeParams* scan_params = nullptr) {
+    TableColumnMappingMode mapping_mode_for_schema(
+            std::vector<ColumnDefinition> file_schema, TFileScanRangeParams* scan_params = nullptr,
+            std::vector<ColumnDefinition> projected_columns = {}) {
         _scan_params = scan_params;
         _data_reader.file_schema = std::move(file_schema);
+        _projected_columns = std::move(projected_columns);
         return mapping_mode();
     }
 };
@@ -2755,6 +2757,25 @@ TEST(IcebergV2ReaderTest, IcebergLegacyPlanKeepsAllFieldIdsMappingRule) {
               TableColumnMappingMode::BY_NAME);
 }
 
+TEST(IcebergV2ReaderTest, IcebergV2IdlessFileRequiresAuthoritativeNameMapping) {
+    IcebergTableReaderMappingModeTestHelper reader;
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+
+    auto file_column = make_file_column(1, "legacy_name", std::make_shared<DataTypeInt32>());
+    file_column.identifier = Field {};
+    auto table_column = make_table_column(1, "current_name", std::make_shared<DataTypeInt32>());
+
+    EXPECT_EQ(reader.mapping_mode_for_schema({file_column}, &scan_params, {table_column}),
+              TableColumnMappingMode::BY_FIELD_ID);
+
+    table_column.has_name_mapping = true;
+    table_column.name_mapping = {"legacy_name"};
+    EXPECT_EQ(reader.mapping_mode_for_schema({std::move(file_column)}, &scan_params,
+                                             {std::move(table_column)}),
+              TableColumnMappingMode::BY_NAME);
+}
+
 TEST(IcebergV2ReaderTest, VariantFormatGateUsesPhysicalFileMappings) {
     ColumnMapping missing_variant;
     missing_variant.table_type = make_nullable(std::make_shared<DataTypeVariantV2>());
@@ -4101,6 +4122,50 @@ TEST(IcebergV2ReaderTest, ParquetReadsIdlessWrapperWithAuthoritativeEmptyMapping
             expect_not_null_nullable_nested_column(inner_result.get_column(0)));
     ASSERT_EQ(leaf_result.size(), 1);
     EXPECT_EQ(leaf_result.get_element(0), 42);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, ParquetTreatsIdlessNestedFileAsMissingWithoutNameMapping) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_idless_nested_without_name_mapping_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_nested_equality_parquet_file(file_path, {}, {42}, {false}, true, "leaf", 30, "outer",
+                                       false, false);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto leaf = make_table_column(30, "leaf", int_type);
+    auto outer_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"leaf"});
+    auto outer = make_table_column(10, "outer", outer_type);
+    outer.children = {leaf};
+    std::vector<ColumnDefinition> projected_columns = {outer};
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    ASSERT_EQ(result.size(), 1);
+    EXPECT_EQ(result.get_null_map_data()[0], 1);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

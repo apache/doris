@@ -73,6 +73,12 @@ public:
         if (!_data_reader.file_schema.empty() && has_field_ids) {
             return format::TableColumnMappingMode::BY_FIELD_ID;
         }
+        if (!_data_reader.file_schema.empty() && supports_iceberg_scan_semantics_v2(_scan_params) &&
+            !schema_has_any_authoritative_name_mapping(_projected_columns)) {
+            // ID-less migrated files are name-readable only while Iceberg's explicit default name
+            // mapping exists; current names must not resurrect file fields after it is removed.
+            return format::TableColumnMappingMode::BY_FIELD_ID;
+        }
         return format::TableColumnMappingMode::BY_NAME;
     }
 

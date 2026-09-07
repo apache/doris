@@ -2811,6 +2811,14 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         FileScanRequestBuilder builder(file_request);
         RETURN_IF_ERROR(builder.add_non_predicate_column(std::move(demoted_projection)));
     }
+    // Predicate demotion can widen a nested projection after mappings were localized. Reapply the
+    // final shape so TableReader interprets the same child ordinals that FileReader returns.
+    for (auto& mapping : _mappings) {
+        if (mapping.file_local_id.has_value() &&
+            file_request->local_positions.contains(LocalColumnId(*mapping.file_local_id))) {
+            RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
+        }
+    }
     // Final readers allocate a dense file block, so every retained slot must follow the same compaction.
     compact_file_block_positions(file_request);
     RETURN_IF_ERROR(_build_filter_entries(*file_request));
