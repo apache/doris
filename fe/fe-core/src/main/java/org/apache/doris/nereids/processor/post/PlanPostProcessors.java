@@ -64,6 +64,7 @@ public class PlanPostProcessors {
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
         builder.add(new PushDownFilterThroughProject());
         builder.add(new PrunePartitionPredicate());
+        builder.add(new AddMonotonicFunctionPruningPredicates());
         builder.add(new RemoveUselessProjectPostProcessor());
         builder.add(new ShuffleKeyPruner());
         builder.add(new RecomputeLogicalPropertiesProcessor());

@@ -423,17 +423,17 @@ public class DateTimeArithmetic {
      */
     @ExecFunction(name = "quarters_add")
     public static Expression quartersAdd(DateV2Literal date, IntegerLiteral quarter) {
-        return date.plusMonths(3 * quarter.getValue());
+        return date.plusMonths(Math.multiplyExact(3L, quarter.getValue()));
     }
 
     @ExecFunction(name = "quarters_add")
     public static Expression quartersAdd(DateTimeV2Literal date, IntegerLiteral quarter) {
-        return date.plusMonths(3 * quarter.getValue());
+        return date.plusMonths(Math.multiplyExact(3L, quarter.getValue()));
     }
 
     @ExecFunction(name = "quarters_add")
     public static Expression quartersAdd(TimestampTzLiteral date, IntegerLiteral quarter) {
-        return date.plusMonths(3 * quarter.getValue());
+        return date.plusMonths(Math.multiplyExact(3L, quarter.getValue()));
     }
 
     /**
