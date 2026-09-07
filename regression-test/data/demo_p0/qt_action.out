@@ -6,10 +6,12 @@
 -- !select2 --
 2
 
+-- !integration_validation --
+42
+
 -- !union_all --
 \N
 1
 15
 2
 3
-

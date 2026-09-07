@@ -29,6 +29,8 @@ suite("qt_action") {
 
     qt_select2 "select 2"
 
+    qt_integration_validation "select cast(42 as bigint)"
+
     // order result by string dict then compare to .out file.
     // order_qt_xxx sql equals to quickTest(xxx, sql, true).
     order_qt_union_all  """
