@@ -50,6 +50,15 @@ namespace doris {
 bvar::Adder<int64_t> g_memtable_cnt("memtable_cnt");
 bvar::Adder<uint64_t> g_flush_cuz_memtable_full("flush_cuz_memtable_full");
 
+template <typename T>
+void reserve_for_append(DorisVector<T>& rows, size_t append_size, size_t max_size) {
+    DORIS_CHECK(append_size <= max_size && rows.size() <= max_size - append_size);
+    const auto required_size = rows.size() + append_size;
+    if (required_size > rows.capacity()) {
+        rows.reserve(std::min(max_size, rows.capacity() + std::max(rows.capacity(), append_size)));
+    }
+}
+
 using namespace ErrorCode;
 
 MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
@@ -278,14 +287,16 @@ Status MemTable::insert(const Block* input_block, const TabletAddRowsPayload& ro
     // Reserve all row metadata before appending columns. After add_rows() succeeds, filling the
     // already-reserved vectors cannot leave the block and its permutation out of sync.
     if (_keys_type == KeysType::DUP_KEYS) {
+        DORIS_CHECK(_duplicate_key_row_positions->size() == cursor_in_mutableblock);
         RETURN_IF_CATCH_EXCEPTION(
-                _duplicate_key_row_positions->reserve(cursor_in_mutableblock + num_rows));
+                reserve_for_append(*_duplicate_key_row_positions, num_rows, max_rows));
         if (_need_lsn) {
+            DORIS_CHECK(_duplicate_key_allocated_lsns->size() == cursor_in_mutableblock);
             RETURN_IF_CATCH_EXCEPTION(
-                    _duplicate_key_allocated_lsns->reserve(cursor_in_mutableblock + num_rows));
+                    reserve_for_append(*_duplicate_key_allocated_lsns, num_rows, max_rows));
         }
     } else {
-        RETURN_IF_CATCH_EXCEPTION(_row_in_blocks->reserve(_row_in_blocks->size() + num_rows));
+        RETURN_IF_CATCH_EXCEPTION(reserve_for_append(*_row_in_blocks, num_rows, max_rows));
     }
     RETURN_IF_ERROR(_input_mutable_block.add_rows(input_block, row_idxs.data(),
                                                   row_idxs.data() + num_rows, &_column_offset));
@@ -299,13 +310,11 @@ Status MemTable::insert(const Block* input_block, const TabletAddRowsPayload& ro
         // The mutable block appends rows contiguously, so the initial permutation for this batch
         // is exactly [cursor, cursor + num_rows). Sorting later mutates only this compact vector.
         auto& positions = *_duplicate_key_row_positions;
-        DORIS_CHECK(positions.size() == cursor_in_mutableblock);
         DORIS_CHECK(cursor_in_mutableblock + num_rows <= positions.capacity());
         positions.resize(cursor_in_mutableblock + num_rows);
         std::iota(positions.begin() + cursor_in_mutableblock, positions.end(),
                   static_cast<uint32_t>(cursor_in_mutableblock));
         if (_need_lsn) {
-            DORIS_CHECK(_duplicate_key_allocated_lsns->size() == cursor_in_mutableblock);
             DORIS_CHECK(cursor_in_mutableblock + num_rows <=
                         _duplicate_key_allocated_lsns->capacity());
             _duplicate_key_allocated_lsns->insert(_duplicate_key_allocated_lsns->end(),

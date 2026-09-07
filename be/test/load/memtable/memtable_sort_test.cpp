@@ -230,6 +230,45 @@ TEST_F(DuplicateKeyMemTableTest, SortMultipleBatchesWithDuplicateKeysAndArrays) 
     expect_row(*output, 5, 2, "b", make_array({"first"}));
 }
 
+TEST_F(DuplicateKeyMemTableTest, BatchedInsertUsesAmortizedCapacityGrowth) {
+    auto data = create_block({{1, "a", make_array({"value"})}});
+    size_t previous_capacity = 0;
+    size_t capacity_changes = 0;
+    for (size_t i = 0; i < 64; ++i) {
+        ASSERT_TRUE(_memtable->insert(&data, TabletAddRowsPayload {.row_idxs = {0}}).ok());
+        const auto capacity = _memtable->_duplicate_key_row_positions->capacity();
+        if (capacity != previous_capacity) {
+            ++capacity_changes;
+            previous_capacity = capacity;
+        }
+    }
+
+    EXPECT_EQ(_memtable->_duplicate_key_row_positions->size(), 64);
+    EXPECT_LE(capacity_changes, 8);
+}
+
+TEST_F(DuplicateKeyMemTableTest, BatchedInsertWithLsnsUsesAmortizedCapacityGrowth) {
+    auto memtable = create_memtable(true);
+    auto data = create_block({{1, "a", make_array({"value"})}});
+    size_t previous_capacity = 0;
+    size_t capacity_changes = 0;
+    for (size_t i = 0; i < 64; ++i) {
+        ASSERT_TRUE(
+                memtable->insert(&data,
+                                 TabletAddRowsPayload {.row_idxs = {0},
+                                                       .allocated_lsns = {static_cast<int64_t>(i)}})
+                        .ok());
+        const auto capacity = memtable->_duplicate_key_allocated_lsns->capacity();
+        if (capacity != previous_capacity) {
+            ++capacity_changes;
+            previous_capacity = capacity;
+        }
+    }
+
+    EXPECT_EQ(memtable->_duplicate_key_allocated_lsns->size(), 64);
+    EXPECT_LE(capacity_changes, 8);
+}
+
 // An empty insert must not create row metadata or disturb the next non-empty batch.
 TEST_F(DuplicateKeyMemTableTest, EmptyBatchDoesNotAffectSort) {
     auto empty = create_block({});
