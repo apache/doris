@@ -2324,6 +2324,14 @@ public class Config extends ConfigBase {
     public static int hbo_plan_info_cache_num = 1000;
 
     /**
+     * Whether HBO uses the fingerprint derived from the simplified group struct info instead of
+     * the legacy plan-tree fingerprint. Defaults to true (the struct-info fingerprint is the
+     * delivered behavior); set to false only to compare/fall back to the legacy key generation.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean hbo_use_struct_info_fingerprint = true;
+
+    /**
      * Maximum number of events to poll in each RPC.
      */
     @ConfField(mutable = true, masterOnly = true)
