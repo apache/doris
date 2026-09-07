@@ -164,6 +164,40 @@ public class PushProjectThroughUnionTest {
         Assertions.assertTrue(PushProjectThroughUnion.canPushProject(permutationProjects, unionDistinct));
     }
 
+    @Test
+    public void testProjectReferencingOuterSlotIsNotPushedThroughUnion() {
+        // A correlated subquery may carry a project that references an outer correlated slot
+        // (e.g. an aliased outer column `o.flag AS f` resolved back to its producer). Such a
+        // slot has no producer inside the union children, so pushing the project through the
+        // union would leave a dangling slot reference in each child; the rule must refuse to
+        // fire for this shape.
+        SlotReference unionOutput = new SlotReference(new ExprId(10), "a",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference outerSlot = new SlotReference(new ExprId(20), "flag",
+                IntegerType.INSTANCE, true, ImmutableList.of("o"));
+        LogicalUnion union = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(unionOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+
+        // Control: a project that only consumes the union output is still pushable.
+        ImmutableList<NamedExpression> innerOnlyProjects = ImmutableList.of(
+                new Alias(new ExprId(99), unionOutput, "a"));
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(innerOnlyProjects, union));
+
+        // The project item is an aliased outer column (no producer in the union).
+        ImmutableList<NamedExpression> projects = ImmutableList.of(
+                new Alias(new ExprId(100), outerSlot, "f"));
+        Assertions.assertFalse(PushProjectThroughUnion.canPushProject(projects, union));
+
+        LogicalProject<LogicalUnion> project = new LogicalProject<>(projects, union);
+        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), project)
+                .applyTopDown(new PushProjectThroughUnion())
+                .getPlan();
+        // The rule must not fire: the project stays above the union.
+        Assertions.assertTrue(rewritten instanceof LogicalProject,
+                "project referencing an outer slot must not be pushed through the union");
+        Assertions.assertTrue(rewritten.child(0) instanceof LogicalUnion);
+    }
+
     private LogicalUnion findUnion(Plan p) {
         if (p instanceof LogicalUnion) {
             return (LogicalUnion) p;
