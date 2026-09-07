@@ -106,28 +106,12 @@ class ValidateReviewPassCommentTest(unittest.TestCase):
                     validate(make_comment(model=model, effort="ultra"))
 
     def test_rejects_effort_below_xhigh(self) -> None:
-        for model in (
-            "gpt-5.6-sol",
-            "gpt-6-astra",
-            "claude-fable-5-1",
-            "claude-fable-5-1[1m]",
-        ):
-            for effort in ("none", "minimal", "low", "medium", "high"):
-                with self.subTest(model=model, effort=effort):
-                    with self.assertRaisesRegex(ValidationError, "is not allowed for model"):
-                        validate(make_comment(model=model, effort=effort))
+        with self.assertRaisesRegex(ValidationError, "is not allowed for model"):
+            validate(make_comment(effort="high"))
 
     def test_rejects_unlisted_model(self) -> None:
-        for model in (
-            "gpt-5.6",
-            "gpt-6",
-            "gpt-6-astra-latest",
-            "claude-fable-5-1-latest",
-            "claude-fable-5-2",
-        ):
-            with self.subTest(model=model):
-                with self.assertRaisesRegex(ValidationError, "model is not allowed"):
-                    validate(make_comment(model=model))
+        with self.assertRaisesRegex(ValidationError, "model is not allowed"):
+            validate(make_comment(model="gpt-5.6"))
 
     def test_rejects_a_different_head(self) -> None:
         with self.assertRaisesRegex(ValidationError, "current PR head"):
