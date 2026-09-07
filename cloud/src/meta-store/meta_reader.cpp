@@ -757,7 +757,7 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
                                           int64_t start_version, int64_t end_version,
                                           std::vector<RowsetMetaCloudPB>* rowset_metas,
                                           bool snapshot) {
-    std::map<int64_t, RowsetMetaCloudPB> rowset_graph;
+    std::map<int64_t, std::pair<RowsetMetaCloudPB, Versionstamp>> rowset_graph;
 
     {
         std::string start_key =
@@ -776,8 +776,7 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
                 versioned::document_get_range<RowsetMetaCloudPB>(txn, start_key, end_key, options);
         for (auto&& kvp = iter->next(); kvp.has_value(); kvp = iter->next()) {
             auto&& [key, version, rowset_meta] = *kvp;
-            rowset_graph.emplace(rowset_meta.end_version(), std::move(rowset_meta));
-            min_read_versionstamp_ = std::min(min_read_versionstamp_, version);
+            rowset_graph.try_emplace(rowset_meta.end_version(), std::move(rowset_meta), version);
             DCHECK(version < snapshot_version_)
                     << "version: " << version.to_string()
                     << ", snapshot_version: " << snapshot_version_.to_string();
@@ -822,12 +821,11 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
                 continue;
             }
 
-            min_read_versionstamp_ = std::min(min_read_versionstamp_, version);
             last_start_version = start_version;
             // erase the rowsets that are covered by this compact rowset
             rowset_graph.erase(rowset_graph.lower_bound(start_version),
                                rowset_graph.upper_bound(end_version));
-            rowset_graph.emplace(end_version, std::move(rowset_meta));
+            rowset_graph.try_emplace(end_version, std::move(rowset_meta), version);
         }
         if (!iter->is_valid()) {
             LOG_ERROR("failed to get compacted rowset metas")
@@ -842,7 +840,10 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
 
     rowset_metas->clear();
     rowset_metas->reserve(rowset_graph.size());
-    for (auto&& [version, rowset_meta] : rowset_graph) {
+    // Only returned rowsets contribute dependencies after both scans succeed.
+    for (auto&& [end_version, entry] : rowset_graph) {
+        auto& [rowset_meta, versionstamp] = entry;
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, versionstamp);
         rowset_metas->emplace_back(std::move(rowset_meta));
     }
 

@@ -1929,6 +1929,58 @@ TEST_F(CloneChainReaderTest, GetRowsetMeta) {
     }
 }
 
+TEST_F(CloneChainReaderTest, GetRowsetMetasMinReadVersionstamp) {
+    constexpr int64_t tablet_id = 15001;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+    auto put_rowset = [&](const std::string& instance_id, const std::string& id, int64_t start,
+                          int64_t end, Versionstamp version, bool compact) {
+        doris::RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0);
+        rowset.set_rowset_id_v2(id);
+        rowset.set_tablet_id(tablet_id);
+        rowset.set_start_version(start);
+        rowset.set_end_version(end);
+        auto key = compact ? versioned::meta_rowset_compact_key({instance_id, tablet_id, end})
+                           : versioned::meta_rowset_load_key({instance_id, tablet_id, end});
+        ASSERT_TRUE(versioned::document_put(txn.get(), key, version, std::move(rowset)));
+    };
+    put_rowset("A", "L1", 1, 1, Versionstamp(70, 1), false);
+    put_rowset("A", "L2", 2, 2, Versionstamp(80, 1), false);
+    put_rowset("A", "L3", 3, 3, Versionstamp(90, 1), false);
+    put_rowset("A", "compact", 2, 3, Versionstamp(150, 2), true);
+    // This source rowset is newer than A's source snapshot (1000) and is invisible to C.
+    put_rowset("A", "too_new", 1, 3, Versionstamp(1000, 1), true);
+    put_rowset("C", "L4", 4, 4, Versionstamp(2170, 1), false);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    CloneChainReader reader(instance_ids_[2], Versionstamp(3000), txn_kv_.get(),
+                            resource_mgr_.get());
+    std::vector<doris::RowsetMetaCloudPB> rowsets;
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 2, 4, &rowsets), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(rowsets.size(), 2);
+    EXPECT_EQ(rowsets[0].rowset_id_v2(), "compact");
+    EXPECT_EQ(rowsets[0].start_version(), 2);
+    EXPECT_EQ(rowsets[0].end_version(), 3);
+    EXPECT_EQ(rowsets[0].reference_instance_id(), "A");
+    EXPECT_EQ(rowsets[1].rowset_id_v2(), "L4");
+    EXPECT_EQ(rowsets[1].start_version(), 4);
+    EXPECT_EQ(rowsets[1].end_version(), 4);
+    EXPECT_EQ(rowsets[1].reference_instance_id(), "C");
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp(150, 2));
+
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 1, 1, &rowsets), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(rowsets.size(), 1);
+    EXPECT_EQ(rowsets[0].rowset_id_v2(), "L1");
+    EXPECT_EQ(rowsets[0].reference_instance_id(), "A");
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp(70, 1));
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 2, 4, &rowsets), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp(70, 1));
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 5, 6, &rowsets), TxnErrorCode::TXN_OK);
+    EXPECT_TRUE(rowsets.empty());
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp(70, 1));
+}
+
 TEST_F(CloneChainReaderTest, GetRowsetMetas) {
     std::string instance_id = instance_ids_[2]; // C
     Versionstamp snapshot_version = snapshot_versions_[2];
