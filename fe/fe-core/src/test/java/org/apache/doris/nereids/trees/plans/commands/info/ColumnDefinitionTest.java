@@ -17,10 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.UuidType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
 
 public class ColumnDefinitionTest {
 
@@ -42,5 +46,19 @@ public class ColumnDefinitionTest {
 
         String sql = columnDefinition.toSql();
         Assertions.assertTrue(sql.endsWith("COMMENT \"\""));
+    }
+
+    @Test
+    public void testAddColumnRejectsUuidDynamicDefaults() {
+        for (String function : new String[] {"uuid_v4", "uuid_v7", "generateUUIDv4", "generate_uuid_v7"}) {
+            ColumnDefinition column = new ColumnDefinition("u", UuidType.INSTANCE, false, null, false,
+                    Optional.of(DefaultValue.uuidDefaultValue(function)), "");
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> AddColumnOp.validateColumnDef(null, column, null, null));
+            Assertions.assertEquals("ADD COLUMN does not support UUID dynamic default values", error.getDetailMessage());
+        }
+        ColumnDefinition literal = new ColumnDefinition("u", UuidType.INSTANCE, false, null, false,
+                Optional.of(new DefaultValue("00112233-4455-6677-8899-aabbccddeeff")), "");
+        Assertions.assertFalse(literal.hasUuidDefaultValue());
     }
 }

@@ -28,6 +28,7 @@ import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.ToSqlParams;
+import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -341,6 +342,9 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         successorLargeInt.compareTo(maxValue) < 0 ? BigInteger.ONE : BigInteger.ZERO
                 );
                 successor.pushColumn(new LargeIntLiteral(successorLargeInt), type);
+                return successor;
+            case UUID:
+                successor.pushColumn(((UuidLiteral) literal).successor(), type);
                 return successor;
             case DATE:
             case DATEV2:

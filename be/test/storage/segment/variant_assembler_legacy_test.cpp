@@ -43,6 +43,7 @@
 #include "core/value/jsonb_value.h"
 #include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "storage/segment/variant/v2/variant_assembler.h"
 #include "storage/segment/variant/v2/variant_column_reader.h"
@@ -1031,6 +1032,28 @@ TEST(VariantAssemblerLegacyTest, DepthBoundaries) {
             EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
             EXPECT_EQ(output.get(), nullptr);
         }
+    }
+}
+
+TEST(VariantAssemblerLegacyTest, UuidStorageCellRetainsNativeIdentity) {
+    UUIDValueType value;
+    ASSERT_TRUE(UUIDValue::from_string(value, "00112233-4455-6677-8899-aabbccddeeff"));
+    const auto cell = fixed_storage_cell<UUIDValueType>(FieldType::OLAP_FIELD_TYPE_UUID, value);
+    const auto text = string_storage_cell("text");
+    const std::array<StringRef, 2> cells {StringRef(cell), StringRef(text)};
+    const std::array<uint8_t, 2> masks {0, 0};
+    // One UUID uses the typed fast path; a heterogeneous batch exercises the generic adapter.
+    for (size_t count : {1, 2}) {
+        ColumnNullable::MutablePtr output;
+        ASSERT_TRUE(decode_v1_storage_cells(std::span(cells).first(count),
+                                            std::span(masks).first(count),
+                                            std::span(masks).first(count), &output)
+                            .ok());
+        auto& variants = assembled_values(output);
+        variants.ensure_encoded();
+        const auto result = variants.get_value_ref(0);
+        EXPECT_EQ(result.primitive_id(), VariantPrimitiveId::UUID);
+        EXPECT_EQ(result.get_uuid(), UUIDValue::to_big_endian(value));
     }
 }
 

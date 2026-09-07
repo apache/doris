@@ -713,6 +713,13 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         literal.__set_value(CastToString::from_ip(*origin_value));
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
+    } else if constexpr (T == TYPE_UUID) {
+        const auto* value = reinterpret_cast<const UUIDValueType*>(data);
+        (*node).__set_node_type(TExprNodeType::UUID_LITERAL);
+        TUUIDLiteral literal;
+        literal.__set_value(CastToString::from_uuid(*value));
+        (*node).__set_uuid_literal(literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_UUID));
     } else if constexpr (T == TYPE_TIMEV2) {
         // Runtime filters preserve TIMEV2's microsecond carrier and scale in the literal node.
         const auto* origin_value = reinterpret_cast<const double*>(data);

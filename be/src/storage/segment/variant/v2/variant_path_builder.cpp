@@ -46,11 +46,13 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type/primitive_type.h"
 #include "core/typeid_cast.h"
 #include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/variant_util.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
@@ -73,6 +75,7 @@ enum class ValueKind : uint8_t {
     TIMESTAMP_NTZ_NANOS,
     TIMESTAMP_TZ,
     STRING,
+    UUID,
     JSONB_REF,
     ARRAY,
 };
@@ -201,8 +204,9 @@ ValueKind value_kind(VariantRef value) {
     case VariantPrimitiveId::BINARY:
     case VariantPrimitiveId::TIME_NTZ_MICROS:
     case VariantPrimitiveId::TIMESTAMP_NANOS:
-    case VariantPrimitiveId::UUID:
         return ValueKind::JSONB_REF;
+    case VariantPrimitiveId::UUID:
+        return ValueKind::UUID;
     }
     throw Exception(ErrorCode::CORRUPTION, "Unknown Variant primitive id");
 }
@@ -273,6 +277,10 @@ DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = null
     }
     case ValueKind::STRING: {
         static const DataTypePtr type = std::make_shared<DataTypeString>();
+        return type;
+    }
+    case ValueKind::UUID: {
+        static const DataTypePtr type = std::make_shared<DataTypeUUID>();
         return type;
     }
     case ValueKind::JSONB_REF:
@@ -473,6 +481,8 @@ bool value_is_representable(VariantRef value, const DataTypePtr& target_type) {
                timestamp_fits_doris_range(value.get_timestamp_micros());
     case TYPE_STRING:
         return kind == ValueKind::STRING;
+    case TYPE_UUID:
+        return kind == ValueKind::UUID;
     case TYPE_JSONB:
         return true;
     case TYPE_ARRAY: {
@@ -542,6 +552,7 @@ void write_path_jsonb(VariantRef value, JsonbWriter* writer) {
     case ValueKind::TIMESTAMP_NTZ_NANOS:
     case ValueKind::TIMESTAMP_TZ:
     case ValueKind::STRING:
+    case ValueKind::UUID:
     case ValueKind::JSONB_REF: {
         JsonbWriter nested;
         variant_to_jsonb(value, nested);
@@ -563,6 +574,7 @@ void append_jsonb(VariantRef value, ColumnString* column) {
     case ValueKind::TIMESTAMP_NTZ_NANOS:
     case ValueKind::TIMESTAMP_TZ:
     case ValueKind::STRING:
+    case ValueKind::UUID:
     case ValueKind::JSONB_REF:
         // For a complete subtree the canonical converter can write directly into the output
         // document. ARRAY uses write_path_jsonb() because the legacy path-builder fallback
@@ -791,8 +803,9 @@ bool stable_scalar_matches_type(const Value& value, const ScalarPhysical& physic
     case VariantPrimitiveId::TIME_NTZ_MICROS:
     case VariantPrimitiveId::TIMESTAMP_NANOS:
     case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
-    case VariantPrimitiveId::UUID:
         return false;
+    case VariantPrimitiveId::UUID:
+        return target_primitive == TYPE_UUID;
     }
     throw Exception(ErrorCode::CORRUPTION, "Unknown Variant primitive id");
 }
@@ -858,6 +871,11 @@ void append_value(VariantRef value, const DataTypePtr& target_type, IColumn* tar
     case TYPE_TIMESTAMPTZ:
         append_timestamp(value, target_type->get_primitive_type(), target);
         return;
+    case TYPE_UUID: {
+        const auto bytes = value.get_uuid();
+        assert_cast<ColumnUUID&>(*target).insert_value(UUIDValue::from_big_endian(bytes.data()));
+        return;
+    }
     case TYPE_STRING: {
         if (kind != ValueKind::STRING) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,

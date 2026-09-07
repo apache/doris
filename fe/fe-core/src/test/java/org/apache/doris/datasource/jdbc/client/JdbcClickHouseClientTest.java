@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
@@ -24,6 +27,7 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
 import java.sql.DatabaseMetaData;
+import java.util.Optional;
 
 public class JdbcClickHouseClientTest {
 
@@ -47,6 +51,15 @@ public class JdbcClickHouseClientTest {
         Assertions.assertArrayEquals(
                 new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"},
                 client.getTableTypes());
+    }
+
+    @Test
+    public void testUuidMapsToNativeType() {
+        JdbcClickHouseClient client = Mockito.mock(JdbcClickHouseClient.class, Answers.CALLS_REAL_METHODS);
+        JdbcFieldSchema field = Mockito.mock(JdbcFieldSchema.class);
+        Mockito.when(field.getDataTypeName()).thenReturn(Optional.of("UUID"));
+
+        Assertions.assertEquals(Type.UUID, client.jdbcTypeToDoris(field));
     }
 
     @Test

@@ -135,6 +135,7 @@ Status IndexColumnWriter::create(const TabletColumn* column,
             M(FieldType::OLAP_FIELD_TYPE_BOOL)
             M(FieldType::OLAP_FIELD_TYPE_IPV4)
             M(FieldType::OLAP_FIELD_TYPE_IPV6)
+            M(FieldType::OLAP_FIELD_TYPE_UUID)
             M(FieldType::OLAP_FIELD_TYPE_FLOAT)
             M(FieldType::OLAP_FIELD_TYPE_DOUBLE)
 #undef M

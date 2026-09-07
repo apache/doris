@@ -20,6 +20,7 @@
 
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -28,7 +29,10 @@
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/types.h"
 #include "exec/common/string_utils/string_utils.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -41,6 +45,65 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris {
+namespace {
+
+template <bool Version7>
+class FunctionGenerateUUID : public IFunction {
+public:
+    static constexpr auto name = Version7 ? "uuid_v7" : "uuid_v4";
+
+    static FunctionPtr create() { return std::make_shared<FunctionGenerateUUID>(); }
+
+    String get_name() const override { return name; }
+
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeUUID>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto column = ColumnUUID::create(input_rows_count);
+        auto& data = column->get_data();
+        UUIDValue::generate(data.data(), input_rows_count, Version7);
+        block.replace_by_position(result, std::move(column));
+        return Status::OK();
+    }
+};
+
+class FunctionUUIDVersion : public IFunction {
+public:
+    static constexpr auto name = "uuid_version";
+
+    static FunctionPtr create() { return std::make_shared<FunctionUUIDVersion>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt8>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto& input =
+                assert_cast<const ColumnUUID&>(*block.get_by_position(arguments[0]).column);
+        auto output = ColumnInt8::create(input_rows_count);
+        auto& output_data = output->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            output_data[i] = static_cast<Int8>(UUIDValue::version(input.get_element(i)));
+        }
+        block.replace_by_position(result, std::move(output));
+        return Status::OK();
+    }
+};
+
+} // namespace
+
 class Uuid : public IFunction {
 public:
     static constexpr auto name = "uuid";
@@ -145,6 +208,13 @@ using FunctionIsUuid = FunctionUnaryToType<IsUuidImpl, NameIsUuid>;
 void register_function_uuid(SimpleFunctionFactory& factory) {
     factory.register_function<Uuid>();
     factory.register_function<FunctionIsUuid>();
+    factory.register_function<FunctionGenerateUUID<false>>();
+    factory.register_function<FunctionGenerateUUID<true>>();
+    factory.register_function<FunctionUUIDVersion>();
+    factory.register_alias(FunctionGenerateUUID<false>::name, "generate_uuid_v4");
+    factory.register_alias(FunctionGenerateUUID<false>::name, "generateuuidv4");
+    factory.register_alias(FunctionGenerateUUID<true>::name, "generate_uuid_v7");
+    factory.register_alias(FunctionGenerateUUID<true>::name, "generateuuidv7");
 }
 
 } // namespace doris

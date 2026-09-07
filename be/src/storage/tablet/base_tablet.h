@@ -227,10 +227,10 @@ public:
     static const signed char* get_delete_sign_column_data(const Block& block,
                                                           size_t rows_at_least = 0);
 
-    static Status generate_default_value_block(const TabletSchema& schema,
-                                               const std::vector<uint32_t>& cids,
-                                               const std::vector<std::string>& default_values,
-                                               const Block& ref_block, Block& default_value_block);
+    static Status generate_default_value_block(
+            const TabletSchema& schema, const std::vector<uint32_t>& cids,
+            const PartialUpdateInfo& partial_update_info, const Block& row_block,
+            Block& default_value_block, const std::map<uint32_t, uint32_t>* row_indices = nullptr);
 
     static Status generate_new_block_for_partial_update(
             TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,

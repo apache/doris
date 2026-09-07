@@ -76,6 +76,7 @@ size_t raw_in_value_size(PrimitiveType primitive_type) {
         RETURN_RAW_IN_SIZE(TYPE_DECIMAL256);
         RETURN_RAW_IN_SIZE(TYPE_IPV4);
         RETURN_RAW_IN_SIZE(TYPE_IPV6);
+        RETURN_RAW_IN_SIZE(TYPE_UUID);
 #undef RETURN_RAW_IN_SIZE
     default:
         return 0;

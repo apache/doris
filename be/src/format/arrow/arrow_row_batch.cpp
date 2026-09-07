@@ -83,6 +83,7 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         *result = arrow::int32();
         break;
     case TYPE_IPV6:
+    case TYPE_UUID:
         *result = arrow::utf8();
         break;
     case TYPE_LARGEINT:
@@ -197,6 +198,9 @@ std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
     } else if (primitive_type == PrimitiveType::TYPE_IPV6) {
         auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"IPV6"});
+        return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
+    } else if (primitive_type == PrimitiveType::TYPE_UUID) {
+        auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"UUID"});
         return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
     } else if (primitive_type == PrimitiveType::TYPE_LARGEINT) {
         auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"LARGEINT"});

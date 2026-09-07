@@ -150,9 +150,12 @@ public class JdbcClickHouseClient extends JdbcClient {
         if ("String".contains(ckType)
                 || ckType.startsWith("Enum")
                 || ckType.startsWith("IPv")
-                || "UUID".contains(ckType)
                 || ckType.startsWith("FixedString")) {
             return ScalarType.createStringType();
+        }
+
+        if (ckType.equals("UUID")) {
+            return Type.UUID;
         }
 
         if (ckType.startsWith("DateTime")) {
