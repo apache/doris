@@ -271,7 +271,7 @@ public class GroupStructInfo {
             String token = "S{" + fullName + "#" + ordinal + partitions + ",v" + version + "}";
             sb.append(token);
             return token;
-        } catch (org.apache.doris.rpc.RpcException | RuntimeException e) {
+        } catch (org.apache.doris.rpc.RpcException e) {
             // table version may not be available (e.g. cloud rpc failure): mark invalid and fall back
             LOG.debug("failed to get visible version for scan {}", scan.getTable().getNameWithFullQualifiers(), e);
             return invalid(ctx);

@@ -721,9 +721,13 @@ public class NereidsPlanner extends Planner {
                 || node instanceof PhysicalStorageLayerAggregate) {
             structInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById);
         } else if (node instanceof PhysicalFilter) {
+            // only a filter directly above an olap scan is an hbo read-side lookup target
+            // (filter-on-scan); other filters carry no injectable fingerprint
             AbstractPlan scan = findScanUnder((PhysicalFilter<?>) node);
-            structInfo = scan == null ? GroupStructInfo.structInfoOfPlanNode(node, groupsById)
-                    : GroupStructInfo.structInfoOfPlanNode(scan, groupsById);
+            if (scan == null) {
+                return;
+            }
+            structInfo = GroupStructInfo.structInfoOfPlanNode(scan, groupsById);
         } else {
             return;
         }
@@ -1292,13 +1296,13 @@ public class NereidsPlanner extends Planner {
                 kind = "aggregation";
             } else if (node instanceof PhysicalFilter) {
                 // filter-on-scan: the fingerprint attached at planning time is the scan group
-                // fingerprint (the hbo read-side lookup key for the filter output row count)
+                // fingerprint (the hbo read-side lookup key for the filter output row count);
+                // plain filters (not directly above a scan) are not injectable and are skipped
                 scan = findScanUnder((PhysicalFilter<?>) node);
-                if (scan != null) {
-                    kind = "filter-on-scan(table=" + scanName(scan) + ")";
-                } else {
-                    kind = "filter";
+                if (scan == null) {
+                    continue;
                 }
+                kind = "filter-on-scan(table=" + scanName(scan) + ")";
             } else {
                 continue;
             }
@@ -1313,6 +1317,10 @@ public class NereidsPlanner extends Planner {
                 sb.append(" struct=").append(struct);
             }
             sb.append("\n");
+        }
+        if (sb.toString().indexOf("kind=") < 0) {
+            sb.append("  (no hbo fingerprint attached; check that hbo_use_struct_info_fingerprint "
+                    + "is enabled and the plan went through the planner attach step)\n");
         }
         return sb.toString();
     }

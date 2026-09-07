@@ -83,8 +83,8 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     assertTrue(linesAfter[joinIdxAfter + 1].contains("hbo_si_r"), nodeAfter)
     assertTrue((nodeAfter =~ /PhysicalFilter\[\d+\].*hboUsed=true/).find(), nodeAfter)
 
-        sql """ HBO DELETE STATISTICS '${fingerprint}'; """
     } finally {
+        sql """ HBO DELETE STATISTICS '${fingerprint}'; """
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"
     }
 }
