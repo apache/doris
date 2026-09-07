@@ -45,8 +45,11 @@ import java.util.Set;
  * through to {@code __internal_schema.hbo_statistics} and each FE loads the table into memory
  * once, lazily on first use. The in-memory cache stays authoritative: loaded entries are merged
  * with putIfAbsent, so entries injected while persistence was off (or concurrently) win over the
- * stored snapshot. A FE never refreshes entries SET by another FE during its lifetime; the
- * snapshot is only taken at load time.
+ * stored snapshot, and a DELETE whose DB removal failed while the load was still pending is
+ * tombstoned so the pending load cannot resurrect it (the removal is retried once the load
+ * succeeds). A FE never refreshes entries SET by another FE during its lifetime; in particular a
+ * tombstone may hide a row that another FE re-created during this FE's load window until this FE
+ * restarts and reloads. The snapshot is only taken at load time.
  */
 public class HboPlanStatisticsManager {
     private static final Logger LOG = LogManager.getLogger(HboPlanStatisticsManager.class);
@@ -70,7 +73,10 @@ public class HboPlanStatisticsManager {
     private long lastLoadFailedMs = 0L;
     // fingerprints whose DELETE could not be removed from the internal table while a lazy load
     // is still pending (hboPinnedLoaded false); the pending or retrying load must not resurrect
-    // them into memory (guarded by pinnedLoadLock, cleared after a successful load)
+    // them into memory. Cleared after a successful load, at which point the suppressed rows are
+    // best-effort removed from the table again. Under the per-FE weak consistency model a
+    // tombstone may also suppress a row that another FE re-created during the load window; it
+    // reappears after this FE restarts and reloads. (guarded by pinnedLoadLock)
     private final Set<String> pendingLoadTombstones = new HashSet<>();
 
     public HboPlanStatisticsManager() {
@@ -171,6 +177,15 @@ public class HboPlanStatisticsManager {
                 }
             }
             hboPinnedLoaded = true;
+            if (!pendingLoadTombstones.isEmpty()) {
+                // the load succeeded, so the internal table is reachable: retry the failed DB
+                // removals (idempotent) so their rows do not reappear after a FE restart; a row
+                // re-created by another FE during the tombstone window is removed here too,
+                // which is acceptable under the per-FE weak consistency model (see class javadoc)
+                for (String fingerprint : pendingLoadTombstones) {
+                    HboStatisticsStore.delete(fingerprint);
+                }
+            }
             pendingLoadTombstones.clear();
             LOG.info("loaded {} hbo pinned statistics entries from internal table", loaded.size());
         }

@@ -2357,11 +2357,13 @@ public class Config extends ConfigBase {
      * and the table is loaded lazily on first use. Persistence applies to SET/DELETE issued
      * while this config is true: entries SET while it is false are not persisted, and entries
      * DELETEd while it is false keep their stored rows. A FE loads the table into memory at most
-     * once per process (on first use while this config is true), so such rows reappear only when
-     * that one-time load is still pending (e.g. right after FE start with the config on). On
-     * load, existing in-memory entries win over the stored snapshot and deletions that happened
-     * while the load was pending are honored; a FE never refreshes entries SET by other FEs
-     * during its lifetime.
+     * once per process (on first use while this config is true), so rows deleted while it is
+     * false reappear only for a FE whose one-time load is still pending (e.g. right after FE
+     * start with the config on). On that load, existing in-memory entries win over the stored
+     * snapshot, deletions issued while this config is true during the pending load are honored
+     * (their stored rows are best-effort removed again once the table is reachable), and rows a
+     * DELETE could not remove reappear after a FE restart; a FE never refreshes entries SET by
+     * other FEs during its lifetime.
      */
     @ConfField(mutable = true, description = "The default setting is false. When true, HBO SET/DELETE STATISTICS "
             + "entries are persisted into __internal_schema.hbo_statistics and reloaded after FE "
