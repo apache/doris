@@ -54,6 +54,11 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
     // silently trimmed trailing whitespace must not pass DDL validation.
     private static final Pattern DECIMAL_PATTERN = Pattern.compile(
             "[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?");
+    // Same reason as DECIMAL_PATTERN, for the integer properties: Integer.parseInt resolves any
+    // Unicode decimal digit through Character.digit, while BE's parse_uint uses strtol and accepts
+    // ASCII only. Without this guard a full-width or Arabic-Indic spelling of a number would pass
+    // DDL validation and then fail at index build time with an opaque analyzer error.
+    private static final Pattern INTEGER_PATTERN = Pattern.compile("[+-]?[0-9]+");
 
     public NGramTokenizerValidator() {
         super(ALLOWED_PROPS);
@@ -195,6 +200,9 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
             return dflt;
         }
         String raw = props.get(key);
+        if (!INTEGER_PATTERN.matcher(raw).matches()) {
+            throw new DdlException(key + " must be an integer in [" + lo + ", " + hi + "], got: " + raw);
+        }
         try {
             int value = Integer.parseInt(raw);
             if (value < lo || value > hi) {

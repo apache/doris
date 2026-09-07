@@ -348,14 +348,29 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             }
         }
 
-        // Gram-family constraint (R31): when the tokenizer is ngram and carries mode
-        // (sparse/auto/dense -- any value, dense included), the analyzer may not stack any token
+        String charFilterNames = properties.get(IndexPolicy.PROP_CHAR_FILTER);
+        boolean hasCharFilter = charFilterNames != null && !charFilterNames.isEmpty();
+
+        // Gram-family constraint: when the tokenizer is ngram and carries mode (sparse/auto/dense
+        // -- any value, dense included), the analyzer may not stack any char filter or token
         // filter on top -- the gram split boundaries must be drawn entirely by the tokenizer itself
         // (case folding and the like go through the tokenizer's own lower_case property and happen
-        // before the split), otherwise a stacked token filter would transform terms after the gram
-        // boundaries and break the reproducible semantics of a sparse/dense gram index.
+        // before the split), otherwise a stacked filter would transform the text or the terms
+        // around the gram boundaries and break the reproducible semantics of a sparse/dense gram
+        // index.
+        //
+        // This mirrors BE exactly. CustomAnalyzerProvider only derives a gram scheme when
+        // `char_filter_configs` and `token_filter_configs` are both empty, so an analyzer that FE
+        // let through with a char filter would be constrained here like a gram index (SNII
+        // required, support_phrase forced to false) while BE built one that can never accelerate
+        // LIKE/REGEXP -- silently degraded, with no error anywhere.
         if ("ngram".equals(tokenizer.componentType)) {
             String gramMode = tokenizer.properties.get("mode");
+            if (gramMode != null && !gramMode.isEmpty() && hasCharFilter) {
+                throw new DdlException("char filter '" + charFilterNames
+                        + "' cannot be combined with ngram tokenizer mode=" + gramMode.toLowerCase()
+                        + " (gram-family analyzers must be tokenizer-only)");
+            }
             if (gramMode != null && !gramMode.isEmpty() && !tokenFilters.isEmpty()) {
                 // Any token filter in the chain is rejected; if one of them is lowercase, prefer
                 // that more specific hint (even when it is not the first), because "use the

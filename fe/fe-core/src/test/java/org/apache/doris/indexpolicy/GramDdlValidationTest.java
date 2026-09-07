@@ -135,6 +135,51 @@ public class GramDdlValidationTest {
     }
 
     @Test
+    public void testCharFilterRejectedWithSparseMode() {
+        // BE decides the gram family in custom_analyzer.cpp with
+        // `!char_filter_configs.empty() || !token_filter_configs.empty()`: ANY filter, char filter
+        // included, drops the gram scheme. FE checking only token filters lets an analyzer through
+        // that FE then constrains like a gram index (SNII required, support_phrase forced to
+        // false) while BE builds an index that can never accelerate LIKE/REGEXP -- a silently
+        // degraded index with no warning anywhere. FE must mirror BE's rule exactly.
+        Map<String, String> props = new HashMap<>();
+        props.put("tokenizer", "gram_sparse_tok");
+        props.put("char_filter", "char_replace");
+        UserException e = Assertions.assertThrows(UserException.class,
+                () -> manager.createIndexPolicy(false, "bad_analyzer_cf", IndexPolicyTypeEnum.ANALYZER, props));
+        Assertions.assertTrue(e.getMessage().contains("cannot be combined"), e.getMessage());
+    }
+
+    @Test
+    public void testCharFilterRejectedWithDenseMode() {
+        Map<String, String> props = new HashMap<>();
+        props.put("tokenizer", "gram_dense_tok");
+        props.put("char_filter", "char_replace");
+        UserException e = Assertions.assertThrows(UserException.class,
+                () -> manager.createIndexPolicy(false, "bad_analyzer_cf2", IndexPolicyTypeEnum.ANALYZER, props));
+        Assertions.assertTrue(e.getMessage().contains("cannot be combined"), e.getMessage());
+    }
+
+    @Test
+    public void testCharFilterStillAllowedOnNonGramAnalyzer() {
+        // The rule is scoped to gram-family tokenizers: a legacy ngram analyzer (min_gram/max_gram,
+        // no mode) may still stack a char filter, so this must not become a blanket rejection.
+        // This harness has no EditLog, so an analyzer that passes validation goes on to fail in the
+        // persist step; only the validation outcome is asserted here.
+        Map<String, String> props = new HashMap<>();
+        props.put("tokenizer", "plain_tok");
+        props.put("char_filter", "char_replace");
+        try {
+            manager.createIndexPolicy(false, "plain_with_cf", IndexPolicyTypeEnum.ANALYZER, props);
+        } catch (UserException e) {
+            Assertions.fail("a non-gram analyzer must keep its char filter, but validation rejected it: "
+                    + e.getMessage());
+        } catch (RuntimeException expectedWithoutEditLog) {
+            // Reaching the persist step is the proof that validation accepted the analyzer.
+        }
+    }
+
+    @Test
     public void testGramTokenizerOnlyAnalyzerRemainsValid() throws Exception {
         // A gram-family analyzer that is a bare tokenizer (no token_filter at all) must stay
         // allowed and must not be caught by R31; "gram_sparse" is exactly that valid shape

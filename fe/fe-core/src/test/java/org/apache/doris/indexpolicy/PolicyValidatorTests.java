@@ -264,6 +264,42 @@ public class PolicyValidatorTests {
     }
 
     /**
+     * Integer gram properties must be spelled in ASCII, the same way the decimal ones must.
+     * `Integer.parseInt` resolves any Unicode decimal digit through `Character.digit`, so a
+     * full-width spelling would pass DDL validation here and then be rejected by BE's
+     * `gram_scheme.cpp::parse_uint`, which uses `strtol` and only accepts ASCII digits. The result
+     * would be a CREATE that succeeds and a load that fails with an opaque analyzer error, so FE
+     * has to reject the non-portable spelling up front.
+     */
+    @Test
+    public void testNGramValidator_GramIntegerPropsRejectNonAsciiDigits() {
+        // Spelled as escapes so the assertion does not depend on the source file's encoding.
+        Map<String, String> fullWidthMin = sparseGramProps();
+        fullWidthMin.put("min_gram", "３");                  // FULLWIDTH DIGIT THREE
+        String minMessage = assertGramPropRejected(fullWidthMin);
+        Assertions.assertTrue(minMessage.contains("min_gram must be an integer in [1, 64]"), minMessage);
+
+        Map<String, String> fullWidthMax = sparseGramProps();
+        fullWidthMax.put("max_gram", "１６");            // FULLWIDTH ONE, FULLWIDTH SIX
+        String maxMessage = assertGramPropRejected(fullWidthMax);
+        Assertions.assertTrue(maxMessage.contains("max_gram must be an integer in [1, 256]"), maxMessage);
+
+        // Arabic-Indic digits reach Integer.parseInt through the same Character.digit path.
+        Map<String, String> arabicIndic = sparseGramProps();
+        arabicIndic.put("min_gram", "٣");                   // ARABIC-INDIC DIGIT THREE
+        String arabicMessage = assertGramPropRejected(arabicIndic);
+        Assertions.assertTrue(arabicMessage.contains("min_gram must be an integer in [1, 64]"), arabicMessage);
+
+        // The portable ASCII spellings, including an explicit sign that strtol also accepts, stay
+        // valid -- this rule rejects non-ASCII, it does not narrow the accepted number syntax.
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> ascii = sparseGramProps();
+        ascii.put("min_gram", "3");
+        ascii.put("max_gram", "+16");
+        Assertions.assertDoesNotThrow(() -> validator.validate(ascii));
+    }
+
+    /**
      * The mode value is neither trimmed nor case-folded: BE's `from_properties` compares strings
      * exactly, so if FE accepted " Sparse " it would be persisted verbatim and only fail with a BE
      * InvalidArgument at write time.
