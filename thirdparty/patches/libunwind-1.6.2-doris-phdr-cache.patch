@@ -2,10 +2,10 @@ diff --git a/src/dwarf/Gfind_proc_info-lsb.c b/src/dwarf/Gfind_proc_info-lsb.c
 index 1d0d6a4..8f47463 100644
 --- a/src/dwarf/Gfind_proc_info-lsb.c
 +++ b/src/dwarf/Gfind_proc_info-lsb.c
-@@ -46,3 +46,8 @@ struct table_entry
--
+@@ -47,6 +47,14 @@ struct table_entry
+ 
  #ifndef UNW_REMOTE_ONLY
--
+ 
 +/*
 + * Doris provides a lock-free PHDR snapshot for GNU libunwind.  This avoids
 + * entering glibc dl_iterate_phdr from jemalloc profiling or signal-context
@@ -13,8 +13,13 @@ index 1d0d6a4..8f47463 100644
 + */
 +extern int doris_unwind_iterate_phdr (int (*callback) (struct dl_phdr_info *, size_t, void *),
 +                                      void *data, unw_word_t ip) __attribute__ ((weak));
-@@ -805,5 +810,6 @@ dwarf_find_proc_info (unw_addr_space_t as, unw_word_t ip,
--
++
+ #ifdef __linux__
+ #include "os-linux.h"
+ #endif
+@@ -804,7 +812,10 @@ dwarf_find_proc_info (unw_addr_space_t as, unw_word_t ip,
+   cb_data.di_debug.format = -1;
+ 
    SIGPROCMASK (SIG_SETMASK, &unwi_full_mask, &saved_mask);
 -  ret = dl_iterate_phdr (dwarf_callback, &cb_data);
 +  if (doris_unwind_iterate_phdr)
@@ -22,4 +27,5 @@ index 1d0d6a4..8f47463 100644
 +  else
 +    ret = dl_iterate_phdr (dwarf_callback, &cb_data);
    SIGPROCMASK (SIG_SETMASK, &saved_mask, NULL);
--
+ 
+   if (ret > 0)
