@@ -50,11 +50,12 @@ suite("test_lance_index_ddl", "p0,external") {
 
         // doris.vs_ivf_pq_f32 schema (all NOT NULL): embedding array<float>, row_id bigint,
         // category text, label text. Statically valid index DDL passes the section 2.4 matrix
-        // and is then uniformly rejected until the Lance index build path lands.
+        // and is then rejected because enable_lance_index_mutation defaults to false; the
+        // gate-on admission path is covered by test_lance_index_admission.
         test {
             sql """CREATE INDEX idx ON `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32` (embedding) USING ANN
                    PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="256", "num_sub_vectors"="16")"""
-            exception "CREATE INDEX is not supported for Lance catalog tables"
+            exception "CREATE INDEX is disabled for Lance catalog tables"
         }
 
         test {
@@ -71,7 +72,7 @@ suite("test_lance_index_ddl", "p0,external") {
 
         test {
             sql """CREATE INDEX idx ON `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32` (row_id) USING BTREE"""
-            exception "CREATE INDEX is not supported for Lance catalog tables"
+            exception "CREATE INDEX is disabled for Lance catalog tables"
         }
 
         test {
@@ -82,12 +83,12 @@ suite("test_lance_index_ddl", "p0,external") {
 
         test {
             sql """CREATE INDEX idx ON `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32` (category) USING BITMAP"""
-            exception "CREATE INDEX is not supported for Lance catalog tables"
+            exception "CREATE INDEX is disabled for Lance catalog tables"
         }
 
         test {
             sql """CREATE OR REPLACE INDEX idx ON `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32` (row_id) USING BTREE"""
-            exception "CREATE OR REPLACE INDEX is not supported for Lance catalog tables"
+            exception "CREATE OR REPLACE INDEX is disabled for Lance catalog tables"
         }
 
         test {
@@ -97,13 +98,13 @@ suite("test_lance_index_ddl", "p0,external") {
 
         test {
             sql """DROP INDEX idx ON `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32`"""
-            exception "DROP INDEX is not supported for Lance catalog tables"
+            exception "DROP INDEX is disabled for Lance catalog tables"
         }
 
-        // Reject-all mode is uniform: IF EXISTS does not change the outcome.
+        // The gate-off rejection is uniform: IF EXISTS does not change the outcome.
         test {
             sql """DROP INDEX IF EXISTS idx ON `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32`"""
-            exception "DROP INDEX is not supported for Lance catalog tables"
+            exception "DROP INDEX is disabled for Lance catalog tables"
         }
 
         // An empty backquoted index name is a blank name, not an unsupported operation.
