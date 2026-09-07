@@ -192,7 +192,12 @@ ParquetReaderCompat parquet_reader_compat(const std::string& created_by) {
     return {.parquet_816_padding =
                     version.VersionLt(::parquet::ApplicationVersion::PARQUET_816_FIXED_VERSION()),
             .data_page_v2_always_compressed = version.VersionLt(
-                    ::parquet::ApplicationVersion::PARQUET_CPP_10353_FIXED_VERSION())};
+                    ::parquet::ApplicationVersion::PARQUET_CPP_10353_FIXED_VERSION()),
+            .null_count_trusted =
+                    !version.VersionLt(
+                            ::parquet::ApplicationVersion::PARQUET_MR_FIXED_STATS_VERSION()) &&
+                    !version.VersionLt(
+                            ::parquet::ApplicationVersion::PARQUET_CPP_FIXED_STATS_VERSION())};
 }
 
 Status compute_column_chunk_range(const tparquet::ColumnMetaData& metadata, size_t file_size,

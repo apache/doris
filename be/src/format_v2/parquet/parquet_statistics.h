@@ -131,7 +131,8 @@ struct ParquetStatisticsUtils {
 
     static ParquetColumnStatistics TransformColumnStatistics(
             const ParquetColumnSchema& column_schema, const tparquet::Statistics* statistics,
-            int64_t column_value_count, const cctz::time_zone* timezone = nullptr);
+            int64_t column_value_count, const cctz::time_zone* timezone = nullptr,
+            bool null_count_trusted = true);
 
     static bool NativeBloomFilterExcludes(const ParquetColumnSchema& column_schema, int slot_index,
                                           const VExprContextSPtrs& conjuncts,
