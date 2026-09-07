@@ -22,6 +22,7 @@ import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
 
 import com.qcloud.cos.COSClient;
+import com.qcloud.cos.exception.CosServiceException;
 import com.qcloud.cos.http.HttpMethodName;
 import com.qcloud.cos.model.COSObjectSummary;
 import com.qcloud.cos.model.CopyObjectRequest;
@@ -226,6 +227,44 @@ class CosObjStorageTest {
     }
 
     @Test
+    void headObjectWithMeta_serviceExceptionWithoutCausePreservesCosError() {
+        COSClient mockCos = Mockito.mock(COSClient.class);
+        CosServiceException cosException = serviceExceptionWithoutCause();
+        Mockito.when(mockCos.getObjectMetadata("my-bucket-1234", "stage/1"))
+                .thenThrow(cosException);
+        CosObjStorage storage = new TestableCosObjStorage(buildBasicProps(), mockCos);
+
+        IOException exception = Assertions.assertThrows(IOException.class,
+                () -> storage.headObjectWithMeta("stage", "1"));
+
+        Assertions.assertNull(cosException.getCause());
+        Assertions.assertSame(cosException, exception.getCause());
+        Assertions.assertTrue(exception.getMessage().contains("Access denied"));
+        Assertions.assertTrue(exception.getMessage().contains("Status Code: 403"));
+        Assertions.assertTrue(exception.getMessage().contains("Error Code: AccessDenied"));
+        Assertions.assertTrue(exception.getMessage().contains("Request ID: request-123"));
+    }
+
+    @Test
+    void listObjectsWithPrefix_serviceExceptionWithoutCausePreservesCosError() {
+        COSClient mockCos = Mockito.mock(COSClient.class);
+        CosServiceException cosException = serviceExceptionWithoutCause();
+        Mockito.when(mockCos.listObjects(Mockito.any(ListObjectsRequest.class)))
+                .thenThrow(cosException);
+        CosObjStorage storage = new TestableCosObjStorage(buildBasicProps(), mockCos);
+
+        IOException exception = Assertions.assertThrows(IOException.class,
+                () -> storage.listObjectsWithPrefix("stage", "", null));
+
+        Assertions.assertNull(cosException.getCause());
+        Assertions.assertSame(cosException, exception.getCause());
+        Assertions.assertTrue(exception.getMessage().contains("Access denied"));
+        Assertions.assertTrue(exception.getMessage().contains("Status Code: 403"));
+        Assertions.assertTrue(exception.getMessage().contains("Error Code: AccessDenied"));
+        Assertions.assertTrue(exception.getMessage().contains("Request ID: request-123"));
+    }
+
+    @Test
     void putObject_usesCosNativeClientWithRequestBody() throws Exception {
         COSClient mockCos = Mockito.mock(COSClient.class);
         byte[] content = "hello cos".getBytes(StandardCharsets.UTF_8);
@@ -295,6 +334,14 @@ class CosObjStorageTest {
         props.put("AWS_SECRET_KEY", "legacy-sk");
         props.put("AWS_BUCKET", "legacy-bucket");
         return props;
+    }
+
+    private CosServiceException serviceExceptionWithoutCause() {
+        CosServiceException exception = new CosServiceException("Access denied");
+        exception.setStatusCode(403);
+        exception.setErrorCode("AccessDenied");
+        exception.setRequestId("request-123");
+        return exception;
     }
 
     /** Subclass that injects a mock COSClient, bypassing real credential requirements. */
