@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -36,7 +38,9 @@ import java.util.List;
  * UNKNOWN, after which redispatch is permanently refused; an unresolved UNKNOWN keeps
  * its fence and quota across replay while a FORCE-released UNKNOWN frees both; stale
  * callbacks (revision / invocation id / BE epoch) never change state; and a rejected
- * admission leaves no job, fence, quota charge, or journal record behind.
+ * admission leaves no job, fence, quota charge, or journal record behind. A replayed
+ * unresolved record that lacks fence identity stays out of the books but blocks all
+ * new admissions fail-closed until a later record resolves it.
  */
 public class LanceIndexJobManagerReplayTest {
     private static final long CATALOG_ID = 10L;
@@ -276,6 +280,16 @@ public class LanceIndexJobManagerReplayTest {
         Assertions.assertEquals(LanceIndexJobMutationState.PENDING, target.getJob(5L).getMutationState());
         Assertions.assertTrue(target.getUnresolvedJobs().isEmpty());
         Assertions.assertFalse(target.markRunning(5L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+
+        // Out of the books does not mean invisible: it blocks all new admissions
+        // fail-closed, and the rejection leaves nothing behind.
+        Assertions.assertEquals(Collections.singletonList(5L), target.getCorruptUnresolvedJobIds());
+        DdlException blocked = Assertions.assertThrows(DdlException.class,
+                () -> target.createJob(newCreateJob(9L, "IdxB"), 100, 100, 100));
+        Assertions.assertTrue(blocked.getMessage().contains("smallest job id 5"));
+        Assertions.assertEquals(1, target.getJobCount());
+        Assertions.assertTrue(target.editLog.isEmpty());
+        Assertions.assertEquals(0L, target.getQuota().getGlobalCount());
     }
 
     @Test
@@ -330,6 +344,12 @@ public class LanceIndexJobManagerReplayTest {
         LanceIndexJob refreshCandidate = target.getJobsNeedingRefresh().get(0);
         refreshCandidate.setRefreshState(LanceIndexJobRefreshState.DONE);
         Assertions.assertEquals(LanceIndexJobRefreshState.REQUIRED, target.getJob(2L).getRefreshState());
+
+        target.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":7,\"rev\":0,\"ms\":\"PENDING\"}", LanceIndexJob.class));
+        List<Long> blockingIds = target.getCorruptUnresolvedJobIds();
+        blockingIds.clear();
+        Assertions.assertEquals(Collections.singletonList(7L), target.getCorruptUnresolvedJobIds());
     }
 
     @Test
@@ -354,6 +374,116 @@ public class LanceIndexJobManagerReplayTest {
         Assertions.assertEquals(1L, stored.getRevision());
         Assertions.assertEquals(1, target.getJobCount());
         Assertions.assertEquals(0L, target.getQuota().getGlobalCount());
+
+        // Both deliveries kept the admission blocker pinned...
+        Assertions.assertEquals(Collections.singletonList(5L), target.getCorruptUnresolvedJobIds());
+        // ...and a resolving upsert lifts it without ever keying the books on the record.
+        Assertions.assertDoesNotThrow(() -> target.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":5,\"rev\":2,\"ms\":\"UNKNOWN\",\"fr\":true}", LanceIndexJob.class)));
+        Assertions.assertTrue(target.getCorruptUnresolvedJobIds().isEmpty());
+        Assertions.assertEquals(0L, target.getQuota().getGlobalCount());
+    }
+
+    @Test
+    public void identityLessPendingBlocksAdmissionUntilResolved() throws DdlException {
+        TestManager target = new TestManager();
+        target.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":5,\"rev\":0,\"ms\":\"PENDING\"}", LanceIndexJob.class));
+        Assertions.assertThrows(DdlException.class,
+                () -> target.createJob(newCreateJob(9L, "IdxB"), 100, 100, 100));
+
+        // A later durable record resolving the job lifts the blockade.
+        target.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":5,\"rev\":1,\"ms\":\"COMMITTED\",\"rs\":\"DONE\"}", LanceIndexJob.class));
+        Assertions.assertTrue(target.getCorruptUnresolvedJobIds().isEmpty());
+        target.createJob(newCreateJob(9L, "IdxB"), 100, 100, 100);
+        Assertions.assertEquals(2, target.getJobCount());
+    }
+
+    @Test
+    public void identityLessUnknownBlocksAdmissionUntilForceReleased() throws DdlException {
+        TestManager target = new TestManager();
+        target.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":5,\"rev\":0,\"ms\":\"UNKNOWN\"}", LanceIndexJob.class));
+        Assertions.assertEquals(Collections.singletonList(5L), target.getCorruptUnresolvedJobIds());
+        Assertions.assertThrows(DdlException.class,
+                () -> target.createJob(newCreateJob(9L, "IdxB"), 100, 100, 100));
+
+        // The force-release record of a follow-up PR resolves the job by id,
+        // without needing its fence key.
+        target.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":5,\"rev\":1,\"ms\":\"UNKNOWN\",\"fr\":true}", LanceIndexJob.class));
+        Assertions.assertTrue(target.getCorruptUnresolvedJobIds().isEmpty());
+        target.createJob(newCreateJob(9L, "IdxB"), 100, 100, 100);
+        Assertions.assertEquals(2, target.getJobCount());
+    }
+
+    @Test
+    public void sweptIdentityLessRunningKeepsBlockingAdmission() {
+        TestManager target = new TestManager();
+        target.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":5,\"rev\":1,\"ms\":\"RUNNING\"}", LanceIndexJob.class));
+        Assertions.assertEquals(Collections.singletonList(5L), target.getCorruptUnresolvedJobIds());
+
+        // The master-election sweep turns the ambiguous RUNNING into UNKNOWN; the
+        // blockade survives because the record still lacks fence identity.
+        target.onTransferToMaster();
+        Assertions.assertEquals(LanceIndexJobMutationState.UNKNOWN, target.getJob(5L).getMutationState());
+        Assertions.assertEquals(Collections.singletonList(5L), target.getCorruptUnresolvedJobIds());
+        Assertions.assertThrows(DdlException.class,
+                () -> target.createJob(newCreateJob(9L, "IdxB"), 100, 100, 100));
+    }
+
+    @Test
+    public void healthyJobLifecycleProceedsWhileAdmissionIsBlocked() throws DdlException {
+        TestManager target = new TestManager();
+        target.createJob(newCreateJob(9L, "IdxB"), 100, 100, 100);
+        // Corruption can surface after a legal admission (a follower replays records in
+        // journal order); only new admissions are blocked, never in-flight lifecycle steps.
+        target.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":5,\"rev\":0,\"ms\":\"PENDING\"}", LanceIndexJob.class));
+        Assertions.assertThrows(DdlException.class,
+                () -> target.createJob(newCreateJob(10L, "IdxC"), 100, 100, 100));
+
+        Assertions.assertTrue(target.markRunning(9L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(target.completeWithResult(9L, 1L, INVOCATION_ID, BE_EPOCH, okResult()));
+        Assertions.assertEquals(LanceIndexJobMutationState.COMMITTED, target.getJob(9L).getMutationState());
+    }
+
+    @Test
+    public void admissionBlockMessageStaysBoundedWithMultipleCorruptRecords() {
+        TestManager target = new TestManager();
+        for (long jobId = 5L; jobId <= 7L; jobId++) {
+            target.replayUpsertJob(GsonUtils.GSON.fromJson(
+                    "{\"jid\":" + jobId + ",\"rev\":0,\"ms\":\"PENDING\"}", LanceIndexJob.class));
+        }
+        Assertions.assertEquals(Arrays.asList(5L, 6L, 7L), target.getCorruptUnresolvedJobIds());
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> target.createJob(newCreateJob(9L, "IdxB"), 100, 100, 100));
+        // Bounded and non-disclosing: the count plus the smallest job id, never a list.
+        Assertions.assertTrue(exception.getMessage().contains("3 unresolved"));
+        Assertions.assertTrue(exception.getMessage().contains("smallest job id 5"));
+        Assertions.assertFalse(exception.getMessage().contains("6"));
+        Assertions.assertFalse(exception.getMessage().contains("7"));
+    }
+
+    @Test
+    public void identityFullUpsertHealsAnIdentityLessRecord() throws DdlException {
+        TestManager target = new TestManager();
+        target.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":5,\"rev\":0,\"ms\":\"PENDING\"}", LanceIndexJob.class));
+        Assertions.assertEquals(Collections.singletonList(5L), target.getCorruptUnresolvedJobIds());
+
+        // A record carrying fence identity heals the books at the same revision: the job
+        // joins the fence/quota accounting and the admission blockade lifts.
+        target.replayUpsertJob(pendingRecord(5L, "IdxA"));
+        Assertions.assertTrue(target.getCorruptUnresolvedJobIds().isEmpty());
+        Assertions.assertEquals(1L, target.getQuota().getGlobalCount());
+        Assertions.assertTrue(target.isFenceHeld(target.getJob(5L).fenceKey()));
+        DdlException fenced = Assertions.assertThrows(DdlException.class,
+                () -> target.createJob(newCreateJob(9L, "idxa"), 100, 100, 100));
+        Assertions.assertTrue(fenced.getMessage().contains("unresolved job 5"));
     }
 
     @Test

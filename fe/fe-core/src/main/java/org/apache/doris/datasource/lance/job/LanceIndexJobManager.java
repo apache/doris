@@ -72,7 +72,11 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * <p>Fence and quota live and die together ({@link LanceIndexJob#isUnresolved()}):
  * released when a known terminal job's refresh is NOT_REQUIRED or DONE, or by
  * a durable FORCE_RELEASE; an unresolved UNKNOWN holds both across failover,
- * timeout, termination proof, and metadata observations.
+ * timeout, termination proof, and metadata observations. A replayed unresolved
+ * record that lacks fence identity (provider/locator/name) cannot join the
+ * books — its fence key cannot be reconstructed — so it is tracked in
+ * {@link #corruptUnresolvedJobIds} and blocks all new admissions fail-closed
+ * until a later durable record resolves it.
  *
  * <p>The class starts no threads, so no checkpoint-thread guard is needed in
  * the constructor; the derived fence index and quota counters are rebuilt in
@@ -88,9 +92,21 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * Derived: fence key -&gt; all job ids holding that fence. Legal admission creates
      * exactly one owner; retaining every owner for a corrupt collision keeps the
      * fence fail-closed when one of those jobs later settles. Identity-less corrupt
-     * records are kept out of the books. Rebuilt after replay/image load.
+     * records are kept out of the books and tracked in {@link #corruptUnresolvedJobIds}
+     * instead. Rebuilt after replay/image load.
      */
     private final Map<LanceIndexFenceKey, NavigableSet<Long>> fenceIndex = Maps.newHashMap();
+
+    /**
+     * Derived: ids of replayed unresolved jobs that lack fence identity (a corrupt
+     * journal/image record whose fence key cannot be reconstructed). While this set
+     * is non-empty, {@link #createJob} rejects every admission fail-closed: such a
+     * record may still track a live or already-committed mutation under an unknown
+     * name, and no new job may race it. An id leaves the set when a later durable
+     * record resolves the job (a known terminal state with no pending refresh, or
+     * the durable force release of a follow-up PR). Rebuilt after replay/image load.
+     */
+    private final NavigableSet<Long> corruptUnresolvedJobIds = new TreeSet<>();
 
     /** Derived: three-level unresolved counters, rebuilt from the unresolved jobs. */
     private final LanceIndexJobQuota quota = new LanceIndexJobQuota();
@@ -133,7 +149,8 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * happen inside the write lock, before anything is logged. A rejection
      * leaves no job, no fence, no quota charge, and no edit-log record.
      *
-     * @throws DdlException on a fence conflict, a duplicate job id, or quota overload
+     * @throws DdlException on a fence conflict, a duplicate job id, quota overload,
+     * or while corrupt unresolved records keep admission fail-closed
      */
     public void createJob(LanceIndexJob job, long tableLimit, long catalogLimit, long globalLimit)
             throws DdlException {
@@ -150,6 +167,15 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             }
             if (jobs.containsKey(job.getJobId())) {
                 throw new DdlException("lance index job id already exists: " + job.getJobId());
+            }
+            if (!corruptUnresolvedJobIds.isEmpty()) {
+                // Fail closed: a corrupt unresolved record may track a live or already-committed
+                // mutation whose fence key cannot be reconstructed, so no new admission may
+                // race it. The message stays bounded and discloses no target identity.
+                throw new DdlException("lance index admission is fail-closed: "
+                        + corruptUnresolvedJobIds.size() + " unresolved job(s) lack fence identity"
+                        + " (corrupt journal/image record), smallest job id " + corruptUnresolvedJobIds.first()
+                        + "; resolve them (FORCE_RELEASE) before admitting new jobs");
             }
             NavigableSet<Long> fencingJobIds = fenceIndex.get(job.fenceKey());
             if (fencingJobIds != null && !fencingJobIds.isEmpty()) {
@@ -508,13 +534,18 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * the replaced record. Fence and quota always move together: a record
      * holds both while {@link LanceIndexJob#isUnresolved()}, provided it
      * carries fence identity (a corrupt identity-less record stays queryable
-     * but out of the books on both the charge and the release side). A private
+     * but out of the books on both the charge and the release side, and is
+     * tracked in {@link #corruptUnresolvedJobIds} instead). A private
      * copy is always stored so neither a replay input nor an edit-log seam
      * reference can mutate the published record. Caller holds the write lock.
      */
     private void applyToMemory(LanceIndexJob job) {
         LanceIndexJob stored = new LanceIndexJob(job);
         LanceIndexJob old = jobs.put(stored.getJobId(), stored);
+        // A replaced id leaves the admission blocker no matter what replaces it: the
+        // new record either resolves the job, or carries identity and joins the books,
+        // or is re-added below as still identity-less and unresolved.
+        corruptUnresolvedJobIds.remove(stored.getJobId());
         // Release only what the identity guard below booked: an identity-less corrupt
         // record was stored without fence/quota accounting, so keying on it would throw.
         if (old != null && old.isUnresolved() && hasFenceIdentity(old)) {
@@ -532,9 +563,13 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
                 owners.add(stored.getJobId());
                 quota.charge(stored);
             } else {
-                // Corrupt record tolerance: keep it queryable but out of the fence/quota books.
+                // Corrupt record tolerance: keep it queryable but out of the fence/quota
+                // books (keying on it would throw), and block all new admissions
+                // fail-closed until a later durable record resolves it.
+                corruptUnresolvedJobIds.add(stored.getJobId());
                 LOG.warn("lance index job {} lacks fence identity (provider/locator/name);"
-                        + " stored without fence/quota accounting", stored.getJobId());
+                        + " stored without fence/quota accounting and blocking all new"
+                        + " admissions fail-closed until resolved", stored.getJobId());
             }
         }
     }
@@ -577,6 +612,9 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
     /**
      * All jobs still holding a fence and unresolved quota: PENDING/RUNNING,
      * unforced UNKNOWN, and known terminal jobs with unfinished refresh.
+     * Unresolved jobs that lack fence identity (corrupt records) hold no fence
+     * and are excluded here; they are visible through
+     * {@link #getCorruptUnresolvedJobIds()} instead.
      */
     public List<LanceIndexJob> getUnresolvedJobs() {
         readLock();
@@ -627,6 +665,22 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
         }
     }
 
+    /**
+     * Ids of unresolved jobs that lack fence identity (corrupt journal/image
+     * records whose fence key cannot be reconstructed). While non-empty, every
+     * {@link #createJob} admission is rejected fail-closed; the force-release
+     * transition of a follow-up PR resolves such a job by id, without needing
+     * its fence key.
+     */
+    public List<Long> getCorruptUnresolvedJobIds() {
+        readLock();
+        try {
+            return new ArrayList<>(corruptUnresolvedJobIds);
+        } finally {
+            readUnlock();
+        }
+    }
+
     @VisibleForTesting
     LanceIndexJobQuota getQuota() {
         return quota;
@@ -663,11 +717,14 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * jobs after Gson image load. A fence-key collision between unresolved
      * jobs (only possible on a corrupt image) retains every owner so the fence
      * remains held until all colliding jobs settle; conflict reporting still
-     * uses the smaller job id.
+     * uses the smaller job id. Unresolved jobs without fence identity are kept
+     * out of the books and recorded in {@link #corruptUnresolvedJobIds}, which
+     * keeps admission fail-closed on their behalf.
      */
     @Override
     public void gsonPostProcess() throws IOException {
         fenceIndex.clear();
+        corruptUnresolvedJobIds.clear();
         List<LanceIndexJob> unresolvedJobs = new ArrayList<>();
         if (jobs == null) {
             jobs = Maps.newConcurrentMap();
@@ -677,8 +734,10 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
                 continue;
             }
             if (!hasFenceIdentity(job)) {
+                corruptUnresolvedJobIds.add(job.getJobId());
                 LOG.warn("lance index job {} lacks fence identity (provider/locator/name);"
-                        + " excluded from fence/quota rebuild", job.getJobId());
+                        + " excluded from fence/quota rebuild and blocking all new"
+                        + " admissions fail-closed until resolved", job.getJobId());
                 continue;
             }
             unresolvedJobs.add(job);

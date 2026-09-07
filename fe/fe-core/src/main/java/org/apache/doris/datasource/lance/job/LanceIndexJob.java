@@ -313,12 +313,16 @@ public class LanceIndexJob implements Writable {
     }
 
     /**
-     * Whether this job still holds its same-name fence and unresolved quota.
-     * Fence and quota are released together: PENDING/RUNNING always hold; a
-     * known terminal job holds until its required refresh is DONE (FAILED
-     * still holds, refresh may retry); UNKNOWN holds until a durable
-     * FORCE_RELEASE. A null state from a corrupt record is treated as UNKNOWN,
-     * the safe direction (fence retained, never redispatched).
+     * Whether this job is still unresolved, i.e. must keep holding its same-name
+     * fence and unresolved quota. Fence and quota are released together:
+     * PENDING/RUNNING always hold; a known terminal job holds until its required
+     * refresh is DONE (FAILED still holds, refresh may retry); UNKNOWN holds until
+     * a durable FORCE_RELEASE. A null state from a corrupt record is treated as
+     * UNKNOWN, the safe direction (never redispatched). Holding the fence itself
+     * requires the fence identity to survive: the manager keeps an identity-less
+     * corrupt record out of the books (its fence key cannot be reconstructed) and
+     * instead blocks all new admissions fail-closed until a later durable record
+     * resolves it.
      */
     public boolean isUnresolved() {
         LanceIndexJobMutationState ms = mutationState == null ? LanceIndexJobMutationState.UNKNOWN : mutationState;

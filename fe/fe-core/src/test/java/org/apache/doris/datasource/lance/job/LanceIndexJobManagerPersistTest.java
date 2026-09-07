@@ -31,6 +31,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -133,6 +134,26 @@ public class LanceIndexJobManagerPersistTest {
         DdlException exception = Assertions.assertThrows(DdlException.class,
                 () -> loaded.createJob(newCreateJob(9L, "idxa"), 100, 100, 100));
         Assertions.assertTrue(exception.getMessage().contains("unresolved job 1"));
+    }
+
+    @Test
+    public void imageLoadKeepsAnIdentityLessRecordBlockingAdmission() {
+        // A corrupt image record without fence identity cannot join the books; it must
+        // still block new admissions fail-closed after gsonPostProcess rebuilds state
+        // (Gson auto-runs it after fromJson).
+        String json = "{\"jobs\":{\"5\":{\"jid\":5,\"rev\":0,\"ms\":\"PENDING\"}}}";
+        LanceIndexJobManager loaded = GsonUtils.GSON.fromJson(json, LanceIndexJobManager.class);
+
+        Assertions.assertNotNull(loaded.getJob(5L));
+        Assertions.assertEquals(Collections.singletonList(5L), loaded.getCorruptUnresolvedJobIds());
+        Assertions.assertEquals(0L, loaded.getQuota().getGlobalCount());
+        Assertions.assertTrue(loaded.getUnresolvedJobs().isEmpty());
+
+        // The rejection precedes any journal write, so the base-class edit-log seam
+        // (which needs a live Env) never runs.
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> loaded.createJob(newCreateJob(9L, "IdxB"), 100, 100, 100));
+        Assertions.assertTrue(exception.getMessage().contains("smallest job id 5"));
     }
 
     @Test
