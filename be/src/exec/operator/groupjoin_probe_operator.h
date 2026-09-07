@@ -111,7 +111,6 @@ private:
     std::vector<TGroupJoinAggSide::type> _aggregate_sides;
     Sizes _sizes_of_aggregate_states;
     Sizes _aligns_of_aggregate_states;
-    std::vector<size_t> _make_nullable_keys;
     TupleId _output_tuple_id;
     TupleDescriptor* _output_tuple_desc = nullptr;
     OperatorPtr _build_side_child = nullptr;
