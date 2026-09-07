@@ -26,9 +26,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Global service for hbo plan stats. manager, including:
@@ -59,12 +61,17 @@ public class HboPlanStatisticsManager {
     // whether pinned statistics have been loaded from the internal table (only when persistence
     // is enabled); planner/command threads access it concurrently
     private volatile boolean hboPinnedLoaded = false;
-    // serializes the memory phases of the lazy load, SET and DELETE against each other; the
-    // best-effort persistence SQL of SET/DELETE runs outside this lock
+    // serializes the memory phases of the lazy load, SET and DELETE against each other (including
+    // the best-effort persistence SQL of DELETE, so no load can observe a row in between a
+    // DELETE's memory invalidation and its DB removal)
     private final Object pinnedLoadLock = new Object();
     // backoff timestamp after a failed load attempt, so a not-ready internal schema does not
     // trigger a DDL+SELECT retry for every group of every query (guarded by pinnedLoadLock)
     private long lastLoadFailedMs = 0L;
+    // fingerprints whose DELETE could not be removed from the internal table while a lazy load
+    // is still pending (hboPinnedLoaded false); the pending or retrying load must not resurrect
+    // them into memory (guarded by pinnedLoadLock, cleared after a successful load)
+    private final Set<String> pendingLoadTombstones = new HashSet<>();
 
     public HboPlanStatisticsManager() {
         hboPlanStatisticsProvider = new MemoryHboPlanStatisticsProvider();
@@ -100,6 +107,9 @@ public class HboPlanStatisticsManager {
         synchronized (pinnedLoadLock) {
             pinnedPlanStatistics.put(fingerprint,
                     new PinnedHboStatistics(fingerprint, rows, nodeType, structCanonical, createTimeMs));
+            // a SET after a failed DELETE re-creates the entry: drop the deletion intent so a
+            // pending load does not skip the re-created row
+            pendingLoadTombstones.remove(fingerprint);
         }
         if (persistenceEnabled()) {
             HboStatisticsStore.persist(fingerprint, rows, nodeType, structCanonical, createTimeMs);
@@ -118,9 +128,15 @@ public class HboPlanStatisticsManager {
     public void removePinnedPlanStatistics(String fingerprint) {
         synchronized (pinnedLoadLock) {
             pinnedPlanStatistics.invalidate(fingerprint);
-        }
-        if (persistenceEnabled()) {
-            HboStatisticsStore.delete(fingerprint);
+            if (persistenceEnabled()) {
+                // the DB removal runs under the lock so a lazy load can never SELECT the row in
+                // the window between the memory invalidation and its DB removal (M-1 R1)
+                if (!HboStatisticsStore.delete(fingerprint) && !hboPinnedLoaded) {
+                    // the row is still stored and a pending/retrying load would resurrect it
+                    // into memory: remember the deletion intent (M-1 R2)
+                    pendingLoadTombstones.add(fingerprint);
+                }
+            }
         }
     }
 
@@ -148,10 +164,14 @@ public class HboPlanStatisticsManager {
             }
             for (PinnedHboStatistics pinned : loaded) {
                 // entries injected while persistence was off, or concurrently with the load,
-                // must win over the stored snapshot: the in-memory cache stays authoritative
-                pinnedPlanStatistics.asMap().putIfAbsent(pinned.getFingerprint(), pinned);
+                // must win over the stored snapshot, and entries deleted while the load was
+                // still pending must not be resurrected: the in-memory cache stays authoritative
+                if (!pendingLoadTombstones.contains(pinned.getFingerprint())) {
+                    pinnedPlanStatistics.asMap().putIfAbsent(pinned.getFingerprint(), pinned);
+                }
             }
             hboPinnedLoaded = true;
+            pendingLoadTombstones.clear();
             LOG.info("loaded {} hbo pinned statistics entries from internal table", loaded.size());
         }
     }

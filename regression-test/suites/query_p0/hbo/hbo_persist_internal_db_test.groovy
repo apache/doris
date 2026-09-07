@@ -22,22 +22,27 @@ suite("hbo_persist_internal_db_test", "nonConcurrent") {
     // in-memory-only behavior. The in-memory pinned entry is authoritative: SET writes through
     // synchronously and DELETE removes the row again.
     def prevPersist = (sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'hbo_persist_pinned_to_internal_db'; """)[0][1].toString()
-    sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "true"); """
     def fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     def tableName = "__internal_schema.hbo_statistics"
     try {
-        // SET persists the pinned entry into the internal table synchronously
-        sql """ HBO SET STATISTICS '${fingerprint}' = 123456; """
-        qt_set_persisted """ SELECT fingerprint, row_count, node_type, struct_info FROM ${tableName}
-            WHERE fingerprint = '${fingerprint}'; """
+        sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "true"); """
+        try {
+            // SET persists the pinned entry into the internal table synchronously
+            sql """ HBO SET STATISTICS '${fingerprint}' = 123456; """
+            qt_set_persisted """ SELECT fingerprint, row_count, node_type, struct_info FROM ${tableName}
+                WHERE fingerprint = '${fingerprint}'; """
 
-        // DELETE removes the row from the internal table
-        sql """ HBO DELETE STATISTICS '${fingerprint}'; """
-        qt_delete_cleared """ SELECT fingerprint, row_count, node_type, struct_info FROM ${tableName}
-            WHERE fingerprint = '${fingerprint}'; """
+            // DELETE removes the row from the internal table
+            sql """ HBO DELETE STATISTICS '${fingerprint}'; """
+            qt_delete_cleared """ SELECT fingerprint, row_count, node_type, struct_info FROM ${tableName}
+                WHERE fingerprint = '${fingerprint}'; """
+        } finally {
+            // cleanup runs while the config is still on, so a failure between SET and the DELETE
+            // above cannot leave a persisted row behind
+            sql """ HBO DELETE STATISTICS '${fingerprint}'; """
+        }
     } finally {
-        // restore the config first so a failing cleanup can not leak the hot config to later suites
+        // restore the config last so a failing cleanup can not leak the hot config to later suites
         sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "${prevPersist}"); """
-        sql """ HBO DELETE STATISTICS '${fingerprint}'; """
     }
 }

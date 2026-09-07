@@ -78,15 +78,22 @@ public class HboStatisticsStore {
         }
     }
 
-    /** Remove a pinned entry. */
-    public static void delete(String fingerprint) {
+    /**
+     * Remove a pinned entry.
+     *
+     * @return true when the row was removed (or the table had no such row), false when the
+     *         best-effort removal failed (e.g. internal schema not ready yet)
+     */
+    public static boolean delete(String fingerprint) {
         try {
             ensureTable();
             String sql = "DELETE FROM " + FULL_QUALIFIED + " WHERE `fingerprint` = '"
                     + StatisticsUtil.escapeSQL(fingerprint) + "'";
             StatisticsUtil.execUpdate(sql);
+            return true;
         } catch (Exception t) {
             LOG.warn("failed to delete hbo pinned statistics for fingerprint {}", fingerprint, t);
+            return false;
         }
     }
 
