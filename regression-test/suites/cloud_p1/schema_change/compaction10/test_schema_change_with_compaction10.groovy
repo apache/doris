@@ -89,6 +89,60 @@ suite('test_schema_change_with_compaction10', 'docker') {
             trigger_and_wait_compaction("date", "cumulative")
         }
 
+        def triggerAndWaitCumulativeCompaction = { tabletId, latestVersionRange, expectedVersionRange ->
+            awaitUntil(60, 1) {
+                def (showCode, showOut, showErr) =
+                        be_show_tablet_status(injectBe.Host, injectBe.HttpPort, tabletId)
+                assertEquals(0, showCode, "Failed to show tablet status: ${showErr}")
+                def tabletStatus = parseJson(showOut.trim())
+                assertTrue(tabletStatus.rowsets instanceof List)
+                return tabletStatus.rowsets.any { it.contains(latestVersionRange) }
+            }
+
+            logger.info("run compaction:" + tabletId)
+            def (triggerCode, triggerOut, triggerErr) =
+                    be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
+            logger.info("Run compaction: code=" + triggerCode + ", out=" + triggerOut + ", err=" + triggerErr)
+            assertEquals(0, triggerCode, "Failed to trigger cumulative compaction: ${triggerErr}")
+            def triggerResult = parseJson(triggerOut.trim())
+            assertEquals("success", triggerResult.status.toString().toLowerCase(),
+                    "Unexpected cumulative compaction response: ${triggerOut}")
+
+            def tabletRowsets = []
+            awaitUntil(60, 1) {
+                def (showCode, showOut, showErr) =
+                        be_show_tablet_status(injectBe.Host, injectBe.HttpPort, tabletId)
+                assertEquals(0, showCode, "Failed to show tablet status: ${showErr}")
+                def tabletStatus = parseJson(showOut.trim())
+                assertTrue(tabletStatus.rowsets instanceof List)
+                tabletRowsets = tabletStatus.rowsets
+                return tabletRowsets.any { it.contains(expectedVersionRange) }
+            }
+            return tabletRowsets
+        }
+
+        def restartBackendAndRearmDebugPoint = {
+            cluster.stopBackends()
+            def rearmFuture = thread {
+                long deadline = System.currentTimeMillis() + 120000L
+                Exception lastError = null
+                while (System.currentTimeMillis() < deadline) {
+                    try {
+                        DebugPoint.enableDebugPoint(injectBe.Host, injectBe.HttpPort as int,
+                                NodeType.BE, injectName)
+                        return
+                    } catch (Exception e) {
+                        lastError = e
+                        sleep(50)
+                    }
+                }
+                throw new IllegalStateException("Failed to re-enable ${injectName} after BE restart", lastError)
+            }
+            cluster.startBackends()
+            rearmFuture.get()
+        }
+
+        def newTabletId = null
         try {
             load_delete_compaction()
             load_delete_compaction()
@@ -102,26 +156,32 @@ suite('test_schema_change_with_compaction10', 'docker') {
             sleep(5000)
             array = sql_return_maparray("SHOW TABLETS FROM date")
 
-            for (int i = 0; i < 5; i++) {
+            // NOTREADY tablets keep the latest 10 versions unmerged. Create enough
+            // double-write rowsets for older versions to remain eligible for compaction.
+            for (int i = 0; i < 16; i++) {
                 load_date_once("date");
             }
 
-            cluster.restartBackends()
-            GetDebugPoint().enableDebugPointForAllBEs(injectName)
+            restartBackendAndRearmDebugPoint()
             sleep(30000)
+            assertEquals("RUNNING", getJobState("date"),
+                    "Schema change finished before the debug point was re-enabled")
 
             // base compaction
             trigger_and_wait_compaction("date", "base")
-            def newTabletId = array[1].TabletId
+            newTabletId = array[1].TabletId
             logger.info("run compaction:" + newTabletId)
             def (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, newTabletId)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("invalid tablet state."))
 
-            // cu compaction
-            trigger_and_wait_compaction("date", "cumulative")
-        } catch (Exception e) {
-            logger.info("Exception: " + e)
+            triggerAndWaitCumulativeCompaction(originTabletId, "[24-24]", "[9-24]")
+            def notReadyTabletRowsets =
+                    triggerAndWaitCumulativeCompaction(newTabletId, "[24-24]", "[9-14]")
+            assertEquals("RUNNING", getJobState("date"))
+            for (int version = 15; version <= 24; version++) {
+                assertTrue(notReadyTabletRowsets.any { it.contains("[${version}-${version}]") })
+            }
         } finally {
             if (injectBe != null) {
                 GetDebugPoint().disableDebugPointForAllBEs(injectName)
@@ -150,7 +210,7 @@ suite('test_schema_change_with_compaction10', 'docker') {
             assertTrue(out.contains("[0-1]"))
             assertTrue(out.contains("[2-7]"))
             assertTrue(out.contains("[8-8]"))
-            assertTrue(out.contains("[9-13]"))
+            assertTrue(out.contains("[9-24]"))
 
             logger.info("run show:" + newTabletId)
             (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)
@@ -159,7 +219,7 @@ suite('test_schema_change_with_compaction10', 'docker') {
             assertTrue(out.contains("[2-2]"))
             assertTrue(out.contains("[7-7]"))
             assertTrue(out.contains("[8-8]"))
-            assertTrue(out.contains("[9-13]"))
+            assertTrue(out.contains("[9-14]"))
 
             // base compaction
             trigger_and_wait_compaction("date", "base")
@@ -169,7 +229,7 @@ suite('test_schema_change_with_compaction10', 'docker') {
             assertTrue(out.contains("[0-1]"))
             assertTrue(out.contains("[2-7]"))
             assertTrue(out.contains("[8-8]"))
-            assertTrue(out.contains("[9-13]"))
+            assertTrue(out.contains("[9-14]"))
 
             for (int i = 0; i < 3; i++) {
                 load_date_once("date");
@@ -177,13 +237,11 @@ suite('test_schema_change_with_compaction10', 'docker') {
 
             sql """ select count(*) from date """
 
-            trigger_and_wait_compaction("date", "cumulative")
-            logger.info("run show:" + newTabletId)
-            (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)
-            logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
-            assertTrue(out.contains("[0-1]"))
-            assertTrue(out.contains("[2-7]"))
-            assertTrue(out.contains("[8-16]"))
+            def finalTabletRowsets =
+                    triggerAndWaitCumulativeCompaction(newTabletId, "[27-27]", "[8-27]")
+            assertTrue(finalTabletRowsets.any { it.contains("[0-1]") })
+            assertTrue(finalTabletRowsets.any { it.contains("[2-7]") })
+            assertTrue(finalTabletRowsets.any { it.contains("[8-27]") })
         }
     }
 }
