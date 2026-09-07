@@ -64,9 +64,11 @@ public:
     static TimeType make_time(int64_t hour, int64_t minute, int64_t second, int64_t microsecond = 0,
                               bool negative = false) {
         if constexpr (CHECK) {
-            // the max time value is 838:59:59.999999
+            // the max time value is 838:59:59.000000
             if (std::abs(hour) > 838 || std::abs(minute) >= 60 || std::abs(second) >= 60 ||
-                std::abs(microsecond) >= 1000000) [[unlikely]] {
+                std::abs(microsecond) >= 1000000 ||
+                (std::abs(hour) == 838 && std::abs(minute) == 59 && std::abs(second) == 59 &&
+                 microsecond != 0)) [[unlikely]] {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "Invalid time value: hour={}, minute={}, second={}, microsecond={}",
                                 hour, minute, second, microsecond);

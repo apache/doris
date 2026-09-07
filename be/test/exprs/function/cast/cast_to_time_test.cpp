@@ -40,6 +40,8 @@ TEST_F(FunctionCastTest, test_from_string_strict_mode_to_time) {
                 {{std::string("5656.3000000009")}, std::string("00:56:56.300000")},
                 {{std::string("5656.3000007001")}, std::string("00:56:56.300001")},
                 {{std::string("12:34:56.123")}, std::string("12:34:56.123")},
+                {{std::string("838:59:59.000000")}, std::string("838:59:59.000000")},
+                {{std::string("-838:59:59.000000")}, std::string("-838:59:59.000000")},
         };
         check_function_for_cast_strict_mode<DataTypeTimeV2>(input_types, data_set, "", 6);
     }
@@ -54,6 +56,8 @@ TEST_F(FunctionCastTest, test_from_string_strict_mode_to_time) {
                 {{std::string("12:34:")}, Null()},
                 {{std::string("76")}, Null()},
                 {{std::string("200595912")}, Null()},
+                {{std::string("838:59:59.999999")}, Null()},
+                {{std::string("-838:59:59.999999")}, Null()},
                 {{std::string("8385959.9999999")}, Null()},
                 {{std::string("   1   ")}, Null()},
         };
@@ -80,6 +84,8 @@ TEST_F(FunctionCastTest, test_from_string_non_strict_mode_to_time) {
             {{std::string("5656.3000000009")}, std::string("00:56:56.300000")},
             {{std::string("5656.3000007001")}, std::string("00:56:56.300001")},
             {{std::string("12:34:56.123")}, std::string("12:34:56.123")},
+            {{std::string("838:59:59.000000")}, std::string("838:59:59.000000")},
+            {{std::string("-838:59:59.000000")}, std::string("-838:59:59.000000")},
             {{std::string("   1   ")}, std::string("00:00:01.000000")},
             {{std::string(".123")}, Null()},
             {{std::string(":12:34")}, Null()},
@@ -89,6 +95,8 @@ TEST_F(FunctionCastTest, test_from_string_non_strict_mode_to_time) {
             {{std::string("12:34:")}, Null()},
             {{std::string("76")}, Null()},
             {{std::string("200595912")}, Null()},
+            {{std::string("838:59:59.999999")}, Null()},
+            {{std::string("-838:59:59.999999")}, Null()},
             {{std::string("8385959.9999999")}, Null()},
             {{Null()}, Null()},
     };
@@ -124,6 +132,55 @@ TEST_F(FunctionCastTest, test_from_numeric_to_time) {
                             {{67.0}, Null()},
                             {{Null()}, Null()}};
         check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 3);
+    }
+
+    // Test numeric fractions beyond the TIME boundary
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+        DataSet data_set = {{{8385959.000001}, Null()}, {{-8385959.000001}, Null()}};
+        check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 6);
+        check_function_for_cast_strict_mode<DataTypeTimeV2>(
+                input_types, data_set, "time overflow after adding fractional seconds", 6);
+    }
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_FLOAT};
+        DataSet data_set = {
+                {{static_cast<float>(8385959.5)}, Null()},
+                {{static_cast<float>(-8385959.5)}, Null()},
+        };
+        check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 6);
+        check_function_for_cast_strict_mode<DataTypeTimeV2>(
+                input_types, data_set, "time overflow after adding fractional seconds", 6);
+    }
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL64, 6, 13}};
+        DataSet data_set = {
+                {{DECIMAL64(8385959, 1, 6)}, Null()},
+                {{DECIMAL64(-8385959, -1, 6)}, Null()},
+        };
+        check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 6);
+        check_function_for_cast_strict_mode<DataTypeTimeV2>(
+                input_types, data_set, "time overflow after adding fractional seconds", 6);
+    }
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL128I, 25, 32}};
+        DataSet data_set = {
+                {{DECIMAL128V3(8385959, common::exp10_i128(19), 25)}, Null()},
+                {{DECIMAL128V3(-8385959, -common::exp10_i128(19), 25)}, Null()},
+        };
+        check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 6);
+        check_function_for_cast_strict_mode<DataTypeTimeV2>(
+                input_types, data_set, "time overflow after adding fractional seconds", 6);
+    }
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL256, 45, 52}};
+        DataSet data_set = {
+                {{DECIMAL256(8385959, common::exp10_i256(39), 45)}, Null()},
+                {{DECIMAL256(-8385959, -common::exp10_i256(39), 45)}, Null()},
+        };
+        check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 6);
+        check_function_for_cast_strict_mode<DataTypeTimeV2>(
+                input_types, data_set, "time overflow after adding fractional seconds", 6);
     }
 
     // Test casting from Decimal Type
