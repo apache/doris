@@ -3544,6 +3544,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
         TPrivilegeCtrl privCtrl = request.getPrivCtrl();
         TPrivilegeHier privHier = privCtrl.getPrivHier();
+        // Every name below is optional in the IDL and this is the one caller whose names come off the wire, so
+        // a request naming none of what its hierarchy is about is refused here. An authorization source is
+        // asked about an object, not about the absence of one: the sources answer that question by walking
+        // names they were handed, so a missing one used to be read as "no match, so no" and is now a malformed
+        // request - refused as one, rather than as a thrift-level failure out of a null name deep inside.
+        String missing = missingPrivilegeName(privHier, privCtrl);
+        if (missing != null) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs("a " + privHier + " privilege check must name the " + missing
+                    + ", but this request named none");
+            return result;
+        }
         if (privHier == TPrivilegeHier.GLOBAL) {
             if (!accessManager.checkGlobalPriv(currentUser.get(0), predicate)) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
@@ -3589,6 +3601,38 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs("Privilege control error");
         }
         return result;
+    }
+
+    /**
+     * Which name a {@code checkAuth} request left out, or null when it named everything its hierarchy needs.
+     *
+     * <p>The {@code COLUMNS} branch is the one exception: it hard-codes the internal catalog, so a request
+     * leaving {@code ctl} out is answered there rather than refused. Every other branch passes the name the
+     * request carries straight through to a constructor that requires it.
+     */
+    private static String missingPrivilegeName(TPrivilegeHier privHier, TPrivilegeCtrl privCtrl) {
+        if (privHier == null) {
+            return null;
+        }
+        switch (privHier) {
+            case CATALOG:
+                return privCtrl.getCtl() == null ? "catalog" : null;
+            case DATABASE:
+                return privCtrl.getCtl() == null ? "catalog" : privCtrl.getDb() == null ? "database" : null;
+            case TABLE:
+                return privCtrl.getCtl() == null ? "catalog"
+                        : privCtrl.getDb() == null ? "database" : privCtrl.getTbl() == null ? "table" : null;
+            case COLUMNS:
+                if (privCtrl.getDb() == null) {
+                    return "database";
+                }
+                // The empty column list is refused by checkColumnsPriv itself, which says so in its own terms.
+                return privCtrl.getTbl() == null ? "table" : null;
+            case RESOURSE:
+                return privCtrl.getRes() == null ? "resource" : null;
+            default:
+                return null;
+        }
     }
 
     private PrivPredicate getPrivPredicate(TPrivilegeType privType) {

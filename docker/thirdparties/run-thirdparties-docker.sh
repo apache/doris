@@ -1736,16 +1736,71 @@ start_polaris() {
     fi
 }
 
+# The Doris plugin jars and service definition used to be curl'ed from inside
+# ranger-admin, with the bucket patched into the tracked scripts by `sed -i`.
+# That both broke on BSD sed and left the working tree dirty, and one flaky
+# download killed the container's `set -e` entrypoint. Fetch them here instead,
+# into the gitignored cache/ dir that the container bind mounts read-only.
+download_ranger_artifacts() {
+    local dest="${ROOT}/docker-compose/ranger/cache"
+    local url_prefix="https://${s3BucketName}.${s3Endpoint}/regression/docker/ranger-plugins"
+    local name
+
+    # --retry-all-errors needs curl >= 7.71; under `set -eo pipefail` an older curl rejects the flag and
+    # aborts start_ranger outright, so it is only passed when this curl knows it.
+    local retry_all_errors=()
+    if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+        retry_all_errors=(--retry-all-errors)
+    fi
+
+    # Downloaded on every start rather than cached like the other two. It is a few KB, and it is the one
+    # artifact that changes in place - a new access type, a corrected data mask transformer - under a name that
+    # never does. Cached, an updated definition would silently never reach a machine that has run this once,
+    # while everything looked fine: install_doris_service_def.sh registers whatever it is given, and the suites
+    # would keep testing the old one.
+    local always_fetch="ranger-servicedef-doris.json"
+
+    mkdir -p "${dest}"
+    for name in "${always_fetch}" \
+        mysql-connector-java-8.0.25.jar \
+        ranger-doris-plugin-3.0.0-SNAPSHOT.jar; do
+        # The jars are cached: tens of megabytes each, and versioned in their names.
+        if [[ "${name}" != "${always_fetch}" && -s "${dest}/${name}" ]]; then
+            echo "ranger artifact cached: ${name}"
+            continue
+        fi
+        echo "downloading ${url_prefix}/${name}"
+        if ! curl -fsSL --retry 10 "${retry_all_errors[@]}" --retry-delay 5 \
+            --connect-timeout 30 --speed-limit 1024 --speed-time 120 \
+            -o "${dest}/${name}.part" "${url_prefix}/${name}"; then
+            rm -f "${dest}/${name}.part"
+            # A refresh that fails is not a reason to refuse to start on a machine that already has the
+            # artifact: making the definition unconditional turned every `-c ranger` into one that needs the
+            # network, including on a laptop that has run this a hundred times. Warn loudly, because the copy
+            # being used may be older than the bucket's.
+            if [[ -s "${dest}/${name}" ]]; then
+                echo "WARNING: could not refresh ${name}; using the cached copy, which may be out of date" >&2
+                continue
+            fi
+            echo "failed to download ${url_prefix}/${name} and there is no cached copy" >&2
+            return 1
+        fi
+        mv "${dest}/${name}.part" "${dest}/${name}"
+    done
+}
+
 start_ranger() {
     echo "RUN_RANGER"
     export CONTAINER_UID=${CONTAINER_UID}
-    find "${ROOT}/docker-compose/ranger/script" -type f -exec sed -i "s/s3Endpoint/${s3Endpoint}/g" {} \;
-    find "${ROOT}/docker-compose/ranger/script" -type f -exec sed -i "s/s3BucketName/${s3BucketName}/g" {} \;
     . "${ROOT}/docker-compose/ranger/ranger_settings.env"
     envsubst <"${ROOT}"/docker-compose/ranger/ranger.yaml.tpl >"${ROOT}"/docker-compose/ranger/ranger.yaml
     register_stack_metadata "ranger" "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env"
     compose_down_stack "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
+        # Inside the start branch: this function also handles `--stop`, and under `set -e` an
+        # unreachable bucket turns stopping the stack into minutes of curl retries followed by an
+        # exit, with the containers left running.
+        download_ranger_artifacts
         compose_up_stack "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env" -d --wait --remove-orphans
     fi
 }
