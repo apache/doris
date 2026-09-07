@@ -246,8 +246,14 @@ TEST(FileHandleCacheTest, OpenedHandleReleasedBackToCache) {
 
     FileHandleCache::Accessor accessor2;
     get_handle(*cache, mock_fs, fname, mtime, &accessor2, &cache_hit);
+#ifdef USE_HADOOP_HDFS
     EXPECT_TRUE(cache_hit);
     EXPECT_NE(accessor2.get()->file(), nullptr);
+#else
+    // libhdfs3: ~Accessor() destroys the opened handle, so the next lookup must miss.
+    EXPECT_FALSE(cache_hit);
+    EXPECT_EQ(accessor2.get()->file(), nullptr);
+#endif
 }
 
 // ensure_open fails → ~Accessor destroys → next get_file_handle misses cache.

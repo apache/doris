@@ -159,6 +159,8 @@ TEST(HdfsFileSystemTest, Write) {
     st = local_fs->delete_directory(test_dir);
 }
 
+// Guarded: the enable_java_support check is compiled out on libhdfs3 builds.
+#ifdef USE_HADOOP_HDFS
 // create() returns error when java support is disabled.
 TEST(HdfsFileSystemTest, CreateFailsWhenJavaSupportDisabled) {
     const bool old_enable_java_support = config::enable_java_support;
@@ -169,6 +171,7 @@ TEST(HdfsFileSystemTest, CreateFailsWhenJavaSupportDisabled) {
     ASSERT_FALSE(res.has_value());
     EXPECT_NE(res.error().to_string().find("enable_java_support"), std::string::npos);
 }
+#endif
 
 // open_file_internal returns IOError when _fs_handler is null.
 TEST(HdfsFileSystemTest, OpenFileFailsWithoutHandler) {
