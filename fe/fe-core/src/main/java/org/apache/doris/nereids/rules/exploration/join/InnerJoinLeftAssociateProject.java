@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -50,15 +51,19 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
     public Rule build() {
         return logicalProject(innerLogicalJoin(group(), logicalProject(innerLogicalJoin()))
                 .when(topJoin -> checkReorder(topJoin))
-                .whenNot(join -> join.hasDistributeHint() || join.right().child().hasDistributeHint())
-                .when(join -> join.right().isAllSlots()))
+                .whenNot(join -> join.hasDistributeHint() || join.right().child().hasDistributeHint()))
                 .then(topProject -> {
                     LogicalJoin<GroupPlan, LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>> topJoin
                             = topProject.child();
-                    LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right().child();
-                    GroupPlan a = topJoin.left();
-                    GroupPlan b = bottomJoin.left();
-                    GroupPlan c = bottomJoin.right();
+                    Optional<LogicalProject<LogicalJoin<Plan, Plan>>>
+                            normalizedProject = ProjectJoinReorderHelper.normalize(topJoin.right());
+                    if (!normalizedProject.isPresent()) {
+                        return null;
+                    }
+                    LogicalJoin<Plan, Plan> bottomJoin = normalizedProject.get().child();
+                    Plan a = topJoin.left();
+                    Plan b = bottomJoin.left();
+                    Plan c = bottomJoin.right();
                     Set<ExprId> cExprIdSet = c.getOutputExprIdSet();
 
                     // Split condition

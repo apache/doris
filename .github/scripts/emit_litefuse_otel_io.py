@@ -1592,26 +1592,42 @@ def post_payload(
     }
 
 
-def fetch_trace(base_url, public_key, secret_key, trace_id):
+def verification_request_timeout(deadline):
+    if deadline is None:
+        return 30
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("Litefuse verification deadline exhausted")
+    return min(30, remaining)
+
+
+def fetch_trace(base_url, public_key, secret_key, trace_id, *, deadline=None):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
     request = urllib.request.Request(
         f"{base_url.rstrip('/')}/api/public/traces/{trace_id}",
         headers={"Authorization": f"Basic {auth}"},
         method="GET",
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(
+        request, timeout=verification_request_timeout(deadline)
+    ) as response:
         return json.loads(response.read().decode())
 
 
 def fetch_observations_v2(
-    base_url, public_key, secret_key, trace_id, max_pages=10
+    base_url, public_key, secret_key, trace_id, max_pages=10, *,
+    deadline=None, start_time=None, end_time=None,
 ):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
     now = datetime.now(timezone.utc)
     query = {
         "traceId": trace_id,
-        "fromStartTime": (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
-        "toStartTime": (now + timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
+        "fromStartTime": start_time or (
+            now - timedelta(hours=1)
+        ).isoformat().replace("+00:00", "Z"),
+        "toStartTime": end_time or (
+            now + timedelta(minutes=5)
+        ).isoformat().replace("+00:00", "Z"),
         "fields": "core,basic,io,trace_context,model,usage",
         "limit": "1000",
     }
@@ -1626,7 +1642,9 @@ def fetch_observations_v2(
             headers={"Authorization": f"Basic {auth}"},
             method="GET",
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(
+            request, timeout=verification_request_timeout(deadline)
+        ) as response:
             payload = json.loads(response.read().decode())
         rows.extend(observation_rows_from_v2(payload))
         meta = payload.get("meta") if isinstance(payload, dict) else {}
@@ -1640,7 +1658,7 @@ def fetch_observations_v2(
 
 
 def fetch_observations_legacy(
-    base_url, public_key, secret_key, trace_id, max_pages=10
+    base_url, public_key, secret_key, trace_id, max_pages=10, *, deadline=None
 ):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
     limit = 100
@@ -1655,7 +1673,9 @@ def fetch_observations_legacy(
             headers={"Authorization": f"Basic {auth}"},
             method="GET",
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(
+            request, timeout=verification_request_timeout(deadline)
+        ) as response:
             payload = json.loads(response.read().decode())
         last_payload = payload if isinstance(payload, dict) else {}
         page_rows = observation_rows_from_v2(last_payload)
@@ -1712,181 +1732,248 @@ def context_events_readback_ok(input_object):
     return event_count == 0 and events_value in (None, "", {})
 
 
-def verify_trace(
-    args, public_key, secret_key, trace_id, expected_observation_count
-):
-    last_diagnostic = {}
+def trace_verification_target(result, payload, *, subagent=False):
+    observations = [
+        event["body"]
+        for event in payload["batch"]
+        if event["type"] in ("span-create", "generation-create")
+    ]
+    start_times = [
+        datetime.fromisoformat(body["startTime"].replace("Z", "+00:00"))
+        for body in observations
+    ]
+    # Subagent sessions retain their original timestamps, including sessions
+    # older than the v2 reader's default one-hour window.
+    target = {
+        "result": result,
+        "subagent": subagent,
+        "start_time": (min(start_times) - timedelta(seconds=1)).isoformat(),
+        "end_time": (max(start_times) + timedelta(seconds=1)).isoformat(),
+    }
+    if subagent:
+        target["expected_io"] = {
+            otel_id(body["id"], 8): [
+                field for field in ("input", "output") if body.get(field) is not None
+            ]
+            for body in observations
+        }
+    return target
+
+
+def observation_has_expected_io(observation, target):
+    if not target["subagent"]:
+        return bool(observation.get("input") and observation.get("output"))
+    # Empty objects, lists and strings are legitimate session event payloads.
+    # Only require fields actually sent by the exporter (None is not exported).
+    fields = target["expected_io"].get(str(observation.get("id")), ())
+    return all(observation.get(field) is not None for field in fields)
+
+
+def inspect_trace(args, public_key, secret_key, target, deadline):
+    result = target["result"]
+    trace_id = result["trace_id"]
+    subagent = target["subagent"]
+    root_name = "codex.subagent.review" if subagent else "codex.review"
     required_observation_count = max(
-        args.min_observations, expected_observation_count
+        1 if subagent else args.min_observations, result["observation_count"]
     )
-    for _ in range(args.verify_attempts):
-        legacy_trace_error = ""
+    legacy_trace_error = ""
+    try:
+        legacy_detail = fetch_trace(
+            args.base_url, public_key, secret_key, trace_id, deadline=deadline
+        )
+    except Exception as exc:
+        legacy_detail = {}
+        legacy_trace_error = type(exc).__name__
+    try:
+        observations_payload = fetch_observations_legacy(
+            args.base_url, public_key, secret_key, trace_id,
+            max_pages=max(10, required_observation_count // 100 + 1),
+            deadline=deadline,
+        )
+        observations = observation_rows_from_v2(observations_payload)
+        read_source = "legacy_observations"
+    except Exception as exc:
         try:
-            legacy_detail = fetch_trace(args.base_url, public_key, secret_key, trace_id)
-        except Exception as exc:
-            legacy_detail = {}
-            legacy_trace_error = type(exc).__name__
-        try:
-            observations_payload = fetch_observations_legacy(
-                args.base_url, public_key, secret_key, trace_id
+            observations_payload = fetch_observations_v2(
+                args.base_url, public_key, secret_key, trace_id,
+                max_pages=max(10, required_observation_count // 1000 + 1),
+                deadline=deadline,
+                start_time=target.get("start_time"),
+                end_time=target.get("end_time"),
             )
             observations = observation_rows_from_v2(observations_payload)
-            read_source = "legacy_observations"
-        except Exception as exc:
-            try:
-                observations_payload = fetch_observations_v2(
-                    args.base_url, public_key, secret_key, trace_id
-                )
-                observations = observation_rows_from_v2(observations_payload)
-                read_source = "v2_observations"
-            except Exception:
-                observations = legacy_detail.get("observations") or []
-                read_source = f"legacy_trace_fallback:{type(exc).__name__}"
-        observations_missing_io = [
-            observation
-            for observation in observations
-            if not (observation.get("input") and observation.get("output"))
-        ]
-        observation_ids = [
-            str(observation.get("id"))
-            for observation in observations
-            if observation.get("id")
-        ]
-        unique_observation_count = len(set(observation_ids))
-        observations_missing_id_count = len(observations) - len(observation_ids)
-        duplicate_observation_count = len(observation_ids) - unique_observation_count
-        step_observations = [
-            observation
-            for observation in observations
-            if observation.get("name") not in ("codex.review", "codex.turn")
-        ]
-        agent_message_observations = [
-            observation
-            for observation in observations
-            if observation.get("name") == "codex.agent_message"
-        ]
-        agent_message_input_objects = [
-            observation_io_object(observation, "input")
-            for observation in agent_message_observations
-        ]
-        agent_message_input_keys = sorted(
-            {
-                key
-                for input_object in agent_message_input_objects
-                for key in input_object.keys()
-            }
-        )
-        agent_message_all_have_context_window = all(
-            bool(input_object.get("context_window"))
+            read_source = "v2_observations"
+        except Exception:
+            observations = legacy_detail.get("observations") or []
+            read_source = f"legacy_trace_fallback:{type(exc).__name__}"
+    observations_missing_io = [
+        observation
+        for observation in observations
+        if not observation_has_expected_io(observation, target)
+    ]
+    observation_ids = [
+        str(observation.get("id"))
+        for observation in observations
+        if observation.get("id")
+    ]
+    unique_observation_count = len(set(observation_ids))
+    observations_missing_id_count = len(observations) - len(observation_ids)
+    duplicate_observation_count = len(observation_ids) - unique_observation_count
+    step_observations = [
+        observation
+        for observation in observations
+        if observation.get("name") not in (root_name, "codex.turn")
+    ]
+    agent_message_observations = [
+        observation
+        for observation in observations
+        if observation.get("name") == "codex.agent_message"
+    ]
+    agent_message_input_objects = [
+        observation_io_object(observation, "input")
+        for observation in agent_message_observations
+    ]
+    agent_message_input_keys = sorted(
+        {
+            key
             for input_object in agent_message_input_objects
-        )
-        agent_message_all_have_context_events = all(
-            context_events_readback_ok(input_object)
-            for input_object in agent_message_input_objects
-        )
-        agent_message_with_previous_count = sum(
-            1
-            for input_object in agent_message_input_objects
-            if bool(input_object.get("previous_agent_message"))
-        )
-        agent_message_with_turn_input_count = sum(
-            1
-            for input_object in agent_message_input_objects
-            if bool(input_object.get("turn_input"))
-        )
-        agent_message_context_event_counts = [
-            (input_object.get("context_window") or {}).get("event_count", 0)
-            for input_object in agent_message_input_objects[:20]
-            if isinstance(input_object.get("context_window"), dict)
-        ]
-        agent_message_event_type_samples = [
-            context_event_types(
-                input_object.get("events_since_previous_agent_message")
-            )[:8]
-            for input_object in agent_message_input_objects[:5]
-        ]
-        agent_message_structure_ok = (
-            agent_message_all_have_context_window
-            and agent_message_all_have_context_events
-            and agent_message_with_turn_input_count == 1
-            and (
-                agent_message_with_previous_count
-                == max(len(agent_message_observations) - 1, 0)
-            )
-        )
-        root_observation = next(
-            (observation for observation in observations if observation.get("name") == "codex.review"),
-            {},
-        )
-        trace_input = legacy_detail.get("input") or root_observation.get("input")
-        trace_output = legacy_detail.get("output") or root_observation.get("output")
-        last_diagnostic = {
-            "read_source": read_source,
-            "legacy_trace_input": bool(legacy_detail.get("input")),
-            "legacy_trace_output": bool(legacy_detail.get("output")),
-            "legacy_trace_error": legacy_trace_error,
-            "trace_input": bool(trace_input),
-            "trace_output": bool(trace_output),
-            "observation_count": len(observations),
-            "required_observation_count": required_observation_count,
-            "unique_observation_count": unique_observation_count,
-            "observations_missing_id_count": observations_missing_id_count,
-            "duplicate_observation_count": duplicate_observation_count,
-            "step_observation_count": len(step_observations),
-            "agent_message_count": len(agent_message_observations),
-            "agent_message_input_keys": agent_message_input_keys,
-            "agent_message_all_have_context_window": agent_message_all_have_context_window,
-            "agent_message_all_have_context_events": agent_message_all_have_context_events,
-            "agent_message_with_previous_count": agent_message_with_previous_count,
-            "agent_message_with_turn_input_count": agent_message_with_turn_input_count,
-            "agent_message_context_event_counts": agent_message_context_event_counts,
-            "agent_message_event_type_samples": agent_message_event_type_samples,
-            "observations_missing_io": [
-                observation.get("name") for observation in observations_missing_io[:20]
-            ],
-            "observation_names": [observation.get("name") for observation in observations[:20]],
+            for key in input_object.keys()
         }
-        ok = all(
-            [
-                trace_input,
-                trace_output,
-                unique_observation_count >= required_observation_count,
-                observations_missing_id_count == 0,
-                duplicate_observation_count == 0,
-                len(step_observations) >= args.min_step_observations,
-                not observations_missing_io,
-                not agent_message_observations or agent_message_structure_ok,
-            ]
+    )
+    agent_message_all_have_context_window = all(
+        bool(input_object.get("context_window"))
+        for input_object in agent_message_input_objects
+    )
+    agent_message_all_have_context_events = all(
+        context_events_readback_ok(input_object)
+        for input_object in agent_message_input_objects
+    )
+    agent_message_with_previous_count = sum(
+        1
+        for input_object in agent_message_input_objects
+        if bool(input_object.get("previous_agent_message"))
+    )
+    agent_message_with_turn_input_count = sum(
+        1
+        for input_object in agent_message_input_objects
+        if bool(input_object.get("turn_input"))
+    )
+    agent_message_context_event_counts = [
+        (input_object.get("context_window") or {}).get("event_count", 0)
+        for input_object in agent_message_input_objects[:20]
+        if isinstance(input_object.get("context_window"), dict)
+    ]
+    agent_message_event_type_samples = [
+        context_event_types(
+            input_object.get("events_since_previous_agent_message")
+        )[:8]
+        for input_object in agent_message_input_objects[:5]
+    ]
+    agent_message_structure_ok = (
+        agent_message_all_have_context_window
+        and agent_message_all_have_context_events
+        and agent_message_with_turn_input_count == 1
+        and (
+            agent_message_with_previous_count
+            == max(len(agent_message_observations) - 1, 0)
         )
-        if ok:
-            return {
-                "trace_input": True,
-                "trace_output": True,
-                "read_source": read_source,
-                "observation_count": len(observations),
-                "required_observation_count": required_observation_count,
-                "unique_observation_count": unique_observation_count,
-                "observations_missing_id_count": observations_missing_id_count,
-                "duplicate_observation_count": duplicate_observation_count,
-                "step_observation_count": len(step_observations),
-                "agent_message_count": len(agent_message_observations),
-                "agent_message_input_keys": agent_message_input_keys,
-                "agent_message_all_have_context_window": agent_message_all_have_context_window,
-                "agent_message_all_have_context_events": agent_message_all_have_context_events,
-                "agent_message_with_previous_count": agent_message_with_previous_count,
-                "agent_message_with_turn_input_count": agent_message_with_turn_input_count,
-                "agent_message_context_event_counts": agent_message_context_event_counts,
-                "agent_message_event_type_samples": agent_message_event_type_samples,
-                "observations_missing_io": [],
-                "observation_names": [
-                    observation.get("name") for observation in observations[:20]
-                ],
-            }
-        time.sleep(args.verify_sleep_seconds)
+    )
+    root_observation = next(
+        (
+            observation for observation in observations
+            if observation.get("name") == root_name
+        ),
+        {},
+    )
+    trace_input = legacy_detail.get("input") or root_observation.get("input")
+    trace_output = legacy_detail.get("output") or root_observation.get("output")
+    expected_ids = set(target.get("expected_io", {}))
+    missing_expected_ids = sorted(expected_ids - set(observation_ids))
+    last_diagnostic = {
+        "read_source": read_source,
+        "root_observation": bool(root_observation),
+        "missing_expected_observation_count": len(missing_expected_ids),
+        "missing_expected_observation_ids": missing_expected_ids[:20],
+        "legacy_trace_input": bool(legacy_detail.get("input")),
+        "legacy_trace_output": bool(legacy_detail.get("output")),
+        "legacy_trace_error": legacy_trace_error,
+        "trace_input": bool(trace_input),
+        "trace_output": bool(trace_output),
+        "observation_count": len(observations),
+        "required_observation_count": required_observation_count,
+        "unique_observation_count": unique_observation_count,
+        "observations_missing_id_count": observations_missing_id_count,
+        "duplicate_observation_count": duplicate_observation_count,
+        "step_observation_count": len(step_observations),
+        "agent_message_count": len(agent_message_observations),
+        "agent_message_input_keys": agent_message_input_keys,
+        "agent_message_all_have_context_window": agent_message_all_have_context_window,
+        "agent_message_all_have_context_events": agent_message_all_have_context_events,
+        "agent_message_with_previous_count": agent_message_with_previous_count,
+        "agent_message_with_turn_input_count": agent_message_with_turn_input_count,
+        "agent_message_context_event_counts": agent_message_context_event_counts,
+        "agent_message_event_type_samples": agent_message_event_type_samples,
+        "observations_missing_io": [
+            observation.get("name") for observation in observations_missing_io[:20]
+        ],
+        "observation_names": [
+            observation.get("name") for observation in observations[:20]
+        ],
+    }
+    ok = all(
+        [
+            root_observation,
+            not missing_expected_ids,
+            trace_input,
+            trace_output,
+            unique_observation_count >= required_observation_count,
+            observations_missing_id_count == 0,
+            duplicate_observation_count == 0,
+            len(step_observations) >= (0 if subagent else args.min_step_observations),
+            not observations_missing_io,
+            not agent_message_observations or agent_message_structure_ok,
+        ]
+    )
+    return ok, last_diagnostic
+
+
+def verify_traces(args, public_key, secret_key, targets):
+    # All exported traces share polling rounds and one elapsed-time budget.
+    # Never restart the wait budget for each subagent.
+    deadline = time.monotonic() + args.verify_timeout_seconds
+    pending = list(targets)
+    for target in pending:
+        target["result"]["verification_diagnostic"] = {"read_source": "not_polled"}
+    for attempt in range(args.verify_attempts):
+        for target in pending:
+            if time.monotonic() >= deadline:
+                break
+            ok, diagnostic = inspect_trace(
+                args, public_key, secret_key, target, deadline
+            )
+            result = target["result"]
+            result["verification_diagnostic"] = diagnostic
+            if ok:
+                result["verified"] = diagnostic
+                del result["verification_diagnostic"]
+        pending = [
+            target for target in pending
+            if "verification_diagnostic" in target["result"]
+        ]
+        if not pending:
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or attempt + 1 == args.verify_attempts:
+            break
+        time.sleep(min(args.verify_sleep_seconds, remaining))
+    diagnostics = {
+        target["result"]["trace_id"]: target["result"]["verification_diagnostic"]
+        for target in pending
+    }
     raise RuntimeError(
-        "Litefuse trace "
-        f"{trace_id} did not expose multi-step I/O in time; "
-        f"last_diagnostic={json.dumps(last_diagnostic, sort_keys=True)}"
+        "Litefuse traces did not expose complete I/O in time; "
+        f"pending_traces={json.dumps(diagnostics, sort_keys=True)}"
     )
 
 
@@ -1923,6 +2010,10 @@ def parse_args():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verify-attempts", type=int, default=24)
     parser.add_argument("--verify-sleep-seconds", type=int, default=5)
+    parser.add_argument(
+        "--verify-timeout-seconds", type=int, default=120,
+        help="Shared elapsed-time budget for reading back all exported traces",
+    )
     parser.add_argument("--min-observations", type=int, default=3)
     parser.add_argument("--min-step-observations", type=int, default=1)
     return parser.parse_args()
@@ -2030,14 +2121,17 @@ def main():
         )
 
     if args.verify:
-        try:
-            result["verified"] = verify_trace(
-                args,
-                public_key,
-                secret_key,
-                trace_id,
-                observation_count,
+        targets = [trace_verification_target(result, payload)]
+        targets.extend(
+            trace_verification_target(
+                subagent_result, subagent_payload["payload"], subagent=True
             )
+            for subagent_result, subagent_payload in zip(
+                result["subagent_traces"], subagent_payloads
+            )
+        )
+        try:
+            verify_traces(args, public_key, secret_key, targets)
         except Exception as exc:
             result["verification_error"] = str(exc)
             print(json.dumps(result, sort_keys=True))

@@ -949,6 +949,7 @@ jobs:
             --min-step-observations 2 \
             --verify-attempts 24 \
             --verify-sleep-seconds 5 \
+            --verify-timeout-seconds 120 \
             --verify
 
       - name: Sync Codex sessions back to OSS
