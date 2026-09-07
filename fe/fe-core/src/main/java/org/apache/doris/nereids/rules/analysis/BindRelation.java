@@ -234,6 +234,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
             // A CTE reference has no physical table handle on which scan parameters can be applied.
             throw new AnalysisException("Table scan parameters are not supported on CTE references.");
         }
+        if (unboundRelation.isMaxVisiblePartition()) {
+            String tableName = unboundRelation.getNameParts().get(unboundRelation.getNameParts().size() - 1);
+            throw new AnalysisException("max_visible_partition() is not supported on CTE reference '"
+                    + tableName + "', please move it inside the CTE definition, "
+                    + "e.g. WITH " + tableName + " AS (SELECT ... FROM base_table max_visible_partition()) ...");
+        }
     }
 
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
@@ -745,6 +751,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
                                        List<String> qualifiedTableName, CascadesContext cascadesContext) {
+        if (unboundRelation.isMaxVisiblePartition()) {
+            TableIf.TableType type = table.getType();
+            if (type != TableIf.TableType.OLAP && type != TableIf.TableType.MATERIALIZED_VIEW) {
+                throw new AnalysisException("max_visible_partition() is only supported on OLAP table "
+                        + "or materialized view, but table " + table.getName() + " is " + type);
+            }
+            if (unboundRelation.getTableSnapshot().isPresent()) {
+                throw new AnalysisException("max_visible_partition() cannot be used with FOR VERSION/TIME AS OF");
+            }
+            cascadesContext.getStatementContext().setHasMaxVisiblePartition(true);
+        }
+
         // for create view stmt replace tableName to ctl.db.tableName
         unboundRelation.getIndexInSqlString().ifPresent(pair -> {
             StatementContext statementContext = cascadesContext.getStatementContext();
@@ -994,13 +1012,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private List<Long> getPartitionIds(TableIf t, UnboundRelation unboundRelation, List<String> qualifier) {
         List<String> parts = unboundRelation.getPartNames();
-        if (CollectionUtils.isEmpty(parts)) {
+        if (CollectionUtils.isEmpty(parts) && !unboundRelation.isMaxVisiblePartition()) {
             return ImmutableList.of();
         }
         if (!t.isManagedTable()) {
             throw new AnalysisException(String.format(
                     "Only OLAP table is support select by partition for now,"
                             + "Table: %s is not OLAP table", t.getName()));
+        }
+        if (unboundRelation.isMaxVisiblePartition()) {
+            Partition partition = t.getMaxVisiblePartition();
+            return partition == null ? ImmutableList.of() : ImmutableList.of(partition.getId());
         }
         return parts.stream().map(name -> {
             Partition part = ((OlapTable) t).getPartition(name, unboundRelation.isTempPart());
