@@ -63,6 +63,18 @@ public class DefaultConnectorContextNormalizeUriTest {
         return new DefaultConnectorContext("c", 1L, NOOP_AUTH, () -> map);
     }
 
+    /** A context backed by the same OSS-HDFS adapter set produced for a DLF catalog. */
+    private static DefaultConnectorContext ossHdfsContext() throws Exception {
+        Map<String, String> ossHdfs = new HashMap<>();
+        ossHdfs.put("oss.hdfs.endpoint", "cn-hangzhou.oss-dls.aliyuncs.com");
+        ossHdfs.put("oss.hdfs.access_key", "ak");
+        ossHdfs.put("oss.hdfs.secret_key", "sk");
+        List<StorageAdapter> all = StorageAdapter.ofAll(ossHdfs);
+        Map<StorageTypeId, StorageAdapter> map = all.stream()
+                .collect(Collectors.toMap(StorageAdapter::getType, Function.identity(), (a, b) -> a));
+        return new DefaultConnectorContext("c", 1L, NOOP_AUTH, () -> map);
+    }
+
     @Test
     public void normalizesOssSchemeToS3() throws Exception {
         // WHY: BE's scheme-dispatched S3 file factory only recognizes s3://; legacy LocationPath.of
@@ -160,6 +172,24 @@ public class DefaultConnectorContextNormalizeUriTest {
         // MUTATION: scheme-only default that can't see storage props, or a wrong family -> red.
         Assertions.assertEquals(TFileType.FILE_S3.name(),
                 ossContext().getBackendFileType("oss://bkt/warehouse/db/t/data", null));
+    }
+
+    @Test
+    public void ossHdfsContextRoutesPlainOssScanUrisToJindo() throws Exception {
+        DefaultConnectorContext context = ossHdfsContext();
+        UnaryOperator<String> normalizer = context.newStorageUriNormalizer(Collections.emptyMap());
+
+        // Plain bucket URIs do not carry the oss-dls marker themselves. The selected catalog adapter
+        // must preserve its identity in the normalized URI so both data and deletion-vector scans
+        // still reach Jindo after crossing the connector's string-only SPI boundary.
+        Assertions.assertEquals(
+                "oss://bkt.cn-hangzhou.oss-dls.aliyuncs.com/warehouse/db/t/data.parquet",
+                normalizer.apply("oss://bkt/warehouse/db/t/data.parquet"));
+        Assertions.assertEquals(
+                "oss://bkt.cn-hangzhou.oss-dls.aliyuncs.com/warehouse/db/t/deletion-vector.bin",
+                normalizer.apply("oss://bkt/warehouse/db/t/deletion-vector.bin"));
+        Assertions.assertEquals(TFileType.FILE_HDFS.name(),
+                context.getBackendFileType("oss://bkt/warehouse/db/t/data.parquet", null));
     }
 
     @Test

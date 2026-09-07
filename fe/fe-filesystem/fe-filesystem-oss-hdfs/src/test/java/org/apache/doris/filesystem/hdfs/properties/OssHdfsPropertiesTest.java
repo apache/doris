@@ -26,9 +26,13 @@ import java.util.Map;
 class OssHdfsPropertiesTest {
 
     private Map<String, String> resolve(Map<String, String> raw) {
+        return initialized(raw).getBackendConfigProperties();
+    }
+
+    private OssHdfsProperties initialized(Map<String, String> raw) {
         OssHdfsProperties props = new OssHdfsProperties(raw);
         props.initNormalizeAndCheckProps();
-        return props.getBackendConfigProperties();
+        return props;
     }
 
     private Map<String, String> baseProps() {
@@ -187,5 +191,18 @@ class OssHdfsPropertiesTest {
         Map<String, String> raw = new HashMap<>();
         raw.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
         Assertions.assertFalse(OssHdfsProperties.guessIsMe(raw));
+    }
+
+    @Test
+    void plainBucketUriIsNormalizedWithConfiguredEndpoint() {
+        OssHdfsProperties properties = initialized(baseProps());
+
+        Assertions.assertEquals(
+                "oss://bucket.cn-beijing.oss-dls.aliyuncs.com/warehouse/table/data.parquet",
+                properties.validateAndNormalizeUri("oss://bucket/warehouse/table/data.parquet"));
+        Assertions.assertEquals(
+                "oss://bucket.cn-beijing.oss-dls.aliyuncs.com/warehouse/table/data.parquet",
+                properties.validateAndNormalizeUri(
+                        "oss://bucket.cn-beijing.oss-dls.aliyuncs.com/warehouse/table/data.parquet"));
     }
 }
