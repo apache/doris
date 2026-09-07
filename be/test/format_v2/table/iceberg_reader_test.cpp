@@ -1319,6 +1319,16 @@ void init_iceberg_reader(doris::format::iceberg::IcebergTableReader* reader,
                         .ok());
 }
 
+ColumnDefinition make_authoritatively_name_mapped_table_column(int32_t id, std::string name,
+                                                               const DataTypePtr& type) {
+    auto column = make_table_column(id, name, type);
+    // Equality-delete tests need a readable result carrier while independently exercising an
+    // ID-less hidden key. Make that carrier explicitly name-readable under the V2 mapping rules.
+    column.name_mapping = {std::move(name)};
+    column.has_name_mapping = true;
+    return column;
+}
+
 void expect_idless_equality_key_uses_delete_file_name(FileFormat file_format,
                                                       bool authoritative_name_mapping) {
     const std::string format_name = file_format == FileFormat::PARQUET ? "parquet" : "orc";
@@ -1341,7 +1351,8 @@ void expect_idless_equality_key_uses_delete_file_name(FileFormat file_format,
     }
 
     std::vector<ColumnDefinition> projected_columns;
-    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    projected_columns.push_back(make_authoritatively_name_mapped_table_column(
+            0, "id", std::make_shared<DataTypeInt32>()));
 
     auto equality_field = external_schema_field("future_name", 1, {}, "7");
     if (authoritative_name_mapping) {
@@ -3209,7 +3220,8 @@ TEST(IcebergV2ReaderTest, IcebergIdlessNestedEqualityKeyUsesAliasPathAndDeleteLe
         }
 
         std::vector<ColumnDefinition> projected_columns;
-        projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+        projected_columns.push_back(make_authoritatively_name_mapped_table_column(
+                0, "id", std::make_shared<DataTypeInt32>()));
         auto scan_params = make_local_scan_params(file_format);
         scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
         scan_params.__set_current_schema_id(100);
@@ -3597,7 +3609,8 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMissingKeyDoesNotReadUnsupportedU
     write_iceberg_equality_delete_parquet_file(delete_file_path, 1, 7, "added_column");
 
     std::vector<ColumnDefinition> projected_columns;
-    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    projected_columns.push_back(make_authoritatively_name_mapped_table_column(
+            0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};

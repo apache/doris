@@ -48,7 +48,9 @@ suite("test_gen_iceberg_by_api", "p0,external") {
         try {
             qt_q02 """ select count(*) from table_with_append_file where MAN_ID is not null """
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("name_mapping must be set when read missing field id data file."), e.getMessage());
+            // This fixture has no field IDs or authoritative name mapping, so its required
+            // columns must be treated as missing instead of being matched by their current names.
+            assertTrue(e.getMessage().contains("Missing required field: MAN_ID"), e.getMessage());
         }
     }
 
