@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
@@ -80,6 +80,26 @@ public class CreatePolicyCommandTest extends TestWithFeService {
                 "create row policy p_correlated on main_table as restrictive to jack using "
                         + "(exists (select 1 from lookup_table l where l.allowed_user = 'alice' "
                         + "and l.ref_id = main_table.ref_id))");
+        Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext));
+    }
+
+    @Test
+    public void testSameNameLocalColumnNotFalsePositive() throws Exception {
+        // lookup_table has its own ref_id; qualifying it with the subquery's own alias must not
+        // be confused with a correlated reference to main_table.ref_id just because the bare
+        // column name collides.
+        CreatePolicyCommand command = parse(
+                "create row policy p_local_name on main_table as restrictive to jack using "
+                        + "(exists (select 1 from lookup_table l where l.ref_id = 10))");
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+    }
+
+    @Test
+    public void testCorrelatedCteRejected() {
+        CreatePolicyCommand command = parse(
+                "create row policy p_cte on main_table as restrictive to jack using "
+                        + "(exists (with x as (select 1 from lookup_table l where "
+                        + "l.ref_id = main_table.ref_id) select 1 from x))");
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext));
     }
 }
