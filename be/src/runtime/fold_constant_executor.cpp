@@ -291,7 +291,8 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const DataTypeP
     case TYPE_VARIANT:
     case TYPE_QUANTILE_STATE:
     case TYPE_IPV4:
-    case TYPE_IPV6: {
+    case TYPE_IPV6:
+    case TYPE_UUID: {
         result = column_type->to_string(*column_ptr, 0, options);
         break;
     }

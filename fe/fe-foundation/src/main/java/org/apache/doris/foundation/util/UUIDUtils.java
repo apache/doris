@@ -20,8 +20,11 @@ package org.apache.doris.foundation.util;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class UUIDUtils {
+    private static final AtomicLong LAST_V7_TIMESTAMP_AND_COUNTER = new AtomicLong();
+    private static final long UUID_V7_COUNTER_MASK = (1L << 12) - 1;
 
     /**
      * Generates a random RFC‑4122 version 4 UUID using {@link java.util.concurrent.ThreadLocalRandom}.
@@ -49,5 +52,29 @@ public class UUIDUtils {
 
     public static UUID randomUUID() {
         return UUID.randomUUID();
+    }
+
+    /** Generate a monotonically increasing RFC 9562 version 7 UUID. */
+    public static UUID uuidV7() {
+        Random random = ThreadLocalRandom.current();
+        long now = System.currentTimeMillis();
+        long initialCounter = random.nextLong() & UUID_V7_COUNTER_MASK;
+
+        long previous;
+        long next;
+        do {
+            previous = LAST_V7_TIMESTAMP_AND_COUNTER.get();
+            long previousTimestamp = previous >>> 12;
+            next = now > previousTimestamp
+                    ? (now << 12) | initialCounter
+                    : previous + 1;
+        } while (!LAST_V7_TIMESTAMP_AND_COUNTER.compareAndSet(previous, next));
+
+        long timestamp = next >>> 12;
+        long counter = next & UUID_V7_COUNTER_MASK;
+        long mostSignificantBits = (timestamp << 16) | (7L << 12) | counter;
+        long leastSignificantBits = (random.nextLong() & 0x3FFFFFFFFFFFFFFFL)
+                | 0x8000000000000000L;
+        return new UUID(mostSignificantBits, leastSignificantBits);
     }
 }

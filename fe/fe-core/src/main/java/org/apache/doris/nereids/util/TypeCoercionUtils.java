@@ -107,6 +107,7 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -324,6 +325,8 @@ public class TypeCoercionUtils {
                 returnType = IPv4Type.INSTANCE;
             } else if (expected instanceof IPv6Type) {
                 returnType = IPv6Type.INSTANCE;
+            } else if (expected instanceof UuidType) {
+                returnType = UuidType.INSTANCE;
             }
         } else if (input.isDateType()) {
             if (expected instanceof DateTimeType) {
@@ -1416,6 +1419,11 @@ public class TypeCoercionUtils {
             return Optional.of(IPv4Type.INSTANCE);
         }
 
+        if ((leftType instanceof UuidType && rightType.isStringLikeType())
+                || (rightType instanceof UuidType && leftType.isStringLikeType())) {
+            return Optional.of(UuidType.INSTANCE);
+        }
+
         // then we process string like
         if (leftType.isStringLikeType() && rightType.isStringLikeType()) {
             return Optional.of(StringType.INSTANCE);
@@ -2500,6 +2508,10 @@ public class TypeCoercionUtils {
                 || (leftType.isIPv4Type() && rightType.isIPv6Type())
                 || (leftType.isIPv6Type() && rightType.isIPv4Type())) {
             return Optional.of(IPv6Type.INSTANCE);
+        }
+        if ((leftType.isUuidType() && rightType.isStringLikeType())
+                || (rightType.isUuidType() && leftType.isStringLikeType())) {
+            return Optional.of(UuidType.INSTANCE);
         }
 
         // variant type

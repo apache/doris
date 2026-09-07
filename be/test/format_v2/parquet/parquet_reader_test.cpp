@@ -1721,6 +1721,87 @@ protected:
     std::string _file_path;
 };
 
+TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
+    const std::array<uint8_t, 16> bytes {0,    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    for (bool dictionary : {false, true}) {
+        for (bool optional : {false, true}) {
+            for (auto page_version :
+                 {::parquet::ParquetDataPageVersion::V1, ::parquet::ParquetDataPageVersion::V2}) {
+                auto out = arrow::io::FileOutputStream::Open(_file_path).ValueOrDie();
+                auto field = ::parquet::schema::PrimitiveNode::Make(
+                        "u",
+                        optional ? ::parquet::Repetition::OPTIONAL
+                                 : ::parquet::Repetition::REQUIRED,
+                        ::parquet::LogicalType::UUID(), ::parquet::Type::FIXED_LEN_BYTE_ARRAY, 16);
+                auto schema_node = ::parquet::schema::GroupNode::Make(
+                        "schema", ::parquet::Repetition::REQUIRED, {field});
+                auto schema = std::static_pointer_cast<::parquet::schema::GroupNode>(schema_node);
+                ::parquet::WriterProperties::Builder props;
+                props.data_page_version(page_version);
+                if (!dictionary) {
+                    props.disable_dictionary();
+                }
+                auto writer = ::parquet::ParquetFileWriter::Open(out, schema, props.build());
+                for (int group = 0; group < 2; ++group) {
+                    auto* row_group = writer->AppendRowGroup();
+                    auto* column = static_cast<::parquet::FixedLenByteArrayWriter*>(
+                            row_group->NextColumn());
+                    const int16_t levels[] = {1, 0, 1, 1};
+                    const ::parquet::FixedLenByteArray values[] = {
+                            ::parquet::FixedLenByteArray(bytes.data()),
+                            ::parquet::FixedLenByteArray(bytes.data()),
+                            ::parquet::FixedLenByteArray(bytes.data()),
+                            ::parquet::FixedLenByteArray(bytes.data())};
+                    EXPECT_EQ(column->WriteBatch(4, optional ? levels : nullptr, nullptr, values),
+                              optional ? 3 : 4);
+                    column->Close();
+                    row_group->Close();
+                }
+                writer->Close();
+                ASSERT_TRUE(out->Close().ok());
+                for (bool mapping : {false, true}) {
+                    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false,
+                                                mapping);
+                    reader->set_batch_size(2);
+                    ASSERT_TRUE(reader->init(&state).ok());
+                    std::vector<format::ColumnDefinition> schema;
+                    ASSERT_TRUE(reader->get_schema(&schema).ok());
+                    ASSERT_EQ(schema.size(), 1);
+                    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_UUID);
+                    auto request = std::make_shared<format::FileScanRequest>();
+                    request->non_predicate_columns = {field_projection(0)};
+                    request->local_positions.emplace(format::LocalColumnId(0),
+                                                     format::LocalIndex(0));
+                    ASSERT_TRUE(reader->open(request).ok());
+                    size_t total = 0;
+                    bool eof = false;
+                    while (!eof) {
+                        Block block = build_file_block(schema);
+                        size_t rows = 0;
+                        auto status = reader->get_block(&block, &rows, &eof);
+                        ASSERT_TRUE(status.ok()) << status;
+                        const auto& column = assert_cast<const ColumnNullable&>(
+                                *block.get_by_position(0).column);
+                        for (size_t row = 0; row < rows; ++row) {
+                            const bool expected_null = optional && (total + row) % 4 == 1;
+                            EXPECT_EQ(column.is_null_at(row), expected_null);
+                            if (!expected_null) {
+                                EXPECT_EQ(remove_nullable(schema[0].type)
+                                                  ->to_string(column.get_nested_column(), row),
+                                          "00112233-4455-6677-8899-aabbccddeeff");
+                            }
+                        }
+                        total += rows;
+                    }
+                    EXPECT_EQ(total, 8);
+                }
+            }
+        }
+    }
+}
+
 TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};

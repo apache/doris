@@ -126,6 +126,7 @@ extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIM
 extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_BOOL>;
 extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_IPV4>;
 extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_IPV6>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_UUID>;
 extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_FLOAT>;
 extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DOUBLE>;
 

@@ -49,6 +49,8 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
     @Override
     public void runBeforeAll() throws Exception {
         super.runBeforeAll();
+        createTable("CREATE TABLE uuid_topn (id INT, u UUID) DUPLICATE KEY(id) "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
     }
 
     @Test
@@ -64,6 +66,36 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         PhysicalTopN<? extends Plan> localTopN
                 = (PhysicalTopN<? extends Plan>) rfSource;
         Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+    }
+
+    @Test
+    public void testUuidTopNFilterPreservesOrderingAndNullPlacement() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        try {
+            for (String direction : List.of("ASC", "DESC")) {
+                for (String nullPlacement : List.of("FIRST", "LAST")) {
+                    PlanChecker checker = PlanChecker.from(connectContext)
+                            .analyze("SELECT id,u FROM uuid_topn ORDER BY u " + direction
+                                    + " NULLS " + nullPlacement + ",id LIMIT 5")
+                            .rewrite().implement();
+                    new PlanPostProcessors(checker.getCascadesContext()).process(checker.getPhysicalPlan());
+                    List<TopnFilter> filters = checker.getCascadesContext().getTopnFilterContext().getTopnFilters();
+                    Assertions.assertFalse(filters.isEmpty());
+                    for (TopnFilter filter : filters) {
+                        Assertions.assertTrue(filter.topn.getOrderKeys().get(0).getExpr().getDataType().isUuidType());
+                        Assertions.assertEquals(direction.equals("ASC"), filter.topn.getOrderKeys().get(0).isAsc());
+                        Assertions.assertEquals(nullPlacement.equals("FIRST"),
+                                filter.topn.getOrderKeys().get(0).isNullFirst());
+                        Assertions.assertFalse(filter.targets.isEmpty());
+                        Assertions.assertTrue(filter.targets.values().stream()
+                                .allMatch(expr -> expr.getDataType().isUuidType()));
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+        }
     }
 
     @Test

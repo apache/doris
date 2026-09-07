@@ -276,6 +276,7 @@ public class OutFileClause {
             case DATE:
             case DATETIME:
             case IPV6:
+            case UUID:
             case VARIANT:
             case JSONB:
                 orcType = "string";
@@ -403,6 +404,7 @@ public class OutFileClause {
                 case DATE:
                 case DATETIME:
                 case IPV6:
+                case UUID:
                 case VARIANT:
                 case JSONB:
                     checkOrcType(schema.second, "string", true, resultType.getPrimitiveType().toString());

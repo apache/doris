@@ -116,6 +116,7 @@ public class FlightSqlSchemaHelper {
             case DATE:
             case JSONB:
             case IPV6:
+            case UUID:
             case VARIANT:
                 return new ArrowType.Utf8();
             case DATEV2:

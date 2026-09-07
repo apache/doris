@@ -48,7 +48,7 @@ using ConstColumnVariant =
         std::variant<const ColumnUInt8*, const ColumnInt8*, const ColumnInt16*, const ColumnInt32*,
                      const ColumnInt64*, const ColumnInt128*, const ColumnFloat32*,
                      const ColumnFloat64*, const ColumnString*, const ColumnVarbinary*,
-                     const ColumnArray*, const ColumnIPv4*, const ColumnIPv6*,
+                     const ColumnArray*, const ColumnIPv4*, const ColumnIPv6*, const ColumnUUID*,
                      const ColumnDecimal32*, const ColumnDecimal64*, const ColumnDecimal128V2*,
                      const ColumnDecimal128V3*, const ColumnDecimal256*, const ColumnDate*,
                      const ColumnDateTime*, const ColumnDateV2*, const ColumnDateTimeV2*,
@@ -413,6 +413,7 @@ private:
             DISPATCH_PRIMITIVE_TYPE(TYPE_ARRAY, ColumnArray)
             DISPATCH_PRIMITIVE_TYPE(TYPE_IPV4, ColumnIPv4)
             DISPATCH_PRIMITIVE_TYPE(TYPE_IPV6, ColumnIPv6)
+            DISPATCH_PRIMITIVE_TYPE(TYPE_UUID, ColumnUUID)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL32, ColumnDecimal32)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL64, ColumnDecimal64)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL128I, ColumnDecimal128V3)

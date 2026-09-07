@@ -38,7 +38,9 @@
 #include "core/assert_cast.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/value/uuid_value.h"
 #include "cpp/sync_point.h"
+#include "exec/common/sip_hash.h"
 #include "load/memtable/memtable.h"
 #include "service/point_query_executor.h"
 #include "storage/binlog.h"
@@ -62,6 +64,7 @@
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/jsonb/serialize.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -1037,20 +1040,93 @@ const signed char* BaseTablet::get_delete_sign_column_data(const Block& block,
     return nullptr;
 };
 
+static void fill_uuid_defaults(ColumnUUID& values, const TabletSchema& schema,
+                               const TabletColumn& column,
+                               const PartialUpdateInfo& partial_update_info, const Block& row_block,
+                               const std::map<uint32_t, uint32_t>* row_indices, bool version7) {
+    // Keyed hashing gives each load/key/column an independent pseudorandom value.
+    // Unlike a row ordinal or local RNG, this identity survives replica-specific
+    // batching, deduplication, and publish-side row reordering.
+    SipHash seed(partial_update_info.load_id_hi, partial_update_info.load_id_lo);
+    // Column IDs can be unassigned or index-local, and rollups can reorder keys. Names are
+    // preserved across indexes and in the rowset's schema, including publish/recovery.
+    const auto hash_name = [&seed](const std::string& name) {
+        seed.update(static_cast<uint64_t>(name.size()));
+        seed.update(name.data(), name.size());
+    };
+    hash_name(column.name());
+    std::vector<size_t> key_positions;
+    key_positions.reserve(schema.num_key_columns());
+    for (size_t key = 0; key < schema.num_key_columns(); ++key) {
+        key_positions.push_back(key);
+    }
+    std::ranges::sort(key_positions, [&](size_t left, size_t right) {
+        return schema.column(left).name() < schema.column(right).name();
+    });
+    seed.update(static_cast<uint64_t>(key_positions.size()));
+    for (size_t key : key_positions) {
+        hash_name(schema.column(key).name());
+    }
+    for (size_t row = 0; row < values.size(); ++row) {
+        SipHash hash = seed;
+        const size_t source_row = row_indices ? row_indices->at(static_cast<uint32_t>(row)) : row;
+        for (size_t key : key_positions) {
+            const auto& key_column = *row_block.get_by_position(key).column;
+            // Nullable columns hash NULL like a zero scalar; retain the null marker
+            // so distinct keys cannot acquire the same default deterministically.
+            hash.update(key_column.is_null_at(source_row));
+            key_column.update_hash_with_value(source_row, hash);
+        }
+        uint64_t lo, hi;
+        hash.get128(lo, hi);
+        UUIDValueType value = (static_cast<UUIDValueType>(hi) << 64) | lo;
+        if (version7) {
+            value = (static_cast<UUIDValueType>(partial_update_info.timestamp_ms) << 80) |
+                    (value & ((UUIDValueType {1} << 80) - 1));
+        }
+        value &= ~((UUIDValueType {15} << 76) | (UUIDValueType {3} << 62));
+        value |= (UUIDValueType {version7 ? 7U : 4U} << 76) | (UUIDValueType {2} << 62);
+        values.get_data()[row] = value;
+    }
+}
+
 Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
                                                 const std::vector<uint32_t>& cids,
-                                                const std::vector<std::string>& default_values,
-                                                const Block& ref_block,
-                                                Block& default_value_block) {
+                                                const PartialUpdateInfo& partial_update_info,
+                                                const Block& row_block, Block& default_value_block,
+                                                const std::map<uint32_t, uint32_t>* row_indices) {
+    const auto& default_values = partial_update_info.default_values;
+    const size_t num_rows = row_indices ? row_indices->size() : row_block.rows();
     auto mutable_default_value_columns_guard = default_value_block.mutate_columns_scoped();
     auto& mutable_default_value_columns = mutable_default_value_columns_guard.mutable_columns();
     for (auto i = 0; i < cids.size(); ++i) {
         const auto& column = schema.column(cids[i]);
         if (column.has_default_value()) {
             const auto& default_value = default_values[i];
+            const auto uuid_default = to_lower(default_value);
+            if (column.type() == FieldType::OLAP_FIELD_TYPE_UUID &&
+                (uuid_default == "uuid_v4()" || uuid_default == "uuid_v7()")) {
+                auto values = ColumnUUID::create(num_rows);
+                if (!partial_update_info.has_load_id) {
+                    return Status::InternalError(
+                            "Missing persisted load ID for partial-update UUID default, column {}",
+                            column.name());
+                }
+                fill_uuid_defaults(*values, schema, column, partial_update_info, row_block,
+                                   row_indices, uuid_default == "uuid_v7()");
+                // Literal defaults contain one broadcast value; volatile defaults are row-aligned.
+                if (column.is_nullable()) {
+                    mutable_default_value_columns[i] = ColumnNullable::create(
+                            std::move(values), ColumnUInt8::create(num_rows, 0));
+                } else {
+                    mutable_default_value_columns[i] = std::move(values);
+                }
+                continue;
+            }
             StringRef str(default_value);
-            RETURN_IF_ERROR(ref_block.get_by_position(i).type->get_serde()->default_from_string(
-                    str, *mutable_default_value_columns[i]));
+            RETURN_IF_ERROR(
+                    default_value_block.get_by_position(i).type->get_serde()->default_from_string(
+                            str, *mutable_default_value_columns[i]));
         }
     }
     return Status::OK();
@@ -1113,9 +1189,9 @@ Status BaseTablet::generate_new_block_for_partial_update(
     DCHECK(old_block_delete_signs != nullptr);
     // build default value block
     auto default_value_block = old_block.clone_empty();
-    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(*rowset_schema, missing_cids,
-                                                             partial_update_info->default_values,
-                                                             old_block, default_value_block));
+    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
+            *rowset_schema, missing_cids, *partial_update_info, update_block, default_value_block,
+            &read_index_update));
 
     CHECK(update_rows >= old_rows);
 
@@ -1154,8 +1230,8 @@ Status BaseTablet::generate_new_block_for_partial_update(
 
                 if (use_default) {
                     if (rs_column.has_default_value()) {
-                        mutable_column->insert_from(*default_value_block.get_by_position(i).column,
-                                                    0);
+                        const auto& defaults = *default_value_block.get_by_position(i).column;
+                        mutable_column->insert_from(defaults, defaults.size() == 1 ? 0 : idx);
                     } else if (rs_column.is_nullable()) {
                         assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                                 mutable_column.get())
@@ -1201,7 +1277,7 @@ static void fill_cell_for_flexible_partial_update(
         }
         if (use_default) {
             if (tablet_column.has_default_value()) {
-                new_col->insert_from(default_value_col, 0);
+                new_col->insert_from(default_value_col, default_value_col.size() == 1 ? 0 : idx);
             } else if (tablet_column.is_nullable()) {
                 assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(new_col.get())
                         ->insert_many_defaults(1);
@@ -1270,9 +1346,9 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
 
     // 3. build default value block
     auto default_value_block = old_block.clone_empty();
-    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(*rowset_schema, non_sort_key_cids,
-                                                             partial_update_info->default_values,
-                                                             old_block, default_value_block));
+    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
+            *rowset_schema, non_sort_key_cids, *partial_update_info, update_block,
+            default_value_block, &read_index_update));
 
     // 4. build the final block
     auto full_mutable_columns_guard = output_block->mutate_columns_scoped();

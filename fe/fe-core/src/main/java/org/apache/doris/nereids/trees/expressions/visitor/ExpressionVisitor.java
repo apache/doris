@@ -124,6 +124,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
@@ -352,6 +353,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitIPv6Literal(IPv6Literal ipv6Literal, C context) {
         return visitLiteral(ipv6Literal, context);
+    }
+
+    public R visitUuidLiteral(UuidLiteral uuidLiteral, C context) {
+        return visitLiteral(uuidLiteral, context);
     }
 
     public R visitArrayLiteral(ArrayLiteral arrayLiteral, C context) {

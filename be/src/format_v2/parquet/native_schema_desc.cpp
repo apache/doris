@@ -880,12 +880,7 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         ans.first = DataTypeFactory::instance().create_data_type(
                 TYPE_DATETIMEV2, nullable, 0, logicalType.TIMESTAMP.unit.__isset.MILLIS ? 3 : 6);
     } else if (logicalType.__isset.UUID) {
-        if (_enable_mapping_varbinary) {
-            ans.first = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable, -1,
-                                                                     -1, 16);
-        } else {
-            ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
-        }
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_UUID, nullable);
     } else if (logicalType.__isset.FLOAT16) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, nullable);
     } else {

@@ -45,8 +45,10 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/function_variant_element_v2.h"
@@ -698,6 +700,14 @@ TEST(VariantColumnReaderTest, ReconstructsShreddedPrimitiveTypeMatrix) {
     verify_bytes(false, false);
     verify_bytes(true, false);
     verify_bytes(false, true);
+    const std::array<uint8_t, 16> uuid_bytes {0,    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                              0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    auto uuid_schema = shredded_primitive_schema(std::make_shared<DataTypeUUID>());
+    uuid_schema.children.back()->type_descriptor.is_uuid = true;
+    decode(std::move(uuid_schema),
+           nullable_fixed<ColumnUUID, UUIDValueType>(
+                   {UUIDValue::from_big_endian(uuid_bytes.data())}, {0}),
+           [&](const auto& values) { EXPECT_EQ(values.get_value_ref(0).get_uuid(), uuid_bytes); });
 }
 
 TEST(VariantColumnReaderTest, RejectsInvalidShreddedUuidWidth) {

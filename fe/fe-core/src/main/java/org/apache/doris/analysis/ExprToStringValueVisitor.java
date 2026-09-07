@@ -246,6 +246,14 @@ public class ExprToStringValueVisitor extends ExprVisitor<String, StringValueCon
     }
 
     @Override
+    public String visitUuidLiteral(UuidLiteral expr, StringValueContext ctx) {
+        if (ctx.isInComplexType()) {
+            return wrapWithQuotes(expr.getStringValue(), ctx);
+        }
+        return expr.getStringValue();
+    }
+
+    @Override
     public String visitVarBinaryLiteral(VarBinaryLiteral expr, StringValueContext ctx) {
         if (ctx.isInComplexType()) {
             return wrapWithQuotes(expr.getStringValue(), ctx);

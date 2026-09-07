@@ -32,6 +32,8 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.UuidLiteral;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
@@ -773,6 +775,7 @@ public abstract class ConnectProcessor {
                         literalType.isTimeStampNs() ? literalType : null);
             case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
+            case UUID_LITERAL: return new UuidLiteral(node.uuid_literal.value);
             default: throw new AnalysisException("Wrong type from thrift;");
         }
     }

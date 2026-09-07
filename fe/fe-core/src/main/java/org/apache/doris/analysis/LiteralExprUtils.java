@@ -78,6 +78,9 @@ public class LiteralExprUtils {
             case IPV6:
                 literalExpr = new IPv6Literal(value);
                 break;
+            case UUID:
+                literalExpr = new UuidLiteral(value);
+                break;
             default:
                 throw new AnalysisException("Type[" + type.toSql() + "] not supported.");
         }
@@ -107,6 +110,8 @@ public class LiteralExprUtils {
                 return DateLiteral.createMinValue(type);
             case TIMESTAMP_NS:
                 return TimeStampNsLiteral.createMinValue();
+            case UUID:
+                return new UuidLiteral(UuidLiteral.UUID_MIN);
             default:
                 throw new AnalysisException("Invalid data type for creating infinity: " + type);
         }

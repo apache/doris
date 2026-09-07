@@ -164,6 +164,8 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             return new IPv4Literal(value);
         } else if (targetType.isIPv6Type()) {
             return new IPv6Literal(value);
+        } else if (targetType.isUuidType()) {
+            return new UuidLiteral(value);
         } else if (targetType.isTimeType()) {
             if (this.dataType.isStringLikeType()) { // could parse in FE
                 return new TimeV2Literal((TimeV2Type) targetType, value);

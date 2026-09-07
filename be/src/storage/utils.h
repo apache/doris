@@ -180,6 +180,8 @@ bool valid_ipv4(const std::string& value_str);
 
 bool valid_ipv6(const std::string& value_str);
 
+bool valid_uuid(const std::string& value_str);
+
 constexpr bool is_string_type(const FieldType& field_type) {
     return field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
            field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||

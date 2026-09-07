@@ -61,6 +61,7 @@
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
@@ -148,6 +149,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         break;
     case FieldType::OLAP_FIELD_TYPE_IPV6:
         result = std::make_shared<DataTypeIPv6>();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_UUID:
+        result = std::make_shared<DataTypeUUID>();
         break;
     case FieldType::OLAP_FIELD_TYPE_DATE:
         result = std::make_shared<DataTypeDate>();
@@ -242,6 +246,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     case PGenericType::IPV6:
         nested = std::make_shared<DataTypeIPv6>();
+        break;
+    case PGenericType::UUID:
+        nested = std::make_shared<DataTypeUUID>();
         break;
     case PGenericType::STRING:
         nested = std::make_shared<DataTypeString>();
@@ -438,6 +445,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         break;
     case TYPE_IPV6:
         nested = std::make_shared<DataTypeIPv6>();
+        break;
+    case TYPE_UUID:
+        nested = std::make_shared<DataTypeUUID>();
         break;
     case TYPE_DATE:
         nested = std::make_shared<DataTypeDate>();
