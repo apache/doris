@@ -454,7 +454,7 @@ public class OlapTableTest {
     @Test
     public void testHasData() {
         OlapTable table = new OlapTable();
-        Assert.assertFalse(table.hasData());
+        Assertions.assertFalse(table.hasData());
 
         MaterializedIndex idx1 = new MaterializedIndex(10, MaterializedIndex.IndexState.NORMAL);
         Partition p1 = new Partition(11, "p1", idx1, new RandomDistributionInfo());
