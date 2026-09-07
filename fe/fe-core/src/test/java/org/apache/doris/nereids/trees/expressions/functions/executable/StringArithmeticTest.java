@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -62,5 +63,15 @@ class StringArithmeticTest {
 
         Assertions.assertEquals(1, positiveZero.getValue());
         Assertions.assertEquals(1, negativeZero.getValue());
+    }
+
+    @Test
+    void testFieldComparesTimestampNsNanoseconds() {
+        IntegerLiteral result = (IntegerLiteral) StringArithmetic.fieldTimeStampNs(
+                new TimeStampNsLiteral("1970-01-01 00:00:00.000000002"),
+                new TimeStampNsLiteral("1970-01-01 00:00:00.000000001"),
+                new TimeStampNsLiteral("1970-01-01 00:00:00.000000002"));
+
+        Assertions.assertEquals(2, result.getValue());
     }
 }

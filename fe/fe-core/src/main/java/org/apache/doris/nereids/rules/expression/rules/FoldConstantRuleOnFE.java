@@ -36,6 +36,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionTraverseListener;
 import org.apache.doris.nereids.rules.expression.ExpressionTraverseListenerFactory;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
@@ -541,6 +542,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         }
         Expression child = cast.child();
         DataType dataType = cast.getDataType();
+        boolean strictCast = cast.isStrict() || SessionVariable.enableStrictCast();
+        // Unsupported type pairs must be handled by CheckCast, rather than being folded into a
+        // literal or NULL based on the value-conversion result.
+        if (!CheckCast.check(child.getDataType(), dataType, strictCast)) {
+            return cast;
+        }
         // todo: process other null case
         if (child.isNullLiteral()) {
             return new NullLiteral(dataType);
@@ -559,7 +566,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         // }
         try {
             // TODO: support no throw exception in `checkedCastTo` and return Optional<Expression>
-            if (cast.child().getDataType().isStringLikeType() && dataType.isComplexType()) {
+            if ((dataType.isVariantType() && cast.child().getDataType().isTimeStampNsType())
+                    || (cast.child().getDataType().isStringLikeType() && dataType.isComplexType())) {
                 return cast;
             }
             Expression castResult = child.checkedCastTo(dataType);
@@ -568,7 +576,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             }
             return castResult;
         } catch (CastException c) {
-            if (SessionVariable.enableStrictCast()) {
+            if (strictCast) {
                 throw c;
             } else {
                 return new NullLiteral(dataType);

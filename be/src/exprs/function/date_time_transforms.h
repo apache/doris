@@ -102,6 +102,25 @@ TO_TIME_FUNCTION(ToHourImpl, hour);
 TO_TIME_FUNCTION(ToMinuteImpl, minute);
 TO_TIME_FUNCTION(ToSecondImpl, second);
 TO_TIME_FUNCTION(ToMicroSecondImpl, microsecond);
+template <PrimitiveType PType>
+struct ToNanoSecondImpl {
+    static constexpr PrimitiveType OpArgType = PType;
+    using CppType = typename PrimitiveTypeTraits<PType>::CppType;
+    static constexpr auto name = "nanosecond";
+
+    static inline auto execute(const CppType& date_time_value) {
+        if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            return date_time_value.nanosecond();
+        } else {
+            return static_cast<uint32_t>(date_time_value.microsecond()) *
+                   static_cast<uint32_t>(TimeStampNsValue::NANOS_PER_MICROSECOND);
+        }
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
+    }
+};
 
 TIME_FUNCTION_IMPL(WeekOfYearImpl, weekofyear, week(mysql_week_mode(3)));
 TIME_FUNCTION_IMPL(DayOfYearImpl, dayofyear, day_of_year());
@@ -145,6 +164,8 @@ struct ToDateImpl {
         } else if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
             t.cast_to_date();
             return t;
+        } else if constexpr (std::is_same_v<DateType, TimeStampNsValue>) {
+            return t.to_date();
         } else {
             return binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
                     (UInt32)(t.to_date_int_val() >> TIME_PART_LENGTH));
@@ -205,14 +226,27 @@ struct ToIso8601Impl {
     static constexpr PrimitiveType OpArgType = PType;
     using ArgType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "to_iso8601";
-    static constexpr auto max_size = PType == TYPE_DATEV2 ? 10 : 26;
+    static constexpr auto max_size = [] {
+        if constexpr (PType == TYPE_DATEV2) {
+            return 10;
+        } else if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            return 29;
+        } else {
+            return 26;
+        }
+    }();
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
                         ColumnString::Chars& res_data, size_t& offset,
                         const char* const* /*names_ptr*/, FunctionContext* /*context*/) {
-        auto length = dt.to_buffer((char*)res_data.data() + offset,
-                                   std::is_same_v<ArgType, UInt32> ? -1 : 6);
-        if (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
+        int length = 0;
+        if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            length = dt.to_buffer((char*)res_data.data() + offset);
+        } else {
+            constexpr int scale = PType == TYPE_DATEV2 ? -1 : 6;
+            length = dt.to_buffer((char*)res_data.data() + offset, scale);
+        }
+        if (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMP_NS || PType == TYPE_TIMESTAMPTZ) {
             res_data[offset + 10] = 'T';
         }
 
@@ -302,22 +336,37 @@ struct MonthNameImpl {
     }
 };
 
-template <typename FormatImpl, const char* FuncName>
+template <PrimitiveType PType, typename FormatImpl, const char* FuncName>
 struct DateTimeV2FormatImpl {
-    static constexpr PrimitiveType OpArgType = TYPE_DATETIMEV2;
-    using ArgType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType;
+    static_assert(PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMP_NS);
+    static constexpr PrimitiveType OpArgType = PType;
+    using ArgType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = FuncName;
     static constexpr auto max_size = FormatImpl::row_size;
 
     static auto execute(const ArgType& dt, ColumnString::Chars& res_data, size_t& offset,
                         const char* const* /*names_ptr*/, FunctionContext* /*context*/) {
         auto* buf = reinterpret_cast<char*>(&res_data[offset]);
-        offset += FormatImpl::date_to_str(dt, buf);
+        constexpr bool needs_civil_datetime =
+                std::is_same_v<FormatImpl, time_format_type::dd_HHImpl> ||
+                std::is_same_v<FormatImpl, time_format_type::dd_HH_mmImpl> ||
+                std::is_same_v<FormatImpl, time_format_type::dd_HH_mm_ssImpl> ||
+                std::is_same_v<FormatImpl, time_format_type::dd_HH_mm_ss_SSSSSSImpl>;
+        if constexpr (PType == TYPE_TIMESTAMP_NS &&
+                      std::is_same_v<FormatImpl, time_format_type::yyyy_MMImpl>) {
+            const auto civil_value = dt.to_date();
+            offset += FormatImpl::date_to_str(civil_value, buf);
+        } else if constexpr (PType == TYPE_TIMESTAMP_NS && needs_civil_datetime) {
+            const auto civil_value = dt.to_datetime();
+            offset += FormatImpl::date_to_str(civil_value, buf);
+        } else {
+            offset += FormatImpl::date_to_str(dt, buf);
+        }
         return offset;
     }
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::DataType>()};
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
     }
 };
 
@@ -333,21 +382,34 @@ inline constexpr char kMinuteSecondName[] = "minute_second";
 inline constexpr char kMinuteMicrosecondName[] = "minute_microsecond";
 inline constexpr char kSecondMicrosecondName[] = "second_microsecond";
 
-using YearMonthImpl = DateTimeV2FormatImpl<time_format_type::yyyy_MMImpl, kYearMonthName>;
-using DayHourImpl = DateTimeV2FormatImpl<time_format_type::dd_HHImpl, kDayHourName>;
-using DayMinuteImpl = DateTimeV2FormatImpl<time_format_type::dd_HH_mmImpl, kDayMinuteName>;
-using DaySecondImpl = DateTimeV2FormatImpl<time_format_type::dd_HH_mm_ssImpl, kDaySecondName>;
+template <PrimitiveType PType>
+using YearMonthImpl = DateTimeV2FormatImpl<PType, time_format_type::yyyy_MMImpl, kYearMonthName>;
+template <PrimitiveType PType>
+using DayHourImpl = DateTimeV2FormatImpl<PType, time_format_type::dd_HHImpl, kDayHourName>;
+template <PrimitiveType PType>
+using DayMinuteImpl = DateTimeV2FormatImpl<PType, time_format_type::dd_HH_mmImpl, kDayMinuteName>;
+template <PrimitiveType PType>
+using DaySecondImpl =
+        DateTimeV2FormatImpl<PType, time_format_type::dd_HH_mm_ssImpl, kDaySecondName>;
+template <PrimitiveType PType>
 using DayMicrosecondImpl =
-        DateTimeV2FormatImpl<time_format_type::dd_HH_mm_ss_SSSSSSImpl, kDayMicrosecondName>;
-using HourMinuteImpl = DateTimeV2FormatImpl<time_format_type::HH_mmImpl, kHourMinuteName>;
-using HourSecondImpl = DateTimeV2FormatImpl<time_format_type::HH_mm_ssImpl, kHourSecondName>;
+        DateTimeV2FormatImpl<PType, time_format_type::dd_HH_mm_ss_SSSSSSImpl, kDayMicrosecondName>;
+template <PrimitiveType PType>
+using HourMinuteImpl = DateTimeV2FormatImpl<PType, time_format_type::HH_mmImpl, kHourMinuteName>;
+template <PrimitiveType PType>
+using HourSecondImpl = DateTimeV2FormatImpl<PType, time_format_type::HH_mm_ssImpl, kHourSecondName>;
+template <PrimitiveType PType>
 using HourMicrosecondImpl =
-        DateTimeV2FormatImpl<time_format_type::HH_mm_ss_SSSSSSImpl, kHourMicrosecondName>;
-using MinuteSecondImpl = DateTimeV2FormatImpl<time_format_type::mm_ssImpl, kMinuteSecondName>;
+        DateTimeV2FormatImpl<PType, time_format_type::HH_mm_ss_SSSSSSImpl, kHourMicrosecondName>;
+template <PrimitiveType PType>
+using MinuteSecondImpl =
+        DateTimeV2FormatImpl<PType, time_format_type::mm_ssImpl, kMinuteSecondName>;
+template <PrimitiveType PType>
 using MinuteMicrosecondImpl =
-        DateTimeV2FormatImpl<time_format_type::mm_ss_SSSSSSImpl, kMinuteMicrosecondName>;
+        DateTimeV2FormatImpl<PType, time_format_type::mm_ss_SSSSSSImpl, kMinuteMicrosecondName>;
+template <PrimitiveType PType>
 using SecondMicrosecondImpl =
-        DateTimeV2FormatImpl<time_format_type::ss_SSSSSSImpl, kSecondMicrosecondName>;
+        DateTimeV2FormatImpl<PType, time_format_type::ss_SSSSSSImpl, kSecondMicrosecondName>;
 
 template <PrimitiveType PType>
 struct DateFormatImpl {
@@ -363,8 +425,17 @@ struct DateFormatImpl {
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             // Handle non-special formats.
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
-            if (!dt.to_format_string_conservative(format.data, format.size, buf,
-                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+            const bool formatted = [&]() {
+                if constexpr (PType == PrimitiveType::TYPE_DATETIMEV2) {
+                    return dt.to_format_string_conservative(
+                            format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN,
+                            static_cast<int>(dt.microsecond()) * 1000);
+                } else {
+                    return dt.to_format_string_conservative(format.data, format.size, buf,
+                                                            100 + SAFE_FORMAT_STRING_MARGIN);
+                }
+            }();
+            if (!formatted) {
                 return true;
             }
 
@@ -379,7 +450,23 @@ struct DateFormatImpl {
 
             // No buffer is needed here because these specially optimized formats have fixed lengths,
             // and sufficient memory has already been reserved.
-            auto len = Impl::date_to_str(dt, (char*)res_data.data() + offset);
+            const auto len = [&]() {
+                if constexpr (PType == TYPE_TIMESTAMP_NS) {
+                    constexpr bool needs_civil_time =
+                            std::is_same_v<Impl, time_format_type::yyyy_MM_dd_HH_mm_ssImpl> ||
+                            std::is_same_v<Impl, time_format_type::yyyy_MM_dd_HH_mm_ss_SSSSSSImpl>;
+                    const auto civil_value = [&]() {
+                        if constexpr (needs_civil_time) {
+                            return dt.to_datetime();
+                        } else {
+                            return dt.to_date();
+                        }
+                    }();
+                    return Impl::date_to_str(civil_value, (char*)res_data.data() + offset);
+                } else {
+                    return Impl::date_to_str(dt, (char*)res_data.data() + offset);
+                }
+            }();
             offset += len;
 
             return false;
@@ -391,6 +478,24 @@ struct DateFormatImpl {
                 std::make_shared<DataTypeString>()};
     }
 };
+
+inline bool contains_from_unixtime_format_specifier(StringRef format, char specifier) {
+    for (size_t i = 0; i + 1 < format.size; ++i) {
+        // Consume the character after every '%', so "%%n" is escaped text rather than %n.
+        if (format.data[i] == '%' && format.data[++i] == specifier) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool has_conflicting_from_unixtime_fraction_specifiers(StringRef format) {
+    // %f formats the microsecond-rounded instant, while %n formats the original nanosecond
+    // instant. For example, 0.999999500 becomes 1.000000 for %f but stays 0.999999500 for %n,
+    // so one result cannot contain both fields consistently.
+    return contains_from_unixtime_format_specifier(format, 'f') &&
+           contains_from_unixtime_format_specifier(format, 'n');
+}
 
 template <bool WithStringArg, bool NewVersion = false>
 struct FromUnixTimeImpl {
@@ -431,7 +536,7 @@ struct FromUnixTimeImpl {
     template <typename Impl>
     static bool execute(const ArgType& val, StringRef format, ColumnString::Chars& res_data,
                         size_t& offset, const cctz::time_zone& time_zone) {
-        if (!check_valid(val)) {
+        if (!check_valid(val) || has_conflicting_from_unixtime_fraction_specifiers(format)) {
             return true;
         }
         DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(val, time_zone);
@@ -441,7 +546,7 @@ struct FromUnixTimeImpl {
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
             if (!dt.to_format_string_conservative(format.data, format.size, buf,
-                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+                                                  100 + SAFE_FORMAT_STRING_MARGIN, 0)) {
                 return true;
             }
 
@@ -459,14 +564,18 @@ struct FromUnixTimeImpl {
 };
 
 // only new verison
-template <bool WithStringArg>
+template <bool WithStringArg, bool WithNanosecond = false>
 struct FromUnixTimeDecimalImpl {
-    using ArgType = Int64;
-    static constexpr PrimitiveType FromPType = TYPE_DECIMAL64;
-    constexpr static short Scale = 6; // same with argument's scale in FE's signature
+    static_assert(!WithNanosecond || WithStringArg);
+    using ArgType = std::conditional_t<WithNanosecond, Int128, Int64>;
+    static constexpr PrimitiveType FromPType = WithNanosecond ? TYPE_DECIMAL128I : TYPE_DECIMAL64;
+    constexpr static short Scale = WithNanosecond ? 9 : 6;
 
     static DataTypes get_variadic_argument_types() {
         if constexpr (WithStringArg) {
+            if constexpr (WithNanosecond) {
+                return {std::make_shared<DataTypeDecimal128>(), std::make_shared<DataTypeString>()};
+            }
             return {std::make_shared<DataTypeDecimal64>(), std::make_shared<DataTypeString>()};
         } else {
             return {std::make_shared<DataTypeDecimal64>()};
@@ -481,12 +590,31 @@ struct FromUnixTimeDecimalImpl {
         return true;
     }
 
+    static int32_t get_nanosecond(const ArgType& fraction) {
+        return static_cast<int32_t>(fraction) * common::exp10_i32(9 - Scale);
+    }
+
     static DateV2Value<DateTimeV2ValueType> get_datetime_value(const ArgType& interger,
                                                                const ArgType& fraction,
-                                                               const cctz::time_zone& time_zone) {
+                                                               const cctz::time_zone& time_zone,
+                                                               bool preserve_nanosecond) {
+        auto epoch_second = static_cast<int64_t>(interger);
+        int32_t nanosecond = get_nanosecond(fraction);
+        if constexpr (WithNanosecond) {
+            if (!preserve_nanosecond) {
+                // Keep the established %f behavior by rounding the complete instant, including
+                // carry: 0.999999500 seconds is formatted as 01.000000, not 00.000000.
+                constexpr int32_t MICROS_PER_SECOND = 1000000;
+                const int32_t rounded_microseconds =
+                        (nanosecond + TimeStampNsValue::NANOS_PER_MICROSECOND / 2) /
+                        TimeStampNsValue::NANOS_PER_MICROSECOND;
+                epoch_second += rounded_microseconds / MICROS_PER_SECOND;
+                nanosecond = rounded_microseconds % MICROS_PER_SECOND *
+                             TimeStampNsValue::NANOS_PER_MICROSECOND;
+            }
+        }
         DateV2Value<DateTimeV2ValueType> dt;
-        // 9 is nanoseconds, our input's scale is 6
-        dt.from_unixtime(interger, (int32_t)fraction * common::exp10_i32(9 - Scale), time_zone, 6);
+        dt.from_unixtime(epoch_second, nanosecond, time_zone, 6);
         return dt;
     }
 
@@ -495,17 +623,29 @@ struct FromUnixTimeDecimalImpl {
     static bool execute_decimal(const ArgType& interger, const ArgType& fraction, StringRef format,
                                 ColumnString::Chars& res_data, size_t& offset,
                                 const cctz::time_zone& time_zone) {
-        if (!check_valid(interger + (fraction > 0 ? 1 : ((fraction < 0) ? -1 : 0)))) [[unlikely]] {
+        if (has_conflicting_from_unixtime_fraction_specifiers(format)) [[unlikely]] {
             return true;
         }
-        DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(interger, fraction, time_zone);
+        int64_t fraction_adjustment = 0;
+        if (fraction > 0) {
+            fraction_adjustment = 1;
+        } else if (fraction < 0) {
+            fraction_adjustment = -1;
+        }
+        if (!check_valid(interger + fraction_adjustment)) [[unlikely]] {
+            return true;
+        }
+        const bool preserve_nanosecond = contains_from_unixtime_format_specifier(format, 'n');
+        DateV2Value<DateTimeV2ValueType> dt =
+                get_datetime_value(interger, fraction, time_zone, preserve_nanosecond);
         if (!dt.is_valid_date()) [[unlikely]] {
             return true;
         }
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
             if (!dt.to_format_string_conservative(format.data, format.size, buf,
-                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+                                                  100 + SAFE_FORMAT_STRING_MARGIN,
+                                                  get_nanosecond(fraction))) {
                 return true;
             }
 
@@ -701,8 +841,22 @@ public:
             TimeValue::TimeType time = get_time_value(datetime_val);
 
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
-            if (!TimeValue::to_format_string_conservative(format.data, format.size, buf,
-                                                          100 + SAFE_FORMAT_STRING_MARGIN, time)) {
+            const bool formatted = [&]() {
+                if constexpr (ArgPType == PrimitiveType::TYPE_TIMESTAMP_NS) {
+                    return TimeValue::to_format_string_conservative(
+                            format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN, time,
+                            datetime_val.nanosecond());
+                } else if constexpr (ArgPType == PrimitiveType::TYPE_DATETIMEV2 ||
+                                     ArgPType == PrimitiveType::TYPE_TIMEV2) {
+                    return TimeValue::to_format_string_conservative(
+                            format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN, time,
+                            TimeValue::microsecond(time) * 1000);
+                } else {
+                    return TimeValue::to_format_string_conservative(
+                            format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN, time);
+                }
+            }();
+            if (!formatted) {
                 null_map_data[i] = 1;
                 res_offsets.push_back(res_chars.size());
                 continue;
@@ -719,6 +873,8 @@ private:
     TimeValue::TimeType get_time_value(const ArgCppType& datetime_val) const {
         if constexpr (ArgPType == PrimitiveType::TYPE_TIMEV2) {
             return static_cast<TimeValue::TimeType>(datetime_val);
+        } else if constexpr (ArgPType == PrimitiveType::TYPE_TIMESTAMP_NS) {
+            return static_cast<TimeValue::TimeType>(datetime_val.time_part_to_microsecond());
         } else {
             return TimeValue::make_time(datetime_val.hour(), datetime_val.minute(),
                                         datetime_val.second(), datetime_val.microsecond());

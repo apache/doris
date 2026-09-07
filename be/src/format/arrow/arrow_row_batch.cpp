@@ -97,6 +97,10 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     case TYPE_DATEV2:
         *result = std::make_shared<arrow::Date32Type>();
         break;
+    case TYPE_TIMESTAMP_NS:
+        // TIMESTAMP_NS is stored as signed epoch nanoseconds, but its SQL type has no timezone.
+        *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::NANO);
+        break;
     case TYPE_TIMESTAMPTZ:
     case TYPE_DATETIMEV2: {
         arrow::TimeUnit::type time_unit;

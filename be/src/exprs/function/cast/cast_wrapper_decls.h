@@ -37,7 +37,10 @@ WrapperType create_decimal_wrapper(FunctionContext* context, const DataTypePtr& 
 WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr& from_type,
                                     PrimitiveType to_type);
 
-// Implemented in function_cast_date.cpp
+// Implemented in function_cast_timestamp_ns.cpp
+WrapperType create_timestamp_ns_wrapper(FunctionContext* context, const DataTypePtr& from_type);
+
+// Implemented in function_cast_timestamptz.cpp
 WrapperType create_timestamptz_wrapper(FunctionContext* context, const DataTypePtr& from_type);
 
 // Implemented in function_cast_ip.cpp

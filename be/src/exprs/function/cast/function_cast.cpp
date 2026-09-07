@@ -21,6 +21,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/data_type_quantilestate.h"
+#include "core/data_type/data_type_timestamp_ns.h" // IWYU pragma: keep
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
@@ -314,6 +315,8 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     case PrimitiveType::TYPE_DATETIMEV2:
     case PrimitiveType::TYPE_TIMEV2:
         return create_datelike_wrapper(context, from_type, to_type->get_primitive_type());
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        return create_timestamp_ns_wrapper(context, from_type);
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return create_timestamptz_wrapper(context, from_type);
     case PrimitiveType::TYPE_IPV4:

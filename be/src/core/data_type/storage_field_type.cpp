@@ -73,6 +73,8 @@ FieldType primitive_type_to_storage_field_type(PrimitiveType type) {
         return FieldType::OLAP_FIELD_TYPE_DATEV2;
     case PrimitiveType::TYPE_DATETIMEV2:
         return FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        return FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS;
     case PrimitiveType::TYPE_TIMEV2:
         return FieldType::OLAP_FIELD_TYPE_TIMEV2;
     case PrimitiveType::TYPE_DECIMAL32:
@@ -167,6 +169,8 @@ PrimitiveType storage_field_type_to_primitive_type(FieldType type) {
         return PrimitiveType::TYPE_DATEV2;
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return PrimitiveType::TYPE_DATETIMEV2;
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
+        return PrimitiveType::TYPE_TIMESTAMP_NS;
     case FieldType::OLAP_FIELD_TYPE_TIMEV2:
         return PrimitiveType::TYPE_TIMEV2;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL32:

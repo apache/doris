@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -42,8 +43,12 @@ public class ArrayRange extends ScalarFunction
             FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE)).args(IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE))
                     .args(IntegerType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(TimeStampNsType.INSTANCE))
+                    .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
                     .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(ArrayType.of(TimeStampNsType.INSTANCE))
+                    .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
                     .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD, IntegerType.INSTANCE)
     );

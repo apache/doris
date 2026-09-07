@@ -383,6 +383,15 @@ suite("test_add_sub_diff_ceil_floor") {
         contains("partitions=6/6 (p1,p2,p3,p4,p5,p6)")
     }
     // from_days and unix_timestamp
+    def originalTimeZone = sql("select @@time_zone")[0][0]
+    sql "set time_zone = 'Asia/Shanghai'"
+    explain {
+        sql """select * from max_t where unix_timestamp(dt) > 1547838847 """
+        contains("partitions=4/6 (p1,p4,p5,p6)")
+    }
+
+    // A fixed-offset zone has no DST gaps, so unix_timestamp is monotonic on unbounded partitions.
+    sql "set time_zone = '+08:00'"
     explain {
         sql """select * from max_t where unix_timestamp(dt) > 1547838847 """
         contains("partitions=3/6 (p4,p5,p6)")
@@ -443,6 +452,7 @@ suite("test_add_sub_diff_ceil_floor") {
         sql """select * from unix_time_t where unix_timestamp(dt) <=0"""
         contains("partitions=1/4 (p1)")
     }
+    sql "set time_zone = '${originalTimeZone}'"
 
     explain {
         sql """select * from max_t where year(weeks_add(dt, 1)) >2019"""

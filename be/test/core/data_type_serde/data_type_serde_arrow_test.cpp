@@ -41,6 +41,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -71,6 +72,7 @@
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
@@ -685,6 +687,182 @@ TEST(DataTypeSerDeArrowTest, ConvertDateTimeV2ToNaiveArrowType) {
     const auto list_type = std::static_pointer_cast<arrow::ListType>(arrow_type);
     timestamp_type = std::static_pointer_cast<arrow::TimestampType>(list_type->value_type());
     EXPECT_TRUE(timestamp_type->timezone().empty());
+}
+
+TEST(DataTypeSerDeArrowTest, TimeStampNsArrowRoundTrip) {
+    const auto timestamp_ns_type = std::make_shared<DataTypeTimeStampNs>();
+    const auto nullable_timestamp_ns_type = make_nullable(timestamp_ns_type);
+    const auto timestamp_ns_array_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeTimeStampNs>()));
+    const auto timestamp_ns_map_type =
+            std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeString>()),
+                                          make_nullable(std::make_shared<DataTypeTimeStampNs>()));
+    const auto timestamp_ns_struct_type = std::make_shared<DataTypeStruct>(DataTypes {
+            make_nullable(std::make_shared<DataTypeTimeStampNs>()), timestamp_ns_array_type});
+
+    std::shared_ptr<arrow::DataType> arrow_type;
+    auto status = convert_to_arrow_type(timestamp_ns_type, &arrow_type, "Asia/Shanghai");
+    ASSERT_TRUE(status.ok()) << status;
+    auto arrow_timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::NANO, arrow_timestamp_type->unit());
+    EXPECT_TRUE(arrow_timestamp_type->timezone().empty());
+
+    MutableColumnPtr timestamp_ns_column = nullable_timestamp_ns_type->create_column();
+    timestamp_ns_column->insert(Field::create_field<TYPE_TIMESTAMP_NS>(
+            TimeStampNsValue(std::numeric_limits<int64_t>::min())));
+    timestamp_ns_column->insert(Field());
+    timestamp_ns_column->insert(Field::create_field<TYPE_TIMESTAMP_NS>(
+            TimeStampNsValue(std::numeric_limits<int64_t>::max())));
+
+    Array first_array;
+    first_array.emplace_back(Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(-1)));
+    first_array.emplace_back(Field());
+    first_array.emplace_back(Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(1)));
+    Array second_array;
+    second_array.emplace_back(Field::create_field<TYPE_TIMESTAMP_NS>(
+            TimeStampNsValue(std::numeric_limits<int64_t>::min())));
+    Array third_array;
+    third_array.emplace_back(Field::create_field<TYPE_TIMESTAMP_NS>(
+            TimeStampNsValue(std::numeric_limits<int64_t>::max())));
+
+    MutableColumnPtr timestamp_ns_array_column = timestamp_ns_array_type->create_column();
+    timestamp_ns_array_column->insert(Field::create_field<TYPE_ARRAY>(first_array));
+    timestamp_ns_array_column->insert(Field::create_field<TYPE_ARRAY>(second_array));
+    timestamp_ns_array_column->insert(Field::create_field<TYPE_ARRAY>(third_array));
+
+    Array first_keys {Field::create_field<TYPE_STRING>("before_epoch"),
+                      Field::create_field<TYPE_STRING>("null_value")};
+    Array first_values {Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(-1)), Field()};
+    Array second_keys {Field::create_field<TYPE_STRING>("epoch")};
+    Array second_values {Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(0))};
+    Array third_keys {Field::create_field<TYPE_STRING>("maximum")};
+    Array third_values {Field::create_field<TYPE_TIMESTAMP_NS>(
+            TimeStampNsValue(std::numeric_limits<int64_t>::max()))};
+    MutableColumnPtr timestamp_ns_map_column = timestamp_ns_map_type->create_column();
+    for (const auto& [keys, values] :
+         std::vector<std::pair<Array, Array>> {{first_keys, first_values},
+                                               {second_keys, second_values},
+                                               {third_keys, third_values}}) {
+        Map map;
+        map.emplace_back(Field::create_field<TYPE_ARRAY>(keys));
+        map.emplace_back(Field::create_field<TYPE_ARRAY>(values));
+        timestamp_ns_map_column->insert(Field::create_field<TYPE_MAP>(map));
+    }
+
+    MutableColumnPtr timestamp_ns_struct_column = timestamp_ns_struct_type->create_column();
+    Struct first_struct {Field::create_field<TYPE_TIMESTAMP_NS>(
+                                 TimeStampNsValue(std::numeric_limits<int64_t>::min())),
+                         Field::create_field<TYPE_ARRAY>(first_array)};
+    Struct second_struct {Field(), Field::create_field<TYPE_ARRAY>(second_array)};
+    Struct third_struct {Field::create_field<TYPE_TIMESTAMP_NS>(
+                                 TimeStampNsValue(std::numeric_limits<int64_t>::max())),
+                         Field::create_field<TYPE_ARRAY>(third_array)};
+    timestamp_ns_struct_column->insert(Field::create_field<TYPE_STRUCT>(first_struct));
+    timestamp_ns_struct_column->insert(Field::create_field<TYPE_STRUCT>(second_struct));
+    timestamp_ns_struct_column->insert(Field::create_field<TYPE_STRUCT>(third_struct));
+
+    auto source_block = std::make_shared<Block>();
+    source_block->insert(
+            ColumnWithTypeAndName(timestamp_ns_column->get_ptr(), nullable_timestamp_ns_type, "0"));
+    source_block->insert(ColumnWithTypeAndName(timestamp_ns_array_column->get_ptr(),
+                                               timestamp_ns_array_type, "1"));
+    source_block->insert(
+            ColumnWithTypeAndName(timestamp_ns_map_column->get_ptr(), timestamp_ns_map_type, "2"));
+    source_block->insert(ColumnWithTypeAndName(timestamp_ns_struct_column->get_ptr(),
+                                               timestamp_ns_struct_type, "3"));
+
+    std::shared_ptr<arrow::Schema> schema;
+    status = get_arrow_schema_from_block(*source_block, &schema, TimezoneUtils::default_time_zone);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(schema, nullptr);
+    auto list_type = std::static_pointer_cast<arrow::ListType>(schema->field(1)->type());
+    arrow_timestamp_type = std::static_pointer_cast<arrow::TimestampType>(list_type->value_type());
+    EXPECT_EQ(arrow::TimeUnit::NANO, arrow_timestamp_type->unit());
+    EXPECT_TRUE(arrow_timestamp_type->timezone().empty());
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    status = convert_to_arrow_batch(*source_block, schema, arrow::default_memory_pool(),
+                                    &record_batch, cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(record_batch, nullptr);
+
+    const auto scalar_array =
+            std::static_pointer_cast<arrow::TimestampArray>(record_batch->column(0));
+    EXPECT_EQ(std::numeric_limits<int64_t>::min(), scalar_array->Value(0));
+    EXPECT_TRUE(scalar_array->IsNull(1));
+    EXPECT_EQ(std::numeric_limits<int64_t>::max(), scalar_array->Value(2));
+
+    auto target_block = std::make_shared<Block>(source_block->clone_empty());
+    status = convert_from_arrow_batch(record_batch, source_block->get_data_types(),
+                                      target_block.get(), cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+    CommonDataTypeSerdeTest::compare_two_blocks(source_block, target_block);
+}
+
+TEST(DataTypeSerDeArrowTest, TimeStampNsArrowUnitConversion) {
+    const auto timestamp_ns_type = std::make_shared<DataTypeTimeStampNs>();
+    const auto serde = timestamp_ns_type->get_serde();
+    const std::vector<std::pair<arrow::TimeUnit::type, int64_t>> unit_cases {
+            {arrow::TimeUnit::SECOND, TimeStampNsValue::NANOS_PER_SECOND},
+            {arrow::TimeUnit::MILLI, TimeStampNsValue::NANOS_PER_MILLISECOND},
+            {arrow::TimeUnit::MICRO, TimeStampNsValue::NANOS_PER_MICROSECOND},
+            {arrow::TimeUnit::NANO, 1}};
+
+    for (const auto& [unit, nanos_per_unit] : unit_cases) {
+        auto source_column = ColumnTimeStampNs::create();
+        source_column->insert_value(TimeStampNsValue(-2 * nanos_per_unit));
+        source_column->insert_value(TimeStampNsValue(0));
+        source_column->insert_value(TimeStampNsValue(3 * nanos_per_unit));
+
+        arrow::TimestampBuilder builder(arrow::timestamp(unit), arrow::default_memory_pool());
+        auto status = serde->write_column_to_arrow(*source_column, nullptr, &builder, 0,
+                                                   source_column->size(), cctz::utc_time_zone());
+        ASSERT_TRUE(status.ok()) << status;
+
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+        const auto* timestamp_array = assert_cast<const arrow::TimestampArray*>(array.get());
+        EXPECT_EQ(-2, timestamp_array->Value(0));
+        EXPECT_EQ(0, timestamp_array->Value(1));
+        EXPECT_EQ(3, timestamp_array->Value(2));
+
+        auto target_column = ColumnTimeStampNs::create();
+        status = serde->read_column_from_arrow(*target_column, array.get(), 0, array->length(),
+                                               cctz::utc_time_zone());
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(source_column->size(), target_column->size());
+        for (size_t i = 0; i < source_column->size(); ++i) {
+            EXPECT_EQ(source_column->get_data()[i].epoch_nanos(),
+                      target_column->get_data()[i].epoch_nanos());
+        }
+
+        if (unit != arrow::TimeUnit::NANO) {
+            auto lossy_column = ColumnTimeStampNs::create();
+            lossy_column->insert_value(TimeStampNsValue(1));
+            arrow::TimestampBuilder lossy_builder(arrow::timestamp(unit),
+                                                  arrow::default_memory_pool());
+            status = serde->write_column_to_arrow(*lossy_column, nullptr, &lossy_builder, 0,
+                                                  lossy_column->size(), cctz::utc_time_zone());
+            EXPECT_FALSE(status.ok());
+        }
+    }
+
+    for (const auto unit :
+         {arrow::TimeUnit::SECOND, arrow::TimeUnit::MILLI, arrow::TimeUnit::MICRO}) {
+        for (const auto value :
+             {std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max()}) {
+            arrow::TimestampBuilder builder(arrow::timestamp(unit), arrow::default_memory_pool());
+            ASSERT_TRUE(builder.Append(value).ok());
+            std::shared_ptr<arrow::Array> array;
+            ASSERT_TRUE(builder.Finish(&array).ok());
+
+            auto overflow_column = ColumnTimeStampNs::create();
+            const auto status = serde->read_column_from_arrow(
+                    *overflow_column, array.get(), 0, array->length(), cctz::utc_time_zone());
+            EXPECT_FALSE(status.ok());
+            EXPECT_EQ(0, overflow_column->size());
+        }
+    }
 }
 
 TEST(DataTypeSerDeArrowTest, DateTimeV2ArrowEncodingFollowsSchemaTimezone) {
