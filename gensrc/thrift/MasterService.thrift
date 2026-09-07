@@ -56,6 +56,22 @@ struct TTabletInfo {
     1000: optional bool is_persistent
 }
 
+struct TActiveTabletStat {
+    1: required Types.TTabletId tablet_id
+    // Query scan count since the previous SUCCESSFULLY REPORTED baseline (delta, not cumulative)
+    2: optional i64 scan_count_delta
+    // Memtable flush count since that baseline (delta) -- the load-side signal
+    3: optional i64 load_count_delta
+    // Last query scan time, ms since epoch
+    4: optional i64 last_query_time_ms
+    // Last load (memtable write) time, ms since epoch
+    5: optional i64 last_load_time_ms
+    // Wall-clock span this delta covers, in ms. NOT always the report interval: a tablet
+    // cut by the topN cap is not committed, so its next delta spans several intervals.
+    // Consumers MUST rank by delta/delta_window_ms, never by raw delta.
+    6: optional i64 delta_window_ms
+}
+
 struct TFinishTaskRequest {
     1: required Types.TBackend backend
     2: required Types.TTaskType task_type
@@ -123,6 +139,14 @@ struct TReportRequest {
     15: optional list<AgentService.TIndexPolicy> index_policy
     // Running query/loading tasks
     16: optional i64 running_tasks
+    // Top-N tablets by query scan count on this BE since the previous report.
+    // Entries set only tablet_id / scan_count_delta / last_query_time_ms / delta_window_ms.
+    17: optional list<TActiveTabletStat> top_query_tablets
+    // Top-N tablets by load (memtable flush) count since the previous report.
+    // Entries set only tablet_id / load_count_delta / last_load_time_ms / delta_window_ms.
+    18: optional list<TActiveTabletStat> top_load_tablets
+    // True when either list was truncated by the topN cap.
+    19: optional bool active_tablets_truncated
 }
 
 struct TMasterResult {
