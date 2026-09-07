@@ -532,7 +532,15 @@ public:
         }
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
-        bool has_null = column->has_null();
+        // Only scan the physical frame range for nulls (O(frame)), not the whole
+        // buffered column (O(n)). _remove_unused_rows() shifts frame coordinates
+        // around the retained column, so the frame can extend past either end.
+        // Intersect the scan with the physical interval [0, column->size()) and
+        // skip empty ranges so has_null() only touches buffered rows.
+        auto column_size = static_cast<int64_t>(column->size());
+        int64_t scan_begin = std::max<int64_t>(current_frame_start, 0);
+        int64_t scan_end = std::min<int64_t>(current_frame_end, column_size);
+        bool has_null = scan_begin < scan_end ? column->has_null(scan_begin, scan_end) : false;
         if (has_null) {
             for (size_t i = current_frame_start; i < current_frame_end; ++i) {
                 this->add(place, columns, i, arena);
@@ -570,7 +578,18 @@ public:
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         const IColumn* nested_column = &column->get_nested_column();
 
-        if (!column->has_null()) {
+        // Scan only [frame_start-1, frame_end) covering the incremental step's
+        // outgoing (frame_start-1) and incoming (frame_end-1) positions, instead
+        // of has_null() over the whole buffered column (avoids O(n * buffer)).
+        // _remove_unused_rows() shifts coordinates around the retained column, so
+        // intersect the scan with the physical interval [0, column->size()) and
+        // skip empty ranges so has_null() only touches buffered rows.
+        auto column_size = static_cast<int64_t>(column->size());
+        int64_t scan_begin =
+                std::max<int64_t>(std::max<int64_t>(frame_start - 1, partition_start), 0);
+        int64_t scan_end = std::min<int64_t>(current_frame_end, column_size);
+        bool range_has_null = scan_begin < scan_end && column->has_null(scan_begin, scan_end);
+        if (!range_has_null) {
             if (*could_use_previous_result) {
                 this->nested_function->execute_function_with_incremental(
                         partition_start, partition_end, frame_start, frame_end,
