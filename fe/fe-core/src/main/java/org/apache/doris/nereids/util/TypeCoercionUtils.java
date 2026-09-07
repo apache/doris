@@ -441,9 +441,9 @@ public class TypeCoercionUtils {
         return replaceSpecifiedType(
                 replaceSpecifiedType(
                     replaceSpecifiedType(dataType, DateTimeV2Type.class,
-                            DateTimeV2Type.of(targetScale)),
-                        TimeV2Type.class, TimeV2Type.of(targetScale)),
-                    TimeStampTzType.class, TimeStampTzType.of(targetScale));
+                            DateTimeV2Type.of(Math.min(targetScale, DateTimeV2Type.MAX_SCALE))),
+                        TimeV2Type.class, TimeV2Type.of(Math.min(targetScale, TimeV2Type.MAX_SCALE))),
+                    TimeStampTzType.class, TimeStampTzType.of(Math.min(targetScale, TimeStampTzType.MAX_SCALE)));
     }
 
     /**
@@ -1114,7 +1114,8 @@ public class TypeCoercionUtils {
             }
         } else if (rightType instanceof TimeV2Type) {
             TimeV2Type timeV2Type = (TimeV2Type) rightType;
-            return Optional.of(DateTimeV2Type.of(Math.max(leftType.getScale(), timeV2Type.getScale())));
+            return Optional.of(DateTimeV2Type.of(Math.min(DateTimeV2Type.MAX_SCALE,
+                    Math.max(leftType.getScale(), timeV2Type.getScale()))));
         } else if (rightType.isStringLikeType()) {
             return Optional.of(DateTimeV2Type.MAX);
         }

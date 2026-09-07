@@ -1021,18 +1021,19 @@ public class DateTimeExtractAndTransform {
             secondValue = 59;
         }
 
-        long totalMicrosecond = Math.abs(hourValue) * 3600L * 1000000
-                + minuteValue * 60L * 1000000 + Math.round(secondValue * 1000000);
-        long maxMicrosecond = 838L * 3600L * 1000000 + 59L * 60L * 1000000 + 59999999L;
-        totalMicrosecond = Math.min(totalMicrosecond, maxMicrosecond);
+        long totalNanosecond = Math.abs(hourValue) * 3600L * 1000000000
+                + minuteValue * 60L * 1000000000 + Math.round(secondValue * 1000000000);
+        long maxNanosecond = (838L * 3600L + 59L * 60L + 59L) * 1000000000;
+        totalNanosecond = Math.min(totalNanosecond, maxNanosecond);
 
-        int newHour = (int) (totalMicrosecond / 3600L / 1000000);
-        totalMicrosecond %= 3600L * 1000000;
-        int newMinute = (int) (totalMicrosecond / 60L / 1000000);
-        totalMicrosecond %= 60L * 1000000;
-        int newSecond = (int) (totalMicrosecond / 1000000);
-        int microsecond = (int) (totalMicrosecond % 1000000);
-        return new TimeV2Literal(newHour, newMinute, newSecond, microsecond, 6, hourValue < 0);
+        int newHour = (int) (totalNanosecond / 3600L / 1000000000);
+        totalNanosecond %= 3600L * 1000000000;
+        int newMinute = (int) (totalNanosecond / 60L / 1000000000);
+        totalNanosecond %= 60L * 1000000000;
+        int newSecond = (int) (totalNanosecond / 1000000000);
+        int nanosecond = (int) (totalNanosecond % 1000000000);
+        return TimeV2Literal.fromNanosecond(
+                newHour, newMinute, newSecond, nanosecond, TimeV2Type.MAX_SCALE, hourValue < 0);
     }
 
     /**
@@ -1855,7 +1856,7 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "sec_to_time")
     public static Expression secToTime(DoubleLiteral sec) {
-        return new TimeV2Literal(sec.getValue() * 1000000);
+        return new TimeV2Literal(sec.getValue() * 1000000, TimeV2Type.MAX_SCALE);
     }
 
     /**
