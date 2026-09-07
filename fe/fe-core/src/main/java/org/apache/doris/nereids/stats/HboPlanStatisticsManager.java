@@ -211,8 +211,8 @@ public class HboPlanStatisticsManager {
                 // mostly benign (the row is already gone), but under replica read lag the row may
                 // still be stored without this FE knowing; it then reappears after a FE restart
                 LOG.info("{} tombstoned hbo pinned statistics rows were not seen in the loaded "
-                        + "snapshot and were left in the table; they may reappear after the next "
-                        + "FE restart", tombstonesNotSeen);
+                        + "snapshot and may still be stored in the table; they may reappear after "
+                        + "the next FE restart", tombstonesNotSeen);
             }
             pendingLoadTombstones.clear();
             LOG.info("loaded {} hbo pinned statistics entries from internal table", loaded.size());
