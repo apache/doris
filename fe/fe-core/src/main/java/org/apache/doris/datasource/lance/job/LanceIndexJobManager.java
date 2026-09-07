@@ -35,6 +35,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
@@ -604,6 +605,42 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
         try {
             LanceIndexJob job = jobs.get(jobId);
             return job == null ? null : new LanceIndexJob(job);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     * Returns a snapshot copy of every job, ordered by jobId. Used by SHOW LANCE INDEX JOBS.
+     */
+    public List<LanceIndexJob> getAllJobsSnapshot() {
+        readLock();
+        try {
+            List<LanceIndexJob> result = new ArrayList<>();
+            for (LanceIndexJob job : jobs.values()) {
+                if (job != null) {
+                    result.add(new LanceIndexJob(job));
+                }
+            }
+            result.sort(Comparator.comparingLong(LanceIndexJob::getJobId));
+            return result;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     * Returns true if any unresolved job targets the given catalog. Used by catalog DDL guard (Section 4.4).
+     */
+    public boolean hasUnresolvedJobsForCatalog(long catalogId) {
+        readLock();
+        try {
+            for (LanceIndexJob job : jobs.values()) {
+                if (job != null && job.getCatalogId() == catalogId && job.isUnresolved()) {
+                    return true;
+                }
+            }
+            return false;
         } finally {
             readUnlock();
         }
