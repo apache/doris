@@ -162,38 +162,56 @@ def stop_process(process):
 
 def run_attempt(command, events_path, stderr_path, timeout, reaper=None):
     with events_path.open("w") as stdout, stderr_path.open("w") as stderr:
-        process = subprocess.Popen(
-            command,
-            stdout=stdout,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            start_new_session=True,
-        )
-
-        def copy_stderr():
-            for line in process.stderr:
-                stderr.write(line)
-                stderr.flush()
-                print(line, end="", file=sys.stderr, flush=True)
-
-        copier = threading.Thread(target=copy_stderr, daemon=True)
-        copier.start()
+        process = None
+        copier = None
         try:
+            process = subprocess.Popen(
+                command,
+                stdout=stdout,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                start_new_session=True,
+            )
+
+            def copy_stderr():
+                for line in process.stderr:
+                    stderr.write(line)
+                    stderr.flush()
+                    print(line, end="", file=sys.stderr, flush=True)
+
+            copier = threading.Thread(target=copy_stderr, daemon=True)
+            # Do not interrupt Thread.start() between the native thread being
+            # created and its ident being published. The copier inherits this
+            # mask; pending cancellation reaches the main thread on restoration,
+            # inside the cleanup-protected region. Codex was spawned unmasked.
+            previous_mask = signal.pthread_sigmask(
+                signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM}
+            )
+            try:
+                copier.start()
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
             return process.wait(timeout=timeout)
         finally:
             try:
                 try:
-                    stop_process(process)
+                    if process is not None:
+                        stop_process(process)
                 finally:
+                    # Popen itself may be interrupted before returning a handle.
                     if reaper is not None:
                         reaper.reap()
             finally:
-                copier.join(timeout=5)
-                if copier.is_alive():
-                    raise OSError("Codex stderr remained open after descendant cleanup")
-                process.stderr.close()
+                if copier is not None and copier.ident is not None:
+                    copier.join(timeout=5)
+                    if copier.is_alive():
+                        raise OSError(
+                            "Codex stderr remained open after descendant cleanup"
+                        )
+                if process is not None:
+                    process.stderr.close()
 
 
 def append_events(source, target):

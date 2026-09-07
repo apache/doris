@@ -519,6 +519,113 @@ class ChildReaperTest(unittest.TestCase):
 
 
 class ProcessLifecycleTest(unittest.TestCase):
+    def test_copier_construction_failure_cleans_process(self):
+        self.check_startup_cleanup("construct")
+
+    def test_copier_start_failure_cleans_process(self):
+        self.check_startup_cleanup("start")
+
+    def test_cancellation_before_copier_starts_cleans_process(self):
+        self.check_startup_cleanup("cancel_before")
+
+    def test_cancellation_after_copier_starts_cleans_process(self):
+        self.check_startup_cleanup("cancel_after")
+
+    def check_startup_cleanup(self, stage):
+        processes = []
+        copiers = []
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        real_popen = subprocess.Popen
+        real_thread = runner.threading.Thread
+        real_start = real_thread.start
+        reaper = mock.Mock()
+
+        def create_process(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            processes.append(process)
+            return process
+
+        def create_thread(*args, **kwargs):
+            if stage == "construct":
+                raise RuntimeError("copier construction failed")
+            thread = real_thread(*args, **kwargs)
+            copiers.append(thread)
+            return thread
+
+        def start_thread(thread):
+            if stage == "start":
+                raise RuntimeError("copier start failed")
+            if stage == "cancel_before":
+                os.kill(os.getpid(), signal.SIGTERM)
+            real_start(thread)
+            if stage == "cancel_after":
+                os.kill(os.getpid(), signal.SIGTERM)
+
+        def cancelled(_signum, _frame):
+            raise KeyboardInterrupt
+
+        original_handler = signal.signal(signal.SIGTERM, cancelled)
+        try:
+            with (
+                tempfile.TemporaryDirectory() as tmp,
+                redirect_stderr(io.StringIO()),
+                mock.patch.object(
+                    runner.subprocess, "Popen", side_effect=create_process
+                ),
+                mock.patch.object(
+                    runner.threading, "Thread", side_effect=create_thread
+                ),
+                mock.patch.object(real_thread, "start", start_thread),
+            ):
+                expected = (
+                    KeyboardInterrupt if stage.startswith("cancel") else RuntimeError
+                )
+                with self.assertRaises(expected) as error:
+                    runner.run_attempt(
+                        [sys.executable, "-c", "import time; time.sleep(20)"],
+                        Path(tmp) / "events",
+                        Path(tmp) / "stderr",
+                        5,
+                        reaper=reaper,
+                    )
+                if expected is RuntimeError:
+                    self.assertIn("copier", str(error.exception))
+                self.assertIsNotNone(
+                    processes[0].poll(), "Codex survived startup failure"
+                )
+                self.assertTrue(processes[0].stderr.closed)
+                reaper.reap.assert_called_once_with()
+                self.assertTrue(all(not thread.is_alive() for thread in copiers))
+                self.assertEqual(
+                    original_mask, signal.pthread_sigmask(signal.SIG_BLOCK, set())
+                )
+        finally:
+            signal.signal(signal.SIGTERM, original_handler)
+            signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=5)
+            for thread in copiers:
+                if thread.ident is not None:
+                    thread.join(timeout=5)
+            for process in processes:
+                process.stderr.close()
+
+    def test_interrupted_popen_still_calls_reaper(self):
+        reaper = mock.Mock()
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.object(
+                runner.subprocess, "Popen", side_effect=KeyboardInterrupt
+            ),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            runner.run_attempt(
+                ["codex"], Path(tmp) / "events", Path(tmp) / "stderr", 5, reaper=reaper
+            )
+        reaper.reap.assert_called_once_with()
+
     def test_real_process_capacity_then_resume_preserves_state(self):
         with tempfile.TemporaryDirectory() as tmp, redirect_stderr(io.StringIO()):
             root = Path(tmp)
