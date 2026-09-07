@@ -326,6 +326,26 @@ TEST_F(CloudIndexChangeCompactionTest, ms_ret_status_test) {
         ASSERT_TRUE(!ret.ok());
         ASSERT_TRUE(contains_str(ret.to_string(), "failed in schema change"));
     }
+
+    {
+        tablet->set_base_compaction_cnt(0);
+        tablet->set_cumulative_layer_point(6);
+        tablet->last_sync_time_s = 1;
+        auto index_change_compact = std::make_shared<CloudIndexChangeCompaction>(
+                *_engine, tablet, 0, index_list, columns);
+        index_change_compact->_input_rowsets.push_back(rowset_ptr);
+        index_change_compact->_output_rowset = rowset_ptr;
+        index_change_compact->_compact_type = cloud::TabletCompactionJobPB::BASE;
+        cloud::FinishTabletJobResponse response;
+        response.mutable_stats()->set_base_compaction_cnt(1);
+        response.mutable_stats()->set_cumulative_compaction_cnt(0);
+        response.mutable_stats()->set_cumulative_point(8);
+
+        index_change_compact->_update_tablet_for_base_compaction(response, nullptr);
+
+        EXPECT_EQ(tablet->cumulative_layer_point(), 6);
+        EXPECT_EQ(tablet->last_sync_time_s, 0);
+    }
 }
 
 TEST_F(CloudIndexChangeCompactionTest, basic_compaction_test) {
