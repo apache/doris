@@ -17,10 +17,14 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.common.Config;
+
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Global service for hbo plan stats. manager, including:
@@ -33,7 +37,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public class HboPlanStatisticsManager {
     private HboPlanStatisticsProvider hboPlanStatisticsProvider;
     private HboPlanInfoProvider hboPlanInfoProvider;
-    private final Map<String, PinnedHboStatistics> pinnedPlanStatistics = new ConcurrentHashMap<>();
+    private final Cache<String, PinnedHboStatistics> pinnedPlanStatistics = Caffeine.newBuilder()
+            .maximumSize(Math.max(Config.hbo_pinned_stats_cache_num, 0))
+            .build();
 
     public HboPlanStatisticsManager() {
         hboPlanStatisticsProvider = new MemoryHboPlanStatisticsProvider();
@@ -63,13 +69,15 @@ public class HboPlanStatisticsManager {
      * @param structCanonical optional human-readable simplified struct info canonical string
      */
     public void putPinnedPlanStatistics(String fingerprint, long rows, String nodeType, String structCanonical) {
+        // LRU bounded by Config.hbo_pinned_stats_cache_num; pinned entries are otherwise never
+        // expired automatically and are only removed by HBO DELETE STATISTICS or eviction
         pinnedPlanStatistics.put(fingerprint,
                 new PinnedHboStatistics(fingerprint, rows, nodeType, structCanonical,
                         System.currentTimeMillis()));
     }
 
     public Optional<PinnedHboStatistics> getPinnedPlanStatistics(String fingerprint) {
-        return Optional.ofNullable(pinnedPlanStatistics.get(fingerprint));
+        return Optional.ofNullable(pinnedPlanStatistics.getIfPresent(fingerprint));
     }
 
     /**
@@ -77,11 +85,11 @@ public class HboPlanStatisticsManager {
      * untouched here; callers may invalidate them explicitly.
      */
     public void removePinnedPlanStatistics(String fingerprint) {
-        pinnedPlanStatistics.remove(fingerprint);
+        pinnedPlanStatistics.invalidate(fingerprint);
     }
 
     public Map<String, PinnedHboStatistics> getAllPinnedPlanStatistics() {
-        return Collections.unmodifiableMap(pinnedPlanStatistics);
+        return Collections.unmodifiableMap(pinnedPlanStatistics.asMap());
     }
 
     /**

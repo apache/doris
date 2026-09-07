@@ -2341,6 +2341,14 @@ public class Config extends ConfigBase {
     public static boolean hbo_use_struct_info_fingerprint = true;
 
     /**
+     * Maximum number of manually injected (pinned) hbo statistics entries kept per FE. When the
+     * limit is exceeded the least recently used pinned entry is evicted (LRU); pinned entries are
+     * otherwise not expired automatically.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int hbo_pinned_stats_cache_num = 5000;
+
+    /**
      * Maximum number of events to poll in each RPC.
      */
     @ConfField(mutable = true, masterOnly = true)

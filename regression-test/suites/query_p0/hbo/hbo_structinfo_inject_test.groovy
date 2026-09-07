@@ -30,6 +30,7 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     sql """analyze table hbo_si_r with sync;"""
 
     // hbo read side and fingerprint annotations must be on
+    def prevInfoCollection = (sql "show global variables like 'enable_hbo_info_collection'")[0][1].toString()
     sql "set global enable_hbo_info_collection=true;"
     sql "set enable_hbo_optimization=true;"
     sql "set show_hbo_fingerprint=true;"
@@ -82,4 +83,5 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     assertTrue((nodeAfter =~ /PhysicalFilter\[\d+\].*hboUsed=true/).find(), nodeAfter)
 
     sql """ HBO DELETE STATISTICS '${fingerprint}'; """
+    sql "set global enable_hbo_info_collection=${prevInfoCollection};"
 }

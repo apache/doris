@@ -36,6 +36,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.MutableState;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.hash.Hashing;
 
 import java.nio.charset.StandardCharsets;
@@ -73,6 +76,7 @@ import java.util.stream.Collectors;
  * behavior.
  */
 public class GroupStructInfo {
+    private static final Logger LOG = LogManager.getLogger(GroupStructInfo.class);
     private static final String SEP = ";";
 
     /** Shared invalid instance. */
@@ -168,16 +172,23 @@ public class GroupStructInfo {
      * group's logical expression and its child groups.
      */
     public static GroupStructInfo of(Group group) {
-        Ctx ctx = new Ctx();
-        StringBuilder sb = new StringBuilder();
-        String minToken = visit(group, sb, ctx);
-        if (!ctx.valid || minToken == null) {
+        try {
+            Ctx ctx = new Ctx();
+            StringBuilder sb = new StringBuilder();
+            String minToken = visit(group, sb, ctx);
+            if (!ctx.valid || minToken == null) {
+                return INVALID;
+            }
+            String canonicalString = sb.toString();
+            String fingerprint = Hashing.sha256()
+                    .hashString(canonicalString, StandardCharsets.UTF_8).toString();
+            return new GroupStructInfo(true, canonicalString, fingerprint);
+        } catch (RuntimeException e) {
+            // memo content not supported by the simplified struct info: treat as invalid and
+            // fall back to legacy behavior instead of failing the optimizer on the hot path
+            LOG.debug("failed to compute hbo struct info for group {}", group.getGroupId(), e);
             return INVALID;
         }
-        String canonicalString = sb.toString();
-        String fingerprint = Hashing.sha256()
-                .hashString(canonicalString, StandardCharsets.UTF_8).toString();
-        return new GroupStructInfo(true, canonicalString, fingerprint);
     }
 
     /**
@@ -260,7 +271,7 @@ public class GroupStructInfo {
             String token = "S{" + fullName + "#" + ordinal + partitions + ",v" + version + "}";
             sb.append(token);
             return token;
-        } catch (Exception e) {
+        } catch (org.apache.doris.rpc.RpcException | RuntimeException e) {
             // table version may not be available (e.g. cloud rpc failure): mark invalid and fall back
             return invalid(ctx);
         }
@@ -347,10 +358,12 @@ public class GroupStructInfo {
                 AggregateFunction fn = (AggregateFunction) inner;
                 // function arguments keep their original order: argument lists are not freely
                 // commutable (e.g. percentile_approx(col, ratio)), sorting them would collapse
-                // distinct signatures into one descriptor (review round3 Major)
+                // distinct signatures into one descriptor (review round3 Major). DISTINCT is a
+                // semantic modifier on the function and must be part of the signature too.
                 String args = fn.children().stream().map(GroupStructInfo::normalizeExpression)
                         .collect(Collectors.joining(","));
-                fnSet.add(fn.getClass().getSimpleName() + "(" + args + ")");
+                fnSet.add((fn.isDistinct() ? "distinct " : "")
+                        + fn.getClass().getSimpleName() + "(" + args + ")");
             }
         }
         return String.join(SEP, fnSet);

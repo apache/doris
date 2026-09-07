@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+
+import java.util.regex.Pattern;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -84,6 +86,10 @@ public class HboStatisticsCommand extends Command {
         HboPlanStatisticsManager hboManager = Env.getCurrentEnv().getHboPlanStatisticsManager();
         switch (op) {
             case SET:
+                validateFingerprint(fingerprint);
+                if (rows < 0) {
+                    throw new AnalysisException("hbo statistics rows must be non-negative: " + rows);
+                }
                 hboManager.putPinnedPlanStatistics(fingerprint, rows, "", structCanonical);
                 break;
             case DELETE:
@@ -113,5 +119,11 @@ public class HboStatisticsCommand extends Command {
 
     public String getStructCanonical() {
         return structCanonical;
+    }
+
+    private void validateFingerprint(String fingerprint) throws AnalysisException {
+        if (fingerprint == null || !Pattern.matches("[0-9a-fA-F]{64}", fingerprint)) {
+            throw new AnalysisException("invalid hbo fingerprint, expect 64 hex chars: " + fingerprint);
+        }
     }
 }

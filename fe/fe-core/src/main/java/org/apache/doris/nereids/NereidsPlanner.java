@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -683,7 +684,9 @@ public class NereidsPlanner extends Planner {
                         if (nodeFingerprints.isEmpty()) {
                             planInfoProvider.putNodeIdToFingerprintMap(queryId, nodeFingerprints);
                         }
-                        nodeFingerprints.put(nodeId, fingerprint.get());
+                        // keyed by the real PlanNodeId (the same id used by the profile publish
+                        // path via runtime stats item.node_id), not by the nereids plan id
+                        nodeFingerprints.put(planId.asInt(), fingerprint.get());
                     }
                 }
             }
@@ -700,6 +703,10 @@ public class NereidsPlanner extends Planner {
      * key constraining the filter output row count.
      */
     private void attachHboExplainInfoToTree(Plan plan, Map<Integer, Group> groupsById) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null || !connectContext.getSessionVariable().isShowHboFingerprint()) {
+            return;
+        }
         for (Plan child : plan.children()) {
             attachHboExplainInfoToTree(child, groupsById);
         }
@@ -709,10 +716,6 @@ public class NereidsPlanner extends Planner {
     }
 
     private void attachHboExplainInfo(AbstractPlan node, Map<Integer, Group> groupsById) {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null || !connectContext.getSessionVariable().isShowHboFingerprint()) {
-            return;
-        }
         Optional<GroupStructInfo> structInfo;
         if (node instanceof AbstractPhysicalJoin
                 || node instanceof PhysicalHashAggregate
@@ -1253,17 +1256,15 @@ public class NereidsPlanner extends Planner {
             plan += "\n\n\n group expression count exceeds memo_max_group_expression_size("
                     + ConnectContext.get().getSessionVariable().memoMaxGroupExpressionSize + ")\n";
         }
-        if (statementContext != null) {
-            if (!statementContext.getHints().isEmpty()) {
-                String hint = getHintExplainString(statementContext.getHints());
-                return plan + hint;
-            }
+        String hint = "";
+        if (statementContext != null && !statementContext.getHints().isEmpty()) {
+            hint = getHintExplainString(statementContext.getHints());
         }
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isShowHboFingerprint()
                 && physicalPlan != null && cascadesContext != null) {
             plan += appendHboFingerprintAnnotations();
         }
-        return plan;
+        return plan + hint;
     }
 
     /**
@@ -1276,6 +1277,10 @@ public class NereidsPlanner extends Planner {
      */
     private String appendHboFingerprintAnnotations() {
         StringBuilder sb = new StringBuilder("\n\nHBO fingerprint annotations (join/aggregation/filter):\n");
+        if (ConnectContext.get() != null && !ConnectContext.get().getSessionVariable().isEnableHboOptimization()) {
+            sb.append("  note: enable_hbo_optimization is off; injected hbo statistics will not take "
+                    + "effect until it is enabled\n");
+        }
         Map<Integer, Group> groupsById = Collections.emptyMap();
         if (cascadesContext != null && cascadesContext.getMemo() != null) {
             groupsById = new HashMap<>();
@@ -1343,19 +1348,21 @@ public class NereidsPlanner extends Planner {
         }
     }
 
+    /**
+     * Find the olap scan directly below a filter, only through a chain of projects. A filter
+     * that is not directly on a scan (e.g. above a join) is not a "filter-on-scan" and must not
+     * borrow the fingerprint of an inner scan.
+     */
     private static AbstractPlan findScanUnder(PhysicalFilter<?> filter) {
-        return findScanUnder(filter.child());
+        return scanBelowProjects(filter.child());
     }
 
-    private static AbstractPlan findScanUnder(Plan plan) {
+    private static AbstractPlan scanBelowProjects(Plan plan) {
         if (plan instanceof PhysicalOlapScan) {
             return (AbstractPlan) plan;
         }
-        for (Plan child : plan.children()) {
-            AbstractPlan scan = findScanUnder(child);
-            if (scan != null) {
-                return scan;
-            }
+        if (plan instanceof PhysicalProject && plan.arity() == 1) {
+            return scanBelowProjects(plan.child(0));
         }
         return null;
     }
