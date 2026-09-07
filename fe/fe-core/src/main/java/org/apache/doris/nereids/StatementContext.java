@@ -353,6 +353,11 @@ public class StatementContext implements Closeable {
     private boolean hasNestedColumns;
     private boolean queryStatsRecorded = false;
 
+    // The query-level local-shuffle-planner decision after applying SET_VAR hints and
+    // BE execution-version compatibility. NereidsPlanner refreshes it before optimization;
+    // the constructor value preserves the session semantics for standalone planner tests.
+    private boolean effectiveEnableLocalShufflePlanner;
+
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
     private final Set<String> usedAIResourceNames = new LinkedHashSet<>();
     private final Set<TableNameInfo> excludedTriggerTables = new HashSet<>();
@@ -382,6 +387,10 @@ public class StatementContext implements Closeable {
     private StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        this.effectiveEnableLocalShufflePlanner = connectContext != null
+                && connectContext.getSessionVariable() != null
+                && connectContext.getSessionVariable().isEnableLocalShufflePlanner()
+                && connectContext.getSessionVariable().isEnableLocalShuffle();
         exprIdGenerator = ExprId.createGenerator(initialId);
         if (connectContext != null && connectContext.getSessionVariable() != null) {
             if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
@@ -398,6 +407,14 @@ public class StatementContext implements Closeable {
         } else {
             this.sqlCacheContext = null;
         }
+    }
+
+    public boolean isEffectiveEnableLocalShufflePlanner() {
+        return effectiveEnableLocalShufflePlanner;
+    }
+
+    public void setEffectiveEnableLocalShufflePlanner(boolean effectiveEnableLocalShufflePlanner) {
+        this.effectiveEnableLocalShufflePlanner = effectiveEnableLocalShufflePlanner;
     }
 
     public void setNeedLockTables(boolean needLockTables) {

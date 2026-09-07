@@ -33,6 +33,7 @@
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/pipeline/thrift_builder.h"
 #include "exprs/vslot_ref.h"
+#include "runtime/descriptor_helper.h"
 
 namespace doris {
 
@@ -557,12 +558,16 @@ TEST_F(LocalExchangerTest, FePlannedPassToOneUsesOneDownstreamSource) {
     tnode.__set_node_id(0);
     tnode.__set_num_children(1);
     tnode.__set_local_exchange_node(local_exchange_node);
+    tnode.__set_row_tuples({0});
 
     ObjectPool pool;
-    DescriptorTbl descs;
+    TDescriptorTableBuilder desc_builder;
+    TTupleDescriptorBuilder().build(&desc_builder);
+    DescriptorTbl* descs = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, desc_builder.desc_tbl(), &descs).ok());
     OperatorPtr op;
     OperatorPtr cache_op;
-    ASSERT_TRUE(context->_create_operator(&pool, tnode, descs, op, upstream_pipe,
+    ASSERT_TRUE(context->_create_operator(&pool, tnode, *descs, op, upstream_pipe,
                                           /*parent_idx=*/-1, /*child_idx=*/0,
                                           /*followed_by_shuffled_operator=*/false,
                                           /*require_bucket_distribution=*/false, cache_op)
@@ -571,14 +576,14 @@ TEST_F(LocalExchangerTest, FePlannedPassToOneUsesOneDownstreamSource) {
     EXPECT_EQ(downstream_pipe->num_tasks(), 1);
     EXPECT_EQ(upstream_pipe->num_tasks(), num_instances);
 
-    const auto& deferred = context->_deferred_exchangers.front();
-    EXPECT_EQ(deferred.shared_state->source_deps.size(), 1);
-    EXPECT_EQ(deferred.shared_state->mem_counters.size(), 1);
+    auto shared_state = context->_deferred_exchangers.front().shared_state;
+    EXPECT_EQ(shared_state->source_deps.size(), 1);
+    EXPECT_EQ(shared_state->mem_counters.size(), 1);
     ASSERT_TRUE(context->_create_deferred_local_exchangers().ok());
-    ASSERT_NE(deferred.shared_state->exchanger, nullptr);
-    EXPECT_EQ(deferred.shared_state->exchanger->get_type(), TLocalPartitionType::PASS_TO_ONE);
-    EXPECT_EQ(deferred.shared_state->exchanger->_num_senders, num_instances);
-    EXPECT_EQ(deferred.shared_state->exchanger->_num_sources, 1);
+    ASSERT_NE(shared_state->exchanger, nullptr);
+    EXPECT_EQ(shared_state->exchanger->get_type(), TLocalPartitionType::PASS_TO_ONE);
+    EXPECT_EQ(shared_state->exchanger->_num_senders, num_instances);
+    EXPECT_EQ(shared_state->exchanger->_num_sources, 1);
 }
 
 TEST_P(LocalExchangerTest, PassToOneExchanger) {

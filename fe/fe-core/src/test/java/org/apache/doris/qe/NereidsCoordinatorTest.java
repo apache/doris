@@ -27,10 +27,12 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWor
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.DistributionMode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TUniqueId;
@@ -108,6 +110,18 @@ public class NereidsCoordinatorTest extends TestWithFeService {
 
             NereidsPlanner planner = plan("select sum(distinct a.id) from test.tbl a "
                     + "left join [shuffle] test.tbl2 b on a.id = b.id", legacyContext);
+            NereidsPlanner setOperationPlanner = plan(
+                    "select id from test.tbl intersect select id from test.tbl2", legacyContext);
+            Assertions.assertFalse(setOperationPlanner.getFragments().stream()
+                    .anyMatch(fragment -> containsBucketShuffleSetOperation(fragment.getPlanRoot())));
+
+            legacyContext.getSessionVariable().setEnableLocalShuffle(false);
+            NereidsPlanner localShuffleDisabledPlanner = plan(
+                    "select id from test.tbl intersect select id from test.tbl2", legacyContext);
+            Assertions.assertTrue(localShuffleDisabledPlanner.getFragments().stream()
+                    .anyMatch(fragment -> containsBucketShuffleSetOperation(fragment.getPlanRoot())));
+            legacyContext.getSessionVariable().setEnableLocalShuffle(true);
+
             // A query keeps the version used to build its plan even if the cluster-wide
             // compatibility version changes before the coordinator is constructed.
             Config.be_exec_version = LocalExchangeNode.SUPPORT_UNCONDITIONAL_PASS_TO_ONE_VERSION;
@@ -157,6 +171,14 @@ public class NereidsCoordinatorTest extends TestWithFeService {
             return true;
         }
         return node.getChildren().stream().anyMatch(this::containsLocalExchange);
+    }
+
+    private boolean containsBucketShuffleSetOperation(PlanNode node) {
+        if (node instanceof SetOperationNode
+                && ((SetOperationNode) node).getDistributionMode() == DistributionMode.BUCKET_SHUFFLE) {
+            return true;
+        }
+        return node.getChildren().stream().anyMatch(this::containsBucketShuffleSetOperation);
     }
 
     private void assertLegacyBucketExchangeFunnel(NereidsPlanner planner, ConnectContext legacyContext) {

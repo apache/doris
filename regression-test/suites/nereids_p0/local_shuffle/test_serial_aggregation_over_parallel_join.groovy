@@ -91,7 +91,7 @@ suite("test_serial_aggregation_over_parallel_join") {
             "parallel_pipeline_task_num=3,enable_sql_cache=false," +
             "enable_share_hash_table_for_broadcast_join=false"
 
-    order_qt_native_private_broadcast_build """SELECT /*+SET_VAR(${nativeVariables})*/ SUM(DISTINCT t1.pk)
-            FROM serial_agg_join_right t1 LEFT JOIN [broadcast] serial_agg_join_probe t2 ON t2.pk=t1.pk
+    order_qt_native_private_broadcast_build """SELECT /*+SET_VAR(${nativeVariables})*/ COUNT(t2.pk)
+            FROM serial_agg_join_right t1 INNER JOIN [broadcast] serial_agg_join_probe t2 ON t2.pk=t1.pk
             WHERE t1.pk BETWEEN 0 AND 9"""
 }

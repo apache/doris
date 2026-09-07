@@ -270,6 +270,7 @@ public class NereidsPlanner extends Planner {
 
             // pre-process logical plan out of memo, e.g. process SET_VAR hint
             plan = preprocess(plan);
+            freezeLocalShufflePlannerMode();
 
             initCascadesContext(plan, requireProperties);
             // collect table and lock them in the order of table id
@@ -369,6 +370,15 @@ public class NereidsPlanner extends Planner {
 
     protected LogicalPlan preprocess(LogicalPlan logicalPlan) {
         return new PlanPreprocessors(statementContext).process(logicalPlan);
+    }
+
+    private void freezeLocalShufflePlannerMode() {
+        beExecVersion = Config.be_exec_version;
+        SessionVariable sessionVariable = statementContext.getConnectContext().getSessionVariable();
+        localShufflePlanned = sessionVariable.isEnableLocalShufflePlanner()
+                && sessionVariable.isEnableLocalShuffle()
+                && LocalExchangeNode.supportsUnconditionalPassToOne(beExecVersion);
+        statementContext.setEffectiveEnableLocalShufflePlanner(localShufflePlanned);
     }
 
     /**
@@ -668,7 +678,6 @@ public class NereidsPlanner extends Planner {
             return;
         }
 
-        this.beExecVersion = Config.be_exec_version;
         this.planTranslatorContext = new PlanTranslatorContext(cascadesContext, beExecVersion);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
@@ -817,9 +826,6 @@ public class NereidsPlanner extends Planner {
 
         boolean useLoadBackendSelection = physicalPlan.anyMatch(PhysicalOlapTableSink.class::isInstance);
         SessionVariable sessionVariable = statementContext.getConnectContext().getSessionVariable();
-        localShufflePlanned = sessionVariable.isEnableLocalShufflePlanner()
-                && sessionVariable.isEnableLocalShuffle()
-                && LocalExchangeNode.supportsUnconditionalPassToOne(beExecVersion);
         distributedPlans = new DistributePlanner(
                 statementContext, fragments, notNeedBackend, false, useLoadBackendSelection)
                 .plan(sessionVariable.enableShareHashTableForBroadcastJoin, localShufflePlanned);

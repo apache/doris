@@ -2426,11 +2426,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             setOperationNode.setColocate(true);
         }
 
-        // Storage-bucketed children only appear when the FE local shuffle planner is active:
-        // ChildrenPropertiesRegulator and RequestPropertyDeriver both gate the bucket-shuffle
-        // alternative on enableLocalShufflePlanner. Gate the marker on the same flag so the
-        // dependency is explicit and a future planner change that produced a STORAGE_BUCKETED
-        // distribution outside the local-shuffle planner cannot silently mark BUCKET_SHUFFLE here.
+        // Storage-bucketed children appear when local shuffle is disabled altogether, or when the
+        // FE local-shuffle planner is effective for this query. ChildrenPropertiesRegulator
+        // and RequestPropertyDeriver gate the bucket-shuffle alternative on the same condition.
+        // Keep the marker aligned with that decision so fragment scheduling observes the physical
+        // property chosen by the optimizer.
         //
         // Within that gate a storage-bucketed child means the regulator chose the bucket shuffle
         // alternative (it enforces the other children onto the basic child's buckets), so the marker
@@ -2445,7 +2445,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // children arrive (bucket-shuffle exchanges). Both routes converge to the same
         // bucket-hash local exchange requirement in SetOperationNode.enforceAndDeriveLocalExchange.
         if (context.getSessionVariable() != null
-                && context.getSessionVariable().isEnableLocalShufflePlanner()) {
+                && (!context.getSessionVariable().isEnableLocalShuffle()
+                        || context.getStatementContext().isEffectiveEnableLocalShufflePlanner())) {
             for (Plan child : setOperation.children()) {
                 PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
                 if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
