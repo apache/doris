@@ -9,6 +9,7 @@ drop table  if exists multi_catalog.equality_delete_par_3;
 drop table  if exists multi_catalog.equality_delete_orc_1;
 drop table  if exists multi_catalog.equality_delete_orc_2;
 drop table  if exists multi_catalog.equality_delete_orc_3;
+drop table  if exists multi_catalog.migrated_nested_without_name_mapping;
 
 
 CALL system.register_table(
@@ -40,6 +41,13 @@ CALL system.register_table(
 CALL system.register_table(
     table => 'multi_catalog.equality_delete_orc_3',
     metadata_file => 's3a://warehouse/wh/multi_catalog/equality_delete_orc_3/metadata/00010-f6ba4ee7-256f-41f3-8932-25ec703d8c8b.metadata.json'
+);
+
+-- The imported Parquet file has no Iceberg field IDs, and the latest table metadata intentionally
+-- omits schema.name-mapping.default to verify missing-field semantics after migration.
+CALL system.register_table(
+    table => 'multi_catalog.migrated_nested_without_name_mapping',
+    metadata_file => 's3a://warehouse/wh/multi_catalog/migrated_nested_without_name_mapping/metadata/00003-97f3e871-e421-48ed-a735-354f4e1c9502.metadata.json'
 );
 
 -- flink 
