@@ -694,35 +694,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         self.assertEqual(status["request_count"], 1)
         self.assertEqual(status["success_count"], 1)
 
-    def test_paginates_v2_observation_readback(self):
-        responses = [
-            JsonResponse({"data": [{"id": "newest"}], "meta": {"cursor": "next"}}),
-            JsonResponse({"data": [{"id": "oldest"}], "meta": {}}),
-        ]
-        requests = []
-
-        def fake_urlopen(request, timeout):
-            requests.append((request, timeout))
-            return responses.pop(0)
-
-        with mock.patch.object(MODULE.urllib.request, "urlopen", fake_urlopen):
-            payload = MODULE.fetch_observations_v2(
-                "https://litefuse.example", "public", "secret", "trace-id"
-            )
-
-        self.assertEqual(payload["data"], [{"id": "newest"}, {"id": "oldest"}])
-        first_query = urllib.parse.parse_qs(
-            urllib.parse.urlparse(requests[0][0].full_url).query
-        )
-        second_query = urllib.parse.parse_qs(
-            urllib.parse.urlparse(requests[1][0].full_url).query
-        )
-        self.assertEqual(first_query["limit"], ["1000"])
-        self.assertNotIn("cursor", first_query)
-        self.assertEqual(second_query["cursor"], ["next"])
-        self.assertEqual([timeout for _request, timeout in requests], [30, 30])
-
-    def test_verify_prefers_v2_observations(self):
+    def test_verify_complete_main_trace_uses_legacy_observations(self):
         args = mock.Mock(
             base_url="https://litefuse.example",
             verify_attempts=1,
@@ -752,15 +724,15 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         ]
 
         with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
-            MODULE, "fetch_observations_v2", return_value={"data": observations}
-        ), mock.patch.object(MODULE, "fetch_observations_legacy") as legacy_fetch:
+            MODULE, "fetch_observations_legacy", return_value={"data": observations}
+        ), mock.patch.object(MODULE, "fetch_observations_v2") as v2_fetch:
             result = MODULE.verify_trace(
                 args, "public", "secret", "trace-id", len(observations)
             )
 
-        self.assertEqual(result["read_source"], "v2_observations")
+        self.assertEqual(result["read_source"], "legacy_observations")
         self.assertEqual(result["required_observation_count"], len(observations))
-        legacy_fetch.assert_not_called()
+        v2_fetch.assert_not_called()
 
     def test_verify_rejects_partially_visible_trace(self):
         args = mock.Mock(
@@ -786,8 +758,8 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         ]
 
         with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
-            MODULE, "fetch_observations_v2", return_value={"data": observations}
-        ), mock.patch.object(MODULE, "fetch_observations_legacy"):
+            MODULE, "fetch_observations_legacy", return_value={"data": observations}
+        ), mock.patch.object(MODULE, "fetch_observations_v2"):
             with self.assertRaisesRegex(
                 RuntimeError, '"required_observation_count": 3'
             ):
@@ -825,14 +797,59 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         ]
 
         with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
-            MODULE, "fetch_observations_v2", return_value={"data": observations}
-        ), mock.patch.object(MODULE, "fetch_observations_legacy"):
+            MODULE, "fetch_observations_legacy", return_value={"data": observations}
+        ), mock.patch.object(MODULE, "fetch_observations_v2"):
             with self.assertRaisesRegex(
                 RuntimeError, '"duplicate_observation_count": 1'
             ):
                 MODULE.verify_trace(
                     args, "public", "secret", "trace-id", 2
                 )
+
+    def test_verify_rejects_missing_or_empty_observation_ids(self):
+        args = SimpleNamespace(
+            base_url="https://litefuse.example",
+            verify_attempts=1,
+            verify_sleep_seconds=0,
+            min_observations=1,
+            min_step_observations=1,
+        )
+        complete_observations = [
+            {
+                "id": "review",
+                "name": "codex.review",
+                "input": {"prompt": "p"},
+                "output": {"text": "o"},
+            },
+            {
+                "id": "command",
+                "name": "codex.command",
+                "input": {"command": "pwd"},
+                "output": {"status": "ok"},
+            },
+        ]
+        for id_fields in ({}, {"id": None}, {"id": ""}):
+            with self.subTest(id_fields=id_fields):
+                observations = [
+                    *complete_observations,
+                    {
+                        **id_fields,
+                        "name": "codex.command",
+                        "input": {"command": "git status"},
+                        "output": {"status": "ok"},
+                    },
+                ]
+                with mock.patch.object(
+                    MODULE, "fetch_trace", return_value={}
+                ), mock.patch.object(
+                    MODULE, "fetch_observations_legacy", return_value={"data": observations}
+                ), mock.patch.object(MODULE, "fetch_observations_v2"):
+                    # The two valid IDs already satisfy the count requirement;
+                    # the additional ID-less row must independently fail verification.
+                    with self.assertRaisesRegex(
+                        RuntimeError, '"observations_missing_id_count": 1'
+                    ):
+                        MODULE.verify_trace(args, "public", "secret", "trace-id", 2)
 
 
 if __name__ == "__main__":

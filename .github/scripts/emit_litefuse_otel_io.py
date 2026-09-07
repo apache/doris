@@ -1727,21 +1727,21 @@ def verify_trace(
             legacy_detail = {}
             legacy_trace_error = type(exc).__name__
         try:
-            observations_payload = fetch_observations_v2(
+            observations_payload = fetch_observations_legacy(
                 args.base_url, public_key, secret_key, trace_id
             )
             observations = observation_rows_from_v2(observations_payload)
-            read_source = "v2_observations"
-        except Exception as v2_exc:
+            read_source = "legacy_observations"
+        except Exception as exc:
             try:
-                observations_payload = fetch_observations_legacy(
+                observations_payload = fetch_observations_v2(
                     args.base_url, public_key, secret_key, trace_id
                 )
                 observations = observation_rows_from_v2(observations_payload)
-                read_source = f"legacy_observations:{type(v2_exc).__name__}"
+                read_source = "v2_observations"
             except Exception:
                 observations = legacy_detail.get("observations") or []
-                read_source = f"legacy_trace_fallback:{type(v2_exc).__name__}"
+                read_source = f"legacy_trace_fallback:{type(exc).__name__}"
         observations_missing_io = [
             observation
             for observation in observations
