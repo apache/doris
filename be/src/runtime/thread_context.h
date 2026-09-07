@@ -140,6 +140,10 @@ class SwitchResourceContext;
 
 extern bthread_key_t btls_key;
 
+// Initialize btls_key exactly once before it is used by any thread context. The key has
+// process lifetime so an existing bthread context never becomes invalid while the BE is running.
+void init_thread_context_btls_key();
+
 static std::string NO_THREAD_CONTEXT_MSG =
         "Current thread not exist ThreadContext, usually after the thread is started, using "
         "SCOPED_ATTACH_TASK macro to create a ThreadContext and bind a Task.";
@@ -212,7 +216,8 @@ private:
 
 class ThreadLocalHandle {
 public:
-    static ThreadContext* create_thread_local_if_not_exits() {
+    static void create_thread_local_if_not_exits() {
+        init_thread_context_btls_key();
         if (bthread_self() == 0) {
             if (!pthread_context_ptr_init) {
                 thread_context_ptr = new ThreadContext();
@@ -220,7 +225,6 @@ public:
             }
             DCHECK(thread_context_ptr != nullptr);
             thread_context_ptr->thread_local_handle_count++;
-            return thread_context_ptr;
         } else {
             // Avoid calling bthread_getspecific frequently to get bthread local.
             // Very frequent bthread_getspecific will slow, but create_thread_local_if_not_exits is not expected to be much.
@@ -240,19 +244,13 @@ public:
             }
             DCHECK(bthread_context != nullptr);
             bthread_context->thread_local_handle_count++;
-            return bthread_context;
         }
     }
 
     // `create_thread_local_if_not_exits` and `del_thread_local_if_count_is_zero` should be used in pairs,
     // `del_thread_local_if_count_is_zero` should only be called if `create_thread_local_if_not_exits` returns true
     static void del_thread_local_if_count_is_zero() {
-        if (bthread_self() != 0) {
-            // in bthread
-            auto* bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
-            DCHECK(bthread_context != nullptr);
-            bthread_context->thread_local_handle_count--;
-        } else if (pthread_context_ptr_init) {
+        if (pthread_context_ptr_init) {
             // in pthread
             thread_context_ptr->thread_local_handle_count--;
             if (thread_context_ptr->thread_local_handle_count == 0) {
@@ -260,39 +258,31 @@ public:
                 delete doris::thread_context_ptr;
                 thread_context_ptr = nullptr;
             }
+        } else if (bthread_self() != 0) {
+            // in bthread
+            auto* bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
+            DCHECK(bthread_context != nullptr);
+            bthread_context->thread_local_handle_count--;
         } else {
             throw Exception(Status::FatalError("__builtin_unreachable"));
-        }
-    }
-
-    // Release the exact context acquired by create_thread_local_if_not_exits(). A bthread may
-    // resume on another pthread, so looking up the context again during scope destruction is
-    // unnecessarily fragile.
-    static void del_thread_local_if_count_is_zero(ThreadContext* context, bool is_bthread) {
-        DCHECK(context != nullptr);
-        context->thread_local_handle_count--;
-        if (!is_bthread && context->thread_local_handle_count == 0) {
-            DCHECK(context == thread_context_ptr);
-            pthread_context_ptr_init = false;
-            delete context;
-            thread_context_ptr = nullptr;
         }
     }
 };
 
 // must call create_thread_local_if_not_exits() before use thread_context().
 static ThreadContext* thread_context() {
+    if (pthread_context_ptr_init) {
+        // in pthread
+        DCHECK(bthread_self() == 0);
+        DCHECK(thread_context_ptr != nullptr);
+        return thread_context_ptr;
+    }
     if (bthread_self() != 0) {
         // in bthread
         // bthread switching pthread may be very frequent, remember not to use lock or other time-consuming operations.
         auto* bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
         DCHECK(bthread_context != nullptr && bthread_context->thread_local_handle_count > 0);
         return bthread_context;
-    }
-    if (pthread_context_ptr_init) {
-        // in pthread
-        DCHECK(thread_context_ptr != nullptr);
-        return thread_context_ptr;
     }
     // It means that use thread_context() but this thread not attached a query/load using SCOPED_ATTACH_TASK macro.
     throw Exception(Status::FatalError("{}", doris::NO_THREAD_CONTEXT_MSG));
@@ -344,10 +334,6 @@ public:
     void init(const std::shared_ptr<ResourceContext>& rc);
 
     ~AttachTask();
-
-private:
-    ThreadContext* thread_context_ = nullptr;
-    bool is_bthread_ = false;
 };
 
 class SwitchResourceContext {
@@ -384,9 +370,7 @@ public:
 
 private:
     std::shared_ptr<MemTracker> _mem_tracker; // Avoid mem_tracker being released midway.
-    ThreadContext* _thread_context = nullptr;
     bool _need_pop = false;
-    bool _is_bthread = false;
 };
 
 class ScopeSkipMemoryCheck {
@@ -409,7 +393,10 @@ public:
         if (size == 0) {                                                                           \
             break;                                                                                 \
         }                                                                                          \
-        if (bthread_self() != 0) {                                                                 \
+        if (doris::pthread_context_ptr_init) {                                                     \
+            DCHECK(bthread_self() == 0);                                                           \
+            doris::thread_context_ptr->thread_mem_tracker_mgr->consume(size);                      \
+        } else if (bthread_self() != 0) {                                                          \
             auto* bthread_context =                                                                \
                     static_cast<doris::ThreadContext*>(bthread_getspecific(doris::btls_key));      \
             DCHECK(bthread_context != nullptr);                                                    \
@@ -418,8 +405,6 @@ public:
             } else {                                                                               \
                 doris::ExecEnv::GetInstance()->orphan_mem_tracker()->consume_no_update_peak(size); \
             }                                                                                      \
-        } else if (doris::pthread_context_ptr_init) {                                              \
-            doris::thread_context_ptr->thread_mem_tracker_mgr->consume(size);                      \
         } else if (doris::ExecEnv::ready()) {                                                      \
             DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check)              \
                     << doris::NO_THREAD_CONTEXT_MSG;                                               \

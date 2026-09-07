@@ -17,6 +17,8 @@
 
 #include "runtime/thread_context.h"
 
+#include <mutex>
+
 #include "common/signal_handler.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -25,6 +27,22 @@
 
 namespace doris {
 class MemTracker;
+
+bthread_key_t btls_key;
+
+namespace {
+
+void thread_context_deleter(void* data) {
+    delete static_cast<ThreadContext*>(data);
+}
+
+} // namespace
+
+void init_thread_context_btls_key() {
+    static std::once_flag btls_key_once;
+    std::call_once(btls_key_once,
+                   []() { CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter)); });
+}
 
 void ThreadContext::attach_task(const std::shared_ptr<ResourceContext>& rc) {
     // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
@@ -76,10 +94,9 @@ void AttachTask::init(const std::shared_ptr<ResourceContext>& rc) {
                 "AttachTask::init: rc->task_controller() is null. signal_query_id={:x}-{:x}",
                 signal::query_id_hi, signal::query_id_lo));
     }
-    is_bthread_ = bthread_self() != 0;
-    thread_context_ = ThreadLocalHandle::create_thread_local_if_not_exits();
+    ThreadLocalHandle::create_thread_local_if_not_exits();
     signal::set_signal_task_id(rc->task_controller()->task_id());
-    thread_context_->attach_task(rc);
+    thread_context()->attach_task(rc);
 }
 
 AttachTask::AttachTask(const std::shared_ptr<ResourceContext>& rc) {
@@ -141,8 +158,8 @@ AttachTask::AttachTask(QueryContext* query_ctx) {
 
 AttachTask::~AttachTask() {
     signal::set_signal_task_id(TUniqueId());
-    thread_context_->detach_task();
-    ThreadLocalHandle::del_thread_local_if_count_is_zero(thread_context_, is_bthread_);
+    thread_context()->detach_task();
+    ThreadLocalHandle::del_thread_local_if_count_is_zero();
 }
 
 SwitchResourceContext::SwitchResourceContext(const std::shared_ptr<ResourceContext>& rc) {
@@ -223,29 +240,27 @@ SwitchThreadMemTrackerLimiter::~SwitchThreadMemTrackerLimiter() {
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {
-    _is_bthread = bthread_self() != 0;
-    _thread_context = ThreadLocalHandle::create_thread_local_if_not_exits();
+    ThreadLocalHandle::create_thread_local_if_not_exits();
     if (mem_tracker) {
-        _need_pop = _thread_context->thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
+        _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
     }
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(
         const std::shared_ptr<MemTracker>& mem_tracker)
         : _mem_tracker(mem_tracker) {
-    _is_bthread = bthread_self() != 0;
-    _thread_context = ThreadLocalHandle::create_thread_local_if_not_exits();
+    ThreadLocalHandle::create_thread_local_if_not_exits();
     if (_mem_tracker) {
         _need_pop =
-                _thread_context->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
+                thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
     }
 }
 
 AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {
     if (_need_pop) {
-        _thread_context->thread_mem_tracker_mgr->pop_consumer_tracker();
+        thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
     }
-    ThreadLocalHandle::del_thread_local_if_count_is_zero(_thread_context, _is_bthread);
+    ThreadLocalHandle::del_thread_local_if_count_is_zero();
 }
 
 } // namespace doris
