@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -333,14 +334,25 @@ public class OlapTableStreamWrapper extends OlapTable {
     public Map<Long, Pair<Long, Long>> getPartitionOffsets(List<Long> selectedPartitionIds) {
         return outputUpdateMap.entrySet().stream()
                 .filter(s -> selectedPartitionIds.contains(s.getKey()))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                .collect(Collectors.toMap(Map.Entry::getKey, s -> {
+                    // Storage keeps the real committed TSO points (closed-interval semantics).
+                    // BE scans a left-closed right-open range [startTso, endTso), so convert the
+                    // bounds only in this scan-facing read view. outputUpdateMap and the offset
+                    // commit path (toOlapTableStreamUpdate) stay on the real-TSO coordinate system.
+                    Pair<Long, Long> v = s.getValue();
+                    return Pair.of(v.first == null ? null : TSOTimestamp.nextTso(v.first),
+                                   v.second == null ? null : TSOTimestamp.nextTso(v.second));
+                }));
     }
 
     // get history partition offsets partitionId -> (null, historicalTimestampOffset)
     public Map<Long, Pair<Long, Long>> getHistoryPartitionOffsets(List<Long> selectedPartitionIds) {
         return outputUpdateMap.entrySet().stream()
                 .filter(s -> selectedPartitionIds.contains(s.getKey()))
-                .collect(Collectors.toMap(Map.Entry::getKey, s -> Pair.of(null, s.getValue().first)));
+                // historicalTso is an inclusive upper bound; shift to the half-open exclusive end.
+                .collect(Collectors.toMap(Map.Entry::getKey,
+                        s -> Pair.of(null, s.getValue().first == null
+                                ? null : TSOTimestamp.nextTso(s.getValue().first))));
     }
 
     public List<Long> filterNormalSnapshotPartitionIds(List<Long> partitionIds) {

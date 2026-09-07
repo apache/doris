@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
@@ -359,11 +358,12 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 TPaloScanRange range = loc.getScanRange().getPaloScanRange();
                 long tabletId = range.getTabletId();
                 long pid = tabletIdToPartitionId.get(tabletId);
-                long expectedStart = stream.getStreamUpdate(pid).first;
+                // BE reads [startTso, endTso), so the recorded offset is shifted to its next TSO.
+                long expectedStart = TSOTimestamp.nextTso(stream.getStreamUpdate(pid).first);
                 Assertions.assertEquals(expectedScanType, range.getBinlogScanType(),
                         "binlog scan type should match stream consume type");
                 Assertions.assertEquals(expectedStart, range.getStartTso(),
-                        "startTSO should equal stream partitionOffset (last committed binlog TSO)");
+                        "startTSO should equal stream partitionOffset (last committed binlog TSO) + 1");
                 assertedAtLeastOne = true;
             }
         }
@@ -396,11 +396,14 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             }
         }
         Assertions.assertNotNull(incrementalScan1);
-        OlapTableWrapper wrapper = (OlapTableWrapper) incrementalScan1.getOlapTable();
         Map<Long, Long> prevOffsets = new java.util.HashMap<>();
         Map<Long, Long> nextOffsets = new java.util.HashMap<>();
         for (Long pid : incrementalScan1.getSelectedPartitionIds()) {
-            Pair<Long, Long> off = wrapper.getPartitionOffset(pid);
+            // Use the raw (un-shifted) stream offsets, mirroring what the production
+            // StreamConsumptionInfoExtractor commits. Reading them back from the scan node's
+            // RowBinlogTableWrapper would return the already +1-shifted scan-range bounds and
+            // introduce a spurious double shift into this closed-loop check.
+            Pair<Long, Long> off = stream.getStreamUpdate(pid);
             if (off.first != null) {
                 prevOffsets.put(pid, off.first);
             }
@@ -440,8 +443,9 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             for (TScanRangeLocations loc : locations) {
                 TPaloScanRange range = loc.getScanRange().getPaloScanRange();
                 long pid = tabletIdToPartitionId.get(range.getTabletId());
-                Assertions.assertEquals(nextOffsets.get(pid), range.getStartTso(),
-                        "after offset commit, new startTSO must equal the previously committed next TSO");
+                // BE reads [startTso, endTso), so OlapScanNode shifts the recorded offset by +1.
+                Assertions.assertEquals(TSOTimestamp.nextTso(nextOffsets.get(pid)), range.getStartTso(),
+                        "after offset commit, new startTSO must equal the previously committed next TSO + 1");
                 assertedAtLeastOne = true;
             }
         }
@@ -586,8 +590,9 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         // asserting every incremental scan range carries the composed start/end TSO for its partition.
         String startTs = "2026-05-25 20:51:28";
         String endTs = "2026-05-25 21:51:28";
-        long expectedStartTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(startTs));
-        long expectedEndTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(endTs));
+        // @incr is left-closed right-open [start, end): BE uses GE/LT on the composed bounds directly.
+        long expectedStartTso = TSOTimestamp.composeEmptyCounterTSO(OlapScanNode.parseChangeTimestamp(startTs));
+        long expectedEndTso = TSOTimestamp.composeEmptyCounterTSO(OlapScanNode.parseChangeTimestamp(endTs));
 
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");

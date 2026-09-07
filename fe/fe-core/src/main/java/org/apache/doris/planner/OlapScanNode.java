@@ -100,6 +100,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSortInfo;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -581,13 +582,15 @@ public class OlapScanNode extends ScanNode {
                         parseBinlogScanType(scanParams, ((OlapTableWrapper) olapTable).getOriginTable());
                 Pair<Long, Long> update = getPartitionOffset(partition.getId());
                 if (update != null) {
+                    // push down tso range as half-open [startTso, endTso) bounds
                     if (update.first != null) {
                         paloRange.setStartTso(update.first);
                     }
                     if (update.second != null) {
                         paloRange.setEndTso(update.second);
                     } else {
-                        paloRange.setEndTso(partition.getTso());
+                        // If no end recorded: use current committed TSO's next value as the exclusive bound.
+                        paloRange.setEndTso(TSOTimestamp.nextTso(partition.getTso()));
                     }
                 }
                 if (binlogScanType != TBinlogScanType.NONE) {
@@ -1962,14 +1965,6 @@ public class OlapScanNode extends ScanNode {
 
     public TableScanParams getScanParams() {
         return scanParams;
-    }
-
-    public long getIncrementalScanEndTime() {
-        if (scanParams != null && scanParams.incrementalRead()
-                && scanParams.getMapParams().containsKey(OLAP_END_TIMESTAMP)) {
-            return parseChangeTimestamp(scanParams.getMapParams().get(OLAP_END_TIMESTAMP));
-        }
-        return 0;
     }
 
     public static long parseChangeTimestamp(String ts) {

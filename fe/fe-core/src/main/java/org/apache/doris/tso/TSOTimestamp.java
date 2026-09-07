@@ -104,12 +104,30 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
     }
 
     /**
-     * Compose 64-bit TSO timestamp from physical time
+     * Compose the TSO at the start of the given millisecond, i.e. logical counter 0.
+     * This is the smallest TSO within that millisecond, suitable as a left-closed lower bound
+     * or a right-open (exclusive) upper bound. For a millisecond's inclusive upper bound (its
+     * last TSO), use composeTimestamp(ms + 1, 0) - 1.
      *
-     * @return 64-bit TSO timestamp with full counter
+     * @return 64-bit TSO timestamp with zero logical counter
      */
-    public static long composeFullTimestamp(long physicalTimestamp) {
-        return composeTimestamp(physicalTimestamp, LOGICAL_MASK);
+    public static long composeEmptyCounterTSO(long physicalTimestamp) {
+        return composeTimestamp(physicalTimestamp, 0);
+    }
+
+    /**
+     * The next discrete TSO after {@code tso}. TSO values are dense integers, so this converts an
+     * inclusive bound into the equivalent right-open (exclusive) bound: {@code x <= tso} is the same
+     * row set as {@code x < nextTso(tso)}, and a lower bound that excludes {@code tso} itself is
+     * {@code x >= nextTso(tso)}. Callers should use this instead of a bare {@code + 1} so the TSO
+     * interval arithmetic stays in one place.
+     *
+     * <p>{@code Long.MAX_VALUE} is used as the "read everything" sentinel (e.g. FOR VERSION AS OF
+     * 9223372036854775807), so it saturates instead of overflowing to a negative bound: real commit
+     * TSOs never reach {@code Long.MAX_VALUE}, so {@code x < Long.MAX_VALUE} still selects all rows.
+     */
+    public static long nextTso(long tso) {
+        return tso == Long.MAX_VALUE ? Long.MAX_VALUE : tso + 1;
     }
 
     /**
