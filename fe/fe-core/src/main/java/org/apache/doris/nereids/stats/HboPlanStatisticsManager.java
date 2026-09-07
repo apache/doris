@@ -130,7 +130,8 @@ public class HboPlanStatisticsManager {
             pendingLoadTombstones.remove(fingerprint);
             // persist under the same lock as DELETE's DB removal, so concurrent same-key
             // SET/DELETE serialize their DB writes in the same order as their memory updates
-            // and the stored row always matches the last memory writer
+            // and, when the best-effort writes succeed, the stored row matches the last memory
+            // writer (a failed write only logs a warning and may reappear after a FE restart)
             if (persistenceEnabled()) {
                 HboStatisticsStore.persist(fingerprint, rows, nodeType, structCanonical, createTimeMs);
             }
