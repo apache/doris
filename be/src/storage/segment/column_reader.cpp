@@ -23,6 +23,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <initializer_list>
 #include <memory>
 #include <ostream>
 #include <set>
@@ -49,6 +50,7 @@
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h" //for VecDateTime
 #include "io/fs/file_reader.h"
+#include "storage/cache/page_cache.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
@@ -66,6 +68,7 @@
 #include "storage/segment/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "storage/segment/binary_plain_page.h"
 #include "storage/segment/column_meta_accessor.h"
+#include "storage/segment/column_read_ahead.h"
 #include "storage/segment/encoding_info.h" // for EncodingInfo
 #include "storage/segment/page_decoder.h"
 #include "storage/segment/page_handle.h" // for PageHandle
@@ -74,6 +77,7 @@
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
+#include "storage/segment/segment_read_ahead.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h" // for TypeInfo
@@ -110,6 +114,46 @@ bool is_current_level_data_access_path(const TColumnAccessPath& path,
 void remove_current_level_meta_access_paths(TColumnAccessPaths& paths) {
     auto removed = std::ranges::remove_if(paths, is_current_level_meta_access_path);
     paths.erase(removed.begin(), removed.end());
+}
+
+Status prepare_dependent_read_ahead(const ColumnReadAheadContext* context,
+                                    std::initializer_list<ColumnIterator*> iterators,
+                                    const roaring::Roaring& rowids, bool reverse) {
+    if (context == nullptr || rowids.isEmpty()) {
+        return Status::OK();
+    }
+
+    std::vector<rowid_t> current_rowids;
+    current_rowids.reserve(cast_set<size_t>(rowids.cardinality()));
+    for (uint32_t rowid : rowids) {
+        current_rowids.push_back(rowid);
+    }
+    const ColumnReadAheadRequest request {
+            .current_rowids = current_rowids.data(),
+            .current_rowid_count = current_rowids.size(),
+            .scan_rowids = &rowids,
+            .context = context,
+            .role = ColumnReadAheadRole::LAZY,
+            .reverse = reverse,
+    };
+    std::vector<ColumnReadAheadPlan> plans;
+    for (auto* iterator : iterators) {
+        DORIS_CHECK(iterator != nullptr);
+        if (iterator->need_to_read()) {
+            const auto status = iterator->prepare_read_ahead(request, &plans);
+            if (!status.ok()) {
+                LOG_EVERY_N(WARNING, 100)
+                        << "failed to prepare dependent column read-ahead; use the original read "
+                           "path: "
+                        << status;
+            }
+        }
+    }
+    if (!plans.empty()) {
+        DORIS_CHECK(context->segment != nullptr);
+        static_cast<void>(context->segment->apply_plans(std::move(plans)));
+    }
+    return Status::OK();
 }
 
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
@@ -1083,6 +1127,33 @@ Status MapFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& param
     return Status::OK();
 }
 
+Status MapFileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& request,
+                                                 std::vector<ColumnReadAheadPlan>* plans) {
+    DORIS_CHECK(plans != nullptr);
+    if (!need_to_read()) {
+        return Status::OK();
+    }
+    request.sanity_check();
+    _read_ahead_context = request.context;
+    _read_ahead_reverse = request.reverse;
+    if (read_null_map_only()) {
+        if (_map_reader->is_nullable()) {
+            DORIS_CHECK(_null_iterator != nullptr);
+            return _null_iterator->prepare_read_ahead(request, plans);
+        }
+        return Status::OK();
+    }
+
+    if (need_to_read_meta_columns()) {
+        RETURN_IF_ERROR(_offsets_iterator->prepare_read_ahead(request, plans));
+        if (_map_reader->is_nullable()) {
+            DORIS_CHECK(_null_iterator != nullptr);
+            RETURN_IF_ERROR(_null_iterator->prepare_read_ahead(request, plans));
+        }
+    }
+    return Status::OK();
+}
+
 void MapFileColumnIterator::collect_prefetchers(
         std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
         PrefetcherInitMethod init_method) {
@@ -1185,6 +1256,15 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
             column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
 
     if (num_items > 0) {
+        if (!read_offset_only()) {
+            const auto first_item = _key_iterator->get_current_ordinal();
+            DORIS_CHECK(_val_iterator->get_current_ordinal() == first_item);
+            roaring::Roaring item_rowids;
+            item_rowids.addRange(first_item, cast_set<uint64_t>(first_item) + num_items);
+            RETURN_IF_ERROR(prepare_dependent_read_ahead(_read_ahead_context,
+                                                         {_key_iterator.get(), _val_iterator.get()},
+                                                         item_rowids, _read_ahead_reverse));
+        }
         auto key_ptr = IColumn::mutate(std::move(column_map.get_keys_ptr()));
         auto val_ptr = IColumn::mutate(std::move(column_map.get_values_ptr()));
         Defer defer_keys {[&] { column_map.get_keys_ptr() = std::move(key_ptr); }};
@@ -1429,34 +1509,34 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         return Status::OK();
     };
 
-    size_t this_run = sizes[0];
-    auto start_idx = starts_data[0];
-    auto last_idx = starts_data[0] + this_run;
-    for (size_t i = 1; i < count; ++i) {
-        size_t sz = sizes[i];
+    std::vector<std::pair<ordinal_t, size_t>> item_ranges;
+    ordinal_t last_idx = 0;
+    roaring::Roaring item_rowids;
+    for (size_t i = 0; i < count; ++i) {
+        const size_t sz = sizes[i];
         if (sz == 0) {
             continue;
         }
-        auto start = static_cast<ordinal_t>(starts_data[i]);
-        if (start != last_idx) {
-            RETURN_IF_ERROR(read_or_fill_range(_key_iterator.get(), keys_ptr, start_idx, this_run,
-                                               fill_lazy_skipped_keys));
-            RETURN_IF_ERROR(read_or_fill_range(_val_iterator.get(), vals_ptr, start_idx, this_run,
-                                               fill_lazy_skipped_values));
-            start_idx = start;
-            this_run = sz;
-            last_idx = start + sz;
+        const auto start_idx = cast_set<ordinal_t>(starts_data[i]);
+        item_rowids.addRange(start_idx, cast_set<uint64_t>(start_idx) + sz);
+        if (item_ranges.empty() || start_idx != last_idx) {
+            item_ranges.emplace_back(start_idx, sz);
+            last_idx = start_idx + sz;
             continue;
         }
-
-        this_run += sz;
+        item_ranges.back().second += sz;
         last_idx += sz;
     }
 
-    RETURN_IF_ERROR(read_or_fill_range(_key_iterator.get(), keys_ptr, start_idx, this_run,
-                                       fill_lazy_skipped_keys));
-    RETURN_IF_ERROR(read_or_fill_range(_val_iterator.get(), vals_ptr, start_idx, this_run,
-                                       fill_lazy_skipped_values));
+    RETURN_IF_ERROR(prepare_dependent_read_ahead(_read_ahead_context,
+                                                 {_key_iterator.get(), _val_iterator.get()},
+                                                 item_rowids, _read_ahead_reverse));
+    for (const auto& [start_idx, num_items] : item_ranges) {
+        RETURN_IF_ERROR(read_or_fill_range(_key_iterator.get(), keys_ptr, start_idx, num_items,
+                                           fill_lazy_skipped_keys));
+        RETURN_IF_ERROR(read_or_fill_range(_val_iterator.get(), vals_ptr, start_idx, num_items,
+                                           fill_lazy_skipped_values));
+    }
     return Status::OK();
 }
 
@@ -1770,6 +1850,33 @@ Status StructFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& pa
     return Status::OK();
 }
 
+Status StructFileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& request,
+                                                    std::vector<ColumnReadAheadPlan>* plans) {
+    DORIS_CHECK(plans != nullptr);
+    if (!need_to_read()) {
+        return Status::OK();
+    }
+    request.sanity_check();
+    if (read_null_map_only()) {
+        if (_struct_reader->is_nullable()) {
+            DORIS_CHECK(_null_iterator != nullptr);
+            return _null_iterator->prepare_read_ahead(request, plans);
+        }
+        return Status::OK();
+    }
+
+    for (auto& column_iterator : _sub_column_iterators) {
+        if (column_iterator->need_to_read()) {
+            RETURN_IF_ERROR(column_iterator->prepare_read_ahead(request, plans));
+        }
+    }
+    if (_struct_reader->is_nullable() && need_to_read_meta_columns()) {
+        DORIS_CHECK(_null_iterator != nullptr);
+        RETURN_IF_ERROR(_null_iterator->prepare_read_ahead(request, plans));
+    }
+    return Status::OK();
+}
+
 void StructFileColumnIterator::collect_prefetchers(
         std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
         PrefetcherInitMethod init_method) {
@@ -2017,6 +2124,11 @@ Status OffsetFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& pa
     return _offset_iterator->init_prefetcher(params);
 }
 
+Status OffsetFileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& request,
+                                                    std::vector<ColumnReadAheadPlan>* plans) {
+    return _offset_iterator->prepare_read_ahead(request, plans);
+}
+
 void OffsetFileColumnIterator::collect_prefetchers(
         std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
         PrefetcherInitMethod init_method) {
@@ -2184,6 +2296,13 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
     size_t num_items =
             column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
     if (num_items > 0) {
+        if (!read_offset_only()) {
+            const auto first_item = _item_iterator->get_current_ordinal();
+            roaring::Roaring item_rowids;
+            item_rowids.addRange(first_item, cast_set<uint64_t>(first_item) + num_items);
+            RETURN_IF_ERROR(prepare_dependent_read_ahead(
+                    _read_ahead_context, {_item_iterator.get()}, item_rowids, _read_ahead_reverse));
+        }
         auto column_items_ptr = IColumn::mutate(std::move(column_array.get_data_ptr()));
         Defer defer_items {[&] { column_array.get_data_ptr() = std::move(column_items_ptr); }};
         if (read_offset_only()) {
@@ -2224,6 +2343,33 @@ Status ArrayFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& par
     RETURN_IF_ERROR(_item_iterator->init_prefetcher(params));
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
+    }
+    return Status::OK();
+}
+
+Status ArrayFileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& request,
+                                                   std::vector<ColumnReadAheadPlan>* plans) {
+    DORIS_CHECK(plans != nullptr);
+    if (!need_to_read()) {
+        return Status::OK();
+    }
+    request.sanity_check();
+    _read_ahead_context = request.context;
+    _read_ahead_reverse = request.reverse;
+    if (read_null_map_only()) {
+        if (_array_reader->is_nullable()) {
+            DORIS_CHECK(_null_iterator != nullptr);
+            return _null_iterator->prepare_read_ahead(request, plans);
+        }
+        return Status::OK();
+    }
+
+    if (need_to_read_meta_columns()) {
+        RETURN_IF_ERROR(_offset_iterator->prepare_read_ahead(request, plans));
+        if (_array_reader->is_nullable()) {
+            DORIS_CHECK(_null_iterator != nullptr);
+            RETURN_IF_ERROR(_null_iterator->prepare_read_ahead(request, plans));
+        }
     }
     return Status::OK();
 }
@@ -2546,6 +2692,47 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 FileColumnIterator::~FileColumnIterator() = default;
+
+Status FileColumnIterator::_init_read_ahead(const ColumnReadAheadRequest& request) {
+    request.sanity_check();
+    if (_read_ahead != nullptr) {
+        DORIS_CHECK(_read_ahead->options() == request.options());
+        DORIS_CHECK(_read_ahead->reverse() == request.reverse);
+        return Status::OK();
+    }
+
+    OrdinalIndexReader* ordinal_index = nullptr;
+    RETURN_IF_ERROR(_reader->get_ordinal_index_reader(ordinal_index, _opts.stats));
+    DORIS_CHECK(ordinal_index != nullptr);
+    std::vector<ColumnReadAheadPage> pages;
+    pages.reserve(ordinal_index->num_data_pages());
+    for (auto page = ordinal_index->begin(); page.valid(); page.next()) {
+        pages.push_back(ColumnReadAheadPage {
+                .page_index = page.page_index(),
+                .first_ordinal = page.first_ordinal(),
+                .last_ordinal = page.last_ordinal(),
+                .range = {.offset = page.page().offset, .size = page.page().size},
+        });
+    }
+    return ColumnReadAhead::create(std::move(pages), request.options(), request.reverse,
+                                   &_read_ahead);
+}
+
+Status FileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& request,
+                                              std::vector<ColumnReadAheadPlan>* plans) {
+    DORIS_CHECK(plans != nullptr);
+    if (!need_to_read()) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_init_read_ahead(request));
+    ColumnReadAheadPlan plan;
+    _read_ahead->plan(request.current_rowids, request.current_rowid_count, *request.scan_rowids,
+                      &plan);
+    if (!plan.empty()) {
+        plans->push_back(std::move(plan));
+    }
+    return Status::OK();
+}
 
 void FileColumnIterator::_trigger_prefetch_if_eligible(ordinal_t ord) {
     std::vector<BlockRange> ranges;
@@ -2910,12 +3097,50 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     _opts.type = DATA_PAGE;
     PageDecoderOptions decoder_opts;
     decoder_opts.only_read_offsets = _opts.only_read_offsets;
-    RETURN_IF_ERROR(
-            _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
-    // parse data page
-    auto st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
-                                 _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
-                                 decoder_opts);
+    auto* read_ahead_reader = dynamic_cast<SegmentReadAheadFileReader*>(_opts.file_reader);
+    auto read_page = [&](const ColumnIteratorOptions& options) {
+        return _reader->read_page(options, iter.page(), &handle, &page_body, &footer,
+                                  _compress_codec);
+    };
+    auto retry_original = [&](const Status& status) {
+        if (read_ahead_reader == nullptr) {
+            return status;
+        }
+        LOG(WARNING) << "failed to decode read-ahead page, falling back to original reader, file="
+                     << _opts.file_reader->path().native() << ", page_offset=" << iter.page().offset
+                     << ", page_size=" << iter.page().size << ", page_index=" << iter.page_index()
+                     << ", error=" << status;
+        if (auto* cache = StoragePageCache::instance(); cache != nullptr) {
+            StoragePageCache::CacheKey key(_opts.file_reader->path().native(),
+                                           _opts.file_reader->size(), iter.page().offset);
+            cache->erase(key, DATA_PAGE);
+        }
+        handle = PageHandle {};
+        page_body = Slice {};
+        footer.Clear();
+        ColumnIteratorOptions fallback_options = _opts;
+        fallback_options.file_reader = read_ahead_reader->inner_reader().get();
+        fallback_options.use_page_cache = false;
+        return read_page(fallback_options);
+    };
+
+    auto st = read_page(_opts);
+    if (!st.ok()) {
+        st = retry_original(st);
+    }
+    RETURN_IF_ERROR(st);
+
+    st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+                            _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
+                            decoder_opts);
+    if (!st.ok() && read_ahead_reader != nullptr) {
+        st = retry_original(st);
+        if (st.ok()) {
+            st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+                                    _reader->encoding_info(), iter.page(), iter.page_index(),
+                                    &_page, decoder_opts);
+        }
+    }
     if (!st.ok()) {
         LOG(WARNING) << "failed to create ParsedPage, file=" << _opts.file_reader->path().native()
                      << ", page_offset=" << iter.page().offset << ", page_size=" << iter.page().size

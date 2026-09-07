@@ -1815,6 +1815,29 @@ DECLARE_mInt32(segment_file_cache_consume_rowids_batch_size);
 DECLARE_mBool(enable_query_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for query
 DECLARE_mInt32(query_segment_file_cache_prefetch_block_size);
+// Enable exact range read-ahead for query data pages
+DECLARE_mBool(enable_query_read_ahead);
+// Query-level resident read-ahead buffer limit
+DECLARE_Int64(read_ahead_max_bytes_per_query);
+// BE-level resident read-ahead buffer limit
+DECLARE_Int64(read_ahead_max_bytes_per_be);
+// Per-column eager read-ahead byte window
+DECLARE_mInt64(read_ahead_eager_high_watermark_bytes);
+DECLARE_mInt64(read_ahead_eager_low_watermark_bytes);
+// Per-column lazy read-ahead byte window
+DECLARE_mInt64(read_ahead_lazy_high_watermark_bytes);
+DECLARE_mInt64(read_ahead_lazy_low_watermark_bytes);
+// Foreground file-range coalescing and cache-block completion policy
+DECLARE_mInt64(read_ahead_max_gap_bytes);
+DECLARE_mInt64(read_ahead_max_range_bytes);
+DECLARE_mDouble(read_ahead_max_read_amplification_ratio);
+DECLARE_mDouble(read_ahead_block_fill_min_coverage);
+// Background completion policy and BE-wide resource limits for partial File Cache blocks
+DECLARE_Int64(hole_fill_max_gap_bytes);
+DECLARE_Int64(hole_fill_max_range_bytes);
+DECLARE_Double(hole_fill_max_read_amplification_ratio);
+DECLARE_Int64(hole_fill_max_pending_bytes_per_be);
+DECLARE_mInt32(hole_fill_workers_per_be);
 // Enable segment file cache block prefetch for compaction
 DECLARE_mBool(enable_compaction_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for compaction
