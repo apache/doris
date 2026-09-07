@@ -277,6 +277,134 @@ public class LanceScanNodeTest {
     }
 
     @Test
+    public void testExternalSearchSelectsLaterMetricCompatibleIndex() throws Exception {
+        UUID l2Segment = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID cosineSegment = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                vectorSchema(),
+                Arrays.asList(new LanceFragmentInfo(1, 8, 8), new LanceFragmentInfo(2, 7, 7)),
+                Collections.singletonMap("vector", 9),
+                Arrays.asList(
+                        new LanceIndexSegmentInfo(l2Segment, "a_l2", Collections.singletonList(9),
+                                Arrays.asList(1L, 2L), "L2"),
+                        new LanceIndexSegmentInfo(cosineSegment, "z_cosine", Collections.singletonList(9),
+                                Arrays.asList(1L, 2L), "COSINE")),
+                Collections.emptyMap());
+        TExternalSearchRequest request = vectorSearchRequest(5, 0);
+        request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);
+
+        List<Split> splits = newSearchNode(metadata, request).getSplits(2);
+
+        Assert.assertEquals(1, splits.size());
+        assertIndexSplit(splits.get(0), cosineSegment, Arrays.asList(1L, 2L), 15, 100);
+    }
+
+    @Test
+    public void testExternalSearchSelectsMetricCompatibleIndexRegardlessOfMetadataOrder() throws Exception {
+        UUID cosineSegment = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        UUID l2Segment = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                vectorSchema(),
+                Arrays.asList(new LanceFragmentInfo(1, 8, 8), new LanceFragmentInfo(2, 7, 7)),
+                Collections.singletonMap("vector", 9),
+                Arrays.asList(
+                        new LanceIndexSegmentInfo(cosineSegment, "z_cosine", Collections.singletonList(9),
+                                Arrays.asList(1L, 2L), "COSINE"),
+                        new LanceIndexSegmentInfo(l2Segment, "a_l2", Collections.singletonList(9),
+                                Arrays.asList(1L, 2L), "L2")),
+                Collections.emptyMap());
+        TExternalSearchRequest request = vectorSearchRequest(5, 0);
+        request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);
+
+        List<Split> splits = newSearchNode(metadata, request).getSplits(2);
+
+        Assert.assertEquals(1, splits.size());
+        assertIndexSplit(splits.get(0), cosineSegment, Arrays.asList(1L, 2L), 15, 100);
+    }
+
+    @Test
+    public void testExternalSearchSelectsSameMetricIndexByName() throws Exception {
+        UUID laterSegment = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID firstSegment = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        UUID secondSegment = UUID.fromString("77777777-7777-7777-7777-777777777777");
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                vectorSchema(),
+                Arrays.asList(
+                        new LanceFragmentInfo(1, 8, 8),
+                        new LanceFragmentInfo(2, 7, 7),
+                        new LanceFragmentInfo(3, 6, 6)),
+                Collections.singletonMap("vector", 9),
+                Arrays.asList(
+                        new LanceIndexSegmentInfo(laterSegment, "z_l2", Collections.singletonList(9),
+                                Arrays.asList(1L, 2L, 3L), "L2"),
+                        new LanceIndexSegmentInfo(firstSegment, "a_l2", Collections.singletonList(9),
+                                Collections.singletonList(1L), "L2"),
+                        new LanceIndexSegmentInfo(secondSegment, "a_l2", Collections.singletonList(9),
+                                Collections.singletonList(2L), "L2")),
+                Collections.emptyMap());
+
+        List<Split> splits = newSearchNode(metadata, vectorSearchRequest(5, 0)).getSplits(2);
+
+        Assert.assertEquals(3, splits.size());
+        assertIndexSplit(splits.get(0), firstSegment, Collections.singletonList(1L), 8, 100);
+        assertIndexSplit(splits.get(1), secondSegment, Collections.singletonList(2L), 8, 88);
+        assertSplit(splits.get(2), 3, 8, 75);
+    }
+
+    @Test
+    public void testExternalSearchDefaultMetricSelectsL2Index() throws Exception {
+        UUID l2Segment = UUID.fromString("99999999-9999-9999-9999-999999999999");
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                vectorSchema(),
+                Collections.singletonList(new LanceFragmentInfo(1, 8, 8)),
+                Collections.singletonMap("vector", 9),
+                Collections.singletonList(
+                        new LanceIndexSegmentInfo(l2Segment, "l2", Collections.singletonList(9),
+                                Collections.singletonList(1L), "L2")),
+                Collections.emptyMap());
+        TExternalSearchRequest request = vectorSearchRequest(5, 0);
+        request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.DEFAULT);
+
+        List<Split> splits = newSearchNode(metadata, request).getSplits(1);
+
+        Assert.assertEquals(1, splits.size());
+        assertIndexSplit(splits.get(0), l2Segment, Collections.singletonList(1L), 8, 100);
+    }
+
+    @Test
+    public void testExternalSearchSkipsIndexGroupWithoutFragmentBitmap() throws Exception {
+        UUID incompleteSegment = UUID.fromString("77777777-7777-7777-7777-777777777777");
+        UUID cosineSegment = UUID.fromString("88888888-8888-8888-8888-888888888888");
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                vectorSchema(),
+                Arrays.asList(new LanceFragmentInfo(1, 8, 8), new LanceFragmentInfo(2, 7, 7)),
+                Collections.singletonMap("vector", 9),
+                Arrays.asList(
+                        new LanceIndexSegmentInfo(incompleteSegment, "a_incomplete",
+                                Collections.singletonList(9), null, "COSINE"),
+                        new LanceIndexSegmentInfo(cosineSegment, "z_cosine", Collections.singletonList(9),
+                                Arrays.asList(1L, 2L), "COSINE")),
+                Collections.emptyMap());
+        TExternalSearchRequest request = vectorSearchRequest(5, 0);
+        request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);
+
+        List<Split> splits = newSearchNode(metadata, request).getSplits(2);
+
+        Assert.assertEquals(1, splits.size());
+        assertIndexSplit(splits.get(0), cosineSegment, Arrays.asList(1L, 2L), 15, 100);
+    }
+
+    @Test
     public void testExternalSearchRejectsMissingFieldIdForIndexSegmentPlanning() {
         LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
                 "s3://bucket/table.lance",
