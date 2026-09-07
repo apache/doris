@@ -692,23 +692,29 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
           HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
         run: |
-          GOAL_PROMPT="$(cat "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt")"
           review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          helper="$RUNNER_TEMP/run_review_with_resume.py"
+          gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/${REPO}/contents/.github/scripts/run_review_with_resume.py?ref=${HELPER_REF}" \
+            > "$helper"
 
           set +e
           # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
           # Codex uses bubblewrap for that mode and uid maps can be unavailable.
-          codex exec --goal "$GOAL_PROMPT" \
-            --cd "$GITHUB_WORKSPACE" \
+          python3 "$helper" \
+            --context-dir "$REVIEW_CONTEXT_DIR" \
+            --cwd "$GITHUB_WORKSPACE" \
+            --repository "$REPO" \
+            --pr-number "$PR_NUMBER" \
+            --head-sha "$HEAD_SHA" \
+            --base-sha "$BASE_SHA" \
             --model "gpt-5.6-sol" \
-            --config "model_reasoning_effort=xhigh" \
-            --sandbox danger-full-access \
-            --color never \
-            --json \
-            --output-last-message "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
-            > "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
-            2> >(tee "$REVIEW_CONTEXT_DIR/codex-stderr.log" >&2)
+            --effort xhigh
           status=$?
           set -e
 
