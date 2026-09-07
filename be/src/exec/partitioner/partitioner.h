@@ -191,6 +191,26 @@ private:
     }
 };
 
+// Bucket-shuffle repartitioner for tables bucketed with the identity hash. Each distribution
+// column's canonical bytes are interpreted as an unsigned integer with the first byte as the least
+// significant, then appended to the preceding columns; the combined value is kept modulo the
+// bucket count. Must stay bit-identical with FE HashDistributionPruner and BE tablet routing.
+class IdentityHashPartitioner : public Crc32HashPartitioner<ShuffleChannelIds> {
+public:
+    IdentityHashPartitioner(int partition_count)
+            : Crc32HashPartitioner<ShuffleChannelIds>(partition_count) {}
+
+    Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
+
+private:
+    void _do_hash(const ColumnPtr& column, HashValType* __restrict result, int idx) const override;
+
+    void _initialize_hash_vals(size_t rows) const override {
+        _hash_vals.resize(rows);
+        std::ranges::fill(_hash_vals, 0);
+    }
+};
+
 /// Instantiated once in partitioner.cpp; suppresses per-TU implicit instantiation.
 extern template class Crc32HashPartitioner<ShuffleChannelIds>;
 extern template class Crc32HashPartitioner<SpillPartitionChannelIds>;

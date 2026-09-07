@@ -223,7 +223,7 @@ public class ColocateTableIndex implements Writable {
                 HashDistributionInfo distributionInfo = (HashDistributionInfo) tbl.getDefaultDistributionInfo();
                 ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
                         distributionInfo.getDistributionColumns(), distributionInfo.getBucketNum(),
-                        tbl.getDefaultReplicaAllocation());
+                        tbl.getDefaultReplicaAllocation(), distributionInfo.getHashType());
                 groupName2Id.put(fullGroupName, groupId);
                 group2Schema.put(groupId, groupSchema);
                 group2ErrMsgs.put(groupId, "");

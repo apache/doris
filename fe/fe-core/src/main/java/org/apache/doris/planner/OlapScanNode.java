@@ -368,6 +368,14 @@ public class OlapScanNode extends ScanNode {
         return olapTable;
     }
 
+    @Override
+    public HashDistributionInfo.HashType getStorageDistributionHashType() {
+        DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+        return distributionInfo instanceof HashDistributionInfo
+                ? ((HashDistributionInfo) distributionInfo).getHashType()
+                : null;
+    }
+
     public String getTableNameInPlan() {
         return tableNameInPlan;
     }
@@ -450,7 +458,8 @@ public class OlapScanNode extends ScanNode {
                         info.getDistributionColumns(),
                         columnFilters,
                         info.getBucketNum(),
-                        getSelectedIndexId() == olapTable.getBaseIndexId());
+                        getSelectedIndexId() == olapTable.getBaseIndexId(),
+                        info.getHashType());
                 return new ArrayList<>(distributionPruner.prune());
             }
             case RANDOM: {

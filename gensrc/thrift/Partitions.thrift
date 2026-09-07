@@ -205,4 +205,6 @@ struct TDataPartition {
   2: optional list<Exprs.TExpr> partition_exprs
   3: optional list<TRangePartition> partition_infos
   4: optional TMergePartitionInfo merge_partition_info
+  // storage bucketing hash for BUCKET_SHFFULE_HASH_PARTITIONED; !__isset means CRC32 (legacy)
+  5: optional Types.TDistributionHashType distribution_hash_type = Types.TDistributionHashType.CRC32
 }

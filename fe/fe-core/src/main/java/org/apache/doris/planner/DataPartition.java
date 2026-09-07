@@ -24,7 +24,9 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.ToSqlParams;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.thrift.TDataPartition;
+import org.apache.doris.thrift.TDistributionHashType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TIcebergPartitionField;
 import org.apache.doris.thrift.TMergePartitionInfo;
@@ -55,6 +57,8 @@ public class DataPartition {
     // for hash partition: exprs used to compute hash value
     private ImmutableList<Expr> partitionExprs;
     private MergePartitionInfo mergePartitionInfo;
+    // storage bucketing hash for BUCKET_SHFFULE_HASH_PARTITIONED; defaults to CRC32 (legacy behavior)
+    private HashDistributionInfo.HashType hashType = HashDistributionInfo.HashType.CRC32;
 
     public DataPartition(TPartitionType type, List<Expr> exprs) {
         Preconditions.checkNotNull(exprs);
@@ -65,6 +69,11 @@ public class DataPartition {
                 || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.copyOf(exprs);
+    }
+
+    public DataPartition(TPartitionType type, List<Expr> exprs, HashDistributionInfo.HashType hashType) {
+        this(type, exprs);
+        this.hashType = hashType == null ? HashDistributionInfo.HashType.CRC32 : hashType;
     }
 
     public DataPartition(TPartitionType type) {
@@ -102,6 +111,17 @@ public class DataPartition {
         return partitionExprs;
     }
 
+    public HashDistributionInfo.HashType getHashType() {
+        return hashType;
+    }
+
+    public static TDistributionHashType toTHashType(HashDistributionInfo.HashType hashType) {
+        if (hashType == HashDistributionInfo.HashType.IDENTITY) {
+            return TDistributionHashType.IDENTITY;
+        }
+        return TDistributionHashType.CRC32;
+    }
+
     public TDataPartition toThrift() {
         TDataPartition result = new TDataPartition(type);
         if (partitionExprs != null) {
@@ -109,6 +129,9 @@ public class DataPartition {
         }
         if (mergePartitionInfo != null) {
             result.setMergePartitionInfo(mergePartitionInfo.toThrift());
+        }
+        if (type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
+            result.setDistributionHashType(toTHashType(hashType));
         }
         return result;
     }
