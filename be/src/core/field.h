@@ -55,6 +55,17 @@ struct PackedInt128;
 namespace doris {
 
 class Field;
+class BufferWritable;
+class BufferReadable;
+
+// Independent Field-value encoding: uint8 PrimitiveType tag, followed by the value.
+// Strings and arrays have a uint64 length; array elements are recursively tagged.
+// Fixed-size values use native byte order. This is not the Column/Variant binary format
+// and does not encode SQL schema metadata (decimal precision/scale, datetime scale).
+// Supports numeric, decimal, date/time, IP, string-family, NULL and ARRAY values.
+// The reader requires a complete valid buffer, as BufferReadable has no bounds tracking.
+void write_field_binary(const Field& field, BufferWritable& buf);
+void read_field_binary(Field& field, BufferReadable& buf);
 
 using FieldVector = std::vector<Field>;
 
@@ -283,6 +294,9 @@ public:
         return operator<=>(rhs) == std::strong_ordering::equal;
     }
 
+    // ARRAY comparison is lexicographic with NULLS LAST. Non-NULL elements must have
+    // matching comparable types (string-family tags are interchangeable); decimal
+    // values must use the same scale, which is not stored in Field.
     std::strong_ordering operator<=>(const Field& rhs) const;
 
     std::string_view as_string_view() const;

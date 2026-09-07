@@ -20,10 +20,25 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <bit>
+#include <cstring>
+#include <initializer_list>
 #include <limits>
 #include <string>
 
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_date_time.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_ipv4.h"
+#include "core/data_type/data_type_ipv6.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_buffer.hpp"
 #include "core/string_ref.h"
@@ -289,6 +304,304 @@ TEST(VFieldTest, field_create) {
     Field bitmap_value_copy = Field::create_field<TYPE_BITMAP>(BitmapValue(1));
     bitmap_value_copy = std::move(bitmap_value_f);
     bitmap_value_copy = bitmap_value_f;
+}
+
+TEST(VFieldTest, array_comparison) {
+    auto make_array = [](std::initializer_list<Field> values) {
+        return Field::create_field<TYPE_ARRAY>(Array(values));
+    };
+    EXPECT_LT(make_array({Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2)}),
+              make_array({Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(3)}));
+    EXPECT_LT(make_array({Field::create_field<TYPE_INT>(1)}),
+              make_array({Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2)}));
+    EXPECT_GT(make_array({Field(TYPE_NULL)}), make_array({Field::create_field<TYPE_INT>(1)}));
+}
+
+TEST(VFieldTest, nested_array_comparison) {
+    auto make_array = [](std::initializer_list<Field> values) {
+        return Field::create_field<TYPE_ARRAY>(Array(values));
+    };
+    const auto one = Field::create_field<TYPE_INT>(1);
+    const auto two = Field::create_field<TYPE_INT>(2);
+    const auto null = Field();
+    EXPECT_EQ(make_array({}), make_array({}));
+    EXPECT_LT(make_array({}), make_array({null}));
+    EXPECT_EQ(make_array({null, one}), make_array({null, one}));
+    EXPECT_LT(make_array({null, one}), make_array({null, two}));
+    EXPECT_LT(make_array({make_array({one})}), make_array({make_array({one, two})}));
+    EXPECT_LT(make_array({make_array({one, two})}), make_array({make_array({one, null})}));
+    EXPECT_LT(make_array({make_array({})}), make_array({make_array({null})}));
+    EXPECT_LT(make_array({make_array({null})}), make_array({null}));
+    EXPECT_EQ(make_array({make_array({null}), null}), make_array({make_array({null}), null}));
+}
+
+namespace {
+
+void expect_same_field(const Field& actual, const Field& expected) {
+    ASSERT_EQ(actual.get_type(), expected.get_type());
+    if (expected.get_type() == TYPE_ARRAY) {
+        const auto& lhs = actual.get<TYPE_ARRAY>();
+        const auto& rhs = expected.get<TYPE_ARRAY>();
+        ASSERT_EQ(lhs.size(), rhs.size());
+        for (size_t i = 0; i < lhs.size(); ++i) {
+            expect_same_field(lhs[i], rhs[i]);
+        }
+    } else if (expected.get_type() == TYPE_FLOAT) {
+        EXPECT_EQ(std::bit_cast<uint32_t>(actual.get<TYPE_FLOAT>()),
+                  std::bit_cast<uint32_t>(expected.get<TYPE_FLOAT>()));
+    } else if (expected.get_type() == TYPE_DOUBLE) {
+        EXPECT_EQ(std::bit_cast<uint64_t>(actual.get<TYPE_DOUBLE>()),
+                  std::bit_cast<uint64_t>(expected.get<TYPE_DOUBLE>()));
+    } else {
+        EXPECT_EQ(actual, expected);
+    }
+}
+
+void check_column_comparison(const DataTypePtr& type, const FieldVector& values) {
+    SCOPED_TRACE(type->get_name());
+    auto column = type->create_column();
+    for (const auto& value : values) {
+        column->insert(value);
+    }
+    for (size_t i = 0; i < values.size(); ++i) {
+        for (size_t j = 0; j < values.size(); ++j) {
+            SCOPED_TRACE(std::to_string(i) + "," + std::to_string(j));
+            // SQL's generic complex-type comparison uses NULLS LAST.
+            const int expected = column->compare_at(i, j, *column, 1);
+            EXPECT_EQ(values[i] < values[j], expected < 0);
+            EXPECT_EQ(values[i] > values[j], expected > 0);
+            EXPECT_EQ(values[i] == values[j], expected == 0);
+        }
+    }
+}
+
+void check_scalar_array_comparison(const DataTypePtr& type, const FieldVector& values) {
+    check_column_comparison(type, values);
+    auto wrap = [](const FieldVector& elements) {
+        FieldVector arrays {Field::create_field<TYPE_ARRAY>(Array()),
+                            Field::create_field<TYPE_ARRAY>(Array {Field()})};
+        for (const auto& element : elements) {
+            arrays.push_back(Field::create_field<TYPE_ARRAY>(Array {element}));
+            arrays.push_back(Field::create_field<TYPE_ARRAY>(Array {element, Field()}));
+            arrays.push_back(Field::create_field<TYPE_ARRAY>(Array {Field(), element}));
+        }
+        return arrays;
+    };
+    auto array_type = std::make_shared<DataTypeArray>(type);
+    auto arrays = wrap(values);
+    check_column_comparison(array_type, arrays);
+    check_column_comparison(std::make_shared<DataTypeArray>(array_type), wrap(arrays));
+}
+
+template <PrimitiveType T>
+void check_number_comparison(
+        std::initializer_list<typename PrimitiveTypeTraits<T>::CppType> values) {
+    FieldVector fields;
+    for (const auto& value : values) {
+        fields.push_back(Field::create_field<T>(value));
+    }
+    check_scalar_array_comparison(std::make_shared<typename PrimitiveTypeTraits<T>::DataType>(),
+                                  fields);
+}
+
+template <PrimitiveType T>
+void check_decimal_comparison(int precision, int scale) {
+    using Value = typename PrimitiveTypeTraits<T>::CppType;
+    check_scalar_array_comparison(
+            std::make_shared<DataTypeDecimal<T>>(precision, scale),
+            {Field::create_field<T>(Value(-12345)), Field::create_field<T>(Value(0)),
+             Field::create_field<T>(Value(12345))});
+}
+
+void check_field_binary(const Field& value) {
+    ColumnString column;
+    BufferWritable writer(column);
+    write_field_binary(value, writer);
+    writer.commit();
+    auto bytes = column.get_data_at(0);
+    EXPECT_EQ(static_cast<uint8_t>(bytes.data[0]), static_cast<uint8_t>(value.get_type()));
+    BufferReadable reader(bytes);
+    Field decoded = Field::create_field<TYPE_STRING>(String("old value"));
+    read_field_binary(decoded, reader);
+    EXPECT_EQ(reader.data(), bytes.data + bytes.size);
+    expect_same_field(decoded, value);
+    write_field_binary(decoded, writer);
+    writer.commit();
+    EXPECT_EQ(column.get_data_at(0), column.get_data_at(1));
+}
+
+template <PrimitiveType T>
+void check_scalar_binary(typename PrimitiveTypeTraits<T>::CppType value) {
+    const auto field = Field::create_field<T>(value);
+    check_field_binary(field);
+    check_field_binary(Field::create_field<TYPE_ARRAY>(Array {field, Field(), field}));
+}
+
+} // namespace
+
+TEST(VFieldTest, comparison_matches_column) {
+    check_number_comparison<TYPE_BOOLEAN>({0, 1});
+    check_number_comparison<TYPE_TINYINT>({-128, 0, 127});
+    check_number_comparison<TYPE_SMALLINT>({-32768, 0, 32767});
+    check_number_comparison<TYPE_INT>(
+            {std::numeric_limits<Int32>::min(), 0, std::numeric_limits<Int32>::max()});
+    check_number_comparison<TYPE_BIGINT>(
+            {std::numeric_limits<Int64>::min(), 0, std::numeric_limits<Int64>::max()});
+    check_number_comparison<TYPE_LARGEINT>({-(Int128(1) << 100), 0, Int128(1) << 100});
+    check_number_comparison<TYPE_FLOAT>({-std::numeric_limits<float>::infinity(), -1.5F, -0.0F,
+                                         0.0F, 1.5F, std::numeric_limits<float>::infinity(),
+                                         std::numeric_limits<float>::quiet_NaN()});
+    check_number_comparison<TYPE_DOUBLE>({-std::numeric_limits<double>::infinity(), -1.5, -0.0, 0.0,
+                                          1.5, std::numeric_limits<double>::infinity(),
+                                          std::numeric_limits<double>::quiet_NaN()});
+    check_number_comparison<TYPE_TIMEV2>({-3600000000.0, 0.0, 3600123456.0});
+    check_number_comparison<TYPE_IPV4>({IPv4(0), IPv4(1), IPv4(0xffffffff)});
+    check_number_comparison<TYPE_IPV6>({IPv6(0), IPv6(1), IPv6(1) << 100});
+    check_decimal_comparison<TYPE_DECIMAL32>(9, 2);
+    check_decimal_comparison<TYPE_DECIMAL64>(18, 6);
+    check_decimal_comparison<TYPE_DECIMAL128I>(38, 12);
+    check_decimal_comparison<TYPE_DECIMAL256>(76, 30);
+    check_decimal_comparison<TYPE_DECIMALV2>(27, 9);
+    for (auto tag : {TYPE_STRING, TYPE_CHAR, TYPE_VARCHAR}) {
+        check_scalar_array_comparison(std::make_shared<DataTypeString>(32, tag),
+                                      {Field::create_field<TYPE_STRING>(String()),
+                                       Field::create_field<TYPE_CHAR>(String("a")),
+                                       Field::create_field<TYPE_VARCHAR>(String("a\0b", 3)),
+                                       Field::create_field<TYPE_STRING>(String("ab")),
+                                       Field::create_field<TYPE_STRING>(String("\xff", 1))});
+    }
+    VecDateTimeValue first, second;
+    ASSERT_TRUE(first.from_date_int64(20260101));
+    ASSERT_TRUE(second.from_date_int64(20260201));
+    check_number_comparison<TYPE_DATE>({first, second});
+    ASSERT_TRUE(first.from_date_int64(20260101123456));
+    ASSERT_TRUE(second.from_date_int64(20260201123456));
+    check_number_comparison<TYPE_DATETIME>({first, second});
+    DateV2Value<DateV2ValueType> date1, date2;
+    ASSERT_TRUE(date1.from_date_int64(20260101));
+    ASSERT_TRUE(date2.from_date_int64(20260201));
+    check_number_comparison<TYPE_DATEV2>({date1, date2});
+    auto dt1 = DateV2Value<DateTimeV2ValueType>::create_from_olap_datetime(20260101123456);
+    auto dt2 = dt1;
+    dt2.set_microsecond(123456);
+    check_scalar_array_comparison(
+            std::make_shared<DataTypeDateTimeV2>(6),
+            {Field::create_field<TYPE_DATETIMEV2>(dt1), Field::create_field<TYPE_DATETIMEV2>(dt2)});
+    check_scalar_array_comparison(std::make_shared<DataTypeTimeStampTz>(6),
+                                  {Field::create_field<TYPE_TIMESTAMPTZ>(TimestampTzValue(dt1)),
+                                   Field::create_field<TYPE_TIMESTAMPTZ>(TimestampTzValue(dt2))});
+}
+
+TEST(VFieldTest, comparison_context_boundaries) {
+    auto nullable = make_nullable(std::make_shared<DataTypeInt32>())->create_column();
+    const auto one = Field::create_field<TYPE_INT>(1);
+    nullable->insert(Field());
+    nullable->insert(one);
+    EXPECT_LT(Field(), one);
+    EXPECT_GT(nullable->compare_at(0, 1, *nullable, 1), 0);
+    EXPECT_LT(nullable->compare_at(0, 1, *nullable, -1), 0);
+
+    auto lhs = DataTypeDecimal32(9, 2).create_column();
+    auto rhs = DataTypeDecimal32(9, 3).create_column();
+    auto a = Field::create_field<TYPE_DECIMAL32>(Decimal32(123));
+    auto b = Field::create_field<TYPE_DECIMAL32>(Decimal32(200));
+    lhs->insert(a);
+    rhs->insert(b);
+    // Fields compare raw integers; columns can compare 1.23 against 0.200 using scales.
+    EXPECT_LT(a, b);
+    EXPECT_GT(lhs->compare_at(0, 0, *rhs, 1), 0);
+}
+
+TEST(VFieldTest, binary_scalars) {
+    check_field_binary(Field());
+    check_scalar_binary<TYPE_BOOLEAN>(0);
+    check_scalar_binary<TYPE_BOOLEAN>(1);
+    check_scalar_binary<TYPE_TINYINT>(-128);
+    check_scalar_binary<TYPE_SMALLINT>(32767);
+    check_scalar_binary<TYPE_INT>(std::numeric_limits<Int32>::min());
+    check_scalar_binary<TYPE_BIGINT>(std::numeric_limits<Int64>::max());
+    check_scalar_binary<TYPE_LARGEINT>(-(Int128(1) << 100));
+    check_scalar_binary<TYPE_FLOAT>(1.25F);
+    check_scalar_binary<TYPE_FLOAT>(-0.0F);
+    check_scalar_binary<TYPE_FLOAT>(std::numeric_limits<float>::infinity());
+    check_scalar_binary<TYPE_FLOAT>(std::bit_cast<float>(uint32_t(0x7fc00042)));
+    check_scalar_binary<TYPE_DOUBLE>(-1.25);
+    check_scalar_binary<TYPE_DOUBLE>(-0.0);
+    check_scalar_binary<TYPE_DOUBLE>(-std::numeric_limits<double>::infinity());
+    check_scalar_binary<TYPE_DOUBLE>(std::bit_cast<double>(uint64_t(0x7ff8000000000042)));
+    check_scalar_binary<TYPE_TIMEV2>(-3600123456.0);
+    check_scalar_binary<TYPE_IPV4>(IPv4(0xffffffff));
+    check_scalar_binary<TYPE_IPV6>((IPv6(1) << 100) + 42);
+    check_scalar_binary<TYPE_DECIMAL32>(Decimal32(-12345));
+    check_scalar_binary<TYPE_DECIMAL64>(Decimal64(1234567890123));
+    check_scalar_binary<TYPE_DECIMAL128I>(Decimal128V3(Int128(1) << 100));
+    check_scalar_binary<TYPE_DECIMAL256>(Decimal256(wide::Int256(1) << 200));
+    check_scalar_binary<TYPE_DECIMALV2>(DecimalV2Value(Int128(-1234567890)));
+    check_scalar_binary<TYPE_STRING>(String());
+    check_scalar_binary<TYPE_STRING>(String("a\0b", 3));
+    check_scalar_binary<TYPE_CHAR>(String("abc "));
+    check_scalar_binary<TYPE_VARCHAR>(String("abc"));
+
+    VecDateTimeValue date;
+    ASSERT_TRUE(date.from_date_int64(20260101));
+    check_scalar_binary<TYPE_DATE>(date);
+    VecDateTimeValue datetime;
+    ASSERT_TRUE(datetime.from_date_int64(20260101123456));
+    check_scalar_binary<TYPE_DATETIME>(datetime);
+    DateV2Value<DateV2ValueType> datev2;
+    ASSERT_TRUE(datev2.from_date_int64(20260101));
+    check_scalar_binary<TYPE_DATEV2>(datev2);
+    auto datetimev2 = DateV2Value<DateTimeV2ValueType>::create_from_olap_datetime(20260101123456);
+    datetimev2.set_microsecond(123456);
+    check_scalar_binary<TYPE_DATETIMEV2>(datetimev2);
+    check_scalar_binary<TYPE_TIMESTAMPTZ>(TimestampTzValue(datetimev2));
+}
+
+TEST(VFieldTest, binary_nested_and_consecutive_values) {
+    const auto empty = Field::create_field<TYPE_ARRAY>(Array());
+    const auto nulls = Field::create_field<TYPE_ARRAY>(Array {Field(), Field()});
+    const auto nested = Field::create_field<TYPE_ARRAY>(
+            Array {empty, Field(), nulls, Field::create_field<TYPE_ARRAY>(Array {empty, nulls})});
+    check_field_binary(empty);
+    check_field_binary(nulls);
+    check_field_binary(nested);
+    const FieldVector values {nested, Field(), Field::create_field<TYPE_INT>(42),
+                              Field::create_field<TYPE_STRING>(String("tail")), empty};
+    ColumnString column;
+    BufferWritable writer(column);
+    std::vector<size_t> ends;
+    for (const auto& value : values) {
+        write_field_binary(value, writer);
+        ends.push_back(column.get_chars().size());
+    }
+    writer.commit();
+    auto bytes = column.get_data_at(0);
+    BufferReadable reader(bytes);
+    Field decoded;
+    for (size_t i = 0; i < values.size(); ++i) {
+        read_field_binary(decoded, reader);
+        expect_same_field(decoded, values[i]);
+        EXPECT_EQ(reader.data(), bytes.data + ends[i]);
+    }
+}
+
+TEST(VFieldTest, binary_rejects_unsupported_tags) {
+    ColumnString column;
+    BufferWritable writer(column);
+    EXPECT_THROW(write_field_binary(Field::create_field<TYPE_MAP>(Map()), writer), Exception);
+    EXPECT_THROW(write_field_binary(Field::create_field<TYPE_STRUCT>(Struct()), writer), Exception);
+    EXPECT_THROW(write_field_binary(Field::create_field<TYPE_JSONB>(JsonbField()), writer),
+                 Exception);
+    for (uint8_t tag : {uint8_t(255), uint8_t(TYPE_MAP), uint8_t(TYPE_STRUCT), uint8_t(TYPE_JSONB),
+                        uint8_t(TYPE_VARIANT), uint8_t(TYPE_AGG_STATE), uint8_t(TYPE_BITMAP),
+                        uint8_t(TYPE_HLL), uint8_t(TYPE_QUANTILE_STATE)}) {
+        writer.write_binary(tag);
+        writer.commit();
+        auto bytes = column.get_data_at(column.size() - 1);
+        BufferReadable reader(bytes);
+        Field value;
+        EXPECT_THROW(read_field_binary(value, reader), Exception);
+    }
 }
 
 } // namespace doris

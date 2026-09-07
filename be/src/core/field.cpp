@@ -26,6 +26,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/decimal_comparison.h"
+#include "core/string_buffer.hpp"
 #include "core/value/bitmap_value.h"
 #include "core/value/jsonb_value.h"
 #include "core/value/timestamptz_value.h"
@@ -701,7 +702,24 @@ std::strong_ordering Field::operator<=>(const Field& rhs) const {
     case PrimitiveType::INVALID_TYPE:
     case PrimitiveType::TYPE_JSONB:
     case PrimitiveType::TYPE_NULL:
-    case PrimitiveType::TYPE_ARRAY:
+        return std::strong_ordering::equal; //TODO: throw Exception?
+    case PrimitiveType::TYPE_ARRAY: {
+        const auto& lhs_array = get<TYPE_ARRAY>();
+        const auto& rhs_array = rhs.get<TYPE_ARRAY>();
+        const size_t common_size = std::min(lhs_array.size(), rhs_array.size());
+        for (size_t i = 0; i < common_size; ++i) {
+            const Field& lhs = lhs_array[i];
+            const Field& rhs_field = rhs_array[i];
+            // SQL array ordering uses NULLS LAST, unlike the type-tag ordering used for
+            // top-level fields (where NULL is the smallest type).
+            if (lhs.is_null() || rhs_field.is_null()) {
+                if (lhs.is_null() && rhs_field.is_null()) continue;
+                return lhs.is_null() ? std::strong_ordering::greater : std::strong_ordering::less;
+            }
+            if (auto cmp = lhs <=> rhs_field; cmp != std::strong_ordering::equal) return cmp;
+        }
+        return lhs_array.size() <=> rhs_array.size();
+    }
     case PrimitiveType::TYPE_MAP:
     case PrimitiveType::TYPE_STRUCT:
     case PrimitiveType::TYPE_VARIANT:
@@ -781,6 +799,104 @@ std::strong_ordering Field::operator<=>(const Field& rhs) const {
         return get<TYPE_DECIMAL256>() <=> rhs.get<TYPE_DECIMAL256>();
     default:
         throw Exception(Status::FatalError("Unsupported type: {}", get_type_name()));
+    }
+}
+
+namespace {
+
+// Keep read/write type coverage identical. Complex values are handled separately.
+template <typename Func>
+void dispatch_field_binary(PrimitiveType type, Func&& func) {
+    switch (type) {
+#define FIELD_BINARY_TYPE(T)           \
+    case T:                            \
+        func.template operator()<T>(); \
+        return;
+        FIELD_BINARY_TYPE(TYPE_BOOLEAN)
+        FIELD_BINARY_TYPE(TYPE_TINYINT)
+        FIELD_BINARY_TYPE(TYPE_SMALLINT)
+        FIELD_BINARY_TYPE(TYPE_INT)
+        FIELD_BINARY_TYPE(TYPE_BIGINT)
+        FIELD_BINARY_TYPE(TYPE_LARGEINT)
+        FIELD_BINARY_TYPE(TYPE_FLOAT)
+        FIELD_BINARY_TYPE(TYPE_DOUBLE)
+        FIELD_BINARY_TYPE(TYPE_DATE)
+        FIELD_BINARY_TYPE(TYPE_DATETIME)
+        FIELD_BINARY_TYPE(TYPE_DATEV2)
+        FIELD_BINARY_TYPE(TYPE_DATETIMEV2)
+        FIELD_BINARY_TYPE(TYPE_TIMESTAMPTZ)
+        FIELD_BINARY_TYPE(TYPE_TIMEV2)
+        FIELD_BINARY_TYPE(TYPE_IPV4)
+        FIELD_BINARY_TYPE(TYPE_IPV6)
+        FIELD_BINARY_TYPE(TYPE_DECIMAL32)
+        FIELD_BINARY_TYPE(TYPE_DECIMAL64)
+        FIELD_BINARY_TYPE(TYPE_DECIMAL128I)
+        FIELD_BINARY_TYPE(TYPE_DECIMAL256)
+        FIELD_BINARY_TYPE(TYPE_DECIMALV2)
+        FIELD_BINARY_TYPE(TYPE_STRING)
+        FIELD_BINARY_TYPE(TYPE_CHAR)
+        FIELD_BINARY_TYPE(TYPE_VARCHAR)
+#undef FIELD_BINARY_TYPE
+    default:
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Unsupported Field binary type tag {}",
+                        static_cast<int>(type));
+    }
+}
+
+} // namespace
+
+void write_field_binary(const Field& field, BufferWritable& buf) {
+    const auto type = field.get_type();
+    if (type == TYPE_NULL) {
+        buf.write_binary(static_cast<uint8_t>(type));
+    } else if (type == TYPE_ARRAY) {
+        buf.write_binary(static_cast<uint8_t>(type));
+        const auto& array = field.get<TYPE_ARRAY>();
+        buf.write_binary(static_cast<uint64_t>(array.size()));
+        for (const auto& element : array) {
+            write_field_binary(element, buf);
+        }
+    } else {
+        dispatch_field_binary(type, [&]<PrimitiveType T>() {
+            buf.write_binary(static_cast<uint8_t>(T));
+            const auto& value = field.get<T>();
+            if constexpr (T == TYPE_STRING || T == TYPE_CHAR || T == TYPE_VARCHAR) {
+                buf.write_binary(static_cast<uint64_t>(value.size()));
+                buf.write(value.data(), value.size());
+            } else {
+                buf.write_binary(value);
+            }
+        });
+    }
+}
+
+void read_field_binary(Field& field, BufferReadable& buf) {
+    uint8_t tag;
+    buf.read_binary(tag);
+    const auto type = static_cast<PrimitiveType>(tag);
+    if (type == TYPE_NULL) {
+        field = Field();
+    } else if (type == TYPE_ARRAY) {
+        uint64_t size;
+        buf.read_binary(size);
+        Array array(size);
+        for (auto& element : array) {
+            read_field_binary(element, buf);
+        }
+        field = Field::create_field<TYPE_ARRAY>(std::move(array));
+    } else {
+        dispatch_field_binary(type, [&]<PrimitiveType T>() {
+            typename PrimitiveTypeTraits<T>::CppType value;
+            if constexpr (T == TYPE_STRING || T == TYPE_CHAR || T == TYPE_VARCHAR) {
+                uint64_t size;
+                buf.read_binary(size);
+                auto bytes = buf.read(size);
+                value.assign(bytes.data, bytes.size);
+            } else {
+                buf.read_binary(value);
+            }
+            field = Field::create_field<T>(std::move(value));
+        });
     }
 }
 
