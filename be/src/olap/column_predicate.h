@@ -201,6 +201,9 @@ struct ZoneMapInfo {
     vectorized::Field max_value;
     bool has_null = false;
     bool is_all_null = false;
+    // Set either by the writer, or when the bounds read back as no use at all. min_value and
+    // max_value are meaningless when it is true.
+    bool pass_all = false;
 };
 
 class ColumnPredicate : public std::enable_shared_from_this<ColumnPredicate> {

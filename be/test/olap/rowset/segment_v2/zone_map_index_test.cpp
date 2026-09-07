@@ -307,10 +307,8 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
 
     auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<float>::lowest()),
-              segment_zone_map.min());
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<float>::max()),
-              segment_zone_map.max());
+    EXPECT_EQ("-3.4028235e+38", segment_zone_map.min());
+    EXPECT_EQ("3.4028235e+38", segment_zone_map.max());
     EXPECT_EQ(true, segment_zone_map.has_null());
     EXPECT_EQ(true, segment_zone_map.has_not_null());
     EXPECT_EQ(true, segment_zone_map.has_positive_inf());
@@ -324,18 +322,16 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
     EXPECT_EQ(3, zone_maps.size());
 
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<float>::lowest()),
-              zone_maps[0].min());
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<float>::max()),
-              zone_maps[0].max());
+    EXPECT_EQ("-3.4028235e+38", zone_maps[0].min());
+    EXPECT_EQ("3.4028235e+38", zone_maps[0].max());
     EXPECT_EQ(false, zone_maps[0].has_null());
     EXPECT_EQ(true, zone_maps[0].has_not_null());
     EXPECT_EQ(true, zone_maps[0].has_positive_inf());
     EXPECT_EQ(true, zone_maps[0].has_negative_inf());
     EXPECT_EQ(true, zone_maps[0].has_nan());
 
-    EXPECT_EQ(vectorized::CastToString::from_number(-1234.56F), zone_maps[1].min());
-    EXPECT_EQ(vectorized::CastToString::from_number(1234.56F), zone_maps[1].max());
+    EXPECT_EQ(fmt::format("{}", -1234.56F), zone_maps[1].min());
+    EXPECT_EQ(fmt::format("{}", 1234.56F), zone_maps[1].max());
     EXPECT_EQ(true, zone_maps[1].has_null());
     EXPECT_EQ(true, zone_maps[1].has_not_null());
 
@@ -399,10 +395,8 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
 
     auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<double>::lowest()),
-              segment_zone_map.min());
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<double>::max()),
-              segment_zone_map.max());
+    EXPECT_EQ("-1.7976931348623157e+308", segment_zone_map.min());
+    EXPECT_EQ("1.7976931348623157e+308", segment_zone_map.max());
     EXPECT_EQ(true, segment_zone_map.has_null());
     EXPECT_EQ(true, segment_zone_map.has_not_null());
     EXPECT_EQ(true, segment_zone_map.has_positive_inf());
@@ -416,18 +410,16 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
     EXPECT_EQ(3, zone_maps.size());
 
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<double>::lowest()),
-              zone_maps[0].min());
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<double>::max()),
-              zone_maps[0].max());
+    EXPECT_EQ("-1.7976931348623157e+308", zone_maps[0].min());
+    EXPECT_EQ("1.7976931348623157e+308", zone_maps[0].max());
     EXPECT_EQ(false, zone_maps[0].has_null());
     EXPECT_EQ(true, zone_maps[0].has_not_null());
     EXPECT_EQ(true, zone_maps[0].has_positive_inf());
     EXPECT_EQ(true, zone_maps[0].has_negative_inf());
     EXPECT_EQ(true, zone_maps[0].has_nan());
 
-    EXPECT_EQ(vectorized::CastToString::from_number(-1234.56789012345), zone_maps[1].min());
-    EXPECT_EQ(vectorized::CastToString::from_number(1234.56789012345), zone_maps[1].max());
+    EXPECT_EQ(fmt::format("{}", -1234.56789012345), zone_maps[1].min());
+    EXPECT_EQ(fmt::format("{}", 1234.56789012345), zone_maps[1].max());
     EXPECT_EQ(true, zone_maps[1].has_null());
     EXPECT_EQ(true, zone_maps[1].has_not_null());
 

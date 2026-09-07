@@ -198,6 +198,10 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
 
+    // Whether every zone map this read needs carries usable bounds.
+    Status _segment_zone_maps_can_answer_agg(const Schema& schema,
+                                             const StorageReadOptions& read_options, bool* usable);
+
     // get the column reader by tablet column, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(const TabletColumn& col, std::shared_ptr<ColumnReader>* column_reader,
                              OlapReaderStatistics* stats);
