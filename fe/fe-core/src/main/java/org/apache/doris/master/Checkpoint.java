@@ -45,6 +45,7 @@ import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Frontend;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -160,6 +161,13 @@ public class Checkpoint extends MasterDaemon {
             }
             env.postProcessAfterMetadataReplayed(false);
             postProcessCloudMetadata();
+            try {
+                removeInvalidCloudReplicaRoutes();
+            } catch (Exception e) {
+                // Best effort: a failed sweep only leaves stale routes in this image, and loading it
+                // runs gsonPostProcess() which cleans them again. Never fail the checkpoint over it.
+                LOG.warn("failed to sweep stale cloud replica routes before saving image", e);
+            }
             latestImageFilePath = env.saveImage();
             replayedJournalId = env.getReplayedJournalId();
 
@@ -408,6 +416,48 @@ public class Checkpoint extends MasterDaemon {
 
     public ReentrantReadWriteLock getLock() {
         return lock;
+    }
+
+    @VisibleForTesting
+    static long removeInvalidCloudReplicaRoutes() {
+        if (Config.isNotCloudMode()) {
+            return 0;
+        }
+        long start = System.currentTimeMillis();
+        long removed = 0;
+        // Replay is complete, so Env.getCurrentEnv() resolves to the checkpoint Env and its backend set.
+        // Take the catalog from the same call removeInvalidRoutes() uses internally: the replicas being
+        // swept and the backend set deciding staleness must come from one Env, or a sweep running off the
+        // checkpoint thread would judge this catalog against the serving cluster's backends.
+        // That Env is private to the checkpoint thread, so the sweep needs no locks or coordination with
+        // the serving Env, just like postProcessCloudMetadata().
+        Env env = Env.getCurrentEnv();
+        for (Long dbId : env.getInternalCatalog().getDbIds()) {
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
+            if (db == null) {
+                continue;
+            }
+            for (Table table : db.getTables()) {
+                if (!table.isManagedTable()) {
+                    continue;
+                }
+                OlapTable olapTable = (OlapTable) table;
+                for (Partition partition : olapTable.getAllPartitions()) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
+                        for (Tablet tablet : index.getTablets()) {
+                            for (Replica replica : tablet.getReplicas()) {
+                                if (replica instanceof CloudReplica) {
+                                    removed += ((CloudReplica) replica).removeInvalidRoutes();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        LOG.info("checkpoint swept stale routes, entries dropped {}, cost {} ms",
+                removed, System.currentTimeMillis() - start);
+        return removed;
     }
 
     private void postProcessCloudMetadata() {
