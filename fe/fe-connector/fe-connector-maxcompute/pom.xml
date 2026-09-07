@@ -84,22 +84,10 @@ under the License.
         <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.lz4</groupId>
-                    <artifactId>lz4-pure-java</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-table-api</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.lz4</groupId>
-                    <artifactId>lz4-pure-java</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>at.yawk.lz4</groupId>

@@ -1614,6 +1614,10 @@ under the License.
                 <version>${maxcompute.version}</version>
                 <exclusions>
                     <exclusion>
+                        <groupId>org.lz4</groupId>
+                        <artifactId>lz4-pure-java</artifactId>
+                    </exclusion>
+                    <exclusion>
                         <groupId>org.apache.arrow</groupId>
                         <artifactId>arrow-vector</artifactId>
                     </exclusion>
@@ -1635,6 +1639,12 @@ under the License.
                 <groupId>com.aliyun.odps</groupId>
                 <artifactId>odps-sdk-table-api</artifactId>
                 <version>${maxcompute.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.lz4</groupId>
+                        <artifactId>lz4-pure-java</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <!-- Keep tea pinned for Alibaba SDK dependency chains that allow com.aliyun:tea:[1.1.14,2.0.0). -->

@@ -53,10 +53,6 @@ under the License.
             <version>${maxcompute.version}</version>
             <exclusions>
                 <exclusion>
-                    <groupId>org.lz4</groupId>
-                    <artifactId>lz4-pure-java</artifactId>
-                </exclusion>
-                <exclusion>
                     <groupId>org.codehaus.jackson</groupId>
                     <artifactId>jackson-core-asl</artifactId>
                 </exclusion>
@@ -70,12 +66,6 @@ under the License.
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-table-api</artifactId>
             <version>${maxcompute.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.lz4</groupId>
-                    <artifactId>lz4-pure-java</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>at.yawk.lz4</groupId>
