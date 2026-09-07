@@ -1224,7 +1224,7 @@ public class Config extends ConfigBase {
     public static int streaming_pg_max_identifier_length = 63;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static int streaming_cdc_fetch_splits_batch_size = 100;
+    public static int streaming_cdc_fetch_splits_batch_size = 32;
 
     /**
      * the max timeout of get kafka meta.
