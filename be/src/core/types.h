@@ -44,6 +44,7 @@ struct StringRef;
 
 using IPv4 = uint32_t;
 using IPv6 = uint128_t;
+using UUIDValueType = uint128_t;
 
 /// Data types for representing elementary values from a database in RAM.
 

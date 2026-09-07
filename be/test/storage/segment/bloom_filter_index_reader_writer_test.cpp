@@ -656,6 +656,22 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ipv6) {
     delete[] val;
 }
 
+TEST_F(BloomFilterIndexReaderWriterTest, test_uuid) {
+    size_t num = 1024 * 3;
+    uint128_t* val = new uint128_t[num];
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = (uint128_t(0x01890F5C7B747000) << 64) | uint128_t(i);
+    }
+
+    std::string file_name = "bloom_filter_uuid";
+    uint128_t not_exist_value = (uint128_t(0x01890F5C7B747000) << 64) | uint128_t(999999);
+
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_UUID>(
+            file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
+    delete[] val;
+}
+
 template <FieldType type>
 Status write_ngram_bloom_filter_index_file(const std::string& file_name, Slice* values,
                                            size_t num_values,

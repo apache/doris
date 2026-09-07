@@ -940,7 +940,8 @@ std::pair<bool, orc::Literal> OrcReader::_make_orc_literal(const VSlotRef* slot_
     M(DECIMALV2)                    \
     M(BOOLEAN)                      \
     M(IPV4)                         \
-    M(IPV6)
+    M(IPV6)                         \
+    M(UUID)
         APPLY_FOR_PRIMITIVE_TYPE(M)
 #undef M
     default: {
