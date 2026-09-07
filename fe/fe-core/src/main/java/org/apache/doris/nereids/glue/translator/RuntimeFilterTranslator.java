@@ -35,6 +35,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.DistributionMode;
+import org.apache.doris.planner.GroupJoinNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNode;
@@ -221,6 +222,10 @@ public class RuntimeFilterTranslator {
                     origFilter.setIsBroadcast(
                             ((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
                     origFilter.setSingleEq(((HashJoinNode) node).getEqJoinConjuncts().size());
+                } else if (node instanceof GroupJoinNode) {
+                    origFilter.setIsBroadcast(
+                            ((GroupJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
+                    origFilter.setSingleEq(((GroupJoinNode) node).getEqJoinConjuncts().size());
                 } else if (node instanceof SetOperationNode) {
                     origFilter.setIsBroadcast(false);
                 } else {
@@ -324,6 +329,10 @@ public class RuntimeFilterTranslator {
                     origFilter.setIsBroadcast(
                             ((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
                     origFilter.setSingleEq(((HashJoinNode) node).getEqJoinConjuncts().size());
+                } else if (node instanceof GroupJoinNode) {
+                    origFilter.setIsBroadcast(
+                            ((GroupJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
+                    origFilter.setSingleEq(((GroupJoinNode) node).getEqJoinConjuncts().size());
                 } else if (node instanceof SetOperationNode) {
                     origFilter.setIsBroadcast(false);
                 } else {
