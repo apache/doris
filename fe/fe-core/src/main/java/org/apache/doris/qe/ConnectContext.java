@@ -1043,7 +1043,9 @@ public class ConnectContext {
     // held by the coordinator's scan nodes), so closing the coordinator at the end of
     // GetFlightInfo would release the SplitSource too early and make the BE's fetchSplitBatch fail
     // with "Split source X is released". These executors are finalized when the next query starts
-    // on this connection, or when the connection is torn down. See #62259.
+    // on this connection, when the connection is torn down, or by the idle reaper in checkTimeout
+    // once the connection has been sleeping for arrow_flight_deferred_query_idle_timeout_second.
+    // See #62259 and #67503.
     private final List<StmtExecutor> flightSqlDeferredExecutors = new ArrayList<>();
 
     public void addFlightSqlDeferredExecutor(StmtExecutor executor) {
@@ -1068,6 +1070,45 @@ public class ConnectContext {
                 LOG.warn("failed to finalize deferred arrow flight executor", t);
             }
         }
+    }
+
+    /**
+     * How long, in seconds, a sleeping connection may keep its deferred Arrow Flight executors
+     * before the timeout checker finalizes them without killing the connection
+     * (Config.arrow_flight_deferred_query_idle_timeout_second). A Flight client that opens a
+     * session per query and never closes it would otherwise pin each deferred query's query queue
+     * slot and query registration until wait_timeout (8h by default). The bound is never shorter
+     * than the execution timeout the deferred query was run with: the client may still be pulling
+     * that query's results from the BE, which still needs the batch split source the coordinator
+     * holds. Returns -1 when the bound is disabled or nothing is deferred.
+     */
+    public long getFlightSqlDeferredExecutorsIdleTimeoutS() {
+        int configTimeoutS = Config.arrow_flight_deferred_query_idle_timeout_second;
+        if (configTimeoutS <= 0) {
+            return -1;
+        }
+        long execTimeoutS = -1;
+        synchronized (flightSqlDeferredExecutors) {
+            if (flightSqlDeferredExecutors.isEmpty()) {
+                return -1;
+            }
+            for (StmtExecutor deferredExecutor : flightSqlDeferredExecutors) {
+                execTimeoutS = Math.max(execTimeoutS, deferredExecutor.getDeferredExecTimeoutS());
+            }
+        }
+        return Math.max(configTimeoutS, execTimeoutS);
+    }
+
+    // Called by the timeout checker for a sleeping connection that is not past wait_timeout yet.
+    private void reapIdleFlightSqlDeferredExecutors(long idleMs) {
+        long timeoutS = getFlightSqlDeferredExecutorsIdleTimeoutS();
+        if (timeoutS < 0 || idleMs <= timeoutS * 1000L) {
+            return;
+        }
+        LOG.warn("release deferred arrow flight query of idle connection, connectionId: {}, remote: {}, "
+                        + "idle: {}ms, idle timeout: {}s",
+                connectionId, getRemoteHostPortString(), idleMs, timeoutS);
+        closeFlightSqlDeferredExecutors();
     }
 
     /**
@@ -1342,6 +1383,8 @@ public class ConnectContext {
                 // Need kill this connection.
                 killFlag = true;
                 killConnection = true;
+            } else {
+                reapIdleFlightSqlDeferredExecutors(delta);
             }
         } else {
             String timeoutTag = "query";
