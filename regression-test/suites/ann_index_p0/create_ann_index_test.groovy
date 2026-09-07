@@ -286,6 +286,28 @@ suite("create_ann_index_test") {
         exception "unknown ann index property: unknown"
     }
 
+    sql "drop table if exists tbl_ann_invalid_rabitq_index_type"
+    test {
+        sql """
+            CREATE TABLE tbl_ann_invalid_rabitq_index_type (
+                id INT NOT NULL COMMENT "",
+                embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+                INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                    "index_type"="hnsw",
+                    "metric_type"="l2_distance",
+                    "dim"="1",
+                    "quantizer"="rabitq"
+                )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "quantizer rabitq only supports ivf or ivf_on_disk index type"
+    }
+
     // 3. Valid CREATE TABLE with ANN index (l2_distance)
     sql "drop table if exists tbl_ann_valid_l2"
     sql """
