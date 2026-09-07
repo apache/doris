@@ -22,6 +22,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -66,6 +67,15 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
 
     // Maximum logical counter value
     public static final long MAX_LOGICAL_COUNTER = (1L << LOGICAL_BITS) - 1L;
+
+    // Sentinel meaning "no upper bound" / "latest" (e.g. FOR VERSION AS OF 9223372036854775807).
+    // It is intentionally NOT a real allocated TSO; it sorts above every real TSO so that a
+    // right-open predicate {@code x < UNBOUNDED_TSO} still selects all rows.
+    public static final long UNBOUNDED_TSO = Long.MAX_VALUE;
+
+    // The largest legal real (allocated) TSO. Real TSOs never reach UNBOUNDED_TSO, which leaves
+    // room for nextTso() to compute a successor without overflow.
+    public static final long MAX_REAL_TSO = Long.MAX_VALUE - 1;
 
     /**
      * Constructor with specific physical time and logical counter
@@ -125,18 +135,35 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
     }
 
     /**
-     * The next discrete TSO after {@code tso}. TSO values are dense integers, so this converts an
-     * inclusive bound into the equivalent right-open (exclusive) bound: {@code x <= tso} is the same
-     * row set as {@code x < nextTso(tso)}, and a lower bound that excludes {@code tso} itself is
+     * The next discrete TSO after a real {@code tso}. TSO values are dense integers, so this converts
+     * an inclusive bound into the equivalent right-open (exclusive) bound: {@code x <= tso} is the
+     * same row set as {@code x < nextTso(tso)}, and a lower bound that excludes {@code tso} itself is
      * {@code x >= nextTso(tso)}. Callers should use this instead of a bare {@code + 1} so the TSO
      * interval arithmetic stays in one place.
      *
-     * <p>{@code Long.MAX_VALUE} is used as the "read everything" sentinel (e.g. FOR VERSION AS OF
-     * 9223372036854775807), so it saturates instead of overflowing to a negative bound: real commit
-     * TSOs never reach {@code Long.MAX_VALUE}, so {@code x < Long.MAX_VALUE} still selects all rows.
+     * <p>This is a pure successor over real TSOs only. The {@link #UNBOUNDED_TSO} sentinel is not a
+     * real TSO and must be handled by callers before reaching here; requiring a real input keeps the
+     * successor free of overflow and makes the "real TSOs never reach the sentinel" assumption an
+     * enforced invariant rather than a comment.
      */
     public static long nextTso(long tso) {
-        return tso == Long.MAX_VALUE ? Long.MAX_VALUE : tso + 1;
+        Preconditions.checkArgument(tso >= 0 && tso <= MAX_REAL_TSO,
+                "nextTso expects a real TSO in [0, %s], got %s", MAX_REAL_TSO, tso);
+        return tso + 1;
+    }
+
+    /**
+     * Convert an inclusive stored TSO bound into the half-open (exclusive) bound the scan pushes
+     * down, tolerating "no bound" inputs. Returns {@code null} when the input is {@code null} or a
+     * negative sentinel (e.g. a partition that never got a real TSO stores -1, meaning no committed
+     * change): a {@code null} result tells the caller to leave that bound unset rather than feeding
+     * a non-real value into {@link #nextTso}. A real TSO is mapped to its successor.
+     */
+    public static Long toExclusiveBound(Long storedTso) {
+        if (storedTso == null || storedTso < 0) {
+            return null;
+        }
+        return nextTso(storedTso);
     }
 
     /**
@@ -231,6 +258,28 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
         // Bitwise assembly: High 46 bits physical time + Low 18 bits logical counter
         return (physical  << PHYSICAL_SHIFT)
             | (logical);
+    }
+
+    /**
+     * Compose a real (allocated) TSO from physical time and logical counter, validating that the
+     * inputs and the result stay within the legal real-TSO range instead of silently masking. This
+     * is the single construction entry for TSOs produced by the generator, so the invariant
+     * "a real TSO is non-negative and never reaches {@link #UNBOUNDED_TSO}" is enforced here once
+     * rather than assumed at every call site.
+     *
+     * @throws IllegalArgumentException if the components are out of range or the composed value
+     *         would exceed {@link #MAX_REAL_TSO}
+     */
+    public static long composeRealTso(long physicalTime, long logicalCounter) {
+        Preconditions.checkArgument(physicalTime >= 0 && physicalTime <= RAW_PHYSICAL_MASK,
+                "physicalTime out of range [0, %s]: %s", RAW_PHYSICAL_MASK, physicalTime);
+        Preconditions.checkArgument(logicalCounter >= 0 && logicalCounter <= MAX_LOGICAL_COUNTER,
+                "logicalCounter out of range [0, %s]: %s", MAX_LOGICAL_COUNTER, logicalCounter);
+        long tso = Math.addExact(
+                Math.multiplyExact(physicalTime, 1L << PHYSICAL_SHIFT), logicalCounter);
+        Preconditions.checkArgument(tso <= MAX_REAL_TSO,
+                "composed TSO exceeds MAX_REAL_TSO (%s): %s", MAX_REAL_TSO, tso);
+        return tso;
     }
 
     public static long extractTimestamp(long tso) {

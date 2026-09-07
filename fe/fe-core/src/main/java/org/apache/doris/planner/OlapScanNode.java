@@ -586,11 +586,13 @@ public class OlapScanNode extends ScanNode {
                     if (update.first != null) {
                         paloRange.setStartTso(update.first);
                     }
-                    if (update.second != null) {
-                        paloRange.setEndTso(update.second);
-                    } else {
-                        // If no end recorded: use current committed TSO's next value as the exclusive bound.
-                        paloRange.setEndTso(TSOTimestamp.nextTso(partition.getTso()));
+                    // No end recorded: fall back to the current committed TSO. toExclusiveBound
+                    // returns null for a partition that never got a real TSO (getTso() == -1), in
+                    // which case we leave endTso unset (no upper bound) instead of using -1.
+                    Long endTso = update.second != null
+                            ? update.second : TSOTimestamp.toExclusiveBound(partition.getTso());
+                    if (endTso != null) {
+                        paloRange.setEndTso(endTso);
                     }
                 }
                 if (binlogScanType != TBinlogScanType.NONE) {

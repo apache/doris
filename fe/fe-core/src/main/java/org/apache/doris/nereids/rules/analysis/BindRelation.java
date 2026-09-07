@@ -568,12 +568,19 @@ public class BindRelation extends OneAnalysisRuleFactory {
      */
     private long resolveSnapshotTso(TableSnapshot snapshot) {
         if (snapshot.getType() == TableSnapshot.VersionType.VERSION) {
+            long version;
             try {
-                return TSOTimestamp.nextTso(Long.parseLong(snapshot.getValue().trim()));
+                version = Long.parseLong(snapshot.getValue().trim());
             } catch (NumberFormatException e) {
                 throw new AnalysisException(
                         "Invalid version in FOR VERSION AS OF: " + snapshot.getValue());
             }
+            // UNBOUNDED_TSO (Long.MAX_VALUE) is the "latest / unbounded" sentinel: keep it as the
+            // exclusive upper bound above every real TSO. A real version is converted to its
+            // right-open successor so that commit_tso < result includes the requested version.
+            return version == TSOTimestamp.UNBOUNDED_TSO
+                    ? TSOTimestamp.UNBOUNDED_TSO
+                    : TSOTimestamp.nextTso(version);
         }
         long ms = OlapScanNode.parseChangeTimestamp(snapshot.getValue());
         return TSOTimestamp.composeEmptyCounterTSO(ms + 1);

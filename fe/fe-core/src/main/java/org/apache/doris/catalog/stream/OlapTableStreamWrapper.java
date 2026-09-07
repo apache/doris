@@ -340,8 +340,8 @@ public class OlapTableStreamWrapper extends OlapTable {
                     // bounds only in this scan-facing read view. outputUpdateMap and the offset
                     // commit path (toOlapTableStreamUpdate) stay on the real-TSO coordinate system.
                     Pair<Long, Long> v = s.getValue();
-                    return Pair.of(v.first == null ? null : TSOTimestamp.nextTso(v.first),
-                                   v.second == null ? null : TSOTimestamp.nextTso(v.second));
+                    return Pair.of(TSOTimestamp.toExclusiveBound(v.first),
+                            TSOTimestamp.toExclusiveBound(v.second));
                 }));
     }
 
@@ -351,8 +351,7 @@ public class OlapTableStreamWrapper extends OlapTable {
                 .filter(s -> selectedPartitionIds.contains(s.getKey()))
                 // historicalTso is an inclusive upper bound; shift to the half-open exclusive end.
                 .collect(Collectors.toMap(Map.Entry::getKey,
-                        s -> Pair.of(null, s.getValue().first == null
-                                ? null : TSOTimestamp.nextTso(s.getValue().first))));
+                        s -> Pair.of(null, TSOTimestamp.toExclusiveBound(s.getValue().first))));
     }
 
     public List<Long> filterNormalSnapshotPartitionIds(List<Long> partitionIds) {
