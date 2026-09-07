@@ -254,6 +254,14 @@ testFoldConst("select cast(cast('-00:00:01' as time(0)) as datetime(0)), "
     testFoldConst("select cast('2023-07-16:19:20:30 +08:00' as timestamptz), "
             + "cast('2023-07-16T19:20:30 +14:00' as timestamptz), "
             + "cast('2023-07-16T19:20:30 -12:00' as timestamptz)")
+    testFoldConst("select cast('2023-07-16T19:20:30 ' as timestamptz)")
+    def originalTimeZone = sql("select @@time_zone")[0][0]
+    try {
+        sql "set time_zone = 'America/Los_Angeles'"
+        testFoldConst("select cast('2024-11-03:09:30:00+00:00' as timestamptz)")
+    } finally {
+        sql "set time_zone = '${originalTimeZone}'"
+    }
     def invalidTimestamptzOffsets = ["-14:30", "-15:00", "+14:30"]
     sql "set debug_skip_fold_constant = true"
     invalidTimestamptzOffsets.each { offset ->

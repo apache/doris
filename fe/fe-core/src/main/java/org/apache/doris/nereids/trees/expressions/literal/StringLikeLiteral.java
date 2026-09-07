@@ -53,7 +53,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             + "(?:(?<hour1>\\d{1,2})(?::(?<minute1>\\d{1,2})(?::(?<second1>\\d{1,2})(?<fraction1>\\.\\d*)?)?)?"
             + "|(?<hour2>\\d{2})(?:(?<minute2>\\d{2})(?:(?<second2>\\d{2})(?<fraction2>\\.\\d*)?)?)?)"
             // <offset> ::= (( "+" | "-" ) <hour-offset> [ ":"? <minute-offset> ]) | (<tz-name>)
-            + "(?:\\s*(?<tz>" + StringLikeLiteral.STRICT_TIME_ZONE_REGEX + "))?"
+            + "\\s*(?<tz>" + StringLikeLiteral.STRICT_TIME_ZONE_REGEX + ")?"
             + ")?)"
             + "|"
             // <digit>{14} <fraction>? <whitespace>* <offset>?
