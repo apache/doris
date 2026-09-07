@@ -412,6 +412,59 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
     }
 
+    /**
+     * Loads the pinned latest-snapshot admission view (version, schema fields, logical and
+     * physical indexes) for a Directory table. REST catalogs are rejected before any
+     * resolution, exactly like {@link #loadTableIndexMetadata}.
+     */
+    public LanceIndexAdmissionSnapshot loadTableIndexAdmissionSnapshot(
+            String dbName, String tableName) throws Exception {
+        if (isRestCatalogConfigured()) {
+            throw new AnalysisException(
+                    "Lance index admission is not supported for Lance REST catalogs");
+        }
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            throw indexAdmissionSnapshotLoadFailure(
+                    dbName, tableName, e, null, namespaceStorageOptions);
+        }
+
+        ResolvedTableAccess tableAccess = null;
+        try {
+            // Same ownership split as loadTableIndexMetadata: the caller resolves the table
+            // through the catalog's shared namespace, while the deadline-bound task owns the
+            // allocator backing its Dataset/JNI read.
+            tableAccess = resolveTableAccess(dbName, tableName);
+            String datasetUri = tableAccess.datasetUri;
+            Map<String, String> storageOptions = tableAccess.storageOptions;
+            return LanceMetadataReadExecutor.execute(() -> {
+                try (BufferAllocator readAllocator = new RootAllocator(ALLOCATOR_LIMIT)) {
+                    return LanceIndexMetadataLoader.loadAdmissionSnapshot(
+                            datasetUri, storageOptions, readAllocator);
+                }
+            });
+        } catch (Exception e) {
+            String datasetUri = tableAccess == null ? null : tableAccess.datasetUri;
+            Map<String, String> runtimeStorageOptions = tableAccess == null
+                    ? namespaceStorageOptions : tableAccess.storageOptions;
+            throw indexAdmissionSnapshotLoadFailure(
+                    dbName, tableName, e, datasetUri, runtimeStorageOptions);
+        }
+    }
+
+    @VisibleForTesting
+    RuntimeException indexAdmissionSnapshotLoadFailure(String dbName, String tableName,
+            Throwable throwable, String datasetUri, Map<String, String> runtimeStorageOptions) {
+        String sanitizedMessage = sanitizedRootCauseMessage(
+                throwable, datasetUri, runtimeStorageOptions);
+        Throwable sanitizedCause = throwable instanceof IllegalArgumentException
+                ? new IllegalArgumentException(sanitizedMessage)
+                : new RuntimeException(sanitizedMessage);
+        return new RuntimeException("Failed to load Lance index admission snapshot for "
+                + dbName + "." + tableName + ": " + sanitizedMessage, sanitizedCause);
+    }
+
     @VisibleForTesting
     RuntimeException indexMetadataLoadFailure(String dbName, String tableName,
             Throwable throwable, String datasetUri, Map<String, String> runtimeStorageOptions) {
