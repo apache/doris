@@ -256,7 +256,7 @@ TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySuppor
         int scale = 0;
         bool binary = false;
     };
-    const std::array<TypeSpec, 24> supported_types {{
+    const std::array<TypeSpec, 25> supported_types {{
             {TYPE_BOOLEAN},
             {TYPE_TINYINT},
             {TYPE_SMALLINT},
@@ -277,6 +277,7 @@ TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySuppor
             {TYPE_DECIMAL256, 76, 2},
             {TYPE_IPV4},
             {TYPE_IPV6},
+            {TYPE_UUID},
             {TYPE_CHAR, 0, 0, true},
             {TYPE_STRING, 0, 0, true},
             {TYPE_VARCHAR, 0, 0, true},
@@ -296,6 +297,34 @@ TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySuppor
         }
         EXPECT_TRUE(context->root()->can_evaluate_dictionary_filter());
         context->close();
+    }
+}
+
+TEST(RuntimePredicateTest, TopNPredicateFiltersUuidUnsignedBoundariesAndNulls) {
+    constexpr UUIDValueType boundary = static_cast<UUIDValueType>(1) << 127;
+    const std::array<UUIDValueType, 5> values {0, boundary - 1, boundary, boundary + 1,
+                                               static_cast<UUIDValueType>(-1)};
+    for (const bool is_asc : {false, true}) {
+        for (const bool nulls_first : {false, true}) {
+            SCOPED_TRACE(is_asc);
+            SCOPED_TRACE(nulls_first);
+            MockRuntimeState state;
+            const auto type = DataTypeFactory::instance().create_data_type(TYPE_UUID, true);
+            auto context = create_prepared_topn_expr(
+                    &state, type, Field::create_field<TYPE_UUID>(boundary), is_asc, nulls_first);
+            IColumn::Filter matches(values.size(), 1);
+            ASSERT_TRUE(context->root()->can_execute_on_raw_fixed_values(type, 0));
+            ASSERT_TRUE(context->root()
+                                ->execute_on_raw_fixed_values(
+                                        reinterpret_cast<const uint8_t*>(values.data()),
+                                        values.size(), sizeof(UUIDValueType), type, 0,
+                                        matches.data())
+                                .ok());
+            EXPECT_EQ(matches, is_asc ? (IColumn::Filter {1, 1, 1, 0, 0})
+                                      : (IColumn::Filter {0, 0, 1, 1, 1}));
+            EXPECT_EQ(context->root()->raw_predicate_result_for_null(), nulls_first);
+            context->close();
+        }
     }
 }
 

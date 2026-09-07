@@ -1109,6 +1109,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                         .setPrecision(((ScalarType) arg).getScalarPrecision())
                         .setScale(((ScalarType) arg).getScalarScale());
                 break;
+            case UUID:
+                typeBuilder.setId(Types.PGenericType.TypeId.UUID);
+                break;
             case LARGEINT:
                 typeBuilder.setId(Types.PGenericType.TypeId.INT128);
                 break;

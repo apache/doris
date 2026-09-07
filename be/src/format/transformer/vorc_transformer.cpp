@@ -282,6 +282,7 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
     }
     case TYPE_STRING:
     case TYPE_IPV6:
+    case TYPE_UUID:
     case TYPE_BINARY: {
         type = orc::createPrimitiveType(orc::STRING);
         break;
