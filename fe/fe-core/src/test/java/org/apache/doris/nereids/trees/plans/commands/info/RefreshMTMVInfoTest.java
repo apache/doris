@@ -33,6 +33,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
@@ -104,7 +105,7 @@ public class RefreshMTMVInfoTest {
             ctx.setThreadLocalInfo();
 
             RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
-                    Lists.newArrayList(shaName), false);
+                    Lists.newArrayList(shaName), RefreshMode.COMPLETE);
             info.analyze(ctx);
 
             // the regenerated SHA name must be remapped to the stored legacy physical partition name so the
@@ -174,13 +175,13 @@ public class RefreshMTMVInfoTest {
             // both the physical legacy name and the regenerated alias address the same descriptor, so the
             // resolved target list must contain the physical partition exactly once
             RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
-                    Lists.newArrayList(legacyName, shaName), false);
+                    Lists.newArrayList(legacyName, shaName), RefreshMode.COMPLETE);
             info.analyze(ctx);
             Assertions.assertEquals(Lists.newArrayList(legacyName), info.getPartitions());
 
             // the reversed order collapses to the same single physical target as well
             RefreshMTMVInfo reversedInfo = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
-                    Lists.newArrayList(shaName, legacyName), false);
+                    Lists.newArrayList(shaName, legacyName), RefreshMode.COMPLETE);
             reversedInfo.analyze(ctx);
             Assertions.assertEquals(Lists.newArrayList(legacyName), reversedInfo.getPartitions());
         } finally {
@@ -237,13 +238,13 @@ public class RefreshMTMVInfoTest {
             // refreshing a not-yet-created partition is allowed and the generated name is kept: alignment
             // will materialize the physical partition before the refresh task dereferences it
             RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
-                    Lists.newArrayList(shaName), false);
+                    Lists.newArrayList(shaName), RefreshMode.COMPLETE);
             info.analyze(ctx);
             Assertions.assertEquals(Lists.newArrayList(shaName), info.getPartitions());
 
             // an unknown name is rejected
             RefreshMTMVInfo badInfo = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
-                    Lists.newArrayList("p_nonexistent"), false);
+                    Lists.newArrayList("p_nonexistent"), RefreshMode.COMPLETE);
             try {
                 badInfo.analyze(ctx);
                 Assertions.fail("expected AnalysisException for nonexistent partition");
@@ -310,7 +311,7 @@ public class RefreshMTMVInfoTest {
             ctx.setThreadLocalInfo();
 
             RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
-                    Lists.newArrayList("p_collision"), false);
+                    Lists.newArrayList("p_collision"), RefreshMode.COMPLETE);
             try {
                 info.analyze(ctx);
                 Assertions.fail("expected AnalysisException for duplicate generated partition name");
@@ -385,7 +386,7 @@ public class RefreshMTMVInfoTest {
 
             // bulk request addressing every generated alias at once
             RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
-                    expectedNames, false);
+                    expectedNames, RefreshMode.COMPLETE);
             info.analyze(ctx);
 
             // every alias is resolved (kept as-is, no physical partition exists yet)
