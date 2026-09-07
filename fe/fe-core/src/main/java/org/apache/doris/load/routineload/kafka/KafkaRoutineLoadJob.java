@@ -412,6 +412,17 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     protected void updateCloudProgress(RLTaskTxnCommitAttachment attachment) {
         super.updateCloudProgress(attachment);
         updateProgressAndOffsetsCache(attachment);
+        retainCustomKafkaPartitionProgress();
+    }
+
+    private void retainCustomKafkaPartitionProgress() {
+        if (CollectionUtils.isEmpty(customKafkaPartitions)) {
+            return;
+        }
+        // Meta Service retains offsets omitted by a partial reset, but an explicit partition list is a consumption pin.
+        KafkaProgress kafkaProgress = (KafkaProgress) progress;
+        progress = new KafkaProgress(kafkaProgress.getPartitionIdToOffset(customKafkaPartitions));
+        cachedPartitionWithLatestOffsets.keySet().retainAll(customKafkaPartitions);
     }
 
     @Override
@@ -868,8 +879,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
             // modify partition offset
             if (!kafkaPartitionOffsets.isEmpty()) {
-                // we can only modify the partition that is being consumed
-                ((KafkaProgress) progress).modifyOffset(kafkaPartitionOffsets);
+                replaceKafkaPartitionsAndOffsets(kafkaPartitionOffsets);
             }
 
             // modify broker list
@@ -895,6 +905,19 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
                 this.id, jobProperties, dataSourceProperties);
+    }
+
+    private void replaceKafkaPartitionsAndOffsets(List<Pair<Integer, Long>> kafkaPartitionOffsets) {
+        List<Integer> alteredPartitions = Lists.newArrayListWithCapacity(kafkaPartitionOffsets.size());
+        Map<Integer, Long> alteredProgress = Maps.newHashMapWithExpectedSize(kafkaPartitionOffsets.size());
+        for (Pair<Integer, Long> partitionOffset : kafkaPartitionOffsets) {
+            alteredPartitions.add(partitionOffset.first);
+            alteredProgress.put(partitionOffset.first, partitionOffset.second);
+        }
+        customKafkaPartitions = alteredPartitions;
+        currentKafkaPartitions = Lists.newArrayList(alteredPartitions);
+        progress = new KafkaProgress(alteredProgress);
+        cachedPartitionWithLatestOffsets.keySet().retainAll(alteredPartitions);
     }
 
     private void resetCloudProgress(Cloud.ResetRLProgressRequest.Builder builder) throws DdlException {
