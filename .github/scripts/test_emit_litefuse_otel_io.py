@@ -17,10 +17,12 @@
 # under the License.
 
 import importlib.util
+from contextlib import redirect_stdout
 import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
+import sys
 import unittest
 from unittest import mock
 import urllib.error
@@ -74,6 +76,36 @@ class JsonResponse(FakeResponse):
 
 
 class LitefuseOtelExporterTest(unittest.TestCase):
+    def verify_single_trace(self, args, public_key, secret_key, trace_id, count):
+        result = {"trace_id": trace_id, "observation_count": count}
+        MODULE.verify_traces(
+            args, public_key, secret_key, [{"result": result, "subagent": False}]
+        )
+        return result["verified"]
+
+    def verification_args(self, **overrides):
+        return SimpleNamespace(**{
+            "base_url": "https://litefuse.example",
+            "verify_attempts": 3,
+            "verify_sleep_seconds": 5,
+            "verify_timeout_seconds": 120,
+            "min_observations": 3,
+            "min_step_observations": 1,
+            **overrides,
+        })
+
+    def verification_fixture(self, *, subagent=False, count=3):
+        events = [self.span_event(f"{index:032x}") for index in range(1, count + 1)]
+        events[0]["body"]["name"] = "codex.subagent.review" if subagent else "codex.review"
+        payload = {"batch": [{"type": "trace-create", "body": self.trace_body()}, *events]}
+        result = {"trace_id": "subagent" if subagent else "main", "observation_count": count}
+        target = MODULE.trace_verification_target(result, payload, subagent=subagent)
+        observations = [
+            {**event["body"], "id": MODULE.otel_id(event["body"]["id"], 8)}
+            for event in events
+        ]
+        return target, observations, payload
+
     def trace_body(self):
         return {
             "id": "1" * 32,
@@ -694,10 +726,331 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         self.assertEqual(status["request_count"], 1)
         self.assertEqual(status["success_count"], 1)
 
+    def test_verifies_pending_subagent_without_polling_complete_main_again(self):
+        main, main_rows, _ = self.verification_fixture()
+        child, child_rows, _ = self.verification_fixture(subagent=True)
+        replies = [main_rows, child_rows[:1], child_rows]
+        with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
+            MODULE, "fetch_observations_legacy",
+            side_effect=[{"data": rows} for rows in replies],
+        ) as fetch, mock.patch.object(MODULE.time, "sleep") as sleep:
+            MODULE.verify_traces(self.verification_args(), "public", "secret", [main, child])
+
+        self.assertEqual([call.args[3] for call in fetch.call_args_list], ["main", "subagent", "subagent"])
+        sleep.assert_called_once_with(5)
+        for target in (main, child):
+            self.assertEqual(target["result"]["verified"]["observation_count"], 3)
+            self.assertNotIn("verification_diagnostic", target["result"])
+
+    def test_reports_all_missing_subagents_and_preserves_main_success(self):
+        main, main_rows, _ = self.verification_fixture()
+        children = [self.verification_fixture(subagent=True)[0] for _ in range(2)]
+        for index, child in enumerate(children):
+            child["result"]["trace_id"] = f"child-{index}"
+        replies = [main_rows, [], [], [], []]
+        with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
+            MODULE, "fetch_observations_legacy",
+            side_effect=[{"data": rows} for rows in replies],
+        ), mock.patch.object(MODULE.time, "sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "child-0.*child-1"):
+                MODULE.verify_traces(
+                    self.verification_args(verify_attempts=2), "public", "secret",
+                    [main, *children],
+                )
+        self.assertIn("verified", main["result"])
+        for child in children:
+            self.assertNotIn("verified", child["result"])
+            self.assertEqual(
+                child["result"]["verification_diagnostic"]["missing_expected_observation_count"], 3
+            )
+        sleep.assert_called_once_with(5)
+
+    def test_subagent_profile_accepts_root_only_and_session_message_shapes(self):
+        for count in (1, 2):
+            with self.subTest(count=count):
+                target, rows, _ = self.verification_fixture(subagent=True, count=count)
+                if count == 2:
+                    rows[1]["name"] = "codex.subagent.message.assistant"
+                    rows[1]["input"] = {"role": "assistant"}
+                    rows[1]["output"] = {"text": "done"}
+                with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
+                    MODULE, "fetch_observations_legacy", return_value={"data": rows}
+                ):
+                    MODULE.verify_traces(self.verification_args(), "public", "secret", [target])
+                self.assertEqual(target["result"]["verified"]["required_observation_count"], count)
+
+    def test_subagent_rejects_missing_root_id_or_io_even_when_count_is_sufficient(self):
+        for defect in ("root", "wrong_id", "duplicate", "empty_id", "input", "output"):
+            with self.subTest(defect=defect):
+                target, rows, _ = self.verification_fixture(subagent=True)
+                if defect == "root":
+                    rows[0]["name"] = "codex.command"
+                elif defect == "wrong_id":
+                    rows[1]["id"] = "unrelated-observation"
+                elif defect == "duplicate":
+                    rows[1]["id"] = rows[2]["id"]
+                elif defect == "empty_id":
+                    rows[1]["id"] = ""
+                else:
+                    rows[1][defect] = None
+                with mock.patch.object(
+                    MODULE, "fetch_trace", return_value={"input": "p", "output": "o"}
+                ), mock.patch.object(
+                    MODULE, "fetch_observations_legacy", return_value={"data": rows}
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "subagent"):
+                        MODULE.verify_traces(
+                            self.verification_args(verify_attempts=1), "public", "secret", [target]
+                        )
+
+    def test_subagent_accepts_exported_empty_io_and_unexported_none(self):
+        for value in ({}, [], "", False, 0, None):
+            with self.subTest(value=value):
+                _, rows, payload = self.verification_fixture(subagent=True, count=2)
+                payload["batch"][-1]["body"]["output"] = value
+                result = {"trace_id": "subagent", "observation_count": 2}
+                target = MODULE.trace_verification_target(result, payload, subagent=True)
+                rows[1]["output"] = value
+                with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
+                    MODULE, "fetch_observations_legacy", return_value={"data": rows}
+                ):
+                    MODULE.verify_traces(self.verification_args(), "public", "secret", [target])
+                self.assertIn("verified", result)
+
+    def test_v2_fallback_uses_exported_session_time_window(self):
+        target, rows, payload = self.verification_fixture(subagent=True, count=2)
+        payload["batch"][-1]["body"]["startTime"] = "2026-09-01T02:00:00+00:00"
+        target = MODULE.trace_verification_target(target["result"], payload, subagent=True)
+        requests = []
+
+        def fake_urlopen(request, timeout):
+            requests.append(request)
+            if "/v2/observations?" not in request.full_url:
+                raise urllib.error.URLError("legacy API unavailable")
+            return JsonResponse({"data": rows, "meta": {}})
+
+        with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=fake_urlopen):
+            MODULE.verify_traces(self.verification_args(), "public", "secret", [target])
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(requests[-1].full_url).query)
+        self.assertEqual(query["fromStartTime"], ["2026-08-31T23:59:59+00:00"])
+        self.assertEqual(query["toStartTime"], ["2026-09-01T02:00:01+00:00"])
+        self.assertEqual(target["result"]["verified"]["read_source"], "v2_observations")
+
+    def test_subagent_trace_detail_fallback_still_requires_all_exported_ids(self):
+        for complete in (False, True):
+            with self.subTest(complete=complete):
+                target, rows, _ = self.verification_fixture(subagent=True)
+                with mock.patch.object(
+                    MODULE, "fetch_trace",
+                    return_value={"observations": rows if complete else rows[:1]},
+                ), mock.patch.object(
+                    MODULE, "fetch_observations_legacy", side_effect=RuntimeError("unavailable")
+                ), mock.patch.object(
+                    MODULE, "fetch_observations_v2", side_effect=RuntimeError("unavailable")
+                ):
+                    if complete:
+                        MODULE.verify_traces(self.verification_args(), "public", "secret", [target])
+                        self.assertIn("verified", target["result"])
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "subagent"):
+                            MODULE.verify_traces(
+                                self.verification_args(verify_attempts=1), "public", "secret", [target]
+                            )
+
+    def test_verifies_subagent_with_more_than_ten_legacy_pages(self):
+        target, rows, _ = self.verification_fixture(subagent=True, count=1001)
+        rows = list(reversed(rows))  # The oldest root is on page 11.
+        requests = []
+
+        def fake_urlopen(request, timeout):
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+            page = int(query["page"][0])
+            requests.append(page)
+            return JsonResponse({"data": rows[(page - 1) * 100:page * 100]})
+
+        with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
+            MODULE.urllib.request, "urlopen", side_effect=fake_urlopen
+        ):
+            MODULE.verify_traces(self.verification_args(), "public", "secret", [target])
+        self.assertEqual(requests, list(range(1, 12)))
+        self.assertEqual(target["result"]["verified"]["unique_observation_count"], 1001)
+
+    def test_shared_deadline_bounds_all_traces_and_http_fallbacks(self):
+        targets = [self.verification_fixture()[0]]
+        targets.extend(self.verification_fixture(subagent=True)[0] for _ in range(100))
+        for index, target in enumerate(targets):
+            target["result"]["trace_id"] = f"trace-{index}"
+        now = [0]
+        timeouts = []
+
+        def fake_urlopen(request, timeout):
+            timeouts.append(timeout)
+            now[0] += timeout
+            raise TimeoutError("slow read")
+
+        with mock.patch.object(MODULE.time, "monotonic", side_effect=lambda: now[0]), mock.patch.object(
+            MODULE.urllib.request, "urlopen", side_effect=fake_urlopen
+        ), mock.patch.object(MODULE.time, "sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "trace-100"):
+                MODULE.verify_traces(
+                    self.verification_args(verify_timeout_seconds=35), "public", "secret", targets
+                )
+        self.assertEqual(timeouts, [30, 5])
+        self.assertEqual(now[0], 35)
+        sleep.assert_not_called()
+        self.assertEqual(targets[-1]["result"]["verification_diagnostic"]["read_source"], "not_polled")
+
+    def test_shared_deadline_clips_sleep_and_stops_before_next_round(self):
+        targets = [self.verification_fixture()[0], self.verification_fixture(subagent=True)[0]]
+        now = [0]
+
+        def fake_sleep(seconds):
+            now[0] += seconds
+
+        with mock.patch.object(MODULE.time, "monotonic", side_effect=lambda: now[0]), mock.patch.object(
+            MODULE, "fetch_trace", return_value={}
+        ), mock.patch.object(
+            MODULE, "fetch_observations_legacy", return_value={"data": []}
+        ) as fetch, mock.patch.object(MODULE.time, "sleep", side_effect=fake_sleep) as sleep:
+            with self.assertRaises(RuntimeError):
+                MODULE.verify_traces(
+                    self.verification_args(verify_timeout_seconds=2), "public", "secret", targets
+                )
+        self.assertEqual(fetch.call_count, 2)
+        sleep.assert_called_once_with(2)
+
+    def test_pagination_checks_remaining_deadline_before_every_request(self):
+        for reader in (MODULE.fetch_observations_legacy, MODULE.fetch_observations_v2):
+            with self.subTest(reader=reader.__name__):
+                now = [0]
+                timeouts = []
+
+                def fake_urlopen(request, timeout):
+                    timeouts.append(timeout)
+                    now[0] += 3
+                    return JsonResponse({"data": [{}] * 100, "meta": {"cursor": "next"}})
+
+                with mock.patch.object(
+                    MODULE.time, "monotonic", side_effect=lambda: now[0]
+                ), mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=fake_urlopen):
+                    with self.assertRaisesRegex(TimeoutError, "deadline exhausted"):
+                        reader("https://litefuse.example", "public", "secret", "trace", deadline=5)
+                self.assertEqual(timeouts, [5, 2])
+
+    def test_main_exports_and_verifies_all_traces_with_failure_diagnostics(self):
+        for mode in ("success", "missing_subagent", "main_only", "no_verify", "dry_run"):
+            with self.subTest(mode=mode):
+                argv = [
+                    "exporter", "--input-file", "prompt", "--events-file", "events",
+                    "--session-id", "run-test", "--verify-attempts", "1",
+                    "--verify-sleep-seconds", "0",
+                ]
+                if mode != "main_only":
+                    argv.extend(["--subagent-sessions-dir", "/unused"])
+                if mode != "no_verify":
+                    argv.append("--verify")
+                if mode == "dry_run":
+                    argv.append("--dry-run")
+                with mock.patch.object(sys, "argv", argv):
+                    args = MODULE.parse_args()
+                events = [
+                    {
+                        "type": "item.completed", "_line_number": index + 1,
+                        "item": {"type": "agent_message", "text": text, "id": str(index)},
+                    }
+                    for index, text in enumerate(("reviewing", "done"))
+                ]
+                session_events = [
+                    {"type": "session_meta", "payload": {"id": "child-thread"}},
+                    {
+                        "type": "response_item",
+                        "payload": {"type": "message", "role": "assistant", "content": "done"},
+                    },
+                ]
+                child = MODULE.build_subagent_session_payload(args, "child.jsonl", session_events)
+                stored_rows = {}
+                requests = []
+
+                def fake_urlopen(request, timeout):
+                    requests.append(request)
+                    if request.method == "POST":
+                        payload = json.loads(request.data)
+                        for resource in payload["resourceSpans"]:
+                            for scope in resource["scopeSpans"]:
+                                for span in scope["spans"]:
+                                    attrs = attribute_values(span)
+                                    row = {"id": span["spanId"], "name": span["name"]}
+                                    for field in ("input", "output"):
+                                        value = attrs.get(f"langfuse.observation.{field}")
+                                        if value is not None:
+                                            row[field] = json.loads(value)
+                                    stored_rows.setdefault(span["traceId"], []).append(row)
+                        return FakeResponse()
+                    if "/api/public/traces/" in request.full_url:
+                        return JsonResponse({})
+                    query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+                    trace_id = query["traceId"][0]
+                    rows = stored_rows[trace_id]
+                    if mode == "missing_subagent" and trace_id == child["trace_id"]:
+                        rows = rows[:-1]
+                    return JsonResponse({"data": rows})
+
+                stdout = io.StringIO()
+                with mock.patch.object(MODULE, "parse_args", return_value=args), mock.patch.object(
+                    MODULE, "read_text", return_value="review task"
+                ), mock.patch.object(MODULE, "load_jsonl", return_value=events), mock.patch.object(
+                    MODULE, "build_subagent_session_payloads", return_value=[child]
+                ) as build_children, mock.patch.object(
+                    MODULE.urllib.request, "urlopen", side_effect=fake_urlopen
+                ), mock.patch.dict(
+                    MODULE.os.environ,
+                    {} if mode == "dry_run" else {"LANGFUSE_PUBLIC_KEY": "public", "LANGFUSE_SECRET_KEY": "secret"},
+                    clear=True,
+                ), redirect_stdout(stdout):
+                    if mode == "missing_subagent":
+                        with self.assertRaisesRegex(RuntimeError, child["trace_id"]):
+                            MODULE.main()
+                    else:
+                        MODULE.main()
+                result = json.loads(stdout.getvalue())
+                if mode == "dry_run":
+                    self.assertEqual(requests, [])
+                    self.assertEqual(result["subagent_trace_count"], 1)
+                elif mode == "no_verify":
+                    self.assertTrue(requests)
+                    self.assertTrue(all(request.method == "POST" for request in requests))
+                    self.assertNotIn("verified", result)
+                    self.assertNotIn("verified", result["subagent_traces"][0])
+                else:
+                    self.assertEqual(result["verified"]["agent_message_with_turn_input_count"], 1)
+                    self.assertEqual(result["verified"]["agent_message_with_previous_count"], 1)
+                    if mode == "main_only":
+                        build_children.assert_not_called()
+                        self.assertEqual(result["subagent_traces"], [])
+                    elif mode == "missing_subagent":
+                        self.assertIn("verification_error", result)
+                        diagnostic = result["subagent_traces"][0]["verification_diagnostic"]
+                        self.assertEqual(diagnostic["missing_expected_observation_count"], 1)
+                        self.assertNotIn("verified", result["subagent_traces"][0])
+                    else:
+                        self.assertEqual(result["subagent_traces"][0]["verified"]["observation_count"], 3)
+
+    def test_main_still_rejects_missing_agent_message_context(self):
+        target, rows, _ = self.verification_fixture()
+        rows[-1]["name"] = "codex.agent_message"
+        with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
+            MODULE, "fetch_observations_legacy", return_value={"data": rows}
+        ):
+            with self.assertRaisesRegex(RuntimeError, '"agent_message_all_have_context_window": false'):
+                MODULE.verify_traces(
+                    self.verification_args(verify_attempts=1), "public", "secret", [target]
+                )
+
     def test_verify_complete_main_trace_uses_legacy_observations(self):
         args = mock.Mock(
             base_url="https://litefuse.example",
             verify_attempts=1,
+            verify_timeout_seconds=120,
             verify_sleep_seconds=0,
             min_observations=3,
             min_step_observations=1,
@@ -726,7 +1079,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
             MODULE, "fetch_observations_legacy", return_value={"data": observations}
         ), mock.patch.object(MODULE, "fetch_observations_v2") as v2_fetch:
-            result = MODULE.verify_trace(
+            result = self.verify_single_trace(
                 args, "public", "secret", "trace-id", len(observations)
             )
 
@@ -738,6 +1091,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         args = mock.Mock(
             base_url="https://litefuse.example",
             verify_attempts=1,
+            verify_timeout_seconds=120,
             verify_sleep_seconds=0,
             min_observations=1,
             min_step_observations=1,
@@ -763,7 +1117,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 RuntimeError, '"required_observation_count": 3'
             ):
-                MODULE.verify_trace(
+                self.verify_single_trace(
                     args, "public", "secret", "trace-id", 3
                 )
 
@@ -771,6 +1125,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         args = mock.Mock(
             base_url="https://litefuse.example",
             verify_attempts=1,
+            verify_timeout_seconds=120,
             verify_sleep_seconds=0,
             min_observations=1,
             min_step_observations=1,
@@ -802,7 +1157,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 RuntimeError, '"duplicate_observation_count": 1'
             ):
-                MODULE.verify_trace(
+                self.verify_single_trace(
                     args, "public", "secret", "trace-id", 2
                 )
 
@@ -810,6 +1165,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         args = SimpleNamespace(
             base_url="https://litefuse.example",
             verify_attempts=1,
+            verify_timeout_seconds=120,
             verify_sleep_seconds=0,
             min_observations=1,
             min_step_observations=1,
@@ -849,7 +1205,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
                     with self.assertRaisesRegex(
                         RuntimeError, '"observations_missing_id_count": 1'
                     ):
-                        MODULE.verify_trace(args, "public", "secret", "trace-id", 2)
+                        self.verify_single_trace(args, "public", "secret", "trace-id", 2)
 
 
 if __name__ == "__main__":
