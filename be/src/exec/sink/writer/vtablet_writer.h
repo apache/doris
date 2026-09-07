@@ -522,6 +522,8 @@ public:
 
     void mark_as_failed(const VNodeChannel* node_channel, const std::string& err,
                         int64_t tablet_id = -1);
+    void mark_as_failed(const VNodeChannel* node_channel, const Status& status,
+                        int64_t tablet_id = -1);
     Status check_intolerable_failure();
 
     Status close_wait(RuntimeState* state, WriterStats* writer_stats,
@@ -579,6 +581,7 @@ public:
     VExprContextSPtr get_where_clause() { return _where_clause; }
 
 private:
+    friend class IndexChannelTestAccessor;
     friend class VNodeChannel;
     friend class VTabletWriter;
     friend class VRowDistribution;
@@ -588,6 +591,9 @@ private:
     int _max_failed_replicas(int64_t tablet_id);
 
     int _load_required_replicas_num(int64_t tablet_id);
+
+    void _mark_as_failed(const VNodeChannel* node_channel, const std::string& err,
+                         const Status* status, int64_t tablet_id);
 
     bool _quorum_success(const std::unordered_set<int64_t>& unfinished_node_channel_ids,
                          const std::unordered_set<int64_t>& need_finish_tablets);
@@ -619,6 +625,8 @@ private:
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _failed_channels;
     // key is tablet_id, value is error message
     std::unordered_map<int64_t, std::string> _failed_channels_msgs;
+    // key is tablet_id, value is the first typed failure status
+    std::unordered_map<int64_t, Status> _failed_channels_statuses;
     Status _intolerable_failure_status = Status::OK();
 
     std::unique_ptr<MemTracker> _index_channel_tracker;
@@ -662,6 +670,7 @@ public:
     Status _send_new_partition_batch();
 
 private:
+    friend class IndexChannelTestAccessor;
     friend class VNodeChannel;
     friend class IndexChannel;
 

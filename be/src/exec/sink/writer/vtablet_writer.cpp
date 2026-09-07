@@ -191,6 +191,17 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
 
 void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::string& err,
                                   int64_t tablet_id) {
+    _mark_as_failed(node_channel, err, nullptr, tablet_id);
+}
+
+void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const Status& status,
+                                  int64_t tablet_id) {
+    DCHECK(!status.ok());
+    _mark_as_failed(node_channel, status.to_string(), &status, tablet_id);
+}
+
+void IndexChannel::_mark_as_failed(const VNodeChannel* node_channel, const std::string& err,
+                                   const Status* status, int64_t tablet_id) {
     DCHECK(node_channel != nullptr);
     LOG(INFO) << "mark node_id:" << node_channel->channel_info() << " tablet_id: " << tablet_id
               << " as failed, err: " << err;
@@ -202,23 +213,34 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
 
     {
         std::lock_guard<std::mutex> l(_fail_lock);
+        const auto record_failure = [&](int64_t failed_tablet_id) {
+            _failed_channels[failed_tablet_id].insert(node_id);
+            const auto err_with_host = err + ", host: " + node_channel->host();
+            _failed_channels_msgs.emplace(failed_tablet_id, err_with_host);
+            if (status != nullptr) {
+                Status status_with_host = *status;
+                status_with_host.append(", host: " + node_channel->host());
+                _failed_channels_statuses.emplace(failed_tablet_id, std::move(status_with_host));
+            }
+            if (_failed_channels[failed_tablet_id].size() <=
+                        _max_failed_replicas(failed_tablet_id) ||
+                !_intolerable_failure_status.ok()) {
+                return;
+            }
+            const auto status_it = _failed_channels_statuses.find(failed_tablet_id);
+            if (status_it != _failed_channels_statuses.end()) {
+                _intolerable_failure_status = status_it->second;
+            } else {
+                _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        _failed_channels_msgs.at(failed_tablet_id));
+            }
+        };
         if (tablet_id == -1) {
             for (const auto the_tablet_id : it->second) {
-                _failed_channels[the_tablet_id].insert(node_id);
-                _failed_channels_msgs.emplace(the_tablet_id,
-                                              err + ", host: " + node_channel->host());
-                if (_failed_channels[the_tablet_id].size() > _max_failed_replicas(the_tablet_id)) {
-                    _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
-                            _failed_channels_msgs[the_tablet_id]);
-                }
+                record_failure(the_tablet_id);
             }
         } else {
-            _failed_channels[tablet_id].insert(node_id);
-            _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
-            if (_failed_channels[tablet_id].size() > _max_failed_replicas(tablet_id)) {
-                _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
-                        _failed_channels_msgs[tablet_id]);
-            }
+            record_failure(tablet_id);
         }
     }
 }
@@ -1266,6 +1288,7 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
             _index_channel->notify_close_wait();
         }
     } else {
+        _index_channel->mark_as_failed(this, status);
         _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}",
                                      channel_info(), status.to_string()));
     }
