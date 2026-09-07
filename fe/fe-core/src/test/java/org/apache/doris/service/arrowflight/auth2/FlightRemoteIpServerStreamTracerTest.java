@@ -22,8 +22,8 @@ import io.grpc.Context;
 import io.grpc.Grpc;
 import io.grpc.MethodDescriptor;
 import io.grpc.ServerStreamTracer;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -38,7 +38,7 @@ public class FlightRemoteIpServerStreamTracerTest {
         try {
             tracer.serverCallStarted(new TestServerCallInfo(new InetSocketAddress("10.26.20.3", 12345)));
 
-            Assert.assertEquals("10.26.20.3", FlightRemoteIpServerStreamTracer.getRemoteIp());
+            Assertions.assertEquals("10.26.20.3", FlightRemoteIpServerStreamTracer.getRemoteIp());
         } finally {
             context.detach(previous);
         }
@@ -52,7 +52,7 @@ public class FlightRemoteIpServerStreamTracerTest {
         try {
             tracer.serverCallStarted(new TestServerCallInfo(null));
 
-            Assert.assertEquals("0.0.0.0", FlightRemoteIpServerStreamTracer.getRemoteIp());
+            Assertions.assertEquals("0.0.0.0", FlightRemoteIpServerStreamTracer.getRemoteIp());
         } finally {
             context.detach(previous);
         }
@@ -60,7 +60,7 @@ public class FlightRemoteIpServerStreamTracerTest {
 
     @Test
     public void testFallbackRemoteIpWithoutFlightContext() {
-        Assert.assertEquals("0.0.0.0", FlightRemoteIpServerStreamTracer.getRemoteIp());
+        Assertions.assertEquals("0.0.0.0", FlightRemoteIpServerStreamTracer.getRemoteIp());
     }
 
     private static class TestServerCallInfo extends ServerStreamTracer.ServerCallInfo<Object, Object> {

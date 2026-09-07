@@ -83,8 +83,11 @@ public class ParseInsertPartitionSpecTest {
      * Helper method to parse SQL and extract PartitionSpecContext.
      */
     private DorisParser.PartitionSpecContext parsePartitionSpec(String insertSql) {
-        DorisParser.InsertTableContext insertTableContext = (DorisParser.InsertTableContext) NereidsParser.toAst(
+        DorisParser.DmlStatementContext dmlStatementContext = (DorisParser.DmlStatementContext) NereidsParser.toAst(
                 insertSql, DorisParser::dmlStatement);
+        DorisParser.DmlStatementBodyContext dmlStatementBody =
+                ((DorisParser.ExplainableDmlStatementContext) dmlStatementContext).dmlStatementBody();
+        DorisParser.InsertTableContext insertTableContext = (DorisParser.InsertTableContext) dmlStatementBody;
         return insertTableContext.partitionSpec();
     }
 

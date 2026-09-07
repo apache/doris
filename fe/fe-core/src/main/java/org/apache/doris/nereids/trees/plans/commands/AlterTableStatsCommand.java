@@ -36,7 +36,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.StatsType;
+import org.apache.doris.statistics.model.StatsType;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;

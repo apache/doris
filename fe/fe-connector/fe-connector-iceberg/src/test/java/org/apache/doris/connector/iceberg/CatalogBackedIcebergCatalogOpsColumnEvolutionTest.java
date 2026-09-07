@@ -368,6 +368,32 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     }
 
     @Test
+    public void testModifyColumnsCanonicalizeMixedCaseRootAndPosition() {
+        createMixedCaseTable();
+        ops.modifyColumn("db1", "mixed", change("id", Types.LongType.get(), "identifier", true), true, null);
+
+        ConnectorType requestedType = structType(
+                Arrays.asList("metric"), Arrays.asList(ConnectorType.of("BIGINT")),
+                Arrays.asList(true), Arrays.asList((String) null));
+
+        ops.modifyColumn("db1", "mixed",
+                new IcebergColumnChange("info", IcebergSchemaBuilder.buildColumnType(requestedType),
+                        "updated", null, true, requestedType),
+                true, ConnectorColumnPosition.after("id"));
+
+        Schema schema = reload("mixed");
+        Assertions.assertEquals(Arrays.asList("Id", "Info", "Label"), schema.columns().stream()
+                .map(Types.NestedField::name).collect(Collectors.toList()));
+        Assertions.assertEquals(Type.TypeID.LONG, schema.findField("Id").type().typeId());
+        Assertions.assertEquals("identifier", schema.findField("Id").doc());
+        Types.NestedField info = schema.findField("Info");
+        Assertions.assertEquals("updated", info.doc());
+        Types.NestedField metric = info.type().asStructType().fields().get(0);
+        Assertions.assertEquals("Metric", metric.name());
+        Assertions.assertEquals(Type.TypeID.LONG, metric.type().typeId());
+    }
+
+    @Test
     public void testModifyStructAddsNullableField() {
         createTable("s_add", new ConnectorColumn("st",
                 structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
@@ -395,6 +421,124 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
         Types.NestedField a = reload("s_widen").findField("st").type().asStructType().fields().get(0);
         Assertions.assertEquals(Type.TypeID.LONG, a.type().typeId());
         Assertions.assertEquals("new", a.doc());
+    }
+
+    @Test
+    public void testModifyStructMatchesExistingFieldCaseInsensitively() {
+        createTable("s_case", new ConnectorColumn("st",
+                structType(Arrays.asList("CaseSensitive"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList((String) null)), "", true, null, false));
+
+        modifyComplex("s_case", "st",
+                structType(Arrays.asList("casesensitive"), Arrays.asList(ConnectorType.of("BIGINT")),
+                        Arrays.asList(true), Arrays.asList((String) null)), true);
+
+        Types.NestedField field = reload("s_case").findField("st").type().asStructType().fields().get(0);
+        Assertions.assertEquals("CaseSensitive", field.name());
+        Assertions.assertEquals(Type.TypeID.LONG, field.type().typeId());
+    }
+
+    @Test
+    public void testModifyStructCommentMatchesExistingFieldCaseInsensitively() {
+        createTable("s_case_doc", new ConnectorColumn("st",
+                structType(Arrays.asList("CaseSensitive"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList("old")), "", true, null, false));
+
+        modifyComplex("s_case_doc", "st",
+                structType(Arrays.asList("casesensitive"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList("new")), true);
+
+        Types.NestedField field = reload("s_case_doc").findField("st").type().asStructType().fields().get(0);
+        Assertions.assertEquals("CaseSensitive", field.name());
+        Assertions.assertEquals("new", field.doc());
+    }
+
+    @Test
+    public void testModifyStructNullabilityMatchesExistingFieldCaseInsensitively() {
+        createTable("s_case_null", new ConnectorColumn("st",
+                structType(Arrays.asList("CaseSensitive"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(false), Arrays.asList((String) null)), "", true, null, false));
+
+        modifyComplex("s_case_null", "st",
+                structType(Arrays.asList("casesensitive"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList((String) null)), true);
+
+        Types.NestedField field = reload("s_case_null").findField("st").type().asStructType().fields().get(0);
+        Assertions.assertEquals("CaseSensitive", field.name());
+        Assertions.assertTrue(field.isOptional());
+    }
+
+    @Test
+    public void testModifyStructUnderArrayMatchesExistingFieldCaseInsensitively() {
+        ConnectorType oldStruct = structType(
+                Arrays.asList("CaseSensitive"), Arrays.asList(ConnectorType.of("INT")),
+                Arrays.asList(true), Arrays.asList((String) null));
+        createTable("a_case", new ConnectorColumn(
+                "arr", ConnectorType.arrayOf(oldStruct), "", true, null, false));
+        ConnectorType newStruct = structType(
+                Arrays.asList("casesensitive"), Arrays.asList(ConnectorType.of("BIGINT")),
+                Arrays.asList(true), Arrays.asList((String) null));
+
+        modifyComplex("a_case", "arr", ConnectorType.arrayOf(newStruct), true);
+
+        Types.NestedField field = reload("a_case").findField("arr").type().asListType()
+                .elementType().asStructType().fields().get(0);
+        Assertions.assertEquals("CaseSensitive", field.name());
+        Assertions.assertEquals(Type.TypeID.LONG, field.type().typeId());
+    }
+
+    @Test
+    public void testModifyStructUnderMapMatchesExistingFieldCaseInsensitively() {
+        ConnectorType oldStruct = structType(
+                Arrays.asList("CaseSensitive"), Arrays.asList(ConnectorType.of("INT")),
+                Arrays.asList(true), Arrays.asList((String) null));
+        createTable("m_case", new ConnectorColumn("m",
+                ConnectorType.mapOf(ConnectorType.of("STRING"), oldStruct), "", true, null, false));
+        ConnectorType newStruct = structType(
+                Arrays.asList("casesensitive"), Arrays.asList(ConnectorType.of("BIGINT")),
+                Arrays.asList(true), Arrays.asList((String) null));
+
+        modifyComplex("m_case", "m",
+                ConnectorType.mapOf(ConnectorType.of("STRING"), newStruct), true);
+
+        Types.NestedField field = reload("m_case").findField("m").type().asMapType()
+                .valueType().asStructType().fields().get(0);
+        Assertions.assertEquals("CaseSensitive", field.name());
+        Assertions.assertEquals(Type.TypeID.LONG, field.type().typeId());
+    }
+
+    @Test
+    public void testModifyStructRejectsCaseInsensitiveAppendedFieldCollision() {
+        createTable("s_case_collision", new ConnectorColumn("st",
+                structType(Arrays.asList("CaseSensitive"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList((String) null)), "", true, null, false));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> modifyComplex("s_case_collision", "st",
+                        structType(Arrays.asList("casesensitive", "CASESENSITIVE"),
+                                Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")),
+                                Arrays.asList(true, true), Arrays.asList(null, null)), true));
+
+        Assertions.assertTrue(ex.getMessage().contains("conflicts with existing field"), ex.getMessage());
+    }
+
+    @Test
+    public void testModifyStructUsesIcebergLowercaseIdentity() {
+        createTable("s_unicode_identity", new ConnectorColumn("st",
+                structType(Arrays.asList("Σ", "ς"),
+                        Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("INT")),
+                        Arrays.asList(true, true), Arrays.asList(null, null)), "", true, null, false));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> modifyComplex("s_unicode_identity", "st",
+                        structType(Arrays.asList("ς", "Σ"),
+                                Arrays.asList(ConnectorType.of("BIGINT"), ConnectorType.of("INT")),
+                                Arrays.asList(true, true), Arrays.asList(null, null)), true));
+
+        Assertions.assertTrue(ex.getMessage().contains("Cannot rename struct field"), ex.getMessage());
+        Types.StructType fields = reload("s_unicode_identity").findField("st").type().asStructType();
+        Assertions.assertEquals(Type.TypeID.INTEGER, fields.field("Σ").type().typeId());
+        Assertions.assertEquals(Type.TypeID.INTEGER, fields.field("ς").type().typeId());
     }
 
     @Test

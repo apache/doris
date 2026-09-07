@@ -99,6 +99,9 @@ def mangle(cmd, no_pch=False):
 def display_name(path, src_prefix):
     if path.startswith(src_prefix):
         return path[len(src_prefix):]
+    be_prefix = os.path.dirname(os.path.dirname(src_prefix)) + os.sep
+    if path.startswith(be_prefix + "test" + os.sep):
+        return path[len(be_prefix):]
     if "/Unity/" in path:
         # .../src/<dir>/CMakeFiles/<tgt>.dir/Unity/unity_N_cxx.cxx
         m = re.search(r"/src/([^/]+)/CMakeFiles/[^/]+/Unity/(unity_\d+)", path)
@@ -107,12 +110,14 @@ def display_name(path, src_prefix):
     return path
 
 
-def first_party(e, src_prefix):
+def first_party(e, src_prefix, test_prefix=None):
     f = e["file"]
     if f.startswith(src_prefix):
         return True
+    if test_prefix and f.startswith(test_prefix):
+        return True
     # CMake unity batches for first-party targets live under the build dir
-    return "/Unity/" in f and "/src/" in f
+    return "/Unity/" in f and ("/src/" in f or (test_prefix and "/test/" in f))
 
 
 def main():
@@ -131,12 +136,19 @@ def main():
                     help="write full stderr of every failing TU to this file")
     ap.add_argument("--timeout", type=int, default=600,
                     help="per-TU timeout in seconds (counts as failure)")
+    ap.add_argument("--include-tests", action="store_true",
+                    help="also sweep be/test TUs (point --build-dir at a "
+                         "-DMAKE_TEST=ON tree; be/test builds without a PCH, "
+                         "so the UT line always compiles natural closures)")
     args = ap.parse_args()
 
     src_prefix = os.path.join(REPO_ROOT, "be", "src") + os.sep
+    test_prefix = (os.path.join(REPO_ROOT, "be", "test") + os.sep
+                   if args.include_tests else None)
     with open(os.path.join(args.build_dir, "compile_commands.json")) as f:
         entries = [e for e in json.load(f)
-                   if first_party(e, src_prefix) and args.filter in e["file"]]
+                   if first_party(e, src_prefix, test_prefix)
+                   and args.filter in e["file"]]
     print(f"{len(entries)} TUs to check ({args.jobs} jobs"
           f"{', natural closure / no PCH' if args.no_pch else ''})", flush=True)
     t0 = time.time()

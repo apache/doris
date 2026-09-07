@@ -26,10 +26,10 @@ import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -56,7 +56,7 @@ public class TSOServiceTest {
     private boolean originalEnableFeatureBinlog;
     private long originalClockBackwardThresholdMs;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         mockedEnv = Mockito.mockStatic(Env.class);
 
@@ -78,7 +78,7 @@ public class TSOServiceTest {
         tsoService = new TSOService();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mockedEnv.close();
         Config.tso_max_get_retry_count = originalMaxGetTSORetryCount;
@@ -91,7 +91,7 @@ public class TSOServiceTest {
     @Test
     public void testConstructor() {
         TSOService service = new TSOService();
-        Assert.assertNotNull(service);
+        Assertions.assertNotNull(service);
     }
 
     @Test
@@ -99,7 +99,7 @@ public class TSOServiceTest {
         TSOService service = new TSOService();
         long currentTSO = service.getCurrentTSO();
         // Should be 0 since not initialized
-        Assert.assertEquals(0L, currentTSO);
+        Assertions.assertEquals(0L, currentTSO);
     }
 
     @Test
@@ -111,9 +111,9 @@ public class TSOServiceTest {
             Mockito.when(env.isReady()).thenReturn(false);
             try {
                 tsoService.getTSO();
-                Assert.fail();
+                Assertions.fail();
             } catch (RuntimeException e) {
-                Assert.assertTrue(e.getMessage().contains("Failed to get TSO"));
+                Assertions.assertTrue(e.getMessage().contains("Failed to get TSO"));
             }
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
@@ -129,9 +129,9 @@ public class TSOServiceTest {
             Mockito.when(env.isMaster()).thenReturn(true);
             try {
                 tsoService.getTSO();
-                Assert.fail();
+                Assertions.fail();
             } catch (RuntimeException e) {
-                Assert.assertTrue(e.getMessage().contains("not calibrated"));
+                Assertions.assertTrue(e.getMessage().contains("not calibrated"));
             }
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
@@ -149,12 +149,12 @@ public class TSOServiceTest {
             setGlobalTimestamp(tsoService, 100L, TSOTimestamp.MAX_LOGICAL_COUNTER);
             try {
                 tsoService.getTSO();
-                Assert.fail();
+                Assertions.fail();
             } catch (RuntimeException e) {
-                Assert.assertTrue(e.getMessage().contains("Failed to get TSO"));
-                Assert.assertNotNull(e.getCause());
-                Assert.assertTrue(e.getCause().getMessage().contains("logical counter overflow"));
-                Assert.assertEquals(TSOTimestamp.MAX_LOGICAL_COUNTER, getGlobalLogicalCounter(tsoService));
+                Assertions.assertTrue(e.getMessage().contains("Failed to get TSO"));
+                Assertions.assertNotNull(e.getCause());
+                Assertions.assertTrue(e.getCause().getMessage().contains("logical counter overflow"));
+                Assertions.assertEquals(TSOTimestamp.MAX_LOGICAL_COUNTER, getGlobalLogicalCounter(tsoService));
             }
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
@@ -171,7 +171,7 @@ public class TSOServiceTest {
             Mockito.when(env.isMaster()).thenReturn(true);
             setGlobalTimestamp(tsoService, 100L, TSOTimestamp.MAX_LOGICAL_COUNTER - 1);
             long tso = tsoService.getTSO();
-            Assert.assertEquals(TSOTimestamp.composeTimestamp(100L, TSOTimestamp.MAX_LOGICAL_COUNTER), tso);
+            Assertions.assertEquals(TSOTimestamp.composeTimestamp(100L, TSOTimestamp.MAX_LOGICAL_COUNTER), tso);
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
@@ -184,12 +184,12 @@ public class TSOServiceTest {
             setInitializedFlag(tsoService, true);
             Config.enable_feature_binlog = false;
             tsoService.runAfterCatalogReady();
-            Assert.assertEquals(1L, tsoService.getInterval());
+            Assertions.assertEquals(1L, tsoService.getInterval());
             try {
                 tsoService.getTSO();
-                Assert.fail();
+                Assertions.fail();
             } catch (RuntimeException e) {
-                Assert.assertTrue(e.getMessage().contains("feature is disabled"));
+                Assertions.assertTrue(e.getMessage().contains("feature is disabled"));
             }
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
@@ -205,7 +205,7 @@ public class TSOServiceTest {
 
             tsoService.runAfterCatalogReady();
 
-            Assert.assertTrue(getFatalClockBackwardReportedFlag(tsoService));
+            Assertions.assertTrue(getFatalClockBackwardReportedFlag(tsoService));
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
@@ -221,7 +221,7 @@ public class TSOServiceTest {
             Mockito.when(env.isMaster()).thenReturn(true);
             mockPersistReady();
             tsoService.runAfterCatalogReady();
-            Assert.assertTrue(tsoService.getTSO() > 0);
+            Assertions.assertTrue(tsoService.getTSO() > 0);
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
@@ -252,7 +252,7 @@ public class TSOServiceTest {
     public void testReplayWindowEndTSOUpdatesServiceState() {
         long windowEnd = 12345L;
         tsoService.replayWindowEndTSO(new TSOTimestamp(windowEnd, 0L));
-        Assert.assertEquals(windowEnd, tsoService.getWindowEndTSO());
+        Assertions.assertEquals(windowEnd, tsoService.getWindowEndTSO());
     }
 
     @Test
@@ -264,12 +264,12 @@ public class TSOServiceTest {
             tsoService.replayWindowEndTSO(new TSOTimestamp(windowEnd, 0L));
 
             byte[] bytes = saveTSOBytes(tsoService);
-            Assert.assertTrue(bytes.length > 0);
+            Assertions.assertTrue(bytes.length > 0);
 
             TSOService recoveredService = new TSOService();
             long checksum = recoveredService.loadTSO(new DataInputStream(new ByteArrayInputStream(bytes)), 0L);
-            Assert.assertEquals(windowEnd, checksum);
-            Assert.assertEquals(windowEnd, recoveredService.getWindowEndTSO());
+            Assertions.assertEquals(windowEnd, checksum);
+            Assertions.assertEquals(windowEnd, recoveredService.getWindowEndTSO());
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
@@ -287,8 +287,8 @@ public class TSOServiceTest {
                 checksum = tsoService.saveTSO(dos, 7L);
                 dos.flush();
             }
-            Assert.assertEquals(7L, checksum);
-            Assert.assertEquals(0, out.size());
+            Assertions.assertEquals(7L, checksum);
+            Assertions.assertEquals(0, out.size());
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
@@ -328,9 +328,9 @@ public class TSOServiceTest {
         Mockito.when(env.isReady()).thenReturn(false);
         try {
             invokeWriteTimestampToBdbJe(tsoService, 123L);
-            Assert.fail();
+            Assertions.fail();
         } catch (RuntimeException e) {
-            Assert.assertTrue(e.getMessage().contains("Env is not ready"));
+            Assertions.assertTrue(e.getMessage().contains("Env is not ready"));
         }
     }
 
@@ -345,21 +345,21 @@ public class TSOServiceTest {
 
             try {
                 invokeCalibrateTimestamp(tsoService);
-                Assert.fail();
+                Assertions.fail();
             } catch (RuntimeException e) {
-                Assert.assertTrue(e.getMessage().contains("EditLog is null"));
+                Assertions.assertTrue(e.getMessage().contains("EditLog is null"));
             }
 
             TSOService.TSOStatusSnapshot statusSnapshot = tsoService.getStatusSnapshot();
-            Assert.assertFalse(statusSnapshot.isInitialized());
-            Assert.assertTrue(statusSnapshot.getCurrentTso() > 0L);
-            Assert.assertEquals(0L, statusSnapshot.getWindowEndPhysicalTime());
+            Assertions.assertFalse(statusSnapshot.isInitialized());
+            Assertions.assertTrue(statusSnapshot.getCurrentTso() > 0L);
+            Assertions.assertEquals(0L, statusSnapshot.getWindowEndPhysicalTime());
 
             try {
                 tsoService.getTSO();
-                Assert.fail();
+                Assertions.fail();
             } catch (RuntimeException e) {
-                Assert.assertTrue(e.getMessage().contains("not calibrated"));
+                Assertions.assertTrue(e.getMessage().contains("not calibrated"));
             }
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
@@ -375,9 +375,9 @@ public class TSOServiceTest {
                 now + Config.tso_clock_backward_startup_threshold_ms + 60_000, 0L));
         try {
             invokeCalibrateTimestamp(tsoService);
-            Assert.fail();
+            Assertions.fail();
         } catch (RuntimeException e) {
-            Assert.assertTrue(e.getMessage().contains("clock backward too much"));
+            Assertions.assertTrue(e.getMessage().contains("clock backward too much"));
         }
     }
 
@@ -390,7 +390,7 @@ public class TSOServiceTest {
 
         invokeCalibrateTimestamp(tsoService);
 
-        Assert.assertFalse(getFatalClockBackwardReportedFlag(tsoService));
+        Assertions.assertFalse(getFatalClockBackwardReportedFlag(tsoService));
     }
 
     @Test
@@ -398,7 +398,7 @@ public class TSOServiceTest {
         Config.enable_feature_binlog = false;
         setInitializedFlag(tsoService, true);
         tsoService.runAfterCatalogReady();
-        Assert.assertEquals(0L, tsoService.getCurrentTSO());
+        Assertions.assertEquals(0L, tsoService.getCurrentTSO());
     }
 
     @Test
@@ -410,8 +410,8 @@ public class TSOServiceTest {
 
         invokeUpdateTimestamp(tsoService);
 
-        Assert.assertEquals(0L, tsoService.getCurrentTSO());
-        Assert.assertEquals(initialWindowEnd, tsoService.getWindowEndTSO());
+        Assertions.assertEquals(0L, tsoService.getCurrentTSO());
+        Assertions.assertEquals(initialWindowEnd, tsoService.getWindowEndTSO());
     }
 
     @Test
@@ -423,14 +423,14 @@ public class TSOServiceTest {
             Config.enable_feature_binlog = true;
             setInitializedFlag(tsoService, false);
             Pair<Long, Long> pairWhenNotInitialized = invokeGenerateTSO(tsoService);
-            Assert.assertEquals(0L, (long) pairWhenNotInitialized.first);
-            Assert.assertEquals(0L, (long) pairWhenNotInitialized.second);
+            Assertions.assertEquals(0L, (long) pairWhenNotInitialized.first);
+            Assertions.assertEquals(0L, (long) pairWhenNotInitialized.second);
 
             Config.enable_feature_binlog = false;
             setInitializedFlag(tsoService, true);
             Pair<Long, Long> pairWhenDisabled = invokeGenerateTSO(tsoService);
-            Assert.assertEquals(0L, (long) pairWhenDisabled.first);
-            Assert.assertEquals(0L, (long) pairWhenDisabled.second);
+            Assertions.assertEquals(0L, (long) pairWhenDisabled.first);
+            Assertions.assertEquals(0L, (long) pairWhenDisabled.second);
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
@@ -535,7 +535,7 @@ public class TSOServiceTest {
         try (CountingDataOutputStream dos = new CountingDataOutputStream(out, 0)) {
             long checksum = service.saveTSO(dos, 0L);
             dos.flush();
-            Assert.assertEquals(service.getWindowEndTSO(), checksum);
+            Assertions.assertEquals(service.getWindowEndTSO(), checksum);
         }
         return out.toByteArray();
     }

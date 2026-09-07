@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
 import org.mockito.Mockito;
 
@@ -32,19 +32,19 @@ public class JdbcClickHouseClientTest {
         DatabaseMetaData databaseMetaData = Mockito.mock(DatabaseMetaData.class);
 
         Mockito.when(databaseMetaData.supportsCatalogsInDataManipulation()).thenReturn(false);
-        Assert.assertFalse(JdbcClickHouseClient.isDatabaseTermCatalog(databaseMetaData, "0.9.8"));
+        Assertions.assertFalse(JdbcClickHouseClient.isDatabaseTermCatalog(databaseMetaData, "0.9.8"));
 
         Mockito.when(databaseMetaData.supportsCatalogsInDataManipulation()).thenReturn(true);
-        Assert.assertTrue(JdbcClickHouseClient.isDatabaseTermCatalog(databaseMetaData, "0.7.1"));
+        Assertions.assertTrue(JdbcClickHouseClient.isDatabaseTermCatalog(databaseMetaData, "0.7.1"));
 
-        Assert.assertFalse(JdbcClickHouseClient.isDatabaseTermCatalog(databaseMetaData, "0.4.2"));
+        Assertions.assertFalse(JdbcClickHouseClient.isDatabaseTermCatalog(databaseMetaData, "0.4.2"));
     }
 
     @Test
     public void testClickHouseSpecificTableTypesAreVisible() {
         JdbcClickHouseClient client = Mockito.mock(JdbcClickHouseClient.class, Answers.CALLS_REAL_METHODS);
 
-        Assert.assertArrayEquals(
+        Assertions.assertArrayEquals(
                 new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"},
                 client.getTableTypes());
     }
@@ -56,37 +56,37 @@ public class JdbcClickHouseClientTest {
             method.setAccessible(true);
 
             // Valid test cases
-            Assert.assertTrue((boolean) method.invoke(null, "0.5.0")); // Major version 0, Minor version 5
-            Assert.assertTrue((boolean) method.invoke(null, "1.0.0")); // Major version 1
-            Assert.assertTrue((boolean) method.invoke(null, "0.6.3 (revision: a6a8a22)")); // Major version 0, Minor version 6
-            Assert.assertFalse((boolean) method.invoke(null, "0.4.2 (revision: 1513b27)")); // Major version 0, Minor version 4
+            Assertions.assertTrue((boolean) method.invoke(null, "0.5.0")); // Major version 0, Minor version 5
+            Assertions.assertTrue((boolean) method.invoke(null, "1.0.0")); // Major version 1
+            Assertions.assertTrue((boolean) method.invoke(null, "0.6.3 (revision: a6a8a22)")); // Major version 0, Minor version 6
+            Assertions.assertFalse((boolean) method.invoke(null, "0.4.2 (revision: 1513b27)")); // Major version 0, Minor version 4
 
             // Invalid version formats
             try {
                 method.invoke(null, "invalid.version"); // Invalid version format
-                Assert.fail("Expected JdbcClientException for invalid version 'invalid.version'");
+                Assertions.fail("Expected JdbcClientException for invalid version 'invalid.version'");
             } catch (Exception e) {
-                Assert.assertTrue(e.getCause() instanceof JdbcClientException);
-                Assert.assertTrue(e.getCause().getMessage().contains("Invalid clickhouse driver version format"));
+                Assertions.assertTrue(e.getCause() instanceof JdbcClientException);
+                Assertions.assertTrue(e.getCause().getMessage().contains("Invalid clickhouse driver version format"));
             }
 
             try {
                 method.invoke(null, ""); // Empty version
-                Assert.fail("Expected JdbcClientException for empty version");
+                Assertions.fail("Expected JdbcClientException for empty version");
             } catch (Exception e) {
-                Assert.assertTrue(e.getCause() instanceof JdbcClientException);
-                Assert.assertTrue(e.getCause().getMessage().contains("Invalid clickhouse driver version format"));
+                Assertions.assertTrue(e.getCause() instanceof JdbcClientException);
+                Assertions.assertTrue(e.getCause().getMessage().contains("Invalid clickhouse driver version format"));
             }
 
             try {
                 method.invoke(null, (Object) null); // Null version
-                Assert.fail("Expected JdbcClientException for null version");
+                Assertions.fail("Expected JdbcClientException for null version");
             } catch (Exception e) {
-                Assert.assertTrue(e.getCause() instanceof JdbcClientException);
-                Assert.assertTrue(e.getCause().getMessage().contains("Driver version cannot be null"));
+                Assertions.assertTrue(e.getCause() instanceof JdbcClientException);
+                Assertions.assertTrue(e.getCause().getMessage().contains("Driver version cannot be null"));
             }
         } catch (Exception e) {
-            Assert.fail("Exception occurred while testing isNewClickHouseDriver: " + e.getMessage());
+            Assertions.fail("Exception occurred while testing isNewClickHouseDriver: " + e.getMessage());
         }
     }
 }

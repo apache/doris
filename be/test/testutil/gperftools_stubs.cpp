@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// doris_be_test on macOS/arm64 links against the system allocator instead of
-// tcmalloc: the Debug test binary's .text exceeds arm64's +/-128MB direct
-// branch reach and Apple's linker emits no branch islands for the prebuilt
-// gperftools archive. These no-op definitions satisfy the few gperftools
-// symbols still referenced unconditionally (HeapAction's HTTP handler, which
-// no unit test invokes, and brpc's periodic MallocExtension release hint).
-// Everywhere else the real libtcmalloc.a provides them and this TU is empty.
+// doris_be_test, benchmark_test and the kuromoji_build_dict tool on macOS/arm64
+// link against the system allocator instead of tcmalloc: their .text exceeds
+// arm64's +/-128MB direct branch reach and Apple's linker emits no branch
+// islands for the prebuilt gperftools archive. These no-op definitions satisfy
+// the few gperftools symbols still referenced unconditionally (HeapAction's
+// HTTP handler, which none of them invokes, and brpc's periodic MallocExtension
+// release hint). Everywhere else the real libtcmalloc.a provides them and this
+// TU is empty.
 
 #if defined(__APPLE__) && defined(__aarch64__)
 

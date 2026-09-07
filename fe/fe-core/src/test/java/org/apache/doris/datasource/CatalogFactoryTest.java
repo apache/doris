@@ -23,8 +23,8 @@ import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.HashMap;
@@ -38,10 +38,10 @@ public class CatalogFactoryTest {
                 1L, "failed_catalog", null, new HashMap<>(), "", connector));
         Mockito.doThrow(new DdlException("validation failed")).when(catalog).checkWhenCreating();
 
-        DdlException exception = Assert.assertThrows(
+        DdlException exception = Assertions.assertThrows(
                 DdlException.class, () -> CatalogFactory.finishCatalogCreation(catalog, false));
 
-        Assert.assertTrue(exception.getMessage().endsWith("validation failed"));
+        Assertions.assertTrue(exception.getMessage().endsWith("validation failed"));
         Mockito.verify(connector).close();
     }
 
@@ -57,10 +57,10 @@ public class CatalogFactoryTest {
             }
         };
 
-        DdlException exception = Assert.assertThrows(
+        DdlException exception = Assertions.assertThrows(
                 DdlException.class, () -> CatalogFactory.finishCatalogCreation(catalog, false));
 
-        Assert.assertTrue(exception.getMessage().endsWith("primary validation failure"));
+        Assertions.assertTrue(exception.getMessage().endsWith("primary validation failure"));
     }
 
     @Test

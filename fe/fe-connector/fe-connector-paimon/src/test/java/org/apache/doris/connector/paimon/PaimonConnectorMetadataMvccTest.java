@@ -634,7 +634,7 @@ public class PaimonConnectorMetadataMvccTest {
         // snapshotSchemaId(-1)) instead of the latest fallback -> the log carries "schemaAt:-1" /
         // "snapshotSchemaId:-1" -> red; resolving the base table instead of the branch -> columns are
         // ["id"] not ["bid","bdt"] -> red.
-        Assertions.assertEquals(Arrays.asList("bid", "bdt"), columnNames(schema),
+        Assertions.assertEquals(Arrays.asList("bid", "bdt", "__paimon_file_path", "__paimon_row_index"), columnNames(schema),
                 "a schemaId=-1 empty-branch snapshot must fall back to the BRANCH table's latest schema");
         Assertions.assertFalse(ops.log.contains("schemaAt:-1"),
                 "a -1 schemaId must NOT call schemaAt");
@@ -830,7 +830,7 @@ public class PaimonConnectorMetadataMvccTest {
         // names / partition_columns all red.
         Assertions.assertEquals(2L, ops.lastSchemaAtArg,
                 "the schema must be resolved at the snapshot's schemaId");
-        Assertions.assertEquals(Arrays.asList("id", "dt"), columnNames(schema),
+        Assertions.assertEquals(Arrays.asList("id", "dt", "__paimon_file_path", "__paimon_row_index"), columnNames(schema),
                 "the at-snapshot schema's columns must be mapped (not the latest single-column schema)");
         Assertions.assertEquals("dt", schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
                 "the at-snapshot schema's partition keys must be emitted under the reserved partition-columns key");
@@ -848,7 +848,7 @@ public class PaimonConnectorMetadataMvccTest {
         // WHY: schemaId < 0 means "unknown schema version" -> the read must fall back to the latest
         // schema, NOT call schemaAt (which would pass an invalid -1 to the SDK). MUTATION: calling
         // schemaAt(-1) instead of the latest path -> the log carries "schemaAt:-1" -> red.
-        Assertions.assertEquals(Collections.singletonList("id"), columnNames(schema),
+        Assertions.assertEquals(Arrays.asList("id", "__paimon_file_path", "__paimon_row_index"), columnNames(schema),
                 "a -1 schemaId must fall back to the latest schema");
         Assertions.assertFalse(ops.log.contains("schemaAt:-1"),
                 "a -1 schemaId must NOT call schemaAt");
@@ -954,9 +954,9 @@ public class PaimonConnectorMetadataMvccTest {
         // the base entry -> (a) branchOps never reads "schemaAt:2" AND (b) branch columns == base [id] -> red.
         Assertions.assertTrue(branchOps.log.contains("schemaAt:2"),
                 "a branch handle at the same schemaId must miss the base entry and read the branch schema");
-        Assertions.assertEquals(Arrays.asList("bid", "bdt"), columnNames(branchSchema),
+        Assertions.assertEquals(Arrays.asList("bid", "bdt", "__paimon_file_path", "__paimon_row_index"), columnNames(branchSchema),
                 "the branch query must return the branch schema, not a base value cached under a branch-blind key");
-        Assertions.assertEquals(Collections.singletonList("id"), columnNames(baseSchema),
+        Assertions.assertEquals(Arrays.asList("id", "__paimon_file_path", "__paimon_row_index"), columnNames(baseSchema),
                 "sanity: the base query returns the base schema");
     }
 
@@ -1143,7 +1143,7 @@ public class PaimonConnectorMetadataMvccTest {
         // ops.table (the base) -> the lastMvccTable assertion red.
         Assertions.assertEquals(2L, ops.lastSchemaAtArg,
                 "the schema must be resolved at the snapshot's schemaId");
-        Assertions.assertEquals(Arrays.asList("bid", "bdt"), columnNames(schema),
+        Assertions.assertEquals(Arrays.asList("bid", "bdt", "__paimon_file_path", "__paimon_row_index"), columnNames(schema),
                 "the at-snapshot schema's columns must come from the BRANCH schema");
         Assertions.assertSame(branch, ops.lastMvccTable,
                 "schemaAt must run against the BRANCH table (resolveTable loaded the branch)");
@@ -1168,7 +1168,7 @@ public class PaimonConnectorMetadataMvccTest {
         // branch handle that is the BRANCH table's rowType (proving resolveTable loaded the branch via
         // the 3-arg branch Identifier, not the base). MUTATION: resolveTable loading the base ->
         // columns are ["id"] not ["bid","bdt"] -> red; calling schemaAt(-1) -> "schemaAt:-1" in log.
-        Assertions.assertEquals(Arrays.asList("bid", "bdt"), columnNames(schema),
+        Assertions.assertEquals(Arrays.asList("bid", "bdt", "__paimon_file_path", "__paimon_row_index"), columnNames(schema),
                 "the latest fallback on a branch handle must resolve the BRANCH table's rowType");
         Assertions.assertFalse(ops.log.contains("schemaAt:-1"),
                 "a -1 schemaId must NOT call schemaAt");

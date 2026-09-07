@@ -26,9 +26,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.TMetaScanRange;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -46,7 +46,7 @@ public class FrontendsTableValuedFunctionTest {
     private MockedStatic<Env> mockedEnvStatic;
     private MockedStatic<ConnectContext> mockedCtxStatic;
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedCtxStatic != null) {
             mockedCtxStatic.close();
@@ -77,7 +77,7 @@ public class FrontendsTableValuedFunctionTest {
         mockContext("self-fe-host", "connected-fe-host");
         FrontendsTableValuedFunction tvf = new FrontendsTableValuedFunction(new HashMap<>());
         TMetaScanRange range = tvf.getMetaScanRange(Collections.emptyList());
-        Assert.assertEquals("connected-fe-host", range.getFrontendsParams().getCurrentConnectedFeHost());
+        Assertions.assertEquals("connected-fe-host", range.getFrontendsParams().getCurrentConnectedFeHost());
     }
 
     @Test
@@ -85,6 +85,6 @@ public class FrontendsTableValuedFunctionTest {
         mockContext("self-fe-host", "");
         FrontendsTableValuedFunction tvf = new FrontendsTableValuedFunction(new HashMap<>());
         TMetaScanRange range = tvf.getMetaScanRange(Collections.emptyList());
-        Assert.assertEquals("self-fe-host", range.getFrontendsParams().getCurrentConnectedFeHost());
+        Assertions.assertEquals("self-fe-host", range.getFrontendsParams().getCurrentConnectedFeHost());
     }
 }

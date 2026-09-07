@@ -23,6 +23,7 @@
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Status_types.h>
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -75,9 +76,7 @@
 #include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/jdbc_jni_reader.h"
 #include "format/table/max_compute_jni_reader.h"
-#include "format/table/paimon_cpp_reader.h"
 #include "format/table/paimon_jni_reader.h"
-#include "format/table/paimon_predicate_converter.h"
 #include "format/table/paimon_reader.h"
 #include "format/table/partition_column_filler.h"
 #include "format/table/remote_doris_reader.h"
@@ -1084,50 +1083,11 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                const auto& paimon_params = range.table_format_params.paimon_params;
-                bool use_paimon_cpp_reader = false;
-                if (paimon_params.__isset.reader_type) {
-                    switch (paimon_params.reader_type) {
-                    case TPaimonReaderType::PAIMON_CPP:
-                        use_paimon_cpp_reader = true;
-                        break;
-                    case TPaimonReaderType::PAIMON_JNI:
-                        break;
-                    case TPaimonReaderType::PAIMON_NATIVE:
-                        return Status::InternalError(
-                                "invalid PAIMON_NATIVE reader_type for paimon FORMAT_JNI split, "
-                                "possibly caused by FE/BE protocol mismatch");
-                    default:
-                        return Status::InternalError(
-                                "unknown paimon reader_type for paimon FORMAT_JNI split, possibly "
-                                "caused by FE/BE protocol mismatch");
-                    }
-                } else {
-                    // TODO: Remove this fallback after all FE versions set TPaimonReaderType.
-                    use_paimon_cpp_reader =
-                            _state->query_options().__isset.enable_paimon_cpp_reader &&
-                            _state->query_options().enable_paimon_cpp_reader;
-                }
-                if (use_paimon_cpp_reader) {
-                    auto cpp_reader = PaimonCppReader::create_unique(_file_slot_descs, _state,
-                                                                     _profile, range, _params);
-                    if (!_is_load && !_push_down_conjuncts.empty()) {
-                        PaimonPredicateConverter predicate_converter(_file_slot_descs, _state);
-                        auto predicate = predicate_converter.build(_push_down_conjuncts);
-                        if (predicate) {
-                            cpp_reader->set_predicate(std::move(predicate));
-                        }
-                    }
-                    init_status =
-                            static_cast<GenericReader*>(cpp_reader.get())->init_reader(&jni_ctx);
-                    _cur_reader = std::move(cpp_reader);
-                } else {
-                    auto paimon_reader = PaimonJniReader::create_unique(_file_slot_descs, _state,
-                                                                        _profile, range, _params);
-                    init_status =
-                            static_cast<GenericReader*>(paimon_reader.get())->init_reader(&jni_ctx);
-                    _cur_reader = std::move(paimon_reader);
-                }
+                auto paimon_reader = PaimonJniReader::create_unique(_file_slot_descs, _state,
+                                                                    _profile, range, _params);
+                init_status =
+                        static_cast<GenericReader*>(paimon_reader.get())->init_reader(&jni_ctx);
+                _cur_reader = std::move(paimon_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "hudi") {
                 auto hudi_reader = HudiJniReader::create_unique(

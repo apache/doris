@@ -34,10 +34,15 @@
 #include <cstddef>
 #include <cstring>
 
+// Value-style feature flag: the BE compiles with -Wundef -Werror, so it must be
+// defined on every target. Non-x86 builds get 0 and keep only the portable
+// slice-by-8 reference path (the hw_* seams then fall back to it).
 #if defined(__x86_64__) || defined(_M_X64)
 #define SNII_CRC32C_X86 1
 #include <cpuid.h>     // __get_cpuid, bit_SSE4_2
 #include <nmmintrin.h> // _mm_crc32_u8/u32/u64 (SSE4.2)
+#else
+#define SNII_CRC32C_X86 0
 #endif
 
 namespace doris::snii {

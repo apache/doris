@@ -109,7 +109,7 @@ public class PlanVisitorTest extends TestWithFeService {
                         nereidsPlanner -> {
                             // Check nondeterministic collect
                             List<Expression> nondeterministicFunctionSet =
-                                    MaterializedViewUtils.extractNondeterministicFunction(
+                                    MaterializedViewUtils.extractMvNondeterministicFunction(
                                             nereidsPlanner.getAnalyzedPlan());
                             Assertions.assertEquals(3, nondeterministicFunctionSet.size());
                             Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof Now);
@@ -127,7 +127,7 @@ public class PlanVisitorTest extends TestWithFeService {
                         nereidsPlanner -> {
                             // Check nondeterministic collect
                             List<Expression> nondeterministicFunctionSet =
-                                    MaterializedViewUtils.extractNondeterministicFunction(
+                                    MaterializedViewUtils.extractMvNondeterministicFunction(
                                             nereidsPlanner.getAnalyzedPlan());
                             Assertions.assertEquals(1, nondeterministicFunctionSet.size());
                             Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof CurrentDate);
@@ -143,7 +143,7 @@ public class PlanVisitorTest extends TestWithFeService {
                         nereidsPlanner -> {
                             // Check nondeterministic collect
                             List<Expression> nondeterministicFunctionSet =
-                                    MaterializedViewUtils.extractNondeterministicFunction(
+                                    MaterializedViewUtils.extractMvNondeterministicFunction(
                                             nereidsPlanner.getAnalyzedPlan());
                             Assertions.assertEquals(1, nondeterministicFunctionSet.size());
                             Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof CurrentDate);
@@ -159,7 +159,7 @@ public class PlanVisitorTest extends TestWithFeService {
                         nereidsPlanner -> {
                             // Check nondeterministic collect
                             List<Expression> nondeterministicFunctionSet =
-                                    MaterializedViewUtils.extractNondeterministicFunction(
+                                    MaterializedViewUtils.extractMvNondeterministicFunction(
                                             nereidsPlanner.getAnalyzedPlan());
                             Assertions.assertEquals(0, nondeterministicFunctionSet.size());
                         });
@@ -173,7 +173,7 @@ public class PlanVisitorTest extends TestWithFeService {
                         nereidsPlanner -> {
                             // Check nondeterministic collect
                             List<Expression> nondeterministicFunctionSet =
-                                    MaterializedViewUtils.extractNondeterministicFunction(
+                                    MaterializedViewUtils.extractMvNondeterministicFunction(
                                             nereidsPlanner.getAnalyzedPlan());
                             Assertions.assertEquals(1, nondeterministicFunctionSet.size());
                             Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof UnixTimestamp);

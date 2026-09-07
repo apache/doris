@@ -21,8 +21,10 @@
 #include <butil/logging.h>
 #include <gen_cpp/BackendService_types.h>
 #include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
 #include <gflags/gflags.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>

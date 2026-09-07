@@ -19,8 +19,8 @@ package org.apache.doris.persist.gson;
 
 import org.apache.doris.thrift.TStorageFormat;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class ThriftToJsonTest {
 
@@ -30,6 +30,6 @@ public class ThriftToJsonTest {
         String serializeString = GsonUtils.GSON.toJson(TStorageFormat.V1);
         // read
         TStorageFormat tStorageFormat = GsonUtils.GSON.fromJson(serializeString, TStorageFormat.class);
-        Assert.assertEquals(TStorageFormat.V1, tStorageFormat);
+        Assertions.assertEquals(TStorageFormat.V1, tStorageFormat);
     }
 }

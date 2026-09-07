@@ -24,10 +24,10 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.Role;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -44,13 +44,13 @@ public class LdapManagerTest {
 
     private LdapClient ldapClient = Mockito.mock(LdapClient.class);
 
-    @Before
+    @BeforeEach
     public void setUp() {
         Config.authentication_type = "ldap";
         LdapConfig.ldap_default_roles = new String[0];
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         LdapConfig.ldap_allow_empty_pass = false;
     }
@@ -90,13 +90,13 @@ public class LdapManagerTest {
         Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
         mockClient(true, true);
         LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
-        Assert.assertNotNull(ldapUserInfo);
+        Assertions.assertNotNull(ldapUserInfo);
         String paloRoleString = ldapUserInfo.getRoles().toString();
-        Assert.assertTrue(paloRoleString.contains("information_schema"));
-        Assert.assertTrue(paloRoleString.contains("Select_priv"));
+        Assertions.assertTrue(paloRoleString.contains("information_schema"));
+        Assertions.assertTrue(paloRoleString.contains("Select_priv"));
 
         mockClient(false, false);
-        Assert.assertNull(ldapManager.getUserInfo(USER2));
+        Assertions.assertNull(ldapManager.getUserInfo(USER2));
     }
 
     @Test
@@ -104,14 +104,14 @@ public class LdapManagerTest {
         LdapManager ldapManager = new LdapManager();
         Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
         mockClient(true, true);
-        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
+        Assertions.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
         LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
-        Assert.assertNotNull(ldapUserInfo);
-        Assert.assertTrue(ldapUserInfo.isSetPasswd());
-        Assert.assertEquals("123", ldapUserInfo.getPasswd());
+        Assertions.assertNotNull(ldapUserInfo);
+        Assertions.assertTrue(ldapUserInfo.isSetPasswd());
+        Assertions.assertEquals("123", ldapUserInfo.getPasswd());
 
         mockClient(true, false);
-        Assert.assertFalse(ldapManager.checkUserPasswd(USER2, "123"));
+        Assertions.assertFalse(ldapManager.checkUserPasswd(USER2, "123"));
     }
 
     @Test
@@ -121,11 +121,11 @@ public class LdapManagerTest {
         LdapManager ldapManager = new LdapManager();
         Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
         mockClient(true, true);
-        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, ""));
+        Assertions.assertTrue(ldapManager.checkUserPasswd(USER1, ""));
         LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
-        Assert.assertNotNull(ldapUserInfo);
-        Assert.assertTrue(ldapUserInfo.isSetPasswd());
-        Assert.assertEquals("", ldapUserInfo.getPasswd());
+        Assertions.assertNotNull(ldapUserInfo);
+        Assertions.assertTrue(ldapUserInfo.isSetPasswd());
+        Assertions.assertEquals("", ldapUserInfo.getPasswd());
     }
 
     @Test
@@ -136,13 +136,13 @@ public class LdapManagerTest {
         LdapManager ldapManager = new LdapManager();
         Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
         mockClient(true, true);
-        Assert.assertFalse(ldapManager.checkUserPasswd(USER1, ""));
+        Assertions.assertFalse(ldapManager.checkUserPasswd(USER1, ""));
 
-        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
+        Assertions.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
         LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
-        Assert.assertNotNull(ldapUserInfo);
-        Assert.assertTrue(ldapUserInfo.isSetPasswd());
-        Assert.assertEquals("123", ldapUserInfo.getPasswd());
+        Assertions.assertNotNull(ldapUserInfo);
+        Assertions.assertTrue(ldapUserInfo.isSetPasswd());
+        Assertions.assertEquals("123", ldapUserInfo.getPasswd());
     }
 
     @Test
@@ -152,14 +152,14 @@ public class LdapManagerTest {
         Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
         mockClient(true, true);
         //empty password succeeds and gets cached while the flag is still enabled.
-        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, ""));
-        Assert.assertEquals("", ldapManager.getUserInfo(USER1).getPasswd());
+        Assertions.assertTrue(ldapManager.checkUserPasswd(USER1, ""));
+        Assertions.assertEquals("", ldapManager.getUserInfo(USER1).getPasswd());
 
         //once disabled, the cached entry must not short-circuit the new check
         LdapConfig.ldap_allow_empty_pass = false;
-        Assert.assertFalse(ldapManager.checkUserPasswd(USER1, ""));
+        Assertions.assertFalse(ldapManager.checkUserPasswd(USER1, ""));
         //a non-empty password still authenticates against the same cached entry
-        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
+        Assertions.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
     }
 
     @Test
@@ -171,7 +171,7 @@ public class LdapManagerTest {
         mockClient(true, true);
 
         LdapManager spyManager = Mockito.spy(ldapManager);
-        Assert.assertFalse(spyManager.checkUserPasswd(USER1, ""));
+        Assertions.assertFalse(spyManager.checkUserPasswd(USER1, ""));
         Mockito.verify(spyManager, Mockito.times(0)).getUserInfo(USER1);
     }
 
@@ -182,7 +182,7 @@ public class LdapManagerTest {
         LdapManager ldapManager = new LdapManager();
         Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
         mockClient(true, true);
-        Assert.assertFalse(ldapManager.checkUserPasswd(USER1, null));
+        Assertions.assertFalse(ldapManager.checkUserPasswd(USER1, null));
     }
 
     @Test
@@ -197,10 +197,10 @@ public class LdapManagerTest {
             mockAuth(envMockedStatic, ldapGroupRole, ldapDefaultRole);
 
             LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
-            Assert.assertNotNull(ldapUserInfo);
-            Assert.assertFalse(ldapUserInfo.getRoles().contains(ldapGroupRole));
-            Assert.assertTrue(ldapUserInfo.getRoles().contains(ldapDefaultRole));
-            Assert.assertEquals(2, ldapUserInfo.getRoles().size());
+            Assertions.assertNotNull(ldapUserInfo);
+            Assertions.assertFalse(ldapUserInfo.getRoles().contains(ldapGroupRole));
+            Assertions.assertTrue(ldapUserInfo.getRoles().contains(ldapDefaultRole));
+            Assertions.assertEquals(2, ldapUserInfo.getRoles().size());
         }
     }
 
@@ -216,10 +216,10 @@ public class LdapManagerTest {
             mockAuth(envMockedStatic, ldapGroupRole, ldapDefaultRole, false);
 
             LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
-            Assert.assertNotNull(ldapUserInfo);
-            Assert.assertFalse(ldapUserInfo.getRoles().contains(ldapGroupRole));
-            Assert.assertTrue(ldapUserInfo.getRoles().contains(ldapDefaultRole));
-            Assert.assertEquals(2, ldapUserInfo.getRoles().size());
+            Assertions.assertNotNull(ldapUserInfo);
+            Assertions.assertFalse(ldapUserInfo.getRoles().contains(ldapGroupRole));
+            Assertions.assertTrue(ldapUserInfo.getRoles().contains(ldapDefaultRole));
+            Assertions.assertEquals(2, ldapUserInfo.getRoles().size());
         }
     }
 
@@ -235,10 +235,10 @@ public class LdapManagerTest {
             mockAuth(envMockedStatic, ldapGroupRole, ldapDefaultRole);
 
             LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
-            Assert.assertNotNull(ldapUserInfo);
-            Assert.assertTrue(ldapUserInfo.getRoles().contains(ldapGroupRole));
-            Assert.assertTrue(ldapUserInfo.getRoles().contains(ldapDefaultRole));
-            Assert.assertEquals(3, ldapUserInfo.getRoles().size());
+            Assertions.assertNotNull(ldapUserInfo);
+            Assertions.assertTrue(ldapUserInfo.getRoles().contains(ldapGroupRole));
+            Assertions.assertTrue(ldapUserInfo.getRoles().contains(ldapDefaultRole));
+            Assertions.assertEquals(3, ldapUserInfo.getRoles().size());
         }
     }
 
@@ -254,10 +254,10 @@ public class LdapManagerTest {
             mockAuth(envMockedStatic, ldapGroupRole, ldapDefaultRole);
 
             LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
-            Assert.assertNotNull(ldapUserInfo);
-            Assert.assertTrue(ldapUserInfo.getRoles().contains(ldapGroupRole));
-            Assert.assertTrue(ldapUserInfo.getRoles().contains(ldapDefaultRole));
-            Assert.assertEquals(3, ldapUserInfo.getRoles().size());
+            Assertions.assertNotNull(ldapUserInfo);
+            Assertions.assertTrue(ldapUserInfo.getRoles().contains(ldapGroupRole));
+            Assertions.assertTrue(ldapUserInfo.getRoles().contains(ldapDefaultRole));
+            Assertions.assertEquals(3, ldapUserInfo.getRoles().size());
         }
     }
 }

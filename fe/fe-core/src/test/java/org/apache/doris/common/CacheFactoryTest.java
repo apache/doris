@@ -17,7 +17,7 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.statistics.BasicAsyncCacheLoader;
+import org.apache.doris.statistics.cache.BasicAsyncCacheLoader;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.LoadingCache;

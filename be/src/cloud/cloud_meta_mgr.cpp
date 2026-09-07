@@ -25,6 +25,7 @@
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
@@ -58,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
@@ -125,6 +127,35 @@ public class NereidsParserTest extends ParserTestBase {
             e.printStackTrace();
         }
         Assertions.assertNull(exceptionOccurred);
+    }
+
+    @Test
+    public void testRefreshMtmvDryRunLimitClause() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        RefreshMTMVCommand noLimit = (RefreshMTMVCommand) nereidsParser.parseSingle(
+                "REFRESH MATERIALIZED VIEW mv INCREMENTAL WITH DRY RUN");
+        Assertions.assertTrue(noLimit.isDryRun());
+        Assertions.assertTrue(noLimit.getDryRunLimit().isEmpty());
+
+        RefreshMTMVCommand limit = (RefreshMTMVCommand) nereidsParser.parseSingle(
+                "REFRESH MATERIALIZED VIEW mv INCREMENTAL WITH DRY RUN LIMIT 10");
+        Assertions.assertEquals(new IvmDryRunLimit(0, 10).toString(),
+                limit.getDryRunLimit().get().toString());
+
+        RefreshMTMVCommand offsetLimit = (RefreshMTMVCommand) nereidsParser.parseSingle(
+                "REFRESH MATERIALIZED VIEW mv INCREMENTAL WITH DRY RUN LIMIT 3, 10");
+        Assertions.assertEquals(new IvmDryRunLimit(3, 10).toString(),
+                offsetLimit.getDryRunLimit().get().toString());
+
+        RefreshMTMVCommand offsetKeywordLimit = (RefreshMTMVCommand) nereidsParser.parseSingle(
+                "REFRESH MATERIALIZED VIEW mv INCREMENTAL WITH DRY RUN LIMIT 10 OFFSET 3");
+        Assertions.assertEquals(new IvmDryRunLimit(3, 10).toString(),
+                offsetKeywordLimit.getDryRunLimit().get().toString());
+
+        RefreshMTMVCommand ordinaryRefresh = (RefreshMTMVCommand) nereidsParser.parseSingle(
+                "REFRESH MATERIALIZED VIEW mv INCREMENTAL");
+        Assertions.assertFalse(ordinaryRefresh.isDryRun());
     }
 
     @Test
@@ -300,7 +331,7 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testPostProcessor() {
+    public void testQuotedIdentifierNormalization() {
         parsePlan("select `AD``D` from t1 where a = 1")
                 .matches(
                         logicalProject().when(p -> "AD`D".equals(p.getProjects().get(0).getName()))
@@ -965,14 +996,23 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testCreateFunction() {
         NereidsParser nereidsParser = new NereidsParser();
-        String sql = "create session tables function func_a (int, ...) returns boolean properties('k'='v')";
-        nereidsParser.parseSingle(sql);
+        nereidsParser.parseSingle(
+                "create session tables function func_a(int) returns boolean properties('k'='v')");
+        nereidsParser.parseSingle("create local aggregate function func_a(int) returns boolean "
+                + "intermediate varchar properties('k'='v')");
+        nereidsParser.parseSingle("create alias function func_a(int) with parameter(id) as abs(id)");
 
-        sql = "create local aggregate function func_a (int, ...) returns boolean intermediate varchar properties('k'='v')";
-        nereidsParser.parseSingle(sql);
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "create function func_a(int, ...) returns boolean properties('k'='v')"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "create aggregate function func_a(int, ...) returns boolean properties('k'='v')"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "create tables function func_a(int, ...) returns boolean properties('k'='v')"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "create alias function func_a(int, ...) with parameter(id) as abs(id)"));
 
-        sql = "create alias function func_a (int) with parameter(id) as abs(id)";
-        nereidsParser.parseSingle(sql);
+        nereidsParser.parseSingle("drop function func_a(int, ...)");
+        nereidsParser.parseSingle("show create function func_a(int, ...)");
     }
 
     @Test

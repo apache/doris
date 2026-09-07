@@ -439,7 +439,7 @@ struct TQueryOptions {
   195: optional bool enable_left_semi_direct_return_opt;
 
   200: optional bool enable_adjust_conjunct_order_by_cost;
-  // Use paimon-cpp to read Paimon splits on BE
+  // Deprecated: the paimon-cpp reader has been removed. Retained for wire compatibility.
   201: optional bool enable_paimon_cpp_reader = false;
 
   // Whether all fragments of this query are assigned to a single backend.

@@ -17,6 +17,7 @@
 
 #include "storage/index/zone_map/zone_map_index.h"
 
+#include <fmt/format.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -24,7 +25,9 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "common/config.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "core/decimal12.h"
@@ -979,6 +982,184 @@ TEST_F(ColumnZoneMapTest, LegacyUnparsableDoubleBoundDegradesToPassAll) {
         EXPECT_EQ(zm.min_value.get<TYPE_DOUBLE>(), std::numeric_limits<double>::lowest());
         EXPECT_EQ(zm.max_value.get<TYPE_DOUBLE>(), std::numeric_limits<double>::max());
     }
+}
+
+// Every value written to a FLOAT or DOUBLE zone map is one of seven shapes, and only an ordinary
+// finite value moves the recorded bounds -- NaN and infinity go to the flags instead, and
+// DBL_MAX/-DBL_MAX happen to be the very values the bounds start from. Walk every non-empty subset
+// of the seven and check the one property a zone map has to hold: either it says it is unusable,
+// or its bounds cover every value the page holds, so nothing it contains is ever pruned away.
+template <PrimitiveType Type>
+void test_every_value_combination(const std::string& test_dir) {
+    using CppType = typename PrimitiveTypeTraits<Type>::CppType;
+    constexpr bool is_double = Type == TYPE_DOUBLE;
+    const std::vector<std::pair<const char*, CppType>> candidates = {
+            {"NaN", std::numeric_limits<CppType>::quiet_NaN()},
+            {"+inf", std::numeric_limits<CppType>::infinity()},
+            {"-inf", -std::numeric_limits<CppType>::infinity()},
+            {"max", std::numeric_limits<CppType>::max()},
+            {"lowest", std::numeric_limits<CppType>::lowest()},
+            {"1.5", static_cast<CppType>(1.5)},
+            {"20.5", static_cast<CppType>(20.5)}};
+
+    // Doris orders NaN above every number, so rank it beyond infinity to compare bounds the way
+    // the scan does.
+    auto rank = [](CppType v) {
+        return std::isnan(v) ? std::numeric_limits<double>::infinity() : static_cast<double>(v);
+    };
+    auto covers = [&](CppType low, CppType high, CppType v) {
+        if (std::isnan(v)) {
+            return std::isnan(high);
+        }
+        return (std::isnan(low) ? false : rank(low) <= rank(v)) &&
+               (std::isnan(high) ? true : rank(v) <= rank(high));
+    };
+
+    auto fs = io::global_local_filesystem();
+    auto column = create_float_column < is_double ? FieldType::OLAP_FIELD_TYPE_DOUBLE
+                                                  : FieldType::OLAP_FIELD_TYPE_FLOAT > (0, true);
+    const TabletColumn* field = &(*column);
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(Type, false);
+
+    size_t pass_all_count = 0;
+    for (uint32_t mask = 1; mask < (1u << candidates.size()); ++mask) {
+        std::vector<CppType> values;
+        std::string label;
+        for (size_t i = 0; i < candidates.size(); ++i) {
+            if (mask & (1u << i)) {
+                values.push_back(candidates[i].second);
+                label += (label.empty() ? "" : ",");
+                label += candidates[i].first;
+            }
+        }
+
+        std::string filename =
+                fmt::format("{}/every_value_{}_{}", test_dir, is_double ? "double" : "float", mask);
+        std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
+        static_cast<void>(ZoneMapIndexWriter::create(data_type_ptr, field, builder));
+        // Stay above zone_map_row_num_threshold so the writer does not invalidate the page for
+        // being small, which would hide what is being tested here.
+        const size_t rows = config::zone_map_row_num_threshold + 5;
+        for (size_t i = 0; i < rows; ++i) {
+            CppType value = values[i % values.size()];
+            builder->add_values((const uint8_t*)&value, 1);
+        }
+        ASSERT_TRUE(builder->flush().ok()) << label;
+
+        ColumnIndexMetaPB index_meta;
+        {
+            io::FileWriterPtr file_writer;
+            ASSERT_TRUE(fs->create_file(filename, &file_writer).ok()) << label;
+            ASSERT_TRUE(builder->finish(file_writer.get(), &index_meta).ok()) << label;
+            ASSERT_TRUE(file_writer->close().ok()) << label;
+        }
+
+        ZoneMap zone_map;
+        ASSERT_TRUE(ZoneMap::from_proto(index_meta.zone_map_index().segment_zone_map(),
+                                        data_type_ptr, zone_map)
+                            .ok())
+                << label;
+        ASSERT_TRUE(zone_map.has_not_null) << label;
+
+        if (zone_map.pass_all) {
+            ++pass_all_count;
+            continue;
+        }
+        auto low = zone_map.min_value.get<Type>();
+        auto high = zone_map.max_value.get<Type>();
+        for (auto value : values) {
+            EXPECT_TRUE(covers(low, high, value))
+                    << "values {" << label << "} left bounds that do not cover " << value;
+        }
+    }
+
+    // A page reports no bounds exactly when it held no finite value, which is every non-empty
+    // subset of NaN, +inf and -inf: seven of the 127.
+    EXPECT_EQ(7, pass_all_count) << (is_double ? "double" : "float");
+}
+
+TEST_F(ColumnZoneMapTest, EveryValueCombinationDouble) {
+    test_every_value_combination<TYPE_DOUBLE>(kTestDir);
+}
+
+TEST_F(ColumnZoneMapTest, EveryValueCombinationFloat) {
+    test_every_value_combination<TYPE_FLOAT>(kTestDir);
+}
+
+TEST_F(ColumnZoneMapTest, ReversedBoundsDegradeToPassAll) {
+    auto make_zone_map = [](const std::string& min, const std::string& max) {
+        ZoneMapPB pb;
+        pb.set_min(min);
+        pb.set_max(max);
+        pb.set_has_null(false);
+        pb.set_has_not_null(true);
+        pb.set_pass_all(false);
+        return pb;
+    };
+    // What a page of only NaN leaves behind before 4.0: bounds that never moved off the values
+    // the writer starts from, and that round-trip exactly, so only the reversal gives them away.
+    const std::string double_lowest = "-1.7976931348623157e+308";
+    const std::string double_highest = "1.7976931348623157e+308";
+    const std::string float_lowest = "-3.4028235e+38";
+    const std::string float_highest = "3.4028235e+38";
+
+    for (bool nullable : {false, true}) {
+        for (auto type : {TYPE_DOUBLE, TYPE_FLOAT}) {
+            const bool is_double = type == TYPE_DOUBLE;
+            auto data_type = DataTypeFactory::instance().create_data_type(type, nullable);
+            const auto& lowest = is_double ? double_lowest : float_lowest;
+            const auto& highest = is_double ? double_highest : float_highest;
+
+            ZoneMap reversed;
+            ASSERT_TRUE(
+                    ZoneMap::from_proto(make_zone_map(highest, lowest), data_type, reversed).ok());
+            EXPECT_TRUE(reversed.pass_all) << "nullable=" << nullable << ", double=" << is_double;
+
+            // The same bounds the right way round stay usable.
+            ZoneMap sound;
+            ASSERT_TRUE(ZoneMap::from_proto(make_zone_map(lowest, highest), data_type, sound).ok());
+            EXPECT_FALSE(sound.pass_all) << "nullable=" << nullable << ", double=" << is_double;
+        }
+    }
+
+    // 4.0 and later add a flag for what the page held instead, but the bounds are still the
+    // reversed pair whatever the flags say.
+    auto double_type = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
+    for (bool nan : {false, true}) {
+        for (bool pos_inf : {false, true}) {
+            for (bool neg_inf : {false, true}) {
+                auto pb = make_zone_map(double_highest, double_lowest);
+                pb.set_has_nan(nan);
+                pb.set_has_positive_inf(pos_inf);
+                pb.set_has_negative_inf(neg_inf);
+                ZoneMap flagged;
+                ASSERT_TRUE(ZoneMap::from_proto(pb, double_type, flagged).ok());
+                EXPECT_TRUE(flagged.pass_all)
+                        << "nan=" << nan << ", +inf=" << pos_inf << ", -inf=" << neg_inf;
+            }
+        }
+    }
+
+    // 4.0 and 4.1 wrote bounds with digits10 + 1 digits, so a FLOAT page of only NaN recorded
+    // 3.402823e+38 rather than FLT_MAX. It parses back finite and no longer equals the value the
+    // writer starts from -- the reversal survives the lossy round trip where the value does not.
+    auto truncated = make_zone_map("3.402823e+38", "-3.402823e+38");
+    truncated.set_has_nan(true);
+    ZoneMap from_4_0;
+    ASSERT_TRUE(ZoneMap::from_proto(truncated,
+                                    DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false),
+                                    from_4_0)
+                        .ok());
+    EXPECT_TRUE(from_4_0.pass_all);
+
+    // A flag on top of bounds that do describe finite values leaves the zone map usable.
+    auto pb = make_zone_map("1.5", "20.5");
+    pb.set_has_nan(true);
+    ZoneMap partly_nan;
+    ASSERT_TRUE(ZoneMap::from_proto(pb, double_type, partly_nan).ok());
+    EXPECT_FALSE(partly_nan.pass_all);
+    EXPECT_TRUE(std::isnan(partly_nan.max_value.get<TYPE_DOUBLE>()));
+    EXPECT_EQ(partly_nan.min_value.get<TYPE_DOUBLE>(), 1.5);
 }
 
 TabletColumnPtr create_timestamptz_column(int32_t id, bool is_nullable) {

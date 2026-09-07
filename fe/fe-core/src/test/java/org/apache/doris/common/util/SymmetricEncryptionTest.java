@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.util;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class SymmetricEncryptionTest {
 
@@ -34,6 +34,6 @@ public class SymmetricEncryptionTest {
         byte[] iv = SymmetricEncryption.generateIv();
         String passwdEncrypted = SymmetricEncryption.encrypt(password, key, iv);
         String passwdDecrypted = SymmetricEncryption.decrypt(passwdEncrypted, key, iv);
-        Assert.assertEquals(password, passwdDecrypted);
+        Assertions.assertEquals(password, passwdDecrypted);
     }
 }

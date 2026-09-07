@@ -31,10 +31,10 @@ import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.Result;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementRequest;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandStatementQuery;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
@@ -46,7 +46,7 @@ public class DorisFlightSqlProducerTest {
 
     private boolean prevRunningUnitTest;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         // FlightSqlConnectContext.init() only reaches Env when this is false; keep it true so the
         // context can be built without a running FE.
@@ -54,7 +54,7 @@ public class DorisFlightSqlProducerTest {
         FeConstants.runningUnitTest = true;
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         FeConstants.runningUnitTest = prevRunningUnitTest;
     }
@@ -79,7 +79,7 @@ public class DorisFlightSqlProducerTest {
         // so allocator bookkeeping is exercised for real instead of mocked away.
         FlightSqlConnectContext connectContext = new FlightSqlConnectContext("test-peer-identity");
         FlightSqlChannel channel = connectContext.getFlightSqlChannel();
-        Assert.assertEquals("channel allocator should start empty", 0L, channel.getAllocatedMemory());
+        Assertions.assertEquals(0L, channel.getAllocatedMemory(), "channel allocator should start empty");
 
         FlightSessionsManager sessionsManager = new FlightSessionsManager() {
             @Override
@@ -131,17 +131,15 @@ public class DorisFlightSqlProducerTest {
                 ActionCreatePreparedStatementRequest request = ActionCreatePreparedStatementRequest.newBuilder()
                         .setQuery("select * from t where id = " + i).build();
                 producer.createPreparedStatement(request, callContext, listener);
-                Assert.assertTrue("createPreparedStatement #" + i + " did not finish in time",
-                        finished.await(30, TimeUnit.SECONDS));
+                Assertions.assertTrue(finished.await(30, TimeUnit.SECONDS), "createPreparedStatement #" + i + " did not finish in time");
             }
 
             // Guard against a false pass: if a prepare failed before reaching the allocation, no buffer
             // would be leaked and the memory assertion below could not detect a regression.
-            Assert.assertEquals("no createPreparedStatement call should fail", 0, errors.get());
+            Assertions.assertEquals(0, errors.get(), "no createPreparedStatement call should fail");
             // Every temporary VectorSchemaRoot must have been closed, so the channel's Arrow allocator
             // is back to zero. Reverting the fix leaves `rounds` ResultMeta buffers allocated here.
-            Assert.assertEquals("createPreparedStatement leaked off-heap memory in the channel allocator",
-                    0L, channel.getAllocatedMemory());
+            Assertions.assertEquals(0L, channel.getAllocatedMemory(), "createPreparedStatement leaked off-heap memory in the channel allocator");
         } finally {
             producer.close();
         }
@@ -189,7 +187,7 @@ public class DorisFlightSqlProducerTest {
 
             try {
                 producer.getFlightInfoStatement(request, callContext, descriptor);
-                Assert.fail("expected the schema fetch failure to propagate as a CallStatus");
+                Assertions.fail("expected the schema fetch failure to propagate as a CallStatus");
             } catch (Throwable expected) {
                 // GetFlightInfo is expected to fail; the point of the test is what happens to the
                 // deferred coordinator, not the thrown status itself.

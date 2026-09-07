@@ -34,10 +34,10 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Assert;
-import org.junit.Assume;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -65,7 +65,7 @@ public class S3ResourceTest {
     private String s3Bucket;
     private Map<String, String> s3Properties;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         name = "s3";
         type = "s3";
@@ -104,16 +104,16 @@ public class S3ResourceTest {
             createResourceCommand.getInfo().validate();
 
             S3Resource s3Resource = (S3Resource) Resource.fromCommand(createResourceCommand);
-            Assert.assertEquals(name, s3Resource.getName());
-            Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
-            Assert.assertEquals(s3Endpoint, s3Resource.getProperty(S3ResourceCompat.ENDPOINT));
-            Assert.assertEquals(s3Region, s3Resource.getProperty(S3ResourceCompat.REGION));
-            Assert.assertEquals(s3RootPath, s3Resource.getProperty(S3ResourceCompat.ROOT_PATH));
-            Assert.assertEquals(s3AccessKey, s3Resource.getProperty(S3ResourceCompat.ACCESS_KEY));
-            Assert.assertEquals(s3SecretKey, s3Resource.getProperty(S3ResourceCompat.SECRET_KEY));
-            Assert.assertEquals(s3MaxConnections, s3Resource.getProperty(S3ResourceCompat.MAX_CONNECTIONS));
-            Assert.assertEquals(s3ReqTimeoutMs, s3Resource.getProperty(S3ResourceCompat.REQUEST_TIMEOUT_MS));
-            Assert.assertEquals(s3ConnTimeoutMs, s3Resource.getProperty(S3ResourceCompat.CONNECTION_TIMEOUT_MS));
+            Assertions.assertEquals(name, s3Resource.getName());
+            Assertions.assertEquals(type, s3Resource.getType().name().toLowerCase());
+            Assertions.assertEquals(s3Endpoint, s3Resource.getProperty(S3ResourceCompat.ENDPOINT));
+            Assertions.assertEquals(s3Region, s3Resource.getProperty(S3ResourceCompat.REGION));
+            Assertions.assertEquals(s3RootPath, s3Resource.getProperty(S3ResourceCompat.ROOT_PATH));
+            Assertions.assertEquals(s3AccessKey, s3Resource.getProperty(S3ResourceCompat.ACCESS_KEY));
+            Assertions.assertEquals(s3SecretKey, s3Resource.getProperty(S3ResourceCompat.SECRET_KEY));
+            Assertions.assertEquals(s3MaxConnections, s3Resource.getProperty(S3ResourceCompat.MAX_CONNECTIONS));
+            Assertions.assertEquals(s3ReqTimeoutMs, s3Resource.getProperty(S3ResourceCompat.REQUEST_TIMEOUT_MS));
+            Assertions.assertEquals(s3ConnTimeoutMs, s3Resource.getProperty(S3ResourceCompat.CONNECTION_TIMEOUT_MS));
 
             // with no default settings
             s3Properties.put(S3ResourceCompat.MAX_CONNECTIONS, "100");
@@ -125,36 +125,38 @@ public class S3ResourceTest {
             createResourceCommand.getInfo().validate();
 
             s3Resource = (S3Resource) Resource.fromCommand(createResourceCommand);
-            Assert.assertEquals(name, s3Resource.getName());
-            Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
-            Assert.assertEquals(s3Endpoint, s3Resource.getProperty(S3ResourceCompat.ENDPOINT));
-            Assert.assertEquals(s3Region, s3Resource.getProperty(S3ResourceCompat.REGION));
-            Assert.assertEquals(s3RootPath, s3Resource.getProperty(S3ResourceCompat.ROOT_PATH));
-            Assert.assertEquals(s3AccessKey, s3Resource.getProperty(S3ResourceCompat.ACCESS_KEY));
-            Assert.assertEquals(s3SecretKey, s3Resource.getProperty(S3ResourceCompat.SECRET_KEY));
-            Assert.assertEquals("100", s3Resource.getProperty(S3ResourceCompat.MAX_CONNECTIONS));
-            Assert.assertEquals("2000", s3Resource.getProperty(S3ResourceCompat.REQUEST_TIMEOUT_MS));
-            Assert.assertEquals("2000", s3Resource.getProperty(S3ResourceCompat.CONNECTION_TIMEOUT_MS));
+            Assertions.assertEquals(name, s3Resource.getName());
+            Assertions.assertEquals(type, s3Resource.getType().name().toLowerCase());
+            Assertions.assertEquals(s3Endpoint, s3Resource.getProperty(S3ResourceCompat.ENDPOINT));
+            Assertions.assertEquals(s3Region, s3Resource.getProperty(S3ResourceCompat.REGION));
+            Assertions.assertEquals(s3RootPath, s3Resource.getProperty(S3ResourceCompat.ROOT_PATH));
+            Assertions.assertEquals(s3AccessKey, s3Resource.getProperty(S3ResourceCompat.ACCESS_KEY));
+            Assertions.assertEquals(s3SecretKey, s3Resource.getProperty(S3ResourceCompat.SECRET_KEY));
+            Assertions.assertEquals("100", s3Resource.getProperty(S3ResourceCompat.MAX_CONNECTIONS));
+            Assertions.assertEquals("2000", s3Resource.getProperty(S3ResourceCompat.REQUEST_TIMEOUT_MS));
+            Assertions.assertEquals("2000", s3Resource.getProperty(S3ResourceCompat.CONNECTION_TIMEOUT_MS));
         }
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testAbnormalResource() throws UserException {
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            Env env = Mockito.mock(Env.class);
-            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
-            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
-                    .thenReturn(true);
+        Assertions.assertThrows(DdlException.class, () -> {
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                Env env = Mockito.mock(Env.class);
+                AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+                Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                        .thenReturn(true);
 
-            s3Properties.remove("AWS_ENDPOINT");
+                s3Properties.remove("AWS_ENDPOINT");
 
-            CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(s3Properties)));
-            createResourceCommand.getInfo().validate();
+                CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(s3Properties)));
+                createResourceCommand.getInfo().validate();
 
-            Resource.fromCommand(createResourceCommand);
-        }
+                Resource.fromCommand(createResourceCommand);
+            }
+        });
     }
 
     @Test
@@ -192,19 +194,19 @@ public class S3ResourceTest {
         S3Resource rS3Resource1 = (S3Resource) S3Resource.read(s3Dis);
         S3Resource rS3Resource2 = (S3Resource) S3Resource.read(s3Dis);
 
-        Assert.assertEquals("s3_1", rS3Resource1.getName());
-        Assert.assertEquals("s3_2", rS3Resource2.getName());
+        Assertions.assertEquals("s3_1", rS3Resource1.getName());
+        Assertions.assertEquals("s3_2", rS3Resource2.getName());
 
-        Assert.assertEquals("aaa", rS3Resource2.getProperty(S3ResourceCompat.ENDPOINT));
-        Assert.assertEquals("aaa",
+        Assertions.assertEquals("aaa", rS3Resource2.getProperty(S3ResourceCompat.ENDPOINT));
+        Assertions.assertEquals("aaa",
                 CloudObjectStoreAdapter.getObjStoreInfoPB(rS3Resource2.getCopiedProperties()).getEndpoint());
-        Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.REGION), "bbb");
-        Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.ROOT_PATH), "/path/to/root");
-        Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.ACCESS_KEY), "xxx");
-        Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.SECRET_KEY), "yyy");
-        Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.MAX_CONNECTIONS), "50");
-        Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.REQUEST_TIMEOUT_MS), "3000");
-        Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.CONNECTION_TIMEOUT_MS), "1000");
+        Assertions.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.REGION), "bbb");
+        Assertions.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.ROOT_PATH), "/path/to/root");
+        Assertions.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.ACCESS_KEY), "xxx");
+        Assertions.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.SECRET_KEY), "yyy");
+        Assertions.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.MAX_CONNECTIONS), "50");
+        Assertions.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.REQUEST_TIMEOUT_MS), "3000");
+        Assertions.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.CONNECTION_TIMEOUT_MS), "1000");
 
         // 3. delete
         s3Dis.close();
@@ -233,16 +235,16 @@ public class S3ResourceTest {
         modify.clear();
         modify.put(S3ResourceCompat.ENDPOINT, "new-endpoint");
         s3Resource.modifyProperties(modify);
-        Assert.assertEquals("new-endpoint", s3Resource.getProperty(S3ResourceCompat.ENDPOINT));
-        Assert.assertEquals("new-endpoint", s3Resource.getProperty(S3ResourceCompat.Env.ENDPOINT));
-        Assert.assertEquals("new-endpoint",
+        Assertions.assertEquals("new-endpoint", s3Resource.getProperty(S3ResourceCompat.ENDPOINT));
+        Assertions.assertEquals("new-endpoint", s3Resource.getProperty(S3ResourceCompat.Env.ENDPOINT));
+        Assertions.assertEquals("new-endpoint",
                 CloudObjectStoreAdapter.getObjStoreInfoPB(s3Resource.getCopiedProperties()).getEndpoint());
 
         modify.clear();
         modify.put(S3ResourceCompat.Env.ENDPOINT, "http://other-endpoint");
         s3Resource.modifyProperties(modify);
-        Assert.assertEquals("http://other-endpoint", s3Resource.getProperty(S3ResourceCompat.ENDPOINT));
-        Assert.assertEquals("http://other-endpoint", s3Resource.getProperty(S3ResourceCompat.Env.ENDPOINT));
+        Assertions.assertEquals("http://other-endpoint", s3Resource.getProperty(S3ResourceCompat.ENDPOINT));
+        Assertions.assertEquals("http://other-endpoint", s3Resource.getProperty(S3ResourceCompat.Env.ENDPOINT));
     }
 
     @Test
@@ -258,7 +260,7 @@ public class S3ResourceTest {
         );
         S3Resource s3Resource = new S3Resource("s3_2");
         s3Resource.setProperties(properties);
-        Assert.assertEquals(s3Resource.getProperty(S3ResourceCompat.ENDPOINT), "https://aaa");
+        Assertions.assertEquals(s3Resource.getProperty(S3ResourceCompat.ENDPOINT), "https://aaa");
     }
 
     @Test
@@ -271,12 +273,12 @@ public class S3ResourceTest {
             String region = System.getenv("REGION");
             String provider = System.getenv("PROVIDER");
 
-            Assume.assumeTrue("ACCESS_KEY isNullOrEmpty.", !Strings.isNullOrEmpty(accessKey));
-            Assume.assumeTrue("SECRET_KEY isNullOrEmpty.", !Strings.isNullOrEmpty(secretKey));
-            Assume.assumeTrue("BUCKET isNullOrEmpty.", !Strings.isNullOrEmpty(bucket));
-            Assume.assumeTrue("ENDPOINT isNullOrEmpty.", !Strings.isNullOrEmpty(endpoint));
-            Assume.assumeTrue("REGION isNullOrEmpty.", !Strings.isNullOrEmpty(region));
-            Assume.assumeTrue("PROVIDER isNullOrEmpty.", !Strings.isNullOrEmpty(provider));
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(accessKey), "ACCESS_KEY isNullOrEmpty.");
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(secretKey), "SECRET_KEY isNullOrEmpty.");
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(bucket), "BUCKET isNullOrEmpty.");
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(endpoint), "ENDPOINT isNullOrEmpty.");
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(region), "REGION isNullOrEmpty.");
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(provider), "PROVIDER isNullOrEmpty.");
 
             Map<String, String> properties = new HashMap<>();
             properties.put("s3.endpoint", endpoint);
@@ -287,7 +289,7 @@ public class S3ResourceTest {
             S3Resource.pingS3(bucket, "fe_ut_prefix", properties);
         } catch (DdlException e) {
             LOG.info("testPingS3 exception:", e);
-            Assert.assertTrue(e.getMessage(), false);
+            Assertions.assertTrue(false, e.getMessage());
         }
     }
 
@@ -302,12 +304,12 @@ public class S3ResourceTest {
             String externalId = System.getenv("EXTERNAL_ID");
             String bucket = System.getenv("BUCKET");
 
-            Assume.assumeTrue("ENDPOINT isNullOrEmpty.", !Strings.isNullOrEmpty(endpoint));
-            Assume.assumeTrue("REGION isNullOrEmpty.", !Strings.isNullOrEmpty(region));
-            Assume.assumeTrue("PROVIDER isNullOrEmpty.", !Strings.isNullOrEmpty(provider));
-            Assume.assumeTrue("ROLE_ARN isNullOrEmpty.", !Strings.isNullOrEmpty(roleArn));
-            Assume.assumeTrue("EXTERNAL_ID isNullOrEmpty.", !Strings.isNullOrEmpty(externalId));
-            Assume.assumeTrue("BUCKET isNullOrEmpty.", !Strings.isNullOrEmpty(bucket));
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(endpoint), "ENDPOINT isNullOrEmpty.");
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(region), "REGION isNullOrEmpty.");
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(provider), "PROVIDER isNullOrEmpty.");
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(roleArn), "ROLE_ARN isNullOrEmpty.");
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(externalId), "EXTERNAL_ID isNullOrEmpty.");
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(bucket), "BUCKET isNullOrEmpty.");
 
             Map<String, String> properties = new HashMap<>();
             properties.put("s3.endpoint", endpoint);
@@ -318,7 +320,7 @@ public class S3ResourceTest {
             S3Resource.pingS3(bucket, "fe_ut_role_prefix", properties);
         } catch (DdlException e) {
             LOG.info("testPingS3WithRoleArn exception:", e);
-            Assert.assertTrue(e.getMessage(), false);
+            Assertions.assertTrue(false, e.getMessage());
         }
     }
 }

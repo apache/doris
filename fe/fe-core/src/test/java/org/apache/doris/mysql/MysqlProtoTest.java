@@ -37,10 +37,10 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.slf4j.Logger;
@@ -70,7 +70,7 @@ public class MysqlProtoTest {
     private MockedStatic<MysqlPassword> mockedMysqlPassword;
     private MockedStatic<Env> mockedEnv;
 
-    @Before
+    @BeforeEach
     public void setUp() throws DdlException, AuthenticationException, IOException {
         FeConstants.runningUnitTest = true;
 
@@ -113,7 +113,7 @@ public class MysqlProtoTest {
         Mockito.when(channel.getSerializer()).thenReturn(MysqlSerializer.newInstance());
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedMysqlPassword != null) {
             mockedMysqlPassword.close();
@@ -209,7 +209,7 @@ public class MysqlProtoTest {
         ConnectContext context = createContext();
         context.setEnv(env);
         context.setThreadLocalInfo();
-        Assert.assertTrue(MysqlProto.negotiate(context));
+        Assertions.assertTrue(MysqlProto.negotiate(context));
     }
 
     @Test
@@ -223,7 +223,7 @@ public class MysqlProtoTest {
         context.setThreadLocalInfo();
         String initCatalog = "external_catalog";
         mockInitCatalog(catalogMgr, context, initCatalog);
-        Assert.assertTrue(MysqlProto.negotiate(context));
+        Assertions.assertTrue(MysqlProto.negotiate(context));
 
         Mockito.verify(env, Mockito.times(1)).changeCatalog(context, initCatalog);
     }
@@ -235,7 +235,7 @@ public class MysqlProtoTest {
         mockAccess();
         ConnectContext context = createContext();
         MysqlProto.negotiate(context);
-        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assertions.assertFalse(MysqlProto.negotiate(context));
     }
 
     @Test
@@ -244,7 +244,7 @@ public class MysqlProtoTest {
         mockPassword(true);
         mockAccess();
         ConnectContext context = createContext();
-        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assertions.assertFalse(MysqlProto.negotiate(context));
     }
 
     @Test
@@ -252,9 +252,9 @@ public class MysqlProtoTest {
         Mockito.when(channel.fetchOnePacket()).thenReturn(null);
 
         ConnectContext context = createContext();
-        Assert.assertFalse(MysqlProto.negotiate(context));
-        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, context.getState().getErrorCode());
-        Assert.assertEquals("Client closed connection during handshake", context.getState().getErrorMessage());
+        Assertions.assertFalse(MysqlProto.negotiate(context));
+        Assertions.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, context.getState().getErrorCode());
+        Assertions.assertEquals("Client closed connection during handshake", context.getState().getErrorMessage());
     }
 
     @Test
@@ -265,9 +265,9 @@ public class MysqlProtoTest {
         Mockito.when(channel.fetchOnePacket()).thenReturn(serializer.toByteBuffer());
 
         ConnectContext context = createContext();
-        Assert.assertFalse(MysqlProto.negotiate(context));
-        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, context.getState().getErrorCode());
-        Assert.assertEquals("Client requested TLS/SSL, but Doris FE MySQL SSL is disabled",
+        Assertions.assertFalse(MysqlProto.negotiate(context));
+        Assertions.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, context.getState().getErrorCode());
+        Assertions.assertEquals("Client requested TLS/SSL, but Doris FE MySQL SSL is disabled",
                 context.getState().getErrorMessage());
     }
 
@@ -288,8 +288,8 @@ public class MysqlProtoTest {
         Mockito.when(channel.isSend()).thenReturn(false);
 
         ConnectContext context = createContext();
-        Assert.assertFalse(MysqlProto.negotiate(context));
-        Assert.assertEquals(ErrorCode.ERR_ACCESS_DENIED_ERROR, context.getState().getErrorCode());
+        Assertions.assertFalse(MysqlProto.negotiate(context));
+        Assertions.assertEquals(ErrorCode.ERR_ACCESS_DENIED_ERROR, context.getState().getErrorCode());
 
         Mockito.verify(channel, Mockito.times(2)).sendAndFlush(Mockito.any(ByteBuffer.class));
     }
@@ -311,7 +311,7 @@ public class MysqlProtoTest {
         Mockito.when(channel.isSend()).thenReturn(true);
 
         ConnectContext context = createContext();
-        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assertions.assertFalse(MysqlProto.negotiate(context));
 
         Mockito.verify(channel, Mockito.times(1)).sendAndFlush(Mockito.any(ByteBuffer.class));
     }
@@ -326,7 +326,7 @@ public class MysqlProtoTest {
         ConnectContext context = createContext();
         context.setEnv(env);
         context.setThreadLocalInfo();
-        Assert.assertTrue(MysqlProto.negotiate(context));
+        Assertions.assertTrue(MysqlProto.negotiate(context));
         Config.authentication_type = "default";
     }
 
@@ -340,7 +340,7 @@ public class MysqlProtoTest {
         ConnectContext context = createContext();
         context.setEnv(env);
         context.setThreadLocalInfo();
-        Assert.assertTrue(MysqlProto.negotiate(context));
+        Assertions.assertTrue(MysqlProto.negotiate(context));
         Config.authentication_type = "default";
     }
 
@@ -361,17 +361,17 @@ public class MysqlProtoTest {
         serializer.writeEofString("you have dream too");
 
         ByteBuffer buffer = serializer.toByteBuffer();
-        Assert.assertEquals(200, MysqlProto.readInt1(buffer));
-        Assert.assertEquals(65535, MysqlProto.readInt2(buffer));
-        Assert.assertEquals(65537, MysqlProto.readInt3(buffer));
-        Assert.assertEquals(123456789, MysqlProto.readInt4(buffer));
-        Assert.assertEquals(1234567896, MysqlProto.readInt6(buffer));
-        Assert.assertEquals(1234567898, MysqlProto.readInt8(buffer));
-        Assert.assertEquals(1111123452, MysqlProto.readVInt(buffer));
+        Assertions.assertEquals(200, MysqlProto.readInt1(buffer));
+        Assertions.assertEquals(65535, MysqlProto.readInt2(buffer));
+        Assertions.assertEquals(65537, MysqlProto.readInt3(buffer));
+        Assertions.assertEquals(123456789, MysqlProto.readInt4(buffer));
+        Assertions.assertEquals(1234567896, MysqlProto.readInt6(buffer));
+        Assertions.assertEquals(1234567898, MysqlProto.readInt8(buffer));
+        Assertions.assertEquals(1111123452, MysqlProto.readVInt(buffer));
 
-        Assert.assertEquals("hello", new String(MysqlProto.readFixedString(buffer, 5)));
-        Assert.assertEquals("world", new String(MysqlProto.readLenEncodedString(buffer)));
-        Assert.assertEquals("i have dream", new String(MysqlProto.readNulTerminateString(buffer)));
-        Assert.assertEquals("you have dream too", new String(MysqlProto.readEofString(buffer)));
+        Assertions.assertEquals("hello", new String(MysqlProto.readFixedString(buffer, 5)));
+        Assertions.assertEquals("world", new String(MysqlProto.readLenEncodedString(buffer)));
+        Assertions.assertEquals("i have dream", new String(MysqlProto.readNulTerminateString(buffer)));
+        Assertions.assertEquals("you have dream too", new String(MysqlProto.readEofString(buffer)));
     }
 }

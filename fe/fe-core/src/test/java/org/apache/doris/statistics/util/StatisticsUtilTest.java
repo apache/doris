@@ -39,9 +39,9 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.ColStatsMeta;
-import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.analysis.AnalysisManager;
+import org.apache.doris.statistics.analysis.ColStatsMeta;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.thrift.TStorageType;
 
 import org.junit.jupiter.api.Assertions;

@@ -26,10 +26,10 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -42,14 +42,14 @@ public class QeProcessorImplTest {
     private boolean originalMetricInit;
     private AutoMappedMetric<LongCounterMetric> originalQueryInstanceMetric;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         clearQeProcessorState();
         originalMetricInit = MetricRepo.isInit;
         originalQueryInstanceMetric = MetricRepo.USER_COUNTER_QUERY_INSTANCE_BEGIN;
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         MetricRepo.isInit = originalMetricInit;
         MetricRepo.USER_COUNTER_QUERY_INSTANCE_BEGIN = originalQueryInstanceMetric;
@@ -67,8 +67,8 @@ public class QeProcessorImplTest {
 
         QE_PROCESSOR.registerInstances(queryId, 3);
 
-        Assert.assertEquals(Integer.valueOf(3), QE_PROCESSOR.getInstancesNumPerUser().get(user));
-        Assert.assertEquals(Integer.valueOf(3), getQueryToInstancesNum().get(queryId));
+        Assertions.assertEquals(Integer.valueOf(3), QE_PROCESSOR.getInstancesNumPerUser().get(user));
+        Assertions.assertEquals(Integer.valueOf(3), getQueryToInstancesNum().get(queryId));
     }
 
     @Test
@@ -83,9 +83,9 @@ public class QeProcessorImplTest {
 
         QE_PROCESSOR.registerInstances(queryId, 2);
 
-        Assert.assertEquals(Integer.valueOf(2), QE_PROCESSOR.getInstancesNumPerUser().get(user));
-        Assert.assertEquals(Integer.valueOf(2), getQueryToInstancesNum().get(queryId));
-        Assert.assertEquals(Long.valueOf(2L),
+        Assertions.assertEquals(Integer.valueOf(2), QE_PROCESSOR.getInstancesNumPerUser().get(user));
+        Assertions.assertEquals(Integer.valueOf(2), getQueryToInstancesNum().get(queryId));
+        Assertions.assertEquals(Long.valueOf(2L),
                 MetricRepo.USER_COUNTER_QUERY_INSTANCE_BEGIN.getOrAdd(user).getValue());
     }
 

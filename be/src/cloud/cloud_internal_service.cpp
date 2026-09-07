@@ -21,6 +21,7 @@
 #include <bthread/countdown_event.h>
 #include <butil/iobuf.h>
 #include <fmt/format.h>
+#include <gen_cpp/Status_types.h>
 
 #include <algorithm>
 #include <chrono>

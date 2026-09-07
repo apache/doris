@@ -452,7 +452,9 @@ def build_ingestion_payload(args, input_text, output_text, events):
             ),
         }
     else:
-        turn_body["statusMessage"] = json_attr(turn_payload)
+        turn_body["statusMessage"] = truncate_text(
+            json_attr(turn_payload), args.max_json_chars
+        )
 
     batch.append(ingestion_event("generation-create", iso_from_ns(now + 1_000_000), turn_body))
 
@@ -928,7 +930,7 @@ def build_subagent_session_payload(args, session_path, session_events):
                 "name": "codex.subagent.review",
                 "startTime": first_timestamp,
                 "endTime": root_end,
-                "input": {"session_file": session_path, "thread_id": thread_id},
+                "input": {"prompt": trace_input},
                 "output": {"final_message": trace_output},
                 "environment": args.environment,
                 "metadata": trace_metadata,
@@ -1028,10 +1030,17 @@ def compact_context_event(event, max_chars):
     return compact
 
 
-def shrink_event_for_payload(event, max_payload_bytes):
+def shrink_event_for_payload(
+    event, max_payload_bytes, payload_bytes=None, minimize=False
+):
     shrunk = json.loads(json.dumps(event, ensure_ascii=False))
     body = shrunk.get("body") if isinstance(shrunk.get("body"), dict) else {}
     event_name = body.get("name")
+
+    def measured_payload_bytes(candidate):
+        if payload_bytes is not None:
+            return payload_bytes(candidate)
+        return json_payload_bytes({"batch": [candidate]})
 
     def candidate_with_limits(max_chars, max_context_events=None):
         candidate = json.loads(json.dumps(shrunk, ensure_ascii=False))
@@ -1080,28 +1089,55 @@ def shrink_event_for_payload(event, max_payload_bytes):
         metadata = candidate_body.get("metadata")
         if metadata not in (None, ""):
             candidate_body["metadata"] = truncate_json(metadata, max_chars)
+        status_message = candidate_body.get("statusMessage")
+        if status_message not in (None, ""):
+            candidate_body["statusMessage"] = truncate_text(
+                str(status_message), max_chars
+            )
         return candidate
+
+    if minimize:
+        # This policy floor keeps adaptive 413 retries above the fixed OTLP
+        # envelope while removing every field that the exporter can shrink.
+        candidate = candidate_with_limits(10, 0)
+        if measured_payload_bytes(candidate) < measured_payload_bytes(event):
+            return candidate
+        return event
+
+    def maximize_candidate(max_chars, max_context_events=None):
+        best = candidate_with_limits(max_chars, max_context_events)
+        lower = max_chars + 1
+        upper = max_payload_bytes
+        while lower <= upper:
+            middle = (lower + upper) // 2
+            candidate = candidate_with_limits(middle, max_context_events)
+            if measured_payload_bytes(candidate) <= max_payload_bytes:
+                best = candidate
+                lower = middle + 1
+            else:
+                upper = middle - 1
+        return best
 
     for max_chars in (2_000, 1_000, 500, 200, 80):
         candidate = candidate_with_limits(max_chars)
 
-        if json_payload_bytes({"batch": [candidate]}) <= max_payload_bytes:
-            return candidate
+        if measured_payload_bytes(candidate) <= max_payload_bytes:
+            return maximize_candidate(max_chars)
 
     for max_context_events in (50, 20, 10, 5, 2, 1, 0):
         for max_chars in (80, 40, 20, 10):
             candidate = candidate_with_limits(max_chars, max_context_events)
-            if json_payload_bytes({"batch": [candidate]}) <= max_payload_bytes:
-                return candidate
+            if measured_payload_bytes(candidate) <= max_payload_bytes:
+                return maximize_candidate(max_chars, max_context_events)
 
     raise RuntimeError(
         "Litefuse ingestion event is too large after truncation: "
-        f"{json_payload_bytes({'batch': [event]})} bytes > {max_payload_bytes} bytes; "
+        f"{measured_payload_bytes(event)} bytes > {max_payload_bytes} bytes; "
         f"type={event.get('type')}, name={event_name}"
     )
 
 
-def chunk_payload(payload, max_payload_bytes):
+def chunk_payload(payload, max_payload_bytes, shrink_oversized=True):
     batch = payload.get("batch") or []
     chunks = []
     current = []
@@ -1111,7 +1147,7 @@ def chunk_payload(payload, max_payload_bytes):
     for event in batch:
         event_json_bytes = len(compact_json_bytes(event))
         event_payload_bytes = empty_payload_bytes + event_json_bytes
-        if event_payload_bytes > max_payload_bytes:
+        if event_payload_bytes > max_payload_bytes and shrink_oversized:
             event = shrink_event_for_payload(event, max_payload_bytes)
             event_json_bytes = len(compact_json_bytes(event))
             event_payload_bytes = empty_payload_bytes + event_json_bytes
@@ -1259,12 +1295,9 @@ def legacy_event_to_otel_span(event, trace_body):
         "endTimeUnixNano": unix_nanos(end_time),
         "attributes": otel_attributes(attributes),
         "status": {
+            # statusMessage is already carried by the explicit Langfuse attribute.
+            # Do not duplicate a potentially large failure payload here.
             "code": 2 if body.get("level") == "ERROR" else 1,
-            **(
-                {"message": body["statusMessage"]}
-                if body.get("statusMessage")
-                else {}
-            ),
         },
         "flags": 1,
     }
@@ -1333,27 +1366,29 @@ def otlp_chunks(payload, max_payload_bytes, trace_body=None):
             return
 
         event = candidate_events[0]
-        for divisor in (2, 4, 8, 16, 32, 64):
-            target_size = max(1_000, max_payload_bytes // divisor)
-            shrunk_event = shrink_event_for_payload(event, target_size)
-            shrunk_payload = otlp_payload(trace_body, [shrunk_event])
-            shrunk_size = json_payload_bytes(shrunk_payload)
-            if shrunk_size <= max_payload_bytes:
-                chunks.append(
-                    ({"batch": [shrunk_event]}, shrunk_payload, shrunk_size)
-                )
-                return
-        raise RuntimeError(
-            "Litefuse OTLP span is too large after truncation: "
-            f"{request_size} bytes > {max_payload_bytes} bytes; "
-            f"name={(event.get('body') or {}).get('name')}"
+        shrunk_event = shrink_event_for_payload(
+            event,
+            max_payload_bytes,
+            payload_bytes=lambda candidate: json_payload_bytes(
+                otlp_payload(trace_body, [candidate])
+            ),
+        )
+        shrunk_payload = otlp_payload(trace_body, [shrunk_event])
+        chunks.append(
+            (
+                {"batch": [shrunk_event]},
+                shrunk_payload,
+                json_payload_bytes(shrunk_payload),
+            )
         )
 
     if not events:
         raise RuntimeError("Litefuse payload contains no spans for OTLP ingestion")
     prechunk_limit = max(1_000, max_payload_bytes // 2)
+    # Bound multi-event OTLP encodes without truncating an individual event before
+    # add_chunk measures its encoded span against the full request limit.
     for legacy_chunk, _legacy_size in chunk_payload(
-        {"batch": events}, prechunk_limit
+        {"batch": events}, prechunk_limit, shrink_oversized=False
     ):
         add_chunk(legacy_chunk["batch"])
     return chunks
@@ -1369,6 +1404,40 @@ def split_otlp_chunk(chunk, max_payload_bytes, trace_body):
     ) + otlp_chunks(
         {"batch": events[middle:]}, max_payload_bytes, trace_body
     )
+
+
+def shrink_singleton_otlp_retry(
+    chunk, rejected_size, trace_body, attempt_count, retry_attempts
+):
+    event = (chunk.get("batch") or [])[0]
+    # Preserve a near-limit payload on the first rejection. If the server rejects
+    # it again, bisect the remaining reducible envelope instead of retrying one
+    # byte at a time. The last allowed retry uses the floor so a viable minimal
+    # span is attempted before the budget is exhausted.
+    if attempt_count == 1 and retry_attempts > 1:
+        return otlp_chunks(chunk, rejected_size - 1, trace_body)
+
+    def encoded_size(candidate):
+        return json_payload_bytes(otlp_payload(trace_body, [candidate]))
+
+    floor_event = shrink_event_for_payload(
+        event,
+        rejected_size,
+        payload_bytes=encoded_size,
+        minimize=True,
+    )
+    floor_size = encoded_size(floor_event)
+    if floor_size >= rejected_size:
+        raise RuntimeError(
+            "Litefuse OTLP singleton cannot be reduced below the rejected size: "
+            f"{rejected_size} bytes; name={(event.get('body') or {}).get('name')}"
+        )
+    next_limit = (
+        floor_size
+        if attempt_count == retry_attempts
+        else floor_size + (rejected_size - floor_size) // 2
+    )
+    return otlp_chunks(chunk, next_limit, trace_body)
 
 
 def post_payload_once(endpoint, public_key, secret_key, payload, timeout_seconds):
@@ -1425,49 +1494,69 @@ def post_payload(
     payload_too_large_retry_count = 0
     transport_retry_count = 0
     http_retry_count = 0
+    post_attempt_count = 0
+    singleton_413_attempts = {}
+    singleton_413_sources = {}
     trace_body = trace_body_from_payload(payload)
     chunks = otlp_chunks(payload, max_payload_bytes, trace_body)
     while chunks:
         chunk, otlp_chunk, request_size = chunks.pop(0)
+        post_attempt_count += 1
         try:
             status = post_payload_once(
                 endpoint, public_key, secret_key, otlp_chunk, timeout_seconds
             )
         except urllib.error.HTTPError as exc:
-            if exc.code == 413:
-                payload_too_large_retry_count += 1
-                chunk_events = chunk.get("batch") or []
-                if len(chunk_events) > 1:
-                    chunks = split_otlp_chunk(
-                        chunk, max_payload_bytes, trace_body
-                    ) + chunks
-                    continue
-                next_limit = max(1_000, min(max_payload_bytes - 1, request_size // 2))
-                if next_limit >= request_size:
-                    raise RuntimeError(
-                        "Litefuse OTLP ingestion returned 413 and the request cannot be "
-                        f"reduced further: {request_size} bytes"
-                    ) from exc
-                chunks = otlp_chunks(chunk, next_limit, trace_body) + chunks
-                continue
-
             if exc.code in OTLP_RETRYABLE_HTTP_STATUS_CODES:
                 http_retry_count += 1
                 if http_retry_count <= retry_attempts:
                     time.sleep(retry_sleep_seconds)
                     chunks.insert(0, (chunk, otlp_chunk, request_size))
                     continue
-
-            error_body = exc.read().decode("utf-8", errors="replace")
-            if exc.code in OTLP_RETRYABLE_HTTP_STATUS_CODES:
+                error_body = exc.read().decode("utf-8", errors="replace")
                 raise RuntimeError(
                     "Litefuse OTLP ingestion failed after HTTP retries: "
                     f"HTTP {exc.code}: {truncate_text(error_body, 4_000)}"
                 ) from exc
-            raise RuntimeError(
-                "Litefuse OTLP ingestion returned "
-                f"HTTP {exc.code}: {truncate_text(error_body, 4_000)}"
-            ) from exc
+            if exc.code != 413:
+                error_body = exc.read().decode("utf-8", errors="replace")
+                raise RuntimeError(
+                    "Litefuse OTLP ingestion returned "
+                    f"HTTP {exc.code}: {truncate_text(error_body, 4_000)}"
+                ) from exc
+            payload_too_large_retry_count += 1
+            chunk_events = chunk.get("batch") or []
+            if len(chunk_events) > 1:
+                chunks = split_otlp_chunk(
+                    chunk, max_payload_bytes, trace_body
+                ) + chunks
+                continue
+            event = chunk_events[0]
+            body = event.get("body") if isinstance(event.get("body"), dict) else {}
+            event_key = (
+                event.get("type"),
+                str(body.get("traceId") or ""),
+                str(body.get("id") or ""),
+            )
+            singleton_413_sources.setdefault(event_key, chunk)
+            singleton_413_attempts[event_key] = (
+                singleton_413_attempts.get(event_key, 0) + 1
+            )
+            attempt_count = singleton_413_attempts[event_key]
+            if attempt_count > retry_attempts:
+                raise RuntimeError(
+                    "Litefuse OTLP singleton remained too large after "
+                    f"{retry_attempts} retries: {request_size} bytes; "
+                    f"observation_id={body.get('id')}"
+                ) from exc
+            chunks = shrink_singleton_otlp_retry(
+                singleton_413_sources[event_key],
+                request_size,
+                trace_body,
+                attempt_count,
+                retry_attempts,
+            ) + chunks
+            continue
         except (TimeoutError, urllib.error.URLError) as exc:
             transport_retry_count += 1
             if transport_retry_count > retry_attempts:
@@ -1493,6 +1582,7 @@ def post_payload(
     return {
         "statuses": statuses,
         "request_count": len(statuses),
+        "post_attempt_count": post_attempt_count,
         "request_sizes": request_sizes,
         "max_request_size": max(request_sizes) if request_sizes else 0,
         "payload_too_large_retries": payload_too_large_retry_count,

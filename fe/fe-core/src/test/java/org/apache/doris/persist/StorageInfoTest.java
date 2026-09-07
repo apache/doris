@@ -17,28 +17,28 @@
 
 package org.apache.doris.persist;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class StorageInfoTest {
     @Test
     public void test() {
         StorageInfo info = new StorageInfo();
-        Assert.assertEquals(-1, info.getClusterID());
-        Assert.assertEquals(0, info.getImageSeq());
-        Assert.assertEquals(0, info.getEditsSeq());
+        Assertions.assertEquals(-1, info.getClusterID());
+        Assertions.assertEquals(0, info.getImageSeq());
+        Assertions.assertEquals(0, info.getEditsSeq());
 
         info = new StorageInfo(10, 20, 30);
-        Assert.assertEquals(10, info.getClusterID());
-        Assert.assertEquals(20, info.getImageSeq());
-        Assert.assertEquals(30, info.getEditsSeq());
+        Assertions.assertEquals(10, info.getClusterID());
+        Assertions.assertEquals(20, info.getImageSeq());
+        Assertions.assertEquals(30, info.getEditsSeq());
 
         info.setClusterID(100);
         info.setImageSeq(200);
         info.setEditsSeq(300);
 
-        Assert.assertEquals(100, info.getClusterID());
-        Assert.assertEquals(200, info.getImageSeq());
-        Assert.assertEquals(300, info.getEditsSeq());
+        Assertions.assertEquals(100, info.getClusterID());
+        Assertions.assertEquals(200, info.getImageSeq());
+        Assertions.assertEquals(300, info.getEditsSeq());
     }
 }

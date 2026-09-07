@@ -33,10 +33,10 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -49,7 +49,7 @@ public class RoundRobinCreateTabletTest {
     private Backend backend3;
     private Backend backend4;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         backend1 = new Backend(1L, "192.168.1.1", 9050);
         backend2 = new Backend(2L, "192.168.1.2", 9050);
@@ -82,7 +82,7 @@ public class RoundRobinCreateTabletTest {
         Env.getCurrentSystemInfo().addBackend(backend4);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.enable_round_robin_create_tablet = true;
         Config.disable_storage_medium_check = true;
@@ -122,7 +122,7 @@ public class RoundRobinCreateTabletTest {
         int beNum = 4;
         for (Tablet tablet : index.getTablets()) {
             for (Replica replica : tablet.getReplicas()) {
-                Assert.assertEquals((i++ % beNum) + 1, replica.getBackendIdWithoutException());
+                Assertions.assertEquals((i++ % beNum) + 1, replica.getBackendIdWithoutException());
             }
         }
     }

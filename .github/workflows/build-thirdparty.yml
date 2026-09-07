@@ -32,7 +32,7 @@ jobs:
     if: github.event_name == 'pull_request'
     outputs:
       thirdparty_changes: ${{ steps.filter.outputs.thirdparty_changes }}
-      arrow_paimon_lifecycle_changes: ${{ steps.filter.outputs.arrow_paimon_lifecycle_changes }}
+      focused_test_changes: ${{ steps.filter.outputs.focused_test_changes }}
     steps:
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v4
@@ -48,41 +48,15 @@ jobs:
             thirdparty_changes:
               - 'thirdparty/**'
               - 'env.sh'
-            arrow_paimon_lifecycle_changes:
-              - 'build.sh'
-              - 'env.sh'
-              - 'thirdparty/arrow-paimon-vars.sh'
-              - 'thirdparty/vars.sh'
-              - 'thirdparty/build-thirdparty.sh'
-              - 'thirdparty/download-thirdparty.sh'
-              - 'thirdparty/paimon-cpp-cache.cmake'
-              - 'thirdparty/patches/apache-arrow-*.patch'
-              - 'thirdparty/patches/paimon-cpp-*.patch'
+            focused_test_changes:
               - 'regression-test/pipeline/external/conf/fe.conf'
-              - 'thirdparty/test/arrow-paimon-lifecycle-test.sh'
               - 'thirdparty/test/adbc-jni-config-test.sh'
-              - 'thirdparty/test/paimon-codec-dependency-test.sh'
               - '.github/workflows/build-thirdparty.yml'
-
-  arrow_paimon_lifecycle_test:
-    name: Arrow/Paimon Lifecycle Test
-    needs: changes
-    if: ${{ needs.changes.outputs.arrow_paimon_lifecycle_changes == 'true' }}
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout ${{ github.ref }}
-        uses: actions/checkout@v4
-
-      - name: Test focused thirdparty lifecycle
-        run: |
-          thirdparty/test/arrow-paimon-lifecycle-test.sh
-          thirdparty/test/adbc-jni-config-test.sh
-          thirdparty/test/paimon-codec-dependency-test.sh
 
   script_test:
     name: Thirdparty Script Test
     needs: changes
-    if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
+    if: ${{ needs.changes.outputs.thirdparty_changes == 'true' || needs.changes.outputs.focused_test_changes == 'true' }}
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout ${{ github.ref }}
@@ -103,6 +77,10 @@ jobs:
       - name: Test build-thirdparty.sh
         run: |
           thirdparty/test/azure-vcpkg-retry-test.sh
+
+      - name: Test thirdparty configuration
+        run: |
+          thirdparty/test/adbc-jni-config-test.sh
 
   build_linux:
     name: Build Third Party Libraries (Linux)

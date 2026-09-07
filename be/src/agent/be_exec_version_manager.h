@@ -20,6 +20,10 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include <map>
+#include <set>
+#include <string>
+
 #include "common/exception.h"
 #include "common/status.h"
 

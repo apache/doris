@@ -27,8 +27,8 @@ import org.apache.thrift.TBase;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -81,7 +81,7 @@ public class CommitDataSerializerTest {
             throws Exception {
         byte[] bytes = new TSerializer(new TBinaryProtocol.Factory()).serialize(original);
         new TDeserializer(new TBinaryProtocol.Factory()).deserialize(target, bytes);
-        Assert.assertEquals(original, target);
+        Assertions.assertEquals(original, target);
     }
 
     /**
@@ -129,11 +129,11 @@ public class CommitDataSerializerTest {
 
         CommitDataSerializer.feed(collector, input);
 
-        Assert.assertEquals(input.size(), payloads.size());
+        Assertions.assertEquals(input.size(), payloads.size());
         for (int i = 0; i < input.size(); i++) {
             TIcebergCommitData roundTripped = new TIcebergCommitData();
             new TDeserializer(new TBinaryProtocol.Factory()).deserialize(roundTripped, payloads.get(i));
-            Assert.assertEquals(input.get(i), roundTripped);
+            Assertions.assertEquals(input.get(i), roundTripped);
         }
     }
 

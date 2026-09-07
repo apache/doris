@@ -1787,8 +1787,9 @@ DECLARE_mInt64(hive_sink_max_file_size);
 /** Iceberg sink configurations **/
 DECLARE_mInt64(iceberg_sink_max_file_size);
 
-/** Paimon file system configurations **/
-DECLARE_Strings(paimon_file_system_scheme_mappings);
+/** Paimon sink configurations **/
+// Hard upper bound for Doris-managed Paimon write-buffer memory per JNI writer.
+DECLARE_mInt64(paimon_jni_writer_memory_pool_limit_bytes);
 
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.

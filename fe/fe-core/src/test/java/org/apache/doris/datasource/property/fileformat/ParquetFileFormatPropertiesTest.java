@@ -23,9 +23,9 @@ import org.apache.doris.thrift.TParquetCompressionType;
 import org.apache.doris.thrift.TParquetVersion;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -34,7 +34,7 @@ public class ParquetFileFormatPropertiesTest {
 
     private ParquetFileFormatProperties parquetFileFormatProperties;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         parquetFileFormatProperties = new ParquetFileFormatProperties();
     }
@@ -45,9 +45,9 @@ public class ParquetFileFormatPropertiesTest {
         // Add properties if needed
         parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
 
-        Assert.assertEquals(TParquetCompressionType.SNAPPY, parquetFileFormatProperties.getParquetCompressionType());
-        Assert.assertEquals(false, parquetFileFormatProperties.isParquetDisableDictionary());
-        Assert.assertFalse(parquetFileFormatProperties.isEnableInt96Timestamps());
+        Assertions.assertEquals(TParquetCompressionType.SNAPPY, parquetFileFormatProperties.getParquetCompressionType());
+        Assertions.assertEquals(false, parquetFileFormatProperties.isParquetDisableDictionary());
+        Assertions.assertFalse(parquetFileFormatProperties.isEnableInt96Timestamps());
     }
 
     @Test
@@ -65,7 +65,7 @@ public class ParquetFileFormatPropertiesTest {
         for (int i = 0; i < types.length; i++) {
             properties.put("compress_type", types[i]);
             parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
-            Assert.assertEquals(expected[i], parquetFileFormatProperties.getParquetCompressionType());
+            Assertions.assertEquals(expected[i], parquetFileFormatProperties.getParquetCompressionType());
         }
     }
 
@@ -74,14 +74,16 @@ public class ParquetFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put("compress_type", "SNAPPY");
         parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(TParquetCompressionType.SNAPPY, parquetFileFormatProperties.getParquetCompressionType());
+        Assertions.assertEquals(TParquetCompressionType.SNAPPY, parquetFileFormatProperties.getParquetCompressionType());
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testInvalidCompressionType() {
-        Map<String, String> properties = new HashMap<>();
-        properties.put("compress_type", "invalid_type");
-        parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Map<String, String> properties = new HashMap<>();
+            properties.put("compress_type", "invalid_type");
+            parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
+        });
     }
 
     @Test
@@ -89,10 +91,10 @@ public class ParquetFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put("parquet.disable_dictionary", "true");
         parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertTrue(parquetFileFormatProperties.isParquetDisableDictionary());
+        Assertions.assertTrue(parquetFileFormatProperties.isParquetDisableDictionary());
         properties.put("parquet.disable_dictionary", "false");
         parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertFalse(parquetFileFormatProperties.isParquetDisableDictionary());
+        Assertions.assertFalse(parquetFileFormatProperties.isParquetDisableDictionary());
     }
 
     @Test
@@ -100,10 +102,10 @@ public class ParquetFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put("enable_int96_timestamps", "true");
         parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertTrue(parquetFileFormatProperties.isEnableInt96Timestamps());
+        Assertions.assertTrue(parquetFileFormatProperties.isEnableInt96Timestamps());
         properties.put("enable_int96_timestamps", "false");
         parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertFalse(parquetFileFormatProperties.isEnableInt96Timestamps());
+        Assertions.assertFalse(parquetFileFormatProperties.isEnableInt96Timestamps());
     }
 
     @Test
@@ -113,9 +115,9 @@ public class ParquetFileFormatPropertiesTest {
             properties.put("enable_int96_timestamps", value);
             try {
                 parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
-                Assert.fail("Expected invalid boolean value to be rejected: " + value);
+                Assertions.fail("Expected invalid boolean value to be rejected: " + value);
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("enable_int96_timestamps"));
+                Assertions.assertTrue(e.getMessage().contains("enable_int96_timestamps"));
             }
         }
     }
@@ -128,13 +130,13 @@ public class ParquetFileFormatPropertiesTest {
 
         TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions();
         parquetFileFormatProperties.fullTResultFileSinkOptions(sinkOptions);
-        Assert.assertEquals(TParquetVersion.PARQUET_1_0, sinkOptions.getParquetVersion());
+        Assertions.assertEquals(TParquetVersion.PARQUET_1_0, sinkOptions.getParquetVersion());
 
         properties.put("parquet.version", "latest");
         parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
         sinkOptions = new TResultFileSinkOptions();
         parquetFileFormatProperties.fullTResultFileSinkOptions(sinkOptions);
-        Assert.assertEquals(TParquetVersion.PARQUET_2_LATEST, sinkOptions.getParquetVersion());
+        Assertions.assertEquals(TParquetVersion.PARQUET_2_LATEST, sinkOptions.getParquetVersion());
     }
 
     @Test
@@ -145,22 +147,22 @@ public class ParquetFileFormatPropertiesTest {
 
         TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions();
         parquetFileFormatProperties.fullTResultFileSinkOptions(sinkOptions);
-        Assert.assertEquals(TParquetVersion.PARQUET_1_0, sinkOptions.getParquetVersion());
+        Assertions.assertEquals(TParquetVersion.PARQUET_1_0, sinkOptions.getParquetVersion());
     }
 
     @Test
     public void testFullTResultFileSinkOptions() {
         TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions();
         parquetFileFormatProperties.fullTResultFileSinkOptions(sinkOptions);
-        Assert.assertEquals(parquetFileFormatProperties.getParquetCompressionType(), sinkOptions.getParquetCompressionType());
-        Assert.assertEquals(parquetFileFormatProperties.isParquetDisableDictionary(), sinkOptions.isParquetDisableDictionary());
-        Assert.assertEquals(parquetFileFormatProperties.isEnableInt96Timestamps(), sinkOptions.isEnableInt96Timestamps());
+        Assertions.assertEquals(parquetFileFormatProperties.getParquetCompressionType(), sinkOptions.getParquetCompressionType());
+        Assertions.assertEquals(parquetFileFormatProperties.isParquetDisableDictionary(), sinkOptions.isParquetDisableDictionary());
+        Assertions.assertEquals(parquetFileFormatProperties.isEnableInt96Timestamps(), sinkOptions.isEnableInt96Timestamps());
     }
 
     @Test
     public void testToTFileAttributes() {
         TFileAttributes attrs = parquetFileFormatProperties.toTFileAttributes();
-        Assert.assertNotNull(attrs);
-        Assert.assertNotNull(attrs.getTextParams());
+        Assertions.assertNotNull(attrs);
+        Assertions.assertNotNull(attrs.getTextParams());
     }
 }

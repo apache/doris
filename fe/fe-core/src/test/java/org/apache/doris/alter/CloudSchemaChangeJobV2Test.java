@@ -17,8 +17,8 @@
 
 package org.apache.doris.alter;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -38,7 +38,7 @@ public class CloudSchemaChangeJobV2Test {
 
         try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
             CloudSchemaChangeJobV2 restored = (CloudSchemaChangeJobV2) AlterJobV2.read(input);
-            Assert.assertEquals(Long.valueOf(100L), restored.getIndexIdMap().get(101L));
+            Assertions.assertEquals(Long.valueOf(100L), restored.getIndexIdMap().get(101L));
         }
     }
 }

@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -60,7 +61,7 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
         // ATTN: should use LinkedHashMap to keep order
         this.nameToFields = new LinkedHashMap<>();
         for (StructField field : this.fields) {
-            String fieldName = field.getName().toLowerCase();
+            String fieldName = field.getName().toLowerCase(Locale.ROOT);
             StructField existingField = this.nameToFields.put(fieldName, field);
             if (existingField != null) {
                 throw new AnalysisException("Duplicate field name found: " + fieldName);
@@ -76,8 +77,25 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
         return nameToFields;
     }
 
+    /** Get a field by its case-insensitive runtime name. */
     public StructField getField(String name) {
-        return nameToFields.get(name.toLowerCase());
+        StructField field = nameToFields.get(name.toLowerCase(Locale.ROOT));
+        if (field != null && (!field.isLegacyLocaleDependentName() || field.getName().equals(name))) {
+            return field;
+        }
+        StructField legacyMatch = null;
+        for (int i = fields.size() - 1; i >= 0; i--) {
+            StructField legacyField = fields.get(i);
+            // Limit broad case folding to old replayed fields so new ROOT-distinct names remain distinct.
+            if (legacyField.isLegacyLocaleDependentName() && legacyField.getName().equalsIgnoreCase(name)) {
+                if (legacyMatch != null) {
+                    // The old locale was not persisted, so choosing either folded sibling could return wrong data.
+                    return null;
+                }
+                legacyMatch = legacyField;
+            }
+        }
+        return legacyMatch != null ? legacyMatch : field;
     }
 
     @Override

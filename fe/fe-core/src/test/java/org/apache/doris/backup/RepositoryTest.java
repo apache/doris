@@ -38,11 +38,11 @@ import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -83,7 +83,7 @@ public class RepositoryTest {
 
     private final StorageAdapter testProps = StorageAdapter.ofBroker("broker", Maps.newHashMap());
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         List<String> files = Lists.newArrayList();
         files.add("1.dat");
@@ -112,7 +112,7 @@ public class RepositoryTest {
         FeConstants.runningUnitTest = true;
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
@@ -129,12 +129,12 @@ public class RepositoryTest {
     public void testGet() {
         repo = new Repository(10000, "repo", false, location, testProps);
 
-        Assert.assertEquals(repoId, repo.getId());
-        Assert.assertEquals(name, repo.getName());
-        Assert.assertEquals(false, repo.isReadOnly());
-        Assert.assertEquals(location, repo.getLocation());
-        Assert.assertEquals(null, repo.getErrorMsg());
-        Assert.assertTrue(System.currentTimeMillis() - repo.getCreateTime() < 1000);
+        Assertions.assertEquals(repoId, repo.getId());
+        Assertions.assertEquals(name, repo.getName());
+        Assertions.assertEquals(false, repo.isReadOnly());
+        Assertions.assertEquals(location, repo.getLocation());
+        Assertions.assertEquals(null, repo.getErrorMsg());
+        Assertions.assertTrue(System.currentTimeMillis() - repo.getCreateTime() < 1000);
     }
 
     @Test
@@ -144,7 +144,7 @@ public class RepositoryTest {
         // initRepository() short-circuits with OK when FeConstants.runningUnitTest == true
         Status st = repo.initRepository();
         System.out.println(st);
-        Assert.assertTrue(st.ok());
+        Assertions.assertTrue(st.ok());
     }
 
     @Test
@@ -161,22 +161,22 @@ public class RepositoryTest {
         // "location/__palo_repository_repo_name/__ss_my_sp1/__info_2018-01-01-08-00-00"
         String expected = location + "/" + Repository.PREFIX_REPO + name + "/" + Repository.PREFIX_SNAPSHOT_DIR
                 + label + "/" + Repository.PREFIX_JOB_INFO + createTime2;
-        Assert.assertEquals(expected, repo.assembleJobInfoFilePath(label, creastTs));
+        Assertions.assertEquals(expected, repo.assembleJobInfoFilePath(label, creastTs));
 
         // meta info
         expected = location + "/" + Repository.PREFIX_REPO + name + "/" + Repository.PREFIX_SNAPSHOT_DIR
                 + label + "/" + Repository.FILE_META_INFO;
-        Assert.assertEquals(expected, repo.assembleMetaInfoFilePath(label));
+        Assertions.assertEquals(expected, repo.assembleMetaInfoFilePath(label));
 
         // snapshot path
         // /location/__palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10032/__10023/__3481721
         expected = location + "/" + Repository.PREFIX_REPO + name + "/" + Repository.PREFIX_SNAPSHOT_DIR
                 + label + "/" + "__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5/__7";
-        Assert.assertEquals(expected, repo.assembleRemoteSnapshotPath(label, info));
+        Assertions.assertEquals(expected, repo.assembleRemoteSnapshotPath(label, info));
 
         String rootTabletPath = "/__db_10000/__tbl_10001/__part_10002/_idx_10001/__10003";
         String path = repo.getRepoPath(label, rootTabletPath);
-        Assert.assertEquals("bos://backup-cmy/__palo_repository_repo/__ss_label/__ss_content/__db_10000/__tbl_10001/__part_10002/_idx_10001/__10003",
+        Assertions.assertEquals("bos://backup-cmy/__palo_repository_repo/__ss_label/__ss_content/__db_10000/__tbl_10001/__part_10002/_idx_10001/__10003",
                 path);
     }
 
@@ -184,8 +184,8 @@ public class RepositoryTest {
     public void testPing() {
         repo = new Repository(10000, "repo", false, location, testProps);
         // ping() short-circuits with true when FeConstants.runningUnitTest == true
-        Assert.assertTrue(repo.ping());
-        Assert.assertTrue(repo.getErrorMsg() == null);
+        Assertions.assertTrue(repo.ping());
+        Assertions.assertTrue(repo.getErrorMsg() == null);
     }
 
     @Test
@@ -223,9 +223,9 @@ public class RepositoryTest {
         repo = new Repository(10000, "repo", false, location, testProps);
         List<String> snapshotNames = Lists.newArrayList();
         Status st = repo.listSnapshots(snapshotNames);
-        Assert.assertTrue(st.ok());
-        Assert.assertEquals(1, snapshotNames.size());
-        Assert.assertEquals("a", snapshotNames.get(0));
+        Assertions.assertTrue(st.ok());
+        Assertions.assertEquals(1, snapshotNames.size());
+        Assertions.assertEquals("a", snapshotNames.get(0));
     }
 
     /**
@@ -278,12 +278,12 @@ public class RepositoryTest {
         repo = new Repository(10000, "repo", false, location, testProps);
         List<String> snapshotNames = Lists.newArrayList();
         Status st = repo.listSnapshots(snapshotNames);
-        Assert.assertTrue(st.ok());
-        Assert.assertEquals(2, snapshotNames.size());
-        Assert.assertTrue(snapshotNames.contains("snap1"));
-        Assert.assertTrue(snapshotNames.contains("snap2"));
+        Assertions.assertTrue(st.ok());
+        Assertions.assertEquals(2, snapshotNames.size());
+        Assertions.assertTrue(snapshotNames.contains("snap1"));
+        Assertions.assertTrue(snapshotNames.contains("snap2"));
         // "content" must NOT appear — it is a nested directory, not a snapshot
-        Assert.assertFalse(snapshotNames.contains("content"));
+        Assertions.assertFalse(snapshotNames.contains("content"));
     }
 
     @Test
@@ -300,12 +300,12 @@ public class RepositoryTest {
             out.print("a");
         } catch (FileNotFoundException e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
         try {
             String remoteFilePath = location + "/remote_file";
             Status st = repo.upload(localFilePath, remoteFilePath);
-            Assert.assertTrue(st.ok());
+            Assertions.assertTrue(st.ok());
         } finally {
             File file = new File(localFilePath);
             file.delete();
@@ -321,7 +321,7 @@ public class RepositoryTest {
                 out.print("a");
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
-                Assert.fail();
+                Assertions.fail();
             }
 
             // The remote file has an md5 checksum suffix matching content "a"
@@ -367,7 +367,7 @@ public class RepositoryTest {
             repo = new Repository(10000, "repo", false, location, testProps);
             String remoteFilePath = location + "/remote_file";
             Status st = repo.download(remoteFilePath, localFilePath);
-            Assert.assertTrue(st.ok());
+            Assertions.assertTrue(st.ok());
         } finally {
             localFile.delete();
         }
@@ -419,15 +419,15 @@ public class RepositoryTest {
         String timestamp = "";
         try {
             List<List<String>> infos = repo.getSnapshotInfos(snapshotName, timestamp);
-            Assert.assertEquals(2, infos.size());
+            Assertions.assertEquals(2, infos.size());
 
         } catch (AnalysisException e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
     }
 
-    @Ignore("wait support")
+    @Disabled("wait support")
     @Test
     public void testPersist() throws UserException {
         Map<String, String> properties = Maps.newHashMap();
@@ -447,14 +447,14 @@ public class RepositoryTest {
             Repository newRepo = Repository.read(in);
             in.close();
 
-            Assert.assertEquals(repo.getName(), newRepo.getName());
-            Assert.assertEquals(repo.getId(), newRepo.getId());
-            Assert.assertEquals(repo.getLocation(), newRepo.getLocation());
+            Assertions.assertEquals(repo.getName(), newRepo.getName());
+            Assertions.assertEquals(repo.getId(), newRepo.getId());
+            Assertions.assertEquals(repo.getLocation(), newRepo.getLocation());
 
         } catch (IOException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         } finally {
             file.delete();
         }
@@ -466,16 +466,16 @@ public class RepositoryTest {
         String newLoc = "bos://cmy_bucket/bos_repo/";
         repo = new Repository(10000, "repo", false, newLoc, testProps);
         String path = repo.getRepoPath("label1", "/_ss_my_ss/_ss_content/__db_10000/");
-        Assert.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000/", path);
+        Assertions.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000/", path);
 
         path = repo.getRepoPath("label1", "/_ss_my_ss/_ss_content///__db_10000");
-        Assert.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000", path);
+        Assertions.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000", path);
 
         newLoc = "hdfs://path/to/repo";
         repo = new Repository(10000, "repo", false, newLoc, testProps);
         SnapshotInfo snapshotInfo = new SnapshotInfo(1, 2, 3, 4, 5, 6, 7, "/path", Lists.newArrayList());
         path = repo.getRepoTabletPathBySnapshotInfo("label1", snapshotInfo);
-        Assert.assertEquals("hdfs://path/to/repo/__palo_repository_repo/__ss_label1/__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5", path);
+        Assertions.assertEquals("hdfs://path/to/repo/__palo_repository_repo/__ss_label1/__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5", path);
     }
 
     /**
@@ -505,10 +505,10 @@ public class RepositoryTest {
 
         // The migration must produce a non-null FileSystemDescriptor.
         FileSystemDescriptor fd = deserialized.getFileSystemDescriptor();
-        Assert.assertNotNull("fileSystemDescriptor must be migrated from legacy 'fs' field", fd);
+        Assertions.assertNotNull(fd, "fileSystemDescriptor must be migrated from legacy 'fs' field");
         // Broker fallback is expected: props are empty so no primary storage type matches.
-        Assert.assertEquals(FsStorageType.BROKER, fd.getStorageType());
-        Assert.assertEquals("broker", fd.getName());
+        Assertions.assertEquals(FsStorageType.BROKER, fd.getStorageType());
+        Assertions.assertEquals("broker", fd.getName());
     }
 
     /**
@@ -531,8 +531,8 @@ public class RepositoryTest {
         Repository deserialized = GsonUtils.GSON.fromJson(legacyJson, Repository.class);
 
         FileSystemDescriptor fd = deserialized.getFileSystemDescriptor();
-        Assert.assertNotNull("fileSystemDescriptor must be migrated from legacy HDFS 'fs' field", fd);
-        Assert.assertEquals(FsStorageType.HDFS, fd.getStorageType());
+        Assertions.assertNotNull(fd, "fileSystemDescriptor must be migrated from legacy HDFS 'fs' field");
+        Assertions.assertEquals(FsStorageType.HDFS, fd.getStorageType());
     }
 
     /**
@@ -581,11 +581,8 @@ public class RepositoryTest {
         List<String> snapshotNames = Lists.newArrayList();
         repo.listSnapshots(snapshotNames); // triggers acquireSpiFs() → getBroker(name, host)
 
-        Assert.assertNotNull(
-                "getBroker() must have been called during listSnapshots()", capturedHost.get());
-        Assert.assertEquals(
-                "acquireSpiFs() must pass FrontendOptions.getLocalHostAddress() to getBroker()",
-                "127.0.0.1", capturedHost.get());
+        Assertions.assertNotNull(capturedHost.get(), "getBroker() must have been called during listSnapshots()");
+        Assertions.assertEquals("127.0.0.1", capturedHost.get(), "acquireSpiFs() must pass FrontendOptions.getLocalHostAddress() to getBroker()");
     }
 
 }

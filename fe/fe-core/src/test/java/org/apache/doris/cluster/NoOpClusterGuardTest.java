@@ -17,8 +17,8 @@
 
 package org.apache.doris.cluster;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class NoOpClusterGuardTest {
 
@@ -45,11 +45,11 @@ public class NoOpClusterGuardTest {
     @Test
     public void testGetGuardInfoReturnsEmptyJson() {
         String info = NoOpClusterGuard.INSTANCE.getGuardInfo();
-        Assert.assertEquals("{}", info);
+        Assertions.assertEquals("{}", info);
     }
 
     @Test
     public void testSingletonIdentity() {
-        Assert.assertSame(NoOpClusterGuard.INSTANCE, NoOpClusterGuard.INSTANCE);
+        Assertions.assertSame(NoOpClusterGuard.INSTANCE, NoOpClusterGuard.INSTANCE);
     }
 }

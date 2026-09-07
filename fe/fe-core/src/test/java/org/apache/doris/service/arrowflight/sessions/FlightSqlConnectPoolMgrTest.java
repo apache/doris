@@ -20,8 +20,8 @@ package org.apache.doris.service.arrowflight.sessions;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 public class FlightSqlConnectPoolMgrTest {
@@ -64,6 +64,6 @@ public class FlightSqlConnectPoolMgrTest {
 
         Mockito.verify(channel).close();
         Mockito.verify(ctx).closeFlightSqlDeferredExecutors();
-        Assert.assertNull(poolMgr.getConnectionMap().get(7));
+        Assertions.assertNull(poolMgr.getConnectionMap().get(7));
     }
 }

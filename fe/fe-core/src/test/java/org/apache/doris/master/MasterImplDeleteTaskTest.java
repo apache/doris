@@ -32,10 +32,10 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -58,7 +58,7 @@ public class MasterImplDeleteTaskTest {
     private MockedStatic<Env> mockedEnvStatic;
     private MockedConstruction<ReportHandler> mockedReportHandlerConstruction;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         AgentTaskQueue.clearAllTasks();
 
@@ -78,7 +78,7 @@ public class MasterImplDeleteTaskTest {
         masterImpl = new MasterImpl();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         AgentTaskQueue.clearAllTasks();
         if (mockedEnvStatic != null) {
@@ -100,10 +100,10 @@ public class MasterImplDeleteTaskTest {
 
         masterImpl.finishTask(newFinishTaskRequest(TStatusCode.INTERNAL_ERROR));
 
-        Assert.assertEquals(1, latch.getCount());
-        Assert.assertEquals(TStatusCode.INTERNAL_ERROR, latch.getStatus().getErrorCode());
-        Assert.assertEquals(1, pushTask.getFailedTimes());
-        Assert.assertNull(AgentTaskQueue.getTask(BACKEND_ID, TTaskType.REALTIME_PUSH, SIGNATURE));
+        Assertions.assertEquals(1, latch.getCount());
+        Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, latch.getStatus().getErrorCode());
+        Assertions.assertEquals(1, pushTask.getFailedTimes());
+        Assertions.assertNull(AgentTaskQueue.getTask(BACKEND_ID, TTaskType.REALTIME_PUSH, SIGNATURE));
     }
 
     @Test
@@ -117,10 +117,10 @@ public class MasterImplDeleteTaskTest {
 
         masterImpl.finishTask(newFinishTaskRequest(TStatusCode.INVALID_ARGUMENT));
 
-        Assert.assertEquals(0, latch.getCount());
-        Assert.assertEquals(TStatusCode.INVALID_ARGUMENT, latch.getStatus().getErrorCode());
-        Assert.assertEquals(1, pushTask.getFailedTimes());
-        Assert.assertNull(AgentTaskQueue.getTask(BACKEND_ID, TTaskType.REALTIME_PUSH, SIGNATURE));
+        Assertions.assertEquals(0, latch.getCount());
+        Assertions.assertEquals(TStatusCode.INVALID_ARGUMENT, latch.getStatus().getErrorCode());
+        Assertions.assertEquals(1, pushTask.getFailedTimes());
+        Assertions.assertNull(AgentTaskQueue.getTask(BACKEND_ID, TTaskType.REALTIME_PUSH, SIGNATURE));
     }
 
     @Test
@@ -131,9 +131,9 @@ public class MasterImplDeleteTaskTest {
         PushTask pushTask = newDeletePushTask(latch);
         pushTask.failedWithMsg("submit failed");
 
-        Assert.assertEquals(0, latch.getCount());
-        Assert.assertEquals(TStatusCode.CANCELLED, latch.getStatus().getErrorCode());
-        Assert.assertEquals("submit failed", latch.getStatus().getErrorMsg());
+        Assertions.assertEquals(0, latch.getCount());
+        Assertions.assertEquals(TStatusCode.CANCELLED, latch.getStatus().getErrorCode());
+        Assertions.assertEquals("submit failed", latch.getStatus().getErrorMsg());
     }
 
     private PushTask newDeletePushTask(MarkedCountDownLatch<Long, Long> latch) {
