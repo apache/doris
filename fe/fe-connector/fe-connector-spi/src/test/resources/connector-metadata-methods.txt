@@ -53,6 +53,7 @@ listPartitions(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.
 listSupportedSysTables(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle)
 listTableNames(org.apache.doris.connector.spi.ConnectorSession,java.lang.String)
 listViewNames(org.apache.doris.connector.spi.ConnectorSession,java.lang.String)
+listsPartitionsAtSnapshot(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle)
 modifyColumn(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.ConnectorColumn,org.apache.doris.connector.spi.ddl.ConnectorColumnPosition)
 modifyColumnComment(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.ddl.ConnectorColumnPath,java.lang.String)
 modifyNestedColumn(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.ddl.ConnectorColumnPath,org.apache.doris.connector.spi.ConnectorColumn,org.apache.doris.connector.spi.ddl.ConnectorColumnPosition)

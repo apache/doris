@@ -17,8 +17,8 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValueConverter;
 
 import java.math.BigDecimal;
 import java.sql.Array;

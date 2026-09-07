@@ -19,6 +19,7 @@
 
 #include <jni.h>
 
+#include <atomic>
 #include <memory>
 #include <set>
 #include <string>
@@ -318,7 +319,8 @@ public:
     MetricRegistry* metric_registry() { return &_metric_registry; }
     SystemMetrics* system_metrics() { return _system_metrics.get(); }
     MetricEntity* server_entity() { return _server_metric_entity.get(); }
-    JvmMetrics* jvm_metrics() { return _jvm_metrics.get(); }
+    // nullptr until the JVM of this process exists, which may never happen.
+    JvmMetrics* jvm_metrics() { return _jvm_metrics_view.load(std::memory_order_acquire); }
     void init_jvm_metrics();
 
 private:
@@ -337,6 +339,9 @@ private:
 
     std::unique_ptr<SystemMetrics> _system_metrics;
     std::unique_ptr<JvmMetrics> _jvm_metrics;
+    // Published only once _jvm_metrics is fully built: it is now created while the metric
+    // hooks of other threads are already running.
+    std::atomic<JvmMetrics*> _jvm_metrics_view {nullptr};
 
     std::shared_ptr<MetricEntity> _server_metric_entity;
 };

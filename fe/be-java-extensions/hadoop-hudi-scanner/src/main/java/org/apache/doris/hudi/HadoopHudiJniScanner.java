@@ -17,9 +17,10 @@
 
 package org.apache.doris.hudi;
 
-import org.apache.doris.common.classloader.ThreadClassLoaderContext;
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.kerberos.HadoopAuthenticator;
+import org.apache.doris.kerberos.HadoopKerberosAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
@@ -28,6 +29,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.JavaUtils;
 import org.apache.hadoop.hive.serde2.Deserializer;
@@ -41,6 +43,7 @@ import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.RecordReader;
 import org.apache.hadoop.mapred.Reporter;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.util.Option;
@@ -49,11 +52,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.lang.reflect.UndeclaredThrowableException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivilegedExceptionAction;
 import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.TreeMap;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -64,6 +76,15 @@ public class HadoopHudiJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(HadoopHudiJniScanner.class);
 
     private static final String HADOOP_CONF_PREFIX = "hadoop_conf.";
+
+    // fs.s3a.impl.disable.cache and its per-scheme siblings, as the FE emits them.
+    private static final Pattern FS_DISABLE_CACHE = Pattern.compile("fs\\..+\\.impl\\.disable\\.cache");
+
+    // One UGI per distinct filesystem configuration, which is what keys Hadoop's FileSystem cache to
+    // the credentials that opened it. See createFileSystemScope. Never evicted on purpose: an entry is
+    // one UGI, there is one per catalog storage config, and dropping one would strand the filesystems
+    // cached under it - a live scan may still be reading through them.
+    private static final ConcurrentHashMap<String, UserGroupInformation> FS_SCOPES = new ConcurrentHashMap<>();
 
     // Hudi data info
     private final String basePath;
@@ -92,9 +113,10 @@ public class HadoopHudiJniScanner extends JniScanner {
     // scanner info
     private final HadoopHudiColumnValue columnValue;
     private final int fetchSize;
-    private final ClassLoader classLoader;
 
     private final PreExecutionAuthenticator preExecutionAuthenticator;
+    // Null when this scanner does not own its filesystems; see createFileSystemScope.
+    private final UserGroupInformation fileSystemScope;
 
     public HadoopHudiJniScanner(int fetchSize, Map<String, String> params) {
         this.basePath = params.get("base_path");
@@ -130,6 +152,12 @@ public class HadoopHudiJniScanner extends JniScanner {
             }
         }
         this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(fsOptionsProps);
+        this.fileSystemScope = createFileSystemScope();
+        if (fileSystemScope != null) {
+            // Hadoop's FileSystem cache is the only thing standing between this scanner and a
+            // filesystem leaked on every get(); the scope above is what makes it safe to use.
+            fsOptionsProps.replaceAll((key, value) -> FS_DISABLE_CACHE.matcher(key).matches() ? "false" : value);
+        }
 
         ZoneId zoneId;
         if (Strings.isNullOrEmpty(params.get("time_zone"))) {
@@ -140,13 +168,95 @@ public class HadoopHudiJniScanner extends JniScanner {
         // Hudi keeps one session zone for every timestamp encoding to preserve its JNI contract.
         this.columnValue = new HadoopHudiColumnValue(zoneId);
         this.fetchSize = fetchSize;
-        this.classLoader = this.getClass().getClassLoader();
+    }
+
+    /**
+     * The {@link UserGroupInformation} this scanner reads under, chosen so that Hadoop's
+     * {@link FileSystem} cache can stay ON without letting two catalogs share one filesystem.
+     *
+     * <p>The FE hands every S3-compatible catalog {@code fs.s3a.impl.disable.cache=true} (the HDFS
+     * builder does the same for {@code fs.hdfs.}), because that cache is keyed on
+     * (scheme, authority, ugi) and ignores credentials - and every non-Kerberos catalog arrives here
+     * under the SAME ugi, {@code HadoopSimpleAuthenticator}'s {@code createRemoteUser(hadoop.username)},
+     * whose own cache key is just that user name. Two catalogs on one bucket would otherwise read
+     * through whichever S3AFileSystem was built first, with its credentials.
+     *
+     * <p>Disabling the cache does stop that, and leaks instead. Every {@code FileSystem.get()} inside
+     * hudi-hadoop-mr then builds a fresh S3AFileSystem and a fresh AWS SDK client, and nobody closes
+     * them: one query reaches for the base file, each log file and the timeline through some two dozen
+     * of those calls. The filesystems are collected, but each SDK client leaves a scheduled executor
+     * that its own worker threads keep alive - about 118 threads per query, measured - until the JVM
+     * cannot start a thread and the BE aborts with
+     * {@code std::system_error: thread constructor failed}.
+     *
+     * <p>So the cache goes back on, and the credential separation it was disabled for is provided by
+     * the cache key itself: one UGI per distinct filesystem configuration, from {@link #FS_SCOPES}.
+     * Same credentials reuse a filesystem, different credentials cannot. The UGI carries the SAME user
+     * name the simple authenticator would have used - it is a second Subject for one user, not another
+     * user - so an {@code hdfs://} warehouse still sees the identity it always saw.
+     *
+     * <p>Kerberos is the case this cannot serve: {@code createRemoteUser} would drop the credentials the
+     * ticket carries. There the scanner keeps the authenticator's own UGI, which is already cached per
+     * principal and so already partitions the filesystem cache; this returns null and the FE's setting
+     * is left alone.
+     */
+    private UserGroupInformation createFileSystemScope() {
+        HadoopAuthenticator authenticator = preExecutionAuthenticator.getHadoopAuthenticator();
+        if (authenticator == null || authenticator instanceof HadoopKerberosAuthenticator) {
+            return null;
+        }
+        try {
+            String userName = authenticator.getUGI().getUserName();
+            return FS_SCOPES.computeIfAbsent(fileSystemScopeKey(),
+                    key -> UserGroupInformation.createRemoteUser(userName));
+        } catch (Exception e) {
+            LOG.warn("failed to derive a FileSystem scope for the hudi scanner, keeping the shared one", e);
+            return null;
+        }
+    }
+
+    /**
+     * Identifies a filesystem configuration - endpoint, credentials, everything the FE sent - so that
+     * {@link #FS_SCOPES} hands the same UGI to two scanners exactly when they may share a filesystem.
+     * Digested rather than used directly because the properties hold secrets and a map key is easy to
+     * print by accident.
+     */
+    private String fileSystemScopeKey() throws NoSuchAlgorithmException {
+        StringBuilder canonical = new StringBuilder();
+        new TreeMap<>(fsOptionsProps).forEach((k, v) -> canonical.append(k).append('=').append(v).append('\n'));
+        byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+        StringBuilder hex = new StringBuilder(digest.length * 2);
+        for (byte b : digest) {
+            hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+        }
+        return hex.toString();
+    }
+
+    /**
+     * Runs {@code task} under {@link #fileSystemScope}. That replaces
+     * {@code PreExecutionAuthenticator}'s doAs rather than nesting inside it, because nesting would not
+     * work: the simple authenticator's own doAs would put its shared UGI back and the filesystem cache
+     * would collapse onto one entry again. The two are equivalent otherwise - both run the task under a
+     * {@code createRemoteUser} of the same name, and the simple authenticator adds nothing else.
+     */
+    private <T> T executeInFileSystemScope(Callable<T> task) throws Exception {
+        if (fileSystemScope == null) {
+            return preExecutionAuthenticator.execute(task);
+        }
+        try {
+            return fileSystemScope.doAs((PrivilegedExceptionAction<T>) task::call);
+        } catch (UndeclaredThrowableException e) {
+            // doAs only wraps checked exceptions it does not declare; the callers report the cause.
+            Throwable cause = e.getUndeclaredThrowable();
+            throw cause instanceof Exception ? (Exception) cause : e;
+        }
     }
 
     @Override
-    public void open() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            preExecutionAuthenticator.execute(() -> {
+    protected void openInternal() throws IOException {
+        try {
+            executeInFileSystemScope(() -> {
                 initRequiredColumnsAndTypes();
                 initTableInfo(requiredTypes, requiredFields, fetchSize);
                 Properties properties = getReaderProperties();
@@ -155,16 +265,16 @@ public class HadoopHudiJniScanner extends JniScanner {
             });
 
         } catch (Exception e) {
-            close();
+            closeInternal();
             LOG.warn("failed to open hadoop hudi jni scanner", e);
             throw new IOException("failed to open hadoop hudi jni scanner: " + e.getMessage(), e);
         }
     }
 
     @Override
-    public int getNext() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            return preExecutionAuthenticator.execute(() -> {
+    protected int getNext() throws IOException {
+        try {
+            return executeInFileSystemScope(() -> {
                 NullWritable key = reader.createKey();
                 ArrayWritable value = reader.createValue();
                 long startTime = System.nanoTime();
@@ -191,15 +301,15 @@ public class HadoopHudiJniScanner extends JniScanner {
                 return numRows;
             });
         } catch (Exception e) {
-            close();
+            closeInternal();
             LOG.warn("failed to get next in hadoop hudi jni scanner", e);
             throw new IOException("failed to get next in hadoop hudi jni scanner: " + e.getMessage(), e);
         }
     }
 
     @Override
-    public void close() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+    protected void closeInternal() throws IOException {
+        try {
             if (reader != null) {
                 reader.close();
             }

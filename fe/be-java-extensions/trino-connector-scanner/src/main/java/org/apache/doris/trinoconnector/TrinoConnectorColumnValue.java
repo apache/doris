@@ -17,8 +17,8 @@
 
 package org.apache.doris.trinoconnector;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValue;
 
 import io.trino.spi.block.ArrayBlock;
 import io.trino.spi.block.Block;

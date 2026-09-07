@@ -57,10 +57,10 @@ import org.apache.logging.log4j.Logger;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -561,6 +561,30 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * True only where the listing really is snapshot-exact.
+     *
+     * <p>When it is, {@link #listPartitions} reads the {@code queryInstant} {@link #applySnapshot} put on the
+     * handle and enumerates the partitions that hold data at it, so a {@code FOR TIME/VERSION AS OF} query gets
+     * the partition universe of THAT snapshot rather than an empty one. See
+     * {@code HudiScanPlanProvider.listPartitionPathsAsOf}: it is NOT the same view call the scan makes - it
+     * asks {@code getLatestFileSlicesBeforeOrOn} while the scan asks its own per-table-type views - but the
+     * two share the file group set and the {@code <= queryInstant} cut, and every difference falls on the safe
+     * side, so this listing can only be a superset of the partitions the scan finds files in. Its own javadoc
+     * carries that argument in full.
+     *
+     * <p>The {@code use_hive_sync_partition} branch cannot promise that, which is why it answers false.
+     * {@link #collectPartitions} starts from what HMS holds NOW and can only remove from it, so its result is a
+     * SUBSET of the pin: a partition that held data at the pin but was later dropped from the table and
+     * unsynced from HMS is not in that subset, and pruning against it would silently drop rows a
+     * {@code FOR TIME AS OF} query must read. False means "this listing knows nothing about snapshots", which
+     * leaves the pinned partition set empty and scans everything - coarse, but never short.
+     */
+    @Override
+    public boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
+        return !useHiveSyncPartition();
+    }
+
+    /**
      * Threads a resolved pin onto the handle BEFORE planScan, reading the FE-internal carrier properties set by
      * {@link #resolveTimeTravel} and stamping via {@code toBuilder()}, which PRESERVES any
      * {@code prunedPartitionPaths} applyFilter set earlier (applyFilter runs before applySnapshot at scan time,
@@ -679,18 +703,43 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Shared partition collector backing {@link #listPartitions} and {@link #listPartitionNames}. Lists the
-     * raw partition identifiers from the
-     * {@code use_hive_sync_partition}-aware source (mirroring legacy
-     * {@code HudiExternalMetaCache.loadPartitionNames}), then renders one {@link ConnectorPartitionInfo} per
-     * partition. Unpartitioned &rarr; {@code emptyList()} (legacy never lists partitions for an unpartitioned
-     * table). Explicit time-travel (non-latest) partition listing is a later step.
+     * A hudi instant read as the number {@code instantToEpochMillis} expects, or 0 when it is not a number.
+     *
+     * <p>0 means "no reliable change signal", which the engine already degrades safely on. Reached by an
+     * instant spelled as an ISO-8601 timestamp: {@code resolveTimeTravel} normalises one by stripping
+     * {@code -}, {@code :} and spaces, which leaves the {@code T} and the fractional dot behind. A tag or
+     * branch name never gets this far - {@code resolveTimeTravel} rejects {@code VERSION AS OF} outright.
+     */
+    private static long parseInstantOrZero(String instant) {
+        try {
+            return Long.parseLong(instant);
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    /**
+     * Shared partition collector backing {@link #listPartitions} and {@link #listPartitionNames}: the raw
+     * partition identifiers from the {@code use_hive_sync_partition}-aware source (mirroring legacy
+     * {@code HudiExternalMetaCache.loadPartitionNames}), rendered one {@link ConnectorPartitionInfo} per
+     * partition, and restricted to those holding data at the handle's pin when it carries one. Unpartitioned
+     * &rarr; {@code emptyList()} (legacy never lists partitions for an unpartitioned table).
+     *
+     * <p>Neither listing source below knows about instants: HMS holds what is hive-synced NOW, and the metadata
+     * table keeps a partition path forever once written, so both answer "ever existed". Reading a table at its
+     * first commit would otherwise report every partition it has today, and pruning against that universe is
+     * wrong in both directions.
+     *
+     * <p>How the pin is applied - by restricting the listing rather than replacing it - is on
+     * {@link #restrictToPin}.
      */
     private List<ConnectorPartitionInfo> collectPartitions(HudiTableHandle handle, boolean bypassCache) {
         List<String> partKeyNames = handle.getPartitionKeyNames();
         if (partKeyNames == null || partKeyNames.isEmpty()) {
             return Collections.emptyList();
         }
+        String queryInstant = handle.getQueryInstant();
+
         if (useHiveSyncPartition()) {
             // hive-sync tables register their partitions in HMS: list the names from there (already authed via
             // hmsClient, no metaClient), like legacy. The instant still comes from the timeline. If HMS has none
@@ -704,28 +753,154 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                     ? hmsClient.listPartitionNamesFresh(handle.getDbName(), handle.getTableName(), -1)
                     : hmsClient.listPartitionNames(handle.getDbName(), handle.getTableName(), -1);
             if (hmsNames != null && !hmsNames.isEmpty()) {
+                // Never narrowed to the pin, whether or not the handle carries one - which is the same
+                // answer {@link #listsPartitionsAtSnapshot} gives for a hive-sync table, and it has to be
+                // the same answer: a listing narrowed here would be pruned against, while that method says
+                // this listing knows nothing about snapshots. The two used to be written separately, and
+                // the narrowing one was unreachable for pruning - carrying, unexercised, the double-escape
+                // hazard restrictToPin's own javadoc warns about, since HMS partition values are escaped
+                // differently from the ones in a metadata path.
+                //
+                // What the pin costs instead is coarseness: a partition dropped after the pin is gone from
+                // HMS and cannot be listed, so restricting to what HMS holds now could only ever be a
+                // SUBSET of the pinned set. Reporting a superset (everything HMS knows) and letting the
+                // scan filter is the direction that cannot lose rows.
+                //
+                // Unconditionally the latest instant, with no branch on queryInstant, because this
+                // listing is snapshot-blind BY CONSTRUCTION and there is nowhere for a pin to arrive
+                // from. The one caller that passes a snapshot-applied handle gates on
+                // listsPartitionsAtSnapshot(), which for a hive-sync table is !useHiveSyncPartition()
+                // = false; every other caller passes the base handle, which carries no query instant.
+                // The pinned branch that used to be here was therefore dead, and it cost a whole
+                // HoodieTableMetaClient built just to read a timeline zone - plus a fallback that
+                // would have published epoch 0 as a partition's last-modified time for any
+                // non-numeric pin, the day it became reachable.
                 return buildPartitionInfos(hmsNames, partKeyNames, latestInstantMillis(handle));
             }
             LOG.warn("hive-sync hudi table {}.{} has no HMS partitions; "
                     + "falling back to hudi metadata partition listing",
                     handle.getDbName(), handle.getTableName());
         }
-        // Non-hive-sync (or hive-sync HMS-empty fallback): the instant and the partition paths both come from
-        // the metaClient, built ONCE under the plugin auth + TCCL pin. Byte-consistent with the scan's unpruned
-        // partition source (resolvePartitions -> listAllPartitionPaths), which is the R2 prune-to-zero guard.
-        Map.Entry<Long, List<String>> listing = metaClientExecutor.execute(() -> {
+
+        // Non-hive-sync (or hive-sync HMS-empty fallback): the instant, the partition paths and - when the
+        // handle carries a pin - the partitions holding data at it all come from ONE metaClient built under the
+        // plugin auth + TCCL pin. One visit rather than two: the pin used to build a second metaClient and run
+        // a second full listAllPartitionPaths over the same table, and the metaClient cannot simply be handed
+        // back out of the executor because using it outside the pin is what the executor exists to prevent.
+        // Byte-consistent with the scan's unpruned partition source (resolvePartitions ->
+        // listAllPartitionPaths), which is the R2 prune-to-zero guard.
+        Listing listing = metaClientExecutor.execute(() -> {
             HoodieTableMetaClient metaClient =
                     HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath());
+            List<String> rawPaths = HudiScanPlanProvider.listAllPartitionPaths(metaClient);
             // Convert to epoch millis HERE, on the metaClient we already built: the partition info's
             // last-modified field is contractually epoch millis, and the timeline zone is only readable
             // from the table config. Doing it here costs no extra remote call.
-            return new AbstractMap.SimpleImmutableEntry<>(
-                    HudiScanPlanProvider.instantToEpochMillis(
-                            HudiScanPlanProvider.latestCompletedInstant(metaClient),
-                            HudiScanPlanProvider.timelineZone(metaClient)),
-                    HudiScanPlanProvider.listAllPartitionPaths(metaClient));
+            long lastModifiedMillis = HudiScanPlanProvider.instantToEpochMillis(
+                    HudiScanPlanProvider.latestCompletedInstant(metaClient),
+                    HudiScanPlanProvider.timelineZone(metaClient));
+            PinnedListing pinned = queryInstant == null || rawPaths.isEmpty()
+                    ? null : pinnedListing(metaClient, queryInstant, rawPaths);
+            return new Listing(rawPaths, lastModifiedMillis, pinned);
         });
-        return buildPartitionInfos(listing.getValue(), partKeyNames, listing.getKey());
+        List<ConnectorPartitionInfo> partitions =
+                buildPartitionInfos(listing.rawPaths, partKeyNames, listing.lastModifiedMillis);
+        return listing.pinned == null
+                ? partitions
+                : restrictToPin(handle, partKeyNames, partitions, listing.pinned, queryInstant);
+    }
+
+    /**
+     * What one metaClient visit answers for the partition listing. {@code pinned} is null when the handle
+     * carries no pin. Package-private so an offline test can stub the visit - see {@link #unpinnedListing}.
+     */
+    static final class Listing {
+        private final List<String> rawPaths;
+        private final long lastModifiedMillis;
+        private final PinnedListing pinned;
+
+        private Listing(List<String> rawPaths, long lastModifiedMillis, PinnedListing pinned) {
+            this.rawPaths = rawPaths;
+            this.lastModifiedMillis = lastModifiedMillis;
+            this.pinned = pinned;
+        }
+    }
+
+    /** The listing a metaClient visit produces for a table read at its latest instant. For tests. */
+    static Listing unpinnedListing(long lastModifiedMillis, List<String> rawPaths) {
+        return new Listing(rawPaths, lastModifiedMillis, null);
+    }
+
+    /**
+     * The listing a metaClient visit produces for a table read AT a pin: everything the table has ever held,
+     * plus the subset that held data at the pin. For tests - it is the only way to drive
+     * {@link #restrictToPin}, which is otherwise reachable only behind a live metadata table.
+     */
+    static Listing pinnedListing(long lastModifiedMillis, List<String> rawPaths, long pinMillis,
+            List<String> rawPathsAtPin) {
+        return new Listing(rawPaths, lastModifiedMillis, new PinnedListing(pinMillis, rawPathsAtPin));
+    }
+
+    /** The pin rendered as epoch millis, and the raw paths that held data at it. */
+    private static final class PinnedListing {
+        private final long pinMillis;
+        private final List<String> rawPaths;
+
+        private PinnedListing(long pinMillis, List<String> rawPaths) {
+            this.pinMillis = pinMillis;
+            this.rawPaths = rawPaths;
+        }
+    }
+
+    /**
+     * Runs inside {@link HudiMetaClientExecutor#execute} on a metaClient the caller already built, and reuses
+     * the partition paths the caller already listed rather than listing them again.
+     */
+    private static PinnedListing pinnedListing(HoodieTableMetaClient metaClient, String queryInstant,
+            List<String> allPaths) throws Exception {
+        // A non-numeric pin (a tag/branch name) carries no time; 0 reads as "no reliable change signal",
+        // which the engine already degrades safely on.
+        long pinMillis = HudiScanPlanProvider.instantToEpochMillis(
+                parseInstantOrZero(queryInstant), HudiScanPlanProvider.timelineZone(metaClient));
+        return new PinnedListing(pinMillis,
+                HudiScanPlanProvider.listPartitionPathsAsOf(metaClient, allPaths, queryInstant));
+    }
+
+    /**
+     * Keeps only the partitions that held data at the pin, by VALUE rather than by re-listing.
+     *
+     * <p>Restricting rather than re-listing is deliberate, and both sides of the comparison come from the
+     * SAME listing: {@code partitions} is built from the raw paths of one {@code listAllPartitionPaths}, and
+     * {@code pinned.rawPaths} is a subset of those same strings. That is what makes the value comparison
+     * exact. It also rules out the failure that shaped this method - comparing HMS-escaped partition values
+     * against ones rendered from a metadata path, where a timestamp partition comes out double-escaped,
+     * fails to parse into its column type and is dropped, pruning a live partition away. The hive-sync
+     * listing therefore never reaches here at all; see {@link #collectPartitions} and
+     * {@link #listsPartitionsAtSnapshot}, which agree that a hive-sync listing knows nothing about pins.
+     *
+     * <p>The freshness marker becomes the pin itself: the partitions of a past snapshot are frozen, and
+     * reporting "now" as their last-modified would tell the engine that a past snapshot keeps changing.
+     * {@link #pinnedListing} computes it, on the metaClient the caller already built.
+     */
+    private List<ConnectorPartitionInfo> restrictToPin(HudiTableHandle handle, List<String> partKeyNames,
+            List<ConnectorPartitionInfo> partitions, PinnedListing pinned, String queryInstant) {
+        Set<Map<String, String>> pinnedValues = new HashSet<>();
+        for (String rawPath : pinned.rawPaths) {
+            pinnedValues.add(HudiScanPlanProvider.parsePartitionValues(rawPath, partKeyNames));
+        }
+        List<ConnectorPartitionInfo> atPin = new ArrayList<>(pinnedValues.size());
+        for (ConnectorPartitionInfo partition : partitions) {
+            if (pinnedValues.contains(partition.getPartitionValues())) {
+                atPin.add(new ConnectorPartitionInfo(partition.getPartitionName(),
+                        partition.getPartitionValues(), partition.getProperties(),
+                        ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN,
+                        pinned.pinMillis, ConnectorPartitionInfo.UNKNOWN,
+                        partition.getOrderedPartitionValues(), partition.getPartitionValueNullFlags()));
+            }
+        }
+        LOG.info("Hudi partition listing at instant {}: {}.{} -> {} of {} partitions",
+                queryInstant, handle.getDbName(), handle.getTableName(), atPin.size(), partitions.size());
+        return atPin;
     }
 
     /**
@@ -747,13 +922,29 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             // Ordered values in partKeyNames (render) order; render/parse are exact inverses, so this equals
             // fe-core's legacy parse of `name`. Supplied so fe-core skips the parse.
             List<String> orderedValues = new ArrayList<>(partKeyNames.size());
+            // Which of those values is a genuine SQL NULL. fe-core never string-compares a sentinel - hive,
+            // paimon and hudi all render the same __HIVE_DEFAULT_PARTITION__ and only the connector knows
+            // what it means there - so the flags have to come from here. Without them a null partition
+            // reaches the engine as the literal sentinel: it prunes on
+            // `col = '__HIVE_DEFAULT_PARTITION__'` instead of `col IS NULL`, an MTMV partitioned on that
+            // column builds a partition named after the sentinel instead of p_NULL, and on a non-string
+            // column the value fails to parse and the partition is dropped altogether.
+            //
+            // Which spellings count is HudiScanPlanProvider.isNullPartitionValue, shared with the scan
+            // path: the two must agree, because this decides how the engine prunes and that decides what
+            // the scan matches. A partition directory written with hudi's older "\N" spelling used to be
+            // listed as that literal here and scanned as NULL there, so `col IS NULL` pruned it away and
+            // the query came back with zero rows from a partition the scan would have matched.
+            List<Boolean> nullFlags = new ArrayList<>(partKeyNames.size());
             for (String col : partKeyNames) {
-                orderedValues.add(values.get(col));
+                String value = values.get(col);
+                orderedValues.add(value);
+                nullFlags.add(HudiScanPlanProvider.isNullPartitionValue(value));
             }
             result.add(new ConnectorPartitionInfo(name, values, Collections.emptyMap(),
                     ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN,
                     lastModifiedMillis, ConnectorPartitionInfo.UNKNOWN,
-                    orderedValues, Collections.emptyList()));
+                    orderedValues, nullFlags));
         }
         return result;
     }
@@ -1031,6 +1222,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 conf.set(key, entry.getValue());
             }
         }
+        HudiConnector.enableFileSystemCache(conf);
         return conf;
     }
 

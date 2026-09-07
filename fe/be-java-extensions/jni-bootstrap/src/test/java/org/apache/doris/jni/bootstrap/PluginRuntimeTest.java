@@ -1,0 +1,606 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.jni.bootstrap;
+
+import org.apache.doris.jni.spi.DorisPlugin;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.SpiVersion;
+import org.apache.doris.jni.spi.UdfExecutorFactory;
+import org.apache.doris.jni.testplugin.CollidingPlugin;
+import org.apache.doris.jni.testplugin.NamedScannerFactory;
+import org.apache.doris.jni.testplugin.TestPlugin;
+import org.apache.doris.jni.testplugin.TestScanner;
+import org.apache.doris.jni.testplugin.TestScannerFactory;
+import org.apache.doris.jni.testplugin.TestUdfExecutorFactory;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.IOException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Exercises the runtime against plugin directories built as real jars.
+ *
+ * <p>The properties under test are the ones the architecture rests on: a plugin cannot reach BE's
+ * classpath, cannot substitute its own copy of the SPI, and cannot take BE or another plugin down
+ * with it.
+ */
+class PluginRuntimeTest {
+
+    private static final Class<?>[] SAMPLE_CLASSES = {
+        TestPlugin.class, TestScannerFactory.class, TestScanner.class, TestUdfExecutorFactory.class,
+    };
+
+    private PluginRuntime runtimeOver(Path pluginsDir) {
+        return new PluginRuntime(pluginsDir, getClass().getClassLoader());
+    }
+
+    // ------------------------------------------------------------------
+    // Discovery and the class space.
+    // ------------------------------------------------------------------
+
+    @Test
+    void pluginIsFoundThroughItsServiceDescriptorAndIndexedByFactoryName(@TempDir Path plugins)
+            throws IOException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+
+        PluginHandle handle = runtimeOver(plugins).plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state(), handle.failure());
+        Assertions.assertEquals(Collections.singleton("sample"), handle.scannerFactories().keySet());
+        Assertions.assertEquals(Collections.singleton("udf"), handle.udfExecutorFactories().keySet());
+        Assertions.assertEquals(Collections.emptySet(), handle.writerFactories().keySet());
+    }
+
+    /**
+     * The whole point of the design: plugin classes come from the plugin's own jars even when an
+     * identically named class exists on BE's classpath. If the loader ever fell back to its parent,
+     * these two would be the same class and every version conflict would silently resolve to
+     * whatever BE ships.
+     */
+    @Test
+    void pluginClassesAreLoadedFromThePluginNotFromBeClasspath(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        PluginHandle handle = runtimeOver(plugins).plugin("sample");
+
+        Class<?> insidePlugin = handle.scannerFactories().get("sample").getClass();
+        Assertions.assertEquals(TestScannerFactory.class.getName(), insidePlugin.getName());
+        Assertions.assertNotSame(TestScannerFactory.class, insidePlugin,
+                "the plugin's class must not be the copy on BE's classpath");
+        Assertions.assertSame(handle.classLoader(), insidePlugin.getClassLoader());
+    }
+
+    /**
+     * ...and the mirror image: SPI types must be the one class both sides hold, or nothing could be
+     * handed across the boundary at all.
+     */
+    @Test
+    void spiClassesAreShared(@TempDir Path plugins) throws IOException, ClassNotFoundException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        PluginHandle handle = runtimeOver(plugins).plugin("sample");
+
+        Class<?> factoryInterface = handle.scannerFactories().get("sample").getClass().getInterfaces()[0];
+        Assertions.assertSame(org.apache.doris.jni.spi.JniScannerFactory.class, factoryInterface);
+        Assertions.assertSame(DorisPlugin.class,
+                handle.classLoader().loadClass(DorisPlugin.class.getName()));
+    }
+
+    /** BE's system classpath is not on the plugin's search path at all. */
+    @Test
+    void bePrivateClassesAreInvisibleToThePlugin(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        PluginHandle handle = runtimeOver(plugins).plugin("sample");
+
+        Assertions.assertThrows(ClassNotFoundException.class,
+                () -> handle.classLoader().loadClass(PluginRegistry.class.getName()),
+                "the plugin runtime itself must not be reachable from a plugin");
+        // The JDK still is, through the platform classloader.
+        Assertions.assertDoesNotThrow(() -> handle.classLoader().loadClass("java.util.ArrayList"));
+    }
+
+    // ------------------------------------------------------------------
+    // Instantiation.
+    // ------------------------------------------------------------------
+
+    @Test
+    void createInstanceRunsTheFactoryUnderThePluginClassLoader(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        PluginRuntime runtime = runtimeOver(plugins);
+        PluginHandle handle = runtime.plugin("sample");
+
+        Object instance = runtime.createInstance("sample", "sample", 64,
+                Collections.singletonMap("k", "v"));
+
+        Assertions.assertTrue(instance instanceof JniScanner,
+                "the SPI base class is shared, so BE can talk to the instance");
+        Map<String, String> statistics = ((JniScanner) instance).getStatistics();
+        Assertions.assertEquals(String.valueOf(handle.classLoader()),
+                statistics.get("contextClassLoaderAtCreate"),
+                "the factory must run with the plugin's classloader as context classloader:"
+                        + " BE's own threads do not have one that can see plugin classes");
+        Assertions.assertEquals("64", statistics.get("batchSize"));
+        Assertions.assertEquals("{k=v}", statistics.get("params"));
+    }
+
+    @Test
+    void udfParametersReachThePluginAsUnmodifiedBytes(@TempDir Path plugins) throws Exception {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+
+        Object executor = runtimeOver(plugins).createUdfExecutor("sample", "udf",
+                "thrift-payload".getBytes(StandardCharsets.UTF_8));
+
+        Assertions.assertEquals("thrift-payload", executor);
+    }
+
+    @Test
+    void anUnknownFactoryNameListsWhatThePluginActuallyProvides(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        PluginRuntime runtime = runtimeOver(plugins);
+
+        IllegalArgumentException failure = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> runtime.createInstance("sample", "typo", 8, Collections.emptyMap()));
+        Assertions.assertTrue(failure.getMessage().contains("[sample]"), failure.getMessage());
+    }
+
+    // ------------------------------------------------------------------
+    // The shared filesystem directory.
+    // ------------------------------------------------------------------
+
+    /**
+     * A plugin resolves classes out of the shared filesystem directory as well as its own.
+     *
+     * <p>That directory is how oss:// and jfs:// survived the isolation: those jars sat on the
+     * system classpath, which a plugin classloader cannot reach, and no plugin declares them (hadoop
+     * reaches a filesystem by class name out of a Configuration, so nothing links against them).
+     * Without this a Hudi table on jfs:// reads before an upgrade and not after, with
+     * "No FileSystem for scheme" and nothing static able to see it coming.
+     */
+    @Test
+    void pluginAlsoReadsTheSharedFilesystemJars(@TempDir Path plugins, @TempDir Path fsDir)
+            throws Exception {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        Path jindofs = Files.createDirectories(fsDir.resolve("jindofs"));
+        PluginJars.addClassJar(jindofs, "fake-fs.jar", "com.example.fs.FakeFileSystem");
+
+        PluginHandle handle = new PluginRuntime(plugins, getClass().getClassLoader(), null, fsDir)
+                .plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state());
+        Assertions.assertNotNull(
+                handle.classLoader().loadClass("com.example.fs.FakeFileSystem"),
+                "the shared filesystem jars must be on the plugin's classpath");
+    }
+
+    /** ...and the plugin's OWN copy wins, which is why they are appended rather than prepended. */
+    @Test
+    void thePluginsOwnJarsWinOverTheSharedFilesystemJars(@TempDir Path plugins, @TempDir Path fsDir)
+            throws Exception {
+        Path sample = PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        // Same class name in both places. A real one: the JuiceFS SDK is a fat jar carrying its own
+        // copies of hadoop and of half a dozen shared libraries, and a plugin's hadoop must win.
+        //
+        // Named so the shared copy sorts FIRST: within one directory the loader orders jars by
+        // name, so an implementation that sorted the two directories together instead of appending
+        // one after the other would hand back the shared copy and fail here. Equal names would
+        // leave that mutation green.
+        PluginJars.addClassJar(sample, "zzz-plugin-own.jar", "com.example.fs.Contested");
+        Path juicefs = Files.createDirectories(fsDir.resolve("juicefs"));
+        PluginJars.addClassJar(juicefs, "aaa-shared.jar", "com.example.fs.Contested");
+
+        PluginHandle handle = new PluginRuntime(plugins, getClass().getClassLoader(), null, fsDir)
+                .plugin("sample");
+
+        Class<?> loaded = handle.classLoader().loadClass("com.example.fs.Contested");
+        Assertions.assertEquals(sample.resolve("zzz-plugin-own.jar").toUri().toURL().toString(),
+                loaded.getProtectionDomain().getCodeSource().getLocation().toString(),
+                "the plugin's own jar must win; the shared filesystem jars are appended last");
+    }
+
+    /** An absent directory is the ordinary case: both filesystems are opt-in build flags. */
+    @Test
+    void anAbsentSharedFilesystemDirectoryChangesNothing(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+
+        PluginHandle handle = new PluginRuntime(plugins, getClass().getClassLoader(), null,
+                plugins.resolve("no-such-directory")).plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state());
+    }
+
+    /**
+     * A directory holding nothing but shared filesystem jars is still not a plugin: emptiness is
+     * decided on the plugin's own jars, before they are appended.
+     */
+    @Test
+    void pluginDirectoryWithNoJarsOfItsOwnStillFails(@TempDir Path plugins, @TempDir Path fsDir)
+            throws IOException {
+        Files.createDirectories(plugins.resolve("hollow"));
+        Path jindofs = Files.createDirectories(fsDir.resolve("jindofs"));
+        PluginJars.addClassJar(jindofs, "fake-fs.jar", "com.example.fs.FakeFileSystem");
+
+        PluginHandle handle = new PluginRuntime(plugins, getClass().getClassLoader(), null, fsDir)
+                .plugin("hollow");
+
+        Assertions.assertEquals(PluginHandle.State.FAILED, handle.state());
+        Assertions.assertTrue(handle.failure().contains("no jars in"), handle.failure());
+    }
+
+    // ------------------------------------------------------------------
+    // Failure containment.
+    // ------------------------------------------------------------------
+
+    @Test
+    void anAbsentPluginIsNotDeployedAndSaysWhereItWasExpected(@TempDir Path plugins) {
+        PluginRuntime runtime = runtimeOver(plugins);
+
+        Assertions.assertEquals(PluginHandle.State.NOT_DEPLOYED, runtime.plugin("absent").state());
+        IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                () -> runtime.createInstance("absent", "any", 8, Collections.emptyMap()));
+        Assertions.assertTrue(failure.getMessage().contains("is not deployed"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains(plugins.resolve("absent").toString()),
+                failure.getMessage());
+    }
+
+    /**
+     * A corrupt jar used to be fatal: the old loader eagerly loaded every class of every extension
+     * at startup and exited the process on failure. Now it costs exactly the one plugin.
+     */
+    @Test
+    void corruptPluginFailsAloneAndLeavesItsNeighbourWorking(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "healthy", TestPlugin.class, SAMPLE_CLASSES);
+        Path broken = Files.createDirectories(plugins.resolve("broken"));
+        PluginJars.addRawJar(broken, "broken.jar", "this is not a zip file".getBytes(StandardCharsets.UTF_8));
+
+        PluginRuntime runtime = runtimeOver(plugins);
+        runtime.warmup();
+
+        Assertions.assertEquals(PluginHandle.State.FAILED, runtime.plugin("broken").state());
+        Assertions.assertEquals(PluginHandle.State.READY, runtime.plugin("healthy").state());
+        Assertions.assertNotNull(
+                runtime.createInstance("healthy", "sample", 8, Collections.emptyMap()));
+    }
+
+    @Test
+    void serviceDescriptorPointingAtAMissingClassFailsThatPluginOnly(@TempDir Path plugins)
+            throws IOException {
+        PluginJars.deploy(plugins, "ghost", "org.apache.doris.jni.testplugin.NoSuchPlugin",
+                SpiVersion.version(), new Class<?>[0]);
+
+        PluginHandle handle = runtimeOver(plugins).plugin("ghost");
+
+        Assertions.assertEquals(PluginHandle.State.FAILED, handle.state());
+        Assertions.assertTrue(handle.failure().contains("NoSuchPlugin"), handle.failure());
+    }
+
+    @Test
+    void directoryWithoutAServiceDescriptorSaysSo(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "nameless", null, SpiVersion.version(), SAMPLE_CLASSES);
+
+        PluginHandle handle = runtimeOver(plugins).plugin("nameless");
+
+        Assertions.assertEquals(PluginHandle.State.FAILED, handle.state());
+        Assertions.assertTrue(handle.failure().contains("META-INF/services"), handle.failure());
+    }
+
+    /**
+     * The failure is diagnosed at load time. Left to surface on its own it would appear as a
+     * ClassCastException between two classes with the same name, which is the least actionable
+     * error message in Java.
+     */
+    @Test
+    void pluginThatPackagesTheSpiIsRejectedWithTheFix(@TempDir Path plugins) throws IOException {
+        Path dir = PluginJars.deploy(plugins, "greedy", TestPlugin.class, SAMPLE_CLASSES);
+        PluginJars.addSpiClass(dir, "bundled-spi.jar");
+
+        PluginHandle handle = runtimeOver(plugins).plugin("greedy");
+
+        Assertions.assertEquals(PluginHandle.State.FAILED, handle.state());
+        Assertions.assertTrue(handle.failure().contains("provided"), handle.failure());
+    }
+
+    @Test
+    void twoFactoriesWithOneNameAreRejected(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "colliding", CollidingPlugin.class,
+                NamedScannerFactory.class, TestScanner.class);
+
+        PluginHandle handle = runtimeOver(plugins).plugin("colliding");
+
+        Assertions.assertEquals(PluginHandle.State.FAILED, handle.state());
+        Assertions.assertTrue(handle.failure().contains("dup"), handle.failure());
+    }
+
+    /** The same failure is replayed rather than retried, so the tenth query reads like the first. */
+    @Test
+    void failedPluginIsNotRetried(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "ghost", "org.apache.doris.jni.testplugin.NoSuchPlugin",
+                SpiVersion.version(), new Class<?>[0]);
+        PluginRuntime runtime = runtimeOver(plugins);
+
+        PluginHandle first = runtime.plugin("ghost");
+        PluginHandle second = runtime.plugin("ghost");
+
+        Assertions.assertSame(first, second);
+    }
+
+    // ------------------------------------------------------------------
+    // Version gate.
+    // ------------------------------------------------------------------
+
+    @Test
+    void pluginBuiltAgainstAnotherMajorIsRejectedWithBothVersions(@TempDir Path plugins)
+            throws IOException {
+        PluginJars.deploy(plugins, "stale", TestPlugin.class.getName(),
+                (SpiVersion.major() + 1) + ".0", SAMPLE_CLASSES);
+
+        PluginHandle handle = runtimeOver(plugins).plugin("stale");
+
+        Assertions.assertEquals(PluginHandle.State.FAILED, handle.state());
+        Assertions.assertTrue(handle.failure().contains(String.valueOf(SpiVersion.major() + 1)),
+                handle.failure());
+        Assertions.assertTrue(handle.failure().contains(SpiVersion.version()), handle.failure());
+    }
+
+    /** A differing minor is compatible by definition: any surface change bumps the major. */
+    @Test
+    void differingMinorIsAccepted(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "newer", TestPlugin.class.getName(),
+                SpiVersion.major() + ".99", SAMPLE_CLASSES);
+
+        Assertions.assertEquals(PluginHandle.State.READY, runtimeOver(plugins).plugin("newer").state());
+    }
+
+    /**
+     * No attribute means "not built by this build". Admitting it would make the gate pointless,
+     * since a hand-assembled jar is exactly the case it exists to catch.
+     */
+    @Test
+    void pluginWithoutTheVersionAttributeIsRejected(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "unstamped", TestPlugin.class.getName(), null, SAMPLE_CLASSES);
+
+        PluginHandle handle = runtimeOver(plugins).plugin("unstamped");
+
+        Assertions.assertEquals(PluginHandle.State.FAILED, handle.state());
+        Assertions.assertTrue(handle.failure().contains(SpiVersion.MANIFEST_ATTRIBUTE), handle.failure());
+    }
+
+    // ------------------------------------------------------------------
+    // DROP FUNCTION and status.
+    // ------------------------------------------------------------------
+
+    @Test
+    void droppingAFunctionReachesEveryLoadedPlugin(@TempDir Path plugins) throws Exception {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        PluginRuntime runtime = runtimeOver(plugins);
+        runtime.warmup();
+
+        runtime.cleanUdfCache(4242L, "db.fn(INT)");
+
+        UdfExecutorFactory factory = runtime.plugin("sample").udfExecutorFactories().get("udf");
+        List<?> invalidated = (List<?>) factory.getClass()
+                .getMethod("invalidatedSignatures").invoke(factory);
+        Assertions.assertEquals(Collections.singletonList("4242:db.fn(INT)"), invalidated,
+                "both the function id and its signature must reach the plugin");
+    }
+
+    @Test
+    void statusReportsEveryPluginItHasTouched(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        Path broken = Files.createDirectories(plugins.resolve("broken"));
+        PluginJars.addRawJar(broken, "broken.jar", "nope".getBytes(StandardCharsets.UTF_8));
+        PluginRuntime runtime = runtimeOver(plugins);
+        runtime.warmup();
+
+        String json = runtime.statusJson();
+
+        Assertions.assertTrue(json.contains("\"name\":\"sample\",\"state\":\"READY\""), json);
+        Assertions.assertTrue(json.contains("\"name\":\"broken\",\"state\":\"FAILED\""), json);
+        Assertions.assertTrue(json.contains("\"scanners\":[\"sample\"]"), json);
+        Assertions.assertTrue(json.contains("\"apiVersion\":\"" + SpiVersion.version() + "\""), json);
+    }
+
+    /**
+     * The response is JSON, not a string that happens to contain the right substrings. Every other
+     * assertion on this method - here and in the regression suite that reads
+     * /api/jni_plugin_status - is a substring match, and all of them stay green with the escaping in
+     * appendJsonString deleted. The escaping exists because a FAILED plugin's message is a
+     * Status::to_string(), which carries bare newlines and a stack trace; the only consumer of this
+     * endpoint is a parser, so an unescaped one is a response nobody can read.
+     */
+    @Test
+    void statusIsParseableJsonEvenWhenTheNamesAndMessagesAreHostile(@TempDir Path plugins)
+            throws IOException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        // Every character appendJsonString has a case for, the backslash included. The backslash
+        // DOES reach here: the "deployed" array is deployedPluginNames(), a raw directory listing
+        // that never passes through requirePluginName, and a backslash is a legal character in a
+        // POSIX file name. Left EMPTY rather than given a corrupt jar, because the failure message
+        // quotes the name either way - so these characters are asserted twice over, once through
+        // "deployed" and once through the free-form message that motivated the escaping in the
+        // first place. That second path also pins warmup()'s "never throws" javadoc: this name is
+        // the one requirePluginName rejects, and containing that rejection is what keeps the
+        // remaining plugins getting warmed up.
+        String hostile = "qu\"ote\\slash\bback\fform\nfeed\rand\ttabs\u0001control";
+        try {
+            Files.createDirectories(plugins.resolve(hostile));
+        } catch (IOException | RuntimeException e) {
+            Assumptions.abort("this filesystem refuses the name under test: " + e);
+            return;
+        }
+        PluginRuntime runtime = runtimeOver(plugins);
+        runtime.warmup();
+
+        JsonNode status = new ObjectMapper().readTree(runtime.statusJson());
+
+        List<String> deployed = new ArrayList<>();
+        status.get("deployed").forEach(name -> deployed.add(name.asText()));
+        Assertions.assertTrue(deployed.contains(hostile),
+                "the deployed name did not survive the round trip: " + deployed);
+        Assertions.assertEquals(SpiVersion.version(), status.get("apiVersion").asText());
+        Assertions.assertEquals(1, status.get("loadedCount").asInt());
+        Assertions.assertEquals(1, status.get("failedCount").asInt());
+
+        JsonNode failed = null;
+        JsonNode ready = null;
+        for (JsonNode plugin : status.get("plugins")) {
+            if ("FAILED".equals(plugin.get("state").asText())) {
+                failed = plugin;
+            } else if ("READY".equals(plugin.get("state").asText())) {
+                ready = plugin;
+            }
+        }
+        Assertions.assertNotNull(ready, runtime.statusJson());
+        Assertions.assertEquals("sample", ready.get("name").asText());
+        Assertions.assertEquals("sample", ready.get("scanners").get(0).asText());
+        Assertions.assertNotNull(failed, runtime.statusJson());
+        Assertions.assertEquals(hostile, failed.get("name").asText());
+        Assertions.assertTrue(failed.get("error").asText().contains(hostile),
+                "the failure message must survive the round trip: " + failed.get("error"));
+    }
+
+    @Test
+    void statusCountsWhatLoadedAndWhatIsDeployed(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        Path broken = Files.createDirectories(plugins.resolve("broken"));
+        PluginJars.addRawJar(broken, "broken.jar", "nope".getBytes(StandardCharsets.UTF_8));
+        PluginRuntime runtime = runtimeOver(plugins);
+
+        // Deployed and known before anything is loaded, which is the state an operator asking
+        // "why is my plugin not listed" is actually in: plugins load on first use.
+        String beforeUse = runtime.statusJson();
+        Assertions.assertTrue(beforeUse.contains("\"deployed\":[\"broken\",\"sample\"]"), beforeUse);
+        Assertions.assertTrue(beforeUse.contains("\"loadedCount\":0"), beforeUse);
+        Assertions.assertTrue(beforeUse.contains("\"plugins\":[]"), beforeUse);
+
+        runtime.warmup();
+
+        String afterWarmup = runtime.statusJson();
+        Assertions.assertTrue(afterWarmup.contains("\"loadedCount\":1"), afterWarmup);
+        Assertions.assertTrue(afterWarmup.contains("\"failedCount\":1"), afterWarmup);
+    }
+
+    @Test
+    void warmupOnAnAbsentDirectoryIsNotAnError(@TempDir Path parent) {
+        PluginRuntime runtime = runtimeOver(parent.resolve("never-created"));
+
+        Assertions.assertDoesNotThrow(runtime::warmup);
+        Assertions.assertTrue(runtime.statusJson().contains("\"plugins\":[]"), runtime.statusJson());
+    }
+
+    // ------------------------------------------------------------------
+    // Names that come from SQL.
+    // ------------------------------------------------------------------
+
+    /**
+     * A plugin name reaches the runtime from the {@code writer_class} property, so it is user text.
+     * Resolving one that is a path rather than a name would load jars from somewhere else on the
+     * host and report it as a plugin.
+     */
+    @Test
+    void pluginNameThatIsAPathIsRejected(@TempDir Path plugins) {
+        PluginRuntime runtime = runtimeOver(plugins);
+
+        for (String name : new String[] {"", ".", "..", "../..", "/etc", "a/b", "a\\b"}) {
+            Assertions.assertThrows(IllegalArgumentException.class, () -> runtime.plugin(name),
+                    "accepted '" + name + "' as a plugin name");
+        }
+    }
+
+    /** ... and a name nobody deployed is answered without being remembered. */
+    @Test
+    void namesThatWereNeverDeployedDoNotAccumulate(@TempDir Path plugins) {
+        PluginRuntime runtime = runtimeOver(plugins);
+
+        for (int i = 0; i < 100; i++) {
+            Assertions.assertEquals(PluginHandle.State.NOT_DEPLOYED,
+                    runtime.plugin("made-up-" + i).state());
+        }
+
+        Assertions.assertTrue(runtime.statusJson().contains("\"plugins\":[]"), runtime.statusJson());
+    }
+
+    // ------------------------------------------------------------------
+    // Hadoop configuration files.
+    // ------------------------------------------------------------------
+
+    /**
+     * A plugin cannot reach BE's classpath, and conf/ is on it - so a hadoop Configuration built
+     * inside a plugin would find no core-site.xml at all. The conf drop point is the one place
+     * outside the plugin directory its classloader answers resources from.
+     */
+    @Test
+    void pluginsReadHadoopConfigurationFromTheConfDirectory(@TempDir Path root) throws IOException {
+        Path plugins = Files.createDirectories(root.resolve("jni"));
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        Path hadoopConf = Files.createDirectories(root.resolve("hadoop_conf"));
+        Files.write(hadoopConf.resolve("core-site.xml"),
+                "<configuration/>".getBytes(StandardCharsets.UTF_8));
+
+        PluginHandle handle =
+                new PluginRuntime(plugins, getClass().getClassLoader(), hadoopConf).plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state(), handle.failure());
+        URL found = handle.classLoader().getResource("core-site.xml");
+        Assertions.assertNotNull(found, "the plugin cannot see the hadoop conf drop point");
+        Assertions.assertTrue(found.toString().endsWith("hadoop_conf/core-site.xml"),
+                found.toString());
+    }
+
+    /** Resources only: the drop point must not become a second route to classes. */
+    @Test
+    void theConfDirectoryDoesNotLoadClasses(@TempDir Path root) throws IOException {
+        Path plugins = Files.createDirectories(root.resolve("jni"));
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        Path hadoopConf = Files.createDirectories(root.resolve("hadoop_conf"));
+        Files.write(hadoopConf.resolve("Marker.class"), "nope".getBytes(StandardCharsets.UTF_8));
+
+        PluginHandle handle =
+                new PluginRuntime(plugins, getClass().getClassLoader(), hadoopConf).plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state(), handle.failure());
+        // Visible as a resource, because that is what the directory is searched for...
+        Assertions.assertNotNull(handle.classLoader().getResource("Marker.class"));
+        // ... and not as a class, which is what keeps this from being a second class space.
+        Assertions.assertThrows(ClassNotFoundException.class,
+                () -> handle.classLoader().loadClass("Marker"));
+    }
+
+    /** A conf directory that does not exist is the ordinary case, not a failure. */
+    @Test
+    void anAbsentConfDirectoryIsFine(@TempDir Path root) throws IOException {
+        Path plugins = Files.createDirectories(root.resolve("jni"));
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+
+        PluginHandle handle = new PluginRuntime(plugins, getClass().getClassLoader(),
+                root.resolve("never-created")).plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state(), handle.failure());
+        Assertions.assertNull(handle.classLoader().getResource("core-site.xml"));
+    }
+}

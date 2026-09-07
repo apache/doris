@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -70,6 +71,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.stream.Collectors;
 
 /**
  * Tests for {@link PluginDrivenMvccExternalTable}, the generic MVCC/MTMV-capable plugin table.
@@ -863,23 +865,77 @@ public class PluginDrivenMvccExternalTableTest {
         // The returned pin carries the connector-resolved snapshot.
         Assertions.assertSame(f.resolvedSnapshot, pin.getConnectorSnapshot());
         Assertions.assertEquals(Fixture.TT_SCHEMA_ID, pin.getSchemaId());
-        // MUTATION: listing partitions for time-travel makes these maps non-empty (red) and the
-        // verify(never) below catches the listPartitions call.
+        // The fixture's connector does not claim listsPartitionsAtSnapshot, so the maps stay empty:
+        // listing at LATEST would be the wrong universe for a pinned read, and an empty one means
+        // scan-all. MUTATION: listing partitions for a snapshot-blind connector makes these maps
+        // non-empty (red) and the verify(never) below catches the listPartitions call.
         Assertions.assertTrue(pin.getNameToPartitionItem().isEmpty(),
-                "time-travel reads must NOT list partitions");
+                "a connector that cannot list AT the pin must not have its partitions listed");
         Assertions.assertTrue(pin.getNameToLastModifiedMillis().isEmpty(),
-                "time-travel reads must NOT list partitions");
+                "a connector that cannot list AT the pin must not have its partitions listed");
         Mockito.verify(f.metadata, Mockito.never())
                 .listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
 
-        // The pinned schema must be the AT-SNAPSHOT schema (column "v1"), NOT the latest fixture
-        // schema (column "dt"). MUTATION: pinning the latest schema instead of the at-snapshot one
+        // The pinned schema must be the AT-SNAPSHOT schema, NOT the latest fixture schema: it
+        // carries "v1", which the latest schema does not have, and its "dt" is STRING where the
+        // latest one is DATEV2. MUTATION: pinning the latest schema instead of the at-snapshot one
         // makes this red.
         PluginDrivenSchemaCacheValue pinned = (PluginDrivenSchemaCacheValue) pin.getPinnedSchema();
         Assertions.assertNotNull(pinned);
-        Assertions.assertEquals(1, pinned.getSchema().size());
-        Assertions.assertEquals("v1", pinned.getSchema().get(0).getName(),
+        Assertions.assertEquals(Arrays.asList("v1", "dt"),
+                pinned.getSchema().stream().map(Column::getName).collect(Collectors.toList()),
                 "the pinned schema must reflect getTableSchema(..., snapshot), not the latest schema");
+        Assertions.assertEquals(Collections.singletonList("dt"),
+                pinned.getPartitionColumns().stream().map(Column::getName)
+                        .collect(Collectors.toList()));
+    }
+
+    /**
+     * The other half of the same decision: a connector whose listing IS snapshot-exact gets its real
+     * partition set into the pin, listed on the SNAPSHOT-APPLIED handle. Without this the pin would carry
+     * an empty set for a connector that can do better, every time-travel query would read every partition,
+     * and EXPLAIN would report partition=0/0 - which is indistinguishable from "pruned to nothing".
+     */
+    @Test
+    public void testTimeTravelPinsTheRealPartitionSetOfASnapshotAwareConnector() {
+        Fixture f = Fixture.timeTravel();
+        Mockito.when(f.metadata.listsPartitionsAtSnapshot(Mockito.any(), Mockito.eq(f.pinnedHandle)))
+                .thenReturn(true);
+        // What the table held AT the pin: one partition, where it has two today. Listing the unpinned
+        // handle would produce both, so the assertion below is also what proves which handle was used.
+        Mockito.when(f.metadata.listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Collections.singletonList(cpi("dt=2024-01-01", TS_2024_01_01)));
+
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.of(TableSnapshot.versionOf("7")), Optional.empty());
+
+        Assertions.assertEquals(Collections.singleton("dt=2024-01-01"),
+                pin.getNameToPartitionItem().keySet(),
+                "the pin must carry the partition set listed at the snapshot");
+        Assertions.assertEquals(Collections.singleton("dt=2024-01-01"),
+                pin.getNameToLastModifiedMillis().keySet());
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+        // The pinned schema is unaffected by which listing was used.
+        Assertions.assertEquals(Fixture.TT_SCHEMA_ID, pin.getSchemaId());
+
+        // ...and the items are TYPED by the pinned schema, not by the latest one. The fixture's
+        // at-snapshot "dt" is STRING and its latest "dt" is DATEV2, so the literal in the built key
+        // says which schema did the typing. MUTATION: typing this listing with getPartitionColumns()
+        // - the latest schema, which is what this branch used to do - makes the literal DATEV2.
+        //
+        // This is load-bearing beyond the type. The two schemas do not have to agree on WHICH
+        // columns partition the table, and when they disagree the arity check inside
+        // toListPartitionItem throws per partition, is caught, and the pin comes back empty - a
+        // silent degrade to UNPARTITIONED with one WARN per partition as the only signal.
+        ListPartitionItem item = (ListPartitionItem) pin.getNameToPartitionItem().get("dt=2024-01-01");
+        Assertions.assertEquals(1, item.getItems().size());
+        Assertions.assertEquals(PrimitiveType.STRING,
+                item.getItems().get(0).getKeys().get(0).getType().getPrimitiveType(),
+                "the pinned listing must be typed by the PINNED schema's partition columns");
     }
 
     @Test
@@ -1481,16 +1537,33 @@ public class PluginDrivenMvccExternalTableTest {
 
             if (timeTravel) {
                 // resolveTimeTravel succeeds; applySnapshot returns the branch-aware pinnedHandle;
-                // getTableSchema(..,snapshot) returns the AT-SNAPSHOT schema (column "v1"), distinct
-                // from the latest schema (column "dt"). fromRemoteColumnName is identity.
+                // getTableSchema(..,snapshot) returns the AT-SNAPSHOT schema, distinct from the
+                // latest schema in both of the ways that matter. fromRemoteColumnName is identity.
+                //
+                // Column "v1" is there and "dt" is not, in the latest schema: that is what proves
+                // the pin carries the schema AT the snapshot rather than today's.
+                //
+                // "dt" is there TOO, and declared a partition column, because a snapshot-aware
+                // connector's pinned listing is typed by this schema (see listPartitions in the
+                // pinned branch). Without it pinnedSchema.getPartitionColumns() is empty, every
+                // listed partition fails the value/type arity check, and the pin silently comes
+                // back with no partitions at all - which is what a fixture carrying no partition
+                // column asserts by accident.
+                //
+                // Its type is STRING while the latest "dt" is DATEV2, so the two are distinguishable
+                // in a built PartitionKey: that is what lets a test assert WHICH schema typed the
+                // partition items. Both parse "2024-01-01", so neither typing loses the partition
+                // and the difference shows up as a type rather than as an absence.
                 Mockito.when(metadata.resolveTimeTravel(Mockito.eq(session), Mockito.eq(handle),
                         Mockito.any())).thenReturn(Optional.of(resolvedSnapshot));
                 Mockito.when(metadata.applySnapshot(session, handle, resolvedSnapshot))
                         .thenReturn(pinnedHandle);
                 ConnectorTableSchema atSchema = new ConnectorTableSchema("REMOTE_TBL",
-                        Collections.singletonList(new ConnectorColumn("v1", ConnectorType.of("INT"),
-                                "", true, null)),
-                        "", Collections.emptyMap());
+                        Arrays.asList(
+                                new ConnectorColumn("v1", ConnectorType.of("INT"), "", true, null),
+                                new ConnectorColumn("dt", ConnectorType.of("STRING"), "", true, null)),
+                        "", Collections.singletonMap(
+                                ConnectorTableSchema.PARTITION_COLUMNS_KEY, "dt"));
                 Mockito.when(metadata.getTableSchema(Mockito.eq(session), Mockito.any(),
                         Mockito.any(ConnectorMvccSnapshot.class))).thenReturn(atSchema);
                 Mockito.when(metadata.fromRemoteColumnName(Mockito.eq(session), Mockito.any(),

@@ -33,12 +33,9 @@ public:
     Status prepare_split(const format::SplitReadOptions& options) override;
 
 protected:
-    std::string connector_class() const override;
+    Jni::PluginRef plugin_ref() const override;
     Status validate_scan_range(const TFileRangeDesc& range) const override;
     Status build_scanner_params(std::map<std::string, std::string>* params) const override;
-
-private:
-    Status _set_spi_plugins_dir() const;
 };
 
 } // namespace doris::format::trino_connector
