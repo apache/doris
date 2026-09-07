@@ -142,7 +142,30 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
         if (!uriObj.getScheme().equalsIgnoreCase("oss")) {
             throw new IllegalArgumentException("The uri scheme is not oss.");
         }
-        return uriObj.toString();
+        String authority = uriObj.getRawAuthority();
+        if (StringUtils.isBlank(authority)
+                || authority.toLowerCase(Locale.ROOT).endsWith(OSS_HDFS_ENDPOINT_SUFFIX)) {
+            return uriObj.toString();
+        }
+
+        // The connector SPI carries only the normalized URI, not the selected adapter. Embedding
+        // the configured endpoint keeps plain bucket paths identifiable as Jindo/HDFS downstream.
+        String endpointHost = extractEndpointHost(endpoint);
+        String normalizedUri = uriObj.toString();
+        int authorityStart = uriObj.getScheme().length() + 3;
+        int authorityEnd = authorityStart + authority.length();
+        return normalizedUri.substring(0, authorityStart)
+                + authority + "." + endpointHost
+                + normalizedUri.substring(authorityEnd);
+    }
+
+    private static String extractEndpointHost(String endpoint) {
+        String endpointUri = endpoint.contains("://") ? endpoint : "oss://" + endpoint;
+        String endpointHost = URI.create(endpointUri).getHost();
+        if (StringUtils.isBlank(endpointHost)) {
+            throw new IllegalArgumentException("The OSS-HDFS endpoint host is empty.");
+        }
+        return endpointHost.toLowerCase(Locale.ROOT);
     }
 
     /**
