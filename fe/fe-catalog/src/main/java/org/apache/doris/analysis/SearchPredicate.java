@@ -21,6 +21,8 @@ import org.apache.doris.analysis.SearchDslParser.QsPlan;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.Type;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.util.Collections;
 import java.util.List;
 
@@ -29,6 +31,7 @@ import java.util.List;
  * for BE VSearchExpr processing. This is only used during FE->BE translation.
  */
 public class SearchPredicate extends Predicate {
+    @SerializedName("dsl")
     private final String dslString;
     private final QsPlan qsPlan;
     private final List<Index> fieldIndexes;
