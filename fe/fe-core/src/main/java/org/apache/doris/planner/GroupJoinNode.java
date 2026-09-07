@@ -24,6 +24,10 @@ import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TGroupJoinAggFunction;
@@ -168,6 +172,40 @@ public class GroupJoinNode extends PlanNode {
 
     public boolean isColocate() {
         return isColocate;
+    }
+
+    @Override
+    public boolean requiresShuffleForCorrectness() {
+        return distrMode == DistributionMode.PARTITIONED
+                || distrMode == DistributionMode.BUCKET_SHUFFLE
+                || isColocate;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        LocalExchangeTypeRequire require;
+        if (isColocate || distrMode == DistributionMode.BUCKET_SHUFFLE) {
+            require = LocalExchangeTypeRequire.requireBucketHash();
+        } else {
+            // Serial exchanges collapse the global instance mapping. Repartition both
+            // inputs locally, as in the non-broadcast HashJoin path.
+            boolean serialSource = fragment != null
+                    && fragment.useSerialSource(translatorContext.getConnectContext());
+            require = serialSource ? LocalExchangeTypeRequire.requireHash()
+                    : LocalExchangeTypeRequire.requireGlobalExecutionHash();
+        }
+        Pair<PlanNode, LocalExchangeType> probeResult = enforceRequire(
+                translatorContext, children.get(0), 0, require);
+        Pair<PlanNode, LocalExchangeType> buildResult = enforceRequire(
+                translatorContext, children.get(1), 1, require);
+        children = Lists.newArrayList(probeResult.first, buildResult.first);
+        return Pair.of(this, probeResult.second);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return childIndex == 1;
     }
 
     public void setvIntermediateTupleDescList(List<TupleDescriptor> vIntermediateTupleDescList) {
