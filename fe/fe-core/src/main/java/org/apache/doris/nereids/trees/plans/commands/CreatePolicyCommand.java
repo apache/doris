@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -155,7 +156,14 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                 wherePredicate.get().foreach(expr -> {
                     if (expr instanceof UnboundSlot) {
                         UnboundSlot slot = (UnboundSlot) expr;
-                        if (tableIf.getColumn(slot.getName()) == null) {
+                        boolean contains = false;
+                        for (Column column : tableIf.getFullSchema()) {
+                            if (column.getName().equalsIgnoreCase(slot.getName())) {
+                                contains = true;
+                                break;
+                            }
+                        }
+                        if (!contains) {
                             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                                     "column not exist: " + slot.getName());
                         }
