@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <atomic>
 // IWYU pragma: no_include <bits/chrono.h>
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
 #include <chrono> // IWYU pragma: keep

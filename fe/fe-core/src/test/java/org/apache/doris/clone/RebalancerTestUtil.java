@@ -102,7 +102,7 @@ public class RebalancerTestUtil {
         int schemaHash = olapTable.getSchemaHashByIndexId(baseIndex.getId());
 
         TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(),
-                partition.getId(), baseIndex.getId(), schemaHash, medium);
+                partition.getId(), baseIndex.getId(), schemaHash, medium, false /* isRowBinlog */);
         Tablet tablet = new LocalTablet(tabletId);
 
         // add tablet to olapTable

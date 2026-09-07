@@ -21,6 +21,7 @@
 #include "core/data_type/data_type_variant.h"
 
 #include <gen_cpp/data.pb.h>
+#include <gen_cpp/types.pb.h>
 #include <string.h>
 
 #include <cassert>
@@ -247,6 +248,13 @@ void DataTypeVariant::to_pb_column_meta(PColumnMeta* col_meta) const {
 
 MutableColumnPtr DataTypeVariant::create_column() const {
     return ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode);
+}
+
+void DataTypeVariant::to_protobuf(PTypeDesc* ptype, PTypeNode* node,
+                                  PScalarType* scalar_type) const {
+    node->set_type(TTypeNodeType::VARIANT);
+    node->set_variant_max_subcolumns_count(_max_subcolumns_count);
+    node->set_variant_enable_doc_mode(_enable_doc_mode);
 }
 
 } // namespace doris

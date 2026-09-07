@@ -20,8 +20,8 @@ package org.apache.doris.nereids.minidump;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Histogram;
 
 import java.util.HashMap;
 import java.util.List;

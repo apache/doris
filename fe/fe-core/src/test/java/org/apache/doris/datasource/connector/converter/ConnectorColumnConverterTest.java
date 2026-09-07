@@ -35,6 +35,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Locale;
 
 class ConnectorColumnConverterTest {
 
@@ -115,6 +116,48 @@ class ConnectorColumnConverterTest {
         Assertions.assertEquals(2, backStruct.getFields().size());
         Assertions.assertEquals("a", backStruct.getFields().get(0).getName());
         Assertions.assertEquals(ScalarType.INT, backStruct.getFields().get(0).getType());
+    }
+
+    @Test
+    void mixedCaseStructFieldKeepsSchemaSpellingAndNormalizedRuntimeName() {
+        ConnectorType connectorType = ConnectorType.structOf(
+                Arrays.asList("CaseSensitive"), Arrays.asList(ConnectorType.of("INT")));
+
+        StructType converted = (StructType) ConnectorColumnConverter.convertType(connectorType);
+        StructField field = converted.getFields().get(0);
+
+        Assertions.assertEquals("casesensitive", field.getName());
+        Assertions.assertEquals("CaseSensitive", field.getOriginalName());
+        Assertions.assertEquals("struct<CaseSensitive:int>", converted.toSql());
+        Assertions.assertEquals("casesensitive",
+                converted.toThrift().getTypes().get(0).getStructFields().get(0).getName());
+    }
+
+    @Test
+    void structRuntimeNamesUseRootLocale() {
+        Locale originalLocale = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            ConnectorType connectorType = ConnectorType.structOf(
+                    Arrays.asList("I", "ı"),
+                    Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")));
+
+            StructType catalogType = (StructType) ConnectorColumnConverter.convertType(connectorType);
+            Assertions.assertEquals("i", catalogType.getFields().get(0).getName());
+            Assertions.assertEquals("ı", catalogType.getFields().get(1).getName());
+            Assertions.assertSame(catalogType.getFields().get(0), catalogType.getField("i"));
+            Assertions.assertSame(catalogType.getFields().get(1), catalogType.getField("ı"));
+
+            org.apache.doris.nereids.types.StructType nereidsType =
+                    (org.apache.doris.nereids.types.StructType)
+                            org.apache.doris.nereids.types.DataType.fromCatalogType(catalogType);
+            Assertions.assertEquals("i", nereidsType.getFields().get(0).getName());
+            Assertions.assertEquals("ı", nereidsType.getFields().get(1).getName());
+            Assertions.assertSame(nereidsType.getFields().get(0), nereidsType.getField("i"));
+            Assertions.assertSame(nereidsType.getFields().get(1), nereidsType.getField("ı"));
+        } finally {
+            Locale.setDefault(originalLocale);
+        }
     }
 
     @Test

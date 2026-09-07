@@ -17,8 +17,8 @@
 
 package org.apache.doris.load;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -68,20 +68,20 @@ public class SourceTest {
         Source rSource2 = new Source();
         rSource2.readFields(dis);
 
-        Assert.assertEquals(rSource0, source0);
-        Assert.assertEquals(source0, source0);
-        Assert.assertNotEquals(rSource0, this);
-        Assert.assertEquals(rSource1, source1);
-        Assert.assertNotEquals(rSource2, source2);
-        Assert.assertNotEquals(rSource0, source1);
+        Assertions.assertEquals(rSource0, source0);
+        Assertions.assertEquals(source0, source0);
+        Assertions.assertNotEquals(rSource0, this);
+        Assertions.assertEquals(rSource1, source1);
+        Assertions.assertNotEquals(rSource2, source2);
+        Assertions.assertNotEquals(rSource0, source1);
 
         rSource2.setFileUrls(null);
-        Assert.assertNotEquals(rSource2, source2);
+        Assertions.assertNotEquals(rSource2, source2);
         rSource2.setColumnNames(null);
         rSource2.setFileUrls(new ArrayList<String>());
         rSource2.setColumnNames(null);
         rSource2.setFileUrls(null);
-        Assert.assertEquals(rSource2, source2);
+        Assertions.assertEquals(rSource2, source2);
 
         dis.close();
         file.delete();

@@ -20,8 +20,8 @@ package org.apache.doris.persist;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -53,19 +53,19 @@ public class DropDbInfoTest {
         DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()));
 
         DropDbInfo rInfo1 = DropDbInfo.read(dis);
-        Assert.assertEquals(rInfo1, info1);
+        Assertions.assertEquals(rInfo1, info1);
 
         DropDbInfo rInfo2 = DropDbInfo.read(dis);
-        Assert.assertEquals(rInfo2, info2);
+        Assertions.assertEquals(rInfo2, info2);
 
-        Assert.assertEquals("test_db", rInfo2.getDbName());
-        Assert.assertTrue(rInfo2.isForceDrop());
+        Assertions.assertEquals("test_db", rInfo2.getDbName());
+        Assertions.assertTrue(rInfo2.isForceDrop());
 
-        Assert.assertEquals(rInfo2, rInfo2);
-        Assert.assertNotEquals(rInfo2, this);
-        Assert.assertNotEquals(info2, new DropDbInfo("test_db1", true, 0));
-        Assert.assertNotEquals(info2, new DropDbInfo("test_db", false, 0));
-        Assert.assertEquals(info2, new DropDbInfo("test_db", true, 0));
+        Assertions.assertEquals(rInfo2, rInfo2);
+        Assertions.assertNotEquals(rInfo2, this);
+        Assertions.assertNotEquals(info2, new DropDbInfo("test_db1", true, 0));
+        Assertions.assertNotEquals(info2, new DropDbInfo("test_db", false, 0));
+        Assertions.assertEquals(info2, new DropDbInfo("test_db", true, 0));
 
         // 3. delete files
         dis.close();

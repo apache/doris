@@ -26,10 +26,10 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -44,7 +44,7 @@ public class RefreshExternalTableInfoTest {
 
     private FakeEnv fakeEnv;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         fakeEnv = new FakeEnv();
         env = Deencapsulation.newInstance(Env.class);
@@ -53,7 +53,7 @@ public class RefreshExternalTableInfoTest {
         FakeEnv.setMetaVersion(FeConstants.meta_version);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (fakeEnv != null) {
             fakeEnv.close();
@@ -96,9 +96,9 @@ public class RefreshExternalTableInfoTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         RefreshExternalTableInfo rInfo1 = RefreshExternalTableInfo.read(dis);
-        Assert.assertEquals(rInfo1.getDbName(), info.getDbName());
-        Assert.assertEquals(rInfo1.getTableName(), info.getTableName());
-        Assert.assertEquals(rInfo1.getNewSchema(), info.getNewSchema());
+        Assertions.assertEquals(rInfo1.getDbName(), info.getDbName());
+        Assertions.assertEquals(rInfo1.getTableName(), info.getTableName());
+        Assertions.assertEquals(rInfo1.getNewSchema(), info.getNewSchema());
 
         // 3. delete files
         dis.close();

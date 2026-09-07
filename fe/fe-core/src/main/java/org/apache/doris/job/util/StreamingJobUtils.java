@@ -50,7 +50,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;

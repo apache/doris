@@ -64,7 +64,7 @@ import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;

@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 
 import org.apache.iceberg.Schema;
@@ -81,6 +82,21 @@ public class IcebergConnectorMetadataColumnEvolutionTest {
         Schema schema = new Schema(
                 Types.NestedField.optional(1, "s", Types.StructType.of(
                         Types.NestedField.optional(2, "a", Types.IntegerType.get()))));
+        return catalog.createTable(TableIdentifier.of("db1", "t1"), schema);
+    }
+
+    /** A real iceberg table with a nested {@code Root.Leaf ARRAY<INT>} target and an unrelated
+     * top-level {@code LEAF ARRAY<FLOAT>} field sharing the target's leaf name. */
+    private static Table tableWithNestedArrayAndTopLevelDecoy() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "Root", Types.StructType.of(
+                        Types.NestedField.optional(2, "Leaf",
+                                Types.ListType.ofOptional(3, Types.IntegerType.get())))),
+                Types.NestedField.optional(4, "LEAF",
+                        Types.ListType.ofOptional(5, Types.FloatType.get())));
         return catalog.createTable(TableIdentifier.of("db1", "t1"), schema);
     }
 
@@ -288,6 +304,37 @@ public class IcebergConnectorMetadataColumnEvolutionTest {
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> metadata(ops, ctx).modifyColumn(null, HANDLE, struct, null));
         Assertions.assertEquals("Cannot change int to smallint in nested types", ex.getMessage());
+    }
+
+    @Test
+    public void testModifyNestedColumnBuildErrorUsesFullTargetPath() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = tableWithNestedArrayAndTopLevelDecoy();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ConnectorColumn leaf = new ConnectorColumn("leaf",
+                ConnectorType.arrayOf(ConnectorType.of("SMALLINT")), "", true, null, false);
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx).modifyNestedColumn(null, HANDLE,
+                        ConnectorColumnPath.of(Arrays.asList("root", "leaf")), leaf, null));
+
+        // Error parity must use the resolved nested target, never a same-named top-level field.
+        Assertions.assertEquals("Cannot change int to smallint in nested types", ex.getMessage());
+    }
+
+    @Test
+    public void testModifyMissingComplexColumnKeepsBuildError() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = tableWithArrayIntColumn();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ConnectorColumn missing = new ConnectorColumn("missing",
+                ConnectorType.arrayOf(ConnectorType.of("SMALLINT")), "", true, null, false);
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx).modifyColumn(null, HANDLE, missing, null));
+
+        // Error upgrading is best-effort; an unresolved target must retain the original build failure.
+        Assertions.assertEquals("Unsupported type for Iceberg: SMALLINT", ex.getMessage());
     }
 
     @Test

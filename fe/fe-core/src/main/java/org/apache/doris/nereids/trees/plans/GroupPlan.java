@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.LazyCompute;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
 

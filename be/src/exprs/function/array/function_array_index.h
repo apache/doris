@@ -22,6 +22,7 @@
 #include <stddef.h>
 
 #include <memory>
+#include <type_traits>
 #include <utility>
 
 #include "common/status.h"
@@ -45,6 +46,7 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
@@ -216,6 +218,21 @@ public:
                     get_name(), req_id, input_rows_count);
         });
         return _execute_dispatch(block, arguments, result, input_rows_count);
+    }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx,
+                                                const VExprSPtrs& arguments) const override {
+        if constexpr (!std::is_same_v<ConcreteAction, ArrayContainsAction>) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        return expr_zonemap::evaluate_array_contains_zonemap(ctx, arguments);
+    }
+
+    bool can_evaluate_zonemap_filter(const VExprSPtrs& arguments) const override {
+        if constexpr (!std::is_same_v<ConcreteAction, ArrayContainsAction>) {
+            return false;
+        }
+        return expr_zonemap::can_evaluate_array_contains_zonemap(arguments);
     }
 
 private:

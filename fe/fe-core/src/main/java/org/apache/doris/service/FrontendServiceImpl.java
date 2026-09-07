@@ -139,15 +139,15 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
-import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.ColStatsData;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.InvalidateStatsTarget;
-import org.apache.doris.statistics.StatisticsCacheKey;
-import org.apache.doris.statistics.TableStatsMeta;
-import org.apache.doris.statistics.UpdatePartitionStatsTarget;
+import org.apache.doris.statistics.analysis.AnalysisManager;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
+import org.apache.doris.statistics.cache.InvalidateStatsTarget;
+import org.apache.doris.statistics.cache.StatisticsCacheKey;
+import org.apache.doris.statistics.cache.UpdatePartitionStatsTarget;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.query.QueryStats;
+import org.apache.doris.statistics.repository.ColStatsData;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
@@ -5648,7 +5648,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TShowUserResult showUser(TShowUserRequest request) {
-        List<List<String>> userInfo = Env.getCurrentEnv().getAuth().getAllUserInfo();
+        UserIdentity currentUser = null;
+        if (request.isSetCurrentUserIdent()) {
+            currentUser = UserIdentity.fromThrift(request.current_user_ident);
+        }
+        List<List<String>> userInfo = Env.getCurrentEnv().getAuth().getAllUserInfo(currentUser);
         TShowUserResult result = new TShowUserResult();
         result.setUserinfoList(userInfo);
         return result;

@@ -2059,8 +2059,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 // loop to keep copy-on-write O(n). TabletInvertedIndex registration stays
                 // per-iteration because Tablet.addReplica(...) below needs the tablet present
                 // in the inverted index.
+                // Row-binlog tables permit only light schema changes, so this shadow index is ordinary.
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                        newSchemaHash, medium);
+                        newSchemaHash, medium, false /* isRowBinlog */);
                 List<Tablet> shadowTabletsForPartition = Lists.newArrayListWithCapacity(
                         originIndex.getTablets().size());
                 TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();

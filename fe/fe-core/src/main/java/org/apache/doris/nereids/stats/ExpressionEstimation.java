@@ -95,9 +95,9 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.ColumnStatisticBuilder;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatisticBuilder;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;

@@ -79,11 +79,7 @@ public:
     };
     bool is_char_type() const { return _primitive_type == PrimitiveType::TYPE_CHAR; }
     int len() const { return _len; }
-    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
-        if (_primitive_type == TYPE_CHAR || _primitive_type == TYPE_VARCHAR) {
-            scalar_type->set_len(_len);
-        }
-    }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
 #ifdef BE_TEST
     void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
         IDataType::to_thrift(thrift_type, node);

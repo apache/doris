@@ -223,6 +223,9 @@ public:
     // used for after tablet cloned to clear stale rowset
     void clear_stale_rowset();
 
+    // Clear stale rowset metadata without changing the delete bitmap cache.
+    void clear_stale_rs_metas();
+
     void clear_rowsets();
 
     // MUST hold EXCLUSIVE `_meta_lock` in belonged Tablet

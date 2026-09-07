@@ -80,7 +80,7 @@ struct TxnPublishInfo {
 struct TabletTxnInfo {
     PUniqueId load_id;
     RowsetSharedPtr rowset;
-    // the row binlog committed along with this txn.
+    // The row-binlog tablet is attached while PREPARED; its rowset is filled at commit.
     RowBinlogTxnInfo attach_row_binlog;
     PendingRowsetGuard pending_rs_guard;
     bool unique_key_merge_on_write {false};
@@ -172,6 +172,12 @@ public:
                        TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
                        bool is_ingest = false);
 
+    // Internal: attach the independent row-binlog tablet to an existing base-tablet transaction
+    // before commit, so tablet lifecycle operations can drain the whole group transaction.
+    Status attach_row_binlog_tablet_to_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                                           const TabletInfo& base_tablet_info,
+                                           const BaseTabletSPtr& row_binlog_tablet);
+
     Status commit_txn(TPartitionId partition_id, const Tablet& tablet,
                       TTransactionId transaction_id, const PUniqueId& load_id,
                       const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
@@ -219,6 +225,8 @@ public:
     Status delete_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                       TTabletId tablet_id, TabletUid tablet_uid);
 
+    // Includes transactions keyed by this tablet and base-tablet transactions that attach this
+    // tablet as their independent row-binlog tablet.
     void get_tablet_related_txns(TTabletId tablet_id, TabletUid tablet_uid, int64_t* partition_id,
                                  std::set<int64_t>* transaction_ids);
 

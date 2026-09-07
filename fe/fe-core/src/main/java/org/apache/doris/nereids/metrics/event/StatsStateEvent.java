@@ -19,7 +19,7 @@ package org.apache.doris.nereids.metrics.event;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 /**
  * stats state event

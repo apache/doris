@@ -1,11 +1,10 @@
 --- a/cpp/src/parquet/arrow/schema.cc
 +++ b/cpp/src/parquet/arrow/schema.cc
-@@ -215,8 +215,9 @@
+@@ -215,7 +215,9 @@
  
    // The user is explicitly asking for Impala int96 encoding, there is no
    // logical type.
--  if (arrow_properties.support_deprecated_int96_timestamps() &&
--      target_unit == ::arrow::TimeUnit::NANO) {
+-  if (arrow_properties.support_deprecated_int96_timestamps()) {
 +  if (arrow_properties.force_write_int96_timestamps() ||
 +      (arrow_properties.support_deprecated_int96_timestamps() &&
 +       target_unit == ::arrow::TimeUnit::NANO)) {

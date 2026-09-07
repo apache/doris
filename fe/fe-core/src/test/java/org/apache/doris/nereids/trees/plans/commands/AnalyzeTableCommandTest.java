@@ -32,7 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;

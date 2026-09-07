@@ -33,10 +33,10 @@ import org.apache.doris.thrift.TPipelineWorkloadGroup;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -61,7 +61,7 @@ public class WorkloadGroupMgrTest {
 
     private AtomicLong id = new AtomicLong(10);
 
-    @Before
+    @BeforeEach
     public void setUp() throws DdlException {
         mockedEnv = Mockito.mockStatic(Env.class);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
@@ -75,7 +75,7 @@ public class WorkloadGroupMgrTest {
         Mockito.when(auth.isWorkloadGroupInUse(ArgumentMatchers.anyString())).thenReturn(Pair.of(false, ""));
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnv != null) {
             mockedEnv.close();
@@ -103,15 +103,15 @@ public class WorkloadGroupMgrTest {
 
         WorkloadGroupKey key1 = WorkloadGroupKey.get(cg1, wgName1);
         Map<WorkloadGroupKey, WorkloadGroup> nameToRG = workloadGroupMgr.getNameToWorkloadGroup();
-        Assert.assertEquals(1, nameToRG.size());
-        Assert.assertTrue(nameToRG.containsKey(key1));
+        Assertions.assertEquals(1, nameToRG.size());
+        Assertions.assertTrue(nameToRG.containsKey(key1));
         WorkloadGroup group1 = nameToRG.get(key1);
-        Assert.assertEquals(key1.getWorkloadGroupName(), group1.getName());
-        Assert.assertEquals(key1.getComputeGroup(), group1.getComputeGroup());
+        Assertions.assertEquals(key1.getWorkloadGroupName(), group1.getName());
+        Assertions.assertEquals(key1.getComputeGroup(), group1.getComputeGroup());
 
         Map<Long, WorkloadGroup> idToRG = workloadGroupMgr.getIdToWorkloadGroup();
-        Assert.assertEquals(1, idToRG.size());
-        Assert.assertTrue(idToRG.containsKey(group1.getId()));
+        Assertions.assertEquals(1, idToRG.size());
+        Assertions.assertTrue(idToRG.containsKey(group1.getId()));
 
         // 2 create workload group 2
         long wgId2 = 2;
@@ -126,13 +126,13 @@ public class WorkloadGroupMgrTest {
 
         WorkloadGroupKey key2 = WorkloadGroupKey.get(cg2, wgName2);
         nameToRG = workloadGroupMgr.getNameToWorkloadGroup();
-        Assert.assertEquals(2, nameToRG.size());
-        Assert.assertTrue(nameToRG.containsKey(key2));
+        Assertions.assertEquals(2, nameToRG.size());
+        Assertions.assertTrue(nameToRG.containsKey(key2));
         WorkloadGroup group2 = nameToRG.get(key2);
         idToRG = workloadGroupMgr.getIdToWorkloadGroup();
-        Assert.assertEquals(2, idToRG.size());
-        Assert.assertTrue(idToRG.containsKey(group2.getId()));
-        Assert.assertTrue(key2.getComputeGroup().equals(wg2.getComputeGroup()));
+        Assertions.assertEquals(2, idToRG.size());
+        Assertions.assertTrue(idToRG.containsKey(group2.getId()));
+        Assertions.assertTrue(key2.getComputeGroup().equals(wg2.getComputeGroup()));
 
         // 3 test memory limit exceeds, it will success
         Map<String, String> properties3 = Maps.newHashMap();
@@ -152,9 +152,9 @@ public class WorkloadGroupMgrTest {
             propertiesErrorMincpu.put(WorkloadGroup.COMPUTE_GROUP, cg1);
             propertiesErrorMincpu.put(WorkloadGroup.MAX_MEMORY_PERCENT, "1%");
             workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(11, "wg_err_mincpu", propertiesErrorMincpu), false);
-            Assert.fail();
+            Assertions.fail();
         } catch (DdlException e) {
-            Assert.assertTrue(true);
+            Assertions.assertTrue(true);
         }
 
         // test sum of  min memory percent > 100, it will fail
@@ -165,9 +165,9 @@ public class WorkloadGroupMgrTest {
             propertiesErrorMinmem.put(WorkloadGroup.COMPUTE_GROUP, cg1);
             propertiesErrorMinmem.put(WorkloadGroup.MAX_MEMORY_PERCENT, "1%");
             workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(11, "wg_err_minmem", propertiesErrorMinmem), false);
-            Assert.fail();
+            Assertions.fail();
         } catch (DdlException e) {
-            Assert.assertTrue(true);
+            Assertions.assertTrue(true);
         }
 
         // 4 test create duplicate workload group error.
@@ -175,9 +175,9 @@ public class WorkloadGroupMgrTest {
         try {
             // create wg1 in cg1, it should fail
             workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(4, wgName1, properties1), false);
-            Assert.fail();
+            Assertions.fail();
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("already has workload group"));
+            Assertions.assertTrue(e.getMessage().contains("already has workload group"));
         }
         Map<String, String> properties4 = Maps.newHashMap();
         properties4.put(WorkloadGroup.MIN_CPU_PERCENT, "10");
@@ -194,9 +194,9 @@ public class WorkloadGroupMgrTest {
             propertiesMinCpu.put(WorkloadGroup.COMPUTE_GROUP, cg1);
             // create wg1 in cg1, it should fail
             workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(11, "test_min_cpu", propertiesMinCpu), false);
-            Assert.fail();
+            Assertions.fail();
         } catch (DdlException e) {
-            Assert.assertTrue(true);
+            Assertions.assertTrue(true);
         }
 
         // test workload group's min memory percent > max memory percent
@@ -207,9 +207,9 @@ public class WorkloadGroupMgrTest {
             propertiesMinMemory.put(WorkloadGroup.COMPUTE_GROUP, cg1);
             // create wg1 in cg1, it should fail
             workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(11, "test_min_memory", propertiesMinMemory), false);
-            Assert.fail();
+            Assertions.fail();
         } catch (DdlException e) {
-            Assert.assertTrue(true);
+            Assertions.assertTrue(true);
         }
     }
 
@@ -244,17 +244,17 @@ public class WorkloadGroupMgrTest {
                 .stream()
                 .map(e -> e.toThrift())
                 .collect(Collectors.toList());
-        Assert.assertTrue(ret.get(0).getId() == 100);
+        Assertions.assertTrue(ret.get(0).getId() == 100);
 
         ctx.setComputeGroup(new ComputeGroup(cgName2, cgName2, null));
-        Assert.assertTrue(workloadGroupMgr.getWorkloadGroup(ctx).get(0).getId() == 101);
+        Assertions.assertTrue(workloadGroupMgr.getWorkloadGroup(ctx).get(0).getId() == 101);
 
         // 1.2 get from user prop
 
         // 1.3 get from session
         ctx.getSessionVariable().setWorkloadGroup(wgName2);
-        Assert.assertTrue(workloadGroupMgr.getWorkloadGroup(ctx).size() == 1);
-        Assert.assertTrue(workloadGroupMgr.getWorkloadGroup(ctx).get(0).getId() == wgId2);
+        Assertions.assertTrue(workloadGroupMgr.getWorkloadGroup(ctx).size() == 1);
+        Assertions.assertTrue(workloadGroupMgr.getWorkloadGroup(ctx).get(0).getId() == wgId2);
 
         // 1.4 get multi workload group
         Set<String> cgSet = Sets.newHashSet();
@@ -276,9 +276,9 @@ public class WorkloadGroupMgrTest {
             idSet.add(tpip.getId());
         }
 
-        Assert.assertTrue(idSet.size() == 2);
-        Assert.assertTrue(idSet.contains(wgId2));
-        Assert.assertTrue(idSet.contains(wgId3));
+        Assertions.assertTrue(idSet.size() == 2);
+        Assertions.assertTrue(idSet.contains(wgId2));
+        Assertions.assertTrue(idSet.contains(wgId3));
 
         // 1.5 test get failed
         ctx.getSessionVariable().setWorkloadGroup("abc");
@@ -286,9 +286,9 @@ public class WorkloadGroupMgrTest {
             workloadGroupMgr.getWorkloadGroup(ctx)
                 .stream()
                 .map(e -> e.toThrift()).collect(Collectors.toList());
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("Can not find workload group"));
+            Assertions.assertTrue(e.getMessage().contains("Can not find workload group"));
         }
     }
 
@@ -303,14 +303,14 @@ public class WorkloadGroupMgrTest {
         try {
             workloadGroupMgr.alterWorkloadGroup(new ComputeGroup("", "", null), "", p0);
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("should contain at least one property"));
+            Assertions.assertTrue(e.getMessage().contains("should contain at least one property"));
         }
 
         p0.put(WorkloadGroup.MIN_CPU_PERCENT, "10");
         try {
             workloadGroupMgr.alterWorkloadGroup(new ComputeGroup("", "", null), "abc", p0);
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("Can not find workload group"));
+            Assertions.assertTrue(e.getMessage().contains("Can not find workload group"));
         }
 
         long wgId1 = 1;
@@ -320,7 +320,7 @@ public class WorkloadGroupMgrTest {
         prop1.put(WorkloadGroup.COMPUTE_GROUP, cgName1);
         prop1.put(WorkloadGroup.MIN_CPU_PERCENT, "10");
         workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(wgId1, wgName1, prop1), false);
-        Assert.assertTrue(Long.valueOf(
+        Assertions.assertTrue(Long.valueOf(
                 workloadGroupMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName1, wgName1)).getProperties()
                         .get(WorkloadGroup.MIN_CPU_PERCENT)) == 10);
 
@@ -331,15 +331,15 @@ public class WorkloadGroupMgrTest {
         prop2.put(WorkloadGroup.MIN_CPU_PERCENT, "20");
         try {
             workloadGroupMgr.alterWorkloadGroup(new ComputeGroup(cgName2, cgName2, null), wgName2, prop2);
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("Can not find workload group"));
+            Assertions.assertTrue(e.getMessage().contains("Can not find workload group"));
         }
 
         // test alter success
         workloadGroupMgr.alterWorkloadGroup(new ComputeGroup(cgName1, cgName1, null), wgName1, prop2);
         WorkloadGroup wg = workloadGroupMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName1, wgName1));
-        Assert.assertTrue(Long.valueOf(wg.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT)) == 20);
+        Assertions.assertTrue(Long.valueOf(wg.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT)) == 20);
     }
 
     // before:
@@ -389,9 +389,9 @@ public class WorkloadGroupMgrTest {
         WorkloadGroup wg4 = new WorkloadGroup(wgId4, wgName4, prop4);
         wgMgr.createWorkloadGroup(cg1, wg4, false);
 
-        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 4);
-        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 4);
-        Assert.assertTrue(wgMgr.getOldWorkloadGroup().size() == 3);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 4);
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 4);
+        Assertions.assertTrue(wgMgr.getOldWorkloadGroup().size() == 3);
 
         String cg2 = "cg2";
         Set<String> cgSet = Sets.newHashSet();
@@ -402,33 +402,33 @@ public class WorkloadGroupMgrTest {
             wgMgr.bindWorkloadGroupToComputeGroup(cgSet, oldWg);
         }
 
-        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 6);
-        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 6);
-        Assert.assertTrue(wgMgr.getOldWorkloadGroup().size() == 0);
-        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId1) == null);
-        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId2) == null);
-        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId3) == null);
-        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId4).equals(wg4));
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 6);
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 6);
+        Assertions.assertTrue(wgMgr.getOldWorkloadGroup().size() == 0);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId1) == null);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId2) == null);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId3) == null);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId4).equals(wg4));
 
         for (String cgName : cgSet) {
             WorkloadGroup wg11 = wgMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName, wgName1));
             WorkloadGroup wg22 = wgMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName, wgName2));
             WorkloadGroup wg33 = wgMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName, wgName3));
 
-            Assert.assertTrue(wgMgr.getIdToWorkloadGroup().containsKey(wg11.getId()));
-            Assert.assertTrue(wgMgr.getIdToWorkloadGroup().containsKey(wg22.getId()));
-            Assert.assertTrue(wgMgr.getIdToWorkloadGroup().containsKey(wg33.getId()));
+            Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().containsKey(wg11.getId()));
+            Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().containsKey(wg22.getId()));
+            Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().containsKey(wg33.getId()));
 
-            Assert.assertTrue(wg11.getComputeGroup().equals(cgName));
-            Assert.assertTrue(wg22.getComputeGroup().equals(cgName));
-            Assert.assertTrue(wg33.getComputeGroup().equals(cgName));
+            Assertions.assertTrue(wg11.getComputeGroup().equals(cgName));
+            Assertions.assertTrue(wg22.getComputeGroup().equals(cgName));
+            Assertions.assertTrue(wg33.getComputeGroup().equals(cgName));
 
-            Assert.assertTrue(wg11.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT).equals("12"));
-            Assert.assertTrue(wg22.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT).equals("12"));
+            Assertions.assertTrue(wg11.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT).equals("12"));
+            Assertions.assertTrue(wg22.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT).equals("12"));
             if (cg1.equals(cgName)) {
-                Assert.assertTrue(wg33.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT).equals("15"));
+                Assertions.assertTrue(wg33.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT).equals("15"));
             } else {
-                Assert.assertTrue(wg33.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT).equals("12"));
+                Assertions.assertTrue(wg33.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT).equals("12"));
             }
 
         }
@@ -531,9 +531,9 @@ public class WorkloadGroupMgrTest {
                     try {
                         workloadGroupMgr.alterWorkloadGroup(new ComputeGroup(cg1, cg1, null), "wg1", properties);
                     } catch (DdlException e) {
-                        Assert.assertTrue(e.getMessage().contains("current sum val:110"));
-                        Assert.assertTrue(e.getMessage().contains("cg1"));
-                        Assert.assertFalse(e.getMessage().contains("cg2"));
+                        Assertions.assertTrue(e.getMessage().contains("current sum val:110"));
+                        Assertions.assertTrue(e.getMessage().contains("cg1"));
+                        Assertions.assertFalse(e.getMessage().contains("cg2"));
                     }
                 }
 
@@ -549,16 +549,16 @@ public class WorkloadGroupMgrTest {
     @Test
     public void testReplayWorkloadGroup() {
         WorkloadGroupMgr wgMgr = new WorkloadGroupMgr();
-        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 0);
-        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 0);
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 0);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 0);
 
         // 1 test replay create
         WorkloadGroup wg1 = new WorkloadGroup(1, "wg1", Maps.newHashMap());
         wgMgr.replayCreateWorkloadGroup(wg1);
 
-        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 1);
-        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 1);
-        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().get(wg1.getWorkloadGroupKey())
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 1);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 1);
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().get(wg1.getWorkloadGroupKey())
                 .equals(wgMgr.getIdToWorkloadGroup().get(wg1.getId())));
 
         // 2 test replay alter
@@ -566,17 +566,17 @@ public class WorkloadGroupMgrTest {
         pop2.put("MIN_CPU_PERCENT", "2345");
         WorkloadGroup wg2 = new WorkloadGroup(1, "wg1", pop2);
         wgMgr.replayAlterWorkloadGroup(wg2);
-        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().get(wg2.getWorkloadGroupKey())
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().get(wg2.getWorkloadGroupKey())
                 .equals(wgMgr.getIdToWorkloadGroup().get(wg2.getId())));
-        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().get(wg2.getWorkloadGroupKey()).getProperties().get("MIN_CPU_PERCENT")
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().get(wg2.getWorkloadGroupKey()).getProperties().get("MIN_CPU_PERCENT")
                 .equals("2345"));
-        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 1);
-        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 1);
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 1);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 1);
 
         // 3 test replay drop
         DropWorkloadGroupOperationLog dropLog = new DropWorkloadGroupOperationLog(1);
         wgMgr.replayDropWorkloadGroup(dropLog);
-        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 0);
-        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 0);
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 0);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 0);
     }
 }

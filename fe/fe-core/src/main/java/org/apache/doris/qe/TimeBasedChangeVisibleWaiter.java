@@ -21,32 +21,40 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Before executing a time-based incremental read, block until every transaction that committed at
- * or before the requested read timestamp of the target tables becomes visible. This guarantees the
- * read sees a complete set of changes up to that time point.
+ * Before executing a time-based incremental read, wait for relevant target-table transactions to
+ * become visible. In cloud mode, drain transactions registered before a query-start transaction ID
+ * watermark. In non-cloud mode, wait for committed transactions whose commit TSO is within the
+ * requested read timestamp.
  *
  * <p>Skipped entirely when the session enables eventual-consistent change reads, or when no table
  * is involved. Waiting is bounded by session variable {@code change_visible_timeout_ms}; timing out
  * raises a {@link UserException}.
  */
 public class TimeBasedChangeVisibleWaiter {
+    private static final long CLOUD_TXN_POLL_INTERVAL_MS = 100;
+
     private final ConnectContext context;
 
     public static void waitForVisible(ConnectContext context, Plan plan, Map<List<String>, TableIf> tables)
@@ -88,15 +96,16 @@ public class TimeBasedChangeVisibleWaiter {
         return dbToTableEndTSO;
     }
 
-    /**
-     * For each db, scan its committed-but-not-visible transactions; whenever a transaction's commit
-     * TSO falls within a target table's endTSO, wait for that transaction to become visible.
-     */
+    /** Wait for relevant transactions using the transaction manager implementation for the cluster mode. */
     private void waitForDbToTableEndTSO(Map<Long, Map<Long, Long>> dbToTableEndTSO) throws UserException {
         if (dbToTableEndTSO.isEmpty()) {
             return;
         }
         long deadlineMs = System.currentTimeMillis() + context.getSessionVariable().getChangeVisibleTimeoutMs();
+        if (Config.isCloudMode()) {
+            waitForCloudTransactions(dbToTableEndTSO, deadlineMs);
+            return;
+        }
         for (Map.Entry<Long, Map<Long, Long>> dbEntry : dbToTableEndTSO.entrySet()) {
             long dbId = dbEntry.getKey();
             Map<Long, Long> tableEndTSO = dbEntry.getValue();
@@ -107,6 +116,55 @@ public class TimeBasedChangeVisibleWaiter {
                             deadlineMs);
                 }
             }
+        }
+    }
+
+    private void waitForCloudTransactions(Map<Long, Map<Long, Long>> dbToTableEndTSO, long deadlineMs)
+            throws UserException {
+        GlobalTransactionMgrIface txnMgr = Env.getCurrentGlobalTransactionMgr();
+        long txnIdWatermark;
+        try {
+            // MetaService returns the current maximum transaction ID, while check_txn_conflict
+            // uses an exclusive upper bound.
+            txnIdWatermark = txnMgr.getNextTransactionId() + 1;
+        } catch (UserException e) {
+            throw new UserException("get transaction id watermark failed for time-based read", e);
+        }
+
+        for (Map.Entry<Long, Map<Long, Long>> dbEntry : dbToTableEndTSO.entrySet()) {
+            long dbId = dbEntry.getKey();
+            List<Long> tableIds = new ArrayList<>(dbEntry.getValue().keySet());
+            Collections.sort(tableIds);
+            while (!isPreviousTransactionsFinished(txnMgr, txnIdWatermark, dbId, tableIds)) {
+                long remainingMs = deadlineMs - System.currentTimeMillis();
+                if (remainingMs <= 0) {
+                    throw new UserException(String.format(
+                            "timeout waiting previous transactions finish for time-based read, "
+                                    + "txnIdWatermark=%d dbId=%d tableIds=%s",
+                            txnIdWatermark, dbId, tableIds));
+                }
+                try {
+                    Thread.sleep(Math.min(CLOUD_TXN_POLL_INTERVAL_MS, remainingMs));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new UserException(String.format(
+                            "interrupted while waiting previous transactions finish for time-based read, "
+                                    + "txnIdWatermark=%d dbId=%d tableIds=%s",
+                            txnIdWatermark, dbId, tableIds), e);
+                }
+            }
+        }
+    }
+
+    private boolean isPreviousTransactionsFinished(GlobalTransactionMgrIface txnMgr, long txnIdWatermark,
+            long dbId, List<Long> tableIds) throws UserException {
+        try {
+            return txnMgr.isPreviousTransactionsFinished(txnIdWatermark, dbId, tableIds);
+        } catch (AnalysisException e) {
+            throw new UserException(String.format(
+                    "check previous transactions failed for time-based read, "
+                            + "txnIdWatermark=%d dbId=%d tableIds=%s",
+                    txnIdWatermark, dbId, tableIds), e);
         }
     }
 

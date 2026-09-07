@@ -37,7 +37,6 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.MinMaxPriorityQueue;
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -104,11 +103,11 @@ public class TabletSchedCtxTest extends TestWithFeService {
         while (!queue.isEmpty()) {
             gotTablets.add(queue.pollFirst());
         }
-        Assert.assertEquals(Config.max_scheduling_tablets, gotTablets.size());
+        Assertions.assertEquals(Config.max_scheduling_tablets, gotTablets.size());
         for (int i = 0; i < gotTablets.size(); i++) {
             TabletSchedCtx tablet = gotTablets.get(i);
-            Assert.assertEquals(Type.REPAIR, tablet.getType());
-            Assert.assertEquals((long) i, tablet.getCreateTime());
+            Assertions.assertEquals(Type.REPAIR, tablet.getType());
+            Assertions.assertEquals((long) i, tablet.getCreateTime());
         }
     }
 
@@ -137,8 +136,8 @@ public class TabletSchedCtxTest extends TestWithFeService {
         pendingTablets.add(ctx3);
 
         TabletSchedCtx expectedCtx = pendingTablets.poll();
-        Assert.assertNotNull(expectedCtx);
-        Assert.assertEquals(ctx3.getTabletId(), expectedCtx.getTabletId());
+        Assertions.assertNotNull(expectedCtx);
+        Assertions.assertEquals(ctx3.getTabletId(), expectedCtx.getTabletId());
 
         // priority is not equal, info2 is HIGH, should ranks ahead
         pendingTablets.clear();
@@ -149,14 +148,14 @@ public class TabletSchedCtxTest extends TestWithFeService {
         pendingTablets.add(ctx2);
         pendingTablets.add(ctx1);
         expectedCtx = pendingTablets.poll();
-        Assert.assertNotNull(expectedCtx);
-        Assert.assertEquals(ctx2.getTabletId(), expectedCtx.getTabletId());
+        Assertions.assertNotNull(expectedCtx);
+        Assertions.assertEquals(ctx2.getTabletId(), expectedCtx.getTabletId());
 
         // add info2 back to priority queue, and it should ranks ahead still.
         pendingTablets.add(ctx2);
         expectedCtx = pendingTablets.poll();
-        Assert.assertNotNull(expectedCtx);
-        Assert.assertEquals(ctx2.getTabletId(), expectedCtx.getTabletId());
+        Assertions.assertNotNull(expectedCtx);
+        Assertions.assertEquals(ctx2.getTabletId(), expectedCtx.getTabletId());
     }
 
     @Test
@@ -202,12 +201,12 @@ public class TabletSchedCtxTest extends TestWithFeService {
 
         Collections.sort(replicaList, countComparator);
         // user drop false
-        Assert.assertEquals(50, replicaList.get(0).getVisibleVersionCount());
-        Assert.assertEquals(200, replicaList.get(1).getVisibleVersionCount());
-        Assert.assertEquals(-1, replicaList.get(2).getVisibleVersionCount());
+        Assertions.assertEquals(50, replicaList.get(0).getVisibleVersionCount());
+        Assertions.assertEquals(200, replicaList.get(1).getVisibleVersionCount());
+        Assertions.assertEquals(-1, replicaList.get(2).getVisibleVersionCount());
         // user drop true
-        Assert.assertEquals(100, replicaList.get(3).getVisibleVersionCount());
-        Assert.assertEquals(-1, replicaList.get(4).getVisibleVersionCount());
+        Assertions.assertEquals(100, replicaList.get(3).getVisibleVersionCount());
+        Assertions.assertEquals(-1, replicaList.get(4).getVisibleVersionCount());
     }
 
     @Test

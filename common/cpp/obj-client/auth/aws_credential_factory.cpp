@@ -21,7 +21,6 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/auth/STSCredentialsProvider.h>
-#include <aws/core/platform/Environment.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/sts/STSClient.h>
 
@@ -41,8 +40,7 @@ std::shared_ptr<Provider> create_v2_base_provider(CredProviderType type) {
     case CredProviderType::WebIdentity:
         return std::make_shared<Aws::Auth::STSAssumeRoleWebIdentityCredentialsProvider>();
     case CredProviderType::Container:
-        return std::make_shared<Aws::Auth::TaskRoleCredentialsProvider>(
-                Aws::Environment::GetEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI").c_str());
+        return create_container_credentials_provider();
     case CredProviderType::Anonymous:
         return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
     case CredProviderType::Default:

@@ -17,6 +17,7 @@
 
 #include "common/status.h"
 
+#include <gen_cpp/Status_types.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 

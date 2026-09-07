@@ -70,6 +70,9 @@ SchemaUserScanner::~SchemaUserScanner() = default;
 
 Status SchemaUserScanner::start(RuntimeState* state) {
     TShowUserRequest request;
+    if (nullptr != _param->common_param->current_user_ident) {
+        request.__set_current_user_ident(*_param->common_param->current_user_ident);
+    }
     RETURN_IF_ERROR(SchemaHelper::show_user(*(_param->common_param->ip), _param->common_param->port,
                                             request, &_user_result));
 

@@ -311,28 +311,29 @@ TEST_F(CacheLRUDumperTest, test_remove_event_trims_existing_oversized_shadow_que
     EXPECT_EQ(offsets, std::vector<size_t>({1, 2}));
 }
 
-TEST_F(CacheLRUDumperTest, test_update_shadow_queue_metric_does_not_trim_queue) {
+TEST_F(CacheLRUDumperTest, test_replay_publishes_shadow_queue_metric) {
     const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
-    Defer defer {[old_tail_record_num] {
+    const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    Defer defer {[old_tail_record_num, old_queue_limit] {
         config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+        config::file_cache_background_lru_log_queue_max_size = old_queue_limit;
     }};
 
-    config::file_cache_background_lru_dump_tail_record_num = 1;
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+    config::file_cache_background_lru_log_queue_max_size = 100;
 
-    UInt128Wrapper hash(778899ULL);
-    {
-        std::lock_guard lru_log_lock(recorder->_mutex_lru_log);
-        auto& shadow_queue = recorder->get_shadow_queue(FileCacheType::INDEX);
-        for (size_t offset = 0; offset < 3; ++offset) {
-            shadow_queue.add(hash, offset, 4096, lru_log_lock);
-        }
+    UInt128Wrapper hash(556677ULL);
+    for (size_t offset = 0; offset < 5; ++offset) {
+        recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, offset,
+                                     4096);
     }
 
-    recorder->update_shadow_queue_element_count_metrics();
-
-    EXPECT_EQ(recorder->get_shadow_queue(FileCacheType::INDEX).get_elements_num_unsafe(), 3);
+    // replay_queue_event() is the only thing that publishes this gauge, and it does so under the
+    // same lock that mutates the shadow queue. That is what lets run_background_monitor() stay
+    // off _mutex_lru_log.
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::NORMAL), 5);
     auto stats = mock_cache->get_stats_unsafe();
-    EXPECT_EQ(stats["lru_recorder_index_shadow_queue_curr_elements"], 3);
+    EXPECT_EQ(stats["lru_recorder_normal_shadow_queue_curr_elements"], 5);
 }
 
 TEST_F(CacheLRUDumperTest, test_remove_event_still_obeys_replay_queue_cap) {

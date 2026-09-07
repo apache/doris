@@ -36,9 +36,9 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -55,7 +55,7 @@ public class TransactionStateTest {
     private static String fileName2 = "./TransactionStateTest2";
     private static String fileName3 = "./TransactionStateTest3";
 
-    @After
+    @AfterEach
     public void tearDown() {
         new File(fileName).delete();
         new File(fileName2).delete();
@@ -92,7 +92,7 @@ public class TransactionStateTest {
                 new TxnCoordinator(TxnSourceType.BE, 0, "127.0.0.1", System.currentTimeMillis()),
                 50000L, 60 * 1000L);
         testSerDe(fileName, transactionState, readTransactionState -> {
-            Assert.assertEquals(transactionState.getCoordinator().ip, readTransactionState.getCoordinator().ip);
+            Assertions.assertEquals(transactionState.getCoordinator().ip, readTransactionState.getCoordinator().ip);
         });
     }
 
@@ -118,18 +118,18 @@ public class TransactionStateTest {
                 TransactionStatus.COMMITTED, "", 100, 50000L, loadJobFinalOperation, 100, 200, 300, 400);
         // check
         testSerDe(fileName2, transactionState, readTransactionState -> {
-            Assert.assertEquals(TransactionState.LoadJobSourceType.BATCH_LOAD_JOB,
+            Assertions.assertEquals(TransactionState.LoadJobSourceType.BATCH_LOAD_JOB,
                     readTransactionState.getTxnCommitAttachment().sourceType);
-            Assert.assertTrue(readTransactionState.getTxnCommitAttachment() instanceof LoadJobFinalOperation);
+            Assertions.assertTrue(readTransactionState.getTxnCommitAttachment() instanceof LoadJobFinalOperation);
             LoadJobFinalOperation readLoadJobFinalOperation
                     = (LoadJobFinalOperation) (readTransactionState.getTxnCommitAttachment());
-            Assert.assertEquals(loadJobFinalOperation.getId(), readLoadJobFinalOperation.getId());
+            Assertions.assertEquals(loadJobFinalOperation.getId(), readLoadJobFinalOperation.getId());
             EtlStatus readLoadingStatus = readLoadJobFinalOperation.getLoadingStatus();
-            Assert.assertEquals(TEtlState.FINISHED, readLoadingStatus.getState());
-            Assert.assertEquals(etlStatus.getTrackingUrl(), readLoadingStatus.getTrackingUrl());
+            Assertions.assertEquals(TEtlState.FINISHED, readLoadingStatus.getState());
+            Assertions.assertEquals(etlStatus.getTrackingUrl(), readLoadingStatus.getTrackingUrl());
             FailMsg readFailMsg = readLoadJobFinalOperation.getFailMsg();
-            Assert.assertEquals(failMsg.getCancelType(), readFailMsg.getCancelType());
-            Assert.assertEquals(failMsg.getMsg(), readFailMsg.getMsg());
+            Assertions.assertEquals(failMsg.getCancelType(), readFailMsg.getCancelType());
+            Assertions.assertEquals(failMsg.getMsg(), readFailMsg.getMsg());
         });
     }
 
@@ -152,15 +152,15 @@ public class TransactionStateTest {
                 attachment, 100, 200, 300, 400);
         // check
         testSerDe(fileName3, transactionState, readTransactionState -> {
-            Assert.assertEquals(TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK,
+            Assertions.assertEquals(TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK,
                     readTransactionState.getTxnCommitAttachment().sourceType);
-            Assert.assertTrue(readTransactionState.getTxnCommitAttachment() instanceof RLTaskTxnCommitAttachment);
+            Assertions.assertTrue(readTransactionState.getTxnCommitAttachment() instanceof RLTaskTxnCommitAttachment);
             RLTaskTxnCommitAttachment readRLTaskTxnCommitAttachment
                     = (RLTaskTxnCommitAttachment) (readTransactionState.getTxnCommitAttachment());
-            Assert.assertTrue(readRLTaskTxnCommitAttachment.getProgress() instanceof KafkaProgress);
+            Assertions.assertTrue(readRLTaskTxnCommitAttachment.getProgress() instanceof KafkaProgress);
             KafkaProgress readKafkaProgress = (KafkaProgress) (readRLTaskTxnCommitAttachment.getProgress());
-            Assert.assertEquals(1, readKafkaProgress.getOffsetByPartition().size());
-            Assert.assertEquals(100L, (long) readKafkaProgress.getOffsetByPartition().getOrDefault(1, -1L));
+            Assertions.assertEquals(1, readKafkaProgress.getOffsetByPartition().size());
+            Assertions.assertEquals(100L, (long) readKafkaProgress.getOffsetByPartition().getOrDefault(1, -1L));
         });
     }
 }

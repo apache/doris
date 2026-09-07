@@ -20,6 +20,9 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <limits>
+
 #include "core/types.h"
 #include "core/uint128.h"
 
@@ -42,6 +45,43 @@ TEST(WideInteger, Conversions) {
     ASSERT_EQ(Float64(UInt256(1) * 1000000000 * 1000000000 * 1000000000 * 1000000000 * 1000000000 *
                       1000000000 * 1000000000 * 1000000000),
               1e72);
+}
+
+TEST(WideInteger, FloatingPointConversions) {
+    constexpr wide::Int256 constexpr_value(123.75);
+    static_assert(constexpr_value == wide::Int256(123));
+
+    EXPECT_EQ(wide::Int256(123.75), wide::Int256(123));
+    EXPECT_EQ(wide::Int256(-123.75), wide::Int256(-123));
+    EXPECT_EQ(wide::Int256(-0x1p63), wide::Int256(std::numeric_limits<int64_t>::min()));
+    EXPECT_EQ(wide::Int256(std::nextafter(0x1p63, 0.0)),
+              wide::Int256(std::numeric_limits<int64_t>::max() - 1023));
+    const wide::Int256 int64_limit {uint64_t(1) << 63, uint64_t(0), uint64_t(0), uint64_t(0)};
+    EXPECT_EQ(wide::Int256(0x1p63), int64_limit);
+
+    // This is the double value passed to Int256 while casting Float32(-219.77718) to
+    // Decimal256(76, 38). It used to trigger an out-of-range floating-point-to-uint64_t
+    // conversion in set_multiplier().
+    constexpr double scaled_value = 2.19777175903320301008677635273e40;
+    const wide::Int256 expected_positive {uint64_t(0), uint64_t(10822837168132325376ULL),
+                                          uint64_t(64), uint64_t(0)};
+    const wide::Int256 expected_negative {uint64_t(0), uint64_t(7623906905577226240ULL),
+                                          std::numeric_limits<uint64_t>::max() - 64,
+                                          std::numeric_limits<uint64_t>::max()};
+
+    EXPECT_EQ(wide::Int256(scaled_value), expected_positive);
+    EXPECT_EQ(wide::Int256(-scaled_value), expected_negative);
+
+    // Float32 values are first promoted exactly to double instead of using the generic
+    // floating-point-to-int64_t conversion.
+    const wide::Int256 expected_float {uint64_t(0), uint64_t(1) << 36, uint64_t(0), uint64_t(0)};
+    EXPECT_EQ(wide::Int256(std::ldexp(1.0F, 100)), expected_float);
+
+    // Preserve the existing modulo-2^Bits and non-finite-value behavior without UB.
+    EXPECT_EQ(wide::Int256(std::ldexp(1.0, 300)), wide::Int256(0));
+    EXPECT_EQ(wide::Int256(std::numeric_limits<double>::infinity()), wide::Int256(0));
+    EXPECT_EQ(wide::Int256(-std::numeric_limits<double>::infinity()), wide::Int256(0));
+    EXPECT_EQ(wide::Int256(std::numeric_limits<double>::quiet_NaN()), wide::Int256(0));
 }
 
 TEST(WideInteger, Arithmetic) {

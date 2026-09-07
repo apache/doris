@@ -32,9 +32,9 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.cache.Cache;
 import com.google.common.collect.ImmutableMap;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -43,7 +43,7 @@ import java.util.List;
 
 public class GroupCommitManagerBackendSelectionTest {
 
-    @After
+    @AfterEach
     public void resetBackendSelectionProvider() {
         BackendSelectionManager.resetProviderForTest();
     }
@@ -51,7 +51,7 @@ public class GroupCommitManagerBackendSelectionTest {
     private final String originalCloudUniqueId = Config.cloud_unique_id;
     private final String originalDeployMode = Config.deploy_mode;
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.cloud_unique_id = originalCloudUniqueId;
         Config.deploy_mode = originalDeployMode;
@@ -64,8 +64,8 @@ public class GroupCommitManagerBackendSelectionTest {
 
         BackendSelectionManager.setProviderForTest(policy);
 
-        Assert.assertNull(GroupCommitManager.getGroupCommitLoadSelectionHint(context));
-        Assert.assertEquals(0, policy.getLoadSelectionHintCalls);
+        Assertions.assertNull(GroupCommitManager.getGroupCommitLoadSelectionHint(context));
+        Assertions.assertEquals(0, policy.getLoadSelectionHintCalls);
     }
 
     @Test
@@ -89,11 +89,11 @@ public class GroupCommitManagerBackendSelectionTest {
             long cachedOtherBackendId = manager.selectBackendForGroupCommitInternal(
                     tableId, "", policy.otherDecision);
 
-            Assert.assertEquals(1L, firstBackendId);
-            Assert.assertEquals(1L, secondBackendId);
-            Assert.assertEquals(1L, otherBackendId);
-            Assert.assertEquals(1L, cachedOtherBackendId);
-            Assert.assertEquals(2, policy.orderLoadCandidatesCalls);
+            Assertions.assertEquals(1L, firstBackendId);
+            Assertions.assertEquals(1L, secondBackendId);
+            Assertions.assertEquals(1L, otherBackendId);
+            Assertions.assertEquals(1L, cachedOtherBackendId);
+            Assertions.assertEquals(2, policy.orderLoadCandidatesCalls);
         }
     }
 
@@ -112,9 +112,9 @@ public class GroupCommitManagerBackendSelectionTest {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-            Assert.assertEquals(1L, manager.selectBackendForGroupCommitInternal(tableId, "", policy.decision));
-            Assert.assertEquals(1L, manager.selectBackendForGroupCommitInternal(tableId, "", policy.decision));
-            Assert.assertEquals(2, policy.partitionCalls);
+            Assertions.assertEquals(1L, manager.selectBackendForGroupCommitInternal(tableId, "", policy.decision));
+            Assertions.assertEquals(1L, manager.selectBackendForGroupCommitInternal(tableId, "", policy.decision));
+            Assertions.assertEquals(2, policy.partitionCalls);
         }
     }
 
@@ -133,7 +133,7 @@ public class GroupCommitManagerBackendSelectionTest {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-            Assert.assertEquals(1L, manager.selectBackendForGroupCommitInternal(tableId, "", null));
+            Assertions.assertEquals(1L, manager.selectBackendForGroupCommitInternal(tableId, "", null));
         }
     }
 
@@ -150,7 +150,7 @@ public class GroupCommitManagerBackendSelectionTest {
         }
         cache.cleanUp();
 
-        Assert.assertTrue("cache must stay bounded, size=" + cache.size(), cache.size() <= 10000);
+        Assertions.assertTrue(cache.size() <= 10000, "cache must stay bounded, size=" + cache.size());
     }
 
     @Test
@@ -178,9 +178,9 @@ public class GroupCommitManagerBackendSelectionTest {
             long firstBackendId = manager.selectBackendForGroupCommitInternal(tableId, cluster, policy.decision);
             long secondBackendId = manager.selectBackendForGroupCommitInternal(tableId, cluster, policy.decision);
 
-            Assert.assertEquals(1L, firstBackendId);
-            Assert.assertEquals(1L, secondBackendId);
-            Assert.assertEquals(0, policy.orderLoadCandidatesCalls);
+            Assertions.assertEquals(1L, firstBackendId);
+            Assertions.assertEquals(1L, secondBackendId);
+            Assertions.assertEquals(0, policy.orderLoadCandidatesCalls);
         }
     }
 

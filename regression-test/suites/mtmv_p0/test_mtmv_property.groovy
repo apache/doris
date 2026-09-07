@@ -172,7 +172,7 @@ suite("test_mtmv_property","mtmv") {
     assertTrue(desc_res[1][3] == "false")
 
     // enable_unique_key_merge_on_write
-    try {
+    test {
         sql """
         CREATE MATERIALIZED VIEW mv_unique_key_merge_on_write
         BUILD DEFERRED REFRESH AUTO ON MANUAL
@@ -184,9 +184,7 @@ suite("test_mtmv_property","mtmv") {
         AS
         SELECT * from ${tableName};
         """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Unknown properties"))
+        exception "enable_unique_key_merge_on_write property only support unique key table"
     }
 
     // group_commit_interval_ms

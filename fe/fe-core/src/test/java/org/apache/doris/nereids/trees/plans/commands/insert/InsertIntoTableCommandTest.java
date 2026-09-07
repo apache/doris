@@ -46,6 +46,9 @@ import org.mockito.MockitoAnnotations;
 import org.mockito.internal.util.collections.Sets;
 
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 
 class InsertIntoTableCommandTest {
@@ -225,5 +228,126 @@ class InsertIntoTableCommandTest {
                 Mockito.mock(OlapInsertExecutor.class)));
         Assertions.assertFalse(InsertIntoTableCommand.needsExternalDmlAuditBarrier(
                 Mockito.mock(BlackholeInsertExecutor.class)));
+    }
+
+    @Test
+    void testInsertIntoTableCommandIsCancelable() {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                PlanType.INSERT_INTO_TABLE_COMMAND,
+                logicalPlan,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                true,
+                Optional.empty()
+        );
+        Assertions.assertInstanceOf(CancelableCommand.class, command);
+    }
+
+    @Test
+    void testCancelSetsCancelledFlagAndWaitNotRunningReturnsWhenNotRunning() {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                PlanType.INSERT_INTO_TABLE_COMMAND,
+                logicalPlan,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                true,
+                Optional.empty()
+        );
+        // Not running yet: waitNotRunning must return immediately (bounded await on a false flag).
+        command.waitNotRunning();
+        command.cancel();
+        // cancel() is idempotent; repeated calls must not throw.
+        command.cancel();
+    }
+
+    @Test
+    void testRunInternalSkipsExecutionWhenCancelled() throws Exception {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                PlanType.INSERT_INTO_TABLE_COMMAND,
+                logicalPlan,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                true,
+                Optional.empty()
+        );
+        command.cancel();
+        // runInternal() checks isCancelled at its entry and returns without touching initPlan;
+        // a cancelled command must not attempt to build an executor or begin a transaction.
+        // initPlan is reached only if the check passes, so with cancel set the command must
+        // return without throwing (no plan/table mocks are set up here).
+        Deencapsulation.invoke(command, "runInternal", Mockito.mock(ConnectContext.class), stmtExecutor);
+    }
+
+    @Test
+    void testRunConsumesPendingCancellationAndIsReusable() throws Exception {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                PlanType.INSERT_INTO_TABLE_COMMAND,
+                logicalPlan,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                true,
+                Optional.empty()
+        );
+        command.cancel();
+        // First run consumes the pending cancel-before-run and returns without executing.
+        Assertions.assertDoesNotThrow(() -> command.run(Mockito.mock(ConnectContext.class), stmtExecutor));
+        // The cancelled flag was reset by the run above, so a reused command instance
+        // (server-side prepared INSERT) executes again instead of silently succeeding
+        // without inserting. With the mock plan, execution fails during planning.
+        Assertions.assertThrows(AnalysisException.class,
+                () -> command.run(Mockito.mock(ConnectContext.class), stmtExecutor));
+    }
+
+    @Test
+    void testRunWithUpdateInfoMaintainsRunningFlag() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        InsertIntoTableCommand command = new BlockingInitPlanInsertCommand(entered, release);
+        Thread worker = new Thread(() -> {
+            try {
+                command.runWithUpdateInfo(Mockito.mock(ConnectContext.class), stmtExecutor, null);
+            } catch (Exception ignored) {
+                // expected: the stubbed initPlan throws after the latch is released
+            }
+        });
+        worker.start();
+        Assertions.assertTrue(entered.await(10, TimeUnit.SECONDS));
+        // InsertTask executes through runWithUpdateInfo: while it runs, the running flag must
+        // be set so waitNotRunning() blocks until the write finishes.
+        AtomicBoolean isRunning = Deencapsulation.getField(command, "isRunning");
+        Assertions.assertTrue(isRunning.get());
+        release.countDown();
+        worker.join(10_000);
+        Assertions.assertFalse(worker.isAlive());
+        Assertions.assertFalse(isRunning.get());
+    }
+
+    /** initPlan blocks until released so the test can observe the running flag mid-execution. */
+    private static class BlockingInitPlanInsertCommand extends InsertIntoTableCommand {
+        private final CountDownLatch entered;
+        private final CountDownLatch release;
+
+        BlockingInitPlanInsertCommand(CountDownLatch entered, CountDownLatch release) {
+            super(PlanType.INSERT_INTO_TABLE_COMMAND,
+                    Mockito.mock(LogicalPlan.class),
+                    Optional.empty(),
+                    Optional.empty(),
+                    Optional.empty(),
+                    true,
+                    Optional.empty());
+            this.entered = entered;
+            this.release = release;
+        }
+
+        @Override
+        public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+            entered.countDown();
+            release.await(10, TimeUnit.SECONDS);
+            throw new AnalysisException("blocking initPlan released");
+        }
     }
 }

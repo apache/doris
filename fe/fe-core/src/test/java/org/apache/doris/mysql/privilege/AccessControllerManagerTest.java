@@ -26,10 +26,10 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -40,12 +40,12 @@ public class AccessControllerManagerTest {
 
     private boolean originalSkipCatalogPrivCheck;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         originalSkipCatalogPrivCheck = Config.skip_catalog_priv_check;
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.skip_catalog_priv_check = originalSkipCatalogPrivCheck;
     }
@@ -70,7 +70,7 @@ public class AccessControllerManagerTest {
             Mockito.when(catalog.getProperties()).thenReturn(
                     ImmutableMap.of(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "mock.access.controller"));
 
-            Assert.assertTrue(accessControllerManager.checkCtlPriv(
+            Assertions.assertTrue(accessControllerManager.checkCtlPriv(
                     userIdentity, "custom_catalog", PrivPredicate.SELECT));
         }
     }
@@ -95,7 +95,7 @@ public class AccessControllerManagerTest {
             Mockito.when(catalog.getProperties()).thenReturn(
                     ImmutableMap.of(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "mock.access.controller"));
 
-            Assert.assertTrue(accessControllerManager.checkCtlPriv(
+            Assertions.assertTrue(accessControllerManager.checkCtlPriv(
                     userIdentity, "custom_catalog", PrivPredicate.SHOW));
         }
     }
@@ -121,7 +121,7 @@ public class AccessControllerManagerTest {
             Mockito.when(catalog.isInternalCatalog()).thenReturn(false);
             Mockito.when(catalog.getProperties()).thenReturn(ImmutableMap.of("type", "test"));
 
-            Assert.assertFalse(accessControllerManager.checkCtlPriv(
+            Assertions.assertFalse(accessControllerManager.checkCtlPriv(
                     userIdentity, "custom_catalog", PrivPredicate.SELECT));
         }
     }
@@ -144,7 +144,7 @@ public class AccessControllerManagerTest {
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("not_exist_catalog")).thenReturn(null);
 
-            Assert.assertTrue(accessControllerManager.checkCtlPriv(
+            Assertions.assertTrue(accessControllerManager.checkCtlPriv(
                     userIdentity, "not_exist_catalog", PrivPredicate.CREATE));
         }
     }
@@ -171,7 +171,7 @@ public class AccessControllerManagerTest {
             Mockito.when(catalog.getProperties()).thenReturn(
                     ImmutableMap.of(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "mock.access.controller"));
 
-            Assert.assertFalse(accessControllerManager.checkCtlPriv(
+            Assertions.assertFalse(accessControllerManager.checkCtlPriv(
                     userIdentity, "custom_catalog", PrivPredicate.LOAD));
         }
     }
@@ -192,7 +192,7 @@ public class AccessControllerManagerTest {
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("not_exist_catalog")).thenReturn(null);
 
-            Assert.assertFalse(accessControllerManager.checkCtlPriv(
+            Assertions.assertFalse(accessControllerManager.checkCtlPriv(
                     userIdentity, "not_exist_catalog", PrivPredicate.SELECT));
         }
     }
@@ -213,7 +213,7 @@ public class AccessControllerManagerTest {
                 catalog, "test-controller", ImmutableMap.of(), true);
 
         Mockito.verify(temporaryAccessController).close();
-        Assert.assertFalse(accessControllerManager.checkIfAccessControllerExist("test_catalog"));
+        Assertions.assertFalse(accessControllerManager.checkIfAccessControllerExist("test_catalog"));
     }
 
     @Test
@@ -233,7 +233,7 @@ public class AccessControllerManagerTest {
         accessControllerManager.removeAccessController("test_catalog", catalog.getId());
 
         Mockito.verify(registeredAccessController).close();
-        Assert.assertFalse(accessControllerManager.checkIfAccessControllerExist("test_catalog"));
+        Assertions.assertFalse(accessControllerManager.checkIfAccessControllerExist("test_catalog"));
     }
 
     @Test
@@ -254,7 +254,7 @@ public class AccessControllerManagerTest {
         accessControllerManager.removeAccessController("test_catalog", catalog.getId());
 
         Mockito.verify(registeredAccessController).close();
-        Assert.assertFalse(accessControllerManager.checkIfAccessControllerExist("test_catalog"));
+        Assertions.assertFalse(accessControllerManager.checkIfAccessControllerExist("test_catalog"));
     }
 
     @Test
@@ -284,7 +284,7 @@ public class AccessControllerManagerTest {
             manager.createAccessController(newCatalog, "test-controller", ImmutableMap.of(), false);
             manager.removeAccessController("same_name", oldCatalog.getId());
 
-            Assert.assertSame(newController, manager.getAccessControllerOrDefault("same_name"));
+            Assertions.assertSame(newController, manager.getAccessControllerOrDefault("same_name"));
         }
 
         Mockito.verify(oldController).close();
@@ -314,7 +314,7 @@ public class AccessControllerManagerTest {
         }
 
         Mockito.verify(orphanController).close();
-        Assert.assertFalse(manager.checkIfAccessControllerExist("dropped"));
+        Assertions.assertFalse(manager.checkIfAccessControllerExist("dropped"));
     }
 
     @Test
@@ -330,7 +330,7 @@ public class AccessControllerManagerTest {
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalog("fallback")).thenReturn(catalog);
 
-            Assert.assertSame(defaultAccessController, manager.getAccessControllerOrDefault("fallback"));
+            Assertions.assertSame(defaultAccessController, manager.getAccessControllerOrDefault("fallback"));
             manager.removeAccessController("fallback", catalog.getId());
         }
 

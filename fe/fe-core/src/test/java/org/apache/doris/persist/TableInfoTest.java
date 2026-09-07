@@ -19,8 +19,8 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.AnalysisException;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -46,9 +46,9 @@ public class TableInfoTest {
 
         TableInfo tableInfo2 = TableInfo.read(in);
 
-        Assert.assertEquals(tableInfo1.getTableId(), tableInfo2.getTableId());
-        Assert.assertEquals(tableInfo1.getDbId(), tableInfo2.getDbId());
-        Assert.assertEquals(tableInfo1.getNewTableName(), tableInfo2.getNewTableName());
+        Assertions.assertEquals(tableInfo1.getTableId(), tableInfo2.getTableId());
+        Assertions.assertEquals(tableInfo1.getDbId(), tableInfo2.getDbId());
+        Assertions.assertEquals(tableInfo1.getNewTableName(), tableInfo2.getNewTableName());
 
         // 3. delete files
         in.close();

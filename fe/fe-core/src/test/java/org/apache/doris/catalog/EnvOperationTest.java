@@ -30,10 +30,10 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.util.Map;
@@ -46,7 +46,7 @@ public class EnvOperationTest {
 
     private static ConnectContext connectContext;
 
-    @BeforeClass
+    @BeforeAll
     public static void beforeClass() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 1000;
         UtFrameUtils.createDorisCluster(runningDir);
@@ -68,7 +68,7 @@ public class EnvOperationTest {
                 + "properties(\"replication_num\" = \"1\");");
     }
 
-    @AfterClass
+    @AfterAll
     public static void tearDown() {
         File file = new File(runningDir);
         file.delete();
@@ -97,40 +97,40 @@ public class EnvOperationTest {
         // rename olap table
         String renameTblStmt = "alter table test.renameTest rename newNewTest";
         Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
-        Assert.assertNotNull(db);
-        Assert.assertNotNull(db.getTableNullable("renameTest"));
+        Assertions.assertNotNull(db);
+        Assertions.assertNotNull(db.getTableNullable("renameTest"));
 
         alterTable(renameTblStmt);
-        Assert.assertNull(db.getTableNullable("renameTest"));
-        Assert.assertNotNull(db.getTableNullable("newNewTest"));
+        Assertions.assertNull(db.getTableNullable("renameTest"));
+        Assertions.assertNotNull(db.getTableNullable("newNewTest"));
 
         // add a rollup and test rename to a rollup name(expect throw exception)
         String alterStmtStr = "alter table test.newNewTest add rollup r1(k2,k1)";
         alterTable(alterStmtStr);
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
-        Assert.assertEquals(1, alterJobs.size());
+        Assertions.assertEquals(1, alterJobs.size());
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println("alter job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
                 Thread.sleep(1000);
             }
             System.out.println("alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
-            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Assertions.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
         }
 
         Thread.sleep(1000);
         renameTblStmt = "alter table test.newNewTest rename r1";
         try {
             alterTable(renameTblStmt);
-            Assert.fail();
+            Assertions.fail();
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("New name conflicts with rollup index name: r1"));
+            Assertions.assertTrue(e.getMessage().contains("New name conflicts with rollup index name: r1"));
         }
 
         renameTblStmt = "alter table test.newNewTest rename goodName";
         alterTable(renameTblStmt);
-        Assert.assertNull(db.getTableNullable("newNewTest"));
-        Assert.assertNotNull(db.getTableNullable("goodName"));
+        Assertions.assertNull(db.getTableNullable("newNewTest"));
+        Assertions.assertNotNull(db.getTableNullable("goodName"));
     }
 
 

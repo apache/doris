@@ -54,7 +54,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnary;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
 

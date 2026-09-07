@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TUniqueId;

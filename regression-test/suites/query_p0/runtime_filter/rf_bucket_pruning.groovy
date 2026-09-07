@@ -23,6 +23,11 @@ suite("rf_bucket_pruning", "nonConcurrent") {
     sql "set enable_runtime_filter_bucket_prune=true"
     sql "set runtime_filter_wait_infinitely=true"
     sql "set runtime_filter_type='IN'"
+    // Shared regression environments fuzz runtime_filter_max_in_num, and one of the four fuzz
+    // branches sets it to 0. Bucket pruning inverts the IN set, so it bails out as soon as the set
+    // is larger than this bound -- with 0 even a single-value filter prunes nothing. Pin it, the
+    // same way rf_partition_pruning does.
+    sql "set runtime_filter_max_in_num=1024"
     sql "set disable_join_reorder=true"
     sql "set enable_profile=true"
     sql "set profile_level=2"

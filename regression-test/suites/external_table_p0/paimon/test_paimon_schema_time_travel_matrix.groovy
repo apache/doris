@@ -367,9 +367,8 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
         sql """refresh catalog ${catalogName}"""
 
         // row_tracking exposes Paimon-generated hidden columns, so its incremental scan must
-        // bypass the C++ reader even when the session otherwise enables native Paimon scans.
+        // use Paimon-side JNI semantics.
         sql """set force_jni_scanner=false"""
-        sql """set enable_paimon_cpp_reader=true"""
         String rowTrackingExplain = sql("""
             explain verbose
             select id, name, _ROW_ID, _SEQUENCE_NUMBER
@@ -386,8 +385,6 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
             @incr('startSnapshotId'=0, 'endSnapshotId'=1)
             order by id
         """
-        sql """set enable_paimon_cpp_reader=false"""
-
         // Scenario TC01: validate latest schema/data, explicit new binding, predicate and aggregate.
         assertEquals([[1, null], [2, null], [3, null], [4, null], [5, 5000L], [6, 6000L]],
                 sql("""select id, victim from ${topTable} order by id"""))
@@ -571,9 +568,8 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
 
         // Scenario T14: incremental reads crossing a rename checkpoint bind the end schema.
         List<List<Object>> incrementalJni
-        List<List<Object>> incrementalCpp
-        sql """set force_jni_scanner=false"""
-        sql """set enable_paimon_cpp_reader=false"""
+        List<List<Object>> incrementalAutomatic
+        sql """set force_jni_scanner=true"""
         incrementalJni = sql("""
             select id, full_name, score
             from ${pkTable}@incr(
@@ -582,8 +578,8 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
             )
             order by id
         """)
-        sql """set enable_paimon_cpp_reader=true"""
-        incrementalCpp = sql("""
+        sql """set force_jni_scanner=false"""
+        incrementalAutomatic = sql("""
             select id, full_name, score
             from ${pkTable}@incr(
                 'startSnapshotId'='${pkCp0}',
@@ -591,7 +587,7 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
             )
             order by id
         """)
-        assertEquals(incrementalJni, incrementalCpp)
+        assertEquals(incrementalJni, incrementalAutomatic)
 
         // Scenario TC03/S16: partition pruning and renamed payloads bind to their own snapshots.
         assertEquals([[1, "p1", "old"], [2, "p2", "old"]],
@@ -691,7 +687,6 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
         """))
         sql """switch ${catalogName}"""
         sql """use ${dbName}"""
-        sql """set enable_paimon_cpp_reader=false"""
         sql """set force_jni_scanner=true"""
         List<List<Object>> forcedJniRows = sql("""
             select id, old_name, victim, metric
@@ -699,21 +694,19 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
             order by id
         """)
         sql """set force_jni_scanner=false"""
-        sql """set enable_paimon_cpp_reader=true"""
-        List<List<Object>> cppRows = sql("""
+        List<List<Object>> automaticRows = sql("""
             select id, old_name, victim, metric
             from ${topTable} for version as of ${topCp0}
             order by id
         """)
-        assertEquals(forcedJniRows, cppRows)
-        // Schema-selecting OPTIONS must bypass paimon-cpp, whose table handle always uses the
-        // latest schema, even when native Paimon scans are enabled for the session.
-        List<List<Object>> cppOptionsRows = sql("""
+        assertEquals(forcedJniRows, automaticRows)
+        // Schema-selecting OPTIONS retain the requested historical schema under automatic routing.
+        List<List<Object>> automaticOptionsRows = sql("""
             select id, old_name, victim, metric
             from ${topTable}@options('scan.snapshot-id'='${topCp0}')
             order by id
         """)
-        assertEquals(forcedJniRows, cppOptionsRows)
+        assertEquals(forcedJniRows, automaticOptionsRows)
 
         // Scenario T10/T11: retained tags survive expiration; missing refs never fall back to latest.
         spark_paimon """
@@ -741,7 +734,6 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
             exception "tag"
         }
     } finally {
-        sql """set enable_paimon_cpp_reader=false"""
         sql """set force_jni_scanner=false"""
         sql """drop database if exists internal.${viewDb} force"""
         sql """drop catalog if exists ${catalogName}"""

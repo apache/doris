@@ -38,9 +38,9 @@ import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.spi.BackendSelectionProvider;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -49,7 +49,7 @@ import java.util.Set;
 
 public class AuditLogHelperBackendSelectionTest {
 
-    @After
+    @AfterEach
     public void resetBackendSelectionProvider() {
         BackendSelectionManager.resetProviderForTest();
     }
@@ -103,7 +103,7 @@ public class AuditLogHelperBackendSelectionTest {
     public void testInternalInsertDoesNotUseExternalDmlBarrier() {
         StmtExecutor executor = Mockito.mock(StmtExecutor.class, Mockito.CALLS_REAL_METHODS);
 
-        Assert.assertTrue(AuditLogHelper.getExternalDmlAuditBackendIds(executor).isEmpty());
+        Assertions.assertTrue(AuditLogHelper.getExternalDmlAuditBackendIds(executor).isEmpty());
     }
 
     @Test
@@ -114,7 +114,7 @@ public class AuditLogHelperBackendSelectionTest {
         StmtExecutor executor = Mockito.mock(StmtExecutor.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(executor, "masterOpExecutor", masterExecutor);
 
-        Assert.assertEquals(expectedBackendIds,
+        Assertions.assertEquals(expectedBackendIds,
                 AuditLogHelper.getExternalDmlAuditBackendIds(executor));
     }
 
@@ -126,7 +126,7 @@ public class AuditLogHelperBackendSelectionTest {
 
         executor.setExternalDmlAuditCoordinator(coordinator);
 
-        Assert.assertEquals(Set.of(10001L), executor.getExternalDmlAuditBackendIds());
+        Assertions.assertEquals(Set.of(10001L), executor.getExternalDmlAuditBackendIds());
     }
 
     private void assertExternalDmlWaitsForCoordinatorBackends(LogicalPlan command, boolean success)
@@ -198,7 +198,7 @@ public class AuditLogHelperBackendSelectionTest {
 
             ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
             Mockito.verify(statusMgr).submitFinishQueryToAudit(captor.capture());
-            Assert.assertEquals(expectedComputeGroup, captor.getValue().cloudClusterName);
+            Assertions.assertEquals(expectedComputeGroup, captor.getValue().cloudClusterName);
             Mockito.verifyNoInteractions(provider);
         } finally {
             Config.deploy_mode = oldDeployMode;

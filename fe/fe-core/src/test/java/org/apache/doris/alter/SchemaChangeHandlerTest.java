@@ -46,7 +46,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -131,7 +130,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 Thread.sleep(1000);
             }
             LOG.info("alter job {} is done. state: {}", alterJobV2.getJobId(), alterJobV2.getJobState());
-            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Assertions.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
 
             Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());
             OlapTable tbl = (OlapTable) db.getTableOrMetaException(alterJobV2.getTableId(), Table.TableType.OLAP);
@@ -193,7 +192,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         List<String> cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
                 .collect(Collectors.toList());
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v1")));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v1")));
 
         // single add column
         alterTable("ALTER TABLE test." + tableName + " ADD COLUMN v2 INT AFTER v1", connectContext);
@@ -201,10 +200,10 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(2, cols.indexOf("v2"));
-        Assert.assertEquals(3, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assert.assertEquals(4, cols.indexOf(Column.BINLOG_LSN_COL));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v2")));
+        Assertions.assertEquals(2, cols.indexOf("v2"));
+        Assertions.assertEquals(3, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(4, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v2")));
 
         // multiple add column clauses in one ALTER
         alterTable("ALTER TABLE test." + tableName
@@ -213,12 +212,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(3, cols.indexOf("v3"));
-        Assert.assertEquals(4, cols.indexOf("v4"));
-        Assert.assertEquals(5, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assert.assertEquals(6, cols.indexOf(Column.BINLOG_LSN_COL));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v3")));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v4")));
+        Assertions.assertEquals(3, cols.indexOf("v3"));
+        Assertions.assertEquals(4, cols.indexOf("v4"));
+        Assertions.assertEquals(5, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(6, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v3")));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v4")));
 
         // AddColumnsOp: ADD COLUMN (colDef1, colDef2)
         alterTable("ALTER TABLE test." + tableName + " ADD COLUMN (v5 INT, v6 INT)", connectContext);
@@ -226,12 +225,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(5, cols.indexOf("v5"));
-        Assert.assertEquals(6, cols.indexOf("v6"));
-        Assert.assertEquals(7, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assert.assertEquals(8, cols.indexOf(Column.BINLOG_LSN_COL));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v5")));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
+        Assertions.assertEquals(5, cols.indexOf("v5"));
+        Assertions.assertEquals(6, cols.indexOf("v6"));
+        Assertions.assertEquals(7, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(8, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v5")));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
 
         // drop column
         alterTable("ALTER TABLE test." + tableName + " DROP COLUMN v6", connectContext);
@@ -239,9 +238,9 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertFalse(cols.contains("v6"));
-        Assert.assertEquals(6, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assert.assertEquals(7, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertFalse(cols.contains("v6"));
+        Assertions.assertEquals(6, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(7, cols.indexOf(Column.BINLOG_LSN_COL));
     }
 
     @Test
@@ -263,7 +262,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         List<String> cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
                 .collect(Collectors.toList());
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v1")));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v1")));
 
         // single add column
         alterTable("ALTER TABLE test." + tableName + " ADD COLUMN v2 INT AFTER v1", connectContext);
@@ -271,9 +270,9 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(2, cols.indexOf("v2"));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v2")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v1")) + 1,
+        Assertions.assertEquals(2, cols.indexOf("v2"));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v2")));
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v1")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v2")));
 
         // multiple add column clauses in one ALTER
@@ -283,13 +282,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(3, cols.indexOf("v3"));
-        Assert.assertEquals(4, cols.indexOf("v4"));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v3")));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v4")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v2")) + 1,
+        Assertions.assertEquals(3, cols.indexOf("v3"));
+        Assertions.assertEquals(4, cols.indexOf("v4"));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v3")));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v4")));
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v2")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v3")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v3")) + 1,
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v3")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v4")));
 
         // AddColumnsOp: ADD COLUMN (colDef1, colDef2)
@@ -298,13 +297,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(5, cols.indexOf("v5"));
-        Assert.assertEquals(6, cols.indexOf("v6"));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v5")));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v6")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v4")) + 1,
+        Assertions.assertEquals(5, cols.indexOf("v5"));
+        Assertions.assertEquals(6, cols.indexOf("v6"));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v5")));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v6")));
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v4")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v5")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v5")) + 1,
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v5")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v6")));
 
         // drop column
@@ -312,8 +311,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertFalse(cols.contains("v6"));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
+        Assertions.assertFalse(cols.contains("v6"));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
 
         // enable hidden sequence column should not pollute row binlog schema
         alterTable("ALTER TABLE test." + tableName
@@ -322,10 +321,10 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
-        Assert.assertTrue(tbl.getBaseSchema(true).stream().anyMatch(Column::isSequenceColumn));
+        Assertions.assertTrue(tbl.getBaseSchema(true).stream().anyMatch(Column::isSequenceColumn));
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertFalse(cols.contains(Column.SEQUENCE_COL));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName(Column.SEQUENCE_COL)));
+        Assertions.assertFalse(cols.contains(Column.SEQUENCE_COL));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName(Column.SEQUENCE_COL)));
     }
 
     @Test
@@ -433,7 +432,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             createTable(createVariant);
             Assertions.fail("Expected exception for VARIANT column");
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().toLowerCase().contains("variant"));
+            Assertions.assertTrue(e.getMessage().toLowerCase().contains("variant"));
         }
 
         String tableName2 = "binlog_add_variant";
@@ -455,7 +454,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             createTable(createAutoinc);
             Assertions.fail("Expected exception for AUTO_INCREMENT column");
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().toLowerCase().contains("auto"));
+            Assertions.assertTrue(e.getMessage().toLowerCase().contains("auto"));
         }
     }
 
@@ -782,7 +781,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             // process agg drop key column with replace schema change, expect exception.
             String dropKeyColStmtStr = "alter table test.sc_agg drop column new_k1";
             alterTable(dropKeyColStmtStr, connectContext);
-            Assert.fail();
+            Assertions.fail();
         } catch (Exception e) {
             LOG.info(e.getMessage());
         }
@@ -969,7 +968,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         try {
             Deencapsulation.invoke(schemaChangeHandler, "addColumnInternal", olapTable, newColumn, columnPosition,
                     Long.valueOf(2), Long.valueOf(1), Maps.newHashMap(), Sets.newHashSet(), false, Maps.newHashMap());
-            Assert.fail();
+            Assertions.fail();
         } catch (Exception e) {
             System.out.println(e.getMessage());
         }

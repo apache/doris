@@ -38,6 +38,7 @@
 #include <sstream>
 
 #include "common/cast_set.h"
+#include "util/hash_util.hpp"
 
 #ifdef __APPLE__
 #ifndef HOST_NAME_MAX
@@ -305,3 +306,10 @@ std::string get_brpc_http_url(const std::string& host, int port) {
     }
 }
 } // namespace doris
+
+size_t std::hash<doris::TNetworkAddress>::operator()(const doris::TNetworkAddress& address) const {
+    uint32_t seed = 0;
+    seed = doris::HashUtil::hash(address.hostname.data(), (uint32_t)address.hostname.size(), seed);
+    seed = doris::HashUtil::hash(&address.port, 4, seed);
+    return seed;
+}

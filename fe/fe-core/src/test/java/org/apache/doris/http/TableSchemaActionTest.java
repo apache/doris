@@ -22,8 +22,8 @@ import okhttp3.Response;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 
@@ -39,13 +39,25 @@ public class TableSchemaActionTest extends DorisHttpTestCase {
                 .url(URI + QUERY_PLAN_URI)
                 .build();
         Response response = networkClient.newCall(request).execute();
-        Assert.assertTrue(response.isSuccessful());
+        Assertions.assertTrue(response.isSuccessful());
         String respStr = response.body().string();
-        Assert.assertNotNull(respStr);
+        Assertions.assertNotNull(respStr);
         JSONObject object = (JSONObject) JSONValue.parse(respStr);
-        Assert.assertEquals(200, (long) ((JSONObject) object.get("data")).get("status"));
+        Assertions.assertEquals(200, (long) ((JSONObject) object.get("data")).get("status"));
         JSONArray propArray = (JSONArray) ((JSONObject) object.get("data")).get("properties");
         // k1, k2
-        Assert.assertEquals(2, propArray.size());
+        Assertions.assertEquals(2, propArray.size());
+
+        JSONObject column = (JSONObject) propArray.get(0);
+        Assertions.assertEquals("BIGINT", column.get("type"));
+        Assertions.assertEquals("bigint", column.get("type_sql"));
+        Assertions.assertEquals("BIGINT", ((JSONObject) column.get("type_desc")).get("kind"));
+
+        JSONObject materializedIndexes =
+                (JSONObject) ((JSONObject) object.get("data")).get("materialized_indexes");
+        JSONObject baseIndex = (JSONObject) materializedIndexes.get("testIndex");
+        JSONArray indexColumns = (JSONArray) baseIndex.get("columns");
+        Assertions.assertEquals("BIGINT",
+                ((JSONObject) ((JSONObject) indexColumns.get(0)).get("type_desc")).get("kind"));
     }
 }

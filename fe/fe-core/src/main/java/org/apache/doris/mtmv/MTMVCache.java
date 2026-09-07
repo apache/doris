@@ -41,7 +41,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;

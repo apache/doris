@@ -170,7 +170,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         // Prune decoupled RF targeting small scans: the RF cannot arrive before
         // a small scan completes, so generating it wastes resources.
         if (ctx.exprOrder < 0) {
-            org.apache.doris.statistics.Statistics scanStats = ((AbstractPhysicalPlan) scan).getStats();
+            org.apache.doris.statistics.model.Statistics scanStats = ((AbstractPhysicalPlan) scan).getStats();
             if (scanStats != null && ConnectContext.get() != null) {
                 long minRows = ConnectContext.get().getSessionVariable().minDecoupledRfTargetRows;
                 if (scanStats.getRowCount() < minRows) {

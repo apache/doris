@@ -53,8 +53,8 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;

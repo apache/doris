@@ -33,8 +33,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 

@@ -19,8 +19,8 @@ package org.apache.doris.qe;
 
 import org.apache.doris.thrift.TMasterOpRequest;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -46,10 +46,9 @@ public class ConnectAttributesForwardTest {
             params.setConnectAttributes(connectAttributes);
         }
 
-        Assert.assertTrue("connect_attributes should be set on request",
-                params.isSetConnectAttributes());
-        Assert.assertEquals(2, params.getConnectAttributes().size());
-        Assert.assertEquals(
+        Assertions.assertTrue(params.isSetConnectAttributes(), "connect_attributes should be set on request");
+        Assertions.assertEquals(2, params.getConnectAttributes().size());
+        Assertions.assertEquals(
                 "{\"SKYNET_TASKID\":\"523987416281\",\"SKYNET_APP_ID\":\"392426\"}",
                 params.getConnectAttributes().get("scheduleInfo"));
     }
@@ -62,14 +61,14 @@ public class ConnectAttributesForwardTest {
         request.setConnectAttributes(attrs);
 
         ConnectContext ctx = new ConnectContext();
-        Assert.assertTrue(ctx.getConnectAttributes().isEmpty());
+        Assertions.assertTrue(ctx.getConnectAttributes().isEmpty());
 
         if (request.isSetConnectAttributes()) {
             ctx.setConnectAttributes(request.getConnectAttributes());
         }
 
-        Assert.assertEquals(1, ctx.getConnectAttributes().size());
-        Assert.assertEquals("{\"SKYNET_TASKID\":\"523987416281\"}",
+        Assertions.assertEquals(1, ctx.getConnectAttributes().size());
+        Assertions.assertEquals("{\"SKYNET_TASKID\":\"523987416281\"}",
                 ctx.getConnectAttributes().get("scheduleInfo"));
     }
 
@@ -95,7 +94,7 @@ public class ConnectAttributesForwardTest {
             receiverCtx.setConnectAttributes(request.getConnectAttributes());
         }
 
-        Assert.assertEquals(scheduleInfoValue,
+        Assertions.assertEquals(scheduleInfoValue,
                 receiverCtx.getConnectAttributes().get("scheduleInfo"));
     }
 
@@ -109,8 +108,7 @@ public class ConnectAttributesForwardTest {
             params.setConnectAttributes(connectAttributes);
         }
 
-        Assert.assertFalse("connect_attributes should NOT be set for empty attributes",
-                params.isSetConnectAttributes());
+        Assertions.assertFalse(params.isSetConnectAttributes(), "connect_attributes should NOT be set for empty attributes");
     }
 
     @Test
@@ -122,7 +120,7 @@ public class ConnectAttributesForwardTest {
             ctx.setConnectAttributes(request.getConnectAttributes());
         }
 
-        Assert.assertNotNull(ctx.getConnectAttributes());
-        Assert.assertTrue(ctx.getConnectAttributes().isEmpty());
+        Assertions.assertNotNull(ctx.getConnectAttributes());
+        Assertions.assertTrue(ctx.getConnectAttributes().isEmpty());
     }
 }

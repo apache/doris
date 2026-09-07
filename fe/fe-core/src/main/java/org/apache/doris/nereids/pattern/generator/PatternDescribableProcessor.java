@@ -152,10 +152,6 @@ public class PatternDescribableProcessor extends AbstractProcessor {
             }
         });
 
-        // parser.addParseListener(PostProcessor)
-        // parser.removeErrorListeners()
-        // parser.addErrorListener(ParseErrorListener)
-
         ParserRuleContext tree;
         try {
             // first, try parsing with potentially faster SLL mode

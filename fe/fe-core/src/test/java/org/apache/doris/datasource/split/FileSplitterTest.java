@@ -20,8 +20,8 @@ package org.apache.doris.datasource.split;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.spi.Split;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
@@ -46,12 +46,12 @@ public class FileSplitterTest {
                 true,
                 Collections.emptyList(),
                 FileSplit.FileSplitCreator.DEFAULT);
-        Assert.assertEquals(1, splits.size());
+        Assertions.assertEquals(1, splits.size());
         Split s = splits.get(0);
-        Assert.assertEquals(10 * MB, ((org.apache.doris.datasource.split.FileSplit) s).getLength());
+        Assertions.assertEquals(10 * MB, ((org.apache.doris.datasource.split.FileSplit) s).getLength());
         // host should be preserved
-        Assert.assertArrayEquals(new String[]{"h1"}, ((org.apache.doris.datasource.split.FileSplit) s).getHosts());
-        Assert.assertEquals(DEFAULT_INITIAL_SPLITS - 1, fileSplitter.getRemainingInitialSplitNum());
+        Assertions.assertArrayEquals(new String[]{"h1"}, ((org.apache.doris.datasource.split.FileSplit) s).getHosts());
+        Assertions.assertEquals(DEFAULT_INITIAL_SPLITS - 1, fileSplitter.getRemainingInitialSplitNum());
     }
 
     @Test
@@ -68,12 +68,12 @@ public class FileSplitterTest {
                 true,
                 Collections.emptyList(),
                 FileSplit.FileSplitCreator.DEFAULT);
-        Assert.assertEquals(1, splits.size());
+        Assertions.assertEquals(1, splits.size());
         org.apache.doris.datasource.split.FileSplit s = (org.apache.doris.datasource.split.FileSplit) splits.get(0);
-        Assert.assertEquals(5 * MB, s.getLength());
+        Assertions.assertEquals(5 * MB, s.getLength());
         // hosts should be empty array when passing null
-        Assert.assertNotNull(s.getHosts());
-        Assert.assertEquals(0, s.getHosts().length);
+        Assertions.assertNotNull(s.getHosts());
+        Assertions.assertEquals(0, s.getHosts().length);
     }
 
     @Test
@@ -95,18 +95,18 @@ public class FileSplitterTest {
 
         // expect splits sizes: 32MB, 32MB, 64MB, 36MB, 36MB -> sum is 200MB
         long[] expected = new long[]{32 * MB, 32 * MB, 64 * MB, 36 * MB, 36 * MB};
-        Assert.assertEquals(expected.length, splits.size());
+        Assertions.assertEquals(expected.length, splits.size());
         long sum = 0L;
         for (int i = 0; i < expected.length; i++) {
             org.apache.doris.datasource.split.FileSplit s = (org.apache.doris.datasource.split.FileSplit) splits.get(i);
-            Assert.assertEquals(expected[i], s.getLength());
+            Assertions.assertEquals(expected[i], s.getLength());
             sum += s.getLength();
             // ensure host preserved
-            Assert.assertArrayEquals(new String[]{"h1"}, s.getHosts());
+            Assertions.assertArrayEquals(new String[]{"h1"}, s.getHosts());
         }
-        Assert.assertEquals(length, sum);
+        Assertions.assertEquals(length, sum);
         // ensure the initial small-split counter is consumed for the two initial small splits
-        Assert.assertEquals(0, fileSplitter.getRemainingInitialSplitNum());
+        Assertions.assertEquals(0, fileSplitter.getRemainingInitialSplitNum());
     }
 
     @Test
@@ -131,17 +131,17 @@ public class FileSplitterTest {
                 FileSplit.FileSplitCreator.DEFAULT);
 
         long[] expected = new long[]{32 * MB, 32 * MB, 64 * MB, 36 * MB, 36 * MB};
-        Assert.assertEquals(expected.length, splits.size());
+        Assertions.assertEquals(expected.length, splits.size());
         long sum = 0L;
         for (int i = 0; i < expected.length; i++) {
             FileSplit s = (FileSplit) splits.get(i);
-            Assert.assertEquals(expected[i], s.getLength());
+            Assertions.assertEquals(expected[i], s.getLength());
             sum += s.getLength();
             // No locality information is available, so no split may claim a host.
-            Assert.assertNotNull(s.getHosts());
-            Assert.assertEquals(0, s.getHosts().length);
+            Assertions.assertNotNull(s.getHosts());
+            Assertions.assertEquals(0, s.getHosts().length);
         }
-        Assert.assertEquals(length, sum);
+        Assertions.assertEquals(length, sum);
     }
 
     @Test
@@ -162,13 +162,13 @@ public class FileSplitterTest {
                 true,
                 Collections.emptyList(),
                 FileSplit.FileSplitCreator.DEFAULT);
-        Assert.assertEquals(2, splits.size());
+        Assertions.assertEquals(2, splits.size());
         FileSplit s0 = (FileSplit) splits.get(0);
         FileSplit s1 = (FileSplit) splits.get(1);
-        Assert.assertEquals(48 * MB, s0.getLength());
-        Assert.assertEquals(48 * MB, s1.getLength());
-        Assert.assertArrayEquals(new String[]{"h1"}, s0.getHosts());
-        Assert.assertArrayEquals(new String[]{"h2"}, s1.getHosts());
+        Assertions.assertEquals(48 * MB, s0.getLength());
+        Assertions.assertEquals(48 * MB, s1.getLength());
+        Assertions.assertArrayEquals(new String[]{"h1"}, s0.getHosts());
+        Assertions.assertArrayEquals(new String[]{"h2"}, s1.getHosts());
     }
 
     @Test
@@ -189,10 +189,10 @@ public class FileSplitterTest {
                 true,
                 Collections.emptyList(),
                 FileSplit.FileSplitCreator.DEFAULT);
-        Assert.assertEquals(1, splits.size());
+        Assertions.assertEquals(1, splits.size());
         FileSplit s = (FileSplit) splits.get(0);
-        Assert.assertEquals(10 * MB, s.getLength());
-        Assert.assertArrayEquals(new String[]{"h1"}, s.getHosts());
+        Assertions.assertEquals(10 * MB, s.getLength());
+        Assertions.assertArrayEquals(new String[]{"h1"}, s.getHosts());
     }
 
     @Test
@@ -209,7 +209,7 @@ public class FileSplitterTest {
                 false,
                 Collections.emptyList(),
                 FileSplit.FileSplitCreator.DEFAULT);
-        Assert.assertEquals(1, splits.size());
+        Assertions.assertEquals(1, splits.size());
     }
 
     @Test
@@ -226,7 +226,7 @@ public class FileSplitterTest {
                 true,
                 Collections.emptyList(),
                 FileSplit.FileSplitCreator.DEFAULT);
-        Assert.assertEquals(1, splits.size());
+        Assertions.assertEquals(1, splits.size());
     }
 
     @Test
@@ -238,19 +238,19 @@ public class FileSplitterTest {
         List<Split> splits = fileSplitter.splitFile(
                 loc, 0L, locations, 0L, 0L, false,
                 Collections.emptyList(), FileSplit.FileSplitCreator.DEFAULT);
-        Assert.assertTrue("Zero-length file should produce no splits", splits.isEmpty());
+        Assertions.assertTrue(splits.isEmpty(), "Zero-length file should produce no splits");
         // Splittable zero-length file
         splits = fileSplitter.splitFile(
                 loc, 0L, locations, 0L, 0L, true,
                 Collections.emptyList(), FileSplit.FileSplitCreator.DEFAULT);
-        Assert.assertTrue("Zero-length splittable file should produce no splits", splits.isEmpty());
+        Assertions.assertTrue(splits.isEmpty(), "Zero-length splittable file should produce no splits");
         // Null block locations with zero-length file
         splits = fileSplitter.splitFile(
                 loc, 0L, null, 0L, 0L, true,
                 Collections.emptyList(), FileSplit.FileSplitCreator.DEFAULT);
-        Assert.assertTrue("Zero-length file with null locations should produce no splits", splits.isEmpty());
+        Assertions.assertTrue(splits.isEmpty(), "Zero-length file with null locations should produce no splits");
         // Counter should not be decremented for skipped zero-length files
-        Assert.assertEquals(DEFAULT_INITIAL_SPLITS, fileSplitter.getRemainingInitialSplitNum());
+        Assertions.assertEquals(DEFAULT_INITIAL_SPLITS, fileSplitter.getRemainingInitialSplitNum());
     }
 
     @Test
@@ -267,8 +267,8 @@ public class FileSplitterTest {
                 true,
                 Collections.emptyList(),
                 FileSplit.FileSplitCreator.DEFAULT);
-        Assert.assertEquals(1, splits.size());
+        Assertions.assertEquals(1, splits.size());
         FileSplit s = (FileSplit) splits.get(0);
-        Assert.assertEquals(2 * MB, s.getLength());
+        Assertions.assertEquals(2 * MB, s.getLength());
     }
 }

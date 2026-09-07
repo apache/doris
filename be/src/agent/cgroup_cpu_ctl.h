@@ -22,6 +22,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <set>
 #include <shared_mutex>
 
 #include "common/config.h"

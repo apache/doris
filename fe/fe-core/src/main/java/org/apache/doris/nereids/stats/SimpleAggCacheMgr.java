@@ -25,7 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.github.benmanes.caffeine.cache.AsyncCacheLoader;

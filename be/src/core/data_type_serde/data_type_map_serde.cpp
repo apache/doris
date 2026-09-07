@@ -17,6 +17,8 @@
 
 #include "core/data_type_serde/data_type_map_serde.h"
 
+#include <gen_cpp/types.pb.h>
+
 #include <algorithm>
 
 #include "arrow/array/builder_nested.h"

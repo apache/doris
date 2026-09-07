@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerateUniq;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExceptAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirst;
@@ -708,6 +709,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayExcept(ArrayExcept arrayExcept, C context) {
         return visitScalarFunction(arrayExcept, context);
+    }
+
+    default R visitArrayExceptAll(ArrayExceptAll arrayExceptAll, C context) {
+        return visitScalarFunction(arrayExceptAll, context);
     }
 
     default R visitArrayExists(ArrayExists arrayExists, C context) {

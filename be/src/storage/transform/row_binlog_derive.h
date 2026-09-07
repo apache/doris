@@ -31,8 +31,8 @@ namespace segment_v2 {
 // it like any DUP_KEYS block. build_transform_chain picks Plain (no historical
 // probe) or Mow (with probe) via binlog_needs_historical_lookup().
 
-// Whether the flush needs the historical key probe: a direct partial update
-// (flexible is rejected later) or a requested BEFORE image. Decided per flush.
+// Whether the flush needs the historical key probe: a direct partial update or
+// a requested BEFORE image. Decided per flush.
 bool binlog_needs_historical_lookup(const RowsetWriterContext& context);
 
 // Context for each flush that the base stage works out once and passes to
@@ -75,9 +75,9 @@ protected:
                   const BinlogDeriveContext& c) const override;
 };
 
-// With a probe: fixed partial update (rebuild AFTER from history) and/or the
-// BEFORE image. It repeats the data chain's key probe on the same source block,
-// but never marks the delete bitmap.
+// With a probe: fixed/flexible partial update (rebuild AFTER from history)
+// and/or the BEFORE image. It repeats the data chain's key probe on the same
+// source block, but never marks the delete bitmap.
 class MowRowBinlogDeriveStage : public RowBinlogDeriveStage {
 public:
     std::string_view name() const override { return "MowRowBinlogDerive"; }

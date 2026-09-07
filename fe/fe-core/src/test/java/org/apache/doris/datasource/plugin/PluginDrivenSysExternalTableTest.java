@@ -29,8 +29,8 @@ import java.util.EnumSet;
 import java.util.Set;
 
 /**
- * Pins the system-table opt-outs from Top-N lazy materialization and nested-column pruning on
- * {@link PluginDrivenSysExternalTable}.
+ * Pins the system-table opt-outs from Top-N lazy materialization, nested-column pruning, and storage
+ * predicate pruning on {@link PluginDrivenSysExternalTable}.
  *
  * <p>WHY the lazy-mat opt-out matters: a system/metadata table (e.g. {@code tbl$snapshots}) is served by the
  * connector's JNI serialized-split metadata reader, which synthesizes rows and produces no file+position row-id.
@@ -78,6 +78,16 @@ public class PluginDrivenSysExternalTableTest {
         Assertions.assertFalse(sysTableWithCapabilities(
                         EnumSet.of(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE)).supportsTopNLazyMaterialize(),
                 "a system/metadata table must never lazy-materialize, even when the connector supports it");
+    }
+
+    @Test
+    public void systemTableNeverSupportsStoragePredicatePruningEvenWhenConnectorDeclaresIt() {
+        // A connector-wide opt-in describes native data-table readers; system-table pushdown remains excluded
+        // until its separate metadata/native scan routes are explicitly validated.
+        Assertions.assertFalse(sysTableWithCapabilities(
+                        EnumSet.of(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING))
+                        .supportsStoragePredicatePruning(),
+                "a system/metadata table must never inherit native data-file pruning capability");
     }
 
     @Test

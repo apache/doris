@@ -19,16 +19,16 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.qe.QueryState;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 
 public class MysqlErrPacketTest {
     private MysqlCapability capability;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         capability = new MysqlCapability(MysqlCapability.Flag.CLIENT_PROTOCOL_41.getFlagBit());
     }
@@ -44,17 +44,17 @@ public class MysqlErrPacketTest {
         ByteBuffer buffer = serializer.toByteBuffer();
 
         // assert indicator
-        Assert.assertEquals(0xff, MysqlProto.readInt1(buffer));
+        Assertions.assertEquals(0xff, MysqlProto.readInt1(buffer));
         // error code
-        Assert.assertEquals(1105, MysqlProto.readInt2(buffer));
+        Assertions.assertEquals(1105, MysqlProto.readInt2(buffer));
         // sql state marker
-        Assert.assertEquals('#', MysqlProto.readInt1(buffer));
+        Assertions.assertEquals('#', MysqlProto.readInt1(buffer));
         // sql state
-        Assert.assertEquals("HY000", new String(MysqlProto.readFixedString(buffer, 5)));
+        Assertions.assertEquals("HY000", new String(MysqlProto.readFixedString(buffer, 5)));
         // sql state
-        Assert.assertEquals("error", new String(MysqlProto.readEofString(buffer)));
+        Assertions.assertEquals("error", new String(MysqlProto.readEofString(buffer)));
 
-        Assert.assertEquals(0, buffer.remaining());
+        Assertions.assertEquals(0, buffer.remaining());
     }
 
     @Test
@@ -67,18 +67,18 @@ public class MysqlErrPacketTest {
         ByteBuffer buffer = serializer.toByteBuffer();
 
         // assert indicator
-        Assert.assertEquals(0xff, MysqlProto.readInt1(buffer));
+        Assertions.assertEquals(0xff, MysqlProto.readInt1(buffer));
         // error code
-        Assert.assertEquals(1064, MysqlProto.readInt2(buffer));
+        Assertions.assertEquals(1064, MysqlProto.readInt2(buffer));
         // sql state marker
-        Assert.assertEquals('#', MysqlProto.readInt1(buffer));
+        Assertions.assertEquals('#', MysqlProto.readInt1(buffer));
         // sql state
-        Assert.assertEquals("HY000", new String(MysqlProto.readFixedString(buffer, 5)));
+        Assertions.assertEquals("HY000", new String(MysqlProto.readFixedString(buffer, 5)));
         // sql state
         // NOTE: we put one space if MysqlErrPacket's errorMessage is null or empty
-        Assert.assertEquals("Unknown error", new String(MysqlProto.readEofString(buffer)));
+        Assertions.assertEquals("Unknown error", new String(MysqlProto.readEofString(buffer)));
 
-        Assert.assertEquals(0, buffer.remaining());
+        Assertions.assertEquals(0, buffer.remaining());
     }
 
 }

@@ -26,7 +26,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.rules.TemporaryFolder;
 import org.mockito.Mockito;
 
 import java.io.File;
@@ -38,7 +37,6 @@ import java.util.Map;
 import java.util.UUID;
 
 public class ProfileTest {
-    public TemporaryFolder tempFolder = new TemporaryFolder();
 
     private Profile profile;
     private File tempDir;

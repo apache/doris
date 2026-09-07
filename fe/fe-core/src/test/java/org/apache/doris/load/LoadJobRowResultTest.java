@@ -17,24 +17,24 @@
 
 package org.apache.doris.load;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class LoadJobRowResultTest {
 
     @Test
     public void testResult() {
         LoadJobRowResult result = new LoadJobRowResult();
-        Assert.assertEquals("Records: 0  Deleted: 0  Skipped: 0  Warnings: 0", result.toString());
+        Assertions.assertEquals("Records: 0  Deleted: 0  Skipped: 0  Warnings: 0", result.toString());
         result.setRecords(199);
-        Assert.assertEquals("Records: 199  Deleted: 0  Skipped: 0  Warnings: 0", result.toString());
+        Assertions.assertEquals("Records: 199  Deleted: 0  Skipped: 0  Warnings: 0", result.toString());
         result.incRecords(1);
         result.setSkipped(20);
-        Assert.assertEquals("Records: 200  Deleted: 0  Skipped: 20  Warnings: 0", result.toString());
+        Assertions.assertEquals("Records: 200  Deleted: 0  Skipped: 20  Warnings: 0", result.toString());
         result.incSkipped(20);
-        Assert.assertEquals("Records: 200  Deleted: 0  Skipped: 40  Warnings: 0", result.toString());
-        Assert.assertEquals(200, result.getRecords());
-        Assert.assertEquals(40, result.getSkipped());
-        Assert.assertEquals(0, result.getWarnings());
+        Assertions.assertEquals("Records: 200  Deleted: 0  Skipped: 40  Warnings: 0", result.toString());
+        Assertions.assertEquals(200, result.getRecords());
+        Assertions.assertEquals(40, result.getSkipped());
+        Assertions.assertEquals(0, result.getWarnings());
     }
 }

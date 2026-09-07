@@ -42,9 +42,9 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
@@ -109,7 +109,7 @@ public class FileQueryScanNodeTest {
         }
     }
 
-    @Before
+    @BeforeEach
     public void setUp() {
         table = Mockito.mock(TableIf.class);
         Mockito.when(table.getName()).thenReturn("test_table");
@@ -121,7 +121,7 @@ public class FileQueryScanNodeTest {
         sv.setMaxFileSplitNum(100);
         TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
         long target = node.applyMaxFileSplitNumLimit(32 * MB, 10_000L * MB);
-        Assert.assertEquals(100 * MB, target);
+        Assertions.assertEquals(100 * MB, target);
     }
 
     @Test
@@ -130,7 +130,7 @@ public class FileQueryScanNodeTest {
         sv.setMaxFileSplitNum(100);
         TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
         long target = node.applyMaxFileSplitNumLimit(32 * MB, 500L * MB);
-        Assert.assertEquals(32 * MB, target);
+        Assertions.assertEquals(32 * MB, target);
     }
 
     @Test
@@ -139,7 +139,7 @@ public class FileQueryScanNodeTest {
         sv.setMaxFileSplitNum(0);
         TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
         long target = node.applyMaxFileSplitNumLimit(32 * MB, 10_000L * MB);
-        Assert.assertEquals(32 * MB, target);
+        Assertions.assertEquals(32 * MB, target);
     }
 
     @Test
@@ -156,8 +156,8 @@ public class FileQueryScanNodeTest {
 
         node.initSchemaParamsForTest();
 
-        Assert.assertEquals("+08:00", node.getFileScanRangeParams().getHiveParquetTimeZone());
-        Assert.assertNotEquals(sessionVariable.getTimeZone(),
+        Assertions.assertEquals("+08:00", node.getFileScanRangeParams().getHiveParquetTimeZone());
+        Assertions.assertNotEquals(sessionVariable.getTimeZone(),
                 node.getFileScanRangeParams().getHiveParquetTimeZone());
 
         SessionVariable differentSessionVariable = new SessionVariable();
@@ -167,7 +167,7 @@ public class FileQueryScanNodeTest {
         nodeWithDifferentSession.getTupleDescriptor().setTable(hmsTable);
         nodeWithDifferentSession.initSchemaParamsForTest();
 
-        Assert.assertEquals(node.getFileScanRangeParams().getHiveParquetTimeZone(),
+        Assertions.assertEquals(node.getFileScanRangeParams().getHiveParquetTimeZone(),
                 nodeWithDifferentSession.getFileScanRangeParams().getHiveParquetTimeZone());
     }
 
@@ -183,7 +183,7 @@ public class FileQueryScanNodeTest {
         node.getTupleDescriptor().setTable(hmsTable);
         node.initSchemaParamsForTest();
 
-        Assert.assertFalse(node.getFileScanRangeParams().isSetHiveParquetTimeZone());
+        Assertions.assertFalse(node.getFileScanRangeParams().isSetHiveParquetTimeZone());
     }
 
     @Test
@@ -198,7 +198,7 @@ public class FileQueryScanNodeTest {
         node.getTupleDescriptor().setTable(hmsTable);
         node.initSchemaParamsForTest();
 
-        Assert.assertEquals("Asia/Shanghai", node.getFileScanRangeParams().getHiveParquetTimeZone());
+        Assertions.assertEquals("Asia/Shanghai", node.getFileScanRangeParams().getHiveParquetTimeZone());
     }
 
     @Test
@@ -216,7 +216,7 @@ public class FileQueryScanNodeTest {
         node.getTupleDescriptor().setTable(functionGenTable);
         node.initSchemaParamsForTest();
 
-        Assert.assertEquals("Asia/Shanghai", node.getFileScanRangeParams().getHiveParquetTimeZone());
+        Assertions.assertEquals("Asia/Shanghai", node.getFileScanRangeParams().getHiveParquetTimeZone());
     }
 
     @Test
@@ -243,7 +243,7 @@ public class FileQueryScanNodeTest {
             node.getTupleDescriptor().setTable(functionGenTable);
             node.initSchemaParamsForTest();
 
-            Assert.assertEquals("Asia/Shanghai", node.getFileScanRangeParams().getHiveParquetTimeZone());
+            Assertions.assertEquals("Asia/Shanghai", node.getFileScanRangeParams().getHiveParquetTimeZone());
         } finally {
             FeConstants.runningUnitTest = originalRunningUnitTest;
         }
@@ -261,7 +261,7 @@ public class FileQueryScanNodeTest {
 
         node.initSchemaParamsForTest();
 
-        Assert.assertFalse(node.getFileScanRangeParams().isSetHiveParquetTimeZone());
+        Assertions.assertFalse(node.getFileScanRangeParams().isSetHiveParquetTimeZone());
     }
 
     @Test
@@ -292,9 +292,9 @@ public class FileQueryScanNodeTest {
         UPDATE_REQUIRED_SLOTS_METHOD.invoke(node);
 
         TFileScanSlotInfo updatedSlotInfo = node.params.getRequiredSlots().get(0);
-        Assert.assertSame(slotInfo, updatedSlotInfo);
-        Assert.assertTrue(updatedSlotInfo.isSetDefaultValueExpr());
-        Assert.assertSame(defaultExpr, updatedSlotInfo.getDefaultValueExpr());
+        Assertions.assertSame(slotInfo, updatedSlotInfo);
+        Assertions.assertTrue(updatedSlotInfo.isSetDefaultValueExpr());
+        Assertions.assertSame(defaultExpr, updatedSlotInfo.getDefaultValueExpr());
     }
 
 }

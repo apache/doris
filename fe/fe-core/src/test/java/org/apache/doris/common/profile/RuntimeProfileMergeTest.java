@@ -27,8 +27,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.util.ArrayList;
@@ -71,10 +71,10 @@ public class RuntimeProfileMergeTest {
         * */
         LOG.info("Profile1:\n{}", mergeProfile.toString());
 
-        Assert.assertTrue(mergeProfile.getCounterMap().get("Counter1") instanceof AggCounter);
+        Assertions.assertTrue(mergeProfile.getCounterMap().get("Counter1") instanceof AggCounter);
         AggCounter aggCounter = (AggCounter) mergeProfile.getCounterMap().get("Counter1");
-        Assert.assertEquals(aggCounter.sum.getValue(), 202);
-        Assert.assertEquals(aggCounter.number, 2);
+        Assertions.assertEquals(aggCounter.sum.getValue(), 202);
+        Assertions.assertEquals(aggCounter.number, 2);
     }
 
     @Test
@@ -169,13 +169,13 @@ public class RuntimeProfileMergeTest {
         mergedProfile.prettyPrint(builder, "\t");
         LOG.info("Merged profile:\n{}", builder.toString());
 
-        Assert.assertEquals(mergedProfile.getChildList().size(), 2);
-        Assert.assertTrue(
+        Assertions.assertEquals(mergedProfile.getChildList().size(), 2);
+        Assertions.assertTrue(
                 mergedProfile.getChildList().get(0).first.getCounterMap().get("Counter1") instanceof AggCounter);
         AggCounter aggCounterNode1 = (AggCounter) mergedProfile.getChildList().get(0).first.getCounterMap()
                 .get("Counter1");
-        Assert.assertEquals(aggCounterNode1.sum.getValue(), 3);
-        Assert.assertEquals(aggCounterNode1.number, 3);
+        Assertions.assertEquals(aggCounterNode1.sum.getValue(), 3);
+        Assertions.assertEquals(aggCounterNode1.number, 3);
     }
 
     // Test the case where counter of RuntimeProfile has different structure.

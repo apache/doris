@@ -20,8 +20,8 @@ package org.apache.doris.load;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -69,7 +69,7 @@ public class ExportOutfileInfoTest {
 
         String showInfo = GsonUtils.GSON.toJson(allOutfileInfo);
         System.out.println(showInfo);
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 "[[{\"fileNumber\":\"2\",\"totalRows\":\"1234\",\"fileSize\":\"10240\","
                         + "\"url\":\"file:///172.20.32.136/path/to/result2_c6df5f01bd664dde-a2168b019b6c2b3f_*\"},"
                         + "{\"fileNumber\":\"2\",\"totalRows\":\"1235\",\"fileSize\":\"10250\","

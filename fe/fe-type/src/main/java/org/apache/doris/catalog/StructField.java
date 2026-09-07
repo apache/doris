@@ -24,9 +24,14 @@ import org.apache.doris.thrift.TTypeNode;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Locale;
+
 public class StructField {
     @SerializedName(value = "name")
     protected final String name;
+
+    @SerializedName(value = "originalName")
+    protected final String originalName;
 
     @SerializedName(value = "type")
     protected final Type type;
@@ -51,7 +56,24 @@ public class StructField {
 
     public StructField(String name, Type type, String comment, boolean containsNull,
             boolean commentSpecified) {
-        this.name = name.toLowerCase();
+        this(name, name, type, comment, containsNull, commentSpecified);
+    }
+
+    /**
+     * Creates a field with separate names for case-insensitive runtime lookup and external schema spelling.
+     *
+     * @param name field name normalized internally for runtime lookup
+     * @param originalName field spelling preserved for external schema metadata
+     * @param type field type
+     * @param comment field comment
+     * @param containsNull whether the field accepts null values
+     * @param commentSpecified whether the comment was explicitly specified
+     */
+    public StructField(String name, String originalName, Type type, String comment, boolean containsNull,
+            boolean commentSpecified) {
+        // Keep runtime identity locale-independent while preserving external schema spelling separately.
+        this.name = name.toLowerCase(Locale.ROOT);
+        this.originalName = originalName;
         this.type = type;
         this.comment = comment;
         this.containsNull = containsNull;
@@ -82,6 +104,15 @@ public class StructField {
         return name;
     }
 
+    public String getOriginalName() {
+        return originalName == null ? name : originalName;
+    }
+
+    /** Whether this field was persisted with its external schema spelling. */
+    public boolean hasOriginalName() {
+        return originalName != null;
+    }
+
     public Type getType() {
         return type;
     }
@@ -105,7 +136,7 @@ public class StructField {
         } else {
             typeSql = "...";
         }
-        StringBuilder sb = new StringBuilder(name);
+        StringBuilder sb = new StringBuilder(getOriginalName());
         if (type != null) {
             sb.append(":").append(typeSql);
         }
@@ -121,7 +152,7 @@ public class StructField {
      */
     public String prettyPrint(int lpad) {
         String leftPadding = Strings.repeat(" ", lpad);
-        StringBuilder sb = new StringBuilder(leftPadding + name);
+        StringBuilder sb = new StringBuilder(leftPadding + getOriginalName());
         if (type != null) {
             // Pass in the padding to make sure nested fields are aligned properly,
             // even if we then strip the top-level padding.
@@ -162,7 +193,7 @@ public class StructField {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder(name);
+        StringBuilder sb = new StringBuilder(getOriginalName());
         if (type != null) {
             sb.append(":").append(type);
         }

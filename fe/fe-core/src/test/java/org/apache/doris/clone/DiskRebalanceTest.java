@@ -50,10 +50,10 @@ import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.config.Configurator;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -79,7 +79,7 @@ public class DiskRebalanceTest {
     private Map<Tag, LoadStatisticForTag> statisticMap;
     private Map<Long, PathSlot> backendsWorkingSlots = Maps.newHashMap();
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
         Config.used_capacity_percent_max_diff = 1.0;
@@ -96,6 +96,8 @@ public class DiskRebalanceTest {
         Mockito.when(env.getNextId()).thenAnswer(inv -> id++);
 
         mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
         mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
         mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
         mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
@@ -108,13 +110,13 @@ public class DiskRebalanceTest {
         Mockito.when(mockGtm.isPreviousTransactionsFinished(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyList())).thenReturn(true);
 
         // Test mock validation
-        Assert.assertEquals(111,
+        Assertions.assertEquals(111,
                 Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
-        Assert.assertTrue(
+        Assertions.assertTrue(
                 Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(1, 2, Lists.newArrayList(3L)));
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
@@ -184,7 +186,7 @@ public class DiskRebalanceTest {
         rebalancer.updateLoadStatistic(statisticMap);
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         // check alternativeTablets;
-        Assert.assertTrue(alternativeTablets.isEmpty());
+        Assertions.assertTrue(alternativeTablets.isEmpty());
     }
 
     @Test
@@ -232,7 +234,7 @@ public class DiskRebalanceTest {
         }
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         // check alternativeTablets;
-        Assert.assertEquals(2, alternativeTablets.size());
+        Assertions.assertEquals(2, alternativeTablets.size());
         for (TabletSchedCtx tabletCtx : alternativeTablets) {
             LOG.info("try to schedule tablet {}", tabletCtx.getTabletId());
             try {
@@ -244,9 +246,9 @@ public class DiskRebalanceTest {
 
                 AgentTask task = rebalancer.createBalanceTask(tabletCtx);
                 if (tabletCtx.getTabletSize() == 0) {
-                    Assert.fail("no exception");
+                    Assertions.fail("no exception");
                 } else {
-                    Assert.assertTrue(task instanceof StorageMediaMigrationTask);
+                    Assertions.assertTrue(task instanceof StorageMediaMigrationTask);
                 }
             } catch (SchedException e) {
                 LOG.info("schedule tablet {} failed: {}", tabletCtx.getTabletId(), e.getMessage());

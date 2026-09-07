@@ -28,10 +28,10 @@ import org.apache.doris.proto.Data;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -56,14 +56,14 @@ public class AuditLogWorkloadGroupTest {
 
     private boolean originalEnableWorkloadGroup;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         FeConstants.runningUnitTest = true;
         originalEnableWorkloadGroup = Config.enable_workload_group;
         Config.enable_workload_group = true;
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.enable_workload_group = originalEnableWorkloadGroup;
         ConnectContext.remove();
@@ -80,7 +80,7 @@ public class AuditLogWorkloadGroupTest {
 
         runResolveUnderMockEnv(ctx, null);
 
-        Assert.assertEquals("", ctx.getWorkloadGroupName());
+        Assertions.assertEquals("", ctx.getWorkloadGroupName());
     }
 
     @Test
@@ -90,7 +90,7 @@ public class AuditLogWorkloadGroupTest {
         runResolveUnderMockEnv(ctx, USER_PROPERTY_WORKLOAD_GROUP);
 
         // Session variable has highest priority.
-        Assert.assertEquals(SESSION_WORKLOAD_GROUP, ctx.getWorkloadGroupName());
+        Assertions.assertEquals(SESSION_WORKLOAD_GROUP, ctx.getWorkloadGroupName());
     }
 
     @Test
@@ -99,7 +99,7 @@ public class AuditLogWorkloadGroupTest {
 
         runResolveUnderMockEnv(ctx, USER_PROPERTY_WORKLOAD_GROUP);
 
-        Assert.assertEquals(USER_PROPERTY_WORKLOAD_GROUP, ctx.getWorkloadGroupName());
+        Assertions.assertEquals(USER_PROPERTY_WORKLOAD_GROUP, ctx.getWorkloadGroupName());
     }
 
     @Test
@@ -108,7 +108,7 @@ public class AuditLogWorkloadGroupTest {
 
         runResolveUnderMockEnv(ctx, null);
 
-        Assert.assertEquals(WorkloadGroupMgr.DEFAULT_GROUP_NAME, ctx.getWorkloadGroupName());
+        Assertions.assertEquals(WorkloadGroupMgr.DEFAULT_GROUP_NAME, ctx.getWorkloadGroupName());
     }
 
     // ---------- Entry-point tests: every audit-logging code path ---------- //
@@ -165,9 +165,8 @@ public class AuditLogWorkloadGroupTest {
             }
         }
 
-        Assert.assertTrue("resolveWorkloadGroupName must be called before super.handleQuery",
-                processor.resolvedBeforeHandleQuery);
-        Assert.assertEquals(SESSION_WORKLOAD_GROUP, ctx.getWorkloadGroupName());
+        Assertions.assertTrue(processor.resolvedBeforeHandleQuery, "resolveWorkloadGroupName must be called before super.handleQuery");
+        Assertions.assertEquals(SESSION_WORKLOAD_GROUP, ctx.getWorkloadGroupName());
     }
 
     // ---------- Multi-statement per-iteration re-resolve ---------- //
@@ -220,16 +219,15 @@ public class AuditLogWorkloadGroupTest {
 
         // resolveWorkloadGroupName() must be called at least once per statement,
         // in addition to the caller-site invocation verified by the dispatch tests.
-        Assert.assertTrue("resolveWorkloadGroupName must be called for every statement"
-                        + " in the multi-stmt loop, got " + resolveCallCount[0],
-                resolveCallCount[0] >= 2);
+        Assertions.assertTrue(resolveCallCount[0] >= 2, "resolveWorkloadGroupName must be called for every statement"
+                        + " in the multi-stmt loop, got " + resolveCallCount[0]);
         // Both statements must be audited.
-        Assert.assertEquals(2, auditedWorkloadGroups.size());
+        Assertions.assertEquals(2, auditedWorkloadGroups.size());
         // Statement 1 is audited with the initial session-variable value.
-        Assert.assertEquals(firstStmtWg, auditedWorkloadGroups.get(0));
+        Assertions.assertEquals(firstStmtWg, auditedWorkloadGroups.get(0));
         // Statement 2 must be audited with the post-change value — *not* the stale
         // value that the old once-per-packet resolve would have left on ctx.
-        Assert.assertEquals(secondStmtWg, auditedWorkloadGroups.get(1));
+        Assertions.assertEquals(secondStmtWg, auditedWorkloadGroups.get(1));
     }
 
     // ---------- Helpers ---------- //
@@ -255,10 +253,9 @@ public class AuditLogWorkloadGroupTest {
             }
         }
 
-        Assert.assertTrue("resolveWorkloadGroupName must be invoked by dispatch()",
-                processor.resolveCalled);
+        Assertions.assertTrue(processor.resolveCalled, "resolveWorkloadGroupName must be invoked by dispatch()");
         // The resolution must have set the session-variable value, not left the stale one.
-        Assert.assertEquals(SESSION_WORKLOAD_GROUP, ctx.getWorkloadGroupName());
+        Assertions.assertEquals(SESSION_WORKLOAD_GROUP, ctx.getWorkloadGroupName());
     }
 
     private ConnectContext newContextWithSessionWorkloadGroup(String wg) {

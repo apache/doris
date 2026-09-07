@@ -1184,10 +1184,14 @@ Status TabletMeta::set_partition_id(int64_t partition_id) {
 }
 
 void TabletMeta::clear_stale_rowset() {
-    _stale_rs_metas.clear();
+    clear_stale_rs_metas();
     if (_enable_unique_key_merge_on_write) {
         _delete_bitmap->clear_rowset_cache_version();
     }
+}
+
+void TabletMeta::clear_stale_rs_metas() {
+    _stale_rs_metas.clear();
 }
 
 void TabletMeta::clear_rowsets() {

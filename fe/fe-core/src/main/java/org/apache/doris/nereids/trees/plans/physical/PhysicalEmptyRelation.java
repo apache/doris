@@ -40,7 +40,7 @@ import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.cache.CacheAnalyzer;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;

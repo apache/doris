@@ -31,8 +31,8 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.ColumnStatisticBuilder;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 
 import java.util.ArrayList;
 import java.util.HashMap;

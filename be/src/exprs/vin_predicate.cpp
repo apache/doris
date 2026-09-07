@@ -167,7 +167,7 @@ void VInPredicate::_prepare_zonemap_min_max(VExprContext* context) {
         return;
     }
 
-    auto bloom_probe = expr_zonemap::extract_bloom_filter_probe(_children[0]);
+    auto bloom_probe = expr_zonemap::extract_metadata_probe(_children[0]);
     if (!bloom_probe.has_value()) {
         return;
     }
@@ -225,7 +225,7 @@ ZoneMapFilterResult VInPredicate::evaluate_bloom_filter(const BloomFilterEvalCon
 
 bool VInPredicate::can_evaluate_bloom_filter() const {
     return _zonemap_min_max != nullptr && !_is_not_in &&
-           expr_zonemap::extract_bloom_filter_probe(get_child(0)).has_value();
+           expr_zonemap::extract_metadata_probe(get_child(0)).has_value();
 }
 
 bool VInPredicate::can_execute_on_raw_fixed_values(const DataTypePtr& data_type,

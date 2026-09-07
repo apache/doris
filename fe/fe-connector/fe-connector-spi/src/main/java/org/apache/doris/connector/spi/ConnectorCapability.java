@@ -30,7 +30,7 @@ package org.apache.doris.connector.spi;
  * <h2>Two resolution scopes</h2>
  *
  * <p>Most of these the engine resolves once per CATALOG, from {@link Connector#getCapabilities()}.
- * Five it resolves per TABLE, as the union of the catalog-wide set and that table's own
+ * Table-scoped capabilities are resolved as the union of the catalog-wide set and that table's own
  * {@link ConnectorTableSchema#getTableCapabilities()} — which is what lets a heterogeneous connector
  * (hive: orc/parquet/text/json/view/hudi in one catalog) admit only the tables that qualify. <b>Every
  * constant below states its scope.</b> Putting a catalog-scoped capability in a table's set is silently
@@ -153,6 +153,20 @@ public enum ConnectorCapability {
      * over-admission — a text/json table has no field ids, so pruned leaves would read back NULL.</p>
      */
     SUPPORTS_NESTED_COLUMN_PRUNE,
+    /**
+     * Indicates that this connector's table scans are backed by storage readers that can use extra
+     * bare-column predicates for data skipping, such as ORC/Parquet min/max pruning. The planner may
+     * then append safety-checked necessary conditions derived from monotonic-function predicates while
+     * retaining the original predicate.
+     *
+     * <p>Row/passthrough connectors such as JDBC and ES must NOT declare this capability. Adding derived
+     * predicates to those scans would broaden connector pushdown semantics instead of merely exposing ranges
+     * to storage indexes.</p>
+     *
+     * <p><b>Scope: catalog-wide OR per-table.</b> A heterogeneous connector may declare it only for tables
+     * whose scan path supports storage-level predicate pruning.</p>
+     */
+    SUPPORTS_STORAGE_PREDICATE_PRUNING,
     /**
      * Indicates the connector's external metadata (schema / partitions / snapshot) can be pre-warmed
      * asynchronously by the planner before it takes the internal read lock, rather than loaded lazily

@@ -94,11 +94,7 @@ public:
         return std::make_shared<SerDeType>(nested->get_serde(nesting_level + 1), nesting_level);
     };
 
-    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
-        node->set_type(TTypeNodeType::ARRAY);
-        node->set_contains_null(nested->is_nullable());
-        get_nested_type()->to_protobuf(ptype);
-    }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
 
 #ifdef BE_TEST
     void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {

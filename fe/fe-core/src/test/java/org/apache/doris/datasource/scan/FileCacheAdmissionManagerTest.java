@@ -19,14 +19,15 @@ package org.apache.doris.datasource.scan;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -35,10 +36,10 @@ public class FileCacheAdmissionManagerTest {
 
     private FileCacheAdmissionManager manager;
 
-    @Rule
-    public TemporaryFolder tempFolder = new TemporaryFolder();
+    @TempDir
+    public Path tempFolder;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         manager = new FileCacheAdmissionManager();
     }
@@ -47,16 +48,16 @@ public class FileCacheAdmissionManagerTest {
     public void testEmptyUserIdentity() {
         AtomicReference<String> reason = new AtomicReference<>();
         boolean result = manager.isAdmittedAtTableLevel("", "catalog", "database", "table", reason);
-        Assert.assertFalse(result);
-        Assert.assertEquals("empty user_identity", reason.get());
+        Assertions.assertFalse(result);
+        Assertions.assertEquals("empty user_identity", reason.get());
     }
 
     @Test
     public void testInvalidUserIdentity() {
         AtomicReference<String> reason = new AtomicReference<>();
         boolean result = manager.isAdmittedAtTableLevel("123user", "catalog", "database", "table", reason);
-        Assert.assertFalse(result);
-        Assert.assertEquals("invalid user_identity", reason.get());
+        Assertions.assertFalse(result);
+        Assertions.assertEquals("invalid user_identity", reason.get());
     }
 
     @Test
@@ -80,25 +81,25 @@ public class FileCacheAdmissionManagerTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        File jsonFile = tempFolder.newFile("rules-test-common.json");
+        File jsonFile = Files.createFile(tempFolder.resolve("rules-test-common.json")).toFile();
         objectMapper.writeValue(jsonFile, rules);
 
         manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user", "catalog_1", "database", "table", reason1);
-        Assert.assertTrue(result1);
-        Assert.assertEquals("common catalog-level whitelist rule", reason1.get());
+        Assertions.assertTrue(result1);
+        Assertions.assertEquals("common catalog-level whitelist rule", reason1.get());
 
         AtomicReference<String> reason2 = new AtomicReference<>();
         boolean result2 = manager.isAdmittedAtTableLevel("user", "catalog_2", "database_1", "table", reason2);
-        Assert.assertTrue(result2);
-        Assert.assertEquals("common database-level whitelist rule", reason2.get());
+        Assertions.assertTrue(result2);
+        Assertions.assertEquals("common database-level whitelist rule", reason2.get());
 
         AtomicReference<String> reason3 = new AtomicReference<>();
         boolean result3 = manager.isAdmittedAtTableLevel("user", "catalog_3", "database_2", "table_1", reason3);
-        Assert.assertTrue(result3);
-        Assert.assertEquals("common table-level whitelist rule", reason3.get());
+        Assertions.assertTrue(result3);
+        Assertions.assertEquals("common table-level whitelist rule", reason3.get());
     }
 
     @Test
@@ -122,25 +123,25 @@ public class FileCacheAdmissionManagerTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        File jsonFile = tempFolder.newFile("rules-test-enabled.json");
+        File jsonFile = Files.createFile(tempFolder.resolve("rules-test-enabled.json")).toFile();
         objectMapper.writeValue(jsonFile, rules);
 
         manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user", "catalog_1", "database", "table", reason1);
-        Assert.assertFalse(result1);
-        Assert.assertEquals("default rule", reason1.get());
+        Assertions.assertFalse(result1);
+        Assertions.assertEquals("default rule", reason1.get());
 
         AtomicReference<String> reason2 = new AtomicReference<>();
         boolean result2 = manager.isAdmittedAtTableLevel("user", "catalog_2", "database_1", "table", reason2);
-        Assert.assertFalse(result2);
-        Assert.assertEquals("default rule", reason2.get());
+        Assertions.assertFalse(result2);
+        Assertions.assertEquals("default rule", reason2.get());
 
         AtomicReference<String> reason3 = new AtomicReference<>();
         boolean result3 = manager.isAdmittedAtTableLevel("user", "catalog_3", "database_2", "table_1", reason3);
-        Assert.assertFalse(result3);
-        Assert.assertEquals("default rule", reason3.get());
+        Assertions.assertFalse(result3);
+        Assertions.assertEquals("default rule", reason3.get());
     }
 
     @Test
@@ -164,37 +165,37 @@ public class FileCacheAdmissionManagerTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        File jsonFile = tempFolder.newFile("rules-test-user.json");
+        File jsonFile = Files.createFile(tempFolder.resolve("rules-test-user.json")).toFile();
         objectMapper.writeValue(jsonFile, rules);
 
         manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user_1", "catalog_4", "database", "table", reason1);
-        Assert.assertTrue(result1);
-        Assert.assertEquals("user catalog-level whitelist rule", reason1.get());
+        Assertions.assertTrue(result1);
+        Assertions.assertEquals("user catalog-level whitelist rule", reason1.get());
         AtomicReference<String> reason2 = new AtomicReference<>();
         boolean result2 = manager.isAdmittedAtTableLevel("user_2", "catalog_4", "database", "table", reason2);
-        Assert.assertFalse(result2);
-        Assert.assertEquals("default rule", reason2.get());
+        Assertions.assertFalse(result2);
+        Assertions.assertEquals("default rule", reason2.get());
 
         AtomicReference<String> reason3 = new AtomicReference<>();
         boolean result3 = manager.isAdmittedAtTableLevel("user_1", "catalog_5", "database_4", "table", reason3);
-        Assert.assertTrue(result3);
-        Assert.assertEquals("user database-level whitelist rule", reason3.get());
+        Assertions.assertTrue(result3);
+        Assertions.assertEquals("user database-level whitelist rule", reason3.get());
         AtomicReference<String> reason4 = new AtomicReference<>();
         boolean result4 = manager.isAdmittedAtTableLevel("user_2", "catalog_5", "database_4", "table", reason4);
-        Assert.assertFalse(result4);
-        Assert.assertEquals("default rule", reason4.get());
+        Assertions.assertFalse(result4);
+        Assertions.assertEquals("default rule", reason4.get());
 
         AtomicReference<String> reason5 = new AtomicReference<>();
         boolean result5 = manager.isAdmittedAtTableLevel("user_1", "catalog_6", "database_5", "table_4", reason5);
-        Assert.assertTrue(result5);
-        Assert.assertEquals("user table-level whitelist rule", reason5.get());
+        Assertions.assertTrue(result5);
+        Assertions.assertEquals("user table-level whitelist rule", reason5.get());
         AtomicReference<String> reason6 = new AtomicReference<>();
         boolean result6 = manager.isAdmittedAtTableLevel("user_2", "catalog_6", "database_5", "table_4", reason6);
-        Assert.assertFalse(result6);
-        Assert.assertEquals("default rule", reason6.get());
+        Assertions.assertFalse(result6);
+        Assertions.assertEquals("default rule", reason6.get());
     }
 
     @Test
@@ -210,15 +211,15 @@ public class FileCacheAdmissionManagerTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        File jsonFile = tempFolder.newFile("rules-test-priority.json");
+        File jsonFile = Files.createFile(tempFolder.resolve("rules-test-priority.json")).toFile();
         objectMapper.writeValue(jsonFile, rules);
 
         manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user_3", "catalog", "database", "table", reason1);
-        Assert.assertTrue(result1);
-        Assert.assertEquals("user global-level whitelist rule", reason1.get());
+        Assertions.assertTrue(result1);
+        Assertions.assertEquals("user global-level whitelist rule", reason1.get());
 
         rules.add(new FileCacheAdmissionManager.AdmissionRule(
                 8L, "user_3", "catalog", "", "", "",
@@ -231,8 +232,8 @@ public class FileCacheAdmissionManagerTest {
 
         AtomicReference<String> reason2 = new AtomicReference<>();
         boolean result2 = manager.isAdmittedAtTableLevel("user_3", "catalog", "database", "table", reason2);
-        Assert.assertTrue(result2);
-        Assert.assertEquals("user catalog-level whitelist rule", reason2.get());
+        Assertions.assertTrue(result2);
+        Assertions.assertEquals("user catalog-level whitelist rule", reason2.get());
 
         rules.add(new FileCacheAdmissionManager.AdmissionRule(
                 9L, "user_3", "catalog", "database", "", "",
@@ -245,8 +246,8 @@ public class FileCacheAdmissionManagerTest {
 
         AtomicReference<String> reason3 = new AtomicReference<>();
         boolean result3 = manager.isAdmittedAtTableLevel("user_3", "catalog", "database", "table", reason3);
-        Assert.assertTrue(result3);
-        Assert.assertEquals("user database-level whitelist rule", reason3.get());
+        Assertions.assertTrue(result3);
+        Assertions.assertEquals("user database-level whitelist rule", reason3.get());
 
         rules.add(new FileCacheAdmissionManager.AdmissionRule(
                 10L, "user_3", "catalog", "database", "table", "",
@@ -259,8 +260,8 @@ public class FileCacheAdmissionManagerTest {
 
         AtomicReference<String> reason4 = new AtomicReference<>();
         boolean result4 = manager.isAdmittedAtTableLevel("user_3", "catalog", "database", "table", reason4);
-        Assert.assertTrue(result4);
-        Assert.assertEquals("user table-level whitelist rule", reason4.get());
+        Assertions.assertTrue(result4);
+        Assertions.assertEquals("user table-level whitelist rule", reason4.get());
     }
 
     @Test
@@ -280,15 +281,15 @@ public class FileCacheAdmissionManagerTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        File jsonFile = tempFolder.newFile("rules-test-type-priority.json");
+        File jsonFile = Files.createFile(tempFolder.resolve("rules-test-type-priority.json")).toFile();
         objectMapper.writeValue(jsonFile, rules);
 
         manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user_4", "catalog", "database", "table", reason1);
-        Assert.assertFalse(result1);
-        Assert.assertEquals("user global-level blacklist rule", reason1.get());
+        Assertions.assertFalse(result1);
+        Assertions.assertEquals("user global-level blacklist rule", reason1.get());
 
         rules.add(new FileCacheAdmissionManager.AdmissionRule(
                 13L, "user_4", "catalog", "", "", "",
@@ -305,8 +306,8 @@ public class FileCacheAdmissionManagerTest {
 
         AtomicReference<String> reason2 = new AtomicReference<>();
         boolean result2 = manager.isAdmittedAtTableLevel("user_4", "catalog", "database", "table", reason2);
-        Assert.assertFalse(result2);
-        Assert.assertEquals("user catalog-level blacklist rule", reason2.get());
+        Assertions.assertFalse(result2);
+        Assertions.assertEquals("user catalog-level blacklist rule", reason2.get());
 
         rules.add(new FileCacheAdmissionManager.AdmissionRule(
                 15L, "user_4", "catalog", "database", "", "",
@@ -323,8 +324,8 @@ public class FileCacheAdmissionManagerTest {
 
         AtomicReference<String> reason3 = new AtomicReference<>();
         boolean result3 = manager.isAdmittedAtTableLevel("user_4", "catalog", "database", "table", reason3);
-        Assert.assertFalse(result3);
-        Assert.assertEquals("user database-level blacklist rule", reason3.get());
+        Assertions.assertFalse(result3);
+        Assertions.assertEquals("user database-level blacklist rule", reason3.get());
 
         rules.add(new FileCacheAdmissionManager.AdmissionRule(
                 17L, "user_4", "catalog", "database", "table", "",
@@ -341,8 +342,8 @@ public class FileCacheAdmissionManagerTest {
 
         AtomicReference<String> reason4 = new AtomicReference<>();
         boolean result4 = manager.isAdmittedAtTableLevel("user_4", "catalog", "database", "table", reason4);
-        Assert.assertFalse(result4);
-        Assert.assertEquals("user table-level blacklist rule", reason4.get());
+        Assertions.assertFalse(result4);
+        Assertions.assertEquals("user table-level blacklist rule", reason4.get());
     }
 
     @Test
@@ -389,49 +390,49 @@ public class FileCacheAdmissionManagerTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        File jsonFile = tempFolder.newFile("rules-test-nested.json");
+        File jsonFile = Files.createFile(tempFolder.resolve("rules-test-nested.json")).toFile();
         objectMapper.writeValue(jsonFile, rules);
 
         manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user_5", "catalog", "database", "table", reason1);
-        Assert.assertTrue(result1);
-        Assert.assertEquals("user database-level whitelist rule", reason1.get());
+        Assertions.assertTrue(result1);
+        Assertions.assertEquals("user database-level whitelist rule", reason1.get());
         AtomicReference<String> reason2 = new AtomicReference<>();
         boolean result2 = manager.isAdmittedAtTableLevel("user_5", "catalog", "otherDatabase", "table", reason2);
-        Assert.assertFalse(result2);
-        Assert.assertEquals("user catalog-level blacklist rule", reason2.get());
+        Assertions.assertFalse(result2);
+        Assertions.assertEquals("user catalog-level blacklist rule", reason2.get());
 
         AtomicReference<String> reason3 = new AtomicReference<>();
         boolean result3 = manager.isAdmittedAtTableLevel("user_6", "catalog", "database", "table", reason3);
-        Assert.assertFalse(result3);
-        Assert.assertEquals("user database-level blacklist rule", reason3.get());
+        Assertions.assertFalse(result3);
+        Assertions.assertEquals("user database-level blacklist rule", reason3.get());
         AtomicReference<String> reason4 = new AtomicReference<>();
         boolean result4 = manager.isAdmittedAtTableLevel("user_6", "catalog", "otherDatabase", "table", reason4);
-        Assert.assertTrue(result4);
-        Assert.assertEquals("user catalog-level whitelist rule", reason4.get());
+        Assertions.assertTrue(result4);
+        Assertions.assertEquals("user catalog-level whitelist rule", reason4.get());
 
         AtomicReference<String> reason5 = new AtomicReference<>();
         boolean result5 = manager.isAdmittedAtTableLevel("user_7", "catalog", "database", "table", reason5);
-        Assert.assertTrue(result5);
-        Assert.assertEquals("user table-level whitelist rule", reason5.get());
+        Assertions.assertTrue(result5);
+        Assertions.assertEquals("user table-level whitelist rule", reason5.get());
         AtomicReference<String> reason6 = new AtomicReference<>();
         boolean result6 = manager.isAdmittedAtTableLevel("user_7", "catalog", "database", "otherTable", reason6);
-        Assert.assertFalse(result6);
-        Assert.assertEquals("user database-level blacklist rule", reason6.get());
+        Assertions.assertFalse(result6);
+        Assertions.assertEquals("user database-level blacklist rule", reason6.get());
 
         AtomicReference<String> reason7 = new AtomicReference<>();
         boolean result7 = manager.isAdmittedAtTableLevel("user_8", "catalog", "database", "table", reason7);
-        Assert.assertFalse(result7);
-        Assert.assertEquals("user table-level blacklist rule", reason7.get());
+        Assertions.assertFalse(result7);
+        Assertions.assertEquals("user table-level blacklist rule", reason7.get());
         AtomicReference<String> reason8 = new AtomicReference<>();
         boolean result8 = manager.isAdmittedAtTableLevel("user_8", "catalog", "database", "otherTable", reason8);
-        Assert.assertTrue(result8);
-        Assert.assertEquals("user database-level whitelist rule", reason8.get());
+        Assertions.assertTrue(result8);
+        Assertions.assertEquals("user database-level whitelist rule", reason8.get());
     }
 
-    @AfterClass
+    @AfterAll
     public static void deleteJsonFile() throws Exception {
     }
 }
