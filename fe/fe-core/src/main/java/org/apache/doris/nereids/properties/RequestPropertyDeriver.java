@@ -553,7 +553,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         return connectContext != null
                 && SessionVariable.canUseNereidsDistributePlanner(connectContext)
                 && (!connectContext.getSessionVariable().isEnableLocalShuffle()
-                        || connectContext.getSessionVariable().isEnableLocalShufflePlanner());
+                        || connectContext.getStatementContext()
+                                .isEffectiveEnableLocalShufflePlanner());
     }
 
     /**
