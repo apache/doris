@@ -66,6 +66,9 @@ void HiveTextFieldSplitter::_split_field_single_char(const Slice& line,
             }
             process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
             value_start = i + _value_sep_len;
+            if (_escape_char == 0 && _split_limit != 0 && splitted_values->size() >= _split_limit) {
+                return;
+            }
         }
     }
     process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
