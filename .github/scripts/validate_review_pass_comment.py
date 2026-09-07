@@ -20,7 +20,10 @@ ALLOWED_EFFORTS_BY_MODEL = {
     "claude-opus-5[1m]": frozenset({"xhigh", "max"}),
     "claude-fable-5": frozenset({"xhigh", "max"}),
     "claude-fable-5[1m]": frozenset({"xhigh", "max"}),
+    "claude-fable-5-1": frozenset({"xhigh", "max"}),
+    "claude-fable-5-1[1m]": frozenset({"xhigh", "max"}),
     "gpt-5.6-sol": frozenset({"xhigh", "max", "ultra"}),
+    "gpt-6-astra": frozenset({"xhigh", "max", "ultra"}),
 }
 ALLOWED_AUTHOR_PERMISSIONS = frozenset({"write", "admin"})
 EXPECTED_FIELDS = (

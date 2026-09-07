@@ -79,6 +79,13 @@ class ValidateReviewPassCommentTest(unittest.TestCase):
             ("gpt-5.6-sol", "xhigh"),
             ("gpt-5.6-sol", "max"),
             ("gpt-5.6-sol", "ultra"),
+            ("claude-fable-5-1", "xhigh"),
+            ("claude-fable-5-1", "max"),
+            ("claude-fable-5-1[1m]", "xhigh"),
+            ("claude-fable-5-1[1m]", "max"),
+            ("gpt-6-astra", "xhigh"),
+            ("gpt-6-astra", "max"),
+            ("gpt-6-astra", "ultra"),
         )
         for model, effort in combinations:
             with self.subTest(model=model, effort=effort):
@@ -91,18 +98,36 @@ class ValidateReviewPassCommentTest(unittest.TestCase):
             "claude-opus-5[1m]",
             "claude-fable-5",
             "claude-fable-5[1m]",
+            "claude-fable-5-1",
+            "claude-fable-5-1[1m]",
         ):
             with self.subTest(model=model):
                 with self.assertRaisesRegex(ValidationError, "is not allowed for model"):
                     validate(make_comment(model=model, effort="ultra"))
 
     def test_rejects_effort_below_xhigh(self) -> None:
-        with self.assertRaisesRegex(ValidationError, "is not allowed for model"):
-            validate(make_comment(effort="high"))
+        for model in (
+            "gpt-5.6-sol",
+            "gpt-6-astra",
+            "claude-fable-5-1",
+            "claude-fable-5-1[1m]",
+        ):
+            for effort in ("none", "minimal", "low", "medium", "high"):
+                with self.subTest(model=model, effort=effort):
+                    with self.assertRaisesRegex(ValidationError, "is not allowed for model"):
+                        validate(make_comment(model=model, effort=effort))
 
     def test_rejects_unlisted_model(self) -> None:
-        with self.assertRaisesRegex(ValidationError, "model is not allowed"):
-            validate(make_comment(model="gpt-5.6"))
+        for model in (
+            "gpt-5.6",
+            "gpt-6",
+            "gpt-6-astra-latest",
+            "claude-fable-5-1-latest",
+            "claude-fable-5-2",
+        ):
+            with self.subTest(model=model):
+                with self.assertRaisesRegex(ValidationError, "model is not allowed"):
+                    validate(make_comment(model=model))
 
     def test_rejects_a_different_head(self) -> None:
         with self.assertRaisesRegex(ValidationError, "current PR head"):
