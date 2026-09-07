@@ -20,13 +20,13 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-
-import java.util.regex.Pattern;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import java.util.regex.Pattern;
 
 /**
  * Manual HBO statistics management statements:
@@ -39,6 +39,7 @@ import org.apache.doris.qe.StmtExecutor;
  * injected value (withRowCountAndHboFlag semantics), and the automatic profile-based publish
  * never overwrites or evicts pinned entries.
  */
+
 public class HboStatisticsCommand extends Command {
 
     /** Operation kind. */
@@ -46,6 +47,8 @@ public class HboStatisticsCommand extends Command {
         SET,
         DELETE
     }
+
+    private static final Pattern FINGERPRINT_PATTERN = Pattern.compile("[0-9a-fA-F]{64}");
 
     private final Op op;
     private final String fingerprint;
@@ -122,7 +125,7 @@ public class HboStatisticsCommand extends Command {
     }
 
     private void validateFingerprint(String fingerprint) throws AnalysisException {
-        if (fingerprint == null || !Pattern.matches("[0-9a-fA-F]{64}", fingerprint)) {
+        if (fingerprint == null || !FINGERPRINT_PATTERN.matcher(fingerprint).matches()) {
             throw new AnalysisException("invalid hbo fingerprint, expect 64 hex chars: " + fingerprint);
         }
     }

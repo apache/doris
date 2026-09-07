@@ -36,10 +36,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.MutableState;
 
+import com.google.common.hash.Hashing;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.hash.Hashing;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -76,11 +75,11 @@ import java.util.stream.Collectors;
  * behavior.
  */
 public class GroupStructInfo {
-    private static final Logger LOG = LogManager.getLogger(GroupStructInfo.class);
-    private static final String SEP = ";";
-
     /** Shared invalid instance. */
     public static final GroupStructInfo INVALID = new GroupStructInfo(false, "", "");
+
+    private static final String SEP = ";";
+    private static final Logger LOG = LogManager.getLogger(GroupStructInfo.class);
 
     private final boolean valid;
     private final String canonicalString;
@@ -144,7 +143,8 @@ public class GroupStructInfo {
      * plan node belongs to, using the group-expression back reference or the KEY_GROUP group-id
      * state propagated by post processors (see {@link #fingerprintOfPlanNode}).
      */
-    public static Optional<GroupStructInfo> structInfoOfPlanNode(AbstractPlan planNode, Map<Integer, Group> groupsById) {
+    public static Optional<GroupStructInfo> structInfoOfPlanNode(AbstractPlan planNode,
+            Map<Integer, Group> groupsById) {
         Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
         if (group == null) {
             Optional<Object> groupState = planNode.getMutableState(MutableState.KEY_GROUP);
@@ -273,6 +273,7 @@ public class GroupStructInfo {
             return token;
         } catch (org.apache.doris.rpc.RpcException | RuntimeException e) {
             // table version may not be available (e.g. cloud rpc failure): mark invalid and fall back
+            LOG.debug("failed to get visible version for scan {}", scan.getTable().getNameWithFullQualifiers(), e);
             return invalid(ctx);
         }
     }

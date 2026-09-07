@@ -45,11 +45,10 @@ import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
 import org.apache.doris.statistics.hbo.ScanPlanStatistics;
 import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -63,7 +62,6 @@ import java.util.Set;
  */
 public class HboUtils {
     private static final Logger LOG = LogManager.getLogger(HboUtils.class);
-
 
     /**
      * Get accurate stats index
@@ -536,6 +534,7 @@ public class HboUtils {
             List<TPlanNodeRuntimeStatsItem> curPlanNodeRuntimeStats,
             Map<Integer, String> nodeFingerprints) {
         Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> outputPlanStatisticsMap = new HashMap<>();
+        int missingFingerprints = 0;
         for (TPlanNodeRuntimeStatsItem nodeStats : curPlanNodeRuntimeStats) {
             int nodeId = nodeStats.node_id;
             PhysicalPlan planNode = idToPlanMap.get(nodeId);
@@ -554,11 +553,9 @@ public class HboUtils {
                 // legacy mode: compute the plan-tree fingerprint here as before
                 hash = inputTableStatisticsInfo.getHash();
             } else {
-                // struct-info mode without a planning-time snapshot for this node: skip it.
-                // warn only when a snapshot exists (collection actually ran) so that missing
-                // nodes are not silently dropped
+                // struct-info mode without a planning-time snapshot for this node: skip it
                 if (nodeFingerprints != null && !nodeFingerprints.isEmpty()) {
-                    LOG.warn("hbo struct fingerprint snapshot missing for plan node {}", nodeId);
+                    missingFingerprints++;
                 }
                 continue;
             }
@@ -569,6 +566,10 @@ public class HboUtils {
             PlanStatisticsWithInputInfo planHashWithInputInfo = new PlanStatisticsWithInputInfo(
                     nodeId, curPlanStatistics, inputTableStatisticsInfo);
             outputPlanStatisticsMap.put(planNodeAndHash, planHashWithInputInfo);
+        }
+        if (missingFingerprints > 0) {
+            LOG.warn("hbo struct fingerprint snapshot missing for {} of {} plan nodes",
+                    missingFingerprints, curPlanNodeRuntimeStats.size());
         }
         return outputPlanStatisticsMap;
     }

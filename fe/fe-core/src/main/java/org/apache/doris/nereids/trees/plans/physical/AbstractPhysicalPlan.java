@@ -39,32 +39,6 @@ import javax.annotation.Nullable;
  * Abstract class for all concrete physical plan.
  */
 public abstract class AbstractPhysicalPlan extends AbstractPlan implements PhysicalPlan, Explainable {
-    /**
-     * Append the hbo fingerprint / simplified struct info (and, when the node used hbo
-     * statistics, a {@code hboUsed=true} marker) to the toString of a plan node, whenever they
-     * were attached at planning time ({@link MutableState#KEY_HBO_FP}). The caller is expected
-     * to attach them only when the session variable {@code show_hbo_fingerprint} was enabled at
-     * plan time, so the default explain output (no state) is not affected, while the physical
-     * plan text stays annotated regardless of the session that later renders it (e.g. the
-     * physical plan appendix of a stored profile).
-     */
-        protected String withHboExplainInfo(String text) {
-        Optional<Object> fingerprint = getMutableState(MutableState.KEY_HBO_FP);
-        if (!fingerprint.isPresent()) {
-            return text;
-        }
-        StringBuilder builder = new StringBuilder(text);
-        builder.append(" hboFingerprint=").append(fingerprint.get());
-        Optional<Object> struct = getMutableState(MutableState.KEY_HBO_STRUCT);
-        if (struct.isPresent()) {
-            builder.append(" hboStruct=").append(struct.get());
-        }
-        if (getMutableState(MutableState.KEY_HBO_USED).isPresent()) {
-            builder.append(" hboUsed=true");
-        }
-        return builder.toString();
-    }
-
 
     protected final PhysicalProperties physicalProperties;
     protected final List<RuntimeFilter> runtimeFilters = Lists.newArrayList();
@@ -123,5 +97,31 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
 
     public void removeAppliedRuntimeFilter(org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter) {
         appliedRuntimeFilters.remove(filter);
+    }
+
+    /**
+     * Append the hbo fingerprint / simplified struct info (and, when the node used hbo
+     * statistics, a {@code hboUsed=true} marker) to the toString of a plan node, whenever they
+     * were attached at planning time ({@link MutableState#KEY_HBO_FP}). The caller is expected
+     * to attach them only when the session variable {@code show_hbo_fingerprint} was enabled at
+     * plan time, so the default explain output (no state) is not affected, while the physical
+     * plan text stays annotated regardless of the session that later renders it (e.g. the
+     * physical plan appendix of a stored profile).
+     */
+    protected String withHboExplainInfo(String text) {
+        Optional<Object> fingerprint = getMutableState(MutableState.KEY_HBO_FP);
+        if (!fingerprint.isPresent()) {
+            return text;
+        }
+        StringBuilder builder = new StringBuilder(text);
+        builder.append(" hboFingerprint=").append(fingerprint.get());
+        Optional<Object> struct = getMutableState(MutableState.KEY_HBO_STRUCT);
+        if (struct.isPresent()) {
+            builder.append(" hboStruct=").append(struct.get());
+        }
+        if (getMutableState(MutableState.KEY_HBO_USED).isPresent()) {
+            builder.append(" hboUsed=true");
+        }
+        return builder.toString();
     }
 }

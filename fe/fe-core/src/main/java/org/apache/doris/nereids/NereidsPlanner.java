@@ -74,9 +74,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
@@ -109,7 +109,6 @@ import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -1281,60 +1280,39 @@ public class NereidsPlanner extends Planner {
             sb.append("  note: enable_hbo_optimization is off; injected hbo statistics will not take "
                     + "effect until it is enabled\n");
         }
-        Map<Integer, Group> groupsById = Collections.emptyMap();
-        if (cascadesContext != null && cascadesContext.getMemo() != null) {
-            groupsById = new HashMap<>();
-            for (Group group : cascadesContext.getMemo().getGroups()) {
-                groupsById.put(group.getGroupId().asInt(), group);
-            }
-        }
-        // planning-time snapshot taken by collectHboPlanInfo (valid while the plan info cache for
-        // this query id has not expired); used when the memo is already released and nodes carry
-        // no group back reference (e.g. post-processed plans shown by the physical-plan explain)
-        ConnectContext connectContext = ConnectContext.get();
-        Map<Integer, String> fingerprintSnapshot = Collections.emptyMap();
-        if (connectContext != null) {
-            fingerprintSnapshot = Env.getCurrentEnv().getHboPlanStatisticsManager()
-                    .getHboPlanInfoProvider().getNodeIdToFingerprintMap(DebugUtil.printId(connectContext.queryId()));
-        }
         List<AbstractPlan> nodes = new ArrayList<>();
         collectPlanNodes(physicalPlan, nodes);
         nodes.sort((a, b) -> Integer.compare(a.getId(), b.getId()));
         for (AbstractPlan node : nodes) {
             String kind;
-            AbstractPlan fingerprintSource = node;
+            AbstractPlan scan = null;
             if (node instanceof AbstractPhysicalJoin) {
                 kind = "join";
             } else if (node instanceof PhysicalHashAggregate || node instanceof PhysicalStorageLayerAggregate) {
                 kind = "aggregation";
             } else if (node instanceof PhysicalFilter) {
-                // filter-on-scan: reuse the scan group fingerprint (the hbo read-side lookup key)
-                AbstractPlan scan = findScanUnder((PhysicalFilter<?>) node);
+                // filter-on-scan: the fingerprint attached at planning time is the scan group
+                // fingerprint (the hbo read-side lookup key for the filter output row count)
+                scan = findScanUnder((PhysicalFilter<?>) node);
                 if (scan != null) {
                     kind = "filter-on-scan(table=" + scanName(scan) + ")";
-                    fingerprintSource = scan;
                 } else {
                     kind = "filter";
                 }
             } else {
                 continue;
             }
-            Optional<GroupStructInfo> structInfo = GroupStructInfo.structInfoOfPlanNode(
-                    fingerprintSource, groupsById);
-            if (!structInfo.isPresent()) {
-                // memo released and no group back reference: fall back to the planning-time
-                // fingerprint snapshot (fingerprint only, canonical string not retained)
-                String snapshotFingerprint = fingerprintSnapshot.get(node.getId());
-                if (snapshotFingerprint == null) {
-                    continue;
-                }
-                sb.append("  [").append(node.getId()).append("] kind=").append(kind)
-                        .append(" fingerprint=").append(snapshotFingerprint).append("\n");
+            Object fingerprint = node.getMutableState(MutableState.KEY_HBO_FP).orElse(null);
+            if (fingerprint == null) {
                 continue;
             }
             sb.append("  [").append(node.getId()).append("] kind=").append(kind)
-                    .append(" fingerprint=").append(structInfo.get().getFingerprint())
-                    .append(" struct=").append(structInfo.get().getCanonicalString()).append("\n");
+                    .append(" fingerprint=").append(fingerprint);
+            Object struct = node.getMutableState(MutableState.KEY_HBO_STRUCT).orElse(null);
+            if (struct != null) {
+                sb.append(" struct=").append(struct);
+            }
+            sb.append("\n");
         }
         return sb.toString();
     }

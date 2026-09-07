@@ -34,6 +34,7 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     sql "set global enable_hbo_info_collection=true;"
     sql "set enable_hbo_optimization=true;"
     sql "set show_hbo_fingerprint=true;"
+    try {
 
     def query = "select * from hbo_si_t join hbo_si_r on hbo_si_t.a = hbo_si_r.a where hbo_si_r.b = 1"
     def explainText = { q -> (sql """ explain $q """).flatten().join("\n") }
@@ -82,6 +83,8 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     assertTrue(linesAfter[joinIdxAfter + 1].contains("hbo_si_r"), nodeAfter)
     assertTrue((nodeAfter =~ /PhysicalFilter\[\d+\].*hboUsed=true/).find(), nodeAfter)
 
-    sql """ HBO DELETE STATISTICS '${fingerprint}'; """
-    sql "set global enable_hbo_info_collection=${prevInfoCollection};"
+        sql """ HBO DELETE STATISTICS '${fingerprint}'; """
+    } finally {
+        sql "set global enable_hbo_info_collection=${prevInfoCollection};"
+    }
 }
