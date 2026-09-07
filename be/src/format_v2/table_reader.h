@@ -106,6 +106,9 @@ struct ReadProfile {
     RuntimeProfile::Counter* num_delete_files = nullptr;
     RuntimeProfile::Counter* num_delete_rows = nullptr;
     RuntimeProfile::Counter* parse_delete_file_time = nullptr;
+    RuntimeProfile::Counter* equality_delete_index_cache_hit_count = nullptr;
+    RuntimeProfile::Counter* equality_delete_index_cache_miss_count = nullptr;
+    RuntimeProfile::Counter* equality_delete_hash_index_memory = nullptr;
     RuntimeProfile::Counter* decoded_dv_cache_hit_count = nullptr;
     RuntimeProfile::Counter* decoded_dv_cache_miss_count = nullptr;
     RuntimeProfile::Counter* dv_file_cache_hit_count = nullptr;

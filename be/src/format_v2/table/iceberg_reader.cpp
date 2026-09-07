@@ -1481,8 +1481,8 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
 Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRequest* request) {
     DORIS_CHECK(request != nullptr);
     for (const auto& filter : _equality_delete_filters) {
-        auto delete_predicate =
-                std::make_shared<EqualityDeletePredicate>(filter.delete_block, filter.field_ids);
+        auto delete_predicate = std::make_shared<EqualityDeletePredicate>(
+                filter.delete_block, filter.field_ids, filter.hash_index);
         DCHECK_EQ(filter.field_ids.size(), filter.key_types.size());
         bool has_missing_key = false;
         for (size_t idx = 0; idx < filter.field_ids.size(); ++idx) {
@@ -1792,6 +1792,7 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     }
     RETURN_IF_ERROR(reader->close());
     result->delete_block = mutable_delete_block.to_block();
+    result->hash_index = EqualityDeletePredicate::build_hash_index(result->delete_block);
     return Status::OK();
 }
 
@@ -1808,11 +1809,13 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
         cache_key << ':' << field_id;
     }
     Status read_status = Status::OK();
+    bool cache_hit = false;
     // Include the ordered equality ids in the key because the same physical delete file can be
-    // projected with different key layouts. The cached block and its key metadata are immutable
-    // after construction and therefore safe to copy into each split-local predicate.
+    // projected with different key layouts. The cached block, key metadata, and contiguous index
+    // are immutable after construction and therefore safe to share across split-local predicates.
     auto* cached_filter = _split_cache->get<EqualityDeleteFilter>(
-            cache_key.str(), [&]() -> EqualityDeleteFilter* {
+            cache_key.str(),
+            [&]() -> EqualityDeleteFilter* {
                 auto result = std::make_unique<EqualityDeleteFilter>();
                 read_status = _load_equality_delete_file(delete_file, scan_params, delete_io_ctx,
                                                          result.get());
@@ -1820,9 +1823,17 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
                     return nullptr;
                 }
                 return result.release();
-            });
+            },
+            &cache_hit);
     RETURN_IF_ERROR(read_status);
     DORIS_CHECK(cached_filter != nullptr);
+    COUNTER_UPDATE(cache_hit ? _profile.equality_delete_index_cache_hit_count
+                             : _profile.equality_delete_index_cache_miss_count,
+                   1);
+    if (!cache_hit) {
+        COUNTER_UPDATE(_profile.equality_delete_hash_index_memory,
+                       static_cast<int64_t>(cached_filter->hash_index->memory_usage()));
+    }
     _equality_delete_filters.push_back(*cached_filter);
     return Status::OK();
 }

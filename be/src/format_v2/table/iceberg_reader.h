@@ -33,6 +33,7 @@
 
 namespace doris {
 class Block;
+class EqualityDeleteHashIndex;
 struct DeleteFileDesc;
 namespace io {
 struct FileDescription;
@@ -201,6 +202,7 @@ private:
         std::vector<std::string> field_names;
         std::vector<DataTypePtr> key_types;
         Block delete_block;
+        std::shared_ptr<const EqualityDeleteHashIndex> hash_index;
     };
     std::vector<EqualityDeleteFilter> _equality_delete_filters;
     // Scanner-shared cache supplied in SplitReadOptions. Parsed delete files outlive one data-file

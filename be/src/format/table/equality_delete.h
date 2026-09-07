@@ -17,6 +17,7 @@
 
 #include "core/block/block.h"
 #include "exprs/hybrid_set.h"
+#include "format/table/equality_delete_hash_index.h"
 #include "runtime/runtime_profile.h"
 
 namespace doris {
@@ -34,6 +35,7 @@ protected:
     RuntimeProfile::Counter* num_delete_rows;
     RuntimeProfile::Counter* build_set_time;
     RuntimeProfile::Counter* equality_delete_time;
+    RuntimeProfile::Counter* hash_index_memory;
 
     const Block* _delete_block;
     std::vector<int> _delete_col_ids;
@@ -53,6 +55,8 @@ public:
         build_set_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "BuildHashSetTime", delete_profile, 1);
         equality_delete_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(profile, "EqualityDeleteFilterTime", delete_profile, 1);
+        hash_index_memory = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "EqualityDeleteHashIndexMemory",
+                                                         TUnit::BYTES, delete_profile, 1);
         SCOPED_TIMER(build_set_time);
         return _build_set();
     }
@@ -89,14 +93,9 @@ public:
  */
 class MultiEqualityDelete : public EqualityDeleteBase {
 protected:
-    // hash column for delete block
-    std::vector<uint64_t> _delete_hashes;
     // hash column for data block
     std::vector<uint64_t> _data_hashes;
-    // hash code => row index
-    // if hash values are equal, then compare the real values
-    // the row index records the row number of the delete row in delete block
-    std::multimap<uint64_t, size_t> _delete_hash_map;
+    std::unique_ptr<EqualityDeleteHashIndex> _delete_hash_index;
     // the delete column indexes in data block
     std::vector<size_t> _data_column_index;
 
