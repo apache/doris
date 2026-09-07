@@ -111,6 +111,64 @@ std::string tail_units(const std::string& s, size_t k) {
     return s.substr(i);
 }
 
+// Strict UTF-8 well-formedness test, the guard in front of "a literal becomes mandatory grams".
+//
+// The invariant it protects is the one the whole feature rests on: every gram the query side
+// derives from a literal must be a gram the index side could have produced from a row that
+// really matches. GramExtractor splits a row position-dependently -- an ASCII run is windowed,
+// and every byte >= 0x80 is consumed as one whole code point -- so the same bytes are split
+// differently depending on whether they start on a code point boundary. A literal that is not
+// itself well-formed UTF-8 therefore yields grams that need not exist in a matching row, and
+// requiring them prunes the row away.
+//
+// Rejected: a stray continuation byte (0x80-0xBF) as a lead byte, an illegal lead byte
+// (0xF8-0xFF), a sequence that runs past the end of s, a bad continuation byte, an overlong
+// encoding, a surrogate (U+D800-U+DFFF), and anything above U+10FFFF -- the last of which also
+// catches whatever fake code point may still slip past the degradations in regex_ast.cpp.
+bool is_well_formed_utf8(const std::string& s) {
+    size_t i = 0;
+    while (i < s.size()) {
+        const auto c = static_cast<unsigned char>(s[i]);
+        if (c < 0x80) {
+            i++;
+            continue;
+        }
+        size_t len = 0;
+        uint32_t cp = 0;
+        uint32_t lowest = 0; // smallest code point this length may legally encode
+        if ((c & 0xE0) == 0xC0) {
+            len = 2;
+            cp = c & 0x1FU;
+            lowest = 0x80;
+        } else if ((c & 0xF0) == 0xE0) {
+            len = 3;
+            cp = c & 0x0FU;
+            lowest = 0x800;
+        } else if ((c & 0xF8) == 0xF0) {
+            len = 4;
+            cp = c & 0x07U;
+            lowest = 0x10000;
+        } else {
+            return false; // continuation byte used as a lead, or 0xF8-0xFF
+        }
+        if (i + len > s.size()) {
+            return false; // the sequence is not fully contained in s
+        }
+        for (size_t k = 1; k < len; k++) {
+            const auto cc = static_cast<unsigned char>(s[i + k]);
+            if ((cc & 0xC0) != 0x80) {
+                return false;
+            }
+            cp = (cp << 6) | (cc & 0x3FU);
+        }
+        if (cp < lowest || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+            return false;
+        }
+        i += len;
+    }
+    return true;
+}
+
 // Cartesian-product concatenation; sets *too_big and returns an empty set once the result would
 // exceed kMaxSet (the caller then takes the demotion path).
 std::set<std::string> cross(const std::set<std::string>& a, const std::set<std::string>& b,
@@ -223,7 +281,13 @@ public:
         // The index side never produces a gram containing NUL, and neither may we (Ruling R9).
         // analyze already treats a literal node holding NUL as anyChar; this is the fallback for
         // other entry points such as compile_like.
-        if (s.find('\0') != std::string::npos) {
+        //
+        // The UTF-8 test guards the same kind of mismatch for multi-byte content: this function
+        // is the single place where a literal turns into mandatory grams, so an ill-formed
+        // literal -- a LIKE segment that starts in the middle of a code point, raw illegal bytes
+        // in either kind of pattern -- has to degrade here rather than demand grams that a
+        // matching row may not hold.
+        if (s.find('\0') != std::string::npos || !is_well_formed_utf8(s)) {
             return GramQuery::all();
         }
         std::vector<std::string> g;

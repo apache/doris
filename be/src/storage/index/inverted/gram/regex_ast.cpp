@@ -64,42 +64,48 @@ int utf8_len(unsigned char c) {
     return 1; // illegal lead byte: treat it as a single byte
 }
 
-// Decode into a code point sequence; an illegal byte maps to 0x110000+byte (still < 2^21, so it
-// cannot collide with a legal code point).
-void decode_cps(std::string_view s, std::vector<uint32_t>* out) {
-    out->clear();
-    size_t i = 0;
-    while (i < s.size()) {
-        unsigned char c = s[i];
-        int l = utf8_len(c);
-        if (l == 1) {
-            out->push_back(c < 0x80 ? c : 0x110000 + c);
-            i++;
-            continue;
-        }
-        if (i + l > s.size()) {
-            out->push_back(0x110000 + c);
-            i++;
-            continue;
-        }
-        uint32_t v = (l == 2) ? (c & 0x1F) : (l == 3) ? (c & 0x0F) : (c & 0x07);
-        bool ok = true;
-        for (int k = 1; k < l; k++) {
-            unsigned char cc = s[i + k];
-            if ((cc & 0xC0) != 0x80) {
-                ok = false;
-                break;
-            }
-            v = (v << 6) | (cc & 0x3F);
-        }
-        if (!ok) {
-            out->push_back(0x110000 + c);
-            i++;
-            continue;
-        }
-        out->push_back(v);
-        i += l;
+// The largest legal Unicode code point. Anything above it can only be a fake code point minted
+// by decode_one_cp for an ill-formed byte, and must never reach encode_cp: the four-byte sequence
+// encode_cp would produce encodes a value above U+10FFFF, so it is a byte string no encoder can
+// emit and no index can hold, and demanding it as a gram would filter every row away.
+constexpr uint32_t kMaxCodePoint = 0x10FFFF;
+
+// Decode the code point starting at s[0]; s must not be empty. A well-formed UTF-8 sequence
+// yields its code point and its byte length; any ill-formed byte (an illegal lead byte, a
+// truncated sequence or a bad continuation byte) yields the fake code point 0x110000+byte (still
+// < 2^21, so it cannot collide with a legal one) and consumes exactly one byte.
+//
+// *consumed is what keeps a caller's cursor in sync with the decoder. Advancing by the length
+// guessed from the lead byte instead would swallow the bytes following an ill-formed sequence --
+// regex metacharacters among them -- and silently compile a different pattern than the engine
+// sees.
+uint32_t decode_one_cp(std::string_view s, size_t* consumed) {
+    const auto c = static_cast<unsigned char>(s[0]);
+    const int l = utf8_len(c);
+    *consumed = 1;
+    if (l == 1) {
+        return c < 0x80 ? c : 0x110000U + c;
     }
+    if (static_cast<size_t>(l) > s.size()) {
+        return 0x110000U + c;
+    }
+    uint32_t v = 0;
+    if (l == 2) {
+        v = c & 0x1FU;
+    } else if (l == 3) {
+        v = c & 0x0FU;
+    } else {
+        v = c & 0x07U;
+    }
+    for (int k = 1; k < l; k++) {
+        const auto cc = static_cast<unsigned char>(s[k]);
+        if ((cc & 0xC0) != 0x80) {
+            return 0x110000U + c;
+        }
+        v = (v << 6) | (cc & 0x3FU);
+    }
+    *consumed = static_cast<size_t>(l);
+    return v;
 }
 
 // Encode one code point as UTF-8 and append it to out.
@@ -168,15 +174,15 @@ struct Parser {
             utf8->clear();
             return 0;
         }
-        int l = utf8_len((unsigned char)p[i]);
-        if (i + l > p.size()) {
-            l = 1;
-        }
-        *utf8 = std::string(p.substr(i, l));
-        std::vector<uint32_t> cps;
-        decode_cps(*utf8, &cps);
-        i += l;
-        return cps.empty() ? 0 : cps[0];
+        // Advance by however many bytes the decoder actually consumed, never by the length
+        // guessed from the lead byte: an ill-formed sequence consumes exactly one byte, and
+        // advancing further would swallow the bytes that follow it -- including a regex
+        // metacharacter that may sit there -- and compile a pattern the engine never saw.
+        size_t consumed = 0;
+        const uint32_t cp = decode_one_cp(p.substr(i), &consumed);
+        *utf8 = std::string(p.substr(i, consumed));
+        i += consumed;
+        return cp;
     }
 
     NP parse() {
@@ -481,6 +487,36 @@ struct Parser {
         }
     }
 
+    // Encode the code points collected inside `[...]` into n->cls. Returns false when the class
+    // cannot be enumerated and the caller has to degrade it to big_class (with cls cleared, per
+    // the invariant documented on RegexNode): an ill-formed byte of the pattern, or a non-ASCII
+    // item under `(?i)`. Split out of parse_class to keep that function under the size
+    // threshold; the semantics are identical to the original inline loop.
+    bool encode_class_items(const std::vector<uint32_t>& items, RegexNode* n) const {
+        for (auto cp : items) {
+            if (cp > kMaxCodePoint) {
+                // Same reason as in make_lit: an ill-formed byte of the pattern decodes to a
+                // fake code point that encode_cp would turn into a byte sequence no index can
+                // ever hold, so it cannot be enumerated as a class element.
+                return false;
+            }
+            if (icase && cp >= 128) {
+                // The scalar engines fold Unicode, while the gram index only folds ASCII.
+                // An unenumerated alternative makes this class unknown, but leaves surrounding
+                // literal constraints available to the compiler.
+                return false;
+            }
+            if (icase) {
+                append_ascii_case_variants(cp, &n->cls);
+                continue;
+            }
+            std::string u;
+            encode_cp(cp, &u);
+            n->cls.push_back(u);
+        }
+        return true;
+    }
+
     NP parse_class() {
         // '[' has already been consumed
         NP n = mk(RegexNode::Type::CLASS);
@@ -531,22 +567,10 @@ struct Parser {
             n->big_class = true;
             return n;
         }
-        for (auto cp : items) {
-            if (icase && cp >= 128) {
-                // The scalar engines fold Unicode, while the gram index only folds ASCII.
-                // An unenumerated alternative makes this class unknown, but leaves surrounding
-                // literal constraints available to the compiler.
-                n->big_class = true;
-                n->cls.clear();
-                return n;
-            }
-            if (icase) {
-                append_ascii_case_variants(cp, &n->cls);
-                continue;
-            }
-            std::string u;
-            encode_cp(cp, &u);
-            n->cls.push_back(u);
+        if (!encode_class_items(items, n.get())) {
+            n->big_class = true;
+            n->cls.clear();
+            return n;
         }
         std::sort(n->cls.begin(), n->cls.end());
         n->cls.erase(std::unique(n->cls.begin(), n->cls.end()), n->cls.end());
@@ -563,6 +587,14 @@ struct Parser {
     }
 
     NP make_lit(uint32_t cp) const {
+        if (cp > kMaxCodePoint) {
+            // A fake code point minted for an ill-formed byte of the pattern. encode_cp would
+            // turn it into a four-byte sequence above U+10FFFF, while the index side only ever
+            // stores raw slices of the row, so that gram cannot exist anywhere and the AND would
+            // prune every row of the query. Degrade to the same "unknown character" the icase
+            // branch below uses.
+            return mk(RegexNode::Type::ANY);
+        }
         if (icase && cp >= 128) {
             // Unknown Unicode case variants must not become mandatory literal grams.
             return mk(RegexNode::Type::ANY);
