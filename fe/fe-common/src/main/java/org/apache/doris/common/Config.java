@@ -2360,10 +2360,10 @@ public class Config extends ConfigBase {
      * once per process (on first use while this config is true), so rows deleted while it is
      * false reappear only for a FE whose one-time load is still pending (e.g. right after FE
      * start with the config on). On that load, existing in-memory entries win over the stored
-     * snapshot, deletions issued while this config is true during the pending load are honored
-     * (their stored rows are best-effort removed again once the table is reachable), and rows a
-     * DELETE could not remove reappear after a FE restart; a FE never refreshes entries SET by
-     * other FEs during its lifetime.
+     * snapshot; deletions issued while this config is true during the pending load are honored —
+     * rows of theirs that the load sees are best-effort removed from the table again, and they
+     * reappear after a FE restart only if that removal also fails. A FE never refreshes entries
+     * SET by other FEs during its lifetime.
      */
     @ConfField(mutable = true, description = "The default setting is false. When true, HBO SET/DELETE STATISTICS "
             + "entries are persisted into __internal_schema.hbo_statistics and reloaded after FE "
