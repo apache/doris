@@ -47,12 +47,91 @@ import org.junit.Test;
 import org.lance.index.IndexType;
 
 import java.nio.ByteBuffer;
+import java.security.InvalidParameterException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
 public class LanceScanNodeTest {
+
+    @Test
+    public void testGroupedFragmentsPreserveCoverageWeightsAndScanParams() throws Exception {
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.lanceFragmentsPerSplit = 2;
+        LanceScanNode node = newNode(sessionVariable);
+        setMetadata(node, LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance", 42, new Schema(Collections.emptyList()),
+                Arrays.asList(
+                        new LanceFragmentInfo(7, 10, 1000),
+                        new LanceFragmentInfo(11, 250, 250),
+                        new LanceFragmentInfo(13, 0, 0),
+                        new LanceFragmentInfo(17, 499, 499),
+                        new LanceFragmentInfo(23, 125, 125)),
+                Collections.emptyMap()));
+
+        List<Split> splits = node.getSplits(2);
+
+        Assert.assertEquals(3, splits.size());
+        List<List<Long>> expectedIds = Arrays.asList(Arrays.asList(7L, 11L),
+                Arrays.asList(13L, 17L), Collections.singletonList(23L));
+        long[] expectedRows = {1250, 500, 125};
+        long[] expectedWeights = {100, 40, 10};
+        for (int i = 0; i < splits.size(); i++) {
+            LanceSplit split = (LanceSplit) splits.get(i);
+            Assert.assertEquals(expectedIds.get(i), split.getFragmentIds());
+            Assert.assertEquals(expectedRows[i], split.getSelfSplitWeight());
+            Assert.assertEquals(1250L, split.getTargetSplitSize().longValue());
+            Assert.assertEquals(expectedWeights[i], split.getSplitWeight().getRawValue());
+            TFileRangeDesc range = new TFileRangeDesc();
+            node.setScanParams(range, split);
+            Assert.assertEquals(expectedIds.get(i), range.getTableFormatParams().getLanceParams().getFragmentIds());
+            Assert.assertEquals(42L, range.getTableFormatParams().getLanceParams().getVersion());
+            Assert.assertEquals("s3://bucket/table.lance",
+                    range.getTableFormatParams().getLanceParams().getDatasetUri());
+            Assert.assertFalse(range.getTableFormatParams().getLanceParams().isSetIndexSegmentUuids());
+            Assert.assertFalse(range.getTableFormatParams().getLanceParams().isSetLimit());
+        }
+
+        node.setLimit(10);
+        TFileRangeDesc limitedRange = new TFileRangeDesc();
+        node.setScanParams(limitedRange, splits.get(0));
+        Assert.assertEquals(10L, limitedRange.getTableFormatParams().getLanceParams().getLimit());
+    }
+
+    @Test
+    public void testFragmentGroupLargerThanDatasetAndEmptyDataset() throws Exception {
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.lanceFragmentsPerSplit = Integer.MAX_VALUE;
+        LanceScanNode node = newNode(sessionVariable);
+        setMetadata(node, LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance", 42, new Schema(Collections.emptyList()),
+                Arrays.asList(new LanceFragmentInfo(7, 0, 0), new LanceFragmentInfo(11, 0, 0)),
+                Collections.emptyMap()));
+
+        List<Split> splits = node.getSplits(2);
+
+        Assert.assertEquals(1, splits.size());
+        Assert.assertEquals(Arrays.asList(7L, 11L), ((LanceSplit) splits.get(0)).getFragmentIds());
+        Assert.assertEquals(2L, ((LanceSplit) splits.get(0)).getSelfSplitWeight());
+        Assert.assertEquals(100L, splits.get(0).getSplitWeight().getRawValue());
+
+        setMetadata(node, LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance", 43, new Schema(Collections.emptyList()),
+                Collections.emptyList(), Collections.emptyMap()));
+        Assert.assertTrue(node.getSplits(2).isEmpty());
+    }
+
+    @Test
+    public void testFragmentGroupSizeValidation() {
+        SessionVariable sessionVariable = new SessionVariable();
+        Assert.assertEquals(0, sessionVariable.lanceFragmentsPerSplit);
+        sessionVariable.checkLanceFragmentsPerSplit("0");
+        sessionVariable.checkLanceFragmentsPerSplit("1");
+        sessionVariable.checkLanceFragmentsPerSplit("8");
+        Assert.assertThrows(InvalidParameterException.class,
+                () -> sessionVariable.checkLanceFragmentsPerSplit("-1"));
+    }
 
     @Test
     public void testFragmentRowsDetermineSplitWeights() throws Exception {
@@ -459,6 +538,8 @@ public class LanceScanNodeTest {
 
     @Test
     public void testLanceSplitRejectsInvalidRangeFieldsInFrontend() {
+        assertInvalidSplit(() -> LanceSplit.forFragments("s3://bucket/table.lance", 42,
+                Collections.emptyList(), 1), "Lance fragment split must contain fragments");
         assertInvalidSplit(() -> LanceSplit.forFragment("", 42, 1, 1),
                 "Lance dataset URI must not be empty");
         assertInvalidSplit(() -> LanceSplit.forFragment("s3://bucket/table.lance", -1, 1, 1),
@@ -486,9 +567,12 @@ public class LanceScanNodeTest {
                 ? request.getSearchQuery().getVectorSearch().getColumn()
                 : request.getSearchQuery().getFullTextSearch().getColumn();
         int searchFieldId = metadata.getLanceFieldId(searchColumn).orElse(-1);
+        // Ordinary-scan grouping must not change any vector or full-text split expectations.
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.lanceFragmentsPerSplit = 8;
         return LanceScanNode.forExternalSearch(
                 new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), null,
-                metadata, searchFieldId, request, new SessionVariable());
+                metadata, searchFieldId, request, sessionVariable);
     }
 
     private static void setMetadata(LanceScanNode node, LanceTableMetadata metadata) throws Exception {

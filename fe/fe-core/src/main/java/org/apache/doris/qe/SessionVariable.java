@@ -578,6 +578,8 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    public static final String LANCE_FRAGMENTS_PER_SPLIT = "lance_fragments_per_split";
+
     public static final String FILE_SPLIT_SIZE_ON_FE = "file_split_size_on_fe";
 
     public static final String FILE_SPLIT_SIZE_ON_BE = "file_split_size_on_be";
@@ -2572,6 +2574,16 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    @VariableMgr.VarAttr(name = LANCE_FRAGMENTS_PER_SPLIT, needForward = true,
+            flag = VariableMgr.INVISIBLE, fuzzy = false,
+            checker = "checkLanceFragmentsPerSplit", description = {
+                    "普通 Lance 扫描的调试参数。默认 0 自动划分；正数强制按指定 fragment 数分组，"
+                            + "跳过索引分组和补足 BE 数量的逻辑。不影响 vector/FTS 查询。",
+                    "Debug override for ordinary Lance scans. Default 0 uses automatic splitting; "
+                            + "a positive value groups that many fragments per split, bypassing index grouping "
+                            + "and minimum BE parallelism. Does not affect vector/FTS queries."})
+    public int lanceFragmentsPerSplit = 0;
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE_ON_FE, needForward = true, description = {
             "支持 BE 细粒度切分时，FE 粗粒度文件分片的目标大小，单位为字节，默认为 512MB",
@@ -6413,6 +6425,12 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+
+    public void checkLanceFragmentsPerSplit(String value) {
+        if (Integer.parseInt(value) < 0) {
+            throw new InvalidParameterException("lance_fragments_per_split must be non-negative");
+        }
+    }
 
     private static final long PREFERRED_BLOCK_SIZE_BYTES_MIN = 1048576L;      // 1MB
     private static final long PREFERRED_BLOCK_SIZE_BYTES_MAX = 536870912L;    // 512MB

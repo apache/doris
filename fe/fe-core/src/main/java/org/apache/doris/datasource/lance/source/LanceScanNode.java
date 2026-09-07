@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.lance.source;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
@@ -63,7 +64,8 @@ import java.util.UUID;
  *
  * <p>These modes share dataset metadata, storage properties, and BE scan-range serialization.
  * Keeping them in one node prevents those common parts from drifting apart. The search request is
- * also an explicit mode marker. Ordinary scans are split by fragment. Indexed vector searches are
+ * also an explicit mode marker. Ordinary scans group fragments using index coverage or a fixed
+ * fragment count. Indexed vector searches are
  * split by physical index segment, with uncovered fragments retained as flat-search fallbacks.
  * Full-text searches are split only by committed inverted-index segments, with coverage governed
  * by the request's STRICT or INDEX_ONLY mode. Each search split produces local candidates; a Doris
@@ -90,6 +92,9 @@ public class LanceScanNode extends FileQueryScanNode {
     private String lancePushdownPredicate = "";
     private long plannedVersion = -1;
     private int plannedFragments;
+    private int plannedFragmentsPerSplit = 0;
+    private final List<Expr> lancePushedConjuncts = new ArrayList<>();
+    private LanceScalarIndexPlanner.Plan scalarIndexPlan;
     private int plannedUnindexedFragments;
     private int plannedIndexSegments;
     private int plannedIndexFragments;
@@ -162,14 +167,14 @@ public class LanceScanNode extends FileQueryScanNode {
         return params.getLanceScanParams();
     }
 
-    // A fragment-level LIMIT can be pushed into an ordinary Lance scan only when every predicate
+    // A split-level LIMIT can be pushed into an ordinary Lance scan only when every predicate
     // is already pushed into Lance (conjuncts is empty). Otherwise Doris re-filters the returned
-    // rows and truncating a fragment early could drop valid results.
+    // rows and truncating a split early could drop valid results.
     //
     // OFFSET needs no special handling: the Nereids SplitLimit rule rewrites Limit(limit, offset)
     // into a global Limit(limit, offset) over a local Limit(limit + offset, 0), and the local
     // bound is what lands on this scan node. So getLimit() already accounts for the offset and
-    // getOffset() is always 0 here; each fragment fetches up to limit + offset rows and the upper
+    // getOffset() is always 0 here; each split fetches up to limit + offset rows and the upper
     // global LIMIT still applies the offset and the final bound.
     private boolean canPushDownLimit() {
         return hasLimit() && conjuncts.isEmpty();
@@ -196,6 +201,8 @@ public class LanceScanNode extends FileQueryScanNode {
                     new LancePredicateConverter(plannedMetadata.getSchema()).convert(conjuncts);
             lanceSubstraitFilter = result.getSubstraitFilter();
             lancePushdownPredicate = result.getDebugPredicate();
+            lancePushedConjuncts.clear();
+            lancePushedConjuncts.addAll(result.getPushedConjuncts());
             conjuncts.removeAll(result.getPushedConjuncts());
         }
     }
@@ -219,9 +226,14 @@ public class LanceScanNode extends FileQueryScanNode {
         LanceTableMetadata metadata = plannedMetadata;
         plannedVersion = metadata.getVersion();
         plannedFragments = metadata.getFragments().size();
+        plannedFragmentsPerSplit = searchKind == SearchKind.NORMAL ? sessionVariable.lanceFragmentsPerSplit : 1;
+        if (plannedFragmentsPerSplit < 0) {
+            throw new UserException("lance_fragments_per_split must be non-negative");
+        }
         plannedUnindexedFragments = searchKind == SearchKind.NORMAL ? 0 : plannedFragments;
         plannedIndexSegments = 0;
         plannedIndexFragments = 0;
+        scalarIndexPlan = null;
         if (searchKind != SearchKind.NORMAL && plannedVersion <= 0) {
             throw new UserException(
                     "Lance external search requires a fixed positive dataset version");
@@ -243,13 +255,15 @@ public class LanceScanNode extends FileQueryScanNode {
                         return indexSplits.get();
                     }
                 }
-                break;
+                IndexSegmentSplitPlan plan = new IndexSegmentSplitPlan(
+                        metadata.getDatasetUri(), metadata.getVersion(), 0);
+                plan.addUncoveredFragments(visibleFragments.values(), 1);
+                return plan.buildSplits();
             case NORMAL:
-                break;
+                return createNormalFragmentSplits(metadata, visibleFragments, numBackends);
             default:
                 throw new IllegalStateException("Unsupported Lance search kind " + searchKind);
         }
-        return createFragmentSplits(metadata, visibleFragments);
     }
 
     // COUNT(*)/COUNT(1) with no filter is answered from Lance metadata. Each carrier contains a
@@ -302,24 +316,26 @@ public class LanceScanNode extends FileQueryScanNode {
         return visible;
     }
 
-    private List<Split> createFragmentSplits(LanceTableMetadata metadata,
-            Map<Long, LanceFragmentInfo> visibleFragments) {
-        long targetRows = 1;
-        for (LanceFragmentInfo fragment : visibleFragments.values()) {
-            targetRows = Math.max(targetRows, Math.max(fragment.getPhysicalRows(), 1));
+    private List<Split> createNormalFragmentSplits(LanceTableMetadata metadata,
+            Map<Long, LanceFragmentInfo> visibleFragments, int numBackends) {
+        if (plannedFragmentsPerSplit > 0) {
+            // Keep the debug grouping exact, even when it produces fewer splits than BEs.
+            IndexSegmentSplitPlan plan = new IndexSegmentSplitPlan(metadata.getDatasetUri(), metadata.getVersion(), 0);
+            plan.addUncoveredFragments(visibleFragments.values(), plannedFragmentsPerSplit);
+            return plan.buildSplits();
         }
-
-        // Keep one fragment per split. Use the largest fragment's physical row count as the
-        // normalization baseline for split weights, so backend scheduling reflects the relative
-        // amount of physical data each fragment scans, including rows covered by deletion metadata.
-        List<Split> splits = new ArrayList<>(visibleFragments.size());
-        for (LanceFragmentInfo fragment : visibleFragments.values()) {
-            LanceSplit split = LanceSplit.forFragment(metadata.getDatasetUri(), metadata.getVersion(),
-                    fragment.getId(), fragment.getPhysicalRows());
-            split.setTargetSplitSize(targetRows);
-            splits.add(split);
+        scalarIndexPlan = LanceScalarIndexPlanner.plan(metadata, lancePushedConjuncts, visibleFragments);
+        IndexSegmentSplitPlan plan;
+        if (scalarIndexPlan != null) {
+            plan = scalarIndexPlan.splits;
+            plannedIndexSegments = plan.splitCount();
+            plannedIndexFragments = plan.indexSegmentFragmentCount();
+            plannedUnindexedFragments = plannedFragments - plannedIndexFragments;
+        } else {
+            plan = new IndexSegmentSplitPlan(metadata.getDatasetUri(), metadata.getVersion(), 0);
         }
-        return splits;
+        plan.addUncoveredFragments(visibleFragments.values(), 1);
+        return plan.buildFragmentSplits(numBackends, visibleFragments);
     }
 
     private Optional<List<Split>> createVectorIndexSegmentSplits(LanceTableMetadata metadata,
@@ -348,7 +364,7 @@ public class LanceScanNode extends FileQueryScanNode {
         plannedIndexSegments = plan.splitCount();
         plannedIndexFragments = plan.indexSegmentFragmentCount();
         plannedUnindexedFragments = plannedFragments - plannedIndexFragments;
-        appendUnindexedFragmentSplits(plan, visibleFragments);
+        plan.addUncoveredFragments(visibleFragments.values(), 1);
         return Optional.of(plan.buildSplits());
     }
 
@@ -482,15 +498,6 @@ public class LanceScanNode extends FileQueryScanNode {
         return physicalRows;
     }
 
-    private static void appendUnindexedFragmentSplits(IndexSegmentSplitPlan plan,
-            Map<Long, LanceFragmentInfo> visibleFragments) {
-        for (LanceFragmentInfo fragment : visibleFragments.values()) {
-            if (!plan.isCoveredByIndexSegment(fragment.getId())) {
-                plan.addUnindexedFragmentSplit(fragment);
-            }
-        }
-    }
-
     private boolean isVectorIndexEnabled() {
         // default use_index is true
         if (!externalSearchRequest.isSetVectorSearchOptions()) {
@@ -525,11 +532,9 @@ public class LanceScanNode extends FileQueryScanNode {
         lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
         lanceParams.setVersion(lanceSplit.getVersion());
         if (lanceSplit.hasFragmentIds()) {
-            if (searchKind == SearchKind.NORMAL && lanceSplit.getTableLevelRowCount() < 0
-                    && (lanceSplit.getFragmentIds().size() != 1
-                    || lanceSplit.hasIndexSegmentUuids())) {
+            if (searchKind == SearchKind.NORMAL && lanceSplit.hasIndexSegmentUuids()) {
                 throw new IllegalArgumentException(
-                        "Ordinary Lance scan split must contain one fragment and no index segment");
+                        "Ordinary Lance scan split must not contain index segment UUIDs");
             }
             if (searchKind == SearchKind.FULL_TEXT && !lanceSplit.hasIndexSegmentUuids()) {
                 throw new IllegalArgumentException(
@@ -552,8 +557,8 @@ public class LanceScanNode extends FileQueryScanNode {
             // BE serves the row count from table_level_row_count below, leaving fragment_ids unset.
             throw new IllegalArgumentException("Lance scan split must contain fragments");
         }
-        // Push LIMIT into each ordinary fragment scanner only when it is safe to truncate that
-        // fragment early. External searches use their own per-split candidate bound.
+        // Push LIMIT into each ordinary split scanner only when it is safe to truncate that
+        // split early. External searches use their own per-split candidate bound.
         if (searchKind == SearchKind.NORMAL && canPushDownLimit()) {
             lanceParams.setLimit(getLimit());
         }
@@ -646,6 +651,19 @@ public class LanceScanNode extends FileQueryScanNode {
                     .append(((LanceExternalCatalog) lanceTable.getCatalog()).getLanceCatalogType()).append("\n");
             result.append(prefix).append("lanceVersion=").append(plannedVersion).append("\n");
             result.append(prefix).append("lanceFragments=").append(plannedFragments).append("\n");
+            if (plannedFragmentsPerSplit > 0) {
+                result.append(prefix).append("lanceFragmentGrouping=DEBUG\n");
+                result.append(prefix).append("lanceFragmentsPerSplit=").append(plannedFragmentsPerSplit).append("\n");
+            } else if (scalarIndexPlan == null) {
+                result.append(prefix).append("lanceFragmentGrouping=FRAGMENT\n");
+            } else {
+                result.append(prefix).append("lanceFragmentGrouping=INDEX_SEGMENT\n");
+                result.append(prefix).append("lanceGroupingIndex=").append(scalarIndexPlan.indexName).append("\n");
+                result.append(prefix).append("lanceGroupingIndexSegments=").append(plannedIndexSegments).append("\n");
+                result.append(prefix).append("lanceGroupingIndexedFragments=").append(plannedIndexFragments).append("\n");
+                result.append(prefix).append("lanceGroupingUnindexedFragments=")
+                        .append(plannedUnindexedFragments).append("\n");
+            }
             if (canPushDownLimit()) {
                 result.append(prefix).append("lanceLimit=").append(getLimit()).append("\n");
             }
