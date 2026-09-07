@@ -416,6 +416,12 @@ TEST(MetaServiceHttpTest, ResolveHttpHandlerByVersion) {
     ASSERT_EQ(resolve_http_handler(it->second, ""), &it->second.handler);
     ASSERT_EQ(resolve_http_handler(it->second, "v1"), &it->second.handler);
     ASSERT_EQ(resolve_http_handler(it->second, "v2"), nullptr);
+
+    for (std::string_view route : {"analyze_snapshot_retained", "get_snapshot_retained_analysis"}) {
+        it = handlers.find(route);
+        ASSERT_NE(it, handlers.end());
+        ASSERT_EQ(it->second.role, HttpRole::RECYCLER);
+    }
 }
 
 TEST(MetaServiceHttpTest, InstanceTest) {
