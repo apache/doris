@@ -883,6 +883,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_downgrade_count);
     COUNTER_UPDATE(local_state->_inverted_index_conjuncts_short_circuited_counter,
                    stats.inverted_index_conjuncts_short_circuited);
+    COUNTER_UPDATE(local_state->_gram_index_filter_counter, stats.rows_gram_index_filtered);
+    COUNTER_UPDATE(local_state->_gram_index_candidate_counter, stats.gram_index_candidate_rows);
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);

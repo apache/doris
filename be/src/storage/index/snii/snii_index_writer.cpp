@@ -68,6 +68,61 @@ SniiIndexColumnWriter::SniiIndexColumnWriter(
           _common_grams_build_enabled(config::enable_common_grams_index_build),
           _common_grams_metadata_seed(std::move(common_grams_metadata_seed)) {}
 
+// Gram-family detection (Rulings R21/R22): the scheme comes only from the single analyzer
+// provider the writer created itself -- the same provider both produces the actual tokenizer and
+// answers "am I gram family?", so the two cannot drift. A built-in analyzer
+// (standard/english/...) goes through BuiltinAnalyzerProvider and the base class default, which
+// is always nullopt, and the policy manager is never consulted (consulting it would throw
+// "Policy not found" and make every built-in-analyzer index impossible to build).
+void SniiIndexColumnWriter::_apply_gram_family_scheme(
+        const inverted_index::AnalyzerProviderPtr& analyzer_provider) {
+    if (analyzer_provider != nullptr) {
+        _gram_scheme = analyzer_provider->gram_scheme();
+    }
+    // An index-level char_filter is wrapped around the reader by the writer itself
+    // (create_reader) and is invisible to the provider: once one exists, the stored term is no
+    // longer equal to GramExtractor.extract(raw column value), breaking the row invariant the
+    // query side (phase C) relies on, so this is treated as "not gram family" (fail-safe, for
+    // the same reason as R22).
+    if (!_analyzer_config.char_filter_map.empty()) {
+        _gram_scheme.reset();
+    }
+    DCHECK(!_gram_scheme.has_value() || _should_analyzer);
+    if (!_gram_scheme.has_value() || !_has_positions) {
+        return;
+    }
+    // R15: a gram-family hit forces a degradation to docs-only (the gram index does not support
+    // phrase positions), and it has to happen before SpimiTermBuffer is fixed by _has_positions.
+    LOG(INFO) << "gram-family analyzer forces docs-only index, ignoring support_phrase for index "
+              << _index_meta->index_id();
+    _has_positions = false;
+    _config = ::doris::snii::format::IndexConfig::kDocsOnly;
+}
+
+// The whole path creates exactly one analyzer provider, and it must come before SpimiTermBuffer
+// is constructed: the term buffer is fixed by _has_positions, and the gram-family decision that
+// may reset _has_positions to false can only come from the provider. The CommonGrams validation
+// in the second half of init() reuses the very provider created here.
+Status SniiIndexColumnWriter::_create_analyzer_provider(
+        inverted_index::AnalyzerProviderPtr* analyzer_provider) {
+    try {
+        _char_string_reader = inverted_index::InvertedIndexAnalyzer::create_reader(
+                _analyzer_config.char_filter_map);
+        if (_should_analyzer) {
+            *analyzer_provider = inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(
+                    &_analyzer_config);
+        }
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "SNII create analyzer failed: {}", e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "SNII create analyzer failed: {}", e.what());
+    }
+    _apply_gram_family_scheme(*analyzer_provider);
+    return Status::OK();
+}
+
 Status SniiIndexColumnWriter::init() {
     _should_analyzer =
             inverted_index::InvertedIndexAnalyzer::should_analyzer(_index_meta->properties());
@@ -75,6 +130,20 @@ Status SniiIndexColumnWriter::init() {
                      INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
     _config = _has_positions ? ::doris::snii::format::IndexConfig::kDocsPositions
                              : ::doris::snii::format::IndexConfig::kDocsOnly;
+    _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
+    _analyzer_config.parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(_index_meta->properties()));
+    _analyzer_config.parser_mode =
+            get_parser_mode_string_from_properties(_index_meta->properties());
+    _analyzer_config.char_filter_map =
+            get_parser_char_filter_map_from_properties(_index_meta->properties());
+    _analyzer_config.lower_case =
+            get_parser_lowercase_from_properties<true>(_index_meta->properties());
+    _analyzer_config.stop_words = get_parser_stopwords_from_properties(_index_meta->properties());
+    // Reader, provider and the gram-family decision all happen here -- all of them before the
+    // term buffer is constructed below.
+    inverted_index::AnalyzerProviderPtr analyzer_provider;
+    RETURN_IF_ERROR(_create_analyzer_provider(&analyzer_provider));
     auto ignore_above_value =
             get_parser_ignore_above_value_from_properties(_index_meta->properties());
     _ignore_above = cast_set<uint32_t>(std::stoul(ignore_above_value));
@@ -113,23 +182,8 @@ Status SniiIndexColumnWriter::init() {
     auto* global_limiter = ::doris::snii::writer::GlobalMemoryLimiter::instance();
     global_limiter->set_min_victim_arena_bytes(config::snii_forced_spill_min_arena_bytes);
     _term_buffer->attach_global_limiter(global_limiter);
-    _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
-    _analyzer_config.parser_type = get_inverted_index_parser_type_from_string(
-            get_parser_string_from_properties(_index_meta->properties()));
-    _analyzer_config.parser_mode =
-            get_parser_mode_string_from_properties(_index_meta->properties());
-    _analyzer_config.char_filter_map =
-            get_parser_char_filter_map_from_properties(_index_meta->properties());
-    _analyzer_config.lower_case =
-            get_parser_lowercase_from_properties<true>(_index_meta->properties());
-    _analyzer_config.stop_words = get_parser_stopwords_from_properties(_index_meta->properties());
     try {
-        _char_string_reader = inverted_index::InvertedIndexAnalyzer::create_reader(
-                _analyzer_config.char_filter_map);
         if (_should_analyzer) {
-            auto analyzer_provider =
-                    inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(
-                            &_analyzer_config);
             const bool policy_uses_common_grams = analyzer_provider->uses_common_grams();
             _uses_common_grams = _common_grams_build_enabled && policy_uses_common_grams;
             if (policy_uses_common_grams && !_uses_common_grams) {
@@ -463,6 +517,7 @@ Status SniiIndexColumnWriter::finish() {
     _report_null_docids_capacity(/*release_all=*/true);
     IndexFileWriter::SniiAddIndexOptions options {};
     options.is_direct_load = _is_direct_load;
+    options.gram_scheme = _gram_scheme;
     if (_uses_common_grams) {
         options.encoded_norms = std::move(_encoded_norms);
         options.common_grams_metadata = _build_common_grams_metadata();

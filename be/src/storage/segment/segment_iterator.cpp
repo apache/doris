@@ -1281,6 +1281,10 @@ Status SegmentIterator::_apply_index_expr() {
                 _row_bitmap &= *result->get_data_bitmap();
                 consumed_by_index.push_back(expr_ctx.get());
             }
+        } else {
+            // Approximate results come here: prune the candidates only, never consume the
+            // expression.
+            _apply_approx_index_result(expr_ctx.get());
         }
     }
 
@@ -1364,6 +1368,27 @@ Status SegmentIterator::_apply_index_expr() {
     }
 
     return Status::OK();
+}
+
+void SegmentIterator::_apply_approx_index_result(VExprContext* expr_ctx) {
+    // An approximate result is a superset of candidates: rows outside the bitmap certainly do
+    // not match, while rows inside it may not match. So this only narrows _row_bitmap down to
+    // the candidate set and never records the expression in consumed_by_index -- it must stay in
+    // _common_expr_ctxs_push_down so that _execute_common_expr re-verifies each candidate row.
+    const auto* approx =
+            expr_ctx->get_index_context()->get_approx_index_result_for_expr(expr_ctx->root().get());
+    if (approx == nullptr || approx->get_data_bitmap() == nullptr) {
+        // InvertedIndexResultBitmap allows a null data bitmap (the default-constructed "no
+        // result" shape). In theory the approximate map only ever holds results with
+        // is_empty() == false, but dereferencing a null pointer here would be a segfault, which
+        // costs far more than one extra null check.
+        return;
+    }
+    const uint64_t before = _row_bitmap.cardinality();
+    _row_bitmap &= *approx->get_data_bitmap();
+    const uint64_t after = _row_bitmap.cardinality();
+    _opts.stats->gram_index_candidate_rows += static_cast<int64_t>(after);
+    _opts.stats->rows_gram_index_filtered += static_cast<int64_t>(before - after);
 }
 
 bool SegmentIterator::_count_on_index_fastpath_safe() const {

@@ -32,6 +32,7 @@
 #include <string_view>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -42,6 +43,8 @@
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/analyzer/segment_analyzer_context.h"
 #include "storage/index/inverted/common/single_flight.h"
+#include "storage/index/inverted/gram/gram_query.h"
+#include "storage/index/inverted/gram/regex_gram_compiler.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/token_filter/common_grams_filter.h"
@@ -49,6 +52,7 @@
 #include "storage/index/snii/query/boolean_query.h"
 #include "storage/index/snii/query/count_query.h"
 #include "storage/index/snii/query/docid_sink.h"
+#include "storage/index/snii/query/gram_boolean_query.h"
 #include "storage/index/snii/query/internal/plain_term_routing.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/prefix_query.h"
@@ -350,7 +354,7 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
                           const InvertedIndexQueryInfo& query_info, std::string_view search_str,
                           const std::vector<std::string>& terms, int32_t max_expansions,
                           bool collect_phrase_frequency, SniiQueryExecutionResult* result,
-                          ::doris::snii::query::QueryProfile* profile) {
+                          ::doris::snii::query::QueryProfile* profile, uint64_t rows_of_segment) {
     result->bitmap = std::make_shared<roaring::Roaring>();
     result->phrase_matches.clear();
     DORIS_CHECK(!collect_phrase_frequency || uses_phrase_frequency_scoring(query_type, query_info));
@@ -409,6 +413,31 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
                                                     max_expansions);
         emitted_to_sink = true;
         break;
+    case InvertedIndexQueryType::LIKE_GRAM_QUERY:
+    case InvertedIndexQueryType::REGEXP_GRAM_QUERY: {
+        // Compile against the same physical dictionary that supplies the postings. Current
+        // policies can differ from the scheme that was used when this segment was written.
+        const auto& scheme = logical_reader.gram_scheme();
+        if (!scheme.has_value()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                    "SNII index is not a gram-family index");
+        }
+        gram::RegexGramCompiler compiler(*scheme);
+        gram::GramQuery gram_query;
+        RETURN_IF_ERROR(query_type == InvertedIndexQueryType::LIKE_GRAM_QUERY
+                                ? compiler.compile_like(search_str, &gram_query)
+                                : compiler.compile_regexp(search_str, &gram_query));
+        if (gram_query.is_all()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                    "Pattern has no prunable grams");
+        }
+        ::doris::snii::query::LogicalIndexPostingSource gram_posting_source(logical_reader);
+        status = ::doris::snii::query::gram_boolean_query(gram_posting_source, gram_query,
+                                                          cast_set<uint32_t>(rows_of_segment),
+                                                          result->bitmap.get());
+        emitted_to_sink = true;
+        break;
+    }
     case InvertedIndexQueryType::WILDCARD_QUERY:
         status = ::doris::snii::query::wildcard_query(logical_reader, search_str, &sink,
                                                       max_expansions);
@@ -464,7 +493,7 @@ Status SniiIndexReader::_parse_query_terms(
         std::optional<inverted_index::AnalysisPurpose> purpose_override) {
     DCHECK(query_info != nullptr);
     if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
-        query_type == InvertedIndexQueryType::WILDCARD_QUERY) {
+        query_type == InvertedIndexQueryType::WILDCARD_QUERY || is_gram_query(query_type)) {
         query_info->term_infos.emplace_back(search_str, 0);
         return Status::OK();
     }
@@ -640,8 +669,13 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
             (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY && query_info.slop == 0) ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
     const bool common_grams_query_eligible = common_grams_phrase_shape && !actual_similarity;
+    // Raw patterns bypass current analyzer policies. Gram patterns are compiled using the
+    // selected logical reader's persisted scheme during execution. The result cache includes
+    // the immutable physical index identity, query type and original pattern, so a hit can be
+    // reused before opening the logical reader without resolving any current policy.
     const bool raw_pattern_query = query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
-                                   query_type == InvertedIndexQueryType::WILDCARD_QUERY;
+                                   query_type == InvertedIndexQueryType::WILDCARD_QUERY ||
+                                   is_gram_query(query_type);
     // A physical keyword-lane index has no analyzer contract for the open below to validate:
     // SniiIndexColumnWriter::init() refuses a CommonGrams metadata seed whenever should_analyzer()
     // is false, so such a segment can never carry gram terms. Key this on the writer-side
@@ -996,9 +1030,10 @@ Status SniiIndexReader::_compute_query_bitmap(
                                   query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
     if (needs_prx_profile) {
         ::doris::snii::SniiPrxExecutionProfileScope execution_profile(*context->stats);
-        const Status execution_status = execute_snii_query(
-                *logical_reader, query_type, query_info, search_str, *terms, max_expansions,
-                phrase_matches != nullptr, &query_result, execution_profile.profile());
+        const Status execution_status =
+                execute_snii_query(*logical_reader, query_type, query_info, search_str, *terms,
+                                   max_expansions, phrase_matches != nullptr, &query_result,
+                                   execution_profile.profile(), _rows_of_segment);
         if (common_grams_plain_fallback != CommonGramsPlainFallback::kNone) {
             auto& plan_stats = execution_profile.profile()->phrase_query_stats;
             ++plan_stats.common_grams_candidate_queries;
@@ -1021,7 +1056,7 @@ Status SniiIndexReader::_compute_query_bitmap(
     } else {
         RETURN_IF_ERROR(execute_snii_query(*logical_reader, query_type, query_info, search_str,
                                            *terms, max_expansions, phrase_matches != nullptr,
-                                           &query_result, nullptr));
+                                           &query_result, nullptr, _rows_of_segment));
     }
     *out = std::move(query_result.bitmap);
     if (phrase_matches != nullptr) {

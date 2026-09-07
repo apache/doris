@@ -1385,6 +1385,24 @@ DECLARE_mBool(enable_common_grams_index_build);
 DECLARE_mInt32(common_grams_plan_cost_ratio_percent);
 DECLARE_mInt32(common_grams_position_verify_factor);
 
+// Whether LIKE/REGEXP tries to compile a constant pattern into a gram boolean query pushed down
+// to a gram-family inverted index (master switch). Turning it off behaves as if the index did
+// not exist -- it only gives up the speedup, it never changes query results.
+//
+// Scheme invariance (Ruling R28): P0 does not check that the gram scheme resolved at query time
+// matches the one used when the segment was written, because in P0 the two are always identical
+// -- FE has no ALTER INDEX POLICY statement at all (indexpolicy/ only has CREATE / DROP / SHOW),
+// and IndexPolicyMgr.dropIndexPolicy
+// (fe/fe-core/src/main/java/org/apache/doris/indexpolicy/IndexPolicyMgr.java:566-600) refuses to
+// drop a policy that is still referenced: an analyzer referenced by an index goes through
+// checkAnalyzerNotUsedByIndex (:612-634); a tokenizer / token_filter / char_filter referenced by
+// an analyzer or a normalizer goes through checkPolicyNotReferenced (:670-699) and
+// checkFilterReference (:701-713). So the "index -> analyzer -> tokenizer" chain can be neither
+// modified nor dropped while the index still exists. P1 will additionally compare the
+// gram_scheme recorded in the segment (the core metadata written by Task 12), to cover future
+// ALTER or cross-version rebuild scenarios.
+DECLARE_mBool(enable_gram_index_regexp);
+
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
 

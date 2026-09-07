@@ -27,6 +27,7 @@
 
 #include "gen_cpp/snii.pb.h"
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/section_framer.h"
@@ -38,6 +39,8 @@ using segment_v2::inverted_index::CommonGramsCoverage;
 using segment_v2::inverted_index::CommonGramsSegmentMetadata;
 using segment_v2::inverted_index::PlainTermKeyVersion;
 using segment_v2::inverted_index::ScoringCoverage;
+using segment_v2::gram::GramMode;
+using segment_v2::gram::GramScheme;
 
 CoreMetadata sample_core(IndexConfig index_config = IndexConfig::kDocsOnly) {
     CoreMetadata metadata;
@@ -129,6 +132,7 @@ void expect_core_eq(const CoreMetadata& expected, const CoreMetadata& actual) {
     EXPECT_EQ(expected.section_refs.bsbf.length, actual.section_refs.bsbf.length);
     EXPECT_EQ(expected.common_grams_metadata, actual.common_grams_metadata);
     EXPECT_EQ(expected.common_grams_posting_policy, actual.common_grams_posting_policy);
+    EXPECT_EQ(expected.gram_scheme, actual.gram_scheme);
 }
 
 TEST(SniiCoreMetadata, RoundTripsDocsOnlyWithAllStatsAndRefs) {
@@ -298,6 +302,72 @@ TEST(SniiCoreMetadata, RejectsBadFrameTypeCrcAndTruncation) {
     std::vector<uint8_t> truncated(framed.begin(), framed.end() - 1);
     EXPECT_TRUE(decode_core_metadata(Slice(truncated), &actual)
                         .is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
+TEST(SniiCoreMetadata, GramSchemeRoundTrip) {
+    auto expected = sample_core();
+    GramScheme scheme;
+    scheme.mode = GramMode::DENSE;
+    scheme.min_len = 3;
+    scheme.max_len = 3;
+    scheme.density_permille = 1000;
+    scheme.stop_df_permille = 250;
+    scheme.lower_case = true;
+    scheme.hash_version = 1;
+    expected.gram_scheme = scheme;
+
+    CoreMetadata actual;
+    ASSERT_TRUE(decode_core_metadata(Slice(encode(expected)), &actual).ok());
+    ASSERT_TRUE(actual.gram_scheme.has_value());
+    EXPECT_TRUE(*actual.gram_scheme == scheme);
+    expect_core_eq(expected, actual);
+
+    // A non-gram index has no tokenizer scheme to persist.
+    const auto none_framed = encode(sample_core());
+    CoreMetadata none_actual;
+    ASSERT_TRUE(decode_core_metadata(Slice(none_framed), &none_actual).ok());
+    EXPECT_FALSE(none_actual.gram_scheme.has_value());
+
+    const auto none_payload = payload_of(none_framed);
+    doris::snii::SniiCoreMetadataPB none_pb;
+    ASSERT_TRUE(none_pb.ParseFromArray(none_payload.data(), static_cast<int>(none_payload.size())));
+    EXPECT_FALSE(none_pb.has_gram_scheme());
+}
+
+TEST(SniiCoreMetadata, GramSchemeSparseRoundTrip) {
+    auto expected = sample_core();
+    expected.gram_scheme = GramScheme {}; // member defaults: SPARSE / 3 / 16 / 250 / 100 / lc0 / v1
+
+    CoreMetadata actual;
+    ASSERT_TRUE(decode_core_metadata(Slice(encode(expected)), &actual).ok());
+    ASSERT_TRUE(actual.gram_scheme.has_value());
+    EXPECT_EQ(actual.gram_scheme->mode, GramMode::SPARSE);
+    EXPECT_EQ(actual.gram_scheme->min_len, 3U);
+    EXPECT_EQ(actual.gram_scheme->max_len, 16U);
+    EXPECT_EQ(actual.gram_scheme->density_permille, 250U);
+    expect_core_eq(expected, actual);
+}
+
+// Decoding has to validate the whole scheme, not just glance at mode: an out-of-range scheme that
+// slips through would feed values such as min_len=0 straight into GramExtractor.
+TEST(SniiCoreMetadata, RejectsCorruptGramScheme) {
+    auto metadata = sample_core();
+    metadata.gram_scheme = GramScheme {};
+
+    // mode only allows 1 (DENSE) / 2 (SPARSE).
+    const auto bad_mode = mutate_core_payload(
+            metadata, [](auto* core) { core->mutable_gram_scheme()->set_mode(7); });
+    CoreMetadata actual;
+    auto status = decode_core_metadata(Slice(frame_payload(bad_mode)), &actual);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+
+    // A partial message: only mode is set, every other field defaults to 0 by PB semantics, and 0
+    // is not part of any valid scheme.
+    const auto partial = mutate_core_payload(sample_core(), [](auto* core) {
+        core->mutable_gram_scheme()->set_mode(static_cast<uint32_t>(GramMode::SPARSE));
+    });
+    status = decode_core_metadata(Slice(frame_payload(partial)), &actual);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
 }
 
 TEST(SniiCoreMetadata, ResetsOutputBeforeDecodeFailureAndNullOutputIsInvalid) {

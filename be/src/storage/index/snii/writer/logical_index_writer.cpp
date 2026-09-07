@@ -468,6 +468,7 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDoci
           term_source_(in.term_source),
           encoded_norms_(in.encoded_norms),
           common_grams_metadata_(in.common_grams_metadata),
+          gram_scheme_(in.gram_scheme),
           common_grams_posting_policy_(in.common_grams_posting_policy),
           target_dict_block_bytes_(in.target_dict_block_bytes != 0
                                            ? in.target_dict_block_bytes
@@ -942,6 +943,7 @@ Status LogicalIndexWriter::finish_metadata(const SectionRefs& abs_refs, uint64_t
     core.stats = stats_;
     core.section_refs = abs_refs;
     core.common_grams_metadata = common_grams_metadata_;
+    core.gram_scheme = gram_scheme_;
     core.common_grams_posting_policy = common_grams_posting_policy_;
     ByteSink core_sink;
     RETURN_IF_ERROR(format::encode_core_metadata(core, &core_sink));

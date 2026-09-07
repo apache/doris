@@ -495,7 +495,15 @@ FORWARD_CLOSURE_BUDGETS = {
     "core/field.h": 60,
     "core/column/column.h": 66,
     "exprs/function/function.h": 106,
-    "exec/pipeline/dependency.h": 357,
+    # +1 (was 357): storage/index/snii/format/core_metadata.h now carries an
+    # optional gram::GramScheme member (SNII core metadata gram_scheme field,
+    # regex sparse-gram-index P0 Task 12), reachable via
+    # inverted_index_reader.h -> inverted_index_cache.h ->
+    # snii/reader/logical_index_reader.h -> snii/format/core_metadata.h ->
+    # inverted/gram/gram_scheme.h. gram_scheme.h itself is a leaf (cstdint,
+    # map, string, common/status.h -- the last already on this hub), so this
+    # is exactly +1 project header, not a chain.
+    "exec/pipeline/dependency.h": 358,
     "pch/pch.h": 8,
 }
 

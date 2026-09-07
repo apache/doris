@@ -25,14 +25,21 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_vector.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "exprs/function/simple_function_factory.h"
+#include "exprs/vexpr.h"
+#include "exprs/vliteral.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/index/inverted/inverted_index_reader.h"
 #include "util/hyperscan_util.h"
 
 namespace doris {
@@ -1105,6 +1112,99 @@ Status FunctionRegexpLike::open(FunctionContext* context,
         }
     }
     return Status::OK();
+}
+
+bool FunctionLikeBase::can_evaluate_inverted_index(const VExprSPtrs& function_arguments) const {
+    if (function_arguments.size() != 2 &&
+        !(get_name() == FunctionLike::name && function_arguments.size() == 3)) {
+        return false;
+    }
+    // VExpr subsequently validates that stripping this cast preserves the storage type.
+    if (!VExpr::expr_without_cast(function_arguments[0])->is_slot_ref() ||
+        !function_arguments[1]->is_literal()) {
+        return false;
+    }
+    if (function_arguments.size() == 3) {
+        if (!function_arguments[2]->is_literal()) {
+            return false;
+        }
+        const auto* escape = assert_cast<const VLiteral*>(function_arguments[2].get());
+        Field escape_field;
+        escape->get_column_ptr()->get(0, escape_field);
+        // The gram compiler implements the default LIKE escaping semantics only.
+        if (escape_field.is_null() || escape_field.get<TYPE_STRING>() != "\\") {
+            return false;
+        }
+    }
+    return true;
+}
+
+// R8 (unity build): file-scope helpers use a namespace private to this file.
+namespace like_gram_index_detail {
+
+// Index acceleration may be skipped, but cancellation and memory failures stop the query.
+Status dispatch_query(bool is_like, const std::string& pattern, segment_v2::IndexIterator* iter,
+                      const IndexFieldNameAndTypePair& data_type_with_name, uint32_t num_rows,
+                      segment_v2::InvertedIndexResultBitmap* bitmap_result) {
+    segment_v2::InvertedIndexParam param;
+    param.column_name = data_type_with_name.first;
+    param.column_type = data_type_with_name.second;
+    param.query_value = Field::create_field<TYPE_STRING>(pattern);
+    param.query_type = is_like ? segment_v2::InvertedIndexQueryType::LIKE_GRAM_QUERY
+                               : segment_v2::InvertedIndexQueryType::REGEXP_GRAM_QUERY;
+    param.num_rows = num_rows;
+    param.roaring = std::make_shared<roaring::Roaring>();
+
+    Status query_status = iter->read_from_index(&param);
+    if (!query_status.ok()) {
+        if (query_status.is<ErrorCode::CANCELLED>() ||
+            query_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
+            query_status.is<ErrorCode::MEM_ALLOC_FAILED>()) {
+            return query_status;
+        }
+        if (query_status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>() ||
+            query_status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) {
+            return Status::OK();
+        }
+        // Every other error only degrades to "no acceleration". LOG_EVERY_N rather than VLOG,
+        // because this path already means "the index could not be used" and deserves a trace at
+        // the default log level, while still not flooding the log once per segment.
+        LOG_EVERY_N(WARNING, 100) << "gram index push-down skipped, read_from_index returned "
+                                  << query_status;
+        return Status::OK();
+    }
+
+    segment_v2::InvertedIndexResultBitmap result(param.roaring, nullptr);
+    result.set_approximate(true);
+    *bitmap_result = result;
+    return Status::OK();
+}
+
+} // namespace like_gram_index_detail
+
+Status FunctionLikeBase::evaluate_gram_index(
+        GramCompileKind kind, const ColumnsWithTypeAndName& arguments,
+        const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
+        std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+        segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+    const bool is_like = (kind == GramCompileKind::LIKE);
+    if (!config::enable_gram_index_regexp) {
+        return Status::OK();
+    }
+    // Operand roles were accepted before VExpr separated literals and indexed fields.
+    DORIS_CHECK_EQ(iterators.size(), 1);
+    DORIS_CHECK_EQ(data_type_with_names.size(), 1);
+    DORIS_CHECK(!arguments.empty());
+    DORIS_CHECK(is_column_const(*arguments[0].column));
+    Field pattern_field;
+    arguments[0].column->get(0, pattern_field);
+    if (pattern_field.is_null()) {
+        return Status::OK();
+    }
+    const auto& pattern = pattern_field.get<TYPE_STRING>();
+
+    return like_gram_index_detail::dispatch_query(
+            is_like, pattern, iterators[0], data_type_with_names[0], num_rows, &bitmap_result);
 }
 
 void register_function_like(SimpleFunctionFactory& factory) {

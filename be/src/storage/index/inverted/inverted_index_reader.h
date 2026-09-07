@@ -81,6 +81,12 @@ class InvertedIndexResultBitmap {
 private:
     std::shared_ptr<roaring::Roaring> _data_bitmap = nullptr;
     std::shared_ptr<roaring::Roaring> _null_bitmap = nullptr;
+    // true means _data_bitmap is only a superset of candidates (from a gram index push-down, for
+    // instance), so the caller (SegmentIterator) must keep the original expression for row-level
+    // re-verification and may not consume the expression as it would for an exact index result.
+    // All four special member functions propagate it explicitly -- the members' default copy
+    // semantics cannot be relied on (every one of them below has to be adjusted).
+    bool _approximate = false;
 
 public:
     // Default constructor
@@ -99,12 +105,14 @@ public:
                                    : nullptr),
               _null_bitmap(other._null_bitmap
                                    ? std::make_shared<roaring::Roaring>(*other._null_bitmap)
-                                   : nullptr) {}
+                                   : nullptr),
+              _approximate(other._approximate) {}
 
     // Move constructor
     InvertedIndexResultBitmap(InvertedIndexResultBitmap&& other) noexcept
             : _data_bitmap(std::move(other._data_bitmap)),
-              _null_bitmap(std::move(other._null_bitmap)) {}
+              _null_bitmap(std::move(other._null_bitmap)),
+              _approximate(other._approximate) {}
 
     // Copy assignment operator
     InvertedIndexResultBitmap& operator=(const InvertedIndexResultBitmap& other) {
@@ -115,6 +123,7 @@ public:
             _null_bitmap = other._null_bitmap
                                    ? std::make_shared<roaring::Roaring>(*other._null_bitmap)
                                    : nullptr;
+            _approximate = other._approximate;
         }
         return *this;
     }
@@ -124,6 +133,7 @@ public:
         if (this != &other) { // Prevent self-assignment
             _data_bitmap = std::move(other._data_bitmap);
             _null_bitmap = std::move(other._null_bitmap);
+            _approximate = other._approximate;
         }
         return *this;
     }
@@ -205,6 +215,11 @@ public:
 
     // Check if both bitmaps are empty
     bool is_empty() const { return (_data_bitmap == nullptr && _null_bitmap == nullptr); }
+
+    // true = superset of candidates: rows outside the bitmap certainly do not match, but rows
+    // inside it may not all match, so the expression must re-verify them.
+    void set_approximate(bool v) { _approximate = v; }
+    bool approximate() const { return _approximate; }
 
 private:
     static const roaring::Roaring& _empty_bitmap() {
