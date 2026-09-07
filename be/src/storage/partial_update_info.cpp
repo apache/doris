@@ -328,8 +328,8 @@ void FixedReadPlan::prepare_to_read(const RowLocation& row_location, size_t pos)
 Status FixedReadPlan::read_columns_by_plan(
         const TabletSchema& tablet_schema, std::vector<uint32_t> cids_to_read,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, Block& block,
-        std::map<uint32_t, uint32_t>* read_index, bool force_read_old_delete_signs,
-        const signed char* __restrict cur_delete_signs) const {
+        std::map<uint32_t, uint32_t>* read_index, ReadStrategy read_strategy,
+        bool force_read_old_delete_signs, const signed char* __restrict cur_delete_signs) const {
     if (force_read_old_delete_signs) {
         // always read delete sign column from historical data
         if (block.get_position_by_name(DELETE_SIGN) == -1) {
@@ -338,10 +338,11 @@ Status FixedReadPlan::read_columns_by_plan(
             block.swap(tablet_schema.create_storage_block(cids_to_read));
         }
     }
-    bool has_row_column = tablet_schema.has_row_store_for_all_columns();
+    const bool use_row_store = read_strategy == ReadStrategy::PREFER_ROW_STORE &&
+                               tablet_schema.has_row_store_for_all_columns();
     std::optional<Block::ScopedMutableColumns> mutable_columns_guard;
     MutableColumns* mutable_columns = nullptr;
-    if (!has_row_column) {
+    if (!use_row_store) {
         mutable_columns_guard.emplace(block);
         mutable_columns = &mutable_columns_guard->mutable_columns();
     }
@@ -358,7 +359,7 @@ Status FixedReadPlan::read_columns_by_plan(
                 rids.emplace_back(rid);
                 (*read_index)[static_cast<uint32_t>(pos)] = read_idx++;
             }
-            if (has_row_column) {
+            if (use_row_store) {
                 auto st = BaseTablet::fetch_value_through_row_column(
                         rowset_iter->second, tablet_schema, segment_id, rids, cids_to_read, block);
                 if (!st.ok()) {
@@ -367,16 +368,12 @@ Status FixedReadPlan::read_columns_by_plan(
                 }
                 continue;
             }
-            for (size_t cid = 0; cid < mutable_columns->size(); ++cid) {
-                TabletColumn tablet_column = tablet_schema.column(cids_to_read[cid]);
-                auto st = doris::BaseTablet::fetch_value_by_rowids(rowset_iter->second, segment_id,
-                                                                   rids, tablet_column,
-                                                                   (*mutable_columns)[cid]);
-                // set read value to output block
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to fetch value";
-                    return st;
-                }
+            auto st = BaseTablet::fetch_values_by_rowids(rowset_iter->second, tablet_schema,
+                                                         segment_id, rids, cids_to_read,
+                                                         *mutable_columns);
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to fetch values by rowids";
+                return st;
             }
         }
     }
@@ -434,7 +431,8 @@ Status FixedReadPlan::fill_missing_columns(
     // segment pos to write -> rowid to read in old_value_block
     std::map<uint32_t, uint32_t> read_index;
     RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, missing_cids, rsid_to_rowset,
-                                         old_value_block, &read_index, true, nullptr));
+                                         old_value_block, &read_index,
+                                         ReadStrategy::PREFER_ROW_STORE, true, nullptr));
 
     const auto* old_delete_sign_column_data =
             BaseTablet::get_delete_sign_column_data(old_value_block);
@@ -1130,8 +1128,9 @@ Status BlockAggregator::fill_sequence_column(Block* block, size_t num_rows,
     auto seq_col_block = _tablet_schema.create_storage_block(cids);
     auto tmp_block = _tablet_schema.create_storage_block(cids);
     std::map<uint32_t, uint32_t> read_index;
-    RETURN_IF_ERROR(read_plan.read_columns_by_plan(_tablet_schema, cids, _fetcher.pinned_rowsets(),
-                                                   seq_col_block, &read_index, false));
+    RETURN_IF_ERROR(read_plan.read_columns_by_plan(
+            _tablet_schema, cids, _fetcher.pinned_rowsets(), seq_col_block, &read_index,
+            FixedReadPlan::ReadStrategy::PREFER_ROW_STORE, false));
 
     auto new_seq_col_ptr = tmp_block.get_by_position(0).column->assert_mutable();
     const auto& old_seq_col_ptr = *seq_col_block.get_by_position(0).column;
