@@ -839,7 +839,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 ((KafkaProgress) progress).checkPartitions(kafkaPartitionOffsets);
             }
 
-            if (Config.isCloudMode()) {
+            // Kafka client properties do not change the consumed offsets, so keep the cloud progress for replay.
+            if (Config.isCloudMode()
+                    && (!Strings.isNullOrEmpty(dataSourceProperties.getTopic())
+                            || !kafkaPartitionOffsets.isEmpty())) {
                 Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder()
                         .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 builder.setCloudUniqueId(Config.cloud_unique_id);
