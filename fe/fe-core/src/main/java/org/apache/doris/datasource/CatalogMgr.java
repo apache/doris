@@ -43,6 +43,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
@@ -53,6 +54,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -67,6 +69,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentMap;
@@ -86,6 +89,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public static final String ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP = "access_controller.properties.";
     public static final String METADATA_REFRESH_INTERVAL_SEC = "metadata_refresh_interval_sec";
     public static final String CATALOG_TYPE_PROP = "type";
+
+    /**
+     * The Lance catalog properties whose change moves the persisted target identity
+     * (provider, stable locator, or namespace mapping) out from under unresolved index
+     * jobs. Credential and other properties are not target-changing and stay unguarded.
+     * Keys match case-insensitively because the catalog property chain performs no key
+     * normalization.
+     */
+    private static final Set<String> LANCE_TARGET_IDENTITY_KEYS = ImmutableSet.of(
+            "lance.catalog.type", "warehouse",
+            "lance.namespace.parent", "lance.namespace.delimiter", "lance.namespace.root_database");
 
     private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
@@ -300,9 +314,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 LOG.warn("Non catalog {} is found.", catalogName);
                 return;
             }
-            CatalogIf<DatabaseIf<TableIf>> catalog = nameToCatalog.get(catalogName);
+            // Raw CatalogIf: the parameterized CatalogIf<DatabaseIf<TableIf>> can never be
+            // a LanceExternalCatalog at compile time, which would reject the instanceof below.
+            CatalogIf catalog = nameToCatalog.get(catalogName);
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + catalogName);
+            }
+            if (catalog instanceof LanceExternalCatalog
+                    && Env.getCurrentEnv().getLanceIndexJobManager().hasUnresolvedJobsForCatalog(catalog.getId())) {
+                throw new DdlException("catalog '" + catalogName + "' has unresolved Lance index jobs; "
+                        + "they must be released via FORCE_RELEASE (available in a later release) "
+                        + "before dropping the catalog");
             }
             CatalogLog log = new CatalogLog();
             log.setCatalogId(catalog.getId());
@@ -419,6 +441,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     .equalsIgnoreCase(newProperties.get("type"))) {
                 throw new DdlException("Can't modify the type of catalog property with name: " + catalogName);
             }
+            if (catalog instanceof LanceExternalCatalog
+                    && hasLanceIdentityKeyChange(oldProperties, newProperties)
+                    && Env.getCurrentEnv().getLanceIndexJobManager().hasUnresolvedJobsForCatalog(catalog.getId())) {
+                throw new DdlException("catalog '" + catalogName + "' has unresolved Lance index jobs; "
+                        + "they must be released via FORCE_RELEASE (available in a later release) "
+                        + "before changing target identity properties");
+            }
             CatalogLog log = new CatalogLog();
             log.setCatalogId(catalog.getId());
             log.setNewProps(newProperties);
@@ -427,6 +456,29 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
+    }
+
+    /**
+     * Whether the supplied properties change any Lance target identity key relative to the
+     * currently persisted values. A same-value rewrite is an idempotent no-op and is not a
+     * change; a newly supplied identity key counts as a change when the persisted value
+     * differs (including when it was never set).
+     */
+    private static boolean hasLanceIdentityKeyChange(Map<String, String> oldProperties,
+            Map<String, String> newProperties) {
+        for (Map.Entry<String, String> entry : newProperties.entrySet()) {
+            String key = entry.getKey();
+            if (key == null) {
+                continue;
+            }
+            for (String identityKey : LANCE_TARGET_IDENTITY_KEYS) {
+                if (identityKey.equalsIgnoreCase(key)
+                        && !Objects.equals(oldProperties.get(key), entry.getValue())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public List<List<String>> showCatalogs(
