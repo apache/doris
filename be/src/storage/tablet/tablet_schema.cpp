@@ -471,6 +471,10 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (_has_default_value) {
         _default_value = column.default_value();
     }
+    _has_default_value_expr = column.has_default_value_expr();
+    if (_has_default_value_expr) {
+        _default_value_expr = column.default_value_expr();
+    }
 
     if (column.has_precision()) {
         _is_decimal = true;
@@ -570,6 +574,9 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_is_on_update_current_timestamp(_is_on_update_current_timestamp);
     if (_has_default_value) {
         column->set_default_value(_default_value);
+    }
+    if (_has_default_value_expr) {
+        column->set_default_value_expr(_default_value_expr);
     }
     if (_is_decimal) {
         column->set_precision(_precision);
@@ -1767,6 +1774,10 @@ bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._has_default_value != b._has_default_value) return false;
     if (a._has_default_value) {
         if (a._default_value != b._default_value) return false;
+    }
+    if (a._has_default_value_expr != b._has_default_value_expr) return false;
+    if (a._has_default_value_expr) {
+        if (a._default_value_expr != b._default_value_expr) return false;
     }
     if (a._is_decimal != b._is_decimal) return false;
     if (a._is_decimal) {
