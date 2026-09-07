@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -225,7 +226,12 @@ public class FEOpExecutor {
 
         // Propagate the client's CLIENT_DEPRECATE_EOF capability so the master FE
         // generates packets matching the original client's protocol expectations.
-        params.setClientDeprecatedEOF(ctx.getMysqlChannel().clientDeprecatedEOF());
+        // Only a MySQL connection negotiates this capability and owns a MysqlChannel;
+        // an Arrow Flight SQL session has none, and leaving the field unset keeps the
+        // master on its default packet layout.
+        if (ctx.getConnectType() == ConnectType.MYSQL) {
+            params.setClientDeprecatedEOF(ctx.getMysqlChannel().clientDeprecatedEOF());
+        }
 
         return params;
     }
