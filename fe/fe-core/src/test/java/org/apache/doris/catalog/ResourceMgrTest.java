@@ -28,9 +28,9 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -51,7 +51,7 @@ public class ResourceMgrTest {
     private String s3ConnTimeoutMs;
     private Map<String, String> s3Properties;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         s3ResName = "s30";
         s3ResType = "s3";
@@ -90,9 +90,9 @@ public class ResourceMgrTest {
             ResourceMgr mgr = new ResourceMgr();
             CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, s3ResName, ImmutableMap.copyOf(s3Properties)));
             createResourceCommand.getInfo().validate();
-            Assert.assertEquals(0, mgr.getResourceNum());
+            Assertions.assertEquals(0, mgr.getResourceNum());
             mgr.createResource(createResourceCommand);
-            Assert.assertEquals(1, mgr.getResourceNum());
+            Assertions.assertEquals(1, mgr.getResourceNum());
 
             // alter
             s3Region = "sh";
@@ -105,29 +105,31 @@ public class ResourceMgrTest {
         }
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testAddResourceExist() throws UserException {
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            Env env = Mockito.mock(Env.class);
-            EditLog editLog = Mockito.mock(EditLog.class);
-            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getEditLog()).thenReturn(editLog);
-            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
-            Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
-                    .thenReturn(true);
+        Assertions.assertThrows(DdlException.class, () -> {
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                Env env = Mockito.mock(Env.class);
+                EditLog editLog = Mockito.mock(EditLog.class);
+                AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                Mockito.when(env.getEditLog()).thenReturn(editLog);
+                Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+                Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                        .thenReturn(true);
 
-            // add
-            ResourceMgr mgr = new ResourceMgr();
-            CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, s3ResName, ImmutableMap.copyOf(s3Properties)));
-            createResourceCommand.getInfo().validate();
+                // add
+                ResourceMgr mgr = new ResourceMgr();
+                CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, s3ResName, ImmutableMap.copyOf(s3Properties)));
+                createResourceCommand.getInfo().validate();
 
-            Assert.assertEquals(0, mgr.getResourceNum());
-            mgr.createResource(createResourceCommand);
-            Assert.assertEquals(1, mgr.getResourceNum());
+                Assertions.assertEquals(0, mgr.getResourceNum());
+                mgr.createResource(createResourceCommand);
+                Assertions.assertEquals(1, mgr.getResourceNum());
 
-            // add again
-            mgr.createResource(createResourceCommand);
-        }
+                // add again
+                mgr.createResource(createResourceCommand);
+            }
+        });
     }
 }

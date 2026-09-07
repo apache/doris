@@ -42,10 +42,10 @@ import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.Logger;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.apache.logging.log4j.core.config.Property;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -73,7 +73,7 @@ public class CacheHotspotManagerTest {
     private EditLog editLog;
     private MockedStatic<Env> envMockedStatic;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         originalRunningUnitTest = FeConstants.runningUnitTest;
         FeConstants.runningUnitTest = true;
@@ -88,7 +88,7 @@ public class CacheHotspotManagerTest {
         cacheHotspotManager = new CacheHotspotManager(cloudSystemInfoService);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         envMockedStatic.close();
         FeConstants.runningUnitTest = originalRunningUnitTest;
@@ -143,12 +143,12 @@ public class CacheHotspotManagerTest {
 
         Map<Long, List<Tablet>> result = cacheHotspotManager.warmUpNewClusterByTable(
                 jobId, dstClusterName, tables, true);
-        Assert.assertEquals(1, result.size());
-        Assert.assertEquals(1001L, result.get(11L).get(0).getId());
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals(1001L, result.get(11L).get(0).getId());
 
-        RuntimeException exception = Assert.assertThrows(RuntimeException.class, () ->
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () ->
                 cacheHotspotManager.warmUpNewClusterByTable(jobId, dstClusterName, tables, false));
-        Assert.assertEquals("The cluster " + dstClusterName + " cache size is not enough", exception.getMessage());
+        Assertions.assertEquals("The cluster " + dstClusterName + " cache size is not enough", exception.getMessage());
     }
 
     @Test
@@ -156,14 +156,14 @@ public class CacheHotspotManagerTest {
         long firstJobId = cacheHotspotManager.createJob(newTableStmt("dst", false,
                 Triple.of("db1", "tbl1", ""),
                 Triple.of("db2", "tbl2", "p1")));
-        AnalysisException exception = Assert.assertThrows(AnalysisException.class, () ->
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
                 cacheHotspotManager.createJob(newTableStmt("dst", false,
                 Triple.of("db2", "tbl2", "p1"),
                 Triple.of("db1", "tbl1", ""))));
 
-        Assert.assertTrue(exception.getMessage().contains("already has a pending job"));
-        Assert.assertTrue(exception.getMessage().contains("job id: " + firstJobId));
-        Assert.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
+        Assertions.assertTrue(exception.getMessage().contains("already has a pending job"));
+        Assertions.assertTrue(exception.getMessage().contains("job id: " + firstJobId));
+        Assertions.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
         Mockito.verify(env, Mockito.times(1)).getNextId();
         Mockito.verify(editLog, Mockito.times(1)).logModifyCloudWarmUpJob(Mockito.any(CloudWarmUpJob.class));
     }
@@ -173,12 +173,12 @@ public class CacheHotspotManagerTest {
         long firstJobId = cacheHotspotManager.createJob(newTableStmt("dst", false,
                 Triple.of("db1", "tbl1", ""),
                 Triple.of("db1", "tbl1", "")));
-        AnalysisException exception = Assert.assertThrows(AnalysisException.class, () ->
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
                 cacheHotspotManager.createJob(newTableStmt("dst", false, Triple.of("db1", "tbl1", ""))));
 
-        Assert.assertTrue(exception.getMessage().contains("already has a pending job"));
-        Assert.assertTrue(exception.getMessage().contains("job id: " + firstJobId));
-        Assert.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
+        Assertions.assertTrue(exception.getMessage().contains("already has a pending job"));
+        Assertions.assertTrue(exception.getMessage().contains("job id: " + firstJobId));
+        Assertions.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
     }
 
     @Test
@@ -188,8 +188,8 @@ public class CacheHotspotManagerTest {
         long forceTrueJobId = cacheHotspotManager.createJob(newTableStmt("dst", true,
                 Triple.of("db1", "tbl1", "")));
 
-        Assert.assertNotEquals(forceFalseJobId, forceTrueJobId);
-        Assert.assertEquals(2, cacheHotspotManager.getCloudWarmUpJobs().size());
+        Assertions.assertNotEquals(forceFalseJobId, forceTrueJobId);
+        Assertions.assertEquals(2, cacheHotspotManager.getCloudWarmUpJobs().size());
     }
 
     @Test
@@ -197,8 +197,8 @@ public class CacheHotspotManagerTest {
         long firstJobId = cacheHotspotManager.createJob(newClusterStmt("dst", "src", false));
         long reusedJobId = cacheHotspotManager.createJob(newClusterStmt("dst", "src", false));
 
-        Assert.assertEquals(firstJobId, reusedJobId);
-        Assert.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
+        Assertions.assertEquals(firstJobId, reusedJobId);
+        Assertions.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
     }
 
     @Test
@@ -206,8 +206,8 @@ public class CacheHotspotManagerTest {
         long firstJobId = cacheHotspotManager.createJob(newClusterStmt("dst", "src", false));
         long reusedJobId = cacheHotspotManager.createJob(newClusterStmt("dst", "src", true));
 
-        Assert.assertEquals(firstJobId, reusedJobId);
-        Assert.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
+        Assertions.assertEquals(firstJobId, reusedJobId);
+        Assertions.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
     }
 
     @Test
@@ -217,9 +217,9 @@ public class CacheHotspotManagerTest {
 
         long newJobId = cacheHotspotManager.createJob(newClusterStmt("dst", "src", false));
 
-        Assert.assertNotEquals(runningJob.getJobId(), newJobId);
-        Assert.assertEquals(2, cacheHotspotManager.getCloudWarmUpJobs().size());
-        Assert.assertEquals(JobState.PENDING, cacheHotspotManager.getCloudWarmUpJob(newJobId).getJobState());
+        Assertions.assertNotEquals(runningJob.getJobId(), newJobId);
+        Assertions.assertEquals(2, cacheHotspotManager.getCloudWarmUpJobs().size());
+        Assertions.assertEquals(JobState.PENDING, cacheHotspotManager.getCloudWarmUpJob(newJobId).getJobState());
     }
 
     @Test
@@ -231,8 +231,8 @@ public class CacheHotspotManagerTest {
 
         long reusedJobId = cacheHotspotManager.createJob(newClusterStmt("dst", "src", false));
 
-        Assert.assertEquals(pendingJob.getJobId(), reusedJobId);
-        Assert.assertEquals(2, cacheHotspotManager.getCloudWarmUpJobs().size());
+        Assertions.assertEquals(pendingJob.getJobId(), reusedJobId);
+        Assertions.assertEquals(2, cacheHotspotManager.getCloudWarmUpJobs().size());
     }
 
     @Test
@@ -242,9 +242,9 @@ public class CacheHotspotManagerTest {
 
         long newJobId = cacheHotspotManager.createJob(newClusterStmt("dst", "src", false));
 
-        Assert.assertNotEquals(finishedJob.getJobId(), newJobId);
-        Assert.assertEquals(2, cacheHotspotManager.getCloudWarmUpJobs().size());
-        Assert.assertEquals(JobState.PENDING, cacheHotspotManager.getCloudWarmUpJob(newJobId).getJobState());
+        Assertions.assertNotEquals(finishedJob.getJobId(), newJobId);
+        Assertions.assertEquals(2, cacheHotspotManager.getCloudWarmUpJobs().size());
+        Assertions.assertEquals(JobState.PENDING, cacheHotspotManager.getCloudWarmUpJob(newJobId).getJobState());
     }
 
     @Test
@@ -256,8 +256,8 @@ public class CacheHotspotManagerTest {
 
         long reusedJobId = cacheHotspotManager.createJob(newClusterStmt("dst", "src", false));
 
-        Assert.assertEquals(olderPendingJob.getJobId(), reusedJobId);
-        Assert.assertEquals(2, cacheHotspotManager.getCloudWarmUpJobs().size());
+        Assertions.assertEquals(olderPendingJob.getJobId(), reusedJobId);
+        Assertions.assertEquals(2, cacheHotspotManager.getCloudWarmUpJobs().size());
     }
 
     @Test
@@ -273,12 +273,12 @@ public class CacheHotspotManagerTest {
         };
 
         try {
-            RuntimeException exception = Assert.assertThrows(RuntimeException.class, () ->
+            RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () ->
                     cacheHotspotManager.createJob(newTableStmt("dst", false, Triple.of("db1", "tbl1", ""))));
 
-            Assert.assertEquals("mock create failure", exception.getMessage());
-            Assert.assertEquals(0, getOncePendingCreateLockCount());
-            Assert.assertEquals(0, cacheHotspotManager.getCloudWarmUpJobs().size());
+            Assertions.assertEquals("mock create failure", exception.getMessage());
+            Assertions.assertEquals(0, getOncePendingCreateLockCount());
+            Assertions.assertEquals(0, cacheHotspotManager.getCloudWarmUpJobs().size());
         } finally {
             FeConstants.runningUnitTest = previousRunningUnitTest;
         }
@@ -292,7 +292,7 @@ public class CacheHotspotManagerTest {
         Mockito.when(env.getNextId()).thenAnswer(invocation -> {
             if (getNextIdCalls.incrementAndGet() == 1) {
                 firstCreateEntered.countDown();
-                Assert.assertTrue(allowFirstCreateToContinue.await(5, TimeUnit.SECONDS));
+                Assertions.assertTrue(allowFirstCreateToContinue.await(5, TimeUnit.SECONDS));
             }
             return nextJobId.getAndIncrement();
         });
@@ -301,7 +301,7 @@ public class CacheHotspotManagerTest {
         try {
             Future<Long> firstCreate = executor.submit(() -> createJobWithThreadLocalEnv(
                     newClusterStmt("dst", "src", false)));
-            Assert.assertTrue(firstCreateEntered.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(firstCreateEntered.await(5, TimeUnit.SECONDS));
 
             Future<Long> secondCreate = executor.submit(() -> createJobWithThreadLocalEnv(
                     newClusterStmt("dst", "src", false)));
@@ -311,10 +311,10 @@ public class CacheHotspotManagerTest {
 
             long firstJobId = firstCreate.get(5, TimeUnit.SECONDS);
             long secondJobId = secondCreate.get(5, TimeUnit.SECONDS);
-            Assert.assertEquals(firstJobId, secondJobId);
-            Assert.assertEquals(1, getNextIdCalls.get());
-            Assert.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
-            Assert.assertEquals(0, getOncePendingCreateLockCount());
+            Assertions.assertEquals(firstJobId, secondJobId);
+            Assertions.assertEquals(1, getNextIdCalls.get());
+            Assertions.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
+            Assertions.assertEquals(0, getOncePendingCreateLockCount());
         } finally {
             allowFirstCreateToContinue.countDown();
             executor.shutdownNow();
@@ -325,24 +325,24 @@ public class CacheHotspotManagerTest {
     public void testCreatePeriodicJobUnaffected() throws AnalysisException {
         WarmUpClusterCommand periodicStmt = newClusterStmt("dst", "src", false, periodicProperties(60));
         long firstJobId = cacheHotspotManager.createJob(periodicStmt);
-        AnalysisException exception = Assert.assertThrows(AnalysisException.class, () ->
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
                 cacheHotspotManager.createJob(newClusterStmt("dst", "src", false, periodicProperties(60))));
 
-        Assert.assertEquals(1000L, firstJobId);
-        Assert.assertTrue(exception.getMessage().contains("already has a runnable job"));
-        Assert.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
+        Assertions.assertEquals(1000L, firstJobId);
+        Assertions.assertTrue(exception.getMessage().contains("already has a runnable job"));
+        Assertions.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
     }
 
     @Test
     public void testCreateEventDrivenJobUnaffected() throws AnalysisException {
         WarmUpClusterCommand eventDrivenStmt = newClusterStmt("dst", "src", false, eventDrivenProperties("load"));
         long firstJobId = cacheHotspotManager.createJob(eventDrivenStmt);
-        AnalysisException exception = Assert.assertThrows(AnalysisException.class, () ->
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
                 cacheHotspotManager.createJob(newClusterStmt("dst", "src", false, eventDrivenProperties("load"))));
 
-        Assert.assertEquals(1000L, firstJobId);
-        Assert.assertTrue(exception.getMessage().contains("already has a runnable job"));
-        Assert.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
+        Assertions.assertEquals(1000L, firstJobId);
+        Assertions.assertTrue(exception.getMessage().contains("already has a runnable job"));
+        Assertions.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
     }
 
     @Test
@@ -355,18 +355,18 @@ public class CacheHotspotManagerTest {
         appender.start();
         logger.addAppender(appender);
         try {
-            Assert.assertTrue(cacheHotspotManager.tryRegisterRunningJob(runningJob));
-            Assert.assertFalse(cacheHotspotManager.tryRegisterRunningJob(blockedJob));
+            Assertions.assertTrue(cacheHotspotManager.tryRegisterRunningJob(runningJob));
+            Assertions.assertFalse(cacheHotspotManager.tryRegisterRunningJob(blockedJob));
         } finally {
             logger.removeAppender(appender);
             appender.stop();
         }
 
         String logs = appender.messagesAsString();
-        Assert.assertTrue(logs, logs.contains("warmup-lock register"));
-        Assert.assertTrue(logs, logs.contains("jobId=11"));
-        Assert.assertTrue(logs, logs.contains("existingJobId=10"));
-        Assert.assertTrue(logs, logs.contains("registerResult=blocked"));
+        Assertions.assertTrue(logs.contains("warmup-lock register"), logs);
+        Assertions.assertTrue(logs.contains("jobId=11"), logs);
+        Assertions.assertTrue(logs.contains("existingJobId=10"), logs);
+        Assertions.assertTrue(logs.contains("registerResult=blocked"), logs);
     }
 
     private WarmUpClusterCommand newTableStmt(String dstClusterName, boolean force,
@@ -434,7 +434,7 @@ public class CacheHotspotManagerTest {
 
     private int getOnlyOncePendingCreateLockRefCount() throws Exception {
         Map<?, ?> locks = getOncePendingCreateLocks();
-        Assert.assertEquals(1, locks.size());
+        Assertions.assertEquals(1, locks.size());
         Object lockEntry = locks.values().iterator().next();
         Field refCountField = lockEntry.getClass().getDeclaredField("refCount");
         refCountField.setAccessible(true);
@@ -456,7 +456,7 @@ public class CacheHotspotManagerTest {
             }
             Thread.sleep(10L);
         }
-        Assert.fail("Timed out waiting for once pending create lock ref count " + expectedRefCount);
+        Assertions.fail("Timed out waiting for once pending create lock ref count " + expectedRefCount);
     }
 
     private static class RecordingAppender extends AbstractAppender {

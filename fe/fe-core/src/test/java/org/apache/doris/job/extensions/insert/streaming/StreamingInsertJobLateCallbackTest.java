@@ -23,8 +23,8 @@ import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -45,10 +45,8 @@ public class StreamingInsertJobLateCallbackTest {
 
         task.cancel(true);
 
-        Assert.assertTrue("isCanceled must flip even when task already FAILED",
-                task.getIsCanceled().get());
-        Assert.assertEquals("status preserved when already terminal",
-                TaskStatus.FAILED, task.getStatus());
+        Assertions.assertTrue(task.getIsCanceled().get(), "isCanceled must flip even when task already FAILED");
+        Assertions.assertEquals(TaskStatus.FAILED, task.getStatus(), "status preserved when already terminal");
     }
 
     @Test
@@ -57,8 +55,8 @@ public class StreamingInsertJobLateCallbackTest {
 
         task.cancel(true);
 
-        Assert.assertTrue(task.getIsCanceled().get());
-        Assert.assertEquals(TaskStatus.SUCCESS, task.getStatus());
+        Assertions.assertTrue(task.getIsCanceled().get());
+        Assertions.assertEquals(TaskStatus.SUCCESS, task.getStatus());
     }
 
     @Test
@@ -67,8 +65,8 @@ public class StreamingInsertJobLateCallbackTest {
 
         task.cancel(true);
 
-        Assert.assertTrue(task.getIsCanceled().get());
-        Assert.assertEquals(TaskStatus.CANCELED, task.getStatus());
+        Assertions.assertTrue(task.getIsCanceled().get());
+        Assertions.assertEquals(TaskStatus.CANCELED, task.getStatus());
     }
 
     @Test
@@ -76,13 +74,12 @@ public class StreamingInsertJobLateCallbackTest {
         StreamingMultiTblTask task = newTask(1004L, TaskStatus.RUNNING);
 
         task.cancel(true);
-        Assert.assertEquals(TaskStatus.CANCELED, task.getStatus());
-        Assert.assertTrue(task.getIsCanceled().get());
+        Assertions.assertEquals(TaskStatus.CANCELED, task.getStatus());
+        Assertions.assertTrue(task.getIsCanceled().get());
 
         Deencapsulation.setField(task, "errMsg", "first cancel");
         task.cancel(true);
-        Assert.assertEquals("second cancel must early-return and leave state untouched",
-                "first cancel", Deencapsulation.getField(task, "errMsg"));
+        Assertions.assertEquals("first cancel", Deencapsulation.getField(task, "errMsg"), "second cancel must early-return and leave state untouched");
     }
 
     @Test
@@ -99,7 +96,7 @@ public class StreamingInsertJobLateCallbackTest {
         StreamingMultiTblTask task = newTask(7777L, TaskStatus.FAILED);
         // simulate the bug timeline: task already FAILED via onFail, then cancel marks isCanceled.
         task.cancel(true);
-        Assert.assertTrue(task.getIsCanceled().get());
+        Assertions.assertTrue(task.getIsCanceled().get());
 
         Deencapsulation.setField(job, "runningStreamTask", task);
 
@@ -114,7 +111,6 @@ public class StreamingInsertJobLateCallbackTest {
         // no successCallback side-effects.
         job.commitOffset(req);
 
-        Assert.assertEquals("task status must stay terminal — late callback ignored",
-                TaskStatus.FAILED, task.getStatus());
+        Assertions.assertEquals(TaskStatus.FAILED, task.getStatus(), "task status must stay terminal — late callback ignored");
     }
 }

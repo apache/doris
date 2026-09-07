@@ -35,8 +35,8 @@ import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -69,10 +69,10 @@ public class CloudInternalCatalogBloomFilterMaterializationTest {
                 65536L, EncryptionAlgorithmPB.PLAINTEXT, 262144L, false, Collections.emptyMap(), 5,
                 OlapFile.TabletRolePB.TABLET_ROLE_DATA).build();
 
-        Assert.assertFalse(tabletMeta.getSchema().hasBfFpp());
-        Assert.assertTrue(tabletMeta.getSchema().getColumn(0).getIsBfColumn());
-        Assert.assertFalse(tabletMeta.getSchema().getColumn(1).getIsBfColumn());
-        Assert.assertEquals("0.02", tabletMeta.getSchema().getIndex(0).getPropertiesMap().get("bloom_filter_fpp"));
+        Assertions.assertFalse(tabletMeta.getSchema().hasBfFpp());
+        Assertions.assertTrue(tabletMeta.getSchema().getColumn(0).getIsBfColumn());
+        Assertions.assertFalse(tabletMeta.getSchema().getColumn(1).getIsBfColumn());
+        Assertions.assertEquals("0.02", tabletMeta.getSchema().getIndex(0).getPropertiesMap().get("bloom_filter_fpp"));
     }
 
     @Test
@@ -95,8 +95,8 @@ public class CloudInternalCatalogBloomFilterMaterializationTest {
                 65536L, EncryptionAlgorithmPB.PLAINTEXT, 262144L, false, Collections.emptyMap(), 5,
                 OlapFile.TabletRolePB.TABLET_ROLE_DATA).build();
 
-        Assert.assertFalse(tabletMeta.getSchema().hasBfFpp());
-        Assert.assertTrue(tabletMeta.getSchema().getColumn(0).getIsBfColumn());
+        Assertions.assertFalse(tabletMeta.getSchema().hasBfFpp());
+        Assertions.assertTrue(tabletMeta.getSchema().getColumn(0).getIsBfColumn());
     }
 
     @Test
@@ -115,8 +115,8 @@ public class CloudInternalCatalogBloomFilterMaterializationTest {
                 65536L, EncryptionAlgorithmPB.PLAINTEXT, 262144L, false, Collections.emptyMap(), 5,
                 OlapFile.TabletRolePB.TABLET_ROLE_DATA).build();
 
-        Assert.assertFalse(tabletMeta.getSchema().hasBfFpp());
-        Assert.assertFalse(tabletMeta.getSchema().getColumn(0).getIsBfColumn());
+        Assertions.assertFalse(tabletMeta.getSchema().hasBfFpp());
+        Assertions.assertFalse(tabletMeta.getSchema().getColumn(0).getIsBfColumn());
     }
 
     @Test
@@ -140,10 +140,10 @@ public class CloudInternalCatalogBloomFilterMaterializationTest {
                 EncryptionAlgorithmPB.PLAINTEXT, 262144L, false, Collections.emptyMap(), 5,
                 OlapFile.TabletRolePB.TABLET_ROLE_DATA).build();
 
-        Assert.assertTrue(tabletMeta.getSchema().hasBfFpp());
-        Assert.assertEquals(0.02, tabletMeta.getSchema().getBfFpp(), 0);
-        Assert.assertTrue(tabletMeta.getSchema().getColumn(0).getIsBfColumn());
-        Assert.assertFalse(tabletMeta.getSchema().getColumn(1).getIsBfColumn());
+        Assertions.assertTrue(tabletMeta.getSchema().hasBfFpp());
+        Assertions.assertEquals(0.02, tabletMeta.getSchema().getBfFpp(), 0);
+        Assertions.assertTrue(tabletMeta.getSchema().getColumn(0).getIsBfColumn());
+        Assertions.assertFalse(tabletMeta.getSchema().getColumn(1).getIsBfColumn());
     }
 
     @Test
@@ -170,10 +170,10 @@ public class CloudInternalCatalogBloomFilterMaterializationTest {
                 EncryptionAlgorithmPB.PLAINTEXT, 262144L, false, Collections.emptyMap(), 5,
                 OlapFile.TabletRolePB.TABLET_ROLE_DATA).build();
 
-        Assert.assertFalse(tabletMeta.getSchema().hasBfFpp());
-        Assert.assertTrue(tabletMeta.getSchema().getColumn(0).getIsBfColumn());
-        Assert.assertFalse(tabletMeta.getSchema().getColumn(1).getIsBfColumn());
-        Assert.assertEquals("k1", tabletMeta.getSchema().getColumn(0).getName());
-        Assert.assertEquals("0.03", tabletMeta.getSchema().getIndex(0).getPropertiesMap().get("bloom_filter_fpp"));
+        Assertions.assertFalse(tabletMeta.getSchema().hasBfFpp());
+        Assertions.assertTrue(tabletMeta.getSchema().getColumn(0).getIsBfColumn());
+        Assertions.assertFalse(tabletMeta.getSchema().getColumn(1).getIsBfColumn());
+        Assertions.assertEquals("k1", tabletMeta.getSchema().getColumn(0).getName());
+        Assertions.assertEquals("0.03", tabletMeta.getSchema().getIndex(0).getPropertiesMap().get("bloom_filter_fpp"));
     }
 }

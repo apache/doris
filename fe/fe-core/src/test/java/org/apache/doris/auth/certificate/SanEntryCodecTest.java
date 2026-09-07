@@ -17,8 +17,8 @@
 
 package org.apache.doris.auth.certificate;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
@@ -30,7 +30,7 @@ public class SanEntryCodecTest {
         List<String> entries = SanEntryCodec.parseAndNormalize(
                 "email:Alice@Example.com, DNS:Example.com., IP:10.0.0.1");
 
-        Assert.assertEquals(Arrays.asList(
+        Assertions.assertEquals(Arrays.asList(
                 "email:Alice@Example.com",
                 "DNS:Example.com",
                 "IP Address:10.0.0.1"), entries);
@@ -38,14 +38,14 @@ public class SanEntryCodecTest {
 
     @Test
     public void testContainsAllMatchesNormalizedEntries() {
-        Assert.assertTrue(SanEntryCodec.containsAll(
+        Assertions.assertTrue(SanEntryCodec.containsAll(
                 Arrays.asList("DNS:example.com", "email:Alice@Example.com"),
                 Arrays.asList("email:Alice@Example.com", "DNS:example.com.", "URI:spiffe://foo")));
     }
 
     @Test
     public void testContainsAllRejectsMissingEntry() {
-        Assert.assertFalse(SanEntryCodec.containsAll(
+        Assertions.assertFalse(SanEntryCodec.containsAll(
                 Arrays.asList("DNS:example.com", "URI:spiffe://example.com/workload"),
                 Arrays.asList("DNS:example.com")));
     }

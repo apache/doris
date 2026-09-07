@@ -18,7 +18,6 @@
 package org.apache.doris.common;
 
 import com.google.common.base.Strings;
-import junit.framework.AssertionFailedError;
 
 public class ExceptionChecker {
 
@@ -35,7 +34,7 @@ public class ExceptionChecker {
             runnable.run();
         } catch (Throwable e) {
             e.printStackTrace();
-            throw new AssertionFailedError(e.getMessage());
+            throw new AssertionError(e.getMessage());
         }
     }
 
@@ -70,7 +69,7 @@ public class ExceptionChecker {
             if (expectedType.isInstance(e)) {
                 if (!Strings.isNullOrEmpty(exceptionMsg)) {
                     if (!e.getMessage().contains(exceptionMsg)) {
-                        AssertionFailedError assertion = new AssertionFailedError(
+                        AssertionError assertion = new AssertionError(
                                 "expected msg: " + exceptionMsg + ", actual: " + e.getMessage());
                         assertion.initCause(e);
                         assertion.printStackTrace();
@@ -79,11 +78,11 @@ public class ExceptionChecker {
                 }
                 return expectedType.cast(e);
             }
-            AssertionFailedError assertion = new AssertionFailedError(
+            AssertionError assertion = new AssertionError(
                     "Unexpected exception type, expected " + expectedType.getSimpleName() + " but got " + e);
             assertion.initCause(e);
             throw assertion;
         }
-        throw new AssertionFailedError(noExceptionMessage);
+        throw new AssertionError(noExceptionMessage);
     }
 }

@@ -21,8 +21,8 @@ package org.apache.doris.mysql;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.xnio.StreamConnection;
@@ -69,7 +69,7 @@ public class MysqlChannelTest {
         buf.flip();
         try {
             mysqlChannel.sendOnePacket(buf);
-            Assert.fail();
+            Assertions.fail();
         } catch (IOException ignore) {
             // do nothing
         }

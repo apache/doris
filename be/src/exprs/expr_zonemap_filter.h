@@ -97,32 +97,41 @@ struct SlotLiteral {
     bool literal_on_left;
 };
 
-enum class BloomFilterPathKind {
+enum class MetadataPathKind {
     STRUCT_FIELD,
     LIST_ELEMENT,
 };
 
-struct BloomFilterPathElement {
-    BloomFilterPathKind kind;
+struct MetadataPathElement {
+    MetadataPathKind kind;
     std::string field_name;
     int32_t field_ordinal = -1;
 
-    bool operator==(const BloomFilterPathElement&) const = default;
+    bool operator==(const MetadataPathElement&) const = default;
 };
 
-struct BloomFilterProbe {
+struct MetadataProbe {
     int slot_index;
     DataTypePtr value_type;
-    std::vector<BloomFilterPathElement> path;
+    std::vector<MetadataPathElement> path;
 
-    bool operator==(const BloomFilterProbe&) const = default;
+    bool operator==(const MetadataProbe&) const = default;
 };
 
 std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args);
 
-std::optional<BloomFilterProbe> extract_bloom_filter_probe(const VExprSPtr& expr);
+std::optional<SlotLiteral> extract_array_contains_slot_and_literal(const VExprSPtrs& args);
 
-std::optional<BloomFilterProbe> extract_bloom_filter_predicate_probe(const VExprSPtr& expr);
+ZoneMapFilterResult evaluate_array_contains_zonemap(const ZoneMapEvalContext& ctx,
+                                                    const VExprSPtrs& args);
+
+bool can_evaluate_array_contains_zonemap(const VExprSPtrs& args);
+
+std::optional<MetadataProbe> extract_metadata_probe(const VExprSPtr& expr);
+
+std::optional<MetadataProbe> extract_bloom_filter_predicate_probe(const VExprSPtr& expr);
+
+std::optional<MetadataProbe> extract_zonemap_filter_predicate_probe(const VExprSPtr& expr);
 
 std::optional<SlotLiteral> extract_bloom_filter_slot_and_literal(const VExprSPtrs& args);
 

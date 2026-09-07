@@ -372,13 +372,14 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // Option C: fe-core's PluginDrivenExternalTable.hasCapability reads only the CATALOG (hive) connector,
         // never the embedded sibling — so the hive gateway must reflect the sibling's connector-wide scan
         // capabilities onto the delegated schema as a per-table marker, or an iceberg-on-HMS table silently loses
-        // auto-analyze / Top-N lazy / nested-column prune (all of which the iceberg sibling declares connector-wide).
+        // auto-analyze / Top-N lazy / nested-column prune / storage predicate pruning (all declared connector-wide).
         // MUTATION: dropping the reflection -> the returned schema carries no marker -> the embedded table drops the
         // capabilities post-flip -> red here.
         Set<ConnectorCapability> siblingCaps = EnumSet.of(
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
-                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING);
         HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(siblingCaps),
@@ -392,6 +393,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "Top-N lazy must survive the delegation as a per-table capability");
         Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
                 "nested-column prune must survive the delegation as a per-table capability");
+        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING),
+                "storage predicate pruning must survive the delegation as a per-table capability");
         Assertions.assertEquals("sibling-generation", schema.getWriteMetadataIdentity(),
                 "capability reflection must not discard the sibling's write-generation fence");
     }

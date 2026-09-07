@@ -27,8 +27,8 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
@@ -56,7 +56,7 @@ public class RoutineLoadBackendSelectionTest {
             RoutineLoadManager routineLoadManager = new TestRoutineLoadManager(
                     Collections.singletonList(eligibleBackend.getId()));
 
-            Assert.assertEquals(-1L, routineLoadManager.getAvailableBeForTask(1L, previousBackend.getId()));
+            Assertions.assertEquals(-1L, routineLoadManager.getAvailableBeForTask(1L, previousBackend.getId()));
         } finally {
             Config.max_routine_load_task_num_per_be = originalMaxRoutineLoadTaskNumPerBe;
             Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", originalSystemInfoService);
@@ -78,7 +78,7 @@ public class RoutineLoadBackendSelectionTest {
             Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", systemInfoService);
             TestCloudRoutineLoadManager routineLoadManager = new TestCloudRoutineLoadManager(routineLoadJob);
 
-            Assert.assertEquals(Collections.singletonList(selectedBackend.getId()),
+            Assertions.assertEquals(Collections.singletonList(selectedBackend.getId()),
                     routineLoadManager.getAvailableBackendIdsForTest(1L));
         } finally {
             Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", originalSystemInfoService);
@@ -110,8 +110,8 @@ public class RoutineLoadBackendSelectionTest {
             Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
 
             routineLoadManager.updateBeIdToMaxConcurrentTasks();
-            Assert.assertEquals(0, routineLoadManager.getClusterIdleSlotNum());
-            Assert.assertEquals(-1L, routineLoadManager.getAvailableBeForTask(1L, previousBackend.getId()));
+            Assertions.assertEquals(0, routineLoadManager.getClusterIdleSlotNum());
+            Assertions.assertEquals(-1L, routineLoadManager.getAvailableBeForTask(1L, previousBackend.getId()));
         } finally {
             Config.max_routine_load_task_num_per_be = originalMaxRoutineLoadTaskNumPerBe;
             Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", originalSystemInfoService);

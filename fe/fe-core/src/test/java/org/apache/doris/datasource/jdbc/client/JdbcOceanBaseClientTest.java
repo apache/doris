@@ -18,9 +18,9 @@
 package org.apache.doris.datasource.jdbc.client;
 
 import com.zaxxer.hikari.HikariDataSource;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
@@ -34,7 +34,7 @@ public class JdbcOceanBaseClientTest {
     private Statement statement;
     private ResultSet resultSet;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         connection = Mockito.mock(Connection.class);
         statement = Mockito.mock(Statement.class);
@@ -52,8 +52,8 @@ public class JdbcOceanBaseClientTest {
             JdbcOceanBaseClient oceanBaseClient = new JdbcOceanBaseClient(createConfig());
             JdbcClient client = oceanBaseClient.createClient(createConfig());
 
-            Assert.assertTrue(client instanceof JdbcMySQLClient);
-            Assert.assertEquals(2, mockedDataSources.constructed().size());
+            Assertions.assertTrue(client instanceof JdbcMySQLClient);
+            Assertions.assertEquals(2, mockedDataSources.constructed().size());
             HikariDataSource temporaryDataSource = mockedDataSources.constructed().get(0);
             HikariDataSource clientDataSource = mockedDataSources.constructed().get(1);
             assertTemporaryResourcesClosed(temporaryDataSource);
@@ -71,11 +71,11 @@ public class JdbcOceanBaseClientTest {
         try (MockedConstruction<HikariDataSource> mockedDataSources = mockDataSources()) {
             JdbcOceanBaseClient oceanBaseClient = new JdbcOceanBaseClient(createConfig());
 
-            JdbcClientException exception = Assert.assertThrows(
+            JdbcClientException exception = Assertions.assertThrows(
                     JdbcClientException.class, () -> oceanBaseClient.createClient(createConfig()));
 
-            Assert.assertEquals("Failed to determine OceanBase compatibility mode", exception.getMessage());
-            Assert.assertEquals(1, mockedDataSources.constructed().size());
+            Assertions.assertEquals("Failed to determine OceanBase compatibility mode", exception.getMessage());
+            Assertions.assertEquals(1, mockedDataSources.constructed().size());
             assertTemporaryResourcesClosed(mockedDataSources.constructed().get(0));
         }
     }

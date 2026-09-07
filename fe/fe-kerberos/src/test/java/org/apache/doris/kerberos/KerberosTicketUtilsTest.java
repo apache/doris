@@ -17,8 +17,8 @@
 
 package org.apache.doris.kerberos;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.Date;
@@ -56,13 +56,13 @@ public class KerberosTicketUtilsTest {
     public void testGetRefreshTimeIs80PercentOfLifetime() {
         KerberosTicket tgt = ticket("krbtgt/" + REALM + "@" + REALM, 1000L, 11000L);
         // 1000 + (long)((11000 - 1000) * 0.8f) = 1000 + 8000 = 9000
-        Assert.assertEquals(9000L, KerberosTicketUtils.getRefreshTime(tgt));
+        Assertions.assertEquals(9000L, KerberosTicketUtils.getRefreshTime(tgt));
     }
 
     @Test
     public void testGetRefreshTimeZeroLifetime() {
         KerberosTicket tgt = ticket("krbtgt/" + REALM + "@" + REALM, 5000L, 5000L);
-        Assert.assertEquals(5000L, KerberosTicketUtils.getRefreshTime(tgt));
+        Assertions.assertEquals(5000L, KerberosTicketUtils.getRefreshTime(tgt));
     }
 
     // getTicketGrantingTicket returns the credential whose server is krbtgt/REALM@REALM.
@@ -77,7 +77,7 @@ public class KerberosTicketUtilsTest {
                 Collections.singleton(new KerberosPrincipal("client@" + REALM)),
                 Collections.emptySet(), privateCreds);
 
-        Assert.assertSame(tgt, KerberosTicketUtils.getTicketGrantingTicket(subject));
+        Assertions.assertSame(tgt, KerberosTicketUtils.getTicketGrantingTicket(subject));
     }
 
     @Test
@@ -88,7 +88,7 @@ public class KerberosTicketUtilsTest {
                 Collections.emptySet(), Collections.singleton(serviceTicket));
         try {
             KerberosTicketUtils.getTicketGrantingTicket(subject);
-            Assert.fail("expected IllegalArgumentException when no TGT is present");
+            Assertions.fail("expected IllegalArgumentException when no TGT is present");
         } catch (IllegalArgumentException expected) {
             // expected
         }

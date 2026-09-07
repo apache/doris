@@ -22,8 +22,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.Refres
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests for MTMVTaskContext Gson serialization/deserialization compatibility
@@ -40,10 +40,10 @@ public class MTMVTaskContextCompatTest {
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL);
         String json = GSON.toJson(ctx);
         JsonObject obj = GSON.fromJson(json, JsonObject.class);
-        Assert.assertFalse("Old version should see isComplete=false for INCREMENTAL",
-                obj.get("isComplete").getAsBoolean());
-        Assert.assertEquals("refreshMode field should be present",
-                "INCREMENTAL", obj.get("refreshMode").getAsString());
+        Assertions.assertFalse(obj.get("isComplete").getAsBoolean(),
+                "Old version should see isComplete=false for INCREMENTAL");
+        Assertions.assertEquals("INCREMENTAL", obj.get("refreshMode").getAsString(),
+                "refreshMode field should be present");
     }
 
     // Forward compat: COMPLETE mode serialized → old version reads isComplete=true
@@ -53,8 +53,8 @@ public class MTMVTaskContextCompatTest {
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.COMPLETE);
         String json = GSON.toJson(ctx);
         JsonObject obj = GSON.fromJson(json, JsonObject.class);
-        Assert.assertTrue("Old version should see isComplete=true for COMPLETE",
-                obj.get("isComplete").getAsBoolean());
+        Assertions.assertTrue(obj.get("isComplete").getAsBoolean(),
+                "Old version should see isComplete=true for COMPLETE");
     }
 
     // Forward compat: PARTITIONS mode serialized → old version reads isComplete=false
@@ -64,8 +64,8 @@ public class MTMVTaskContextCompatTest {
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS);
         String json = GSON.toJson(ctx);
         JsonObject obj = GSON.fromJson(json, JsonObject.class);
-        Assert.assertFalse("Old version should see isComplete=false for PARTITIONS",
-                obj.get("isComplete").getAsBoolean());
+        Assertions.assertFalse(obj.get("isComplete").getAsBoolean(),
+                "Old version should see isComplete=false for PARTITIONS");
     }
 
     // Backward compat: old task JSON (no refreshMode) with isComplete=true → new code reads COMPLETE
@@ -73,8 +73,8 @@ public class MTMVTaskContextCompatTest {
     public void testBackwardCompatOldTaskIsCompleteTrue() {
         String oldJson = "{\"triggerMode\":\"MANUAL\",\"isComplete\":true}";
         MTMVTaskContext ctx = GSON.fromJson(oldJson, MTMVTaskContext.class);
-        Assert.assertTrue(ctx.isComplete());
-        Assert.assertEquals(RefreshMode.COMPLETE, ctx.getRefreshMode());
+        Assertions.assertTrue(ctx.isComplete());
+        Assertions.assertEquals(RefreshMode.COMPLETE, ctx.getRefreshMode());
     }
 
     // Backward compat: old task JSON (no refreshMode) with isComplete=false → new code reads AUTO
@@ -82,29 +82,29 @@ public class MTMVTaskContextCompatTest {
     public void testBackwardCompatOldTaskIsCompleteFalse() {
         String oldJson = "{\"triggerMode\":\"MANUAL\",\"isComplete\":false}";
         MTMVTaskContext ctx = GSON.fromJson(oldJson, MTMVTaskContext.class);
-        Assert.assertFalse(ctx.isComplete());
-        Assert.assertEquals(RefreshMode.AUTO, ctx.getRefreshMode());
-        Assert.assertTrue(ctx.allowFallback());
+        Assertions.assertFalse(ctx.isComplete());
+        Assertions.assertEquals(RefreshMode.AUTO, ctx.getRefreshMode());
+        Assertions.assertTrue(ctx.allowFallback());
     }
 
     @Test
     public void testDefaultAllowFallbackByRefreshMode() {
-        Assert.assertTrue(MTMVTaskContext.of(
+        Assertions.assertTrue(MTMVTaskContext.of(
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.AUTO).allowFallback());
-        Assert.assertFalse(MTMVTaskContext.of(
+        Assertions.assertFalse(MTMVTaskContext.of(
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL).allowFallback());
-        Assert.assertFalse(MTMVTaskContext.of(
+        Assertions.assertFalse(MTMVTaskContext.of(
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS).allowFallback());
-        Assert.assertFalse(MTMVTaskContext.of(
+        Assertions.assertFalse(MTMVTaskContext.of(
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.COMPLETE).allowFallback());
     }
 
     @Test
     public void testMvDefaultContextUsesPersistedPolicyMarker() {
         MTMVTaskContext ctx = MTMVTaskContext.forMvDefault(MTMVTaskTriggerMode.SYSTEM);
-        Assert.assertTrue(ctx.useMvDefaultRefreshPolicy());
-        Assert.assertEquals(RefreshMode.AUTO, ctx.getRefreshMode());
-        Assert.assertTrue(ctx.allowFallback());
+        Assertions.assertTrue(ctx.useMvDefaultRefreshPolicy());
+        Assertions.assertEquals(RefreshMode.AUTO, ctx.getRefreshMode());
+        Assertions.assertTrue(ctx.allowFallback());
     }
 
     @Test
@@ -112,9 +112,9 @@ public class MTMVTaskContextCompatTest {
         MTMVTaskContext ctx = MTMVTaskContext.forMvDefault(MTMVTaskTriggerMode.SYSTEM);
         String json = GSON.toJson(ctx);
         JsonObject obj = GSON.fromJson(json, JsonObject.class);
-        Assert.assertFalse(obj.has("allowFallback"));
-        Assert.assertFalse(obj.has("useMvDefaultRefreshPolicy"));
-        Assert.assertTrue(obj.has("md"));
+        Assertions.assertFalse(obj.has("allowFallback"));
+        Assertions.assertFalse(obj.has("useMvDefaultRefreshPolicy"));
+        Assertions.assertTrue(obj.has("md"));
     }
 
     @Test
@@ -122,8 +122,8 @@ public class MTMVTaskContextCompatTest {
         String oldJson = "{\"triggerMode\":\"SYSTEM\",\"allowFallback\":false,"
                 + "\"useMvDefaultRefreshPolicy\":true}";
         MTMVTaskContext ctx = GSON.fromJson(oldJson, MTMVTaskContext.class);
-        Assert.assertFalse(ctx.allowFallback());
-        Assert.assertTrue(ctx.useMvDefaultRefreshPolicy());
+        Assertions.assertFalse(ctx.allowFallback());
+        Assertions.assertTrue(ctx.useMvDefaultRefreshPolicy());
     }
 
     // Round-trip: serialize new → deserialize new preserves RefreshMode
@@ -134,8 +134,8 @@ public class MTMVTaskContextCompatTest {
                     MTMVTaskTriggerMode.MANUAL, null, mode);
             String json = GSON.toJson(original);
             MTMVTaskContext restored = GSON.fromJson(json, MTMVTaskContext.class);
-            Assert.assertEquals("Round-trip should preserve RefreshMode " + mode,
-                    mode, restored.getRefreshMode());
+            Assertions.assertEquals(mode, restored.getRefreshMode(),
+                    "Round-trip should preserve RefreshMode " + mode);
         }
     }
 }

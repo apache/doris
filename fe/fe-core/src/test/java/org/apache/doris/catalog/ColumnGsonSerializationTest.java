@@ -28,9 +28,9 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInput;
 import java.io.DataInputStream;
@@ -47,7 +47,7 @@ public class ColumnGsonSerializationTest {
     private static String fileName = "./ColumnGsonSerializationTest";
     private static Path path = Paths.get(fileName);
 
-    @After
+    @AfterEach
     public void tearDown() throws IOException {
         Files.deleteIfExists(path);
     }
@@ -87,7 +87,7 @@ public class ColumnGsonSerializationTest {
         String readJson = Text.readString(in);
         Column readC1 = GsonUtils.GSON.fromJson(readJson, Column.class);
 
-        Assert.assertEquals(c1, readC1);
+        Assertions.assertEquals(c1, readC1);
         // 3.close
         in.close();
     }
@@ -117,10 +117,10 @@ public class ColumnGsonSerializationTest {
         ColumnList readList = ColumnList.read(in);
         List<Column> columns = readList.columns;
 
-        Assert.assertEquals(3, columns.size());
-        Assert.assertEquals(c1, columns.get(0));
-        Assert.assertEquals(c2, columns.get(1));
-        Assert.assertEquals(c3, columns.get(2));
+        Assertions.assertEquals(3, columns.size());
+        Assertions.assertEquals(c1, columns.get(0));
+        Assertions.assertEquals(c2, columns.get(1));
+        Assertions.assertEquals(c3, columns.get(2));
         // 3.close
         in.close();
     }
@@ -139,26 +139,26 @@ public class ColumnGsonSerializationTest {
         setLegacyTurkishFieldName(fields.get(0).getAsJsonObject());
 
         StructType replayed = (StructType) GsonUtils.GSON.fromJson(legacyJson, Type.class);
-        Assert.assertEquals("ı", replayed.getField("I").getName());
+        Assertions.assertEquals("ı", replayed.getField("I").getName());
 
         org.apache.doris.nereids.types.StructType nereidsType =
                 (org.apache.doris.nereids.types.StructType)
                         org.apache.doris.nereids.types.DataType.fromCatalogType(replayed);
-        Assert.assertEquals("ı", nereidsType.getField("I").getName());
+        Assertions.assertEquals("ı", nereidsType.getField("I").getName());
 
         StructType roundTrip = (StructType) nereidsType.toCatalogDataType();
-        Assert.assertEquals("ı", roundTrip.getField("I").getName());
+        Assertions.assertEquals("ı", roundTrip.getField("I").getName());
     }
 
     @Test
     public void testCurrentDotlessStructFieldDoesNotMatchAsciiI() {
         StructType structType = new StructType(new StructField("ı", Type.INT));
-        Assert.assertNull(structType.getField("I"));
+        Assertions.assertNull(structType.getField("I"));
 
         org.apache.doris.nereids.types.StructType nereidsType =
                 (org.apache.doris.nereids.types.StructType)
                         org.apache.doris.nereids.types.DataType.fromCatalogType(structType);
-        Assert.assertNull(nereidsType.getField("I"));
+        Assertions.assertNull(nereidsType.getField("I"));
     }
 
     @Test
@@ -173,19 +173,19 @@ public class ColumnGsonSerializationTest {
                 field -> field.getAsJsonObject().remove("originalName"));
 
         StructType replayed = (StructType) GsonUtils.GSON.fromJson(legacyJson, Type.class);
-        Assert.assertNull(replayed.getField("I"));
-        Assert.assertEquals("ı", replayed.getField("ı").getName());
-        Assert.assertEquals("i", replayed.getField("i").getName());
+        Assertions.assertNull(replayed.getField("I"));
+        Assertions.assertEquals("ı", replayed.getField("ı").getName());
+        Assertions.assertEquals("i", replayed.getField("i").getName());
 
         org.apache.doris.nereids.types.StructType nereidsType =
                 (org.apache.doris.nereids.types.StructType)
                         org.apache.doris.nereids.types.DataType.fromCatalogType(replayed);
-        Assert.assertNull(nereidsType.getField("I"));
-        Assert.assertEquals("ı", nereidsType.getField("ı").getName());
-        Assert.assertEquals("i", nereidsType.getField("i").getName());
+        Assertions.assertNull(nereidsType.getField("I"));
+        Assertions.assertEquals("ı", nereidsType.getField("ı").getName());
+        Assertions.assertEquals("i", nereidsType.getField("i").getName());
 
         StructType roundTrip = (StructType) nereidsType.toCatalogDataType();
-        Assert.assertNull(roundTrip.getField("I"));
+        Assertions.assertNull(roundTrip.getField("I"));
     }
 
     private static void setLegacyTurkishFieldName(JsonObject field) {

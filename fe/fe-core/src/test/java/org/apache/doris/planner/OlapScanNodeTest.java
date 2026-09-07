@@ -59,8 +59,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import org.apache.commons.collections4.map.CaseInsensitiveMap;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -114,10 +114,10 @@ public class OlapScanNodeTest {
                 true);
 
         Collection<Long> ids = partitionPruner.prune();
-        Assert.assertEquals(ids.size(), 1);
+        Assertions.assertEquals(ids.size(), 1);
 
         for (Long id : ids) {
-            Assert.assertEquals((1 & 0xffffffff) % 3, id.intValue());
+            Assertions.assertEquals((1 & 0xffffffff) % 3, id.intValue());
         }
     }
 
@@ -156,7 +156,7 @@ public class OlapScanNodeTest {
                 true);
 
         Collection<Long> ids = partitionPruner.prune();
-        Assert.assertEquals(ids.size(), 3);
+        Assertions.assertEquals(ids.size(), 3);
     }
 
     @Test
@@ -166,42 +166,42 @@ public class OlapScanNodeTest {
             hashKey.pushColumn(new IntLiteral(1), PrimitiveType.BIGINT);
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
-            Assert.assertEquals(mod, 1);
+            Assertions.assertEquals(mod, 1);
         } // CHECKSTYLE IGNORE THIS LINE
         { // CHECKSTYLE IGNORE THIS LINE
             PartitionKey hashKey = new PartitionKey();
             hashKey.pushColumn(new IntLiteral(2), PrimitiveType.BIGINT);
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
-            Assert.assertEquals(mod, 0);
+            Assertions.assertEquals(mod, 0);
         } // CHECKSTYLE IGNORE THIS LINE
         { // CHECKSTYLE IGNORE THIS LINE
             PartitionKey hashKey = new PartitionKey();
             hashKey.pushColumn(new IntLiteral(3), PrimitiveType.BIGINT);
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
-            Assert.assertEquals(mod, 0);
+            Assertions.assertEquals(mod, 0);
         } // CHECKSTYLE IGNORE THIS LINE
         { // CHECKSTYLE IGNORE THIS LINE
             PartitionKey hashKey = new PartitionKey();
             hashKey.pushColumn(new IntLiteral(4), PrimitiveType.BIGINT);
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
-            Assert.assertEquals(mod, 1);
+            Assertions.assertEquals(mod, 1);
         } // CHECKSTYLE IGNORE THIS LINE
         { // CHECKSTYLE IGNORE THIS LINE
             PartitionKey hashKey = new PartitionKey();
             hashKey.pushColumn(new IntLiteral(5), PrimitiveType.BIGINT);
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
-            Assert.assertEquals(mod, 2);
+            Assertions.assertEquals(mod, 2);
         } // CHECKSTYLE IGNORE THIS LINE
         { // CHECKSTYLE IGNORE THIS LINE
             PartitionKey hashKey = new PartitionKey();
             hashKey.pushColumn(new IntLiteral(6), PrimitiveType.BIGINT);
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
-            Assert.assertEquals(mod, 2);
+            Assertions.assertEquals(mod, 2);
         } // CHECKSTYLE IGNORE THIS LINE
     }
 
@@ -214,7 +214,7 @@ public class OlapScanNodeTest {
         List<Expr> conjuncts = Lists.newArrayList(new BinaryPredicate(BinaryPredicate.Operator.EQ,
                 new SlotRef(partitionSlot), new IntLiteral(1)));
 
-        Assert.assertTrue(ScanNode.containsPartitionPredicate(
+        Assertions.assertTrue(ScanNode.containsPartitionPredicate(
                 Lists.newArrayList(partitionSlot.getColumn()), tupleDescriptor, conjuncts, null));
     }
 
@@ -227,7 +227,7 @@ public class OlapScanNodeTest {
         List<Expr> inList = Lists.newArrayList(new IntLiteral(1), new IntLiteral(2));
         List<Expr> conjuncts = Lists.newArrayList(new InPredicate(new SlotRef(partitionSlot), inList, false));
 
-        Assert.assertTrue(ScanNode.containsPartitionPredicate(
+        Assertions.assertTrue(ScanNode.containsPartitionPredicate(
                 Lists.newArrayList(partitionSlot.getColumn()), tupleDescriptor, conjuncts, null));
     }
 
@@ -240,7 +240,7 @@ public class OlapScanNodeTest {
         List<Expr> conjuncts = Lists.newArrayList(new BinaryPredicate(BinaryPredicate.Operator.EQ,
                 new SlotRef(nonPartitionSlot), new IntLiteral(1)));
 
-        Assert.assertFalse(ScanNode.containsPartitionPredicate(
+        Assertions.assertFalse(ScanNode.containsPartitionPredicate(
                 Lists.newArrayList(partitionSlot.getColumn()), tupleDescriptor, conjuncts, null));
     }
 
@@ -292,9 +292,9 @@ public class OlapScanNodeTest {
                 .map(TPartitionBoundary::getPartitionId)
                 .collect(Collectors.toList());
 
-        Assert.assertEquals(Lists.newArrayList(oldTargetPartitionId, afterPartitionId), serializedPartitionIds);
+        Assertions.assertEquals(Lists.newArrayList(oldTargetPartitionId, afterPartitionId), serializedPartitionIds);
 
-        Assert.assertEquals("p_target,p_after", scanNode.getSelectedPartitionNamesForExplain());
+        Assertions.assertEquals("p_target,p_after", scanNode.getSelectedPartitionNamesForExplain());
     }
 
     @Test
@@ -341,8 +341,8 @@ public class OlapScanNodeTest {
         bucketInfo.clear();
         scanNode.setRuntimeFilterBucketPruneParameters();
 
-        Assert.assertEquals(2, paloScanRange.getBucketSeq());
-        Assert.assertEquals(4, paloScanRange.getBucketNum());
+        Assertions.assertEquals(2, paloScanRange.getBucketSeq());
+        Assertions.assertEquals(4, paloScanRange.getBucketNum());
     }
 
     @Test
@@ -364,10 +364,10 @@ public class OlapScanNodeTest {
 
             scanNode.setRuntimeFilterBucketPruneParameters();
 
-            Assert.assertFalse(firstScanRange.isSetBucketSeq());
-            Assert.assertFalse(firstScanRange.isSetBucketNum());
-            Assert.assertFalse(secondScanRange.isSetBucketSeq());
-            Assert.assertFalse(secondScanRange.isSetBucketNum());
+            Assertions.assertFalse(firstScanRange.isSetBucketSeq());
+            Assertions.assertFalse(firstScanRange.isSetBucketNum());
+            Assertions.assertFalse(secondScanRange.isSetBucketSeq());
+            Assertions.assertFalse(secondScanRange.isSetBucketNum());
         } finally {
             DebugPointUtil.removeDebugPoint(OlapScanNode.MISSING_RF_BUCKET_METADATA_DEBUG_POINT);
             Config.enable_debug_points = previousEnableDebugPoints;
@@ -421,11 +421,11 @@ public class OlapScanNodeTest {
         Map<Long, Set<Long>> alivePathHashes = OlapScanNode.getBackendAlivePathHashes(
                 backends, Lists.<Tablet>newArrayList(selectedTablet));
 
-        Assert.assertEquals(2, alivePathHashes.size());
-        Assert.assertEquals(Collections.singleton(11L), alivePathHashes.get(firstBackend.getId()));
-        Assert.assertEquals(Collections.singleton(21L), alivePathHashes.get(secondBackend.getId()));
-        Assert.assertFalse(alivePathHashes.containsKey(unrelatedBackend.getId()));
-        Assert.assertFalse(alivePathHashes.containsKey(4L));
+        Assertions.assertEquals(2, alivePathHashes.size());
+        Assertions.assertEquals(Collections.singleton(11L), alivePathHashes.get(firstBackend.getId()));
+        Assertions.assertEquals(Collections.singleton(21L), alivePathHashes.get(secondBackend.getId()));
+        Assertions.assertFalse(alivePathHashes.containsKey(unrelatedBackend.getId()));
+        Assertions.assertFalse(alivePathHashes.containsKey(4L));
     }
 
     private Backend backendWithDisks(long backendId, long alivePathHash, long offlinePathHash) {

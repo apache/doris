@@ -21,8 +21,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.scan.FilePartitionUtils;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
@@ -34,16 +34,16 @@ public class BrokerUtilTest {
         String path = "/path/to/dir/k1=v1/xxx.csv";
         try {
             List<String> columns = FilePartitionUtils.parseColumnsFromPath(path, Collections.singletonList("k1"));
-            Assert.assertEquals(1, columns.size());
-            Assert.assertEquals(Collections.singletonList("v1"), columns);
+            Assertions.assertEquals(1, columns.size());
+            Assertions.assertEquals(Collections.singletonList("v1"), columns);
         } catch (UserException e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         path = "/path/to/dir/k1/xxx.csv";
         try {
             FilePartitionUtils.parseColumnsFromPath(path, Collections.singletonList("k1"));
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException ignored) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -51,7 +51,7 @@ public class BrokerUtilTest {
         path = "/path/to/dir/k1=v1/xxx.csv";
         try {
             FilePartitionUtils.parseColumnsFromPath(path, Collections.singletonList("k2"));
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException ignored) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -59,25 +59,25 @@ public class BrokerUtilTest {
         path = "/path/to/dir/k1=v2/k1=v1/xxx.csv";
         try {
             List<String> columns = FilePartitionUtils.parseColumnsFromPath(path, Collections.singletonList("k1"));
-            Assert.assertEquals(1, columns.size());
-            Assert.assertEquals(Collections.singletonList("v1"), columns);
+            Assertions.assertEquals(1, columns.size());
+            Assertions.assertEquals(Collections.singletonList("v1"), columns);
         } catch (UserException e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         path = "/path/to/dir/k2=v2/k1=v1/xxx.csv";
         try {
             List<String> columns = FilePartitionUtils.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            Assert.assertEquals(2, columns.size());
-            Assert.assertEquals(Lists.newArrayList("v1", "v2"), columns);
+            Assertions.assertEquals(2, columns.size());
+            Assertions.assertEquals(Lists.newArrayList("v1", "v2"), columns);
         } catch (UserException e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         path = "/path/to/dir/k2=v2/a/k1=v1/xxx.csv";
         try {
             FilePartitionUtils.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException ignored) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -85,7 +85,7 @@ public class BrokerUtilTest {
         path = "/path/to/dir/k2=v2/k1=v1/xxx.csv";
         try {
             FilePartitionUtils.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2", "k3"));
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException ignored) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -93,25 +93,25 @@ public class BrokerUtilTest {
         path = "/path/to/dir/k2=v2//k1=v1//xxx.csv";
         try {
             List<String> columns = FilePartitionUtils.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            Assert.assertEquals(2, columns.size());
-            Assert.assertEquals(Lists.newArrayList("v1", "v2"), columns);
+            Assertions.assertEquals(2, columns.size());
+            Assertions.assertEquals(Lists.newArrayList("v1", "v2"), columns);
         } catch (UserException e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         path = "/path/to/dir/k2==v2=//k1=v1//xxx.csv";
         try {
             List<String> columns = FilePartitionUtils.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            Assert.assertEquals(2, columns.size());
-            Assert.assertEquals(Lists.newArrayList("v1", "=v2="), columns);
+            Assertions.assertEquals(2, columns.size());
+            Assertions.assertEquals(Lists.newArrayList("v1", "=v2="), columns);
         } catch (UserException e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         path = "/path/to/dir/k2==v2=//k1=v1/";
         try {
             FilePartitionUtils.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException ignored) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -120,7 +120,7 @@ public class BrokerUtilTest {
         try {
             FilePartitionUtils.parseColumnsFromPath(path, Collections.singletonList("k1"));
         } catch (UserException ignored) {
-            Assert.fail();
+            Assertions.fail();
         }
 
     }

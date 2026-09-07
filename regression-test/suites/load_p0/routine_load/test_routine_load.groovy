@@ -1143,7 +1143,29 @@ suite("test_routine_load","p0") {
                     }
                 }
 
+                def count = 0
                 def tableName1 =  "routine_load_" + tableName
+                // Leaving NEED_SCHEDULE only means the job has been scheduled, not that any batch
+                // has been committed. Without waiting for the rows to become visible the query
+                // below races the load and returns whatever happens to have landed so far.
+                while (true) {
+                    def res = sql "select count(*) from ${tableName1}"
+                    def state = sql "show routine load for ${jobs[i]}"
+                    log.info("routine load state: ${state[0][8].toString()}".toString())
+                    log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                    log.info("reason of state changed: ${state[0][17].toString()}".toString())
+                    if (res[0][0] > 0) {
+                        break
+                    }
+                    if (count >= 120) {
+                        log.error("routine load can not visible for long time")
+                        assertEquals(20, res[0][0])
+                        break
+                    }
+                    sleep(5000)
+                    count++
+                }
+
                 if (i <= 3) {
                     qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00,k01"
                 } else {

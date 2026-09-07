@@ -22,9 +22,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -33,7 +33,7 @@ import java.util.Map;
 
 public class HttpURLUtilTest {
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.enable_https = false;
         Config.http_port = 8030;
@@ -52,9 +52,9 @@ public class HttpURLUtilTest {
 
             Map<String, String> headers = HttpURLUtil.getNodeIdentHeaders();
 
-            Assert.assertEquals("127.0.0.1", headers.get(Env.CLIENT_NODE_HOST_KEY));
-            Assert.assertEquals("9010", headers.get(Env.CLIENT_NODE_PORT_KEY));
-            Assert.assertEquals("cluster-token", headers.get(MetaBaseAction.TOKEN));
+            Assertions.assertEquals("127.0.0.1", headers.get(Env.CLIENT_NODE_HOST_KEY));
+            Assertions.assertEquals("9010", headers.get(Env.CLIENT_NODE_PORT_KEY));
+            Assertions.assertEquals("cluster-token", headers.get(MetaBaseAction.TOKEN));
         }
     }
 
@@ -69,8 +69,8 @@ public class HttpURLUtilTest {
 
             Map<String, String> headers = HttpURLUtil.getNodeIdentHeaders();
 
-            Assert.assertEquals("127.0.0.1", headers.get(Env.CLIENT_NODE_HOST_KEY));
-            Assert.assertFalse(headers.containsKey(MetaBaseAction.TOKEN));
+            Assertions.assertEquals("127.0.0.1", headers.get(Env.CLIENT_NODE_HOST_KEY));
+            Assertions.assertFalse(headers.containsKey(MetaBaseAction.TOKEN));
         }
     }
 
@@ -85,9 +85,9 @@ public class HttpURLUtilTest {
 
             HttpURLConnection connection = HttpURLUtil.getConnectionWithNodeIdent("http://127.0.0.1:8030/info");
 
-            Assert.assertEquals("127.0.0.1", connection.getRequestProperty(Env.CLIENT_NODE_HOST_KEY));
-            Assert.assertEquals("9010", connection.getRequestProperty(Env.CLIENT_NODE_PORT_KEY));
-            Assert.assertEquals("cluster-token", connection.getRequestProperty(MetaBaseAction.TOKEN));
+            Assertions.assertEquals("127.0.0.1", connection.getRequestProperty(Env.CLIENT_NODE_HOST_KEY));
+            Assertions.assertEquals("9010", connection.getRequestProperty(Env.CLIENT_NODE_PORT_KEY));
+            Assertions.assertEquals("cluster-token", connection.getRequestProperty(MetaBaseAction.TOKEN));
         }
     }
 
@@ -97,7 +97,7 @@ public class HttpURLUtilTest {
         Config.http_port = 8030;
 
         String url = HttpURLUtil.buildInternalFeUrl("192.168.1.10", "/put", "version=123&port=8030");
-        Assert.assertEquals("http://192.168.1.10:8030/put?version=123&port=8030", url);
+        Assertions.assertEquals("http://192.168.1.10:8030/put?version=123&port=8030", url);
     }
 
     @Test
@@ -106,7 +106,7 @@ public class HttpURLUtilTest {
         Config.https_port = 8050;
 
         String url = HttpURLUtil.buildInternalFeUrl("192.168.1.10", "/put", "version=123&port=8050");
-        Assert.assertEquals("https://192.168.1.10:8050/put?version=123&port=8050", url);
+        Assertions.assertEquals("https://192.168.1.10:8050/put?version=123&port=8050", url);
     }
 
     @Test
@@ -115,7 +115,7 @@ public class HttpURLUtilTest {
         Config.http_port = 8030;
 
         String url = HttpURLUtil.buildInternalFeUrl("192.168.1.10", "/journal_id", null);
-        Assert.assertEquals("http://192.168.1.10:8030/journal_id", url);
+        Assertions.assertEquals("http://192.168.1.10:8030/journal_id", url);
     }
 
     @Test
@@ -124,7 +124,7 @@ public class HttpURLUtilTest {
         Config.http_port = 8030;
 
         String url = HttpURLUtil.buildInternalFeUrl("192.168.1.10", "/version", "");
-        Assert.assertEquals("http://192.168.1.10:8030/version", url);
+        Assertions.assertEquals("http://192.168.1.10:8030/version", url);
     }
 
     @Test
@@ -133,7 +133,7 @@ public class HttpURLUtilTest {
         Config.https_port = 8050;
 
         String url = HttpURLUtil.buildInternalFeUrl("fe80::1", "/role", "host=fe80::2&port=9010");
-        Assert.assertTrue(url.startsWith("https://"));
-        Assert.assertTrue(url.contains("/role?host=fe80::2&port=9010"));
+        Assertions.assertTrue(url.startsWith("https://"));
+        Assertions.assertTrue(url.contains("/role?host=fe80::2&port=9010"));
     }
 }

@@ -19,10 +19,10 @@ package org.apache.doris.common;
 
 import org.apache.doris.common.util.NetUtils;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -37,7 +37,7 @@ public class DNSCacheTest {
     private MockedStatic<NetUtils> netUtilsMockedStatic;
     private boolean originalFqdnMode;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         // Save original config
         originalFqdnMode = Config.enable_fqdn_mode;
@@ -49,7 +49,7 @@ public class DNSCacheTest {
         netUtilsMockedStatic = Mockito.mockStatic(NetUtils.class);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         // Restore original config
         Config.enable_fqdn_mode = originalFqdnMode;
@@ -74,11 +74,11 @@ public class DNSCacheTest {
 
         // First call - should resolve and cache
         String ip1 = dnsCache.get(hostname);
-        Assert.assertEquals(expectedIp, ip1);
+        Assertions.assertEquals(expectedIp, ip1);
 
         // Second call - should return cached value without calling NetUtils again
         String ip2 = dnsCache.get(hostname);
-        Assert.assertEquals(expectedIp, ip2);
+        Assertions.assertEquals(expectedIp, ip2);
 
         // Verify NetUtils.getIpByHost was called only once (cached on subsequent calls)
         netUtilsMockedStatic.verify(() -> NetUtils.getIpByHost(hostname, 0), Mockito.times(1));
@@ -97,11 +97,11 @@ public class DNSCacheTest {
 
         // Should return empty string instead of throwing exception
         String ip = dnsCache.get(hostname);
-        Assert.assertEquals("", ip);
+        Assertions.assertEquals("", ip);
 
         // Verify the result is cached (subsequent calls don't resolve again)
         String ip2 = dnsCache.get(hostname);
-        Assert.assertEquals("", ip2);
+        Assertions.assertEquals("", ip2);
 
         // Should only attempt resolution once
         netUtilsMockedStatic.verify(() -> NetUtils.getIpByHost(hostname, 0), Mockito.times(1));
@@ -128,8 +128,8 @@ public class DNSCacheTest {
         String result2 = dnsCache.get(hostname2);
 
         // Verify both are cached correctly
-        Assert.assertEquals(ip1, result1);
-        Assert.assertEquals(ip2, result2);
+        Assertions.assertEquals(ip1, result1);
+        Assertions.assertEquals(ip2, result2);
 
         // Verify each was resolved once
         netUtilsMockedStatic.verify(() -> NetUtils.getIpByHost(hostname1, 0), Mockito.times(1));
@@ -150,8 +150,7 @@ public class DNSCacheTest {
         String ip = realDnsCache.get("localhost");
 
         // localhost should resolve to 127.0.0.1 or ::1
-        Assert.assertTrue("localhost should resolve to an IP",
-                ip.equals("127.0.0.1") || ip.contains(":"));
+        Assertions.assertTrue(ip.equals("127.0.0.1") || ip.contains(":"), "localhost should resolve to an IP");
     }
 
     /**
@@ -168,7 +167,7 @@ public class DNSCacheTest {
 
         String result = dnsCache.get(ipAddress);
 
-        Assert.assertEquals(ipAddress, result);
+        Assertions.assertEquals(ipAddress, result);
     }
 
     /**
@@ -186,7 +185,7 @@ public class DNSCacheTest {
         cache.start();
 
         // Verify it completes successfully
-        Assert.assertNotNull(cache);
+        Assertions.assertNotNull(cache);
     }
 
     /**
@@ -202,7 +201,7 @@ public class DNSCacheTest {
         cache.start();
 
         // Verify it completes successfully
-        Assert.assertNotNull(cache);
+        Assertions.assertNotNull(cache);
     }
 
     /**
@@ -219,7 +218,7 @@ public class DNSCacheTest {
         // Pre-populate the cache by calling get() once before concurrent access
         // This ensures the cache is initialized and subsequent calls will hit the cache
         String initialIp = dnsCache.get(hostname);
-        Assert.assertEquals(expectedIp, initialIp);
+        Assertions.assertEquals(expectedIp, initialIp);
 
         int threadCount = 10;
         Thread[] threads = new Thread[threadCount];
@@ -228,7 +227,7 @@ public class DNSCacheTest {
         for (int i = 0; i < threadCount; i++) {
             threads[i] = new Thread(() -> {
                 String ip = dnsCache.get(hostname);
-                Assert.assertEquals(expectedIp, ip);
+                Assertions.assertEquals(expectedIp, ip);
             });
         }
 
@@ -284,11 +283,11 @@ public class DNSCacheTest {
 
         // All threads should get the same result
         String expectedResult = results[0];
-        Assert.assertNotNull("Result should not be null", expectedResult);
-        Assert.assertFalse("Result should not be empty", expectedResult.isEmpty());
+        Assertions.assertNotNull(expectedResult, "Result should not be null");
+        Assertions.assertFalse(expectedResult.isEmpty(), "Result should not be empty");
 
         for (int i = 1; i < threadCount; i++) {
-            Assert.assertEquals("All threads should get the same result", expectedResult, results[i]);
+            Assertions.assertEquals(expectedResult, results[i], "All threads should get the same result");
         }
     }
 
@@ -307,7 +306,7 @@ public class DNSCacheTest {
 
         // Populate the cache
         String ip = dnsCache.get(hostname);
-        Assert.assertEquals(cachedIp, ip);
+        Assertions.assertEquals(cachedIp, ip);
 
         // Now mock resolution failure
         netUtilsMockedStatic.when(() -> NetUtils.getIpByHost(hostname, 0))
@@ -320,7 +319,7 @@ public class DNSCacheTest {
 
         // The cached IP should remain unchanged after refresh failure
         String ipAfterRefresh = dnsCache.get(hostname);
-        Assert.assertEquals("Cached IP should remain unchanged after refresh failure", cachedIp, ipAfterRefresh);
+        Assertions.assertEquals(cachedIp, ipAfterRefresh, "Cached IP should remain unchanged after refresh failure");
     }
 
     /**
@@ -338,7 +337,7 @@ public class DNSCacheTest {
 
         // Populate the cache
         String ip = dnsCache.get(hostname);
-        Assert.assertEquals(originalIp, ip);
+        Assertions.assertEquals(originalIp, ip);
 
         // Now mock resolution with new IP
         netUtilsMockedStatic.when(() -> NetUtils.getIpByHost(hostname, 0))
@@ -351,6 +350,6 @@ public class DNSCacheTest {
 
         // The cached IP should be updated to the new IP
         String ipAfterRefresh = dnsCache.get(hostname);
-        Assert.assertEquals("Cached IP should be updated after successful refresh", newIp, ipAfterRefresh);
+        Assertions.assertEquals(newIp, ipAfterRefresh, "Cached IP should be updated after successful refresh");
     }
 }

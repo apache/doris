@@ -42,10 +42,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -70,7 +70,7 @@ public class MTMVRewriteUtilTest {
     private MockedStatic<MTMVUtil> mtmvUtilStatic;
     private long currentTimeMills = 3L;
 
-    @Before
+    @BeforeEach
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
         mtmvPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class);
         mtmvUtilStatic = Mockito.mockStatic(MTMVUtil.class);
@@ -116,7 +116,7 @@ public class MTMVRewriteUtilTest {
         Mockito.when(mtmv.canBeCandidate()).thenReturn(true);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mtmvPartitionUtilStatic.close();
         mtmvUtilStatic.close();
@@ -135,7 +135,7 @@ public class MTMVRewriteUtilTest {
         // if forceConsistent this should get 0 partitions which mtmv can use.
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, true, null);
-        Assert.assertEquals(0, mtmvCanRewritePartitions.size());
+        Assertions.assertEquals(0, mtmvCanRewritePartitions.size());
     }
 
     @Test
@@ -143,7 +143,7 @@ public class MTMVRewriteUtilTest {
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
-        Assert.assertEquals(1, mtmvCanRewritePartitions.size());
+        Assertions.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
     @Test
@@ -158,7 +158,7 @@ public class MTMVRewriteUtilTest {
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
-        Assert.assertEquals(1, mtmvCanRewritePartitions.size());
+        Assertions.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
     @Test
@@ -173,7 +173,7 @@ public class MTMVRewriteUtilTest {
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
-        Assert.assertEquals(0, mtmvCanRewritePartitions.size());
+        Assertions.assertEquals(0, mtmvCanRewritePartitions.size());
     }
 
     @Test
@@ -184,7 +184,7 @@ public class MTMVRewriteUtilTest {
                         null);
         // getMTMVCanRewritePartitions only check the partition is valid or not, it doesn't care the
         // isEnableMaterializedViewRewriteWhenBaseTableUnawareness
-        Assert.assertEquals(1, mtmvCanRewritePartitions.size());
+        Assertions.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
     @Test
@@ -196,7 +196,7 @@ public class MTMVRewriteUtilTest {
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
-        Assert.assertEquals(0, mtmvCanRewritePartitions.size());
+        Assertions.assertEquals(0, mtmvCanRewritePartitions.size());
     }
 
     @Test
@@ -208,7 +208,7 @@ public class MTMVRewriteUtilTest {
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
-        Assert.assertEquals(1, mtmvCanRewritePartitions.size());
+        Assertions.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
     @Test
@@ -222,7 +222,7 @@ public class MTMVRewriteUtilTest {
                         null);
         // getMTMVCanRewritePartitions only check the partition is valid or not, it doesn't care the
         // isEnableMaterializedViewRewriteWhenBaseTableUnawareness
-        Assert.assertEquals(1, mtmvCanRewritePartitions.size());
+        Assertions.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
     @Test
@@ -231,7 +231,7 @@ public class MTMVRewriteUtilTest {
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
-        Assert.assertEquals(0, mtmvCanRewritePartitions.size());
+        Assertions.assertEquals(0, mtmvCanRewritePartitions.size());
     }
 
     @Test
@@ -240,7 +240,7 @@ public class MTMVRewriteUtilTest {
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
-        Assert.assertEquals(1, mtmvCanRewritePartitions.size());
+        Assertions.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
     @Test
@@ -249,7 +249,7 @@ public class MTMVRewriteUtilTest {
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
-        Assert.assertEquals(0, mtmvCanRewritePartitions.size());
+        Assertions.assertEquals(0, mtmvCanRewritePartitions.size());
     }
 
     @Test
@@ -261,10 +261,10 @@ public class MTMVRewriteUtilTest {
                 ImmutableMap.of(t1, Sets.newHashSet("t1_p1", "t1_p2"), t2, Sets.newHashSet("t2_p1")));
         partitionMappings.put("mv_p2", ImmutableMap.of(t2, Sets.newHashSet("t2_p2")));
         Map<Pair<MTMVRelatedTableIf, String>, String> pctToMv = MTMVRewriteUtil.getPctToMv(partitionMappings);
-        Assert.assertEquals("mv_p1", pctToMv.get(Pair.of(t1, "t1_p1")));
-        Assert.assertEquals("mv_p1", pctToMv.get(Pair.of(t1, "t1_p2")));
-        Assert.assertEquals("mv_p1", pctToMv.get(Pair.of(t2, "t2_p1")));
-        Assert.assertEquals("mv_p2", pctToMv.get(Pair.of(t2, "t2_p2")));
+        Assertions.assertEquals("mv_p1", pctToMv.get(Pair.of(t1, "t1_p1")));
+        Assertions.assertEquals("mv_p1", pctToMv.get(Pair.of(t1, "t1_p2")));
+        Assertions.assertEquals("mv_p1", pctToMv.get(Pair.of(t2, "t2_p1")));
+        Assertions.assertEquals("mv_p2", pctToMv.get(Pair.of(t2, "t2_p2")));
     }
 
     private static class TestMTMVRelatedTable implements MTMVRelatedTableIf {

@@ -22,8 +22,8 @@ import org.apache.doris.analysis.BrokerDesc;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
@@ -34,7 +34,7 @@ public class ParquetReaderTest {
     //  localfile, remote file
     //  ak, sk, broker desc
     // before running this test
-    @Ignore
+    @Disabled
     @Test
     public void testWrongFormat() {
         try {

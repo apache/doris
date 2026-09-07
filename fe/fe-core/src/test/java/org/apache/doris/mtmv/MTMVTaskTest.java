@@ -72,10 +72,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.MockedConstruction;
@@ -107,7 +107,7 @@ public class MTMVTaskTest {
     private MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic;
     private static final String COMPUTE_GROUP = "ComputeGroup";
 
-    @Before
+    @BeforeEach
     public void setUp()
             throws NoSuchMethodException, SecurityException, AnalysisException, DdlException, MetaNotFoundException {
 
@@ -136,7 +136,7 @@ public class MTMVTaskTest {
         Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(true);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mtmvUtilStatic.close();
         mtmvPartitionUtilStatic.close();
@@ -147,7 +147,7 @@ public class MTMVTaskTest {
         MTMVTaskContext context = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null, RefreshMode.COMPLETE);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assert.assertEquals(allPartitionNames, result);
+        Assertions.assertEquals(allPartitionNames, result);
     }
 
     @Test
@@ -156,7 +156,7 @@ public class MTMVTaskTest {
                 RefreshMode.AUTO);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assert.assertEquals(Lists.newArrayList(poneName), result);
+        Assertions.assertEquals(Lists.newArrayList(poneName), result);
     }
 
     @Test
@@ -168,9 +168,9 @@ public class MTMVTaskTest {
         Object differentPartitions = Deencapsulation.invoke(
                 task, "generateRefreshMode", Lists.newArrayList(poneName, "p3"));
 
-        Assert.assertEquals(MTMVTask.MTMVTaskRefreshMode.COMPLETE, complete);
-        Assert.assertEquals(MTMVTask.MTMVTaskRefreshMode.PARTIAL, partial);
-        Assert.assertEquals(MTMVTask.MTMVTaskRefreshMode.PARTIAL, differentPartitions);
+        Assertions.assertEquals(MTMVTask.MTMVTaskRefreshMode.COMPLETE, complete);
+        Assertions.assertEquals(MTMVTask.MTMVTaskRefreshMode.PARTIAL, partial);
+        Assertions.assertEquals(MTMVTask.MTMVTaskRefreshMode.PARTIAL, differentPartitions);
     }
 
     @Test
@@ -181,7 +181,7 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
-        Assert.assertEquals(Lists.newArrayList("COMPLETE"), toNames(attempts));
+        Assertions.assertEquals(Lists.newArrayList("COMPLETE"), toNames(attempts));
     }
 
     @Test
@@ -190,7 +190,7 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
-        Assert.assertEquals(Lists.newArrayList("PARTITIONS", "COMPLETE"), toNames(attempts));
+        Assertions.assertEquals(Lists.newArrayList("PARTITIONS", "COMPLETE"), toNames(attempts));
     }
 
     @Test
@@ -205,7 +205,7 @@ public class MTMVTaskTest {
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
 
-        Assert.assertEquals(Lists.newArrayList("COMPLETE"), toNames(attempts));
+        Assertions.assertEquals(Lists.newArrayList("COMPLETE"), toNames(attempts));
     }
 
     @Test
@@ -218,7 +218,7 @@ public class MTMVTaskTest {
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
 
-        Assert.assertEquals(Lists.newArrayList("PARTITIONS", "COMPLETE"), toNames(attempts));
+        Assertions.assertEquals(Lists.newArrayList("PARTITIONS", "COMPLETE"), toNames(attempts));
     }
 
     @Test
@@ -228,7 +228,7 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
-        Assert.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), toNames(attempts));
+        Assertions.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), toNames(attempts));
     }
 
     @Test
@@ -241,7 +241,7 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
-        Assert.assertEquals(Lists.newArrayList("PARTITIONS"), toNames(attempts));
+        Assertions.assertEquals(Lists.newArrayList("PARTITIONS"), toNames(attempts));
     }
 
     private static List<String> toNames(List<?> attempts) {
@@ -258,7 +258,7 @@ public class MTMVTaskTest {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assert.assertTrue(CollectionUtils.isEmpty(result));
+        Assertions.assertTrue(CollectionUtils.isEmpty(result));
     }
 
     @Test
@@ -271,8 +271,8 @@ public class MTMVTaskTest {
         Object plan = Deencapsulation.invoke(task, "planPartitionRefresh",
                 Mockito.mock(MTMVRefreshContext.class), request);
 
-        Assert.assertTrue(Deencapsulation.getField(plan, "canRefreshByPartitions"));
-        Assert.assertTrue(CollectionUtils.isEmpty(Deencapsulation.getField(plan, "partitions")));
+        Assertions.assertTrue((Boolean) Deencapsulation.getField(plan, "canRefreshByPartitions"));
+        Assertions.assertTrue(CollectionUtils.isEmpty(Deencapsulation.getField(plan, "partitions")));
     }
 
     @Test
@@ -280,7 +280,7 @@ public class MTMVTaskTest {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assert.assertEquals(allPartitionNames, result);
+        Assertions.assertEquals(allPartitionNames, result);
     }
 
     @Test
@@ -292,7 +292,7 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
 
-        Assert.assertTrue(CollectionUtils.isEmpty(result));
+        Assertions.assertTrue(CollectionUtils.isEmpty(result));
         mtmvPartitionUtilStatic.verify(() -> MTMVPartitionUtil.isMTMVSync(
                 Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class)));
     }
@@ -307,7 +307,7 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
 
-        Assert.assertEquals(Lists.newArrayList(poneName), result);
+        Assertions.assertEquals(Lists.newArrayList(poneName), result);
     }
 
     @Test
@@ -316,7 +316,7 @@ public class MTMVTaskTest {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assert.assertEquals(allPartitionNames, result);
+        Assertions.assertEquals(allPartitionNames, result);
     }
 
     @Test
@@ -329,7 +329,7 @@ public class MTMVTaskTest {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assert.assertEquals(Lists.newArrayList(ptwoName), result);
+        Assertions.assertEquals(Lists.newArrayList(ptwoName), result);
     }
 
     @Test
@@ -342,7 +342,7 @@ public class MTMVTaskTest {
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         List<?> attempts = Deencapsulation.invoke(task, "buildAttempts", request, false);
 
-        Assert.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), attempts.stream()
+        Assertions.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), attempts.stream()
                 .map(Object::toString).collect(Collectors.toList()));
     }
 
@@ -357,7 +357,7 @@ public class MTMVTaskTest {
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         List<?> attempts = Deencapsulation.invoke(task, "buildAttempts", request, true);
 
-        Assert.assertEquals(Lists.newArrayList("COMPLETE"), attempts.stream()
+        Assertions.assertEquals(Lists.newArrayList("COMPLETE"), attempts.stream()
                 .map(Object::toString).collect(Collectors.toList()));
     }
 
@@ -372,7 +372,7 @@ public class MTMVTaskTest {
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         List<?> attempts = Deencapsulation.invoke(task, "buildAttempts", request, true);
 
-        Assert.assertEquals(Lists.newArrayList("IVM"), attempts.stream()
+        Assertions.assertEquals(Lists.newArrayList("IVM"), attempts.stream()
                 .map(Object::toString).collect(Collectors.toList()));
     }
 
@@ -383,19 +383,19 @@ public class MTMVTaskTest {
         MTMVTaskContext context = MTMVTaskContext.forMvDefault(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
 
-        JobException exception = Assert.assertThrows(JobException.class,
+        JobException exception = Assertions.assertThrows(JobException.class,
                 () -> task.calculateNeedRefreshPartitions(null));
 
-        Assert.assertTrue(exception.getMessage().contains("unknown refresh method"));
+        Assertions.assertTrue(exception.getMessage().contains("unknown refresh method"));
     }
 
     @Test
     public void testTaskSchemaContainsComputeGroup() {
         Column computeGroupColumn = MTMVTask.SCHEMA.get(MTMVTask.SCHEMA.size() - 2);
         Column fallbackReasonColumn = MTMVTask.SCHEMA.get(MTMVTask.SCHEMA.size() - 1);
-        Assert.assertEquals(COMPUTE_GROUP, computeGroupColumn.getName());
-        Assert.assertEquals("IvmFallbackReason", fallbackReasonColumn.getName());
-        Assert.assertEquals(MTMVTask.SCHEMA.size() - 2,
+        Assertions.assertEquals(COMPUTE_GROUP, computeGroupColumn.getName());
+        Assertions.assertEquals("IvmFallbackReason", fallbackReasonColumn.getName());
+        Assertions.assertEquals(MTMVTask.SCHEMA.size() - 2,
                 MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase()).intValue());
     }
 
@@ -406,7 +406,7 @@ public class MTMVTaskTest {
 
         TRow row = task.getTvfInfo("job1");
 
-        Assert.assertEquals("cg1", row.getColumnValue()
+        Assertions.assertEquals("cg1", row.getColumnValue()
                 .get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase())).getStringVal());
     }
 
@@ -422,7 +422,7 @@ public class MTMVTaskTest {
             Deencapsulation.invoke(task, "setupComputeGroup", ctx);
             TRow row = task.getTvfInfo("job1");
 
-            Assert.assertEquals("cg1", row.getColumnValue()
+            Assertions.assertEquals("cg1", row.getColumnValue()
                     .get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase())).getStringVal());
         } finally {
             Config.cloud_unique_id = originCloudUniqueId;
@@ -441,9 +441,9 @@ public class MTMVTaskTest {
 
             Deencapsulation.invoke(task, "setupComputeGroup", ctx);
 
-            Assert.assertEquals("cg1", ctx.getSessionVariable().getCloudCluster());
+            Assertions.assertEquals("cg1", ctx.getSessionVariable().getCloudCluster());
             TRow row = task.getTvfInfo("job1");
-            Assert.assertEquals("cg1", row.getColumnValue()
+            Assertions.assertEquals("cg1", row.getColumnValue()
                     .get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase())).getStringVal());
         } finally {
             Config.cloud_unique_id = originCloudUniqueId;
@@ -456,7 +456,7 @@ public class MTMVTaskTest {
 
         TRow row = task.getTvfInfo("job1");
 
-        Assert.assertEquals(FeConstants.null_string, row.getColumnValue()
+        Assertions.assertEquals(FeConstants.null_string, row.getColumnValue()
                 .get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase())).getStringVal());
     }
 
@@ -466,7 +466,7 @@ public class MTMVTaskTest {
 
         TRow row = task.getTvfInfo("job1");
 
-        Assert.assertEquals(FeConstants.null_string, row.getColumnValue()
+        Assertions.assertEquals(FeConstants.null_string, row.getColumnValue()
                 .get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase())).getStringVal());
     }
 
@@ -501,7 +501,7 @@ public class MTMVTaskTest {
                         @Override
                         public UpdateMvByPartitionCommand answer(InvocationOnMock invocation) {
                             StatementContext statementContext = invocation.getArgument(3);
-                            Assert.assertEquals(excludedTriggerTables, statementContext.getExcludedTriggerTables());
+                            Assertions.assertEquals(excludedTriggerTables, statementContext.getExcludedTriggerTables());
                             return command;
                         }
                     });
@@ -511,7 +511,7 @@ public class MTMVTaskTest {
                         @Override
                         public Void answer(InvocationOnMock invocation) {
                             StatementContext statementContext = invocation.getArgument(2);
-                            Assert.assertEquals(excludedTriggerTables, statementContext.getExcludedTriggerTables());
+                            Assertions.assertEquals(excludedTriggerTables, statementContext.getExcludedTriggerTables());
                             return null;
                         }
                     });
@@ -535,8 +535,8 @@ public class MTMVTaskTest {
         List<TCell> cells = task.getTvfInfo("job").getColumnValue();
 
         int columnIndex = MTMVTask.COLUMN_TO_INDEX.get("ivmfallbackreason");
-        Assert.assertEquals(MTMVTask.SCHEMA.size(), cells.size());
-        Assert.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED.name(), cells.get(columnIndex).getStringVal());
+        Assertions.assertEquals(MTMVTask.SCHEMA.size(), cells.size());
+        Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED.name(), cells.get(columnIndex).getStringVal());
     }
 
     @Test
@@ -584,8 +584,8 @@ public class MTMVTaskTest {
         Map<BaseTableInfo, Set<Long>> result = Deencapsulation.invoke(
                 task, "collectPctResetPartitionIds", refreshContext, Sets.newHashSet("mv_p1", "mv_p2"));
 
-        Assert.assertEquals(Sets.newHashSet(11L, 12L, 13L), result.get(new BaseTableInfo(firstPctTable)));
-        Assert.assertEquals(Sets.newHashSet(21L, 22L), result.get(new BaseTableInfo(secondPctTable)));
+        Assertions.assertEquals(Sets.newHashSet(11L, 12L, 13L), result.get(new BaseTableInfo(firstPctTable)));
+        Assertions.assertEquals(Sets.newHashSet(21L, 22L), result.get(new BaseTableInfo(secondPctTable)));
     }
 
     @Test
@@ -602,11 +602,11 @@ public class MTMVTaskTest {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
-            Assert.assertEquals("FALLBACK_ALLOWED", result.toString());
+            Assertions.assertEquals("FALLBACK_ALLOWED", result.toString());
             Mockito.verify(ignored.constructed().get(0)).doRefresh(Mockito.any());
         }
 
-        Assert.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED.name(),
+        Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED.name(),
                 Deencapsulation.getField(task, "ivmFallbackReason"));
     }
 
@@ -627,12 +627,12 @@ public class MTMVTaskTest {
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
 
-            Assert.assertEquals("SUCCESS", result.toString());
+            Assertions.assertEquals("SUCCESS", result.toString());
             ArgumentCaptor<IvmIncrRefreshContext> refreshContextCaptor =
                     ArgumentCaptor.forClass(IvmIncrRefreshContext.class);
             Mockito.verify(ignored.constructed().get(0), Mockito.times(2))
                     .doRefresh(refreshContextCaptor.capture());
-            Assert.assertNotSame(refreshContextCaptor.getAllValues().get(0),
+            Assertions.assertNotSame(refreshContextCaptor.getAllValues().get(0),
                     refreshContextCaptor.getAllValues().get(1));
         } finally {
             Config.max_query_retry_time = originalMaxQueryRetryTime;
@@ -673,9 +673,9 @@ public class MTMVTaskTest {
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
 
-            Assert.assertEquals("SUCCESS", result.toString());
-            Assert.assertEquals(2, refreshCount.get());
-            Assert.assertEquals(2, ignored.constructed().size());
+            Assertions.assertEquals("SUCCESS", result.toString());
+            Assertions.assertEquals(2, refreshCount.get());
+            Assertions.assertEquals(2, ignored.constructed().size());
         } finally {
             DebugPointUtil.clearDebugPoints();
             Config.enable_debug_points = originalEnableDebugPoints;
@@ -698,10 +698,10 @@ public class MTMVTaskTest {
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
 
-            Assert.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
-            Assert.assertTrue(ignored.constructed().isEmpty());
+            Assertions.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
+            Assertions.assertTrue(ignored.constructed().isEmpty());
         }
-        Assert.assertEquals("INCOMPLETE_REFRESH_SNAPSHOT",
+        Assertions.assertEquals("INCOMPLETE_REFRESH_SNAPSHOT",
                 Deencapsulation.getField(task, "ivmFallbackReason"));
     }
 
@@ -723,8 +723,8 @@ public class MTMVTaskTest {
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
 
-            Assert.assertEquals("SUCCESS", result.toString());
-            Assert.assertEquals(1, ignored.constructed().size());
+            Assertions.assertEquals("SUCCESS", result.toString());
+            Assertions.assertEquals(1, ignored.constructed().size());
             InOrder inOrder = Mockito.inOrder(mtmv, ignored.constructed().get(0));
             inOrder.verify(mtmv).validateIvmRefreshStart(0L);
             inOrder.verify(ignored.constructed().get(0)).doRefresh(Mockito.any());
@@ -744,10 +744,10 @@ public class MTMVTaskTest {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
-            Assert.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
+            Assertions.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
         }
 
-        Assert.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name(),
+        Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name(),
                 Deencapsulation.getField(task, "ivmFallbackReason"));
     }
 
@@ -765,7 +765,7 @@ public class MTMVTaskTest {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
-            Assert.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
+            Assertions.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
         }
     }
 
@@ -780,11 +780,11 @@ public class MTMVTaskTest {
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, false, null));
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
 
-        JobException exception = Assert.assertThrows(JobException.class,
+        JobException exception = Assertions.assertThrows(JobException.class,
                 () -> Deencapsulation.invoke(task, "validateIvmBaselineBeforePartitionSync", request));
 
-        Assert.assertTrue(exception.getMessage().contains("run an AUTO or COMPLETE refresh first"));
-        Assert.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
+        Assertions.assertTrue(exception.getMessage().contains("run an AUTO or COMPLETE refresh first"));
+        Assertions.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
                 Deencapsulation.getField(task, "ivmFallbackReason"));
     }
 
@@ -798,10 +798,10 @@ public class MTMVTaskTest {
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, false, null));
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
 
-        JobException exception = Assert.assertThrows(JobException.class,
+        JobException exception = Assertions.assertThrows(JobException.class,
                 () -> Deencapsulation.invoke(task, "validateIvmBaselineBeforePartitionSync", request));
 
-        Assert.assertTrue(exception.getMessage().contains("run a PARTITIONS FALLBACK, AUTO, or COMPLETE refresh"));
+        Assertions.assertTrue(exception.getMessage().contains("run a PARTITIONS FALLBACK, AUTO, or COMPLETE refresh"));
     }
 
     @Test
@@ -816,11 +816,11 @@ public class MTMVTaskTest {
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
 
         Deencapsulation.invoke(task, "validateIvmBaselineBeforePartitionSync", request);
-        Assert.assertTrue(Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild",
+        Assertions.assertTrue((Boolean) Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild",
                 Mockito.mock(MTMVRefreshContext.class), request, new ConnectContext()));
-        Assert.assertEquals(MTMVTask.MTMVTaskRefreshMode.NOT_REFRESH,
+        Assertions.assertEquals(MTMVTask.MTMVTaskRefreshMode.NOT_REFRESH,
                 Deencapsulation.getField(task, "refreshMode"));
-        Assert.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
+        Assertions.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
                 Deencapsulation.getField(task, "ivmFallbackReason"));
     }
 
@@ -840,12 +840,12 @@ public class MTMVTaskTest {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
-            Assert.assertEquals("FALLBACK_ALLOWED", result.toString());
+            Assertions.assertEquals("FALLBACK_ALLOWED", result.toString());
         }
 
-        Assert.assertEquals(Lists.newArrayList(poneName),
+        Assertions.assertEquals(Lists.newArrayList(poneName),
                 Deencapsulation.getField(task, "needRefreshPartitions"));
-        Assert.assertEquals(MTMVTask.MTMVTaskRefreshMode.PARTIAL,
+        Assertions.assertEquals(MTMVTask.MTMVTaskRefreshMode.PARTIAL,
                 Deencapsulation.getField(task, "refreshMode"));
     }
 
@@ -859,7 +859,7 @@ public class MTMVTaskTest {
             DebugPointUtil.addDebugPointWithValue(IvmPlanSignatureGenerator.DEBUG_POINT_SIGNATURE_SALT,
                     "plan_changed");
             IvmPlanSignature currentSignature = signatureForDebugDriftTest();
-            Assert.assertNotEquals(storedSignature.getSha256(), currentSignature.getSha256());
+            Assertions.assertNotEquals(storedSignature.getSha256(), currentSignature.getSha256());
 
             IvmInfo ivmInfo = new IvmInfo();
             ivmInfo.setPlanSignature(storedSignature.getSha256());
@@ -881,10 +881,10 @@ public class MTMVTaskTest {
                 Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
                 Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                         new ConnectContext(), Lists.newArrayList());
-                Assert.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
+                Assertions.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
             }
 
-            Assert.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name(),
+            Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name(),
                     Deencapsulation.getField(task, "ivmFallbackReason"));
         } finally {
             DebugPointUtil.clearDebugPoints();
@@ -900,7 +900,7 @@ public class MTMVTaskTest {
 
         executeCompleteRefresh(task, signature, signature);
 
-        Assert.assertEquals("signature_s2", task.getRefreshedIvmPlanSignature());
+        Assertions.assertEquals("signature_s2", task.getRefreshedIvmPlanSignature());
     }
 
     @Test
@@ -908,12 +908,12 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name());
 
-        JobException exception = Assert.assertThrows(JobException.class, () -> executeCompleteRefresh(task,
+        JobException exception = Assertions.assertThrows(JobException.class, () -> executeCompleteRefresh(task,
                 new IvmPlanSignature("layout_s2", "signature_s2"),
                 new IvmPlanSignature("layout_s3", "signature_s3")));
 
-        Assert.assertTrue(exception.getMessage().contains("inconsistent plan signatures"));
-        Assert.assertNull(task.getRefreshedIvmPlanSignature());
+        Assertions.assertTrue(exception.getMessage().contains("inconsistent plan signatures"));
+        Assertions.assertNull(task.getRefreshedIvmPlanSignature());
     }
 
     @Test
@@ -924,7 +924,7 @@ public class MTMVTaskTest {
 
         executeCompleteRefresh(task, signature, signature);
 
-        Assert.assertNull(task.getRefreshedIvmPlanSignature());
+        Assertions.assertNull(task.getRefreshedIvmPlanSignature());
     }
 
     @Test
@@ -943,10 +943,10 @@ public class MTMVTaskTest {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
-            Assert.assertEquals("FALLBACK_ALLOWED", result.toString());
+            Assertions.assertEquals("FALLBACK_ALLOWED", result.toString());
         }
 
-        Assert.assertEquals(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED.name(),
+        Assertions.assertEquals(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED.name(),
                 Deencapsulation.getField(task, "ivmFallbackReason"));
     }
 
@@ -956,8 +956,8 @@ public class MTMVTaskTest {
 
         MTMVTask task = GsonUtils.GSON.fromJson(oldJson, MTMVTask.class);
 
-        Assert.assertNotNull(task);
-        Assert.assertNull(Deencapsulation.getField(task, "ivmFallbackReason"));
+        Assertions.assertNotNull(task);
+        Assertions.assertNull(Deencapsulation.getField(task, "ivmFallbackReason"));
     }
 
     @Test
@@ -965,7 +965,7 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask();
         Deencapsulation.setField(task, "refreshedIvmPlanSignature", "new_signature");
 
-        Assert.assertFalse(GsonUtils.GSON.toJson(task).contains("new_signature"));
+        Assertions.assertFalse(GsonUtils.GSON.toJson(task).contains("new_signature"));
     }
 
     private IvmPlanSignature signatureForDebugDriftTest() {
@@ -1070,9 +1070,9 @@ public class MTMVTaskTest {
         } catch (IllegalStateException e) {
             rejected = true;
         }
-        Assert.assertTrue("registerExecutor must reject a cancelled task", rejected);
+        Assertions.assertTrue(rejected, "registerExecutor must reject a cancelled task");
         // A cancelled task must not expose a registered executor to the cancel path.
-        Assert.assertNull(Deencapsulation.getField(task, "executor"));
+        Assertions.assertNull(Deencapsulation.getField(task, "executor"));
     }
 
     @Test
@@ -1083,9 +1083,9 @@ public class MTMVTaskTest {
         org.apache.doris.qe.StmtExecutor executor = Mockito.mock(org.apache.doris.qe.StmtExecutor.class);
 
         task.registerExecutor(executor);
-        Assert.assertSame(executor, Deencapsulation.getField(task, "executor"));
+        Assertions.assertSame(executor, Deencapsulation.getField(task, "executor"));
         // Registering null clears the field (used by executeCommand's finally after the command finishes).
         task.registerExecutor(null);
-        Assert.assertNull(Deencapsulation.getField(task, "executor"));
+        Assertions.assertNull(Deencapsulation.getField(task, "executor"));
     }
 }

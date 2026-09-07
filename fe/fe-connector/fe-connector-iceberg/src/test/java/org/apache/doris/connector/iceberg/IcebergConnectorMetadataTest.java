@@ -650,11 +650,19 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertTrue(ops.log.contains("loadTable:db1.t1"),
                 "getTableSchema must load the table via the seam using the handle coordinates");
         List<ConnectorColumn> cols = schema.getColumns();
-        Assertions.assertEquals(2, cols.size());
+        Assertions.assertEquals(4, cols.size());
         Assertions.assertEquals("id", cols.get(0).getName());
         Assertions.assertEquals("INT", cols.get(0).getType().getTypeName());
         Assertions.assertEquals("name", cols.get(1).getName());
         Assertions.assertEquals("STRING", cols.get(1).getType().getTypeName());
+        Assertions.assertEquals("_file", cols.get(2).getName());
+        Assertions.assertEquals("STRING", cols.get(2).getType().getTypeName());
+        Assertions.assertFalse(cols.get(2).isNullable());
+        Assertions.assertFalse(cols.get(2).isVisible());
+        Assertions.assertEquals("_pos", cols.get(3).getName());
+        Assertions.assertEquals("BIGINT", cols.get(3).getType().getTypeName());
+        Assertions.assertFalse(cols.get(3).isNullable());
+        Assertions.assertFalse(cols.get(3).isVisible());
         Assertions.assertEquals(IcebergWritePlanProvider.writeMetadataIdentity(ops.table),
                 schema.getWriteMetadataIdentity(),
                 "the bind-time schema and write fence must be derived from the exact same table load");
@@ -688,6 +696,37 @@ public class IcebergConnectorMetadataTest {
         // WHY: the table-format type tag is the fixed "ICEBERG" discriminator the FE uses to route the
         // schema. MUTATION: emitting a different/empty tag -> red.
         Assertions.assertEquals("ICEBERG", schema.getTableFormatType());
+    }
+
+    @Test
+    public void externalPhysicalMetadataColumnFailsBeforeSyntheticSchemaAssembly() {
+        // An externally-created Iceberg table may legally contain a physical _file or _pos field. The
+        // connector cannot expose that table together with Doris's synthetic metadata columns because the
+        // schema/handle maps are name-keyed. Reject the collision before appending synthetic fields instead of
+        // silently replacing the physical field handle with a metadata handle.
+        for (String reserved : new String[] {"_file", "_pos", "_FILE", "_POS"}) {
+            Schema physicalSchema = new Schema(
+                    Types.NestedField.optional(1, reserved, Types.StringType.get()),
+                    Types.NestedField.optional(2, "id", Types.IntegerType.get()));
+
+            RecordingIcebergCatalogOps schemaOps = new RecordingIcebergCatalogOps();
+            schemaOps.table = new FakeIcebergTable(
+                    "t1", physicalSchema, PartitionSpec.unpartitioned(),
+                    "s3://bucket/db1/t1", Collections.emptyMap());
+            DorisConnectorException schemaException = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadataWith(schemaOps).getTableSchema(null, new IcebergTableHandle("db1", "t1")));
+            Assertions.assertTrue(schemaException.getMessage().contains("reserved metadata column"),
+                    schemaException.getMessage());
+
+            RecordingIcebergCatalogOps handleOps = new RecordingIcebergCatalogOps();
+            handleOps.table = new FakeIcebergTable(
+                    "t1", physicalSchema, PartitionSpec.unpartitioned(),
+                    "s3://bucket/db1/t1", Collections.emptyMap());
+            DorisConnectorException handleException = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadataWith(handleOps).getColumnHandles(null, new IcebergTableHandle("db1", "t1")));
+            Assertions.assertTrue(handleException.getMessage().contains("reserved metadata column"),
+                    handleException.getMessage());
+        }
     }
 
     @Test
@@ -1027,8 +1066,8 @@ public class IcebergConnectorMetadataTest {
         ConnectorTableSchema schema =
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
 
-        Assertions.assertEquals(2, schema.getColumns().size(),
-                "an absent format-version must default below 3 (no row-lineage columns)");
+        Assertions.assertEquals(4, schema.getColumns().size(),
+                "an absent format-version must still expose file metadata but no row-lineage columns");
         // And byte-faithful: the internal iceberg.format-version key must not leak into the rendered PROPERTIES
         // (legacy iceberg SHOW CREATE dumped only the raw table.properties()).
         Assertions.assertFalse(schema.getProperties().containsKey("iceberg.format-version"),
@@ -1057,12 +1096,14 @@ public class IcebergConnectorMetadataTest {
 
         // The two data columns (id, name) come first, then the two appended lineage columns IN ORDER
         // (legacy appends _row_id before _last_updated_sequence_number, after the data columns).
-        Assertions.assertEquals(4, cols.size(),
-                "format-version >= 3 must append the two row-lineage columns after the data columns");
+        Assertions.assertEquals(6, cols.size(),
+                "format-version >= 3 must append file metadata and row-lineage columns after the data columns");
         Assertions.assertEquals("id", cols.get(0).getName());
         Assertions.assertEquals("name", cols.get(1).getName());
+        Assertions.assertEquals("_file", cols.get(2).getName());
+        Assertions.assertEquals("_pos", cols.get(3).getName());
 
-        ConnectorColumn rowId = cols.get(2);
+        ConnectorColumn rowId = cols.get(4);
         Assertions.assertEquals("_row_id", rowId.getName());
         Assertions.assertEquals("BIGINT", rowId.getType().getTypeName(), "_row_id is BIGINT");
         Assertions.assertFalse(rowId.isVisible(), "_row_id must be hidden");
@@ -1072,7 +1113,7 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertTrue(rowId.isNullable(), "_row_id is nullable (legacy isAllowNull=true)");
         Assertions.assertFalse(rowId.isKey(), "_row_id is not a key (legacy isKey=false)");
 
-        ConnectorColumn seq = cols.get(3);
+        ConnectorColumn seq = cols.get(5);
         Assertions.assertEquals("_last_updated_sequence_number", seq.getName());
         Assertions.assertEquals("BIGINT", seq.getType().getTypeName(),
                 "_last_updated_sequence_number is BIGINT");
@@ -1102,10 +1143,10 @@ public class IcebergConnectorMetadataTest {
         List<ConnectorColumn> cols =
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1")).getColumns();
 
-        Assertions.assertEquals(4, cols.size(),
-                "format-version > 3 must also append the two row-lineage columns (gate is an inclusive >= 3)");
-        Assertions.assertEquals("_row_id", cols.get(2).getName());
-        Assertions.assertEquals("_last_updated_sequence_number", cols.get(3).getName());
+        Assertions.assertEquals(6, cols.size(),
+                "format-version > 3 must also append file metadata and row-lineage columns");
+        Assertions.assertEquals("_row_id", cols.get(4).getName());
+        Assertions.assertEquals("_last_updated_sequence_number", cols.get(5).getName());
     }
 
     @Test
@@ -1126,8 +1167,8 @@ public class IcebergConnectorMetadataTest {
         List<ConnectorColumn> cols =
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1")).getColumns();
 
-        Assertions.assertEquals(2, cols.size(),
-                "format-version < 3 must NOT append row-lineage columns");
+        Assertions.assertEquals(4, cols.size(),
+                "format-version < 3 must append file metadata but not row-lineage columns");
         Assertions.assertTrue(cols.stream().noneMatch(c -> c.getName().equals("_row_id")
                         || c.getName().equals("_last_updated_sequence_number")),
                 "no row-lineage columns below format-version 3");
@@ -1356,9 +1397,11 @@ public class IcebergConnectorMetadataTest {
         Map<String, ConnectorColumnHandle> handles =
                 metadataWith(ops).getColumnHandles(null, new IcebergTableHandle("db1", "t1"));
 
-        Assertions.assertEquals(2, handles.size());
+        Assertions.assertEquals(4, handles.size());
         Assertions.assertTrue(handles.containsKey("ID"));
         Assertions.assertTrue(handles.containsKey("Name"));
+        Assertions.assertTrue(handles.containsKey("_file"));
+        Assertions.assertTrue(handles.containsKey("_pos"));
         Assertions.assertFalse(handles.containsKey("id"), "post-#65094 the handle key keeps the iceberg case");
         Assertions.assertEquals(7, ((IcebergColumnHandle) handles.get("ID")).getFieldId());
         Assertions.assertEquals(9, ((IcebergColumnHandle) handles.get("Name")).getFieldId());

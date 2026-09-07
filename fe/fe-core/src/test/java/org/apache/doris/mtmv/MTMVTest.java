@@ -54,8 +54,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -97,7 +97,7 @@ public class MTMVTest {
                 Sets.newHashSet()));
         mtmv.setMvPartitionInfo(new MTMVPartitionInfo());
         mtmv.setRefreshSnapshot(new MTMVRefreshSnapshot());
-        Assert.assertEquals(expect, mtmv.toInfoString());
+        Assertions.assertEquals(expect, mtmv.toInfoString());
     }
 
     private MTMVRefreshInfo buildMTMVRefreshInfo(MTMV mtmv) {
@@ -135,9 +135,9 @@ public class MTMVTest {
                 baseToMv.put(basePartitionName, mvPartitionName);
             }
         }
-        Assert.assertEquals(mvToBase.get("mvp1"), Sets.newHashSet("baseP1_1", "baseP1_2"));
-        Assert.assertEquals(baseToMv.get("baseP1_1"), "mvp1");
-        Assert.assertEquals(baseToMv.get("baseP1_2"), "mvp1");
+        Assertions.assertEquals(mvToBase.get("mvp1"), Sets.newHashSet("baseP1_1", "baseP1_2"));
+        Assertions.assertEquals(baseToMv.get("baseP1_1"), "mvp1");
+        Assertions.assertEquals(baseToMv.get("baseP1_2"), "mvp1");
     }
 
     @Test
@@ -154,9 +154,9 @@ public class MTMVTest {
         Optional<Set<String>> mappedPartitions = refreshSnapshot.getMvPartitionNames(
                 baseTableInfo, Map.of("base_p1", 11L, "base_p2", 12L));
 
-        Assert.assertTrue(mappedPartitions.isPresent());
-        Assert.assertEquals(Set.of("mv_p1", "mv_p2"), mappedPartitions.get());
-        Assert.assertFalse(refreshSnapshot.getMvPartitionNames(
+        Assertions.assertTrue(mappedPartitions.isPresent());
+        Assertions.assertEquals(Set.of("mv_p1", "mv_p2"), mappedPartitions.get());
+        Assertions.assertFalse(refreshSnapshot.getMvPartitionNames(
                 baseTableInfo, Map.of("base_p1", 11L, "base_p3", 13L)).isPresent());
     }
 
@@ -194,33 +194,33 @@ public class MTMVTest {
 
         mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1");
         Set<TableNameInfo> excludedTriggerTables = mtmv.getExcludedTriggerTables();
-        Assert.assertEquals(1, excludedTriggerTables.size());
-        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t1")));
+        Assertions.assertEquals(1, excludedTriggerTables.size());
+        Assertions.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t1")));
 
         mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "db1.t1");
         excludedTriggerTables = mtmv.getExcludedTriggerTables();
-        Assert.assertEquals(1, excludedTriggerTables.size());
-        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db1", "t1")));
+        Assertions.assertEquals(1, excludedTriggerTables.size());
+        Assertions.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db1", "t1")));
 
         mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "ctl1.db1.t1");
         excludedTriggerTables = mtmv.getExcludedTriggerTables();
-        Assert.assertEquals(1, excludedTriggerTables.size());
-        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
+        Assertions.assertEquals(1, excludedTriggerTables.size());
+        Assertions.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
 
         mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "ctl1.db1.t1,db2.t2,t3");
         excludedTriggerTables = mtmv.getExcludedTriggerTables();
-        Assert.assertEquals(3, excludedTriggerTables.size());
-        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
-        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db2", "t2")));
-        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t3")));
+        Assertions.assertEquals(3, excludedTriggerTables.size());
+        Assertions.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
+        Assertions.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db2", "t2")));
+        Assertions.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t3")));
 
         mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES,
                 " ctl1.db1.t1 , db2.t2, ,  t3  ");
         excludedTriggerTables = mtmv.getExcludedTriggerTables();
-        Assert.assertEquals(3, excludedTriggerTables.size());
-        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
-        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db2", "t2")));
-        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t3")));
+        Assertions.assertEquals(3, excludedTriggerTables.size());
+        Assertions.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
+        Assertions.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db2", "t2")));
+        Assertions.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t3")));
     }
 
     @Test
@@ -241,9 +241,9 @@ public class MTMVTest {
 
         replayAlterMvProperties(mtmv, newProperties);
 
-        Assert.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
-        Assert.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
-        Assert.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+        Assertions.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
+        Assertions.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
+        Assertions.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
 
         mtmv.getRefreshSnapshot().getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
         oldSchemaChangeVersion = mtmv.getSchemaChangeVersion();
@@ -251,9 +251,9 @@ public class MTMVTest {
 
         replayAlterMvProperties(mtmv, newProperties);
 
-        Assert.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
-        Assert.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
-        Assert.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+        Assertions.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
+        Assertions.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
+        Assertions.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
     }
 
     @Test
@@ -272,8 +272,8 @@ public class MTMVTest {
 
         replayAlterMvProperties(mtmv, newProperties);
 
-        Assert.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
-        Assert.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+        Assertions.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
+        Assertions.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
     }
 
     @Test
@@ -293,9 +293,9 @@ public class MTMVTest {
 
         replayAlterMvProperties(mtmv, newProperties);
 
-        Assert.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
-        Assert.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
-        Assert.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+        Assertions.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
+        Assertions.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
+        Assertions.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
 
         mtmv.getRefreshSnapshot().getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
         oldSchemaChangeVersion = mtmv.getSchemaChangeVersion();
@@ -303,9 +303,9 @@ public class MTMVTest {
 
         replayAlterMvProperties(mtmv, newProperties);
 
-        Assert.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
-        Assert.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
-        Assert.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+        Assertions.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
+        Assertions.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
+        Assertions.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
     }
 
     @Test
@@ -320,7 +320,7 @@ public class MTMVTest {
         replayAlterMvProperties(mtmv,
                 Map.of(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1"));
 
-        Assert.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
     }
 
     @Test
@@ -339,8 +339,8 @@ public class MTMVTest {
 
         replayAlterMvProperties(mtmv, newProperties);
 
-        Assert.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
-        Assert.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+        Assertions.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
+        Assertions.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
     }
 
     @Test
@@ -357,7 +357,7 @@ public class MTMVTest {
         refreshSnapshot.getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
         mtmv.setRefreshSnapshot(refreshSnapshot);
 
-        Assert.assertTrue(mtmv.hasRefreshSnapshot());
+        Assertions.assertTrue(mtmv.hasRefreshSnapshot());
     }
 
     @Test
@@ -366,20 +366,20 @@ public class MTMVTest {
         MTMVStatus status = new MTMVStatus();
         mtmv.setStatus(status);
         // test init
-        Assert.assertEquals(MTMVState.INIT, status.getState());
-        Assert.assertEquals(MTMVRefreshState.INIT, status.getRefreshState());
+        Assertions.assertEquals(MTMVState.INIT, status.getState());
+        Assertions.assertEquals(MTMVRefreshState.INIT, status.getRefreshState());
         // test schema change
         status.setRefreshState(MTMVRefreshState.SUCCESS);
         mtmv.alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE, "base table"));
-        Assert.assertEquals(MTMVState.SCHEMA_CHANGE, status.getState());
-        Assert.assertEquals(MTMVRefreshState.SUCCESS, status.getRefreshState());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, status.getState());
+        Assertions.assertEquals(MTMVRefreshState.SUCCESS, status.getRefreshState());
 
         MTMVStatus alterStatus = new MTMVStatus();
         alterStatus.setState(MTMVState.SCHEMA_CHANGE);
         alterStatus.setSchemaChangeDetail("base table");
         mtmv.alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE, "base table"));
-        Assert.assertEquals(MTMVState.SCHEMA_CHANGE, status.getState());
-        Assert.assertEquals(MTMVRefreshState.SUCCESS, status.getRefreshState());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, status.getState());
+        Assertions.assertEquals(MTMVRefreshState.SUCCESS, status.getRefreshState());
     }
 
     @Test
@@ -393,11 +393,11 @@ public class MTMVTest {
         Mockito.when(env.getEditLog()).thenReturn(editLog);
         Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.any(AlterMTMV.class)))
                 .thenAnswer(invocation -> {
-                    Assert.assertTrue(mvRwLock.isWriteLockedByCurrentThread());
+                    Assertions.assertTrue(mvRwLock.isWriteLockedByCurrentThread());
                     return editLogItem;
                 });
         Mockito.when(editLogItem.await()).thenAnswer(invocation -> {
-            Assert.assertFalse(mvRwLock.isWriteLockedByCurrentThread());
+            Assertions.assertFalse(mvRwLock.isWriteLockedByCurrentThread());
             return 1L;
         });
 
@@ -427,11 +427,11 @@ public class MTMVTest {
         Mockito.when(env.getMtmvService()).thenReturn(mtmvService);
         Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.any(AlterMTMV.class)))
                 .thenAnswer(invocation -> {
-                    Assert.assertTrue(mvRwLock.isWriteLockedByCurrentThread());
+                    Assertions.assertTrue(mvRwLock.isWriteLockedByCurrentThread());
                     return editLogItem;
                 });
         Mockito.when(editLogItem.await()).thenAnswer(invocation -> {
-            Assert.assertFalse(mvRwLock.isWriteLockedByCurrentThread());
+            Assertions.assertFalse(mvRwLock.isWriteLockedByCurrentThread());
             return 1L;
         });
         MTMVRelation relation = mtmv.getRelation();
@@ -444,7 +444,7 @@ public class MTMVTest {
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Assert.assertTrue(mtmv.addTaskResult(alterMTMV, false));
+            Assertions.assertTrue(mtmv.addTaskResult(alterMTMV, false));
         }
 
         Mockito.verify(editLog).submitEdit(
@@ -466,9 +466,9 @@ public class MTMVTest {
 
         MTMV restored = GsonUtils.GSON.fromJson(json, MTMV.class);
 
-        Assert.assertNull(restored.getRefreshInfo().getRefreshMethod());
-        Assert.assertEquals(MTMVState.SCHEMA_CHANGE, restored.getStatus().getState());
-        Assert.assertEquals("Unknown refresh method detected during deserialization",
+        Assertions.assertNull(restored.getRefreshInfo().getRefreshMethod());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, restored.getStatus().getState());
+        Assertions.assertEquals("Unknown refresh method detected during deserialization",
                 restored.getStatus().getSchemaChangeDetail());
     }
 
@@ -510,7 +510,7 @@ public class MTMVTest {
 
         List<String> insertedColumnNames = mtmv.getInsertedColumnNames();
 
-        Assert.assertEquals(Lists.newArrayList(
+        Assertions.assertEquals(Lists.newArrayList(
                 Column.IVM_ROW_ID_COL,
                 Column.IVM_HIDDEN_COLUMN_PREFIX + "SNAPSHOT_COL__",
                 "k1"), insertedColumnNames);

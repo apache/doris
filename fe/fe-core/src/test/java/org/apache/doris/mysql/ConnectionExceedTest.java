@@ -31,8 +31,8 @@ import org.apache.doris.service.arrowflight.sessions.FlightSessionsWithTokenMana
 import org.apache.doris.service.arrowflight.tokens.FlightTokenDetails;
 import org.apache.doris.service.arrowflight.tokens.FlightTokenManager;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -69,21 +69,21 @@ public class ConnectionExceedTest {
             ConnectContext context1 = new ConnectContext();
             context1.setEnv(mockEnv);
             context1.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
-            Assert.assertTrue(scheduler.submit(context1));
-            Assert.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(context1));
+            Assertions.assertTrue(scheduler.submit(context1));
+            Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(context1));
 
             // Create second context and register
             ConnectContext context2 = new ConnectContext();
             context2.setEnv(mockEnv);
             context2.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
-            Assert.assertTrue(scheduler.submit(context2));
-            Assert.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(context2));
+            Assertions.assertTrue(scheduler.submit(context2));
+            Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(context2));
 
             // Create third context and try to register - should fail
             ConnectContext context3 = new ConnectContext();
             context3.setEnv(mockEnv);
             context3.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
-            Assert.assertTrue(scheduler.submit(context3));
+            Assertions.assertTrue(scheduler.submit(context3));
 
             // Create AcceptListener and handle the connection
             AcceptListener listener = new AcceptListener(scheduler);
@@ -93,8 +93,8 @@ public class ConnectionExceedTest {
                     scheduler.getConnectPoolMgr().getMaxConnections(),
                     2, // Mocked user connection limit
                     scheduler.getConnectionNum());
-            Assert.assertEquals(expectedMsg, context3.getState().getErrorMessage());
-            Assert.assertEquals(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, context3.getState().getErrorCode());
+            Assertions.assertEquals(expectedMsg, context3.getState().getErrorMessage());
+            Assertions.assertEquals(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, context3.getState().getErrorCode());
         }
     }
 
@@ -152,21 +152,21 @@ public class ConnectionExceedTest {
             ConnectContext context1 = new ConnectContext();
             context1.setEnv(mockEnv);
             context1.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
-            Assert.assertTrue(scheduler.submit(context1));
-            Assert.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(context1));
+            Assertions.assertTrue(scheduler.submit(context1));
+            Assertions.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(context1));
 
             // Create second context and register
             ConnectContext context2 = new ConnectContext();
             context2.setEnv(mockEnv);
             context2.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
-            Assert.assertTrue(scheduler.submit(context2));
-            Assert.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(context2));
+            Assertions.assertTrue(scheduler.submit(context2));
+            Assertions.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(context2));
 
             // Create FlightSessionsWithTokenManager and try to create a new connection
             FlightSessionsWithTokenManager manager = new FlightSessionsWithTokenManager(mockTokenManager);
             try {
                 manager.createConnectContext("test_token");
-                Assert.fail("Should throw IllegalArgumentException");
+                Assertions.fail("Should throw IllegalArgumentException");
             } catch (IllegalArgumentException e) {
                 // Verify error message is set correctly
                 String expectedMsg = String.format(
@@ -175,7 +175,7 @@ public class ConnectionExceedTest {
                                 + "max connections: %d, used: %d.",
                         scheduler.getFlightSqlConnectPoolMgr().getMaxConnections(),
                         scheduler.getConnectionNum());
-                Assert.assertEquals(expectedMsg, e.getMessage());
+                Assertions.assertEquals(expectedMsg, e.getMessage());
             }
         }
     }

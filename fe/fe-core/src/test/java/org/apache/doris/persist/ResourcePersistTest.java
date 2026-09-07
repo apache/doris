@@ -23,8 +23,8 @@ import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.io.Text;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -37,7 +37,7 @@ public class ResourcePersistTest {
     public void test() throws IOException {
         Resource resource = new S3Resource("s3_resource");
         S3Resource resource1 = (S3Resource) readWrittenResource(resource);
-        Assert.assertEquals(resource1.toString(), resource.toString());
+        Assertions.assertEquals(resource1.toString(), resource.toString());
         resource1.readLock();
         resource1.readUnlock();
     }
@@ -45,12 +45,12 @@ public class ResourcePersistTest {
     @Test
     public void testAzureResourcePersist() throws IOException {
         Resource resource = new AzureResource("azure_resource");
-        Assert.assertTrue(resource.toString().contains("\"clazz\":\"AzureResource\""));
+        Assertions.assertTrue(resource.toString().contains("\"clazz\":\"AzureResource\""));
 
         Resource readResource = readWrittenResource(resource);
-        Assert.assertTrue(readResource instanceof AzureResource);
-        Assert.assertEquals("azure_resource", readResource.getName());
-        Assert.assertEquals(Resource.ResourceType.AZURE, readResource.getType());
+        Assertions.assertTrue(readResource instanceof AzureResource);
+        Assertions.assertEquals("azure_resource", readResource.getName());
+        Assertions.assertEquals(Resource.ResourceType.AZURE, readResource.getType());
         readResource.readLock();
         readResource.readUnlock();
     }
@@ -61,9 +61,9 @@ public class ResourcePersistTest {
                 + "\"references\":{},\"id\":123,\"version\":0}";
 
         Resource readResource = readResourceFromJson(json);
-        Assert.assertTrue(readResource instanceof AzureResource);
-        Assert.assertEquals("legacy_azure_resource", readResource.getName());
-        Assert.assertEquals(Resource.ResourceType.AZURE, readResource.getType());
+        Assertions.assertTrue(readResource instanceof AzureResource);
+        Assertions.assertEquals("legacy_azure_resource", readResource.getName());
+        Assertions.assertEquals(Resource.ResourceType.AZURE, readResource.getType());
         readResource.readLock();
         readResource.readUnlock();
     }
@@ -75,9 +75,9 @@ public class ResourcePersistTest {
 
         ResourceMgr resourceMgr = readResourceMgrFromJson(json);
         Resource readResource = resourceMgr.getResource("legacy_azure_resource");
-        Assert.assertTrue(readResource instanceof AzureResource);
-        Assert.assertEquals("legacy_azure_resource", readResource.getName());
-        Assert.assertEquals(Resource.ResourceType.AZURE, readResource.getType());
+        Assertions.assertTrue(readResource instanceof AzureResource);
+        Assertions.assertEquals("legacy_azure_resource", readResource.getName());
+        Assertions.assertEquals(Resource.ResourceType.AZURE, readResource.getType());
         readResource.readLock();
         readResource.readUnlock();
     }

@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.jdbc.util;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.sql.ResultSetMetaData;
@@ -38,7 +38,7 @@ public class JdbcFieldSchemaTest {
 
         JdbcFieldSchema schema = new JdbcFieldSchema(metaData, 1);
 
-        Assert.assertEquals("t1", schema.getColumnName());
+        Assertions.assertEquals("t1", schema.getColumnName());
     }
 
     @Test
@@ -52,6 +52,6 @@ public class JdbcFieldSchemaTest {
 
         JdbcFieldSchema schema = new JdbcFieldSchema(metaData, 1);
 
-        Assert.assertEquals("username", schema.getColumnName());
+        Assertions.assertEquals("username", schema.getColumnName());
     }
 }

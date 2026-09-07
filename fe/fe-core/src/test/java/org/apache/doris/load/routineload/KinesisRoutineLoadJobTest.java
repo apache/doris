@@ -29,8 +29,8 @@ import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -54,13 +54,13 @@ public class KinesisRoutineLoadJobTest {
             Deencapsulation.setField(routineLoadJob, "closedKinesisShards",
                     Lists.newArrayList("shard-2"));
 
-            Assert.assertEquals(3, routineLoadJob.calculateCurrentConcurrentTaskNum());
+            Assertions.assertEquals(3, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
             Deencapsulation.setField(routineLoadJob, "desireTaskConcurrentNum", 2);
-            Assert.assertEquals(2, routineLoadJob.calculateCurrentConcurrentTaskNum());
+            Assertions.assertEquals(2, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
             Config.max_routine_load_task_concurrent_num = 1;
-            Assert.assertEquals(1, routineLoadJob.calculateCurrentConcurrentTaskNum());
+            Assertions.assertEquals(1, routineLoadJob.calculateCurrentConcurrentTaskNum());
         } finally {
             Config.max_routine_load_task_concurrent_num = oldMaxConcurrent;
         }
@@ -93,12 +93,12 @@ public class KinesisRoutineLoadJobTest {
         Gson gson = new Gson();
         Map<String, Object> statistic = gson.fromJson(routineLoadJob.getStatistic(), Map.class);
 
-        Assert.assertEquals(2L, ((Number) statistic.get("openShardNum")).longValue());
-        Assert.assertEquals(1L, ((Number) statistic.get("closedShardNum")).longValue());
-        Assert.assertEquals(4L, ((Number) statistic.get("trackedShardNum")).longValue());
-        Assert.assertEquals(3L, ((Number) statistic.get("cachedMillisBehindLatestShardNum")).longValue());
-        Assert.assertEquals(100L, ((Number) statistic.get("totalMillisBehindLatest")).longValue());
-        Assert.assertEquals(100L, ((Number) statistic.get("maxMillisBehindLatest")).longValue());
+        Assertions.assertEquals(2L, ((Number) statistic.get("openShardNum")).longValue());
+        Assertions.assertEquals(1L, ((Number) statistic.get("closedShardNum")).longValue());
+        Assertions.assertEquals(4L, ((Number) statistic.get("trackedShardNum")).longValue());
+        Assertions.assertEquals(3L, ((Number) statistic.get("cachedMillisBehindLatestShardNum")).longValue());
+        Assertions.assertEquals(100L, ((Number) statistic.get("totalMillisBehindLatest")).longValue());
+        Assertions.assertEquals(100L, ((Number) statistic.get("maxMillisBehindLatest")).longValue());
     }
 
     @Test
@@ -114,7 +114,7 @@ public class KinesisRoutineLoadJobTest {
 
         Map<String, String> shardToSeqNum = new HashMap<>();
         shardToSeqNum.put("shard-0", "100");
-        Assert.assertTrue(routineLoadJob.hasMoreDataToConsume(UUID.randomUUID(), shardToSeqNum));
+        Assertions.assertTrue(routineLoadJob.hasMoreDataToConsume(UUID.randomUUID(), shardToSeqNum));
     }
 
     @Test
@@ -140,15 +140,15 @@ public class KinesisRoutineLoadJobTest {
         Deencapsulation.invoke(routineLoadJob, "updateProgressAndOffsetsCache", attachment);
 
         Map<String, Long> updatedLagCache = Deencapsulation.getField(routineLoadJob, "cachedShardWithMillsBehindLatest");
-        Assert.assertEquals(100L, updatedLagCache.get("shard-0").longValue());
+        Assertions.assertEquals(100L, updatedLagCache.get("shard-0").longValue());
 
         Gson gson = new Gson();
         Map<String, Object> statistic = gson.fromJson(routineLoadJob.getStatistic(), Map.class);
-        Assert.assertEquals(100L, ((Number) statistic.get("totalMillisBehindLatest")).longValue());
-        Assert.assertEquals(100L, ((Number) statistic.get("maxMillisBehindLatest")).longValue());
+        Assertions.assertEquals(100L, ((Number) statistic.get("totalMillisBehindLatest")).longValue());
+        Assertions.assertEquals(100L, ((Number) statistic.get("maxMillisBehindLatest")).longValue());
 
         Map<String, Object> lag = gson.fromJson(routineLoadJob.getLag(), Map.class);
-        Assert.assertEquals(100L, ((Number) lag.get("shard-0")).longValue());
+        Assertions.assertEquals(100L, ((Number) lag.get("shard-0")).longValue());
     }
 
     @Test
@@ -181,19 +181,19 @@ public class KinesisRoutineLoadJobTest {
         Deencapsulation.invoke(routineLoadJob, "modifyPropertiesInternal",
                 new HashMap<String, String>(), dataSourceProperties);
 
-        Assert.assertEquals("stream-2", Deencapsulation.getField(routineLoadJob, "stream"));
+        Assertions.assertEquals("stream-2", Deencapsulation.getField(routineLoadJob, "stream"));
 
         List<String> customKinesisShards = Deencapsulation.getField(routineLoadJob, "customKinesisShards");
-        Assert.assertTrue(customKinesisShards.isEmpty());
+        Assertions.assertTrue(customKinesisShards.isEmpty());
         List<String> openKinesisShards = Deencapsulation.getField(routineLoadJob, "openKinesisShards");
-        Assert.assertTrue(openKinesisShards.isEmpty());
+        Assertions.assertTrue(openKinesisShards.isEmpty());
         List<String> closedKinesisShards = Deencapsulation.getField(routineLoadJob, "closedKinesisShards");
-        Assert.assertTrue(closedKinesisShards.isEmpty());
+        Assertions.assertTrue(closedKinesisShards.isEmpty());
 
         KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
-        Assert.assertFalse(progress.hasShards());
+        Assertions.assertFalse(progress.hasShards());
         Map<String, Long> cachedLag = Deencapsulation.getField(routineLoadJob, "cachedShardWithMillsBehindLatest");
-        Assert.assertTrue(cachedLag.isEmpty());
+        Assertions.assertTrue(cachedLag.isEmpty());
     }
 
     @Test
@@ -222,11 +222,11 @@ public class KinesisRoutineLoadJobTest {
                 new HashMap<String, String>(), dataSourceProperties);
 
         List<String> customKinesisShards = Deencapsulation.getField(routineLoadJob, "customKinesisShards");
-        Assert.assertEquals(Lists.newArrayList("shard-1", "shard-2"), customKinesisShards);
+        Assertions.assertEquals(Lists.newArrayList("shard-1", "shard-2"), customKinesisShards);
 
         KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
-        Assert.assertEquals("101", progress.getSequenceNumberByShard("shard-1"));
-        Assert.assertEquals("202", progress.getSequenceNumberByShard("shard-2"));
+        Assertions.assertEquals("101", progress.getSequenceNumberByShard("shard-1"));
+        Assertions.assertEquals("202", progress.getSequenceNumberByShard("shard-2"));
     }
 
     @Test
@@ -243,23 +243,23 @@ public class KinesisRoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "newCurrentKinesisShards",
                 Lists.newArrayList("shard-child-0", "shard-child-1"));
 
-        Assert.assertTrue((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
+        Assertions.assertTrue((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
         List<String> openKinesisShards = Deencapsulation.getField(routineLoadJob, "openKinesisShards");
         List<String> closedKinesisShards = Deencapsulation.getField(routineLoadJob, "closedKinesisShards");
-        Assert.assertEquals(new HashSet<>(Lists.newArrayList("shard-child-0", "shard-child-1")),
+        Assertions.assertEquals(new HashSet<>(Lists.newArrayList("shard-child-0", "shard-child-1")),
                 new HashSet<>(openKinesisShards));
-        Assert.assertEquals(new HashSet<>(Lists.newArrayList("shard-parent")),
+        Assertions.assertEquals(new HashSet<>(Lists.newArrayList("shard-parent")),
                 new HashSet<>(closedKinesisShards));
 
         Deencapsulation.invoke(routineLoadJob, "updateNewShardProgress");
         KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
-        Assert.assertTrue(progress.containsShard("shard-parent"));
-        Assert.assertTrue(progress.containsShard("shard-child-0"));
-        Assert.assertTrue(progress.containsShard("shard-child-1"));
+        Assertions.assertTrue(progress.containsShard("shard-parent"));
+        Assertions.assertTrue(progress.containsShard("shard-child-0"));
+        Assertions.assertTrue(progress.containsShard("shard-child-1"));
 
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
         routineLoadJob.divideRoutineLoadJob(2);
-        Assert.assertEquals(new HashSet<>(Lists.newArrayList("shard-parent", "shard-child-0", "shard-child-1")),
+        Assertions.assertEquals(new HashSet<>(Lists.newArrayList("shard-parent", "shard-child-0", "shard-child-1")),
                 collectAssignedShards(routineLoadJob));
     }
 
@@ -277,7 +277,7 @@ public class KinesisRoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "newCurrentKinesisShards",
                 Lists.newArrayList("shard-child-0", "shard-child-1"));
 
-        Assert.assertTrue((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
+        Assertions.assertTrue((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
         Deencapsulation.invoke(routineLoadJob, "updateNewShardProgress");
 
         Map<String, String> childProgress = new HashMap<>();
@@ -294,21 +294,21 @@ public class KinesisRoutineLoadJobTest {
         Deencapsulation.invoke(routineLoadJob, "updateProgressAndOffsetsCache", attachment);
 
         KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
-        Assert.assertFalse(progress.containsShard("shard-parent"));
-        Assert.assertTrue(progress.containsShard("shard-child-0"));
-        Assert.assertTrue(progress.containsShard("shard-child-1"));
+        Assertions.assertFalse(progress.containsShard("shard-parent"));
+        Assertions.assertTrue(progress.containsShard("shard-child-0"));
+        Assertions.assertTrue(progress.containsShard("shard-child-1"));
         List<String> openKinesisShards = Deencapsulation.getField(routineLoadJob, "openKinesisShards");
-        Assert.assertEquals(new HashSet<>(Lists.newArrayList("shard-child-0", "shard-child-1")),
+        Assertions.assertEquals(new HashSet<>(Lists.newArrayList("shard-child-0", "shard-child-1")),
                 new HashSet<>(openKinesisShards));
-        Assert.assertTrue(((List<String>) Deencapsulation.getField(routineLoadJob, "closedKinesisShards")).isEmpty());
+        Assertions.assertTrue(((List<String>) Deencapsulation.getField(routineLoadJob, "closedKinesisShards")).isEmpty());
         Map<String, Long> cachedLag = Deencapsulation.getField(routineLoadJob, "cachedShardWithMillsBehindLatest");
-        Assert.assertFalse(cachedLag.containsKey("shard-parent"));
-        Assert.assertEquals(0L, cachedLag.get("shard-child-0").longValue());
-        Assert.assertEquals(100L, cachedLag.get("shard-child-1").longValue());
+        Assertions.assertFalse(cachedLag.containsKey("shard-parent"));
+        Assertions.assertEquals(0L, cachedLag.get("shard-child-0").longValue());
+        Assertions.assertEquals(100L, cachedLag.get("shard-child-1").longValue());
 
         Deencapsulation.setField(routineLoadJob, "newCurrentKinesisShards",
                 Lists.newArrayList("shard-child-0", "shard-child-1"));
-        Assert.assertFalse((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
+        Assertions.assertFalse((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
     }
 
     @Test
@@ -326,17 +326,17 @@ public class KinesisRoutineLoadJobTest {
         String customPropertiesJson = routineLoadJob.customPropertiesJsonToString();
         Map<String, String> showCreateCustomProperties = routineLoadJob.getCustomProperties();
 
-        Assert.assertFalse(customPropertiesJson.contains("aws_access_key"));
-        Assert.assertFalse(customPropertiesJson.contains("aws_secret"));
-        Assert.assertFalse(customPropertiesJson.contains("aws_session_secret"));
-        Assert.assertTrue(customPropertiesJson.contains("\"aws.access_key\":\"******\""));
-        Assert.assertTrue(customPropertiesJson.contains("\"aws.secret_key\":\"******\""));
-        Assert.assertTrue(customPropertiesJson.contains("\"aws.session_key\":\"******\""));
-        Assert.assertTrue(customPropertiesJson.contains("\"aws.role_arn\":\"role_arn_value\""));
-        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.access_key"));
-        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.secret_key"));
-        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.session_key"));
-        Assert.assertEquals("role_arn_value", showCreateCustomProperties.get("property.aws.role_arn"));
+        Assertions.assertFalse(customPropertiesJson.contains("aws_access_key"));
+        Assertions.assertFalse(customPropertiesJson.contains("aws_secret"));
+        Assertions.assertFalse(customPropertiesJson.contains("aws_session_secret"));
+        Assertions.assertTrue(customPropertiesJson.contains("\"aws.access_key\":\"******\""));
+        Assertions.assertTrue(customPropertiesJson.contains("\"aws.secret_key\":\"******\""));
+        Assertions.assertTrue(customPropertiesJson.contains("\"aws.session_key\":\"******\""));
+        Assertions.assertTrue(customPropertiesJson.contains("\"aws.role_arn\":\"role_arn_value\""));
+        Assertions.assertEquals("******", showCreateCustomProperties.get("property.aws.access_key"));
+        Assertions.assertEquals("******", showCreateCustomProperties.get("property.aws.secret_key"));
+        Assertions.assertEquals("******", showCreateCustomProperties.get("property.aws.session_key"));
+        Assertions.assertEquals("role_arn_value", showCreateCustomProperties.get("property.aws.role_arn"));
     }
 
     private Set<String> collectAssignedShards(KinesisRoutineLoadJob routineLoadJob) {

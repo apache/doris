@@ -22,8 +22,8 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -41,16 +41,16 @@ public class ColocateTableIndexTest {
         GroupId groupId1 = new GroupId(1000, 2000);
         GroupId groupId2 = new GroupId(1000, 2000);
         Map<GroupId, Long> map = Maps.newHashMap();
-        Assert.assertEquals(groupId1, groupId2);
-        Assert.assertTrue(groupId1.hashCode() == groupId2.hashCode());
+        Assertions.assertEquals(groupId1, groupId2);
+        Assertions.assertTrue(groupId1.hashCode() == groupId2.hashCode());
         map.put(groupId1, 1000L);
-        Assert.assertTrue(map.containsKey(groupId2));
+        Assertions.assertTrue(map.containsKey(groupId2));
 
         Set<GroupId> balancingGroups = new CopyOnWriteArraySet<GroupId>();
         balancingGroups.add(groupId1);
-        Assert.assertTrue(balancingGroups.size() == 1);
+        Assertions.assertTrue(balancingGroups.size() == 1);
         balancingGroups.remove(groupId2);
-        Assert.assertTrue(balancingGroups.isEmpty());
+        Assertions.assertTrue(balancingGroups.isEmpty());
     }
 
     @Test
@@ -73,7 +73,7 @@ public class ColocateTableIndexTest {
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         ColocateTableIndex.GroupId rGroupId = ColocateTableIndex.GroupId.read(dis);
-        Assert.assertEquals(groupId, rGroupId);
+        Assertions.assertEquals(groupId, rGroupId);
 
         // 3. delete files
         dis.close();

@@ -74,4 +74,17 @@ public class PaimonCreateTableValidationTest {
         // WHY: guards against over-rejection -- a create with no DISTRIBUTE BY must pass.
         Assertions.assertDoesNotThrow(() -> metadata().rejectDistribution(request));
     }
+
+    @Test
+    public void reservedMetadataColumnsAreRejected() {
+        ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                .dbName("db").tableName("t")
+                .columns(Collections.singletonList(new ConnectorColumn("__paimon_file_path",
+                        ConnectorType.of("STRING"), "", true, null)))
+                .build();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata().rejectReservedMetadataColumns(request));
+        Assertions.assertTrue(ex.getMessage().contains("reserved metadata column"));
+    }
 }

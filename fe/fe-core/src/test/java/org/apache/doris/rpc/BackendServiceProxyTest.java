@@ -26,10 +26,10 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -49,7 +49,7 @@ public class BackendServiceProxyTest {
     private boolean originalFqdnMode;
     private int originalProxyNum;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         // Save original config values
         originalFqdnMode = Config.enable_fqdn_mode;
@@ -74,7 +74,7 @@ public class BackendServiceProxyTest {
         proxy = new BackendServiceProxy();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         // Restore original config
         Config.enable_fqdn_mode = originalFqdnMode;
@@ -105,15 +105,15 @@ public class BackendServiceProxyTest {
         BackendServiceClient client = Deencapsulation.invoke(proxy, "getProxy", address);
 
         // Verify client was created
-        Assert.assertNotNull(client);
+        Assertions.assertNotNull(client);
 
         // Verify DNS cache was called
         Mockito.verify(mockDnsCache, Mockito.times(1)).get(hostname);
 
         // Verify the client is stored in serviceMap
         Map<TNetworkAddress, Object> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
-        Assert.assertEquals(1, serviceMap.size());
-        Assert.assertTrue(serviceMap.containsKey(address));
+        Assertions.assertEquals(1, serviceMap.size());
+        Assertions.assertTrue(serviceMap.containsKey(address));
     }
 
     /**
@@ -133,13 +133,11 @@ public class BackendServiceProxyTest {
         // Should throw UnknownHostException
         try {
             Deencapsulation.invoke(proxy, "getProxy", address);
-            Assert.fail("Expected UnknownHostException to be thrown");
+            Assertions.fail("Expected UnknownHostException to be thrown");
         } catch (Exception e) {
-            Assert.assertTrue("Expected UnknownHostException", e instanceof UnknownHostException);
-            Assert.assertTrue("Exception message should contain hostname",
-                    e.getMessage().contains(hostname));
-            Assert.assertTrue("Exception message should mention DNS cache",
-                    e.getMessage().contains("DNS cache returned empty IP address"));
+            Assertions.assertTrue(e instanceof UnknownHostException, "Expected UnknownHostException");
+            Assertions.assertTrue(e.getMessage().contains(hostname), "Exception message should contain hostname");
+            Assertions.assertTrue(e.getMessage().contains("DNS cache returned empty IP address"), "Exception message should mention DNS cache");
         }
 
         // Verify DNS cache was called
@@ -166,7 +164,7 @@ public class BackendServiceProxyTest {
         BackendServiceClient client = Deencapsulation.invoke(proxy, "getProxy", address);
 
         // Verify client was created
-        Assert.assertNotNull(client);
+        Assertions.assertNotNull(client);
 
         // Verify DNS cache was called
         Mockito.verify(mockDnsCache, Mockito.times(1)).get(hostname);
@@ -188,24 +186,24 @@ public class BackendServiceProxyTest {
         // First call - create client with old IP
         Mockito.when(mockDnsCache.get(hostname)).thenReturn(oldIp);
         BackendServiceClient client1 = Deencapsulation.invoke(proxy, "getProxy", address);
-        Assert.assertNotNull(client1);
+        Assertions.assertNotNull(client1);
 
         // Verify serviceMap contains the client
         Map<TNetworkAddress, Object> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
-        Assert.assertEquals(1, serviceMap.size());
+        Assertions.assertEquals(1, serviceMap.size());
 
         // Second call - IP changed
         Mockito.when(mockDnsCache.get(hostname)).thenReturn(newIp);
         BackendServiceClient client2 = Deencapsulation.invoke(proxy, "getProxy", address);
 
         // Verify a new client was created
-        Assert.assertNotNull(client2);
+        Assertions.assertNotNull(client2);
 
         // Verify DNS cache was called twice
         Mockito.verify(mockDnsCache, Mockito.times(2)).get(hostname);
 
         // Verify serviceMap still has one entry but with new client
-        Assert.assertEquals(1, serviceMap.size());
+        Assertions.assertEquals(1, serviceMap.size());
 
         // Note: We cannot easily verify client1.shutdown() was called because
         // the client is created as a real object, not a mock. In a real test
@@ -229,13 +227,13 @@ public class BackendServiceProxyTest {
 
         // First call
         BackendServiceClient client1 = Deencapsulation.invoke(proxy, "getProxy", address);
-        Assert.assertNotNull(client1);
+        Assertions.assertNotNull(client1);
 
         // Second call with same IP
         BackendServiceClient client2 = Deencapsulation.invoke(proxy, "getProxy", address);
 
         // Should reuse the same client
-        Assert.assertSame("Client should be reused when IP hasn't changed", client1, client2);
+        Assertions.assertSame(client1, client2, "Client should be reused when IP hasn't changed");
 
         // DNS cache should be called twice (once per getProxy call)
         Mockito.verify(mockDnsCache, Mockito.times(2)).get(hostname);
@@ -257,17 +255,17 @@ public class BackendServiceProxyTest {
 
         // Create client
         BackendServiceClient client = Deencapsulation.invoke(proxy, "getProxy", address);
-        Assert.assertNotNull(client);
+        Assertions.assertNotNull(client);
 
         // Verify serviceMap contains the client
         Map<TNetworkAddress, Object> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
-        Assert.assertEquals(1, serviceMap.size());
+        Assertions.assertEquals(1, serviceMap.size());
 
         // Remove proxy
         proxy.removeProxy(address);
 
         // Verify serviceMap is now empty
-        Assert.assertEquals(0, serviceMap.size());
+        Assertions.assertEquals(0, serviceMap.size());
 
         // Note: In a real test, you would verify client.shutdown() was called
         // This would require mocking the client creation process
@@ -295,14 +293,14 @@ public class BackendServiceProxyTest {
         BackendServiceClient client1 = Deencapsulation.invoke(proxy, "getProxy", address1);
         BackendServiceClient client2 = Deencapsulation.invoke(proxy, "getProxy", address2);
 
-        Assert.assertNotNull(client1);
-        Assert.assertNotNull(client2);
+        Assertions.assertNotNull(client1);
+        Assertions.assertNotNull(client2);
 
         // Verify serviceMap contains both clients
         Map<TNetworkAddress, Object> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
-        Assert.assertEquals(2, serviceMap.size());
-        Assert.assertTrue(serviceMap.containsKey(address1));
-        Assert.assertTrue(serviceMap.containsKey(address2));
+        Assertions.assertEquals(2, serviceMap.size());
+        Assertions.assertTrue(serviceMap.containsKey(address1));
+        Assertions.assertTrue(serviceMap.containsKey(address2));
     }
 
     @Test
@@ -330,7 +328,7 @@ public class BackendServiceProxyTest {
 
         ListenableFuture<InternalService.PSyncTabletMetaResponse> actualFuture = proxy.syncTabletMeta(address, request);
 
-        Assert.assertSame(expectedFuture, actualFuture);
+        Assertions.assertSame(expectedFuture, actualFuture);
         Mockito.verify(client).syncTabletMeta(request);
     }
 
@@ -343,8 +341,8 @@ public class BackendServiceProxyTest {
                 .build();
         Mockito.when(mockDnsCache.get(hostname)).thenReturn("");
 
-        RpcException exception = Assert.assertThrows(RpcException.class, () -> proxy.syncTabletMeta(address, request));
-        Assert.assertTrue(exception.getMessage().contains(hostname));
+        RpcException exception = Assertions.assertThrows(RpcException.class, () -> proxy.syncTabletMeta(address, request));
+        Assertions.assertTrue(exception.getMessage().contains(hostname));
     }
 
     private Object newBackendServiceClientExtIp(String realIp, BackendServiceClient client) throws Exception {

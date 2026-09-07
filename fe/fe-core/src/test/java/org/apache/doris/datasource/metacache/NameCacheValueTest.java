@@ -20,8 +20,8 @@ package org.apache.doris.datasource.metacache;
 import org.apache.doris.common.Pair;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class NameCacheValueTest {
 
@@ -30,9 +30,9 @@ public class NameCacheValueTest {
         NameCacheValue original = NameCacheValue.of(ImmutableList.of(Pair.of("RemoteA", "LocalA")));
         NameCacheValue updated = original.withName("RemoteB", "LocalB");
 
-        Assert.assertEquals("RemoteA", original.remoteNameOfLocalName("LocalA"));
-        Assert.assertNull(original.remoteNameOfLocalName("LocalB"));
-        Assert.assertEquals("RemoteB", updated.remoteNameOfLocalName("LocalB"));
+        Assertions.assertEquals("RemoteA", original.remoteNameOfLocalName("LocalA"));
+        Assertions.assertNull(original.remoteNameOfLocalName("LocalB"));
+        Assertions.assertEquals("RemoteB", updated.remoteNameOfLocalName("LocalB"));
     }
 
     @Test
@@ -41,8 +41,8 @@ public class NameCacheValueTest {
                 Pair.of("RemoteA", "LocalA"),
                 Pair.of("RemoteB", "RemoteB")));
 
-        Assert.assertEquals("RemoteA", names.remoteNameForCaseInsensitiveLookup("remotea"));
-        Assert.assertEquals("RemoteB", names.remoteNameForCaseInsensitiveLookup("REMOTEB"));
+        Assertions.assertEquals("RemoteA", names.remoteNameForCaseInsensitiveLookup("remotea"));
+        Assertions.assertEquals("RemoteB", names.remoteNameForCaseInsensitiveLookup("REMOTEB"));
     }
 
     @Test
@@ -54,9 +54,9 @@ public class NameCacheValueTest {
         pair.first = "RemoteB";
         pair.second = "LocalB";
 
-        Assert.assertEquals("RemoteA", names.remoteNameOfLocalName("LocalA"));
-        Assert.assertEquals("RemoteA", names.remoteNameForCaseInsensitiveLookup("remotea"));
-        Assert.assertNull(names.remoteNameOfLocalName("LocalB"));
+        Assertions.assertEquals("RemoteA", names.remoteNameOfLocalName("LocalA"));
+        Assertions.assertEquals("RemoteA", names.remoteNameForCaseInsensitiveLookup("remotea"));
+        Assertions.assertNull(names.remoteNameOfLocalName("LocalB"));
     }
 
     @Test
@@ -68,9 +68,9 @@ public class NameCacheValueTest {
         returned.first = "RemoteB";
         returned.second = "LocalB";
 
-        Assert.assertEquals("RemoteA", names.remoteNameOfLocalName("LocalA"));
-        Assert.assertEquals("RemoteA", names.remoteNameForCaseInsensitiveLookup("remotea"));
-        Assert.assertNull(names.remoteNameOfLocalName("LocalB"));
+        Assertions.assertEquals("RemoteA", names.remoteNameOfLocalName("LocalA"));
+        Assertions.assertEquals("RemoteA", names.remoteNameForCaseInsensitiveLookup("remotea"));
+        Assertions.assertNull(names.remoteNameOfLocalName("LocalB"));
     }
 
     @Test
@@ -79,10 +79,10 @@ public class NameCacheValueTest {
                 Pair.of("RemoteA", "LocalA"),
                 Pair.of("RemoteB", "LocalB")));
 
-        Assert.assertEquals(ImmutableList.of("LocalA", "LocalB"), names.localNames());
-        Assert.assertSame(names.localNames(), names.localNames());
-        Assert.assertTrue(names.containsLocalName("LocalA"));
-        Assert.assertThrows(UnsupportedOperationException.class, () -> names.localNames().add("LocalC"));
+        Assertions.assertEquals(ImmutableList.of("LocalA", "LocalB"), names.localNames());
+        Assertions.assertSame(names.localNames(), names.localNames());
+        Assertions.assertTrue(names.containsLocalName("LocalA"));
+        Assertions.assertThrows(UnsupportedOperationException.class, () -> names.localNames().add("LocalC"));
     }
 
     @Test
@@ -91,35 +91,35 @@ public class NameCacheValueTest {
                 Pair.of("RemoteA", "LocalA"),
                 Pair.of("RemoteA", "LocalA")));
 
-        Assert.assertEquals(ImmutableList.of("LocalA"), names.localNames());
-        Assert.assertEquals(1, names.names().size());
-        Assert.assertEquals("RemoteA", names.remoteNameOfLocalName("LocalA"));
+        Assertions.assertEquals(ImmutableList.of("LocalA"), names.localNames());
+        Assertions.assertEquals(1, names.names().size());
+        Assertions.assertEquals("RemoteA", names.remoteNameOfLocalName("LocalA"));
     }
 
     @Test
     public void testRejectsConflictingRemoteNamesForSameLocalName() {
-        IllegalArgumentException exception = Assert.assertThrows(
+        IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> NameCacheValue.of(ImmutableList.of(
                         Pair.of("RemoteA", "LocalX"),
                         Pair.of("RemoteB", "LocalX"))));
 
-        Assert.assertTrue(exception.getMessage().contains("LocalX"));
-        Assert.assertTrue(exception.getMessage().contains("RemoteA"));
-        Assert.assertTrue(exception.getMessage().contains("RemoteB"));
+        Assertions.assertTrue(exception.getMessage().contains("LocalX"));
+        Assertions.assertTrue(exception.getMessage().contains("RemoteA"));
+        Assertions.assertTrue(exception.getMessage().contains("RemoteB"));
     }
 
     @Test
     public void testRejectsConflictingLocalNamesForSameRemoteName() {
-        IllegalArgumentException exception = Assert.assertThrows(
+        IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> NameCacheValue.of(ImmutableList.of(
                         Pair.of("RemoteA", "LocalX"),
                         Pair.of("RemoteA", "LocalY"))));
 
-        Assert.assertTrue(exception.getMessage().contains("RemoteA"));
-        Assert.assertTrue(exception.getMessage().contains("LocalX"));
-        Assert.assertTrue(exception.getMessage().contains("LocalY"));
+        Assertions.assertTrue(exception.getMessage().contains("RemoteA"));
+        Assertions.assertTrue(exception.getMessage().contains("LocalX"));
+        Assertions.assertTrue(exception.getMessage().contains("LocalY"));
     }
 
     @Test
@@ -129,18 +129,18 @@ public class NameCacheValueTest {
                 Pair.of("Foo", "Foo"),
                 Pair.of("foo", "foo")));
 
-        Assert.assertEquals("Foo", names.remoteNameOfLocalName("Foo"));
-        Assert.assertEquals("foo", names.remoteNameOfLocalName("foo"));
-        Assert.assertEquals("foo", names.remoteNameForCaseInsensitiveLookup("FOO"));
+        Assertions.assertEquals("Foo", names.remoteNameOfLocalName("Foo"));
+        Assertions.assertEquals("foo", names.remoteNameOfLocalName("foo"));
+        Assertions.assertEquals("foo", names.remoteNameForCaseInsensitiveLookup("FOO"));
     }
 
     @Test
     public void testWithNameRejectsRemoteNameConflict() {
         NameCacheValue names = NameCacheValue.of(ImmutableList.of(Pair.of("RemoteA", "LocalA")));
 
-        IllegalArgumentException exception = Assert.assertThrows(
+        IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class, () -> names.withName("RemoteA", "LocalB"));
-        Assert.assertTrue(exception.getMessage().contains("remote name already maps"));
+        Assertions.assertTrue(exception.getMessage().contains("remote name already maps"));
     }
 
     @Test
@@ -151,8 +151,8 @@ public class NameCacheValueTest {
 
         NameCacheValue updated = names.withName("RemoteA", "LocalA");
 
-        Assert.assertSame(names, updated);
-        Assert.assertEquals(ImmutableList.of("LocalA", "LocalB"), updated.localNames());
+        Assertions.assertSame(names, updated);
+        Assertions.assertEquals(ImmutableList.of("LocalA", "LocalB"), updated.localNames());
     }
 
     @Test
@@ -161,9 +161,9 @@ public class NameCacheValueTest {
 
         NameCacheValue updated = names.withName("RemoteB", "LocalA");
 
-        Assert.assertEquals("RemoteA", names.remoteNameOfLocalName("LocalA"));
-        Assert.assertEquals("RemoteB", updated.remoteNameOfLocalName("LocalA"));
-        Assert.assertEquals(ImmutableList.of("LocalA"), updated.localNames());
+        Assertions.assertEquals("RemoteA", names.remoteNameOfLocalName("LocalA"));
+        Assertions.assertEquals("RemoteB", updated.remoteNameOfLocalName("LocalA"));
+        Assertions.assertEquals(ImmutableList.of("LocalA"), updated.localNames());
     }
 
     @Test
@@ -173,7 +173,7 @@ public class NameCacheValueTest {
                 Pair.of("RemoteB", "LocalB")));
 
         NameCacheValue updated = names.withoutLocalName("LocalA");
-        Assert.assertFalse(updated.containsLocalName("LocalA"));
-        Assert.assertEquals("RemoteB", updated.remoteNameOfLocalName("LocalB"));
+        Assertions.assertFalse(updated.containsLocalName("LocalA"));
+        Assertions.assertEquals("RemoteB", updated.remoteNameOfLocalName("LocalB"));
     }
 }

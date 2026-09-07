@@ -73,10 +73,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -113,7 +113,7 @@ public class CloudIndexTest {
         field.set(target, value);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedMetaServiceProxy != null) {
             mockedMetaServiceProxy.close();
@@ -126,7 +126,7 @@ public class CloudIndexTest {
         }
     }
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
         // Setup for MetaServiceProxy mock
@@ -253,8 +253,8 @@ public class CloudIndexTest {
         ctx.setCurrentUserIdentity(rootUser);
         ctx.setThreadLocalInfo();
         ctx.setCloudCluster("test_group");
-        Assert.assertTrue(envFactory instanceof CloudEnvFactory);
-        Assert.assertTrue(masterEnv instanceof CloudEnv);
+        Assertions.assertTrue(envFactory instanceof CloudEnvFactory);
+        Assertions.assertTrue(masterEnv instanceof CloudEnv);
 
         // Replace MockUp<Env> with direct field injection on masterEnv
         setField(masterEnv, Env.class, "selfNode",
@@ -292,7 +292,7 @@ public class CloudIndexTest {
         // MockUp<CloudEnv> removed: checkCloudClusterPriv not called in test paths
         // MockUp<ConnectContext> removed: ctx already has correct values via setters
 
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         // Replace MockUp<CloudSystemInfoService> with spy
         CloudSystemInfoService sysInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
         CloudSystemInfoService sysInfoSpy = Mockito.spy(sysInfo);
@@ -324,8 +324,8 @@ public class CloudIndexTest {
         sysInfoSpy.addCloudCluster("test_group", "");
         List<Backend> backends =
                 ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName("test_group");
-        Assert.assertEquals(1, backends.size());
-        Assert.assertEquals("host1", backends.get(0).getHost());
+        Assertions.assertEquals(1, backends.size());
+        Assertions.assertEquals("host1", backends.get(0).getHost());
         backends.get(0).setAlive(true);
         ctx.setComputeGroup(masterEnv.getComputeGroupMgr().getAllBackendComputeGroup());
 
@@ -338,7 +338,7 @@ public class CloudIndexTest {
 
     @Test
     public void testCreateNgramBfIndex() throws Exception {
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
         SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
         if (fakeEnv != null) {
@@ -353,8 +353,8 @@ public class CloudIndexTest {
         FakeEnv.setSystemInfo(cloudSystemInfo);
         schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
-        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         CatalogTestUtil.createDupTable(db);
         OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         DataSortInfo dataSortInfo = new DataSortInfo();
@@ -379,21 +379,21 @@ public class CloudIndexTest {
         ctx.getSessionVariable().setEnableAddIndexForNewData(true);
         schemaChangeHandler.process(alterOps, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
-        Assert.assertEquals(1, indexChangeJobMap.size());
-        Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
-        Assert.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assertions.assertEquals(1, indexChangeJobMap.size());
+        Assertions.assertEquals(1, table.getIndexes().size());
+        Assertions.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
 
         long createJobId = indexChangeJobMap.values().stream().findAny().get().jobId;
 
         // Finish the create index job first
         SchemaChangeJobV2 createJobV2 = (SchemaChangeJobV2) indexChangeJobMap.get(createJobId);
-        Assert.assertEquals(AlterJobV2.JobState.FINISHED, createJobV2.getJobState());
+        Assertions.assertEquals(AlterJobV2.JobState.FINISHED, createJobV2.getJobState());
     }
 
     @Test
     public void testAlterBfIndexWithLightweightMode() throws Exception {
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
         SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
         if (fakeEnv != null) {
@@ -424,12 +424,12 @@ public class CloudIndexTest {
         addIndexOps.add(createIndexOp);
         schemaChangeHandler.process(addIndexOps, db, table);
 
-        Assert.assertEquals(OlapTableState.NORMAL, table.getState());
-        Assert.assertEquals(1, schemaChangeHandler.getAlterJobsV2().size());
-        Assert.assertEquals(0, schemaChangeHandler.getIndexChangeJobs().size());
-        Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals(IndexType.BLOOMFILTER, table.getIndexes().get(0).getIndexType());
-        Assert.assertEquals(AlterJobV2.JobState.FINISHED,
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assertions.assertEquals(1, schemaChangeHandler.getAlterJobsV2().size());
+        Assertions.assertEquals(0, schemaChangeHandler.getIndexChangeJobs().size());
+        Assertions.assertEquals(1, table.getIndexes().size());
+        Assertions.assertEquals(IndexType.BLOOMFILTER, table.getIndexes().get(0).getIndexType());
+        Assertions.assertEquals(AlterJobV2.JobState.FINISHED,
                 schemaChangeHandler.getAlterJobsV2().values().iterator().next().getJobState());
 
         DropIndexOp dropIndexOp = new DropIndexOp(indexName, false, tableName, false);
@@ -437,10 +437,10 @@ public class CloudIndexTest {
         dropIndexOps.add(dropIndexOp);
         schemaChangeHandler.process(dropIndexOps, db, table);
 
-        Assert.assertEquals(OlapTableState.NORMAL, table.getState());
-        Assert.assertEquals(2, schemaChangeHandler.getAlterJobsV2().size());
-        Assert.assertEquals(1, schemaChangeHandler.getIndexChangeJobs().size());
-        Assert.assertTrue(table.getIndexes().isEmpty());
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assertions.assertEquals(2, schemaChangeHandler.getAlterJobsV2().size());
+        Assertions.assertEquals(1, schemaChangeHandler.getIndexChangeJobs().size());
+        Assertions.assertTrue(table.getIndexes().isEmpty());
     }
 
     @Test
@@ -460,13 +460,13 @@ public class CloudIndexTest {
         schemaChangeHandler.process(Lists.newArrayList(createIndexOp), db, table);
 
         BuildIndexOp buildIndexOp = new BuildIndexOp(tableName, null, null, false);
-        AnalysisException exception = Assert.assertThrows(AnalysisException.class, () -> buildIndexOp.validate(ctx));
-        Assert.assertTrue(exception.getMessage().contains("BLOOMFILTER index is not needed to build"));
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> buildIndexOp.validate(ctx));
+        Assertions.assertTrue(exception.getMessage().contains("BLOOMFILTER index is not needed to build"));
     }
 
     @Test
     public void testNormalCreateNgramBfIndex() throws Exception {
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
         SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
         if (fakeEnv != null) {
@@ -481,8 +481,8 @@ public class CloudIndexTest {
         FakeEnv.setSystemInfo(cloudSystemInfo);
         schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
-        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         CatalogTestUtil.createDupTable(db);
         OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         DataSortInfo dataSortInfo = new DataSortInfo();
@@ -509,35 +509,35 @@ public class CloudIndexTest {
         ctx.getSessionVariable().setEnableAddIndexForNewData(false);
         schemaChangeHandler.process(alterOps, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
-        Assert.assertEquals(1, indexChangeJobMap.size());
-        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+        Assertions.assertEquals(1, indexChangeJobMap.size());
+        Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
 
         long createJobId = indexChangeJobMap.values().stream().findAny().get().jobId;
 
         // Finish the create index job first
         SchemaChangeJobV2 createJobV2 = (SchemaChangeJobV2) indexChangeJobMap.get(createJobId);
         schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, createJobV2.getJobState());
+        Assertions.assertEquals(AlterJobV2.JobState.WAITING_TXN, createJobV2.getJobState());
         schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.RUNNING, createJobV2.getJobState());
-        Assert.assertEquals(1, createJobV2.schemaChangeBatchTask.getTaskNum());
+        Assertions.assertEquals(AlterJobV2.JobState.RUNNING, createJobV2.getJobState());
+        Assertions.assertEquals(1, createJobV2.schemaChangeBatchTask.getTaskNum());
 
         List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
-        Assert.assertEquals(1, tasks.size());
+        Assertions.assertEquals(1, tasks.size());
         for (AgentTask agentTask : tasks) {
             agentTask.setFinished(true);
         }
 
         schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.FINISHED, createJobV2.getJobState());
-        Assert.assertEquals(OlapTableState.NORMAL, table.getState());
-        Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
+        Assertions.assertEquals(AlterJobV2.JobState.FINISHED, createJobV2.getJobState());
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assertions.assertEquals(1, table.getIndexes().size());
+        Assertions.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
     }
 
     @Test
     public void testCreateInvertedIndex() throws Exception {
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
         SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
         if (fakeEnv != null) {
@@ -552,8 +552,8 @@ public class CloudIndexTest {
         FakeEnv.setSystemInfo(cloudSystemInfo);
         schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
-        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         CatalogTestUtil.createDupTable(db);
         OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         DataSortInfo dataSortInfo = new DataSortInfo();
@@ -576,36 +576,36 @@ public class CloudIndexTest {
         ctx.getSessionVariable().setEnableAddIndexForNewData(false);
         schemaChangeHandler.process(alterOps, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
-        Assert.assertEquals(1, indexChangeJobMap.size());
+        Assertions.assertEquals(1, indexChangeJobMap.size());
 
         long createJobId = indexChangeJobMap.values().stream().findAny().get().jobId;
-        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+        Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
 
         // Finish the create index job first
         SchemaChangeJobV2 createJobV2 = (SchemaChangeJobV2) indexChangeJobMap.get(createJobId);
         schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, createJobV2.getJobState());
+        Assertions.assertEquals(AlterJobV2.JobState.WAITING_TXN, createJobV2.getJobState());
 
         schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.RUNNING, createJobV2.getJobState());
-        Assert.assertEquals(1, createJobV2.schemaChangeBatchTask.getTaskNum());
+        Assertions.assertEquals(AlterJobV2.JobState.RUNNING, createJobV2.getJobState());
+        Assertions.assertEquals(1, createJobV2.schemaChangeBatchTask.getTaskNum());
 
         List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
-        Assert.assertEquals(1, tasks.size());
+        Assertions.assertEquals(1, tasks.size());
         for (AgentTask agentTask : tasks) {
             agentTask.setFinished(true);
         }
 
         schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.FINISHED, createJobV2.getJobState());
-        Assert.assertEquals(OlapTableState.NORMAL, table.getState());
-        Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals("raw_inverted_index", table.getIndexes().get(0).getIndexName());
+        Assertions.assertEquals(AlterJobV2.JobState.FINISHED, createJobV2.getJobState());
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assertions.assertEquals(1, table.getIndexes().size());
+        Assertions.assertEquals("raw_inverted_index", table.getIndexes().get(0).getIndexName());
     }
 
     @Test
     public void testCreateInvertedIndexWithLightweightMode() throws Exception {
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
         SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
         if (fakeEnv != null) {
@@ -620,8 +620,8 @@ public class CloudIndexTest {
         FakeEnv.setSystemInfo(cloudSystemInfo);
         schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
-        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         CatalogTestUtil.createDupTable(db);
         OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         DataSortInfo dataSortInfo = new DataSortInfo();
@@ -646,17 +646,17 @@ public class CloudIndexTest {
         schemaChangeHandler.process(alterOps, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         // Lightweight mode should not create any schema change jobs
-        Assert.assertEquals(1, indexChangeJobMap.size());
-        Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals("lightweight_raw_inverted_index", table.getIndexes().get(0).getIndexName());
-        Assert.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assertions.assertEquals(1, indexChangeJobMap.size());
+        Assertions.assertEquals(1, table.getIndexes().size());
+        Assertions.assertEquals("lightweight_raw_inverted_index", table.getIndexes().get(0).getIndexName());
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
         // Verify the index properties
-        Assert.assertEquals("none", table.getIndexes().get(0).getProperties().get("parser"));
+        Assertions.assertEquals("none", table.getIndexes().get(0).getProperties().get("parser"));
     }
 
     @Test
     public void testCreateTokenizedInvertedIndex() throws Exception {
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
         SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
         if (fakeEnv != null) {
@@ -671,8 +671,8 @@ public class CloudIndexTest {
         FakeEnv.setSystemInfo(cloudSystemInfo);
         schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
-        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         CatalogTestUtil.createDupTable(db);
         OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         DataSortInfo dataSortInfo = new DataSortInfo();
@@ -701,44 +701,44 @@ public class CloudIndexTest {
         alterOps.add(createIndexOp);
         schemaChangeHandler.process(alterOps, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
-        Assert.assertEquals(1, indexChangeJobMap.size());
-        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+        Assertions.assertEquals(1, indexChangeJobMap.size());
+        Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
 
         SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
                 .findFirst()
                 .orElse(null);
-        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+        Assertions.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
 
         // This should be a heavyweight schema change for tokenized index
         schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
-        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+        Assertions.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+        Assertions.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
 
         schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
-        Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
+        Assertions.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
+        Assertions.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
 
         List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
-        Assert.assertEquals(1, tasks.size());
+        Assertions.assertEquals(1, tasks.size());
         for (AgentTask agentTask : tasks) {
             agentTask.setFinished(true);
         }
 
         schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
+        Assertions.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
 
-        Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals("tokenized_inverted_index", table.getIndexes().get(0).getIndexName());
+        Assertions.assertEquals(1, table.getIndexes().size());
+        Assertions.assertEquals("tokenized_inverted_index", table.getIndexes().get(0).getIndexName());
 
         // Verify that the index has the correct properties
-        Assert.assertEquals("english", table.getIndexes().get(0).getProperties().get("parser"));
-        Assert.assertEquals("true", table.getIndexes().get(0).getProperties().get("support_phrase"));
-        Assert.assertEquals("true", table.getIndexes().get(0).getProperties().get("lower_case"));
+        Assertions.assertEquals("english", table.getIndexes().get(0).getProperties().get("parser"));
+        Assertions.assertEquals("true", table.getIndexes().get(0).getProperties().get("support_phrase"));
+        Assertions.assertEquals("true", table.getIndexes().get(0).getProperties().get("lower_case"));
     }
 
     @Test
     public void testSchemaChangeWaitsWhenConflictTxnAbortFails() throws Exception {
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
         SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
         if (fakeEnv != null) {
@@ -753,8 +753,8 @@ public class CloudIndexTest {
         FakeEnv.setSystemInfo(cloudSystemInfo);
         schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
-        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
-        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         CatalogTestUtil.createDupTable(db);
         OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         DataSortInfo dataSortInfo = new DataSortInfo();
@@ -778,13 +778,13 @@ public class CloudIndexTest {
         alterOps.add(createIndexOp);
         schemaChangeHandler.process(alterOps, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
-        Assert.assertEquals(1, indexChangeJobMap.size());
+        Assertions.assertEquals(1, indexChangeJobMap.size());
 
         SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
                 .findFirst()
                 .orElse(null);
         schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+        Assertions.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
 
         Mockito.doAnswer(invocation -> {
             Cloud.TxnCoordinatorPB coordinator = Cloud.TxnCoordinatorPB.newBuilder()
@@ -814,8 +814,8 @@ public class CloudIndexTest {
                 .build()).when(mockProxy).getTxn(Mockito.any());
 
         schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
-        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+        Assertions.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+        Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
     }
 
     @Test
@@ -887,7 +887,7 @@ public class CloudIndexTest {
         // the original schema-change behavior and does not receive BfIndex metadata or folded
         // BfColumns flags from indexes. bfColumns is null so table-level bfFpp is not set;
         // BfIndexes carry their own per-index FPP.
-        Assert.assertEquals(2, capturedRequests.size());
+        Assertions.assertEquals(2, capturedRequests.size());
         Cloud.CreateTabletsRequest baseRequest = capturedRequests.stream()
                 .filter(request -> request.getTabletMetas(0).getIndexId() == shadowBaseIndexId)
                 .findFirst()
@@ -897,20 +897,20 @@ public class CloudIndexTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("rollup shadow request not found"));
 
-        Assert.assertEquals(1, baseRequest.getTabletMetas(0).getSchema().getIndexCount());
-        Assert.assertEquals(0, rollupRequest.getTabletMetas(0).getSchema().getIndexCount());
-        Assert.assertFalse(baseRequest.getTabletMetas(0).getSchema().hasBfFpp());
-        Assert.assertFalse(rollupRequest.getTabletMetas(0).getSchema().hasBfFpp());
-        Assert.assertEquals("k1", baseRequest.getTabletMetas(0).getSchema().getColumn(0).getName());
-        Assert.assertEquals("k2", baseRequest.getTabletMetas(0).getSchema().getColumn(1).getName());
-        Assert.assertEquals("v1", baseRequest.getTabletMetas(0).getSchema().getColumn(2).getName());
-        Assert.assertFalse(baseRequest.getTabletMetas(0).getSchema().getColumn(0).getIsBfColumn());
-        Assert.assertFalse(baseRequest.getTabletMetas(0).getSchema().getColumn(1).getIsBfColumn());
-        Assert.assertTrue(baseRequest.getTabletMetas(0).getSchema().getColumn(2).getIsBfColumn());
-        Assert.assertEquals("k1", rollupRequest.getTabletMetas(0).getSchema().getColumn(0).getName());
-        Assert.assertEquals("v1", rollupRequest.getTabletMetas(0).getSchema().getColumn(1).getName());
-        Assert.assertFalse(rollupRequest.getTabletMetas(0).getSchema().getColumn(0).getIsBfColumn());
-        Assert.assertFalse(rollupRequest.getTabletMetas(0).getSchema().getColumn(1).getIsBfColumn());
+        Assertions.assertEquals(1, baseRequest.getTabletMetas(0).getSchema().getIndexCount());
+        Assertions.assertEquals(0, rollupRequest.getTabletMetas(0).getSchema().getIndexCount());
+        Assertions.assertFalse(baseRequest.getTabletMetas(0).getSchema().hasBfFpp());
+        Assertions.assertFalse(rollupRequest.getTabletMetas(0).getSchema().hasBfFpp());
+        Assertions.assertEquals("k1", baseRequest.getTabletMetas(0).getSchema().getColumn(0).getName());
+        Assertions.assertEquals("k2", baseRequest.getTabletMetas(0).getSchema().getColumn(1).getName());
+        Assertions.assertEquals("v1", baseRequest.getTabletMetas(0).getSchema().getColumn(2).getName());
+        Assertions.assertFalse(baseRequest.getTabletMetas(0).getSchema().getColumn(0).getIsBfColumn());
+        Assertions.assertFalse(baseRequest.getTabletMetas(0).getSchema().getColumn(1).getIsBfColumn());
+        Assertions.assertTrue(baseRequest.getTabletMetas(0).getSchema().getColumn(2).getIsBfColumn());
+        Assertions.assertEquals("k1", rollupRequest.getTabletMetas(0).getSchema().getColumn(0).getName());
+        Assertions.assertEquals("v1", rollupRequest.getTabletMetas(0).getSchema().getColumn(1).getName());
+        Assertions.assertFalse(rollupRequest.getTabletMetas(0).getSchema().getColumn(0).getIsBfColumn());
+        Assertions.assertFalse(rollupRequest.getTabletMetas(0).getSchema().getColumn(1).getIsBfColumn());
     }
 
     private MaterializedIndex createCloudIndex(long indexId, long tabletId, long replicaId, long backendId,

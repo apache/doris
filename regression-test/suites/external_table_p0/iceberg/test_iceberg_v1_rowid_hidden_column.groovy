@@ -78,13 +78,17 @@ suite("test_iceberg_v1_rowid_hidden_column", "p0,external,iceberg,external_docke
         assertEquals(4, visible.size())
         assertEquals(3, visible[0].size())
 
-        // 2. show_hidden_columns=true exposes only __DORIS_ICEBERG_ROWID_COL__ on a v1 table
-        //    (v3 row lineage columns must NOT appear).
+        // 2. show_hidden_columns=true exposes the Iceberg file metadata columns and
+        //    __DORIS_ICEBERG_ROWID_COL__ on a v1 table (v3 row lineage columns must NOT appear).
         sql """set show_hidden_columns = true"""
         def hiddenCols = descColumns(sql("""desc ${tbl}"""))
         log.info("v1 desc with show_hidden_columns=true (${format}, ${tbl}) -> ${hiddenCols}")
         assertTrue(hiddenCols.any { it.contains("doris_iceberg_rowid") },
                 "show_hidden_columns should expose __DORIS_ICEBERG_ROWID_COL__ for v1 table, got ${hiddenCols}")
+        assertTrue(hiddenCols.contains("_file"),
+                "show_hidden_columns should expose _file for v1 table, got ${hiddenCols}")
+        assertTrue(hiddenCols.contains("_pos"),
+                "show_hidden_columns should expose _pos for v1 table, got ${hiddenCols}")
         assertTrue(!hiddenCols.contains("_row_id"),
                 "v1 table must not expose v3 row lineage column _row_id, got ${hiddenCols}")
         assertTrue(!hiddenCols.contains("_last_updated_sequence_number"),
@@ -95,7 +99,7 @@ suite("test_iceberg_v1_rowid_hidden_column", "p0,external,iceberg,external_docke
         def byString = sql """select * from ${tbl} where s = 'a' order by id"""
         log.info("v1 SELECT * where s='a' (${format}, ${tbl}) -> ${byString}")
         assertEquals(2, byString.size())
-        assertEquals(4, byString[0].size()) // id, s, age, __DORIS_ICEBERG_ROWID_COL__
+        assertEquals(6, byString[0].size()) // id, s, age, _file, _pos, __DORIS_ICEBERG_ROWID_COL__
         assertEquals(1, byString[0][0].toString().toInteger())
         assertEquals(2, byString[1][0].toString().toInteger())
         assertTrue(byString[0][byString[0].size() - 1] != null,
@@ -106,13 +110,13 @@ suite("test_iceberg_v1_rowid_hidden_column", "p0,external,iceberg,external_docke
         def byData = sql """select * from ${tbl} where id > 1 order by id"""
         log.info("v1 SELECT * where id>1 (${format}, ${tbl}) -> ${byData}")
         assertEquals(3, byData.size())
-        assertEquals(4, byData[0].size())
+        assertEquals(6, byData[0].size())
         assertEquals([2, 3, 4], byData.collect { it[0].toString().toInteger() })
 
         // 5. Full scan with the hidden column also returns every row.
         def all = sql """select * from ${tbl} order by id"""
         assertEquals(4, all.size())
-        assertEquals(4, all[0].size())
+        assertEquals(6, all[0].size())
 
         sql """set show_hidden_columns = false"""
     }
