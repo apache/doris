@@ -19,6 +19,7 @@
 
 #include <algorithm>
 
+#include "exprs/function/function_inner_product.h"
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
@@ -90,7 +91,7 @@ void register_function_array_distance(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayDistance<L2Distance>>();
     factory.register_function<FunctionArrayDistance<CosineDistance>>();
     factory.register_function<FunctionArrayDistance<CosineSimilarity>>();
-    factory.register_function<FunctionArrayDistance<InnerProduct>>();
+    factory.register_function<FunctionInnerProduct>();
     factory.register_function<FunctionArrayDistance<L2DistanceApproximate>>();
     factory.register_function<FunctionArrayDistance<InnerProductApproximate>>();
 }
