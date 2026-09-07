@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.proto.Data;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.TMasterOpRequest;
 
 import org.junit.jupiter.api.AfterEach;

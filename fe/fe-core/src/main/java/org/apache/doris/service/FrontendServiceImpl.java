@@ -123,7 +123,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.HttpStreamParams;
@@ -138,7 +137,6 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
-import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.statistics.cache.InvalidateStatsTarget;
@@ -1158,7 +1156,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         logForwardRequest(params);
         ConnectContext context = createForwardContext(params, requester);
-        ConnectProcessor processor = createForwardProcessor(context);
+        // createForwardContext() always builds a MySQL proxy context: the master replays the
+        // forwarded statement over a ProxyMysqlChannel and hands the packets back to the
+        // origin FE, whatever protocol the client is speaking there.
+        ConnectProcessor processor = new MysqlConnectProcessor(context);
         Runnable clearCallback = registerProxyQuery(params, context);
         try {
             return executeForward(params, context, processor);
@@ -1268,16 +1269,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             context.setCloudCluster(params.getCloudCluster());
         }
         return context;
-    }
-
-    private ConnectProcessor createForwardProcessor(ConnectContext context) throws TException {
-        if (context.getConnectType().equals(ConnectType.MYSQL)) {
-            return new MysqlConnectProcessor(context);
-        }
-        if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
-            return new FlightSqlConnectProcessor(context);
-        }
-        throw new TException("unknown ConnectType: " + context.getConnectType());
     }
 
     private Runnable registerProxyQuery(TMasterOpRequest params, ConnectContext context) {
