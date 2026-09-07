@@ -68,7 +68,7 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const Block* block,
     if (_segment_writers.empty()) {
         // it must be key columns
         DCHECK(is_key);
-        std::unique_ptr<segment_v2::SegmentWriter> writer;
+        std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(col_ids, is_key, &writer));
         _segment_writers.emplace_back(std::move(writer));
         _cur_writer_idx = 0;
@@ -80,7 +80,7 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const Block* block,
             // segment is full, need flush columns and create new segment writer
             RETURN_IF_ERROR(_flush_columns(_segment_writers[_cur_writer_idx].get(), true));
 
-            std::unique_ptr<segment_v2::SegmentWriter> writer;
+            std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
             RETURN_IF_ERROR(_create_segment_writer(col_ids, is_key, &writer));
             _segment_writers.emplace_back(std::move(writer));
             ++_cur_writer_idx;
@@ -124,12 +124,11 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const Block* block,
 
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
-Status VerticalBetaRowsetWriter<T>::_flush_columns(segment_v2::SegmentWriter* segment_writer,
-                                                   bool is_key) {
+Status VerticalBetaRowsetWriter<T>::_flush_columns(
+        segment_v2::VerticalSegmentWriter* segment_writer, bool is_key) {
     uint64_t index_size = 0;
     VLOG_NOTICE << "flush columns index: " << _cur_writer_idx;
-    RETURN_IF_ERROR(segment_writer->finalize_columns_data());
-    RETURN_IF_ERROR(segment_writer->finalize_columns_index(&index_size));
+    RETURN_IF_ERROR(segment_writer->finalize_columns(&index_size));
     if (is_key) {
         _total_key_group_rows += segment_writer->row_count();
         // record segment key bound
@@ -162,7 +161,7 @@ template <class WriterType>
     requires std::is_base_of_v<BaseBetaRowsetWriter, WriterType>
 Status VerticalBetaRowsetWriter<WriterType>::_create_segment_writer(
         const std::vector<uint32_t>& column_ids, bool is_key,
-        std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+        std::unique_ptr<segment_v2::VerticalSegmentWriter>* writer) {
     auto& context = this->_context;
 
     const int32_t seg_id = DORIS_TRY(WriterType::allocate_segment_id());
@@ -177,13 +176,12 @@ Status VerticalBetaRowsetWriter<WriterType>::_create_segment_writer(
         RETURN_IF_ERROR(this->create_index_file_writer(seg_id, &index_file_writer));
     }
 
-    segment_v2::SegmentWriterOptions writer_options;
+    segment_v2::VerticalSegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &context;
     writer_options.max_rows_per_segment = context.max_rows_per_segment;
     writer_options.write_type = DataWriteType::TYPE_COMPACTION;
-    // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
-    *writer = std::make_unique<segment_v2::SegmentWriter>(
+    *writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
             segment_file_writer.get(), seg_id, context.tablet_schema, context.tablet,
             context.data_dir, writer_options, index_file_writer.get());
 
@@ -227,7 +225,7 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
         uint64_t segment_size = 0;
         //uint64_t footer_position = 0;
         segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
-        auto segment_id = segment_writer->get_segment_id();
+        auto segment_id = segment_writer->segment_id();
         auto st = segment_writer->finalize_footer(&segment_size, &index_file_cache_info);
         if (!st.ok()) {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;

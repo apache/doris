@@ -638,7 +638,7 @@ TEST_F(SniiAnnContainerTest, IvfDataWriteFailuresAreReturnedFromFinish) {
 // A failed faiss serialization must unlink its staging file THERE, not whenever
 // the writers happen to be destroyed. Both owners are still alive at that point
 // -- the ANN writer through _dir, the IndexFileWriter through _indices_dirs --
-// and neither caller unwinds them: VerticalSegmentWriter::finalize_columns_index()
+// and neither caller unwinds them: VerticalSegmentWriter::finalize_columns()
 // returns before clear() and close_inverted_index(), and IndexBuilder's SNII ADD
 // INDEX path keeps every producer alive until the whole rowset has been closed.
 // So both writers are held here on purpose; the failure tests above scope their

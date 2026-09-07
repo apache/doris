@@ -481,9 +481,6 @@ DEFINE_mBool(enable_rle_batch_put_optimization, "true");
 // the scalar implementation, such as AMD Zen+ and Zen 2.
 DEFINE_Bool(enable_bmi2_optimizations, "true");
 
-// If enabled, segments will be flushed column by column
-DEFINE_mBool(enable_vertical_segment_writer, "true");
-
 // In ordered data compaction, min segment size for input rowset
 DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 
@@ -2472,8 +2469,6 @@ Status set_fuzzy_configs() {
     fuzzy_field_and_value["skip_writing_empty_rowset_metadata"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_packed_file"] =
-            ((distribution(*generator) % 2) == 0) ? "true" : "false";
-    fuzzy_field_and_value["enable_vertical_segment_writer"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";

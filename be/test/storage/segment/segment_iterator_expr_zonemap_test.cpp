@@ -151,10 +151,10 @@ protected:
         auto st = fs->create_file(path, &file_writer);
         ASSERT_TRUE(st.ok()) << st;
 
-        SegmentWriterOptions opts;
+        VerticalSegmentWriterOptions opts;
         opts.num_rows_per_block = 1024;
-        TestSegmentWriter writer(file_writer.get(), 0, _tablet_schema, nullptr, nullptr, opts,
-                                 nullptr);
+        TestVerticalSegmentWriter writer(file_writer.get(), 0, _tablet_schema, nullptr, nullptr,
+                                         opts, nullptr);
         st = writer.init();
         ASSERT_TRUE(st.ok()) << st;
 
@@ -171,7 +171,9 @@ protected:
 
         uint64_t file_size = 0;
         uint64_t index_size = 0;
-        st = writer.finalize(&file_size, &index_size);
+        st = writer.finalize_columns(&index_size);
+        ASSERT_TRUE(st.ok()) << st;
+        st = writer.finalize_footer(&file_size);
         ASSERT_TRUE(st.ok()) << st;
         st = file_writer->close();
         ASSERT_TRUE(st.ok()) << st;
@@ -189,10 +191,10 @@ protected:
         auto st = fs->create_file(path, &file_writer);
         ASSERT_TRUE(st.ok()) << st;
 
-        SegmentWriterOptions opts;
+        VerticalSegmentWriterOptions opts;
         opts.num_rows_per_block = 4;
-        TestSegmentWriter writer(file_writer.get(), 0, _tablet_schema, nullptr, nullptr, opts,
-                                 nullptr);
+        TestVerticalSegmentWriter writer(file_writer.get(), 0, _tablet_schema, nullptr, nullptr,
+                                         opts, nullptr);
         st = writer.init();
         ASSERT_TRUE(st.ok()) << st;
 
@@ -209,7 +211,9 @@ protected:
 
         uint64_t file_size = 0;
         uint64_t index_size = 0;
-        st = writer.finalize(&file_size, &index_size);
+        st = writer.finalize_columns(&index_size);
+        ASSERT_TRUE(st.ok()) << st;
+        st = writer.finalize_footer(&file_size);
         ASSERT_TRUE(st.ok()) << st;
         st = file_writer->close();
         ASSERT_TRUE(st.ok()) << st;

@@ -23,7 +23,6 @@
 #include "io/fs/local_file_system.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_id_generator.h"
-#include "storage/segment/segment_writer.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -34,14 +33,6 @@ namespace doris::segment_v2 {
 // Previously they were defined with `inline` in .cpp files, which caused linker errors
 // when compiled with -O1 or higher (TSAN/RELEASE), because the compiler inlined them
 // and did not export the symbols.
-class TestSegmentWriterMowCheck : public SegmentWriter {
-public:
-    using SegmentWriter::SegmentWriter;
-
-    bool check_is_mow() { return _is_mow(); }
-    bool check_is_mow_with_cluster_key() { return _is_mow_with_cluster_key(); }
-};
-
 class TestVerticalSegmentWriterMowCheck : public VerticalSegmentWriter {
 public:
     using VerticalSegmentWriter::VerticalSegmentWriter;
@@ -98,7 +89,7 @@ TabletSchemaSPtr create_unique_key_schema_with_cluster_key() {
     return schema;
 }
 
-class SegmentWriterMowCheckTest : public testing::Test {
+class VerticalSegmentWriterMowCheckTest : public testing::Test {
 public:
     void SetUp() override {
         auto fs = io::global_local_filesystem();
@@ -124,74 +115,45 @@ public:
     }
 };
 
-TEST_F(SegmentWriterMowCheckTest, segment_writer_is_mow_false_for_dup_key) {
+TEST_F(VerticalSegmentWriterMowCheckTest, segment_writer_is_mow_false_for_dup_key) {
     auto schema = create_dup_key_schema();
-    SegmentWriterOptions opts;
+    VerticalSegmentWriterOptions opts;
     opts.enable_unique_key_merge_on_write = true;
     auto file_writer = create_file_writer(0);
-    TestSegmentWriterMowCheck writer(file_writer.get(), 0, schema, nullptr, nullptr, opts, nullptr);
+    TestVerticalSegmentWriterMowCheck writer(file_writer.get(), 0, schema, nullptr, nullptr, opts,
+                                             nullptr);
     EXPECT_FALSE(writer.check_is_mow());
     EXPECT_FALSE(writer.check_is_mow_with_cluster_key());
 }
 
-TEST_F(SegmentWriterMowCheckTest, segment_writer_is_mow_true_for_unique_mow) {
+TEST_F(VerticalSegmentWriterMowCheckTest, segment_writer_is_mow_true_for_unique_mow) {
     auto schema = create_unique_key_schema();
-    SegmentWriterOptions opts;
+    VerticalSegmentWriterOptions opts;
     opts.enable_unique_key_merge_on_write = true;
     auto file_writer = create_file_writer(1);
-    TestSegmentWriterMowCheck writer(file_writer.get(), 1, schema, nullptr, nullptr, opts, nullptr);
+    TestVerticalSegmentWriterMowCheck writer(file_writer.get(), 1, schema, nullptr, nullptr, opts,
+                                             nullptr);
     EXPECT_TRUE(writer.check_is_mow());
     EXPECT_FALSE(writer.check_is_mow_with_cluster_key());
 }
 
-TEST_F(SegmentWriterMowCheckTest, segment_writer_is_mow_false_when_mow_disabled) {
+TEST_F(VerticalSegmentWriterMowCheckTest, segment_writer_is_mow_false_when_mow_disabled) {
     auto schema = create_unique_key_schema();
-    SegmentWriterOptions opts;
+    VerticalSegmentWriterOptions opts;
     opts.enable_unique_key_merge_on_write = false;
     auto file_writer = create_file_writer(2);
-    TestSegmentWriterMowCheck writer(file_writer.get(), 2, schema, nullptr, nullptr, opts, nullptr);
+    TestVerticalSegmentWriterMowCheck writer(file_writer.get(), 2, schema, nullptr, nullptr, opts,
+                                             nullptr);
     EXPECT_FALSE(writer.check_is_mow());
     EXPECT_FALSE(writer.check_is_mow_with_cluster_key());
 }
 
-TEST_F(SegmentWriterMowCheckTest, segment_writer_is_mow_with_cluster_key) {
+TEST_F(VerticalSegmentWriterMowCheckTest, segment_writer_is_mow_with_cluster_key) {
     auto schema = create_unique_key_schema_with_cluster_key();
-    SegmentWriterOptions opts;
+    VerticalSegmentWriterOptions opts;
     opts.enable_unique_key_merge_on_write = true;
     auto file_writer = create_file_writer(3);
-    TestSegmentWriterMowCheck writer(file_writer.get(), 3, schema, nullptr, nullptr, opts, nullptr);
-    EXPECT_TRUE(writer.check_is_mow());
-    EXPECT_TRUE(writer.check_is_mow_with_cluster_key());
-}
-
-TEST_F(SegmentWriterMowCheckTest, vertical_segment_writer_is_mow_false_for_dup_key) {
-    auto schema = create_dup_key_schema();
-    VerticalSegmentWriterOptions opts;
-    opts.enable_unique_key_merge_on_write = true;
-    auto file_writer = create_file_writer(4);
-    TestVerticalSegmentWriterMowCheck writer(file_writer.get(), 4, schema, nullptr, nullptr, opts,
-                                             nullptr);
-    EXPECT_FALSE(writer.check_is_mow());
-    EXPECT_FALSE(writer.check_is_mow_with_cluster_key());
-}
-
-TEST_F(SegmentWriterMowCheckTest, vertical_segment_writer_is_mow_true_for_unique_mow) {
-    auto schema = create_unique_key_schema();
-    VerticalSegmentWriterOptions opts;
-    opts.enable_unique_key_merge_on_write = true;
-    auto file_writer = create_file_writer(5);
-    TestVerticalSegmentWriterMowCheck writer(file_writer.get(), 5, schema, nullptr, nullptr, opts,
-                                             nullptr);
-    EXPECT_TRUE(writer.check_is_mow());
-    EXPECT_FALSE(writer.check_is_mow_with_cluster_key());
-}
-
-TEST_F(SegmentWriterMowCheckTest, vertical_segment_writer_is_mow_with_cluster_key) {
-    auto schema = create_unique_key_schema_with_cluster_key();
-    VerticalSegmentWriterOptions opts;
-    opts.enable_unique_key_merge_on_write = true;
-    auto file_writer = create_file_writer(6);
-    TestVerticalSegmentWriterMowCheck writer(file_writer.get(), 6, schema, nullptr, nullptr, opts,
+    TestVerticalSegmentWriterMowCheck writer(file_writer.get(), 3, schema, nullptr, nullptr, opts,
                                              nullptr);
     EXPECT_TRUE(writer.check_is_mow());
     EXPECT_TRUE(writer.check_is_mow_with_cluster_key());

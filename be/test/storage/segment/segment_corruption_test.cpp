@@ -38,8 +38,8 @@
 #include "storage/row_cursor.h"
 #include "storage/rowset/rowset_id_generator.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
 #include "storage/segment/test_segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
@@ -217,9 +217,9 @@ public:
                 fs, index_path_prefix, rowset_id.to_string(), segment_id,
                 InvertedIndexStorageFormatPB::V2, std::move(idx_file_writer));
 
-        SegmentWriterOptions opts;
-        TestSegmentWriter writer(file_writer.get(), segment_id, schema, nullptr, nullptr, opts,
-                                 index_file_writer.get());
+        VerticalSegmentWriterOptions opts;
+        TestVerticalSegmentWriter writer(file_writer.get(), segment_id, schema, nullptr, nullptr,
+                                         opts, index_file_writer.get());
         st = writer.init();
         EXPECT_TRUE(st.ok());
 
@@ -242,11 +242,13 @@ public:
         }
 
         uint64_t file_size, index_size;
-        st = writer.finalize(&file_size, &index_size);
+        st = writer.finalize_columns(&index_size);
+        EXPECT_TRUE(st.ok());
+        st = writer.finalize_footer(&file_size);
         EXPECT_TRUE(st.ok());
         EXPECT_TRUE(file_writer->close().ok());
 
-        // Close the index file writer (it was already written by SegmentWriter during finalize)
+        // Close the index file writer (it was already written by VerticalSegmentWriter during finalize)
         st = index_file_writer->begin_close();
         EXPECT_TRUE(st.ok()) << st;
         st = index_file_writer->finish_close();
