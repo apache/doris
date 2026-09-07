@@ -188,21 +188,31 @@ private:
                     dest_offsets.push_back(dest_offsets.back());
                     continue;
                 } else {
-                    if (idx < end_row && step_row > 0 &&
-                        ((static_cast<__int128_t>(end_row) - static_cast<__int128_t>(idx) - 1) /
-                                 static_cast<__int128_t>(step_row) +
-                         1) > max_array_size_as_field) {
+                    const Int64 distance = static_cast<Int64>(end_row) - idx;
+                    if (distance <= 0) {
+                        dest_offsets.push_back(dest_offsets.back());
+                        continue;
+                    }
+                    if (distance <= step_row) {
+                        nested_column.push_back(idx);
+                        dest_offsets.push_back(dest_offsets.back() + 1);
+                        continue;
+                    }
+                    const size_t array_size = (distance - 1) / step_row + 1;
+                    if (array_size > max_array_size_as_field) {
                         return Status::InvalidArgument("Array size exceeds the limit {}",
                                                        max_array_size_as_field);
                     }
-                    size_t offset = dest_offsets.back();
-                    while (idx < end[row]) {
-                        nested_column.push_back(idx);
-                        dest_nested_null_map.push_back(0);
-                        offset++;
-                        idx = idx + step_row;
+                    const size_t offset = dest_offsets.back();
+                    const size_t new_offset = offset + array_size;
+                    nested_column.resize(new_offset);
+                    auto* data = nested_column.data() + offset;
+                    // The increment after the last element can exceed INT32_MAX.
+                    Int64 value = idx;
+                    for (size_t i = 0; i < array_size; ++i, value += step_row) {
+                        data[i] = static_cast<Int32>(value);
                     }
-                    dest_offsets.push_back(offset);
+                    dest_offsets.push_back(new_offset);
                 }
             } else {
                 const auto& idx_0 = reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(idx);
@@ -236,6 +246,10 @@ private:
                     dest_offsets.push_back(offset);
                 }
             }
+        }
+        if constexpr (std::is_same_v<SourceDataType, Int32>) {
+            // Integer ranges contain no null elements; initialize the map once for the block.
+            dest_nested_null_map.resize_fill(nested_column.size());
         }
         return Status::OK();
     }
