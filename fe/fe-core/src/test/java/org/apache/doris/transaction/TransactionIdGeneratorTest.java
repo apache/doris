@@ -17,8 +17,8 @@
 
 package org.apache.doris.transaction;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class TransactionIdGeneratorTest {
     @Test
@@ -26,7 +26,7 @@ public class TransactionIdGeneratorTest {
         TransactionIdGenerator generator = new TransactionIdGenerator();
         generator.initTransactionId(1000L);
 
-        Assert.assertEquals(1000L, generator.getCurrentTransactionId());
-        Assert.assertEquals(1000L, generator.getCurrentTransactionId());
+        Assertions.assertEquals(1000L, generator.getCurrentTransactionId());
+        Assertions.assertEquals(1000L, generator.getCurrentTransactionId());
     }
 }
