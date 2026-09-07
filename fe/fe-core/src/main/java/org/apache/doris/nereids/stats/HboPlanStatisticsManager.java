@@ -50,10 +50,12 @@ import java.util.Set;
  * tombstoned so the pending load cannot resurrect it. Once the load succeeds, rows that were
  * actually seen in the loaded snapshot and suppressed by a tombstone are best-effort removed
  * from the table again, so they do not reappear after this FE restarts (unless that removal
- * fails too). A FE never refreshes entries SET by another FE during its lifetime: under this
- * per-FE weak consistency model a tombstone can therefore also suppress (and, if it was part of
- * the loaded snapshot, remove) a row that another FE re-created before this FE's snapshot, while
- * a row created after the snapshot survives until this FE restarts and reloads.
+ * fails too); a tombstoned row that the load did not see (e.g. hidden by replica read lag) is
+ * not re-removed and may reappear after a FE restart. A FE never refreshes entries SET by
+ * another FE during its lifetime: under this per-FE weak consistency model a tombstone can
+ * therefore also suppress (and, if it was part of the loaded snapshot, remove) a row that
+ * another FE re-created before this FE's snapshot, while a row created after the snapshot
+ * survives until this FE restarts and reloads.
  */
 public class HboPlanStatisticsManager {
     private static final Logger LOG = LogManager.getLogger(HboPlanStatisticsManager.class);
@@ -78,9 +80,11 @@ public class HboPlanStatisticsManager {
     // fingerprints whose DELETE could not be removed from the internal table while a lazy load
     // is still pending (hboPinnedLoaded false); the pending or retrying load must not resurrect
     // them into memory. Cleared after a successful load, at which point the rows actually seen
-    // in the loaded snapshot are best-effort removed from the table again. Under the per-FE weak
-    // consistency model a tombstone can also suppress/remove a row that another FE re-created
-    // before this FE's snapshot (see class javadoc). (guarded by pinnedLoadLock)
+    // in the loaded snapshot are best-effort removed from the table again; a tombstoned row the
+    // load did not see (e.g. replica read lag) is not re-removed and may reappear after a FE
+    // restart. Under the per-FE weak consistency model a tombstone can also suppress/remove a
+    // row that another FE re-created before this FE's snapshot (see class javadoc).
+    // (guarded by pinnedLoadLock)
     private final Set<String> pendingLoadTombstones = new HashSet<>();
 
     public HboPlanStatisticsManager() {
@@ -201,6 +205,14 @@ public class HboPlanStatisticsManager {
                             + "the rows will reappear after the next FE restart", failed,
                             suppressedByTombstone.size());
                 }
+            }
+            int tombstonesNotSeen = pendingLoadTombstones.size() - suppressedByTombstone.size();
+            if (tombstonesNotSeen > 0) {
+                // mostly benign (the row is already gone), but under replica read lag the row may
+                // still be stored without this FE knowing; it then reappears after a FE restart
+                LOG.info("{} tombstoned hbo pinned statistics rows were not seen in the loaded "
+                        + "snapshot and were left in the table; they may reappear after the next "
+                        + "FE restart", tombstonesNotSeen);
             }
             pendingLoadTombstones.clear();
             LOG.info("loaded {} hbo pinned statistics entries from internal table", loaded.size());
