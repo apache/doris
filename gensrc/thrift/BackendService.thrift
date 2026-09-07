@@ -86,6 +86,12 @@ struct TRoutineLoadTask {
     18: optional string qualified_user
     19: optional string cloud_cluster
     20: optional TKinesisLoadInfo kinesis_load_info
+    // only valid for multi-table CSV routine load
+    21: optional i8 enclose
+    // only valid for multi-table CSV routine load
+    22: optional i8 escape
+    // only valid for multi-table CSV routine load
+    23: optional bool empty_field_as_null
 }
 
 struct TKafkaMetaProxyRequest {

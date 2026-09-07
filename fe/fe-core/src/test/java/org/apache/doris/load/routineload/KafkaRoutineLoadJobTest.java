@@ -273,6 +273,41 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
+    public void testMultiTableCsvTaskIncludesParserProperties() throws Exception {
+        RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(internalCatalog);
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
+            Mockito.when(internalCatalog.getDbOrMetaException(1L)).thenReturn(database);
+            Mockito.when(database.getFullName()).thenReturn("db1");
+
+            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "multi_table_job", 1L,
+                    "127.0.0.1:9020", "topic1", UserIdentity.ADMIN, true);
+            Deencapsulation.setField(routineLoadJob, "enclose", (byte) '^');
+            Deencapsulation.setField(routineLoadJob, "escape", (byte) '?');
+            Map<String, String> jobProperties = Deencapsulation.getField(routineLoadJob, "jobProperties");
+            jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL, "true");
+            Mockito.when(routineLoadManager.getJob(1L)).thenReturn(routineLoadJob);
+
+            KafkaTaskInfo taskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                    Maps.newHashMap(), true, 1000, false);
+            TRoutineLoadTask task = Deencapsulation.invoke(taskInfo, "createRoutineLoadTask");
+
+            Assert.assertTrue(task.isSetEnclose());
+            Assert.assertEquals((byte) '^', task.getEnclose());
+            Assert.assertTrue(task.isSetEscape());
+            Assert.assertEquals((byte) '?', task.getEscape());
+            Assert.assertTrue(task.isSetEmptyFieldAsNull());
+            Assert.assertTrue(task.isEmptyFieldAsNull());
+        }
+    }
+
+    @Test
     public void testDisplayCustomPropertiesMasksKafkaSecrets() {
         KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                 1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
