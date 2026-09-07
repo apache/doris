@@ -129,12 +129,13 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         String stmtStr = "";
         try {
             StatementContext statementContext = prepCtx.getStatementContext();
+            if (!ctx.isProxy()) {
+                // An empty buffer still identifies a zero-parameter COM_STMT_EXECUTE when forwarding.
+                ctx.setPrepareExecuteBuffer(packetBuf.duplicate());
+            }
             if (paramCount > 0) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("execute param buf: {}, array: {}", packetBuf, getHexStr(packetBuf));
-                }
-                if (!ctx.isProxy()) {
-                    ctx.setPrepareExecuteBuffer(packetBuf.duplicate());
                 }
                 byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
                 packetBuf.get(nullbitmapData);

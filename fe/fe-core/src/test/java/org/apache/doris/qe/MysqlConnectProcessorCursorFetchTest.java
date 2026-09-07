@@ -18,10 +18,15 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -32,19 +37,48 @@ public class MysqlConnectProcessorCursorFetchTest {
     private static final int CURSOR_TYPE_READ_ONLY = 1;
 
     @Test
+    public void testZeroParameterExecutePreservesForwardingBuffer() throws Exception {
+        for (boolean proxy : new boolean[] {false, true}) {
+            ConnectContext context = new ConnectContext(null, proxy);
+            context.setCommand(MysqlCommand.COM_STMT_EXECUTE);
+            PrepareCommand command = Mockito.mock(PrepareCommand.class);
+            Mockito.when(command.getOriginalStmt()).thenReturn(new OriginStatement("select 1", 0));
+            StatementContext statementContext = new StatementContext();
+            PreparedStatementContext prepared = new PreparedStatementContext(
+                    command, context, statementContext, "select 1");
+            ByteBuffer packet = ByteBuffer.allocate(9);
+            packet.position(packet.limit()); // COM_STMT_EXECUTE header consumed, no parameter payload.
+            try (MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class);
+                    MockedStatic<AuditLogHelper> audit = Mockito.mockStatic(AuditLogHelper.class)) {
+                new MysqlConnectProcessor(context).handleExecute(command, 7, prepared, packet, null);
+                Assertions.assertEquals(1, executors.constructed().size());
+                Mockito.verify(executors.constructed().get(0)).execute();
+                if (proxy) {
+                    Assertions.assertNull(context.getPrepareExecuteBuffer());
+                } else {
+                    Assertions.assertNotNull(context.getPrepareExecuteBuffer());
+                    Assertions.assertNotSame(packet, context.getPrepareExecuteBuffer());
+                    Assertions.assertEquals(0, context.getPrepareExecuteBuffer().remaining());
+                    Assertions.assertEquals(9, packet.position());
+                }
+            }
+        }
+    }
+
+    @Test
     public void testUnidentifiedDeprecatedEofCursorReachesPreparedStatementLookup() throws Exception {
         ConnectContext context = execute(true, true, false);
-        Assert.assertTrue(context.getState().getErrorMessage().contains(
+        Assertions.assertTrue(context.getState().getErrorMessage().contains(
                 "Unknown prepared statement handler"));
     }
 
     @Test
     public void testCompatibilityGateOnlyAppliesToAmbiguousProtocol() throws Exception {
-        Assert.assertTrue(execute(false, true, false).getState().getErrorMessage().contains(
+        Assertions.assertTrue(execute(false, true, false).getState().getErrorMessage().contains(
                 "Unknown prepared statement handler"));
-        Assert.assertTrue(execute(true, false, false).getState().getErrorMessage().contains(
+        Assertions.assertTrue(execute(true, false, false).getState().getErrorMessage().contains(
                 "Unknown prepared statement handler"));
-        Assert.assertTrue(execute(true, true, true).getState().getErrorMessage().contains(
+        Assertions.assertTrue(execute(true, true, true).getState().getErrorMessage().contains(
                 "Unknown prepared statement handler"));
     }
 

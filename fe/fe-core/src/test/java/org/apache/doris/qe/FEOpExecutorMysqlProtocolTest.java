@@ -30,8 +30,10 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.Assert;
-import org.junit.Test;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -57,9 +59,20 @@ public class FEOpExecutorMysqlProtocolTest {
 
             TMasterOpRequest request = new TestFEOpExecutor(context).build();
 
-            Assert.assertTrue(request.isClientDeprecatedEOF());
-            Assert.assertTrue(request.isCursorFetchRequested());
-            Assert.assertEquals("8.2.0", request.getConnectAttributes().get("_client_version"));
+            Assertions.assertTrue(request.isClientDeprecatedEOF());
+            Assertions.assertTrue(request.isCursorFetchRequested());
+            Assertions.assertEquals("8.2.0", request.getConnectAttributes().get("_client_version"));
+
+            for (byte[] payload : Arrays.asList(new byte[0], new byte[] {0, 1, 3, 0, 42, 0, 0, 0})) {
+                context.setPrepareExecuteBuffer(ByteBuffer.wrap(payload));
+                request = new TestFEOpExecutor(context).build();
+                TMasterOpRequest restored = new TMasterOpRequest();
+                new TDeserializer().deserialize(restored, new TSerializer().serialize(request));
+                // Presence, including a zero-length payload, selects COM_STMT_EXECUTE on the master.
+                Assertions.assertTrue(restored.isSetPrepareExecuteBuffer());
+                Assertions.assertArrayEquals(payload, restored.getPrepareExecuteBuffer());
+                Assertions.assertTrue(restored.isCursorFetchRequested());
+            }
         }
     }
 
@@ -67,16 +80,16 @@ public class FEOpExecutorMysqlProtocolTest {
     public void testForwardResponseRequiresExplicitProtocolConfirmation() {
         TestFEOpExecutor executor = new TestFEOpExecutor(createContext());
         executor.setResult(new TMasterOpResult());
-        Assert.assertFalse(executor.isClientDeprecatedEofApplied());
-        Assert.assertFalse(executor.hasQueryResultPackets());
+        Assertions.assertFalse(executor.isClientDeprecatedEofApplied());
+        Assertions.assertFalse(executor.hasQueryResultPackets());
 
         TMasterOpResult confirmed = new TMasterOpResult();
         confirmed.setClientDeprecatedEofApplied(true);
         confirmed.setQueryResultBufList(Collections.singletonList(ByteBuffer.wrap(new byte[] {1})));
         confirmed.setAffectedRows(7);
         executor.setResult(confirmed);
-        Assert.assertTrue(executor.isClientDeprecatedEofApplied());
-        Assert.assertTrue(executor.hasQueryResultPackets());
+        Assertions.assertTrue(executor.isClientDeprecatedEofApplied());
+        Assertions.assertTrue(executor.hasQueryResultPackets());
     }
 
     @Test
@@ -89,8 +102,8 @@ public class FEOpExecutorMysqlProtocolTest {
             context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("alice", "%"));
             context.setRemoteIP("127.0.0.1");
             TMasterOpRequest request = new TestFEOpExecutor(context).build();
-            Assert.assertFalse(request.isSetClientDeprecatedEOF());
-            Assert.assertFalse(request.isSetMysqlCapability());
+            Assertions.assertFalse(request.isSetClientDeprecatedEOF());
+            Assertions.assertFalse(request.isSetMysqlCapability());
         }
     }
 
@@ -102,8 +115,8 @@ public class FEOpExecutorMysqlProtocolTest {
         request.setMysqlCapability(legacyFlags);
         ConnectContext context = createContext();
         ConnectProcessor.restoreForwardedMysqlContext(context, request);
-        Assert.assertEquals(legacyFlags, context.getCapability().getFlags());
-        Assert.assertFalse(context.getMysqlChannel().getSerializer().getCapability().isDeprecatedEOF());
+        Assertions.assertEquals(legacyFlags, context.getCapability().getFlags());
+        Assertions.assertFalse(context.getMysqlChannel().getSerializer().getCapability().isDeprecatedEOF());
 
         request = new TMasterOpRequest();
         request.setClientDeprecatedEOF(true);
@@ -111,14 +124,14 @@ public class FEOpExecutorMysqlProtocolTest {
         context = createContext();
         context.setConnectAttributes(ImmutableMap.of("_client_name", "MySQL Connector/J", "_client_version", "8.2.0"));
         ConnectProcessor.restoreForwardedMysqlContext(context, request);
-        Assert.assertFalse(context.isCursorFetchRequested());
-        Assert.assertTrue(context.getCapability().isDeprecatedEOF());
+        Assertions.assertFalse(context.isCursorFetchRequested());
+        Assertions.assertTrue(context.getCapability().isDeprecatedEOF());
         request.setCursorFetchRequested(true);
         ConnectProcessor.restoreForwardedMysqlContext(context, request);
-        Assert.assertTrue(context.isCursorFetchRequested());
+        Assertions.assertTrue(context.isCursorFetchRequested());
         request.setCursorFetchRequested(false);
         ConnectProcessor.restoreForwardedMysqlContext(context, request);
-        Assert.assertFalse(context.isCursorFetchRequested());
+        Assertions.assertFalse(context.isCursorFetchRequested());
     }
 
     @Test
@@ -153,23 +166,23 @@ public class FEOpExecutorMysqlProtocolTest {
                         executor.setResult(result);
                         executor.prepareQueryResultForClient();
                         boolean shim = cursor && !version.equals("9.5.0");
-                        Assert.assertEquals(2 + (shim ? 1 : 0) + (rows ? 1 : 0),
+                        Assertions.assertEquals(2 + (shim ? 1 : 0) + (rows ? 1 : 0),
                                 executor.getQueryResultBufList().size());
                         if (shim) {
-                            Assert.assertEquals(8, executor.getQueryResultBufList().get(2).remaining());
+                            Assertions.assertEquals(8, executor.getQueryResultBufList().get(2).remaining());
                         }
                         if (rows) {
-                            Assert.assertSame(row, executor.getQueryResultBufList().get(shim ? 3 : 2));
+                            Assertions.assertSame(row, executor.getQueryResultBufList().get(shim ? 3 : 2));
                         }
                         ByteBuffer end = executor.getOutputPacket().duplicate();
-                        Assert.assertEquals(0xFE, MysqlProto.readInt1(end));
-                        Assert.assertEquals(0, MysqlProto.readVInt(end));
-                        Assert.assertEquals(0, MysqlProto.readVInt(end));
-                        Assert.assertEquals(2, MysqlProto.readInt2(end));
-                        Assert.assertEquals(3, MysqlProto.readInt2(end));
+                        Assertions.assertEquals(0xFE, MysqlProto.readInt1(end));
+                        Assertions.assertEquals(0, MysqlProto.readVInt(end));
+                        Assertions.assertEquals(0, MysqlProto.readVInt(end));
+                        Assertions.assertEquals(2, MysqlProto.readInt2(end));
+                        Assertions.assertEquals(3, MysqlProto.readInt2(end));
                         List<ByteBuffer> normalized = executor.getQueryResultBufList();
                         executor.prepareQueryResultForClient();
-                        Assert.assertSame(normalized, executor.getQueryResultBufList());
+                        Assertions.assertSame(normalized, executor.getQueryResultBufList());
                     }
                 }
             }
@@ -188,7 +201,7 @@ public class FEOpExecutorMysqlProtocolTest {
             result.setPacket(packet);
             executor.setResult(result);
             executor.prepareQueryResultForClient();
-            Assert.assertEquals(packet, executor.getOutputPacket());
+            Assertions.assertEquals(packet, executor.getOutputPacket());
         }
     }
 
