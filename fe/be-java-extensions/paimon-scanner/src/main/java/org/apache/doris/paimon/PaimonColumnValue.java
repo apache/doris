@@ -25,6 +25,7 @@ import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.data.variant.Variant;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.LocalZonedTimestampType;
@@ -64,6 +65,8 @@ public class PaimonColumnValue implements ColumnValue {
     private ColumnType dorisType;
     private DataType dataType;
     private ZoneId timeZone;
+    private PaimonVariantProjection variantProjection;
+    private Variant materializedVariant;
     // Keep these caches lazy so scalar columns do not pay for complex-type reuse bookkeeping.
     private List<PaimonColumnValue> arrayValues;
     private List<PaimonColumnValue> mapKeys;
@@ -87,13 +90,21 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     public void setIdx(int idx, ColumnType dorisType, DataType dataType) {
+        setIdx(idx, dorisType, dataType, null);
+    }
+
+    public void setIdx(int idx, ColumnType dorisType, DataType dataType,
+            PaimonVariantProjection variantProjection) {
         this.idx = idx;
         this.dorisType = dorisType;
         this.dataType = dataType;
+        this.variantProjection = variantProjection;
+        this.materializedVariant = null;
     }
 
     public void setOffsetRow(InternalRow record) {
         this.record = record;
+        this.materializedVariant = null;
     }
 
     public void setTimeZone(String timeZone) {
@@ -199,6 +210,26 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     @Override
+    public byte[] getVariantMetadata() {
+        return getVariant().metadata();
+    }
+
+    @Override
+    public byte[] getVariantValue() {
+        return getVariant().value();
+    }
+
+    private Variant getVariant() {
+        if (variantProjection == null) {
+            return record.getVariant(idx);
+        }
+        if (materializedVariant == null) {
+            materializedVariant = variantProjection.materialize(record, idx);
+        }
+        return materializedVariant;
+    }
+
+    @Override
     public void unpackArray(List<ColumnValue> values) {
         InternalArray recordArray = record.getArray(idx);
         if (arrayValues == null) {
@@ -277,6 +308,8 @@ public class PaimonColumnValue implements ColumnValue {
         this.dorisType = dorisType;
         this.dataType = dataType;
         this.timeZone = timeZone;
+        this.variantProjection = null;
+        this.materializedVariant = null;
     }
 
     private static ZoneId resolveTimeZone(String timeZone) {
