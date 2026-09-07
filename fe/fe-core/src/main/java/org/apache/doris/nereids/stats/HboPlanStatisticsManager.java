@@ -64,9 +64,13 @@ public class HboPlanStatisticsManager {
 
     private HboPlanStatisticsProvider hboPlanStatisticsProvider;
     private HboPlanInfoProvider hboPlanInfoProvider;
-    private final Cache<String, PinnedHboStatistics> pinnedPlanStatistics = Caffeine.newBuilder()
-            .maximumSize(Math.max(Config.hbo_pinned_stats_cache_num, 0))
-            .build();
+    // LRU bound follows the sibling hbo caches (see HboPlanInfoProvider): a non-positive
+    // hbo_pinned_stats_cache_num disables the bound instead of silently disabling injection
+    private final Cache<String, PinnedHboStatistics> pinnedPlanStatistics =
+            (Config.hbo_pinned_stats_cache_num > 0
+                    ? Caffeine.newBuilder().maximumSize(Config.hbo_pinned_stats_cache_num)
+                    : Caffeine.newBuilder())
+                    .build();
     // whether pinned statistics have been loaded from the internal table (only when persistence
     // is enabled); planner/command threads access it concurrently
     private volatile boolean hboPinnedLoaded = false;
@@ -124,9 +128,12 @@ public class HboPlanStatisticsManager {
             // a SET after a failed DELETE re-creates the entry: drop the deletion intent so a
             // pending load does not skip the re-created row
             pendingLoadTombstones.remove(fingerprint);
-        }
-        if (persistenceEnabled()) {
-            HboStatisticsStore.persist(fingerprint, rows, nodeType, structCanonical, createTimeMs);
+            // persist under the same lock as DELETE's DB removal, so concurrent same-key
+            // SET/DELETE serialize their DB writes in the same order as their memory updates
+            // and the stored row always matches the last memory writer
+            if (persistenceEnabled()) {
+                HboStatisticsStore.persist(fingerprint, rows, nodeType, structCanonical, createTimeMs);
+            }
         }
     }
 

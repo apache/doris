@@ -98,7 +98,13 @@ public class HboStatsCalculator extends StatsCalculator {
         Optional<String> hash = planNodeAndHashOpt.get().getHash();
         if (hash.isPresent()) {
             // manually injected (pinned) statistics are authoritative and bypass the learned
-            // entry matching
+            // entry matching (ScanPlanStatistics predicate comparison). The pin key for a
+            // filter-on-scan is the scan-group fingerprint, whose token carries table/ordinal/
+            // partition-pruning/version but NOT the filter constants, so a pin is scan-wide: it
+            // also overrides the output rows of the same scan shape with different filter
+            // predicates. Manual pins are expert overrides keyed by the shape fingerprint
+            // (see GroupStructInfo scan tokens and the design doc 4.1); keep this bypass, but
+            // users must scope pins by version/pruning rather than by predicate constants.
             Optional<HboPlanStatisticsManager.PinnedHboStatistics> pinned = Env.getCurrentEnv()
                     .getHboPlanStatisticsManager().getPinnedPlanStatistics(hash.get());
             if (pinned.isPresent()) {

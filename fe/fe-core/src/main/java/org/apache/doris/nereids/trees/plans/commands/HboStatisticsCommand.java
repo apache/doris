@@ -75,7 +75,9 @@ public class HboStatisticsCommand extends Command {
     public HboStatisticsCommand(Op op, String fingerprint, long rows, String structCanonical) {
         super(PlanType.HBO_STATISTICS_COMMAND);
         this.op = op;
-        this.fingerprint = fingerprint;
+        // sha256 hex fingerprints are lowercase everywhere (group struct info, read-side lookup);
+        // normalize user input so an uppercase fingerprint cannot silently miss its entry
+        this.fingerprint = fingerprint == null ? null : fingerprint.toLowerCase(java.util.Locale.ROOT);
         this.rows = rows;
         this.structCanonical = structCanonical == null ? "" : structCanonical;
     }
@@ -87,9 +89,11 @@ public class HboStatisticsCommand extends Command {
             throw new AnalysisException("Access denied: HBO statistics management requires ADMIN privilege");
         }
         HboPlanStatisticsManager hboManager = Env.getCurrentEnv().getHboPlanStatisticsManager();
+        // validate the fingerprint shape on both operations: a malformed DELETE would otherwise
+        // silently leave the pinned entry active (it can never match a stored fingerprint)
+        validateFingerprint(fingerprint);
         switch (op) {
             case SET:
-                validateFingerprint(fingerprint);
                 if (rows < 0) {
                     throw new AnalysisException("hbo statistics rows must be non-negative: " + rows);
                 }

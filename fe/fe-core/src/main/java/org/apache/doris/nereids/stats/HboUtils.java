@@ -535,6 +535,7 @@ public class HboUtils {
             Map<Integer, String> nodeFingerprints) {
         Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> outputPlanStatisticsMap = new HashMap<>();
         int missingFingerprints = 0;
+        int skippedWithoutSnapshot = 0;
         for (TPlanNodeRuntimeStatsItem nodeStats : curPlanNodeRuntimeStats) {
             int nodeId = nodeStats.node_id;
             PhysicalPlan planNode = idToPlanMap.get(nodeId);
@@ -554,6 +555,7 @@ public class HboUtils {
                 hash = inputTableStatisticsInfo.getHash();
             } else {
                 // struct-info mode without a planning-time snapshot for this node: skip it
+                skippedWithoutSnapshot++;
                 if (nodeFingerprints != null && !nodeFingerprints.isEmpty()) {
                     missingFingerprints++;
                 }
@@ -570,6 +572,12 @@ public class HboUtils {
         if (missingFingerprints > 0) {
             LOG.warn("hbo struct fingerprint snapshot missing for {} of {} plan nodes",
                     missingFingerprints, curPlanNodeRuntimeStats.size());
+        } else if (skippedWithoutSnapshot > 0) {
+            // the whole per-query snapshot is empty (e.g. every group resolved INVALID): the
+            // worst diagnostic case must not be silent, unlike a partially populated snapshot
+            LOG.warn("hbo struct fingerprint snapshot is empty: skipped {} of {} plan nodes; "
+                    + "hbo statistics for this query will not be published",
+                    skippedWithoutSnapshot, curPlanNodeRuntimeStats.size());
         }
         return outputPlanStatisticsMap;
     }

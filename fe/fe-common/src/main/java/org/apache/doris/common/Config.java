@@ -2343,11 +2343,13 @@ public class Config extends ConfigBase {
     /**
      * Maximum number of manually injected (pinned) hbo statistics entries kept per FE. When the
      * limit is exceeded the least recently used pinned entry is evicted (LRU); pinned entries are
-     * otherwise not expired automatically.
+     * otherwise not expired automatically. A non-positive value disables the LRU bound
+     * (unbounded), matching the other hbo caches. Takes effect at FE start (not hot-mutable).
      */
     @ConfField(description = "The default setting is 5000. Maximum number of manually injected "
             + "(pinned) hbo statistics entries kept per FE; exceeding the limit evicts the least "
-            + "recently used entry. Takes effect at FE start (not hot-mutable).")
+            + "recently used entry; a non-positive value disables the bound (unbounded). Takes "
+            + "effect at FE start (not hot-mutable).")
     public static int hbo_pinned_stats_cache_num = 5000;
 
     /**

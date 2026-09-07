@@ -7187,7 +7187,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitHboSetStatistics(DorisParser.HboSetStatisticsContext ctx) {
         checkHboStatementWords(ctx.hbo, ctx.statistics);
         String fingerprint = stripQuotes(ctx.key.getText());
-        long rows = Long.parseLong(ctx.rows.getText());
+        long rows;
+        try {
+            rows = Long.parseLong(ctx.rows.getText());
+        } catch (NumberFormatException e) {
+            throw new ParseException("hbo statistics rows out of range: " + ctx.rows.getText());
+        }
         String structCanonical = "";
         if (ctx.structWord != null && ctx.structCanonical != null) {
             if (!"struct".equalsIgnoreCase(ctx.structWord.getText())) {

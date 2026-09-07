@@ -83,6 +83,15 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     assertTrue(linesAfter[joinIdxAfter + 1].contains("hbo_si_r"), nodeAfter)
     assertTrue((nodeAfter =~ /PhysicalFilter\[\d+\].*hboUsed=true/).find(), nodeAfter)
 
+    // The pin key for filter-on-scan is the scan-group fingerprint, whose token excludes the
+    // filter constants: a different constant (R.b = 2) over the same scan shape/version shares
+    // the pin and is flipped too (documented scan-wide override semantics, see GroupStructInfo
+    // scan tokens). Lock the behavior in so an accidental predicate-sensitive key change is
+    // caught.
+    def otherConstantQuery = "select * from hbo_si_t join hbo_si_r on hbo_si_t.a = hbo_si_r.a where hbo_si_r.b = 2"
+    def otherConstantText = firstFragment(explainText(otherConstantQuery))
+    assertTrue(otherConstantText.contains("TABLE: hbo_test.hbo_si_r(hbo_si_r)"), otherConstantText)
+
     } finally {
         sql """ HBO DELETE STATISTICS '${fingerprint}'; """
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"

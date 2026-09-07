@@ -1263,7 +1263,14 @@ public class NereidsPlanner extends Planner {
         if (statementContext != null && !statementContext.getHints().isEmpty()) {
             hint = getHintExplainString(statementContext.getHints());
         }
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isShowHboFingerprint()
+        // the annotation block is meaningful only once a physical plan exists (fragment-form
+        // explain); parsed/analyzed/rewritten tree output must not carry the misleading
+        // "(no hbo fingerprint attached ...)" fallback
+        if (explainLevel != ExplainLevel.PARSED_PLAN
+                && explainLevel != ExplainLevel.ANALYZED_PLAN
+                && explainLevel != ExplainLevel.REWRITTEN_PLAN
+                && ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isShowHboFingerprint()
                 && physicalPlan != null && cascadesContext != null) {
             plan += appendHboFingerprintAnnotations();
         }
