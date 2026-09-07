@@ -63,6 +63,12 @@ Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id,
     if (success) {
         // sentinel nullptr indicates scan end
         if (*result == nullptr) {
+            // Re-check the queue status: the sink publishes the fragment failure status
+            // right before putting the eos sentinel, while this fetch may have passed the
+            // status check above before blocking on get. The client stops polling at eos,
+            // so this is the last chance to surface the failure instead of returning a
+            // silent truncated eos.
+            RETURN_IF_ERROR(queue->status());
             *eos = true;
             // put sentinel for consistency, avoid repeated invoking fetch result when have no rowbatch
             queue->blocking_put(nullptr);
