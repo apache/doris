@@ -953,9 +953,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * Builds the query-finish callback that releases a connector's per-query read transaction. Hive full-ACID /
      * insert-only reads open a metastore read transaction + shared read lock during {@code planScan}; this
      * callback commits it (releasing the lock) when the query finishes. Registered UNCONDITIONALLY for every
-     * plugin scan in {@link #getSplits} — connector-agnostic, since a connector that opens no read transaction
-     * inherits the no-op {@link ConnectorScanPlanProvider#releaseReadTransaction} default and the callback is
-     * inert for it. The release runs on the StmtExecutor thread at query finish, whose TCCL is the fe-core app
+     * plugin scan before synchronous or asynchronous split planning — connector-agnostic, since a connector that
+     * opens no read transaction inherits the no-op {@link ConnectorScanPlanProvider#releaseReadTransaction}
+     * default and the callback is inert for it. The release runs on the StmtExecutor thread at query finish,
+     * whose TCCL is the fe-core app
      * loader, so it MUST be pinned to the provider's plugin classloader ({@link #onPluginClassLoader}) or the
      * commit's by-name class resolution (metastore/thrift) would split-brain against the app loader's copies.
      * Extracted as a pure function of {@code (scanProvider, queryId)} so the release + TCCL-pin behavior is
@@ -967,6 +968,17 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             scanProvider.releaseReadTransaction(queryId);
             return null;
         });
+    }
+
+    static void registerQueryFinishCallbacks(
+            ConnectorSession connectorSession, ConnectorScanPlanProvider scanProvider) {
+        String queryId = connectorSession.getQueryId();
+        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(queryId,
+                buildReadTransactionReleaseCallback(scanProvider, queryId));
+        ConnectorStatementScope statementScope = connectorSession.getStatementScope();
+        if (statementScope != ConnectorStatementScope.NONE) {
+            QeProcessorImpl.INSTANCE.registerQueryFinishCallback(queryId, statementScope::closeAll);
+        }
     }
 
     /**
@@ -1570,21 +1582,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // no-op). The callback runs on the StmtExecutor thread at query finish, whose TCCL is the fe-core app
         // loader, so the release is pinned to the provider's plugin classloader (see the helper). One string:
         // connectorSession.getQueryId() == the query-finish registry key == the connector's txnMap key.
-        String readTxnQueryId = connectorSession.getQueryId();
-        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(readTxnQueryId,
-                buildReadTransactionReleaseCallback(scanProvider, readTxnQueryId));
-
-        // Deterministic close of the per-statement metadata scope, on the SAME query-finish hook and the SAME
-        // query-id key as the read-transaction release above. This is the PRIMARY close: getSplits runs only for
-        // coordinated scans, all of which reach unregisterQuery, so it fires after off-thread pump quiescence and
-        // leaves no dangling registry entry. Object-capture (scope::closeAll binds THIS scope instance) so a retry
-        // / prepared-EXECUTE that swaps the StatementContext field can never let this callback touch a successor
-        // scope. Skip NONE (off-thread / no-ConnectContext builds carry NONE and hold nothing to close). Non-scan
-        // statements (DDL / SHOW / EXPLAIN via Command.run) never reach here and are closed by StatementContext.
-        ConnectorStatementScope statementScope = connectorSession.getStatementScope();
-        if (statementScope != ConnectorStatementScope.NONE) {
-            QeProcessorImpl.INSTANCE.registerQueryFinishCallback(readTxnQueryId, statementScope::closeAll);
-        }
+        registerQueryFinishCallbacks(connectorSession, scanProvider);
 
         // Push the Nereids partition-pruning result down to the connector so the read session
         // covers only the surviving partitions. A pruned-to-zero set means no data to read,
@@ -1997,6 +1995,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
         final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        registerQueryFinishCallbacks(connectorSession, scanProvider);
         // One request for the whole batched scan; each batch re-scopes it to its own partitions. No row
         // limit and no COUNT(*) pushdown on this path (batch mode is entered before either applies),
         // matching what the batched call passed before the request object existed.
@@ -2125,6 +2124,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
         final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        registerQueryFinishCallbacks(connectorSession, scanProvider);
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         CompletableFuture.runAsync(() -> {
             ConnectorSplitSource source = null;

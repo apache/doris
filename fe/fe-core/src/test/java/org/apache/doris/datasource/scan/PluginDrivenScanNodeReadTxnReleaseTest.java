@@ -17,7 +17,12 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -88,5 +93,24 @@ public class PluginDrivenScanNodeReadTxnReleaseTest {
         } finally {
             current.setContextClassLoader(outer);
         }
+    }
+
+    @Test
+    public void registrationReleasesTransactionAndClosesStatementScopeAtQueryFinish() {
+        TUniqueId queryId = new TUniqueId(17L, 29L);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorStatementScope statementScope = Mockito.mock(ConnectorStatementScope.class);
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(session.getQueryId()).thenReturn(DebugUtil.printId(queryId));
+        Mockito.when(session.getStatementScope()).thenReturn(statementScope);
+
+        PluginDrivenScanNode.registerQueryFinishCallbacks(session, provider);
+        Mockito.verifyNoInteractions(statementScope);
+        Mockito.verifyNoInteractions(provider);
+
+        QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+
+        Mockito.verify(provider).releaseReadTransaction(DebugUtil.printId(queryId));
+        Mockito.verify(statementScope).closeAll();
     }
 }

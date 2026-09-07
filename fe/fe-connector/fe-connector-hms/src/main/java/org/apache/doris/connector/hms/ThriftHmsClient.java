@@ -254,6 +254,9 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public HmsPartitionBatchResult getExistingPartitionsWithStats(
             String dbName, String tableName, List<String> partNames) {
+        if (closed) {
+            throw new HmsClientException("HMS client is closed");
+        }
         HmsPartitionRequest request = partitionRequest(dbName, tableName, partNames);
         if (clientPool != null) {
             return newPartitionBatchExecutor(this::getPartitionsByNames).executeExistingWithStats(request);
@@ -264,6 +267,9 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public HmsPartitionBatchResult getPartitionsWithStats(String dbName,
             String tableName, List<String> partNames) {
+        if (closed) {
+            throw new HmsClientException("HMS client is closed");
+        }
         HmsPartitionRequest request = partitionRequest(dbName, tableName, partNames);
         if (clientPool != null) {
             return newPartitionBatchExecutor(this::getPartitionsByNames).executeWithStats(request);

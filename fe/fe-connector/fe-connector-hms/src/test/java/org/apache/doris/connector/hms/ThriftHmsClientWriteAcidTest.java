@@ -34,6 +34,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import shade.doris.hive.org.apache.thrift.TApplicationException;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -322,6 +323,23 @@ public class ThriftHmsClientWriteAcidTest {
         Assertions.assertEquals(1, fake.closeCalls);
     }
 
+    @Test
+    public void testEmptyPartitionBatchFailsAfterClientCloseWithAndWithoutPooling() throws IOException {
+        for (int poolSize : Arrays.asList(0, 1)) {
+            RecordingClient fake = partitionEchoClient();
+            AtomicInteger clientCreates = new AtomicInteger();
+            ThriftHmsClient client = newClient(fake, Collections.emptyMap(), clientCreates, poolSize);
+            client.close();
+
+            Assertions.assertThrows(HmsClientException.class,
+                    () -> client.getPartitionsWithStats("db", "t", Collections.emptyList()));
+            Assertions.assertThrows(HmsClientException.class,
+                    () -> client.getExistingPartitionsWithStats("db", "t", Collections.emptyList()));
+            Assertions.assertEquals(0, clientCreates.get(),
+                    "a closed client must reject an empty request before opening a transport");
+        }
+    }
+
     private static RecordingClient partitionEchoClient() {
         return new RecordingClient().answer("getPartitionsByNames", args -> {
             @SuppressWarnings("unchecked")
@@ -573,12 +591,16 @@ public class ThriftHmsClientWriteAcidTest {
 
     private static ThriftHmsClient newClient(
             RecordingClient handler, Map<String, String> properties, AtomicInteger clientCreates) {
+        return newClient(handler, properties, clientCreates, 0);
+    }
+
+    private static ThriftHmsClient newClient(
+            RecordingClient handler, Map<String, String> properties, AtomicInteger clientCreates, int poolSize) {
         IMetaStoreClient fake = (IMetaStoreClient) Proxy.newProxyInstance(
                 IMetaStoreClient.class.getClassLoader(),
                 new Class<?>[] {IMetaStoreClient.class},
                 handler);
-        // poolSize 0 -> no cross-request pool; one logical partition request may reuse this temporary client.
-        HmsClientConfig config = new HmsClientConfig(properties, 0);
+        HmsClientConfig config = new HmsClientConfig(properties, poolSize);
         return new ThriftHmsClient(config, null, hiveConf -> {
             clientCreates.incrementAndGet();
             return fake;
