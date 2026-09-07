@@ -27,7 +27,7 @@
 #include "core/block/block.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr.h"
-#include "format/table/equality_delete_hash_index.h"
+#include "format_v2/expr/equality_delete_hash_index.h"
 
 namespace doris {
 class RowDescriptor;
