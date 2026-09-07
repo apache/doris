@@ -170,9 +170,8 @@ class AzureFileSystemPropertiesTest {
     }
 
     /**
-     * Pins the compatibility OAuth2 map used by genuine Microsoft Fabric OneLake locations. Native
-     * FILE_S3 Azure OAuth2 is marked explicitly and rejected by BE until a complete Entra-ID path is
-     * available; OneLake remains FILE_HDFS and consumes the Hadoop settings below.
+     * Pins both the compatibility OAuth2 map used by genuine Microsoft Fabric OneLake locations
+     * and the native service-principal fields used by ordinary Azure ABFS paths.
      */
     @Test
     void toBackendProperties_oauth2DumpsHadoopResolvedConfig() {
@@ -206,10 +205,31 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertTrue(backendMap.size() > 100,
                 "expected a resolved hadoop config, got " + backendMap.size() + " keys");
 
-        // 3. Native attempts carry an explicit unsupported marker, never an AK/SK or SAS fallback.
+        // 3. Native attempts carry an explicit OAuth2 marker and service-principal fields, never
+        // an AK/SK or SAS fallback.
         Assertions.assertEquals("OAUTH2", backendMap.get("AZURE_AUTH_TYPE"), backendMap.toString());
+        Assertions.assertEquals("client-id", backendMap.get("AZURE_CLIENT_ID"));
+        Assertions.assertEquals("client-secret", backendMap.get("AZURE_CLIENT_SECRET"));
+        Assertions.assertEquals("tenant", backendMap.get("AZURE_TENANT_ID"));
+        Assertions.assertEquals("https://login.microsoftonline.com/tenant/oauth2/token",
+                backendMap.get("AZURE_OAUTH_SERVER_URI"));
         Assertions.assertFalse(backendMap.containsKey("AZURE_ACCOUNT_KEY"), backendMap.toString());
         Assertions.assertFalse(backendMap.containsKey("AZURE_SAS_TOKEN"), backendMap.toString());
+    }
+
+    @Test
+    void bind_acceptsNativeOAuth2ServerAliases() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "AZURE_AUTH_TYPE", "OAuth2",
+                "AZURE_OAUTH_ACCOUNT_HOST", "account.dfs.core.windows.net",
+                "AZURE_CLIENT_ID", "client-id",
+                "AZURE_CLIENT_SECRET", "client-secret",
+                "AZURE_OAUTH_SERVER_URI", "https://login.microsoftonline.com/tenant/oauth2/token"));
+
+        Assertions.assertTrue(properties.isOauth2Auth());
+        Assertions.assertEquals("account.dfs.core.windows.net", properties.getOauthAccountHost());
+        Assertions.assertEquals("https://login.microsoftonline.com/tenant/oauth2/token",
+                properties.getOauthServerUri());
     }
 
     @Test

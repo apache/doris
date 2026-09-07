@@ -85,6 +85,11 @@ public final class AzureFileSystemProperties
     public static final String BACKEND_CONTAINER = "AZURE_CONTAINER";
     public static final String BACKEND_SAS_TOKEN = "AZURE_SAS_TOKEN";
     public static final String BACKEND_SAS_EXPIRY_MS = "AZURE_SAS_EXPIRY_MS";
+    public static final String BACKEND_CLIENT_ID = "AZURE_CLIENT_ID";
+    public static final String BACKEND_CLIENT_SECRET = "AZURE_CLIENT_SECRET";
+    public static final String BACKEND_TENANT_ID = "AZURE_TENANT_ID";
+    public static final String BACKEND_OAUTH_SERVER_URI = "AZURE_OAUTH_SERVER_URI";
+    public static final String BACKEND_OAUTH_ACCOUNT_HOST = "AZURE_OAUTH_ACCOUNT_HOST";
 
     private static final String[] AZURE_BLOB_HOST_SUFFIXES = {
             "blob.core.windows.net",
@@ -127,12 +132,12 @@ public final class AzureFileSystemProperties
             description = "The client secret of Azure AD application.")
     private String clientSecret = "";
 
-    @ConnectorProperty(names = {OAUTH_SERVER_URI},
+    @ConnectorProperty(names = {OAUTH_SERVER_URI, BACKEND_OAUTH_SERVER_URI},
             required = false,
             description = "The Azure OAuth2 token endpoint.")
     private String oauthServerUri = "";
 
-    @ConnectorProperty(names = {OAUTH_ACCOUNT_HOST},
+    @ConnectorProperty(names = {OAUTH_ACCOUNT_HOST, BACKEND_OAUTH_ACCOUNT_HOST},
             required = false,
             description = "The Azure account host used by Hadoop OAuth2 config.")
     private String oauthAccountHost = "";
@@ -272,11 +277,16 @@ public final class AzureFileSystemProperties
         azureProps.put("provider", "azure");
         azureProps.put(BACKEND_AUTH_TYPE, backendAuthType());
         if (isOauth2Auth()) {
-            // Genuine Fabric OneLake locations are still Hadoop-routed until the native Entra-ID
-            // path is complete. Keep the account-scoped fs.azure.* settings available to that
-            // explicitly HDFS-bound path, while the OAUTH2 marker makes a native FILE_S3 attempt
-            // fail closed instead of treating the credentials as SharedKey.
+            // Keep the account-scoped fs.azure.* settings available to the explicitly HDFS-bound
+            // Fabric OneLake path, and send the same service-principal material to the native BE
+            // path. Both paths use this binding; the reader selected by the URI decides which
+            // credential vocabulary it consumes.
             azureProps.putAll(oauth2BackendProperties());
+            azureProps.put(BACKEND_CLIENT_ID, clientId);
+            azureProps.put(BACKEND_CLIENT_SECRET, clientSecret);
+            resolveTenantId().ifPresent(value -> azureProps.put(BACKEND_TENANT_ID, value));
+            azureProps.put(BACKEND_OAUTH_SERVER_URI, oauthServerUri);
+            azureProps.put(BACKEND_OAUTH_ACCOUNT_HOST, oauthAccountHost);
         }
         if (StringUtils.isNotBlank(endpoint)) {
             azureProps.put(BACKEND_ENDPOINT, endpoint);
@@ -339,9 +349,8 @@ public final class AzureFileSystemProperties
 
     /**
      * Legacy Hadoop configuration view retained for genuine Fabric OneLake locations. OneLake
-     * remains explicitly FILE_HDFS-routed while native Azure OAuth2 support is pending; retaining
-     * the resolved Configuration preserves its existing defaults and fs.azure.* account settings.
-     * Native FILE_S3 attempts still carry an explicit OAUTH2 marker and are rejected by BE.
+     * remains explicitly FILE_HDFS-routed; ordinary Azure ABFS paths use the native fields in
+     * {@link #toMap()}.
      */
     private Map<String, String> oauth2BackendProperties() {
         Configuration conf = new Configuration();
@@ -522,8 +531,8 @@ public final class AzureFileSystemProperties
         if (isSasAuth()) {
             return SAS_AUTH;
         }
-        // OAuth2 remains an explicit value so the native BE returns a
-        // diagnostic unsupported-auth error instead of treating it as SharedKey.
+        // OAuth2 remains explicit so the BE selects ClientSecretCredential instead of treating
+        // the service-principal material as SharedKey.
         return "OAUTH2";
     }
 

@@ -19,9 +19,11 @@
 
 #include <azure/core/datetime.hpp>
 #include <azure/core/url.hpp>
+#include <azure/identity/client_secret_credential.hpp>
 #include <azure/storage/common/storage_credential.hpp>
 #include <chrono>
 #include <optional>
+#include <string_view>
 #include <utility>
 
 namespace doris {
@@ -78,13 +80,79 @@ std::optional<int64_t> sas_expiry_from_token(std::string_view token, std::string
     return std::nullopt;
 }
 
+std::string oauth_tenant_from_uri(std::string_view oauth_server_uri) {
+    Azure::Core::Url url {std::string(oauth_server_uri)};
+    const auto path = Azure::Core::Url::Decode(url.GetPath());
+    size_t begin = 0;
+    while (begin < path.size() && path[begin] == '/') {
+        ++begin;
+    }
+    while (begin < path.size()) {
+        const auto end = path.find('/', begin);
+        const auto part = path.substr(begin, end == std::string::npos ? path.size() - begin
+                                                                        : end - begin);
+        if (!part.empty() && part != "oauth2" && part != "v2.0" && part != "token") {
+            return part;
+        }
+        if (end == std::string::npos) {
+            break;
+        }
+        begin = end + 1;
+    }
+    return {};
+}
+
+std::string oauth_authority_from_uri(std::string_view oauth_server_uri) {
+    Azure::Core::Url url {std::string(oauth_server_uri)};
+    if (url.GetScheme() != "https" || url.GetHost().empty()) {
+        return {};
+    }
+    std::string authority = url.GetScheme() + "://" + url.GetHost();
+    if (url.GetPort() != 0) {
+        authority += ":" + std::to_string(url.GetPort());
+    }
+    return authority;
+}
+
 } // namespace
 
 AzureClientBuildResult AzureAuthFactory::create(
         std::string_view container_url, const AzureCredentialOptions& credential,
         Azure::Storage::Blobs::BlobClientOptions client_options) {
     if (credential.type == AzureCredentialType::OAUTH2) {
-        return {.error = "Azure OAuth2 credentials are not supported by the native BE client"};
+        if (credential.oauth_client_id.empty() || credential.oauth_client_secret.empty()) {
+            return {.error = "Azure OAuth2 credential requires client id and client secret"};
+        }
+        if (credential.oauth_server_uri.empty()) {
+            return {.error = "Azure OAuth2 credential requires an OAuth server URI"};
+        }
+
+        try {
+            std::string tenant_id = credential.oauth_tenant_id;
+            if (tenant_id.empty()) {
+                tenant_id = oauth_tenant_from_uri(credential.oauth_server_uri);
+            }
+            if (tenant_id.empty()) {
+                return {.error = "Azure OAuth2 credential requires a tenant id"};
+            }
+            Azure::Identity::ClientSecretCredentialOptions identity_options;
+            identity_options.AuthorityHost =
+                    oauth_authority_from_uri(credential.oauth_server_uri);
+            if (identity_options.AuthorityHost.empty()) {
+                return {.error = "Azure OAuth2 credential has an invalid OAuth server URI"};
+            }
+            auto token_credential = std::make_shared<Azure::Identity::ClientSecretCredential>(
+                    std::move(tenant_id), credential.oauth_client_id,
+                    credential.oauth_client_secret, std::move(identity_options));
+            std::shared_ptr<const Azure::Core::Credentials::TokenCredential> credential_view =
+                    std::move(token_credential);
+            auto client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
+                    std::string(container_url), std::move(credential_view),
+                    std::move(client_options));
+            return {.container_client = std::move(client)};
+        } catch (const std::exception& e) {
+            return {.error = std::string("failed to create Azure OAuth2 credential: ") + e.what()};
+        }
     }
 
     if (credential.type == AzureCredentialType::SAS) {

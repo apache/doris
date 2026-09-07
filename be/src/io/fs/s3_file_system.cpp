@@ -90,6 +90,10 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.token = conf.token;
         reset_conf.token_expiration_time_ms = conf.token_expiration_time_ms;
         reset_conf.azure_auth_type = conf.azure_auth_type;
+        reset_conf.azure_oauth_client_id = conf.azure_oauth_client_id;
+        reset_conf.azure_oauth_client_secret = conf.azure_oauth_client_secret;
+        reset_conf.azure_oauth_tenant_id = conf.azure_oauth_tenant_id;
+        reset_conf.azure_oauth_server_uri = conf.azure_oauth_server_uri;
         reset_conf.bucket = conf.bucket;
         reset_conf.connect_timeout_ms = conf.connect_timeout_ms;
         reset_conf.max_connections = conf.max_connections;

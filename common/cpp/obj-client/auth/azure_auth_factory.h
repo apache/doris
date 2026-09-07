@@ -32,8 +32,6 @@ namespace doris {
 enum class AzureCredentialType {
     SHARED_KEY,
     SAS,
-    // Kept as an explicit value so callers receive a clear unsupported-auth
-    // error instead of accidentally treating OAuth2 material as a shared key.
     OAUTH2,
 };
 
@@ -43,6 +41,10 @@ struct AzureCredentialOptions {
     std::string account_key;
     std::string sas_token;
     int64_t sas_expiration_time_ms = 0;
+    std::string oauth_client_id;
+    std::string oauth_client_secret;
+    std::string oauth_tenant_id;
+    std::string oauth_server_uri;
 };
 
 struct AzureClientBuildResult {

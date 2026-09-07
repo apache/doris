@@ -520,6 +520,12 @@ std::string AzureObjStorageClient::generate_presigned_url(const ObjStoragePath& 
     if (_credential == nullptr && _client->GetUrl().find('?') != std::string::npos) {
         return _client->GetBlockBlobClient(opts.key).GetUrl();
     }
+    // Entra ID authorizes requests through the SDK pipeline but cannot sign a
+    // Blob SAS URL. Do not manufacture a signature from empty SharedKey
+    // material; callers must use the authenticated client path instead.
+    if (_credential == nullptr) {
+        return {};
+    }
     Azure::Storage::Sas::BlobSasBuilder sas_builder;
     sas_builder.ExpiresOn =
             std::chrono::system_clock::now() + std::chrono::seconds(expiration_secs);

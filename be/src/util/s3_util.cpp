@@ -69,10 +69,6 @@ namespace doris {
 namespace {
 
 doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
-    if (conf.provider == io::ObjStorageProvider::AZURE && iequal(conf.azure_auth_type, "OAUTH2")) {
-        return Status::NotSupported(
-                "Azure OAuth2 credentials are not supported by the native BE client");
-    }
     if (conf.endpoint.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
     }
@@ -84,7 +80,8 @@ doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
 
     if (conf.provider == io::ObjStorageProvider::AZURE) {
         if (!conf.azure_auth_type.empty() && !iequal(conf.azure_auth_type, "SAS") &&
-            !iequal(conf.azure_auth_type, "SHARED_KEY")) {
+            !iequal(conf.azure_auth_type, "SHARED_KEY") &&
+            !iequal(conf.azure_auth_type, "OAUTH2")) {
             return Status::InvalidArgument("Invalid Azure auth type: {}", conf.azure_auth_type);
         }
         if (iequal(conf.azure_auth_type, "SAS") && conf.token.empty()) {
@@ -94,12 +91,25 @@ doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
             return Status::InvalidArgument(
                     "Azure SharedKey authentication cannot be combined with a SAS token");
         }
+        if (iequal(conf.azure_auth_type, "OAUTH2") && !conf.token.empty()) {
+            return Status::InvalidArgument(
+                    "Azure OAuth2 authentication cannot be combined with a SAS token");
+        }
+        if (iequal(conf.azure_auth_type, "OAUTH2") &&
+            (conf.azure_oauth_client_id.empty() || conf.azure_oauth_client_secret.empty() ||
+             conf.azure_oauth_server_uri.empty())) {
+            return Status::InvalidArgument(
+                    "Azure OAuth2 authentication requires client id, client secret, and OAuth "
+                    "server URI");
+        }
     }
 
     const bool azure_sas = conf.provider == io::ObjStorageProvider::AZURE &&
                            (iequal(conf.azure_auth_type, "SAS") ||
                             (conf.azure_auth_type.empty() && !conf.token.empty()));
-    if (conf.role_arn.empty() && !azure_sas) {
+    const bool azure_oauth2 = conf.provider == io::ObjStorageProvider::AZURE &&
+                              iequal(conf.azure_auth_type, "OAUTH2");
+    if (conf.role_arn.empty() && !azure_sas && !azure_oauth2) {
         // Allow anonymous access when both ak and sk are empty
         bool hasAk = !conf.ak.empty();
         bool hasSk = !conf.sk.empty();
@@ -245,6 +255,11 @@ constexpr char AZURE_ACCOUNT_KEY[] = "AZURE_ACCOUNT_KEY";
 constexpr char AZURE_CONTAINER[] = "AZURE_CONTAINER";
 constexpr char AZURE_SAS_TOKEN[] = "AZURE_SAS_TOKEN";
 constexpr char AZURE_SAS_EXPIRY_MS[] = "AZURE_SAS_EXPIRY_MS";
+constexpr char AZURE_CLIENT_ID[] = "AZURE_CLIENT_ID";
+constexpr char AZURE_CLIENT_SECRET[] = "AZURE_CLIENT_SECRET";
+constexpr char AZURE_TENANT_ID[] = "AZURE_TENANT_ID";
+constexpr char AZURE_OAUTH_SERVER_URI[] = "AZURE_OAUTH_SERVER_URI";
+constexpr char AZURE_OAUTH_ACCOUNT_HOST[] = "AZURE_OAUTH_ACCOUNT_HOST";
 
 const std::string* find_property(const StringCaseMap<std::string>& properties,
                                  std::initializer_list<const char*> names) {
@@ -469,6 +484,10 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_azure_cli
                     .account_key = s3_conf.sk,
                     .sas_token = s3_conf.token,
                     .sas_expiration_time_ms = s3_conf.token_expiration_time_ms,
+                    .oauth_client_id = s3_conf.azure_oauth_client_id,
+                    .oauth_client_secret = s3_conf.azure_oauth_client_secret,
+                    .oauth_tenant_id = s3_conf.azure_oauth_tenant_id,
+                    .oauth_server_uri = s3_conf.azure_oauth_server_uri,
             },
             std::move(options));
     if (!built) {
@@ -582,6 +601,10 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
     s3_conf->client_conf.provider = io::ObjStorageProvider::AWS;
     s3_conf->client_conf.azure_auth_type.clear();
+    s3_conf->client_conf.azure_oauth_client_id.clear();
+    s3_conf->client_conf.azure_oauth_client_secret.clear();
+    s3_conf->client_conf.azure_oauth_tenant_id.clear();
+    s3_conf->client_conf.azure_oauth_server_uri.clear();
     s3_conf->client_conf.token_expiration_time_ms = 0;
     if (auto it = properties.find(S3_AK); it != properties.end()) {
         s3_conf->client_conf.ak = it->second;
@@ -639,11 +662,29 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     // A native Azure binding is self-describing.  Accepting its provider-owned
     // keys without a redundant provider marker makes the FE/BE contract less
     // fragile while preserving the legacy provider=azure form.
-    if (has_property(properties,
-                     {AZURE_ENDPOINT, AZURE_ACCOUNT_NAME, AZURE_ACCOUNT_KEY, AZURE_CONTAINER,
-                      AZURE_SAS_TOKEN, AZURE_AUTH_TYPE, "azure.endpoint", "azure.account_name",
-                      "azure.account_key", "azure.container", "azure.sas_token", "azure.sas-token",
-                      "azure.auth_type"})) {
+    if (has_property(properties, {AZURE_ENDPOINT,
+                                  AZURE_ACCOUNT_NAME,
+                                  AZURE_ACCOUNT_KEY,
+                                  AZURE_CONTAINER,
+                                  AZURE_SAS_TOKEN,
+                                  AZURE_AUTH_TYPE,
+                                  AZURE_CLIENT_ID,
+                                  AZURE_CLIENT_SECRET,
+                                  AZURE_TENANT_ID,
+                                  AZURE_OAUTH_SERVER_URI,
+                                  AZURE_OAUTH_ACCOUNT_HOST,
+                                  "azure.endpoint",
+                                  "azure.account_name",
+                                  "azure.account_key",
+                                  "azure.container",
+                                  "azure.sas_token",
+                                  "azure.sas-token",
+                                  "azure.auth_type",
+                                  "azure.oauth2_client_id",
+                                  "azure.oauth2_client_secret",
+                                  "azure.oauth2_client_tenant_id",
+                                  "azure.oauth2_server_uri",
+                                  "azure.oauth2_account_host"})) {
         s3_conf->client_conf.provider = io::ObjStorageProvider::AZURE;
     }
 
@@ -665,9 +706,30 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         }
         RETURN_IF_ERROR(set_azure_auth_type(properties, &s3_conf->client_conf));
 
-        // Older FE code emitted only fs.azure.* settings for OAuth2.  Mark
-        // that shape explicitly so it fails as unsupported instead of being
-        // silently interpreted as an empty SharedKey credential.
+        if (const auto* value =
+                    find_property(properties, {AZURE_CLIENT_ID, "azure.oauth2_client_id"});
+            value != nullptr) {
+            s3_conf->client_conf.azure_oauth_client_id = *value;
+        }
+        if (const auto* value =
+                    find_property(properties, {AZURE_CLIENT_SECRET, "azure.oauth2_client_secret"});
+            value != nullptr) {
+            s3_conf->client_conf.azure_oauth_client_secret = *value;
+        }
+        if (const auto* value =
+                    find_property(properties, {AZURE_TENANT_ID, "azure.oauth2_client_tenant_id"});
+            value != nullptr) {
+            s3_conf->client_conf.azure_oauth_tenant_id = *value;
+        }
+        if (const auto* value =
+                    find_property(properties, {AZURE_OAUTH_SERVER_URI, "azure.oauth2_server_uri"});
+            value != nullptr) {
+            s3_conf->client_conf.azure_oauth_server_uri = *value;
+        }
+
+        // Older FE code emitted only fs.azure.* settings for OAuth2. Mark that
+        // shape explicitly and recover the service-principal fields below so
+        // it is not silently interpreted as an empty SharedKey credential.
         if (s3_conf->client_conf.azure_auth_type.empty()) {
             for (const auto& [key, value] : properties) {
                 auto lower_key = to_lower(key);
@@ -677,6 +739,24 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
                     break;
                 }
             }
+        }
+        if (iequal(s3_conf->client_conf.azure_auth_type, "OAUTH2")) {
+            for (const auto& [key, value] : properties) {
+                auto lower_key = to_lower(key);
+                if (lower_key.starts_with("fs.azure.account.oauth2.client.id.")) {
+                    s3_conf->client_conf.azure_oauth_client_id = value;
+                } else if (lower_key.starts_with("fs.azure.account.oauth2.client.secret.")) {
+                    s3_conf->client_conf.azure_oauth_client_secret = value;
+                } else if (lower_key.starts_with("fs.azure.account.oauth2.client.endpoint.")) {
+                    s3_conf->client_conf.azure_oauth_server_uri = value;
+                }
+            }
+        }
+        if (s3_conf->client_conf.azure_auth_type.empty() &&
+            !s3_conf->client_conf.azure_oauth_client_id.empty() &&
+            !s3_conf->client_conf.azure_oauth_client_secret.empty() &&
+            !s3_conf->client_conf.azure_oauth_server_uri.empty()) {
+            s3_conf->client_conf.azure_auth_type = "OAUTH2";
         }
         if (s3_conf->client_conf.azure_auth_type.empty() && !s3_conf->client_conf.token.empty()) {
             s3_conf->client_conf.azure_auth_type = "SAS";

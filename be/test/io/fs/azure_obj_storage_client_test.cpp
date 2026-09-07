@@ -153,16 +153,39 @@ TEST(AzureAuthFactoryTest, RejectsExpiredOrMalformedSas) {
     EXPECT_NE(expired_in_token.error.find("expired"), std::string::npos);
 }
 
-TEST(AzureAuthFactoryTest, RejectsOAuth2UntilNativeCredentialExists) {
-    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
-                                           {.type = AzureCredentialType::OAUTH2,
-                                            .account_name = {},
-                                            .account_key = {},
-                                            .sas_token = {},
-                                            .sas_expiration_time_ms = 0},
-                                           {});
+TEST(AzureAuthFactoryTest, BuildsOAuth2ClientSecretCredential) {
+    auto result = AzureAuthFactory::create(
+            "https://account.blob.core.windows.net/container",
+            {.type = AzureCredentialType::OAUTH2,
+             .oauth_client_id = "client-id",
+             .oauth_client_secret = "client-secret",
+             .oauth_tenant_id = "tenant-id",
+             .oauth_server_uri = "https://login.microsoftonline.com/tenant/oauth2/token"},
+            {});
+    EXPECT_TRUE(result) << result.error;
+    EXPECT_NE(result.container_client, nullptr);
+}
+
+TEST(AzureAuthFactoryTest, DerivesOAuth2TenantFromServerUri) {
+    auto result = AzureAuthFactory::create(
+            "https://account.blob.core.windows.net/container",
+            {.type = AzureCredentialType::OAUTH2,
+             .oauth_client_id = "client-id",
+             .oauth_client_secret = "client-secret",
+             .oauth_server_uri = "https://login.microsoftonline.com/tenant/oauth2/token"},
+            {});
+    EXPECT_TRUE(result) << result.error;
+}
+
+TEST(AzureAuthFactoryTest, RejectsIncompleteOAuth2Credential) {
+    auto result = AzureAuthFactory::create(
+            "https://account.blob.core.windows.net/container",
+            {.type = AzureCredentialType::OAUTH2,
+             .oauth_client_id = "client-id",
+             .oauth_server_uri = "https://login.microsoftonline.com/tenant/oauth2/token"},
+            {});
     EXPECT_FALSE(result);
-    EXPECT_NE(result.error.find("OAuth2"), std::string::npos);
+    EXPECT_NE(result.error.find("client id"), std::string::npos);
 }
 
 TEST(AzureObjStorageClientTlsHelperTest, detects_tls_ca_error) {

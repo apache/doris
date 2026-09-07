@@ -575,20 +575,29 @@ TEST_F(S3ClientFactoryTest, ConvertNativeAzureSasProperties) {
     EXPECT_EQ(s3_conf.client_conf.token_expiration_time_ms, expiry);
 }
 
-TEST_F(S3ClientFactoryTest, NativeAzureOAuth2IsExplicitlyUnsupported) {
+TEST_F(S3ClientFactoryTest, ConvertsNativeAzureOAuth2Properties) {
     std::map<std::string, std::string> properties {
             {"AZURE_AUTH_TYPE", "OAUTH2"},
             {"AZURE_ENDPOINT", "account.blob.core.windows.net"},
             {"AZURE_ACCOUNT_NAME", "account"},
             {"AZURE_CONTAINER", "container"},
+            {"AZURE_CLIENT_ID", "client-id"},
+            {"AZURE_CLIENT_SECRET", "client-secret"},
+            {"AZURE_TENANT_ID", "tenant-id"},
+            {"AZURE_OAUTH_SERVER_URI", "https://login.microsoftonline.com/tenant/oauth2/token"},
     };
     S3URI azure_uri("abfss://container@account.dfs.core.windows.net/path/file.parquet");
     ASSERT_TRUE(azure_uri.parse().ok());
 
     S3Conf s3_conf;
-    auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, azure_uri, &s3_conf);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("OAuth2"), std::string::npos);
+    ASSERT_TRUE(
+            S3ClientFactory::convert_properties_to_s3_conf(properties, azure_uri, &s3_conf).ok());
+    EXPECT_EQ(s3_conf.client_conf.azure_auth_type, "OAUTH2");
+    EXPECT_EQ(s3_conf.client_conf.azure_oauth_client_id, "client-id");
+    EXPECT_EQ(s3_conf.client_conf.azure_oauth_client_secret, "client-secret");
+    EXPECT_EQ(s3_conf.client_conf.azure_oauth_tenant_id, "tenant-id");
+    EXPECT_EQ(s3_conf.client_conf.azure_oauth_server_uri,
+              "https://login.microsoftonline.com/tenant/oauth2/token");
 }
 
 TEST_F(S3ClientFactoryTest, LegacyAzureSasAliasesRemainNative) {
