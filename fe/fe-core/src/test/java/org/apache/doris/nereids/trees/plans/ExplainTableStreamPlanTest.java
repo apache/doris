@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
@@ -397,11 +396,14 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             }
         }
         Assertions.assertNotNull(incrementalScan1);
-        OlapTableWrapper wrapper = (OlapTableWrapper) incrementalScan1.getOlapTable();
         Map<Long, Long> prevOffsets = new java.util.HashMap<>();
         Map<Long, Long> nextOffsets = new java.util.HashMap<>();
         for (Long pid : incrementalScan1.getSelectedPartitionIds()) {
-            Pair<Long, Long> off = wrapper.getPartitionOffset(pid);
+            // Use the raw (un-shifted) stream offsets, mirroring what the production
+            // StreamConsumptionInfoExtractor commits. Reading them back from the scan node's
+            // RowBinlogTableWrapper would return the already +1-shifted scan-range bounds and
+            // introduce a spurious double shift into this closed-loop check.
+            Pair<Long, Long> off = stream.getStreamUpdate(pid);
             if (off.first != null) {
                 prevOffsets.put(pid, off.first);
             }
