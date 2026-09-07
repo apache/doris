@@ -19,6 +19,7 @@
 """Resume the same review after capacity failures, never restart the workflow."""
 
 import argparse
+import ctypes
 import json
 import os
 import shutil
@@ -33,6 +34,67 @@ from pathlib import Path
 
 RETRY_DELAYS = (30, 60, 120)
 CAPACITY_MESSAGE = "Selected model is at capacity. Please try a different model."
+PROCESS_EXIT_GRACE_SECONDS = 5
+
+
+class ChildReaper:
+    """Own orphaned commands in the standalone Linux helper, not the whole runner."""
+
+    def __init__(self):
+        if sys.platform != "linux":
+            raise OSError("Review process supervision requires Linux")
+        # Fail before starting Codex if the runner cannot provide safe cleanup.
+        for module, name in (
+            (os, "pidfd_open"),
+            (os, "P_PIDFD"),
+            (signal, "pidfd_send_signal"),
+        ):
+            if not hasattr(module, name):
+                raise OSError(f"Review process supervision requires {name}")
+        fd = os.pidfd_open(os.getpid())
+        try:
+            signal.pidfd_send_signal(fd, 0)
+            try:
+                os.waitid(os.P_PIDFD, fd, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            except ChildProcessError:
+                pass  # Expected: this process is not its own child.
+        finally:
+            os.close(fd)
+        self.children = Path(f"/proc/self/task/{os.getpid()}/children")
+        self.children.read_text()
+        prctl = ctypes.CDLL(None, use_errno=True).prctl
+        prctl.argtypes = [ctypes.c_int] + [ctypes.c_ulong] * 4
+        prctl.restype = ctypes.c_int
+        # PR_SET_CHILD_SUBREAPER: descendants that outlive Codex are reparented
+        # to this helper, even if shell/PTY commands created new sessions.
+        if prctl(36, 1, 0, 0, 0) != 0:
+            error = ctypes.get_errno()
+            raise OSError(error, os.strerror(error))
+
+    def reap(self):
+        # Called only after Popen.wait() reaps Codex. This dedicated helper has
+        # no other concurrent subprocesses; gh/help commands run between attempts.
+        deadline = time.monotonic() + PROCESS_EXIT_GRACE_SECONDS
+        while children := self.children.read_text().split():
+            if time.monotonic() >= deadline:
+                raise OSError("Codex descendant cleanup did not finish; not resuming")
+            for child in children:
+                try:
+                    fd = os.pidfd_open(int(child))
+                except ProcessLookupError:
+                    continue
+                try:
+                    # Kernel-verified parenthood plus a stable pidfd prevents
+                    # signalling an unrelated process if a PID was recycled.
+                    os.waitid(os.P_PIDFD, fd, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                    signal.pidfd_send_signal(fd, signal.SIGKILL)
+                    os.waitid(os.P_PIDFD, fd, os.WEXITED | os.WNOHANG)
+                except (ChildProcessError, ProcessLookupError):
+                    pass
+                finally:
+                    os.close(fd)
+            # Killing one orphan can reparent its children to us on the next pass.
+            time.sleep(0.01)
 
 
 def read_events(path):
@@ -86,25 +148,19 @@ def require_rollout(codex_home, thread_id, cwd):
     raise ValueError("Main session rollout is missing; refusing to start a new review")
 
 
-def stop_process_group(process):
-    # Codex may have spawned commands or child-agent processes. Do not leave
-    # these running while another attempt resumes the same on-disk session.
+def stop_process(process):
     try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    try:
-        process.wait(timeout=5)
+        # Codex handles SIGINT through its graceful turn-interrupt/shutdown path.
+        process.send_signal(signal.SIGINT)
+        process.wait(timeout=PROCESS_EXIT_GRACE_SECONDS)
     except subprocess.TimeoutExpired:
         pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    process.wait()
+    finally:
+        process.kill()
+        process.wait()
 
 
-def run_attempt(command, events_path, stderr_path, timeout):
+def run_attempt(command, events_path, stderr_path, timeout, reaper=None):
     with events_path.open("w") as stdout, stderr_path.open("w") as stderr:
         process = subprocess.Popen(
             command,
@@ -127,11 +183,17 @@ def run_attempt(command, events_path, stderr_path, timeout):
         try:
             return process.wait(timeout=timeout)
         finally:
-            stop_process_group(process)
-            copier.join(timeout=5)
-            if copier.is_alive():
-                raise OSError("Codex stderr remained open after process-group cleanup")
-            process.stderr.close()
+            try:
+                try:
+                    stop_process(process)
+                finally:
+                    if reaper is not None:
+                        reaper.reap()
+            finally:
+                copier.join(timeout=5)
+                if copier.is_alive():
+                    raise OSError("Codex stderr remained open after descendant cleanup")
+                process.stderr.close()
 
 
 def append_events(source, target):
@@ -209,7 +271,7 @@ def resume_prompt(goal_prompt):
     )
 
 
-def run_review(args):
+def run_review(args, reaper=None):
     context = args.context_dir
     aggregate = context / "codex-events.jsonl"
     stderr_log = context / "codex-stderr.log"
@@ -279,7 +341,9 @@ def run_review(args):
                 flush=True,
             )
             try:
-                status = run_attempt(command, events_path, stderr_path, remaining())
+                status = run_attempt(
+                    command, events_path, stderr_path, remaining(), reaper=reaper
+                )
             finally:
                 # Preserve failed attempts and their child-thread IDs for Litefuse.
                 if events_path.exists():
@@ -368,7 +432,7 @@ def main():
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, cancelled)
-    return run_review(args)
+    return run_review(args, reaper=ChildReaper())
 
 
 if __name__ == "__main__":

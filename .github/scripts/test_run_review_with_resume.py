@@ -116,7 +116,7 @@ class ResumeReviewTest(unittest.TestCase):
     def execute(self, attempts):
         pending = iter(attempts)
 
-        def fake_attempt(command, events_path, stderr_path, timeout):
+        def fake_attempt(command, events_path, stderr_path, timeout, reaper=None):
             self.commands.append(command)
             self.timeouts.append(timeout)
             spec = next(pending)
@@ -446,6 +446,78 @@ class ResumeTargetTest(unittest.TestCase):
             runner.check_resume_target(self.args, "2026-09-07T11:00:00Z", lambda: 500)
 
 
+class ChildReaperTest(unittest.TestCase):
+    def setUp(self):
+        self.reaper = runner.ChildReaper.__new__(runner.ChildReaper)
+        self.reaper.children = mock.Mock()
+        self.reaper.children.read_text.side_effect = ["10", "20", ""]
+        self.open = self.enterContext(mock.patch.object(os, "pidfd_open", create=True))
+        self.open.side_effect = [110, 120]
+        self.close = self.enterContext(mock.patch.object(os, "close"))
+        self.wait = self.enterContext(mock.patch.object(os, "waitid", create=True))
+        self.enterContext(mock.patch.object(os, "P_PIDFD", 3, create=True))
+        self.send = self.enterContext(
+            mock.patch.object(signal, "pidfd_send_signal", create=True)
+        )
+        self.enterContext(mock.patch.object(runner.time, "sleep"))
+
+    def test_unsupported_platform_fails_before_starting_codex(self):
+        with (
+            mock.patch.object(runner.sys, "platform", "darwin"),
+            self.assertRaisesRegex(OSError, "requires Linux"),
+        ):
+            runner.ChildReaper()
+        self.open.assert_not_called()
+
+    def test_subreaper_setup_failure_is_not_silenced(self):
+        with (
+            mock.patch.object(runner.sys, "platform", "linux"),
+            mock.patch.object(Path, "read_text", return_value=""),
+            mock.patch.object(runner.ctypes, "CDLL") as libc,
+            mock.patch.object(runner.ctypes, "get_errno", return_value=1),
+        ):
+            libc.return_value.prctl.return_value = -1
+            with self.assertRaises(OSError):
+                runner.ChildReaper()
+            libc.return_value.prctl.assert_called_once_with(36, 1, 0, 0, 0)
+        self.close.assert_called_once_with(110)
+
+    def test_reaps_newly_adopted_descendants_with_stable_handles(self):
+        self.reaper.reap()
+        self.assertEqual([mock.call(10), mock.call(20)], self.open.call_args_list)
+        self.assertEqual(
+            [mock.call(110, signal.SIGKILL), mock.call(120, signal.SIGKILL)],
+            self.send.call_args_list,
+        )
+        self.assertEqual([mock.call(110), mock.call(120)], self.close.call_args_list)
+        self.assertEqual(
+            mock.call(3, 110, os.WEXITED | os.WNOHANG | os.WNOWAIT),
+            self.wait.call_args_list[0],
+        )
+
+    def test_non_child_pid_is_never_signalled(self):
+        self.reaper.children.read_text.side_effect = ["10", ""]
+        self.wait.side_effect = ChildProcessError()
+        self.reaper.reap()
+        self.send.assert_not_called()
+        self.close.assert_called_once_with(110)
+
+    def test_already_exited_child_is_safe(self):
+        self.reaper.children.read_text.side_effect = ["10", ""]
+        self.open.side_effect = ProcessLookupError()
+        self.reaper.reap()
+        self.send.assert_not_called()
+        self.close.assert_not_called()
+
+    def test_cleanup_deadline_fails_closed(self):
+        with (
+            mock.patch.object(runner.time, "monotonic", side_effect=[0, 6]),
+            self.assertRaisesRegex(OSError, "cleanup did not finish"),
+        ):
+            self.reaper.reap()
+        self.send.assert_not_called()
+
+
 class ProcessLifecycleTest(unittest.TestCase):
     def test_real_process_capacity_then_resume_preserves_state(self):
         with tempfile.TemporaryDirectory() as tmp, redirect_stderr(io.StringIO()):
@@ -534,7 +606,7 @@ else:
             self.assertEqual("output\n", (root / "events").read_text())
             self.assertEqual("error\n", (root / "stderr").read_text())
 
-    def test_timeout_terminates_process_group(self):
+    def test_timeout_terminates_codex_process(self):
         with tempfile.TemporaryDirectory() as tmp, redirect_stderr(io.StringIO()):
             root = Path(tmp)
             program = "import os,time; print(os.getpid(), flush=True); time.sleep(60)"
@@ -549,6 +621,7 @@ else:
             with self.assertRaises(ProcessLookupError):
                 os.kill(pid, 0)
 
+    @unittest.skipUnless(sys.platform == "linux", "CLI supervision requires Linux")
     def test_cli_sigterm_cleans_up_child_and_does_not_restart(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -619,6 +692,133 @@ else:
                 if process.poll() is None:
                     process.kill()
                 process.communicate(timeout=10)
+
+    @unittest.skipUnless(sys.platform == "linux", "requires Linux subreaper/pidfd")
+    def test_cli_reaps_detached_descendants_without_touching_other_processes(self):
+        for stop in ("cancel", "timeout", "exit"):
+            for graceful in (True, False):
+                with self.subTest(stop=stop, graceful=graceful):
+                    self.check_detached_descendants(stop, graceful)
+
+    def check_detached_descendants(self, stop, graceful):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "codex_goal_prompt.txt").write_text("local process test only")
+            fake_codex = root / "codex"
+            fake_codex.write_text(
+                f"#!{sys.executable}\n"
+                + r"""
+import json, os, signal, subprocess, sys, time
+from pathlib import Path
+root = Path(os.environ["TREE_ROOT"])
+role = sys.argv[1]
+if role == "worker":
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+elif role == "shell":
+    worker = subprocess.Popen([sys.executable, __file__, "worker"], start_new_session=True)
+    print(worker.pid, flush=True)
+else:
+    shell = subprocess.Popen(
+        [sys.executable, __file__, "shell"], start_new_session=True,
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+    )
+    worker_pid = int(shell.stdout.readline())
+    def interrupted(_signum, _frame):
+        (root / "interrupted").touch()
+        shell.terminate()
+        shell.wait()
+        sys.exit(0)
+    signal.signal(signal.SIGINT, interrupted if os.environ["TREE_GRACEFUL"] == "1" else signal.SIG_IGN)
+    (root / "pids.json").write_text(json.dumps([shell.pid, worker_pid]))
+    print(json.dumps({"type": "thread.started", "thread_id": os.environ["TREE_THREAD"]}), flush=True)
+    if os.environ["TREE_STOP"] == "exit":
+        print(json.dumps({"type": "turn.failed", "error": {"message": "test failure"}}), flush=True)
+        sys.exit(1)
+deadline = time.monotonic() + 20
+while time.monotonic() < deadline:
+    time.sleep(1)
+"""
+            )
+            fake_codex.chmod(0o700)
+            command = [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; sys.path.insert(0, sys.argv.pop(1)); "
+                    "import run_review_with_resume as r; "
+                    "r.PROCESS_EXIT_GRACE_SECONDS = 0.5; sys.exit(r.main())"
+                ),
+                str(Path(runner.__file__).parent),
+                "--context-dir",
+                str(root),
+                "--cwd",
+                str(root),
+                "--repository",
+                "apache/doris",
+                "--pr-number",
+                "123",
+                "--head-sha",
+                "a" * 40,
+                "--base-sha",
+                "b" * 40,
+                "--model",
+                "test",
+                "--effort",
+                "xhigh",
+                "--budget-seconds",
+                "2" if stop == "timeout" else "30",
+            ]
+            with subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                start_new_session=True,
+            ) as unrelated:
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env={
+                        **os.environ,
+                        "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                        "TREE_ROOT": str(root),
+                        "TREE_THREAD": THREAD,
+                        "TREE_STOP": stop,
+                        "TREE_GRACEFUL": str(int(graceful)),
+                        "CODEX_HOME": str(root / "isolated-home"),
+                    },
+                )
+                try:
+                    deadline = time.monotonic() + 5
+                    while (
+                        not (root / "pids.json").exists()
+                        and time.monotonic() < deadline
+                    ):
+                        time.sleep(0.01)
+                    self.assertTrue(
+                        (root / "pids.json").exists(), "fake Codex did not start"
+                    )
+                    if stop == "cancel":
+                        process.send_signal(signal.SIGTERM)
+                    _, stderr = process.communicate(timeout=10)
+                    self.assertEqual(
+                        130 if stop == "cancel" else 1, process.returncode, stderr
+                    )
+                    for pid in json.loads((root / "pids.json").read_text()):
+                        with self.assertRaises(ProcessLookupError):
+                            os.kill(pid, 0)
+                    self.assertIsNone(
+                        unrelated.poll(), "cleanup killed an unrelated process"
+                    )
+                    self.assertEqual(
+                        1, len(list((root / "codex-attempts").glob("*.jsonl")))
+                    )
+                    if stop != "exit":
+                        self.assertEqual(graceful, (root / "interrupted").exists())
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                    process.communicate(timeout=5)
+                    unrelated.kill()
 
 
 if __name__ == "__main__":
