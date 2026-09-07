@@ -48,7 +48,7 @@ Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
 
     SCOPED_TIMER(_open_timer);
 
-    // Step 1: Create the backend (JNI or FFI) based on the sink configuration.
+    // Step 1: Create the JNI, Rust FFI, or Doris-native backend.
     RETURN_IF_ERROR(PaimonWriteBackendFactory::create(_t_sink.paimon_table_sink, &_backend));
     DCHECK(_backend);
     // Step 2: Open the backend — for JNI this loads the Java class and calls PaimonJniWriter.open().
@@ -83,8 +83,8 @@ Status PaimonTableWriter::write(RuntimeState* state, Block& block) {
     state->update_num_rows_load_total(block.rows());
     state->update_num_bytes_load_total(block.bytes());
 
-    // Step 2: Delegate to the backend writer (JNI or FFI). For the JNI path
-    // this converts Block → Arrow RecordBatch → Arrow C Data → Java PaimonJniWriter.
+    // Step 2: Delegate to the selected JNI, Rust FFI, or Doris-native backend.
+    // The JNI path converts Block → Arrow RecordBatch → Arrow C Data → Java.
     DCHECK(_writer);
     {
         SCOPED_TIMER(_file_store_write_timer);
@@ -123,8 +123,7 @@ Status PaimonTableWriter::close(Status status) {
         }
     }
 
-    // The adapter only owns Arrow conversion resources. Release it before closing
-    // the backend, whose Java close is the authoritative SDK shutdown boundary.
+    // Release writer-owned buffers and file handles before closing the backend.
     _writer.reset();
 
     if (_backend) {
@@ -139,13 +138,16 @@ Status PaimonTableWriter::close(Status status) {
     }
 
     // Only a fully prepared and cleanly stopped writer may contribute payloads
-    // to the FE transaction. A Java close failure therefore aborts the Doris
+    // to the FE transaction. A backend close failure therefore aborts the Doris
     // transaction instead of allowing it to commit potentially unsafe output.
     if (status.ok()) {
         COUNTER_UPDATE(_commit_payload_count, static_cast<int64_t>(messages.size()));
         for (const auto& msg : messages) {
-            DORIS_CHECK(msg.__isset.payload);
-            COUNTER_UPDATE(_commit_payload_bytes_counter, static_cast<int64_t>(msg.payload.size()));
+            DORIS_CHECK(msg.__isset.payload || msg.__isset.native_commit_data);
+            if (msg.__isset.payload) {
+                COUNTER_UPDATE(_commit_payload_bytes_counter,
+                               static_cast<int64_t>(msg.payload.size()));
+            }
         }
         if (!messages.empty()) {
             _state->add_paimon_commit_messages(messages);

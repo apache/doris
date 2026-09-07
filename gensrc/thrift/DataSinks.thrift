@@ -23,6 +23,7 @@ include "Types.thrift"
 include "Descriptors.thrift"
 include "Partitions.thrift"
 include "PlanNodes.thrift"
+include "ExternalTableSchema.thrift"
 
 enum TDataSinkType {
     DATA_STREAM_SINK = 0,
@@ -629,6 +630,8 @@ struct TMaxComputeTableSink {
 enum TPaimonWriteBackendType {
     JNI = 0,
     FFI = 1,
+    // Doris native file writer. FFI remains reserved for paimon-rust.
+    NATIVE = 2,
 }
 
 enum TPaimonWriteMode {
@@ -637,8 +640,38 @@ enum TPaimonWriteMode {
     CHANGELOG = 2,
 }
 
+// One Paimon data file produced by the Doris native writer. FE converts this
+// stable, structured contract into the Paimon-version-specific DataFileMeta and
+// CommitMessage objects before committing the transaction.
+struct TPaimonNativeCommitData {
+    1: optional string file_name
+    2: optional i64 file_size
+    3: optional i64 row_count
+    4: optional i64 min_sequence_number
+    5: optional i64 max_sequence_number
+    6: optional i64 schema_id
+    7: optional i32 bucket
+    8: optional i32 total_buckets
+}
+
 struct TPaimonCommitMessage {
-    1: optional binary payload          // Paimon native CommitMessageSerializer bytes (DPCM-framed)
+    1: optional binary payload          // Paimon CommitMessageSerializer bytes (DPCM-framed)
+    2: optional TPaimonNativeCommitData native_commit_data
+}
+
+// Phase-one native writer contract: append-only, unpartitioned,
+// bucket-unaware Parquet tables with metadata stats disabled. Fields are
+// additive so later phases can add partition and fixed-bucket routing without
+// changing the backend selector.
+struct TPaimonNativeWriteInfo {
+    1: optional ExternalTableSchema.TSchema schema
+    2: optional string output_path       // normalized physical <table>/bucket-0 path
+    3: optional Types.TFileType file_type
+    4: optional PlanNodes.TFileFormatType file_format
+    5: optional PlanNodes.TFileCompressType compression_type
+    6: optional i64 target_file_size_bytes
+    7: optional string data_file_prefix
+    8: optional list<Types.TNetworkAddress> broker_addresses
 }
 
 struct TPaimonTableSink {
@@ -649,6 +682,7 @@ struct TPaimonTableSink {
     5: optional TPaimonWriteMode write_mode
     6: optional i64 transaction_id
     7: optional string commit_user
+    8: optional TPaimonNativeWriteInfo native_write_info
 }
 
 struct TDataSink {

@@ -29,6 +29,9 @@ TEST(PaimonWriteBackendFactoryTest, SelectBackendType) {
 
     sink.__set_backend_type(TPaimonWriteBackendType::FFI);
     EXPECT_EQ(PaimonBackendType::FFI, PaimonWriteBackendFactory::select_backend_type(sink));
+
+    sink.__set_backend_type(TPaimonWriteBackendType::NATIVE);
+    EXPECT_EQ(PaimonBackendType::NATIVE, PaimonWriteBackendFactory::select_backend_type(sink));
 }
 
 TEST(JniPaimonWriteBackendTest, OpenAbiAndWriteModes) {

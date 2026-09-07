@@ -170,6 +170,33 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testPaimonInsertMode() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertEquals(SessionVariable.PAIMON_INSERT_MODE_NATIVE,
+                sessionVar.getPaimonInsertMode());
+        Assertions.assertTrue(sessionVar.isPaimonNativeInsertMode());
+
+        VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                SessionVariable.PAIMON_INSERT_MODE, new StringLiteral("JNI")));
+        Assertions.assertEquals(SessionVariable.PAIMON_INSERT_MODE_JNI,
+                sessionVar.getPaimonInsertMode());
+        Assertions.assertFalse(sessionVar.isPaimonNativeInsertMode());
+
+        Field field = SessionVariable.class.getDeclaredField("paimonInsertMode");
+        VariableMgr.VarAttr varAttr = field.getAnnotation(VariableMgr.VarAttr.class);
+        Assertions.assertTrue(varAttr.needForward());
+        Assertions.assertArrayEquals(new String[] {
+                SessionVariable.PAIMON_INSERT_MODE_NATIVE,
+                SessionVariable.PAIMON_INSERT_MODE_JNI
+        }, varAttr.options());
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "paimon_insert_mode should be one of",
+                () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                        SessionVariable.PAIMON_INSERT_MODE, new StringLiteral("rust"))));
+    }
+
+    @Test
     public void testRuntimeFilterBroadcastJoinProducerNumDescription() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
         Assertions.assertEquals(3, sessionVar.getRuntimeFilterBroadcastJoinProducerNum());

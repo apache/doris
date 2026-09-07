@@ -197,6 +197,19 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
 
 VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                                          const VExprContextSPtrs& output_vexpr_ctxs,
+                                         std::shared_ptr<arrow::Schema> arrow_schema,
+                                         bool output_object_data,
+                                         const ParquetFileOptions& parquet_options)
+        : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
+          _arrow_schema(std::move(arrow_schema)),
+          _parquet_options(parquet_options),
+          _iceberg_schema_json(nullptr),
+          _iceberg_schema(nullptr) {
+    _outstream = std::make_shared<ParquetOutputStream>(file_writer);
+}
+
+VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
+                                         const VExprContextSPtrs& output_vexpr_ctxs,
                                          std::vector<TParquetSchema> parquet_schemas,
                                          bool output_object_data,
                                          const ParquetFileOptions& parquet_options,
@@ -222,6 +235,9 @@ Status VParquetTransformer::_parse_properties() {
         } else {
             builder.enable_dictionary();
         }
+        if (_parquet_options.store_decimal_as_integer) {
+            builder.enable_store_decimal_as_integer();
+        }
         builder.created_by(
                 fmt::format("{}({})", doris::get_short_version(), ::parquet::DEFAULT_CREATED_BY));
         builder.max_row_group_length(std::numeric_limits<int64_t>::max());
@@ -242,6 +258,9 @@ Status VParquetTransformer::_parse_properties() {
 }
 
 Status VParquetTransformer::_parse_schema() {
+    if (_arrow_schema != nullptr) {
+        return Status::OK();
+    }
     std::vector<std::shared_ptr<arrow::Field>> fields;
     if (_iceberg_schema != nullptr) {
         RETURN_IF_ERROR(
