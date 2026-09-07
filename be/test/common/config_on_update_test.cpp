@@ -142,6 +142,11 @@ TEST_F(ConfigOnUpdateTest, BoolCallback) {
     EXPECT_EQ(g_bool_callback_count, 2);
     EXPECT_EQ(g_bool_old_val, true);
     EXPECT_EQ(g_bool_new_val, false);
+
+    s = config::set_config("cfg_on_update_bool", "invalid");
+    EXPECT_FALSE(s.ok());
+    EXPECT_EQ(cfg_on_update_bool, false);
+    EXPECT_EQ(g_bool_callback_count, 2);
 }
 
 } // namespace doris
