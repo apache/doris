@@ -134,6 +134,78 @@ public class ExportMgrTest {
         }
     }
 
+    @Test
+    public void testRemoveOldExportJobsKeepsRunningJobs() {
+        ExportMgr isolatedExportMgr = new ExportMgr();
+        int originalMaxHistoryJobNum = Config.max_export_history_job_num;
+        Config.max_export_history_job_num = 2;
+        try {
+            long currentTime = System.currentTimeMillis();
+            ExportJob pendingJob = makeExportJob(1001, "pending");
+            Deencapsulation.setField(pendingJob, "createTimeMs", currentTime - 4000);
+            Deencapsulation.setField(pendingJob, "state", ExportJobState.PENDING);
+            isolatedExportMgr.unprotectAddJob(pendingJob);
+
+            ExportJob exportingJob = makeExportJob(1002, "exporting");
+            Deencapsulation.setField(exportingJob, "createTimeMs", currentTime - 3000);
+            Deencapsulation.setField(exportingJob, "state", ExportJobState.EXPORTING);
+            isolatedExportMgr.unprotectAddJob(exportingJob);
+
+            ExportJob finishedJob = makeExportJob(1003, "finished");
+            Deencapsulation.setField(finishedJob, "createTimeMs", currentTime - 2000);
+            Deencapsulation.setField(finishedJob, "state", ExportJobState.FINISHED);
+            isolatedExportMgr.unprotectAddJob(finishedJob);
+
+            ExportJob cancelledJob = makeExportJob(1004, "cancelled");
+            Deencapsulation.setField(cancelledJob, "createTimeMs", currentTime - 1000);
+            Deencapsulation.setField(cancelledJob, "state", ExportJobState.CANCELLED);
+            isolatedExportMgr.unprotectAddJob(cancelledJob);
+
+            isolatedExportMgr.removeOldExportJobs();
+
+            Assert.assertEquals(2, isolatedExportMgr.getJobs().size());
+            Assert.assertNotNull(isolatedExportMgr.getJob(pendingJob.getId()));
+            Assert.assertNotNull(isolatedExportMgr.getJob(exportingJob.getId()));
+            Assert.assertNull(isolatedExportMgr.getJob(finishedJob.getId()));
+            Assert.assertNull(isolatedExportMgr.getJob(cancelledJob.getId()));
+        } finally {
+            Config.max_export_history_job_num = originalMaxHistoryJobNum;
+        }
+    }
+
+    @Test
+    public void testRemoveOldExportJobsKeepsRunningJobsWhenOverLimit() {
+        ExportMgr isolatedExportMgr = new ExportMgr();
+        int originalMaxHistoryJobNum = Config.max_export_history_job_num;
+        Config.max_export_history_job_num = 1;
+        try {
+            long currentTime = System.currentTimeMillis();
+            ExportJob pendingJob = makeExportJob(2001, "pending-over-limit");
+            Deencapsulation.setField(pendingJob, "createTimeMs", currentTime - 3000);
+            Deencapsulation.setField(pendingJob, "state", ExportJobState.PENDING);
+            isolatedExportMgr.unprotectAddJob(pendingJob);
+
+            ExportJob exportingJob = makeExportJob(2002, "exporting-over-limit");
+            Deencapsulation.setField(exportingJob, "createTimeMs", currentTime - 2000);
+            Deencapsulation.setField(exportingJob, "state", ExportJobState.EXPORTING);
+            isolatedExportMgr.unprotectAddJob(exportingJob);
+
+            ExportJob inQueueJob = makeExportJob(2003, "in-queue-over-limit");
+            Deencapsulation.setField(inQueueJob, "createTimeMs", currentTime - 1000);
+            Deencapsulation.setField(inQueueJob, "state", ExportJobState.IN_QUEUE);
+            isolatedExportMgr.unprotectAddJob(inQueueJob);
+
+            isolatedExportMgr.removeOldExportJobs();
+
+            Assert.assertEquals(3, isolatedExportMgr.getJobs().size());
+            Assert.assertEquals(ExportJobState.PENDING, isolatedExportMgr.getJob(pendingJob.getId()).getState());
+            Assert.assertEquals(ExportJobState.EXPORTING, isolatedExportMgr.getJob(exportingJob.getId()).getState());
+            Assert.assertEquals(ExportJobState.IN_QUEUE, isolatedExportMgr.getJob(inQueueJob.getId()).getState());
+        } finally {
+            Config.max_export_history_job_num = originalMaxHistoryJobNum;
+        }
+    }
+
     private ExportJob makeExportJob(long id, String label) {
         ExportJob job1 = new ExportJob(id);
         Deencapsulation.setField(job1, "label", label);
