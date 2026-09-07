@@ -78,7 +78,11 @@ public class LanceExternalCatalog extends ExternalCatalog {
     private static final long ALLOCATOR_LIMIT = 256L * 1024 * 1024;
     private static final int MAX_PROVIDER_MESSAGE_BYTES = 1024;
     private static final String[] RUNTIME_SENSITIVE_OPTION_KEYS = {
-            "aws_access_key_id", "aws_secret_access_key", "aws_session_token"
+            "aws_access_key_id", "aws_secret_access_key", "aws_session_token",
+            // OSS credentials only reach these options because of this change, so they have to be
+            // recognized here too. The emitted spelling is the only one that occurs: the map read
+            // below is the merged one, where a vended alias has already been normalized onto it.
+            "oss_access_key_id", "oss_secret_access_key", "oss_security_token"
     };
 
     private transient LanceNamespace namespace;
@@ -104,7 +108,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
             rootDatabase = properties.getRootDatabase();
             parentNamespace = LanceNamespaceName.parseParentNamespace(
                     properties.getNamespaceParent(), properties.getNamespaceDelimiter());
-            namespaceStorageOptions = LanceStorageOptions.forUri(
+            namespaceStorageOptions = LanceStorageOptions.fromDorisStorageProperties(
                     properties.getNamespaceStorageUri(),
                     catalogProperty.getOrderedStoragePropertiesList());
 
@@ -127,7 +131,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
 
         AbstractLanceProperties properties = getLanceProperties();
-        Map<String, String> storageOptions = LanceStorageOptions.forUri(
+        Map<String, String> storageOptions = LanceStorageOptions.fromDorisStorageProperties(
                 properties.getNamespaceStorageUri(),
                 catalogProperty.getOrderedStoragePropertiesList());
         List<String> parent = LanceNamespaceName.parseParentNamespace(
@@ -434,7 +438,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
         // One option map serves both readers: the FE opens the dataset through the Lance Java SDK
         // and the BE through lance-c, so neither can end up with credentials the other lacks. The
         // dataset URL picks the option vocabulary, the same way Lance picks a provider from it.
-        Map<String, String> storageOptions = LanceStorageOptions.forVendedTable(datasetUri,
+        Map<String, String> storageOptions = LanceStorageOptions.fromDorisAndVendedStorageOptions(datasetUri,
                 catalogProperty.getOrderedStoragePropertiesList(), table.getStorageOptions());
         return new ResolvedTableAccess(datasetUri, storageOptions);
     }

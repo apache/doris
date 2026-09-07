@@ -43,6 +43,21 @@ public class LancePropertiesTest {
     }
 
     @Test
+    public void testOssFilesystemProperties() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceFileSystemMetastoreProperties.WAREHOUSE,
+                "oss://bucket/lance");
+
+        AbstractLanceProperties lanceProperties =
+                (AbstractLanceProperties) MetastoreProperties.create(properties);
+
+        Assertions.assertInstanceOf(LanceFileSystemMetastoreProperties.class, lanceProperties);
+        Assertions.assertEquals("oss://bucket/lance",
+                ((LanceFileSystemMetastoreProperties) lanceProperties).getWarehouse());
+    }
+
+    @Test
     public void testRestProperties() throws Exception {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "lance");
@@ -59,5 +74,36 @@ public class LancePropertiesTest {
         LanceRestMetastoreProperties restProperties = (LanceRestMetastoreProperties) lanceProperties;
         Assertions.assertEquals("http://localhost:8080", restProperties.getRestUri());
         Assertions.assertEquals("bearer", restProperties.getSecurityType());
+    }
+
+    @Test
+    public void testObjectStoreWarehouseMustNameABucket() {
+        for (String warehouse : new String[] {"oss:/lance", "s3:/lance"}) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put("type", "lance");
+            properties.put(LanceFileSystemMetastoreProperties.WAREHOUSE, warehouse);
+
+            IllegalArgumentException thrown = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> MetastoreProperties.create(properties));
+            Assertions.assertTrue(thrown.getMessage().contains("must name a bucket"),
+                    "unexpected message: " + thrown.getMessage());
+        }
+    }
+
+    /**
+     * OSSHdfsProperties selects on the endpoint, so a clean-looking warehouse still routes there
+     * when the endpoint names OSS-HDFS. Checking only the warehouse authority would miss it.
+     */
+    @Test
+    public void testOssHdfsEndpointIsRejectedEvenWithAPlainWarehouse() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceFileSystemMetastoreProperties.WAREHOUSE, "oss://bkt/lance");
+        properties.put("oss.endpoint", "cn-hangzhou.oss-dls.aliyuncs.com");
+
+        IllegalArgumentException thrown = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> MetastoreProperties.create(properties));
+        Assertions.assertTrue(thrown.getMessage().contains("OSS-HDFS is not supported"),
+                "unexpected message: " + thrown.getMessage());
     }
 }
