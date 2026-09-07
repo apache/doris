@@ -46,19 +46,19 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             // <date> ::= (<year> ("-" | "/") <month1> ("-" | "/") <day1>) | (<year> <month2> <day2>)
             = "((?:(?<year1>\\d{2}|\\d{4})[-/](?<month1>\\d{1,2})[-/](?<date1>\\d{1,2})"
             + "|(?<year2>\\d{2}|\\d{4})(?<month2>\\d{2})(?<date2>\\d{2}))"
-            + "(?:[T ]"
+            // <delimiter> ::= "T" | " " | ":"
+            + "(?:[T :]"
             // <time> ::= <hour1> (":" <minute1> (":" <second1> <fraction>?)?)?
             // | <hour2> (<minute2> (<second2> <fraction>?)?)?
             + "(?:(?<hour1>\\d{1,2})(?::(?<minute1>\\d{1,2})(?::(?<second1>\\d{1,2})(?<fraction1>\\.\\d*)?)?)?"
             + "|(?<hour2>\\d{2})(?:(?<minute2>\\d{2})(?:(?<second2>\\d{2})(?<fraction2>\\.\\d*)?)?)?)"
             // <offset> ::= (( "+" | "-" ) <hour-offset> [ ":"? <minute-offset> ]) | (<tz-name>)
-            + "(?:\\s*(?<tz>[+-]\\d{1,2}(?::?(?:00|30|45))?"
-            + "|(?i)[A-Za-z]+\\S*))?"
+            + "\\s*(?<tz>" + StringLikeLiteral.STRICT_TIME_ZONE_REGEX + ")?"
             + ")?)"
             + "|"
             // <digit>{14} <fraction>? <whitespace>* <offset>?
             + "((?<timestamp>\\d{14})(?<fraction3>\\.\\d*)?\\s*"
-            + "(?:\\s*(?<tz1>[+-]\\d{1,2}(?::?(?:00|30|45))?|(?i)([A-Za-z]+\\S*)))?)";
+            + "(?:\\s*(?<tz1>" + StringLikeLiteral.STRICT_TIME_ZONE_REGEX + "))?)";
     public static final String toDateUnStrictRegex
             = "^\\s*((?<year>\\d{2}|\\d{4})[^a-zA-Z\\d](?<month>\\d{1,2})[^a-zA-Z\\d](?<date>\\d{1,2}))"
             + "(?:[ T:]"
@@ -80,6 +80,11 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
     public static final Pattern decimalPattern = Pattern.compile(toDecimalRegex);
     public static final Pattern intStrictPattern = Pattern.compile(toIntStrict);
     public static final Pattern intUnStrictPattern = Pattern.compile(toIntUnStrict);
+    private static final String STRICT_TIME_ZONE_OFFSET_REGEX
+            = "(?:\\+(?:(?:\\d|0\\d|1[0-3])(?::?(?:00|30|45))?|14(?::?00)?)"
+            + "|-(?:\\d|0\\d|1[0-2])(?::?(?:00|30|45))?)";
+    private static final String STRICT_TIME_ZONE_REGEX
+            = "(?:" + STRICT_TIME_ZONE_OFFSET_REGEX + "|(?i:[A-Za-z]+\\S*))";
 
     public final String value;
 
@@ -142,6 +147,9 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                 timeStampTzType = TimeStampTzType.forTypeFromString(value);
             }
             if (DateTimeChecker.hasTimeZone(value)) {
+                if (strictCast && !dateStrictPattern.matcher(value).matches()) {
+                    throw new CastException(String.format("[%s] can't cast to %s.", value, targetType));
+                }
                 return new TimestampTzLiteral(timeStampTzType, value);
             }
             DateTimeV2Literal datetime = (DateTimeV2Literal) castToDateTime(DateTimeV2Type.MAX, strictCast);
