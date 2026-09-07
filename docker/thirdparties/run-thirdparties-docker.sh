@@ -76,12 +76,12 @@ Usage: $0 <options>
      --hive-modules <list>  comma separated hive modules to refresh
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris,minio
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris,minio,fluss
   "
     exit 1
 }
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris,fluss"
 COMPONENTS=$2
 HELP=0
 STOP=0
@@ -257,6 +257,7 @@ RUN_KERBEROS=0
 RUN_MINIO=0
 RUN_RANGER=0
 RUN_POLARIS=0
+RUN_FLUSS=0
 
 RESERVED_PORTS="65535"
 
@@ -303,6 +304,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_RANGER=1
     elif [[ "${element}"x == "polaris"x ]]; then
         RUN_POLARIS=1
+    elif [[ "${element}"x == "fluss"x ]]; then
+        RUN_FLUSS=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -1476,6 +1479,41 @@ start_mariadb() {
         "${ROOT}/docker-compose/mariadb/data"
 }
 
+start_fluss() {
+    local fluss_dir="${ROOT}/docker-compose/fluss"
+
+    # The compose file bind mounts remote.data.dir and the paimon warehouse at
+    # the same absolute paths it uses inside the containers, so Doris (running on
+    # the host) can read the kv snapshots and remote log segments the servers
+    # write, and the lake files the tiering service writes.
+    export FLUSS_COMPOSE_DIR="${fluss_dir}"
+    envsubst <"${fluss_dir}/fluss.env.tpl" >"${fluss_dir}/fluss.env"
+    set -a
+    # shellcheck source=/dev/null
+    . "${fluss_dir}/fluss.env"
+    set +a
+
+    render_uid_template "${fluss_dir}/fluss.yaml.tpl" "${fluss_dir}/fluss.yaml"
+    register_stack_metadata "fluss" "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env"
+    compose_down_stack "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env" --remove-orphans
+
+    if [[ "${STOP}" -eq 1 ]]; then
+        return 0
+    fi
+
+    # Fluss 1.0 is unreleased: both images are built from a local checkout.
+    FLUSS_DOCKER_REUSE_IMAGES="${FLUSS_DOCKER_REUSE_IMAGES:-1}" \
+        bash "${fluss_dir}/build-images.sh"
+
+    reset_data_dirs "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
+    # The fluss and flink images run as uid 9999, the host directories are
+    # created by root.
+    sudo chmod 777 "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
+    sudo chmod +x "${fluss_dir}/scripts/run-init-sql.sh"
+
+    compose_up_stack "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env" -d --wait
+}
+
 start_lakesoul() {
     echo "RUN_LAKESOUL"
     cp "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml.tpl "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
@@ -1863,6 +1901,10 @@ fi
 
 if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
     launch_component "lakesoul" "${LOG_ROOT}/start_lakesoul.log" start_lakesoul
+fi
+
+if [[ "${RUN_FLUSS}" -eq 1 ]]; then
+    launch_component "fluss" "${LOG_ROOT}/start_fluss.log" start_fluss
 fi
 
 if [[ "${RUN_MINIO}" -eq 1 ]]; then

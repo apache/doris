@@ -378,7 +378,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         Set<ConnectorCapability> siblingCaps = EnumSet.of(
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
-                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH);
         HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(siblingCaps),
@@ -392,6 +393,9 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "Top-N lazy must survive the delegation as a per-table capability");
         Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
                 "nested-column prune must survive the delegation as a per-table capability");
+        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH),
+                "an iceberg-on-HMS table must inherit the field-id access path capability, or its nested "
+                        + "access paths stay name-based while BE matches them by iceberg field id");
         Assertions.assertEquals("sibling-generation", schema.getWriteMetadataIdentity(),
                 "capability reflection must not discard the sibling's write-generation fence");
     }
