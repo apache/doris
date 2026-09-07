@@ -73,6 +73,40 @@ public class PaimonJniWriterTest {
     }
 
     @Test
+    public void testKeyDynamicGlobalIndexBlockCacheSize() {
+        int pageSize = 64 * 1024;
+        long minimumBlockCacheSize = 4L * 1024 * 1024;
+        long minimumWriterMemory = 3L * pageSize;
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> PaimonJniWriter.calculateGlobalIndexBlockCacheSize(
+                        minimumBlockCacheSize + minimumWriterMemory - 1, pageSize));
+        Assertions.assertTrue(exception.getMessage().contains("minimumBlockCacheSize=4194304"));
+        Assertions.assertTrue(exception.getMessage().contains("minimumWriterMemory=196608"));
+
+        Assertions.assertEquals(minimumBlockCacheSize,
+                PaimonJniWriter.calculateGlobalIndexBlockCacheSize(
+                        minimumBlockCacheSize + minimumWriterMemory, pageSize));
+        Assertions.assertEquals(16L * 1024 * 1024,
+                PaimonJniWriter.calculateGlobalIndexBlockCacheSize(
+                        64L * 1024 * 1024, pageSize));
+    }
+
+    @Test
+    public void testKeyDynamicTargetRowNumValidation() {
+        Assertions.assertDoesNotThrow(
+                () -> PaimonJniWriter.validateDynamicBucketTargetRowNum(1));
+        Assertions.assertDoesNotThrow(
+                () -> PaimonJniWriter.validateDynamicBucketTargetRowNum(Integer.MAX_VALUE));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> PaimonJniWriter.validateDynamicBucketTargetRowNum(0));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> PaimonJniWriter.validateDynamicBucketTargetRowNum(
+                        (long) Integer.MAX_VALUE + 1));
+    }
+
+    @Test
     public void testOpenFailureRestoresContextClassLoader() throws Exception {
         Thread thread = Thread.currentThread();
         ClassLoader originalClassLoader = thread.getContextClassLoader();
