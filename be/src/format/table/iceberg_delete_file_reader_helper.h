@@ -67,7 +67,7 @@ TFileScanRangeParams build_iceberg_delete_scan_range_params(
         const std::map<std::string, std::string>& hadoop_conf, TFileType::type file_type,
         const std::vector<TNetworkAddress>& broker_addresses);
 
-TFileRangeDesc build_iceberg_delete_file_range(const std::string& path);
+TFileRangeDesc build_iceberg_delete_file_range(const std::string& path, int64_t file_size);
 
 bool is_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file);
 

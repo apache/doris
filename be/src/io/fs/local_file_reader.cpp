@@ -176,7 +176,7 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
             if ((sub_path.empty() && _path.filename().compare(kTestFilePath)) ||
                 (!sub_path.empty() && _path.native().find(sub_path) != std::string::npos)) {
                 res = -1;
-                errno = EIO;
+                errno = dp->param<int>("errno", EIO);
                 LOG(WARNING) << Status::IOError("debug read io error: {}", _path.native());
             }
         });
