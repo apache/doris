@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Sets;
@@ -66,6 +67,7 @@ public class Scope {
     private final boolean buildNameToSlot;
     private final Supplier<ListMultimap<String, Slot>> nameToSlot;
     private final Supplier<ListMultimap<String, Slot>> nameToAsteriskSlot;
+    private final Supplier<ImmutableSetMultimap<String, List<String>>> relationNameToQualifiers;
 
     public Scope(List<Slot> slots) {
         this(Optional.empty(), slots);
@@ -87,6 +89,7 @@ public class Scope {
         this.buildNameToSlot = slots.size() > 500;
         this.nameToSlot = buildNameToSlot ? Suppliers.memoize(this::buildNameToSlot) : null;
         this.nameToAsteriskSlot = buildNameToSlot ? Suppliers.memoize(this::buildNameToAsteriskSlot) : null;
+        this.relationNameToQualifiers = Suppliers.memoize(this::buildRelationNameToQualifiers);
         this.asteriskSlots = Utils.fastToImmutableList(
                 Objects.requireNonNull(asteriskSlots, "asteriskSlots can not be null"));
     }
@@ -105,6 +108,11 @@ public class Scope {
 
     public Set<Slot> getCorrelatedSlots() {
         return correlatedSlots;
+    }
+
+    /** Find distinct relation qualifiers by relation name, ignoring case. */
+    public Set<List<String>> findRelationQualifiersIgnoreCase(String relationName) {
+        return relationNameToQualifiers.get().get(relationName.toUpperCase(Locale.ROOT));
     }
 
     /** findSlotIgnoreCase */
@@ -139,5 +147,16 @@ public class Scope {
             map.put(slot.getName().toUpperCase(Locale.ROOT), slot);
         }
         return map;
+    }
+
+    private ImmutableSetMultimap<String, List<String>> buildRelationNameToQualifiers() {
+        ImmutableSetMultimap.Builder<String, List<String>> builder = ImmutableSetMultimap.builder();
+        for (Slot slot : slots) {
+            if (!slot.getQualifier().isEmpty()) {
+                List<String> qualifier = slot.getQualifier();
+                builder.put(qualifier.get(qualifier.size() - 1).toUpperCase(Locale.ROOT), qualifier);
+            }
+        }
+        return builder.build();
     }
 }
