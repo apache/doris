@@ -519,7 +519,9 @@ public class IcebergConnector implements Connector {
         String warehouse = properties.get(CatalogProperties.WAREHOUSE_LOCATION);
         if (IcebergCatalogProperties.TYPE_DLF.equalsIgnoreCase(catalogType)
                 && warehouse != null && warehouse.trim().toLowerCase(Locale.ROOT).startsWith("oss://")) {
-            warehouse = "s3://" + warehouse.trim().substring("oss://".length());
+            // Reuse the selected storage binding so a virtual-hosted OSS authority is reduced to
+            // its real bucket before both FE and BE probes consume the S3-compatible location.
+            warehouse = storage().normalizeStorageUri(warehouse.trim());
         }
         String location = toS3Location(warehouse);
         if (location != null) {

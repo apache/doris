@@ -59,6 +59,9 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
 
     private static final String OSS_HDFS_PREFIX_KEY = "oss.hdfs.";
     private static final String OSS_HDFS_ENDPOINT_SUFFIX = ".oss-dls.aliyuncs.com";
+    private static final Pattern OSS_QUALIFIED_AUTHORITY_PATTERN = Pattern.compile(
+            "^([^.]+)\\.(?:[a-z0-9-]+\\.oss-dls|oss-[a-z0-9-]+)\\.aliyuncs\\.com$",
+            Pattern.CASE_INSENSITIVE);
 
     private static final Set<String> OSS_ENDPOINT_KEY_NAME = ImmutableSet.of("oss.hdfs.endpoint",
             "oss.endpoint", "dlf.endpoint", "dlf.catalog.endpoint");
@@ -143,20 +146,25 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
             throw new IllegalArgumentException("The uri scheme is not oss.");
         }
         String authority = uriObj.getRawAuthority();
-        if (StringUtils.isBlank(authority)
-                || authority.toLowerCase(Locale.ROOT).endsWith(OSS_HDFS_ENDPOINT_SUFFIX)) {
+        if (StringUtils.isBlank(authority)) {
             return uriObj.toString();
         }
 
-        // The connector SPI carries only the normalized URI, not the selected adapter. Embedding
-        // the configured endpoint keeps plain bucket paths identifiable as Jindo/HDFS downstream.
+        // Rebuild qualified authorities with the selected endpoint: retaining a native OSS suffix
+        // makes Jindo treat those endpoint labels as part of the bucket, while mixed case hides its HDFS identity.
         String endpointHost = extractEndpointHost(endpoint);
+        String bucket = extractBucket(authority);
         String normalizedUri = uriObj.toString();
         int authorityStart = uriObj.getScheme().length() + 3;
         int authorityEnd = authorityStart + authority.length();
         return normalizedUri.substring(0, authorityStart)
-                + authority + "." + endpointHost
+                + bucket + "." + endpointHost
                 + normalizedUri.substring(authorityEnd);
+    }
+
+    private static String extractBucket(String authority) {
+        Matcher matcher = OSS_QUALIFIED_AUTHORITY_PATTERN.matcher(authority);
+        return matcher.matches() ? matcher.group(1) : authority;
     }
 
     private static String extractEndpointHost(String endpoint) {

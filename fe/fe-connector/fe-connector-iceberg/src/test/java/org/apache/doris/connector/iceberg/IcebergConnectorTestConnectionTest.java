@@ -24,8 +24,10 @@ import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Unit tests for {@link IcebergConnector#testConnection}. These cover the deterministic pieces
@@ -131,6 +133,46 @@ public class IcebergConnectorTestConnectionTest {
         Assertions.assertEquals("bound-token", ioProps.get("s3.session-token"));
         Assertions.assertEquals("cn-hangzhou", ioProps.get("client.region"));
         Assertions.assertEquals("false", ioProps.get("s3.path-style-access"));
+    }
+
+    @Test
+    public void dlfQualifiedOssWarehouseUsesSelectedStorageNormalizerForProbe() throws Exception {
+        String warehouse = "oss://bucket.oss-cn-hangzhou.aliyuncs.com/warehouse";
+        AtomicReference<String> normalizedInput = new AtomicReference<>();
+        ConnectorStorageContext storage = new ConnectorStorageContext() {
+            @Override
+            public String normalizeStorageUri(String rawUri) {
+                normalizedInput.set(rawUri);
+                return "s3://bucket/warehouse";
+            }
+        };
+        ConnectorContext ctx = new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "test_iceberg";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+
+            @Override
+            public ConnectorStorageContext getStorageContext() {
+                return storage;
+            }
+        };
+        Map<String, String> props = new HashMap<>();
+        props.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_DLF);
+        props.put("warehouse", warehouse);
+
+        try (IcebergConnector connector = new IcebergConnector(props, ctx)) {
+            Method method = IcebergConnector.class.getDeclaredMethod("resolveS3TestLocation", String.class);
+            method.setAccessible(true);
+            Assertions.assertEquals("s3://bucket/warehouse",
+                    method.invoke(connector, IcebergCatalogProperties.TYPE_DLF));
+        }
+        Assertions.assertEquals(warehouse, normalizedInput.get());
     }
 
     /** An HMS-backed catalog must name HMS in the failure, which is what the CREATE CATALOG regression asserts. */

@@ -193,6 +193,41 @@ public class DefaultConnectorContextNormalizeUriTest {
     }
 
     @Test
+    public void ossHdfsContextReplacesNativeOssEndpointForScanAndWritePaths() throws Exception {
+        DefaultConnectorContext context = ossHdfsContext();
+        UnaryOperator<String> normalizer = context.newStorageUriNormalizer(Collections.emptyMap());
+
+        Assertions.assertEquals(
+                "oss://bkt.cn-hangzhou.oss-dls.aliyuncs.com/warehouse/db/t/data.parquet",
+                normalizer.apply("oss://bkt.oss-cn-beijing.aliyuncs.com/warehouse/db/t/data.parquet"));
+        Assertions.assertEquals(
+                "oss://bkt.cn-hangzhou.oss-dls.aliyuncs.com/warehouse/db/t/deletion-vector.bin",
+                normalizer.apply(
+                        "oss://bkt.oss-cn-beijing-internal.aliyuncs.com/warehouse/db/t/deletion-vector.bin"));
+        Assertions.assertEquals(TFileType.FILE_HDFS.name(),
+                context.getBackendFileType(
+                        "oss://bkt.oss-cn-beijing.aliyuncs.com/warehouse/db/t/write.parquet", null));
+    }
+
+    @Test
+    public void ossHdfsContextCanonicalizesMixedCaseQualifiedScanUris() throws Exception {
+        DefaultConnectorContext context = ossHdfsContext();
+        UnaryOperator<String> normalizer = context.newStorageUriNormalizer(Collections.emptyMap());
+
+        Assertions.assertEquals(
+                "oss://bkt.cn-hangzhou.oss-dls.aliyuncs.com/warehouse/db/t/data.parquet",
+                normalizer.apply(
+                        "oss://bkt.CN-HANGZHOU.OSS-DLS.ALIYUNCS.COM/warehouse/db/t/data.parquet"));
+        Assertions.assertEquals(
+                "oss://bkt.cn-hangzhou.oss-dls.aliyuncs.com/warehouse/db/t/deletion-vector.bin",
+                normalizer.apply(
+                        "oss://bkt.CN-HANGZHOU.OSS-DLS.ALIYUNCS.COM/warehouse/db/t/deletion-vector.bin"));
+        Assertions.assertEquals(TFileType.FILE_HDFS.name(),
+                context.getBackendFileType(
+                        "oss://bkt.CN-HANGZHOU.OSS-DLS.ALIYUNCS.COM/warehouse/db/t/data.parquet", null));
+    }
+
+    @Test
     public void backendFileTypeVendedRestResolvesUnderEmptyStaticMap() {
         // WHY: a REST catalog's static storage map is empty; the vended token resolves the file type the
         // same way the vended-aware normalizeStorageUri resolves the path. MUTATION: ignoring the token

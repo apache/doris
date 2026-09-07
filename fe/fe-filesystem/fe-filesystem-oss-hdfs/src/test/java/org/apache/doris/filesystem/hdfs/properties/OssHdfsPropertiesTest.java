@@ -205,4 +205,32 @@ class OssHdfsPropertiesTest {
                 properties.validateAndNormalizeUri(
                         "oss://bucket.cn-beijing.oss-dls.aliyuncs.com/warehouse/table/data.parquet"));
     }
+
+    @Test
+    void nativeOssQualifiedUriUsesConfiguredOssHdfsEndpoint() {
+        OssHdfsProperties properties = initialized(baseProps());
+
+        Assertions.assertEquals(
+                "oss://bucket.cn-beijing.oss-dls.aliyuncs.com/warehouse/table/data.parquet",
+                properties.validateAndNormalizeUri(
+                        "oss://bucket.oss-cn-hangzhou.aliyuncs.com/warehouse/table/data.parquet"));
+        Assertions.assertEquals(
+                "oss://bucket.cn-beijing.oss-dls.aliyuncs.com/warehouse/table/deletion-vector.bin",
+                properties.validateAndNormalizeUri(
+                        "oss://bucket.oss-cn-hangzhou-internal.aliyuncs.com/warehouse/table/deletion-vector.bin"));
+    }
+
+    @Test
+    void mixedCaseOssHdfsQualifiedUriIsCanonicalized() {
+        OssHdfsProperties properties = initialized(baseProps());
+
+        Assertions.assertEquals(
+                "oss://bucket.cn-beijing.oss-dls.aliyuncs.com/warehouse/table/data.parquet",
+                properties.validateAndNormalizeUri(
+                        "oss://bucket.CN-BEIJING.OSS-DLS.ALIYUNCS.COM/warehouse/table/data.parquet"));
+        Assertions.assertEquals(
+                "oss://bucket.cn-beijing.oss-dls.aliyuncs.com/warehouse/table/deletion-vector.bin",
+                properties.validateAndNormalizeUri(
+                        "oss://bucket.CN-BEIJING.OSS-DLS.ALIYUNCS.COM/warehouse/table/deletion-vector.bin"));
+    }
 }
