@@ -26,6 +26,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -36,9 +37,19 @@ import java.util.Optional;
  * - pinned hbo statistics: manually injected statistics via the {@code HBO SET STATISTICS}
  *   statement, keyed by the hbo fingerprint; pinned entries take precedence over learned ones
  *   and are never overwritten or evicted by the automatic profile-based collection.
+ *
+ * <p>Pinned statistics are per-FE in memory; when
+ * {@code Config.hbo_persist_pinned_to_internal_db} is enabled they are additionally written
+ * through to {@code __internal_schema.hbo_statistics} and each FE loads the table into memory
+ * once, lazily on first use. The in-memory cache stays authoritative: loaded entries are merged
+ * with putIfAbsent, so entries injected while persistence was off (or concurrently) win over the
+ * stored snapshot. A FE never refreshes entries SET by another FE during its lifetime; the
+ * snapshot is only taken at load time.
  */
 public class HboPlanStatisticsManager {
     private static final Logger LOG = LogManager.getLogger(HboPlanStatisticsManager.class);
+
+    private static final long LOAD_RETRY_INTERVAL_MS = 30_000L;
 
     private HboPlanStatisticsProvider hboPlanStatisticsProvider;
     private HboPlanInfoProvider hboPlanInfoProvider;
@@ -46,8 +57,14 @@ public class HboPlanStatisticsManager {
             .maximumSize(Math.max(Config.hbo_pinned_stats_cache_num, 0))
             .build();
     // whether pinned statistics have been loaded from the internal table (only when persistence
-    // is enabled); single-threaded planner/command access makes this flag safe enough
+    // is enabled); planner/command threads access it concurrently
     private volatile boolean hboPinnedLoaded = false;
+    // serializes the memory phases of the lazy load, SET and DELETE against each other; the
+    // best-effort persistence SQL of SET/DELETE runs outside this lock
+    private final Object pinnedLoadLock = new Object();
+    // backoff timestamp after a failed load attempt, so a not-ready internal schema does not
+    // trigger a DDL+SELECT retry for every group of every query (guarded by pinnedLoadLock)
+    private long lastLoadFailedMs = 0L;
 
     public HboPlanStatisticsManager() {
         hboPlanStatisticsProvider = new MemoryHboPlanStatisticsProvider();
@@ -80,9 +97,11 @@ public class HboPlanStatisticsManager {
         // LRU bounded by Config.hbo_pinned_stats_cache_num; pinned entries are otherwise never
         // expired automatically and are only removed by HBO DELETE STATISTICS or eviction
         long createTimeMs = System.currentTimeMillis();
-        pinnedPlanStatistics.put(fingerprint,
-                new PinnedHboStatistics(fingerprint, rows, nodeType, structCanonical, createTimeMs));
-        if (Config.hbo_persist_pinned_to_internal_db && FeConstants.enableInternalSchemaDb) {
+        synchronized (pinnedLoadLock) {
+            pinnedPlanStatistics.put(fingerprint,
+                    new PinnedHboStatistics(fingerprint, rows, nodeType, structCanonical, createTimeMs));
+        }
+        if (persistenceEnabled()) {
             HboStatisticsStore.persist(fingerprint, rows, nodeType, structCanonical, createTimeMs);
         }
     }
@@ -97,8 +116,10 @@ public class HboPlanStatisticsManager {
      * untouched here; callers may invalidate them explicitly.
      */
     public void removePinnedPlanStatistics(String fingerprint) {
-        pinnedPlanStatistics.invalidate(fingerprint);
-        if (Config.hbo_persist_pinned_to_internal_db && FeConstants.enableInternalSchemaDb) {
+        synchronized (pinnedLoadLock) {
+            pinnedPlanStatistics.invalidate(fingerprint);
+        }
+        if (persistenceEnabled()) {
             HboStatisticsStore.delete(fingerprint);
         }
     }
@@ -109,22 +130,34 @@ public class HboPlanStatisticsManager {
     }
 
     private void ensurePinnedLoaded() {
-        if (hboPinnedLoaded || !Config.hbo_persist_pinned_to_internal_db
-                || !FeConstants.enableInternalSchemaDb) {
+        if (hboPinnedLoaded || !persistenceEnabled()) {
             return;
         }
-        try {
-            for (PinnedHboStatistics pinned : HboStatisticsStore.loadAll()) {
-                pinnedPlanStatistics.put(pinned.getFingerprint(), pinned);
+        synchronized (pinnedLoadLock) {
+            if (hboPinnedLoaded || !persistenceEnabled()) {
+                return;
+            }
+            long now = System.currentTimeMillis();
+            if (now - lastLoadFailedMs < LOAD_RETRY_INTERVAL_MS) {
+                return;
+            }
+            List<PinnedHboStatistics> loaded = HboStatisticsStore.loadAll();
+            if (loaded == null) {
+                lastLoadFailedMs = now;
+                return;
+            }
+            for (PinnedHboStatistics pinned : loaded) {
+                // entries injected while persistence was off, or concurrently with the load,
+                // must win over the stored snapshot: the in-memory cache stays authoritative
+                pinnedPlanStatistics.asMap().putIfAbsent(pinned.getFingerprint(), pinned);
             }
             hboPinnedLoaded = true;
-            LOG.info("loaded {} hbo pinned statistics entries from internal table",
-                    pinnedPlanStatistics.asMap().size());
-        } catch (Throwable t) {
-            // table may not be ready yet (e.g. internal schema initialization in progress);
-            // retry on the next access
-            LOG.warn("failed to load hbo pinned statistics from internal table", t);
+            LOG.info("loaded {} hbo pinned statistics entries from internal table", loaded.size());
         }
+    }
+
+    private static boolean persistenceEnabled() {
+        return Config.hbo_persist_pinned_to_internal_db && FeConstants.enableInternalSchemaDb;
     }
 
     /**

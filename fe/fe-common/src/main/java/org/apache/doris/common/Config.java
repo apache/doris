@@ -2354,7 +2354,12 @@ public class Config extends ConfigBase {
      * Persist manually injected (pinned) hbo statistics into the internal database table
      * __internal_schema.hbo_statistics, so that they survive FE restarts. In-memory pinned
      * statistics stay authoritative; changes are written through synchronously (best effort)
-     * and the table is loaded lazily on first use.
+     * and the table is loaded lazily on first use. Persistence applies to SET/DELETE issued
+     * while this config is true: entries SET while it is false are not persisted, and entries
+     * DELETEd while it is false keep their stored rows, which are reloaded after the config is
+     * re-enabled (or the FE restarts); on re-enable, existing in-memory entries win over the
+     * stored snapshot. Each FE loads the table once per process and does not refresh entries
+     * SET by other FEs during its lifetime.
      */
     @ConfField(mutable = true, description = "The default setting is false. When true, HBO SET/DELETE STATISTICS "
             + "entries are persisted into __internal_schema.hbo_statistics and reloaded after FE "

@@ -36,7 +36,8 @@ suite("hbo_persist_internal_db_test", "nonConcurrent") {
         qt_delete_cleared """ SELECT fingerprint, row_count, node_type, struct_info FROM ${tableName}
             WHERE fingerprint = '${fingerprint}'; """
     } finally {
-        sql """ HBO DELETE STATISTICS '${fingerprint}'; """
+        // restore the config first so a failing cleanup can not leak the hot config to later suites
         sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "${prevPersist}"); """
+        sql """ HBO DELETE STATISTICS '${fingerprint}'; """
     }
 }

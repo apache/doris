@@ -17,13 +17,16 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,46 +45,35 @@ public class HboStatisticsStore {
 
     private static final String INTERNAL_DB = FeConstants.INTERNAL_DB_NAME;
     private static final String TABLE = "hbo_statistics";
-    private static final String FULL_QUALIFIED = "internal." + INTERNAL_DB + "." + TABLE;
-    private static final int STRUCT_MAX_LEN = 65533;
-
-    private static final String DDL = "CREATE TABLE IF NOT EXISTS `internal`.`" + INTERNAL_DB + "`.`" + TABLE
-            + "` (\n"
-            + "  `fingerprint` varchar(64) NOT NULL COMMENT \"\",\n"
-            + "  `row_count` bigint NOT NULL COMMENT \"\",\n"
-            + "  `node_type` varchar(1024) NULL COMMENT \"\",\n"
-            + "  `struct_info` varchar(" + STRUCT_MAX_LEN + ") NULL COMMENT \"\",\n"
-            + "  `create_time_ms` bigint NOT NULL COMMENT \"\"\n"
-            + ") ENGINE = olap\n"
-            + "UNIQUE KEY(`fingerprint`)\n"
-            + "COMMENT \"Doris internal hbo pinned statistics table, DO NOT MODIFY IT\"\n"
-            + "DISTRIBUTED BY HASH(`fingerprint`)\n"
-            + "BUCKETS 1\n"
-            + "PROPERTIES (\"replication_num\" = \"1\")";
+    private static final String FULL_QUALIFIED =
+            InternalCatalog.INTERNAL_CATALOG_NAME + "." + INTERNAL_DB + "." + TABLE;
+    /** max length (bytes) of the struct_info varchar column */
+    private static final int STRUCT_MAX_BYTES = 65533;
 
     private HboStatisticsStore() {
     }
 
     /** Create the table if it does not exist. */
     public static void ensureTable() throws Exception {
-        StatisticsUtil.execUpdate(DDL);
+        StatisticsUtil.execUpdate(createDdl());
     }
 
-    /** Upsert one pinned entry (UNIQUE KEY fingerprint replaces on conflict). */
+    /**
+     * Upsert one pinned entry (UNIQUE KEY fingerprint replaces on conflict).
+     */
     public static void persist(String fingerprint, long rows, String nodeType, String structCanonical,
             long createTimeMs) {
         try {
             ensureTable();
-            String struct = structCanonical == null ? "" : structCanonical;
-            if (struct.length() > STRUCT_MAX_LEN) {
-                struct = struct.substring(0, STRUCT_MAX_LEN);
-            }
+            String nodeTypeVal = nodeType == null ? "" : nodeType;
+            String struct = truncateUtf8(structCanonical == null ? "" : structCanonical, STRUCT_MAX_BYTES);
             String sql = "INSERT INTO " + FULL_QUALIFIED
                     + " (`fingerprint`, `row_count`, `node_type`, `struct_info`, `create_time_ms`) VALUES ('"
-                    + escape(fingerprint) + "', " + rows + ", '" + escape(nodeType) + "', '"
-                    + escape(struct) + "', " + createTimeMs + ")";
+                    + StatisticsUtil.escapeSQL(fingerprint) + "', " + rows + ", '"
+                    + StatisticsUtil.escapeSQL(nodeTypeVal) + "', '" + StatisticsUtil.escapeSQL(struct)
+                    + "', " + createTimeMs + ")";
             StatisticsUtil.execUpdate(sql);
-        } catch (Throwable t) {
+        } catch (Exception t) {
             LOG.warn("failed to persist hbo pinned statistics for fingerprint {}", fingerprint, t);
         }
     }
@@ -90,14 +82,20 @@ public class HboStatisticsStore {
     public static void delete(String fingerprint) {
         try {
             ensureTable();
-            String sql = "DELETE FROM " + FULL_QUALIFIED + " WHERE `fingerprint` = '" + escape(fingerprint) + "'";
+            String sql = "DELETE FROM " + FULL_QUALIFIED + " WHERE `fingerprint` = '"
+                    + StatisticsUtil.escapeSQL(fingerprint) + "'";
             StatisticsUtil.execUpdate(sql);
-        } catch (Throwable t) {
+        } catch (Exception t) {
             LOG.warn("failed to delete hbo pinned statistics for fingerprint {}", fingerprint, t);
         }
     }
 
-    /** Load all pinned entries into memory. Returns empty list when the table is not present. */
+    /**
+     * Load all pinned entries from the internal table.
+     *
+     * @return the loaded entries, or {@code null} when the load failed (e.g. the internal schema
+     *         is not ready yet); the caller decides when to retry
+     */
     public static List<HboPlanStatisticsManager.PinnedHboStatistics> loadAll() {
         List<HboPlanStatisticsManager.PinnedHboStatistics> result = new ArrayList<>();
         try {
@@ -117,13 +115,47 @@ public class HboStatisticsStore {
                     LOG.warn("skip malformed hbo pinned statistics row {}", row, e);
                 }
             }
-        } catch (Throwable t) {
+            return result;
+        } catch (Exception t) {
             LOG.warn("failed to load hbo pinned statistics from internal table", t);
+            return null;
         }
-        return result;
     }
 
-    private static String escape(String value) {
-        return value == null ? "" : value.replace("'", "''");
+    private static String createDdl() {
+        // follow the internal-table convention (see InternalSchemaInitializer) so that CREATE
+        // never fails on clusters whose min_replication_num_per_tablet exceeds 1
+        int replication = Math.max(1, Config.min_replication_num_per_tablet);
+        return "CREATE TABLE IF NOT EXISTS `" + InternalCatalog.INTERNAL_CATALOG_NAME + "`.`" + INTERNAL_DB
+                + "`.`" + TABLE + "` (\n"
+                + "  `fingerprint` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `row_count` bigint NOT NULL COMMENT \"\",\n"
+                + "  `node_type` varchar(1024) NULL COMMENT \"\",\n"
+                + "  `struct_info` varchar(" + STRUCT_MAX_BYTES + ") NULL COMMENT \"\",\n"
+                + "  `create_time_ms` bigint NOT NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "UNIQUE KEY(`fingerprint`)\n"
+                + "COMMENT \"Doris internal hbo pinned statistics table, DO NOT MODIFY IT\"\n"
+                + "DISTRIBUTED BY HASH(`fingerprint`)\n"
+                + "BUCKETS 1\n"
+                + "PROPERTIES (\"replication_num\" = \"" + replication + "\")";
+    }
+
+    /**
+     * Truncate to at most {@code maxBytes} UTF-8 bytes without splitting a multi-byte character
+     * (the varchar column limit is byte-based).
+     */
+    private static String truncateUtf8(String value, int maxBytes) {
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length <= maxBytes) {
+            return value;
+        }
+        // a cut inside a multi-byte sequence points at a continuation byte; back off to the
+        // preceding lead byte so that only complete characters are kept
+        int end = maxBytes;
+        while (end > 0 && (bytes[end] & 0xC0) == 0x80) {
+            end--;
+        }
+        return new String(bytes, 0, end, StandardCharsets.UTF_8);
     }
 }
