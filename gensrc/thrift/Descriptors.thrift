@@ -100,6 +100,9 @@ struct TColumn {
   27: optional i64 variant_doc_materialization_min_rows
   28: optional i32 variant_doc_hash_shard_count
   29: optional bool variant_enable_nested_group
+  // The original default expression for new writes. default_value can be a fixed literal
+  // evaluated by FE so schema change can backfill historical rows consistently.
+  30: optional string default_value_expr
 }
 
 struct TSlotDescriptor {
