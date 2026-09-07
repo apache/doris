@@ -80,10 +80,18 @@ suite("test_lance_s3_tvf", "p0,external") {
             WHERE row_id = 1
         """
 
-        test {
-            sql """SELECT null_col FROM ${lanceTvf}"""
-            exception "is unsupported for Nereids"
-        }
+        qt_additional_types """
+            SELECT
+                null_col IS NULL AS null_is_null,
+                duration_s_col,
+                duration_ms_col,
+                duration_us_col,
+                duration_ns_col,
+                CAST(json_col AS STRING) AS json_col,
+                bfloat16_vector_col
+            FROM ${lanceTvf}
+            WHERE row_id = 1
+        """
     } finally {
         sql """SET enable_file_scanner_v2 = ${originalScannerV2}"""
         sql """SET time_zone = '${originalTimeZone}'"""
