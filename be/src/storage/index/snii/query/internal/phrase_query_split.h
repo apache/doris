@@ -88,14 +88,12 @@ using query::internal::ResolvedQueryTerm;
 using query::internal::TermPlan;
 using reader::LogicalIndexReader;
 
-
 bool should_use_streaming_exact_phrase(const std::vector<TermPlan>& plans,
                                        const std::vector<PosSource>& sources,
                                        std::span<const size_t> phrase_plan_index,
                                        size_t candidate_count, bool needs_frequency,
                                        const PhraseQueryOptions& options,
                                        internal::ExactPhrasePositionAccess position_access);
-
 
 size_t position_span_size(std::pair<const uint32_t*, const uint32_t*> span);
 
@@ -173,13 +171,15 @@ struct PhraseTermMapping {
     std::vector<size_t> phrase_plan_index;
 };
 
-
 PhraseTermMapping build_phrase_term_mapping(const std::vector<std::string>& terms);
 
 // 把一个已解析的 term 以给定位置偏移追加到 phrase 计划（unique_terms 去重）。定义在
 // phrase_plan.cpp；以前只靠 unity build 的拼接顺序"碰巧"可见。
 void append_resolved_phrase_clause(ResolvedQueryTerm term, uint32_t position_offset,
                                    internal::ResolvedPhrasePlan* plan);
+
+internal::ResolvedPhrasePlan build_resolved_phrase_plan(
+        std::vector<ResolvedQueryTerm> resolved_terms);
 
 Status build_position_sources_for_candidates(
         const LogicalIndexReader& idx, const io::BatchRangeFetcher& round1,
@@ -382,8 +382,6 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
                                 std::vector<uint32_t>* const docids, int32_t max_expansions,
                                 format::PrxDecodeContext* decode_context,
                                 std::vector<PhraseMatch>* matches = nullptr);
-
-
 
 } // namespace doris::snii::query::phrase_impl
 
