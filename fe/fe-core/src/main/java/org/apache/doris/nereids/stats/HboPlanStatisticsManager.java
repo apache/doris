@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.Map;
@@ -35,11 +38,16 @@ import java.util.Optional;
  *   and are never overwritten or evicted by the automatic profile-based collection.
  */
 public class HboPlanStatisticsManager {
+    private static final Logger LOG = LogManager.getLogger(HboPlanStatisticsManager.class);
+
     private HboPlanStatisticsProvider hboPlanStatisticsProvider;
     private HboPlanInfoProvider hboPlanInfoProvider;
     private final Cache<String, PinnedHboStatistics> pinnedPlanStatistics = Caffeine.newBuilder()
             .maximumSize(Math.max(Config.hbo_pinned_stats_cache_num, 0))
             .build();
+    // whether pinned statistics have been loaded from the internal table (only when persistence
+    // is enabled); single-threaded planner/command access makes this flag safe enough
+    private volatile boolean hboPinnedLoaded = false;
 
     public HboPlanStatisticsManager() {
         hboPlanStatisticsProvider = new MemoryHboPlanStatisticsProvider();
@@ -71,12 +79,16 @@ public class HboPlanStatisticsManager {
     public void putPinnedPlanStatistics(String fingerprint, long rows, String nodeType, String structCanonical) {
         // LRU bounded by Config.hbo_pinned_stats_cache_num; pinned entries are otherwise never
         // expired automatically and are only removed by HBO DELETE STATISTICS or eviction
+        long createTimeMs = System.currentTimeMillis();
         pinnedPlanStatistics.put(fingerprint,
-                new PinnedHboStatistics(fingerprint, rows, nodeType, structCanonical,
-                        System.currentTimeMillis()));
+                new PinnedHboStatistics(fingerprint, rows, nodeType, structCanonical, createTimeMs));
+        if (Config.hbo_persist_pinned_to_internal_db && FeConstants.enableInternalSchemaDb) {
+            HboStatisticsStore.persist(fingerprint, rows, nodeType, structCanonical, createTimeMs);
+        }
     }
 
     public Optional<PinnedHboStatistics> getPinnedPlanStatistics(String fingerprint) {
+        ensurePinnedLoaded();
         return Optional.ofNullable(pinnedPlanStatistics.getIfPresent(fingerprint));
     }
 
@@ -86,10 +98,33 @@ public class HboPlanStatisticsManager {
      */
     public void removePinnedPlanStatistics(String fingerprint) {
         pinnedPlanStatistics.invalidate(fingerprint);
+        if (Config.hbo_persist_pinned_to_internal_db && FeConstants.enableInternalSchemaDb) {
+            HboStatisticsStore.delete(fingerprint);
+        }
     }
 
     public Map<String, PinnedHboStatistics> getAllPinnedPlanStatistics() {
+        ensurePinnedLoaded();
         return Collections.unmodifiableMap(pinnedPlanStatistics.asMap());
+    }
+
+    private void ensurePinnedLoaded() {
+        if (hboPinnedLoaded || !Config.hbo_persist_pinned_to_internal_db
+                || !FeConstants.enableInternalSchemaDb) {
+            return;
+        }
+        try {
+            for (PinnedHboStatistics pinned : HboStatisticsStore.loadAll()) {
+                pinnedPlanStatistics.put(pinned.getFingerprint(), pinned);
+            }
+            hboPinnedLoaded = true;
+            LOG.info("loaded {} hbo pinned statistics entries from internal table",
+                    pinnedPlanStatistics.asMap().size());
+        } catch (Throwable t) {
+            // table may not be ready yet (e.g. internal schema initialization in progress);
+            // retry on the next access
+            LOG.warn("failed to load hbo pinned statistics from internal table", t);
+        }
     }
 
     /**

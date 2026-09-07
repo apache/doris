@@ -2351,6 +2351,17 @@ public class Config extends ConfigBase {
     public static int hbo_pinned_stats_cache_num = 5000;
 
     /**
+     * Persist manually injected (pinned) hbo statistics into the internal database table
+     * __internal_schema.hbo_statistics, so that they survive FE restarts. In-memory pinned
+     * statistics stay authoritative; changes are written through synchronously (best effort)
+     * and the table is loaded lazily on first use.
+     */
+    @ConfField(mutable = true, description = "The default setting is false. When true, HBO SET/DELETE STATISTICS "
+            + "entries are persisted into __internal_schema.hbo_statistics and reloaded after FE "
+            + "restart.")
+    public static boolean hbo_persist_pinned_to_internal_db = false;
+
+    /**
      * Maximum number of events to poll in each RPC.
      */
     @ConfField(mutable = true, masterOnly = true)
