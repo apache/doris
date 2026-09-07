@@ -25,6 +25,7 @@ import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 
 import java.net.URI;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -62,9 +63,11 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
     private static final Set<String> OSS_ENDPOINT_KEY_NAME = ImmutableSet.of("oss.hdfs.endpoint",
             "oss.endpoint", "dlf.endpoint", "dlf.catalog.endpoint");
 
+    private static final Pattern DLF_ENDPOINT_PATTERN =
+            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$");
     private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(
             Pattern.compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com"),
-            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
+            DLF_ENDPOINT_PATTERN);
 
     private static final Set<String> SUPPORT_SCHEMA = ImmutableSet.of("oss", "hdfs");
 
@@ -73,6 +76,7 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
             description = "The endpoint of OSS.")
     private String endpoint = "";
 
+    // DLF aliases mirror native OSS binding so metadata and JindoFS never receive different STS credentials.
     @ConnectorProperty(names = {"oss.hdfs.access_key", "oss.access_key", "dlf.access_key", "dlf.catalog.accessKeyId",
             "fs.oss.accessKeyId"},
             sensitive = true,
@@ -80,7 +84,7 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
     private String accessKey = "";
 
     @ConnectorProperty(names = {"oss.hdfs.secret_key", "oss.secret_key", "dlf.secret_key", "dlf.catalog.secret_key",
-            "fs.oss.accessKeySecret"},
+            "dlf.catalog.accessKeySecret", "fs.oss.accessKeySecret"},
             sensitive = true,
             description = "The secret key of OSS.")
     private String secretKey = "";
@@ -99,7 +103,8 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
             description = "The xml files of Hadoop configuration.")
     private String hadoopConfigResources = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.security_token", "oss.security_token", "fs.oss.securityToken"},
+    @ConnectorProperty(names = {"oss.hdfs.security_token", "oss.security_token", "dlf.session_token",
+            "dlf.catalog.sessionToken", "dlf.catalog.securityToken", "fs.oss.securityToken"},
             required = false,
             sensitive = true,
             description = "The security token of OSS.")
@@ -137,7 +142,30 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
         if (!uriObj.getScheme().equalsIgnoreCase("oss")) {
             throw new IllegalArgumentException("The uri scheme is not oss.");
         }
-        return uriObj.toString();
+        String authority = uriObj.getRawAuthority();
+        if (StringUtils.isBlank(authority)
+                || authority.toLowerCase(Locale.ROOT).endsWith(OSS_HDFS_ENDPOINT_SUFFIX)) {
+            return uriObj.toString();
+        }
+
+        // The connector SPI carries only the normalized URI, not the selected adapter. Embedding
+        // the configured endpoint keeps plain bucket paths identifiable as Jindo/HDFS downstream.
+        String endpointHost = extractEndpointHost(endpoint);
+        String normalizedUri = uriObj.toString();
+        int authorityStart = uriObj.getScheme().length() + 3;
+        int authorityEnd = authorityStart + authority.length();
+        return normalizedUri.substring(0, authorityStart)
+                + authority + "." + endpointHost
+                + normalizedUri.substring(authorityEnd);
+    }
+
+    private static String extractEndpointHost(String endpoint) {
+        String endpointUri = endpoint.contains("://") ? endpoint : "oss://" + endpoint;
+        String endpointHost = URI.create(endpointUri).getHost();
+        if (StringUtils.isBlank(endpointHost)) {
+            throw new IllegalArgumentException("The OSS-HDFS endpoint host is empty.");
+        }
+        return endpointHost.toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -167,7 +195,8 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
     }
 
     private void convertDlfToOssEndpointIfNeeded() {
-        if (this.endpoint.contains("dlf")) {
+        // Region extraction accepts endpoint hosts case-insensitively, so conversion must use the same rule.
+        if (DLF_ENDPOINT_PATTERN.matcher(this.endpoint.toLowerCase(Locale.ROOT)).matches()) {
             this.endpoint = this.region + ".oss-dls.aliyuncs.com";
         }
     }

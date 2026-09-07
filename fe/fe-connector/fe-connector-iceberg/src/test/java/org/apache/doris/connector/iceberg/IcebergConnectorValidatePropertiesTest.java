@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -137,7 +139,16 @@ public class IcebergConnectorValidatePropertiesTest {
                 "meta.cache.iceberg.table.capacity", "0",
                 "meta.cache.iceberg.manifest.enable", "false",
                 "meta.cache.iceberg.manifest.ttl-second", "0",
-                "meta.cache.iceberg.manifest.capacity", "1024"));
+                        "meta.cache.iceberg.manifest.capacity", "1024"));
+    }
+
+    @Test
+    public void createTableRejectsDlfWithoutRemoteAccess() {
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> PROVIDER.validateCreateTable(props("iceberg.catalog.type", "dlf")));
+        Assertions.assertEquals("CREATE TABLE is not supported for Iceberg DLF catalogs",
+                exception.getMessage());
+        PROVIDER.validateCreateTable(props("iceberg.catalog.type", "hms"));
     }
 
     // ───────────────────────── per-user session (iceberg.rest.session=user, #63068) ─────────────────────────

@@ -214,6 +214,11 @@ public interface CatalogIf<T extends DatabaseIf> {
         throw new AnalysisException(engineMismatchError(engineName, getName()));
     }
 
+    /** Validates catalog-local CREATE TABLE configuration without accessing remote metadata. */
+    default void validateCreateTableProperties(CreateTableInfo createTableInfo) throws UserException {
+        // Most catalogs have no configuration-only preflight.
+    }
+
     /**
      * The one wording for "that engine name is not this catalog's", so every catalog rejects alike. It names
      * only what the user wrote and the catalog they wrote it against — deliberately not the engine name that

@@ -101,6 +101,20 @@ public class ConnectorPluginConfTest {
     }
 
     @Test
+    public void createTableValidationUsesTheDirectoryProviderClassLoader() throws IOException {
+        Path root = pluginRoot();
+        deployPlugin(root, ConfProbeConnectorProviderA.class, ConfProbeConnectorProviderA.TYPE,
+                null, AlterValidationHelper.class);
+        manager.loadPlugins(Collections.singletonList(root));
+        ClassLoader callerLoader = Thread.currentThread().getContextClassLoader();
+
+        Assertions.assertDoesNotThrow(() -> manager.validateCreateTable(
+                ConfProbeConnectorProviderA.TYPE, Collections.emptyMap()));
+        Assertions.assertSame(callerLoader, Thread.currentThread().getContextClassLoader(),
+                "CREATE TABLE validation must restore the FE caller's context classloader");
+    }
+
+    @Test
     public void confIsNamedAfterTheProviderNotAfterTheDirectory() throws IOException {
         // The plugin directory name is the deployer's choice; the conf file name is the plugin's own
         // identity. hive/hms.conf ships exactly this way, so a file named after the directory must NOT be

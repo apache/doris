@@ -284,9 +284,10 @@ public class LocationPath {
      * This method attempts to locate the binding using the following logic:
      * <p>
      * 1. Direct match by type: Attempts to retrieve the binding from the map using the given {@code type}.
-     * 2. S3-Minio fallback: If the requested type is S3 and no binding is found, try to fall back to MinIO
+     * 2. OSS-HDFS fallback: A plain {@code oss://} URI uses the OSS-HDFS binding when native OSS is absent.
+     * 3. S3-Minio fallback: If the requested type is S3 and no binding is found, try to fall back to MinIO
      * (or Ozone) configuration, assuming it is compatible with S3.
-     * 3. Compatibility fallback based on schema:
+     * 4. Compatibility fallback based on schema:
      * In older configurations, the schema name might not strictly match the actual storage type.
      * For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
      * To handle such legacy inconsistencies, we try to find any storage configuration with the name "s3"
@@ -305,7 +306,14 @@ public class LocationPath {
             return adapter;
         }
 
-        // Step 2: Fallback - if type is S3 and MinIO is configured, assume it's compatible
+        // OSS-HDFS and native OSS share the oss scheme; catalog binding intentionally keeps only
+        // one of them, so a missing native OSS binding must preserve the selected Jindo adapter.
+        if (type == StorageTypeId.OSS
+                && storageAdaptersMap.containsKey(StorageTypeId.OSS_HDFS)) {
+            return storageAdaptersMap.get(StorageTypeId.OSS_HDFS);
+        }
+
+        // Step 3: Fallback - if type is S3 and MinIO is configured, assume it's compatible
         if (type == StorageTypeId.S3
                 && storageAdaptersMap.containsKey(StorageTypeId.MINIO)) {
             return storageAdaptersMap.get(StorageTypeId.MINIO);
@@ -315,7 +323,7 @@ public class LocationPath {
             return storageAdaptersMap.get(StorageTypeId.OZONE);
         }
 
-        // Step 3: Compatibility fallback based on schema
+        // Step 4: Compatibility fallback based on schema
         // In previous configurations, the schema name may not strictly match the actual storage type.
         // For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
         // To handle such legacy inconsistencies, we try to find a storage configuration whose name is "s3".

@@ -26,9 +26,13 @@ import java.util.Map;
 class OssHdfsPropertiesTest {
 
     private Map<String, String> resolve(Map<String, String> raw) {
+        return initialized(raw).getBackendConfigProperties();
+    }
+
+    private OssHdfsProperties initialized(Map<String, String> raw) {
         OssHdfsProperties props = new OssHdfsProperties(raw);
         props.initNormalizeAndCheckProps();
-        return props.getBackendConfigProperties();
+        return props;
     }
 
     private Map<String, String> baseProps() {
@@ -147,6 +151,35 @@ class OssHdfsPropertiesTest {
     }
 
     @Test
+    void canonicalDlfCredentialsAndTokenAreBoundEndToEnd() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("dlf.catalog.endpoint", "dlf-vpc.cn-beijing.aliyuncs.com");
+        raw.put("dlf.catalog.accessKeyId", "dlf-ak");
+        raw.put("dlf.catalog.accessKeySecret", "dlf-sk");
+        raw.put("dlf.catalog.securityToken", "dlf-token");
+
+        Map<String, String> resolved = resolve(raw);
+
+        Assertions.assertEquals("dlf-ak", resolved.get("fs.oss.accessKeyId"));
+        Assertions.assertEquals("dlf-sk", resolved.get("fs.oss.accessKeySecret"));
+        Assertions.assertEquals("dlf-token", resolved.get("fs.oss.securityToken"));
+        Assertions.assertEquals("cn-beijing", resolved.get("fs.oss.region"));
+        Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", resolved.get("fs.oss.endpoint"));
+    }
+
+    @Test
+    void mixedCaseDlfEndpointIsConvertedToOssDlsEndpoint() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("dlf.catalog.endpoint", "DLF-VPC.CN-BEIJING.ALIYUNCS.COM");
+        raw.put("dlf.catalog.accessKeyId", "dlf-ak");
+        raw.put("dlf.catalog.accessKeySecret", "dlf-sk");
+
+        Map<String, String> resolved = resolve(raw);
+
+        Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", resolved.get("fs.oss.endpoint"));
+    }
+
+    @Test
     void guessIsMeTrueForOssDlsEndpoint() {
         Map<String, String> raw = new HashMap<>();
         raw.put("oss.endpoint", "cn-beijing.oss-dls.aliyuncs.com");
@@ -158,5 +191,18 @@ class OssHdfsPropertiesTest {
         Map<String, String> raw = new HashMap<>();
         raw.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
         Assertions.assertFalse(OssHdfsProperties.guessIsMe(raw));
+    }
+
+    @Test
+    void plainBucketUriIsNormalizedWithConfiguredEndpoint() {
+        OssHdfsProperties properties = initialized(baseProps());
+
+        Assertions.assertEquals(
+                "oss://bucket.cn-beijing.oss-dls.aliyuncs.com/warehouse/table/data.parquet",
+                properties.validateAndNormalizeUri("oss://bucket/warehouse/table/data.parquet"));
+        Assertions.assertEquals(
+                "oss://bucket.cn-beijing.oss-dls.aliyuncs.com/warehouse/table/data.parquet",
+                properties.validateAndNormalizeUri(
+                        "oss://bucket.cn-beijing.oss-dls.aliyuncs.com/warehouse/table/data.parquet"));
     }
 }

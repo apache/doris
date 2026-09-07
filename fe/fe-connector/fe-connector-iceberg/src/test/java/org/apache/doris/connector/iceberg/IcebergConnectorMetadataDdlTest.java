@@ -245,6 +245,23 @@ public class IcebergConnectorMetadataDdlTest {
     }
 
     @Test
+    public void testCreateTableDlfFailsBeforeRemote() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                .dbName("db1").tableName("t1")
+                .columns(Collections.singletonList(
+                        new ConnectorColumn("id", ConnectorType.of("BIGINT"), "", true, null, false)))
+                .build();
+
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_DLF).createTable(null, request));
+        Assertions.assertTrue(exception.getMessage().contains("not supported"));
+        Assertions.assertTrue(ops.log.isEmpty(), "DLF create rejection must not access the remote catalog");
+        Assertions.assertEquals(0, ctx.authCount);
+    }
+
+    @Test
     public void testCreateTableUnsupportedTypeFailsBeforeRemote() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();

@@ -518,6 +518,24 @@ public class ConnectorPluginManager {
         }
     }
 
+    /** Validates CREATE TABLE properties under the selected directory provider's classloader. */
+    public void validateCreateTable(String catalogType, Map<String, String> properties) {
+        for (ConnectorProvider provider : providers) {
+            Thread thread = Thread.currentThread();
+            ClassLoader previous = thread.getContextClassLoader();
+            try {
+                // Provider validation may resolve plugin-local helpers through TCCL, just like ALTER validation.
+                thread.setContextClassLoader(provider.getClass().getClassLoader());
+                if (provider.supports(catalogType, properties)) {
+                    provider.validateCreateTable(properties);
+                    return;
+                }
+            } finally {
+                thread.setContextClassLoader(previous);
+            }
+        }
+    }
+
     /**
      * Registers a provider at highest priority (index 0). For testing overrides.
      *

@@ -28,6 +28,7 @@ import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Collections;
@@ -162,16 +163,52 @@ public class PaimonCatalogFactoryTest {
     }
 
     @Test
-    public void removedDlfCatalogTypeNoLongerBuildsOptions() {
-        // WHY: paimon.catalog.type=dlf was removed with the vendored thrift ProxyMetaStoreClient it adapted
-        // onto paimon's "hive" metastore. buildCatalogOptions must now reject it like any unknown type rather
-        // than emit a metastore.client.class naming a class that no longer ships. MUTATION: re-adding the dlf
-        // arm -> red.
-        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props(
-                        "paimon.catalog.type", "dlf",
-                        "warehouse", "/wh"))));
-        Assertions.assertTrue(ex.getMessage().contains("dlf"), ex.getMessage());
+    public void dlfBuildsHiveProxyClientOptions() {
+        Options opts = PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props(
+                "paimon.catalog.type", "dlf",
+                "warehouse", "/wh",
+                "dlf.access_key", "ak",
+                "dlf.secret_key", "sk",
+                "dlf.region", "cn-hangzhou")));
+
+        Assertions.assertEquals("hive", opts.get("metastore"));
+        Assertions.assertEquals("com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient",
+                opts.get("metastore.client.class"));
+        Assertions.assertEquals("conf:doris.dlf.client-pool.identity", opts.get("client-pool-cache.keys"));
+    }
+
+    @Test
+    public void dlfPoolIdentityChangesWhenSameCatalogIdConfigurationIsAltered() throws Exception {
+        Options opts = PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props(
+                "paimon.catalog.type", "dlf",
+                "warehouse", "/wh",
+                "dlf.access_key", "ak",
+                "dlf.secret_key", "sk",
+                "dlf.region", "cn-hangzhou")));
+        Map<String, String> firstDlfConf = props(
+                "dlf.catalog.id", "shared-id",
+                "dlf.catalog.endpoint", "dlf-vpc.cn-hangzhou.aliyuncs.com",
+                "dlf.catalog.accessKeyId", "first-ak");
+        Map<String, String> alteredDlfConf = props(
+                "dlf.catalog.id", "shared-id",
+                "dlf.catalog.endpoint", "dlf.cn-shanghai.aliyuncs.com",
+                "dlf.catalog.accessKeyId", "second-ak");
+        String firstIdentity = PaimonCatalogFactory.dlfClientPoolIdentity(firstDlfConf);
+        String alteredIdentity = PaimonCatalogFactory.dlfClientPoolIdentity(alteredDlfConf);
+        Configuration first = new Configuration(false);
+        first.set(PaimonCatalogFactory.DLF_CLIENT_POOL_IDENTITY, firstIdentity);
+        Configuration altered = new Configuration(false);
+        altered.set(PaimonCatalogFactory.DLF_CLIENT_POOL_IDENTITY, alteredIdentity);
+
+        Class<?> cachedPool = Class.forName("org.apache.paimon.hive.pool.CachedClientPool");
+        Method extractKey = cachedPool.getDeclaredMethod(
+                "extractKey", String.class, String.class, Configuration.class);
+        extractKey.setAccessible(true);
+        Object firstKey = extractKey.invoke(null, "warehouse", opts.get("client-pool-cache.keys"), first);
+        Object alteredKey = extractKey.invoke(null, "warehouse", opts.get("client-pool-cache.keys"), altered);
+
+        Assertions.assertNotEquals(firstIdentity, alteredIdentity);
+        Assertions.assertNotEquals(firstKey, alteredKey);
     }
 
     @Test
@@ -314,12 +351,29 @@ public class PaimonCatalogFactoryTest {
         Assertions.assertEquals("custom-value", conf.get("dfs.custom.key"));
     }
 
+    @Test
+    public void dlfStorageAcceptsOssAndOssHdfsOnly() {
+        Assertions.assertTrue(PaimonConnector.hasDlfCompatibleStorage(Collections.singletonList(
+                new StubHadoopStorageProperties(Collections.emptyMap(), "OSS"))));
+        Assertions.assertTrue(PaimonConnector.hasDlfCompatibleStorage(Collections.singletonList(
+                new StubHadoopStorageProperties(Collections.emptyMap(), "OSS_HDFS"))));
+        Assertions.assertFalse(PaimonConnector.hasDlfCompatibleStorage(Collections.singletonList(
+                new StubHadoopStorageProperties(Collections.emptyMap(), "S3"))));
+        Assertions.assertFalse(PaimonConnector.hasDlfCompatibleStorage(Collections.emptyList()));
+    }
+
     /** Minimal {@link StorageProperties} exposing a fixed Hadoop config map (C2 seam test double). */
     private static final class StubHadoopStorageProperties implements StorageProperties, HadoopStorageProperties {
         private final Map<String, String> hadoopConfig;
+        private final String providerName;
 
         StubHadoopStorageProperties(Map<String, String> hadoopConfig) {
+            this(hadoopConfig, "STUB");
+        }
+
+        StubHadoopStorageProperties(Map<String, String> hadoopConfig, String providerName) {
             this.hadoopConfig = hadoopConfig;
+            this.providerName = providerName;
         }
 
         @Override
@@ -334,7 +388,7 @@ public class PaimonCatalogFactoryTest {
 
         @Override
         public String providerName() {
-            return "STUB";
+            return providerName;
         }
 
         @Override

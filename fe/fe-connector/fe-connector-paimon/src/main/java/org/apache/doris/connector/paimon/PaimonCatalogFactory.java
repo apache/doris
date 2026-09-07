@@ -34,7 +34,11 @@ import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -78,6 +82,16 @@ public final class PaimonCatalogFactory {
 
     /** Hadoop S3A standard prefix (legacy {@code AbstractPaimonProperties.FS_S3A_PREFIX}). */
     private static final String FS_S3A_PREFIX = "fs.s3a.";
+    static final String DLF_CLIENT_POOL_IDENTITY = "doris.dlf.client-pool.identity";
+    private static final String[] DLF_CLIENT_IDENTITY_KEYS = {
+            "dlf.catalog.id",
+            "dlf.catalog.endpoint",
+            "dlf.catalog.region",
+            "dlf.catalog.uid",
+            "dlf.catalog.proxyMode",
+            "dlf.catalog.accessKeyId",
+            "dlf.catalog.accessKeySecret",
+            "dlf.catalog.securityToken"};
 
 
     private PaimonCatalogFactory() {
@@ -114,6 +128,9 @@ public final class PaimonCatalogFactory {
                 break;
             case PaimonCatalogProperties.JDBC:
                 appendJdbcOptions(props, options, (PaimonJdbcMetaStoreProperties) bound);
+                break;
+            case PaimonCatalogProperties.DLF:
+                appendDlfOptions(options);
                 break;
             default:
                 // filesystem: nothing custom.
@@ -157,6 +174,7 @@ public final class PaimonCatalogFactory {
             case PaimonCatalogProperties.REST:
                 return "rest";
             case PaimonCatalogProperties.HMS:
+            case PaimonCatalogProperties.DLF:
                 // = org.apache.paimon.hive.HiveCatalogOptions.IDENTIFIER; kept as a literal to
                 // mirror the existing rest/jdbc style (this is a pure option string, not a type ref).
                 return "hive";
@@ -172,6 +190,27 @@ public final class PaimonCatalogFactory {
             }
         }
         return false;
+    }
+
+    private static void appendDlfOptions(Options options) {
+        options.set("metastore.client.class", "com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient");
+        // The hashed identity isolates Paimon's JVM-static pool without retaining credentials in its cache key.
+        options.set("client-pool-cache.keys", "conf:" + DLF_CLIENT_POOL_IDENTITY);
+    }
+
+    static String dlfClientPoolIdentity(Map<String, String> dlfConf) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            for (String key : DLF_CLIENT_IDENTITY_KEYS) {
+                digest.update(key.getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) 0);
+                digest.update(dlfConf.getOrDefault(key, "").getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) 0);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
     }
 
     private static void appendJdbcOptions(Map<String, String> props, Options options,
