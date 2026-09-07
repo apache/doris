@@ -3686,7 +3686,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 }
             }
         }
-        groupJoinNode.setOutputTupleDesc(outputTupleDesc);
+        groupJoinNode.setMaterializedTupleDesc(outputTupleDesc);
     }
 
     /**
