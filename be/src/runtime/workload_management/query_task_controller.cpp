@@ -39,12 +39,12 @@ bool QueryTaskController::is_cancelled() const {
     return query_ctx->is_cancelled();
 }
 
-bool QueryTaskController::cancel_impl(const Status& reason, int fragment_id) {
+bool QueryTaskController::cancel_impl(const Status& reason) {
     auto query_ctx = query_ctx_.lock();
     if (query_ctx == nullptr) {
         return false;
     }
-    query_ctx->cancel(reason, fragment_id);
+    query_ctx->cancel(reason);
     return true;
 }
 
