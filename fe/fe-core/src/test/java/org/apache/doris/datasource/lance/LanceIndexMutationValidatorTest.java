@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 
@@ -455,5 +456,83 @@ public class LanceIndexMutationValidatorTest {
     public void testDropIndexOnFilesystemCatalogPasses() {
         Assertions.assertDoesNotThrow(
                 () -> LanceIndexMutationValidator.validateDropIndex(filesystemCatalog(), "idx"));
+    }
+
+    @Test
+    public void testReservedSystemIndexNameRejectedThreeWays() {
+        // The __lance_ prefix is reserved for system indexes: CREATE, CREATE OR REPLACE and DROP
+        // all reject it statically, so the gate-off path gets the same protection as admission.
+        String message = "index name '__lance_idx' uses the reserved '__lance_' prefix"
+                + " of Lance system indexes";
+        assertRejected(message,
+                indexDef("__lance_idx", Collections.singletonList("v"), "ANN", validAnnProperties()),
+                annTable());
+        assertRejected(message,
+                new IndexDefinition("__lance_idx", false, Collections.singletonList("v"), "ANN",
+                        validAnnProperties(), "", true),
+                annTable());
+        AnalysisException dropException = Assertions.assertThrows(AnalysisException.class,
+                () -> LanceIndexMutationValidator.validateDropIndex(filesystemCatalog(), "__lance_idx"));
+        Assertions.assertEquals(message, dropException.getDetailMessage());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_INVALID, dropException.getMysqlErrorCode());
+        // Normalization precedes the prefix check: case variants are equally reserved.
+        AnalysisException mixedCaseException = Assertions.assertThrows(AnalysisException.class,
+                () -> LanceIndexMutationValidator.validateDropIndex(filesystemCatalog(), "__LANCE_IDX"));
+        Assertions.assertEquals(
+                "index name '__LANCE_IDX' uses the reserved '__lance_' prefix of Lance system indexes",
+                mixedCaseException.getDetailMessage());
+        // A name merely containing the prefix elsewhere stays legal.
+        Assertions.assertDoesNotThrow(
+                () -> LanceIndexMutationValidator.validateDropIndex(filesystemCatalog(), "my__lance_idx"));
+    }
+
+    @Test
+    public void testAnnStaticUpperBounds() {
+        // Defaults: lance_index_max_num_partitions = 4096, lance_index_max_num_sub_vectors = 256.
+        Map<String, String> atBounds = validAnnProperties();
+        atBounds.put("num_partitions", "4096");
+        atBounds.put("num_sub_vectors", "256");
+        Assertions.assertDoesNotThrow(
+                () -> LanceIndexMutationValidator.validateCreateIndex(filesystemCatalog(), annTable(),
+                        annDef(atBounds)));
+
+        Map<String, String> partitionsOver = validAnnProperties();
+        partitionsOver.put("num_partitions", "4097");
+        assertRejected("num_partitions must not exceed 4096 (lance_index_max_num_partitions)",
+                annDef(partitionsOver), annTable());
+
+        Map<String, String> subVectorsOver = validAnnProperties();
+        subVectorsOver.put("num_sub_vectors", "257");
+        assertRejected("num_sub_vectors must not exceed 256 (lance_index_max_num_sub_vectors)",
+                annDef(subVectorsOver), annTable());
+    }
+
+    @Test
+    public void testAnnStaticUpperBoundsFollowConfig() {
+        int originalMaxNumPartitions = Config.lance_index_max_num_partitions;
+        try {
+            Config.lance_index_max_num_partitions = 64;
+            Map<String, String> properties = validAnnProperties();
+            properties.put("num_partitions", "65");
+            assertRejected("num_partitions must not exceed 64 (lance_index_max_num_partitions)",
+                    annDef(properties), annTable());
+            properties.put("num_partitions", "64");
+            Map<String, String> atNewBound = properties;
+            Assertions.assertDoesNotThrow(
+                    () -> LanceIndexMutationValidator.validateCreateIndex(filesystemCatalog(), annTable(),
+                            annDef(atNewBound)));
+        } finally {
+            Config.lance_index_max_num_partitions = originalMaxNumPartitions;
+        }
+    }
+
+    @Test
+    public void testRejectMutationDisabledExposes5102() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> LanceIndexMutationValidator.rejectMutationDisabled("CREATE INDEX"));
+        Assertions.assertEquals(
+                "CREATE INDEX is disabled for Lance catalog tables (enable_lance_index_mutation = false)",
+                exception.getDetailMessage());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_DISABLED, exception.getMysqlErrorCode());
     }
 }
