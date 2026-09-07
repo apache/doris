@@ -57,7 +57,7 @@ ENV JACOCO_VERSION=0.8.8
 
 RUN sed -i \
         -e 's@/deb.debian.org/@/mirrors.aliyun.com/@g' \
-        -e 's@http://security.debian.org/@https://security.debian.org/@g' \
+        -e 's@http://security.debian.org/debian-security@https://deb.debian.org/debian-security@g' \
         /etc/apt/sources.list \
     && apt-get clean \
     && apt-get update \
