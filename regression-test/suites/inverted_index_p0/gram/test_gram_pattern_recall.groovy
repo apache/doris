@@ -100,6 +100,13 @@ suite("test_gram_pattern_recall", "p0") {
                     '(\\Qabc\\E)+', '\\Qabé\\E{2}timeout', 'a\\Q\\E*timeout',
                     'prefix\u0000suffix', 'prefix\\x00suffix', 'prefix[0-9]\u0000timeout']
     sql "SET enable_sql_cache=false"
+    // The condition cache must be off too: gram deliberately keeps its LIKE / REGEXP expression
+    // in _common_expr_ctxs_push_down for the row-level recheck, so the segment iterator never
+    // zeroes the condition cache digest, and that digest ignores enable_inverted_index_query.
+    // Left on, the index-on pass fills the per-segment granule cache and the index-off pass hits
+    // it, so both passes would read one and the same filter result and this parity check would
+    // degenerate into a tautology.
+    sql "SET enable_condition_cache=false"
     [false, true].each { useIndex ->
         sql "SET enable_inverted_index_query=${useIndex}"
         schemes.each { column, unused ->

@@ -254,6 +254,13 @@ suite("test_gram_regexp_like", "p0") {
     // Turn the SQL cache off, so the two modes cannot reuse one cached result and blur the
     // comparison
     sql "SET enable_sql_cache=false"
+    // The condition cache must be off too: gram deliberately keeps its LIKE / REGEXP expression
+    // in _common_expr_ctxs_push_down for the row-level recheck, so the segment iterator never
+    // zeroes the condition cache digest, and that digest ignores enable_inverted_index_query.
+    // Left on, the index-on pass fills the per-segment granule cache and the index-off pass hits
+    // it, so both passes would read one and the same filter result and this parity check would
+    // degenerate into a tautology.
+    sql "SET enable_condition_cache=false"
 
     // Produce the .out golden: run the same batch of queries once with the index on and once off
     def runAll = { boolean useIndex ->
@@ -303,10 +310,28 @@ suite("test_gram_regexp_like", "p0") {
         assertTrue(plain.find(), "${name} is not parseable from profile")
         return Long.parseLong(plain.group(1))
     }
+    // Evidence that "SET enable_condition_cache=false" above really took effect: FE then sends no
+    // condition cache digest, so the scanners render "ConditionCacheHit: 0" (or, in the merged
+    // profile, "sum 0, avg 0, max 0, min 0"). A build that does not export the counter at all is
+    // equally fine -- what must never appear is a non-zero hit, because that would mean the
+    // index-on and index-off passes can share one cached per-granule filter result and every
+    // parity comparison in this suite would silently become a tautology.
+    def assertConditionCacheUnused = { String label, String profileString ->
+        // Any non-zero digit inside the rendered value means the cache served this scan.
+        def matcher = Pattern.compile("ConditionCacheHit:[^\\n]*[1-9][^\\n]*").matcher(profileString)
+        def hits = []
+        while (matcher.find()) {
+            hits << matcher.group().trim()
+        }
+        assertTrue(hits.isEmpty(),
+                "[${label}] the condition cache served this scan (${hits}); index on and index "
+                        + "off would then compare one shared cached result, not two real scans")
+    }
     def checkGramPruned = { String label, String profileString, Throwable exception ->
         assertNull(exception)
         assertTrue(profileString.contains("RowsGramIndexFiltered"),
                 "RowsGramIndexFiltered is missing from profile")
+        assertConditionCacheUnused(label, profileString)
         def filtered = parseProfileCounter(profileString, "RowsGramIndexFiltered")
         def candidate = parseProfileCounter(profileString, "GramIndexCandidateRows")
         log.info("[${label}] RowsGramIndexFiltered=${filtered}, GramIndexCandidateRows=${candidate}".toString())

@@ -17,6 +17,13 @@
 
 suite("test_gram_policy_recovery", "p0") {
     sql "SET enable_sql_cache=false"
+    // The condition cache must be off too: gram deliberately keeps its LIKE / REGEXP expression
+    // in _common_expr_ctxs_push_down for the row-level recheck, so the segment iterator never
+    // zeroes the condition cache digest, and that digest ignores enable_inverted_index_query.
+    // Left on, the index-on pass fills the per-segment granule cache and the index-off pass hits
+    // it, so both passes would read one and the same filter result and this parity check would
+    // degenerate into a tautology.
+    sql "SET enable_condition_cache=false"
 
     def waitAnalyzerInstalled = { int expectedTokenCount ->
         def deadline = System.currentTimeMillis() + 180_000

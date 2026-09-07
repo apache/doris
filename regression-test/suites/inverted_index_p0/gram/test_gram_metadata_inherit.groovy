@@ -74,6 +74,13 @@ suite("test_gram_metadata_inherit", "p0") {
         (2, 'unrelated', 'unrelated', 'green dog')"""
     sql "sync"
     sql "SET enable_sql_cache=false"
+    // The condition cache must be off too: gram deliberately keeps its LIKE / REGEXP expression
+    // in _common_expr_ctxs_push_down for the row-level recheck, so the segment iterator never
+    // zeroes the condition cache digest, and that digest ignores enable_inverted_index_query.
+    // Left on, the index-on pass fills the per-segment granule cache and the index-off pass hits
+    // it, so both passes would read one and the same filter result and this parity check would
+    // degenerate into a tautology.
+    sql "SET enable_condition_cache=false"
 
     def checkPatterns = { String phase ->
         [false, true].each { useIndex ->
@@ -103,6 +110,15 @@ suite("test_gram_metadata_inherit", "p0") {
                     assertTrue(filtered.find(), "RowsGramIndexFiltered missing from ${profileId}")
                     assertTrue(Long.parseLong(filtered.group(1)) > 0,
                             "${profileId} must still use the gram index")
+                    // Evidence that "SET enable_condition_cache=false" above took effect: a
+                    // non-zero ConditionCacheHit would mean the index-on and index-off passes
+                    // share one cached per-granule filter result, so the comparison above would
+                    // no longer be able to expose a row the gram index dropped.
+                    def cacheHit = Pattern.compile("ConditionCacheHit:[^\\n]*[1-9][^\\n]*")
+                            .matcher(profile)
+                    assertTrue(!cacheHit.find(),
+                            "${profileId} hit the condition cache, so index on/off no longer "
+                                    + "compare two independent scans")
                 }
             }
         } finally {
