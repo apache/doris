@@ -53,8 +53,10 @@ public final class LanceMetadataLoader {
             String datasetUri, List<StorageProperties> storageProperties)
             throws Exception {
         try (BufferAllocator allocator = new RootAllocator(ALLOCATOR_LIMIT)) {
-            return loadLatest(datasetUri,
-                    LanceStorageOptions.fromDorisStorageProperties(datasetUri, storageProperties), allocator);
+            // S3 TVFs do not plan FE index-segment groups; only the dataset snapshot is needed.
+            return loadInternal(datasetUri,
+                    LanceStorageOptions.fromDorisStorageProperties(datasetUri, storageProperties),
+                    OptionalLong.empty(), allocator, false);
         }
     }
 
@@ -64,17 +66,10 @@ public final class LanceMetadataLoader {
      * <p>Called by
      * {@link LanceExternalCatalog#loadTableMetadata(String, String, java.util.Optional)} when no
      * time-travel version is requested. Schema, version, and fragments are read from the same
-     * opened dataset snapshot.
+     * opened dataset snapshot, together with index coverage for fragment grouping and external searches.
      */
     public static LanceTableMetadata loadLatest(String datasetUri,
             Map<String, String> lanceStorageOptions, BufferAllocator allocator) throws Exception {
-        return loadInternal(
-                datasetUri, lanceStorageOptions, OptionalLong.empty(), allocator, false);
-    }
-
-    /** Loads the latest fixed snapshot together with search-index segment coverage. */
-    public static LanceTableMetadata loadLatestWithIndexSegments(
-            String datasetUri, Map<String, String> lanceStorageOptions, BufferAllocator allocator) throws Exception {
         return loadInternal(
                 datasetUri, lanceStorageOptions, OptionalLong.empty(), allocator, true);
     }
@@ -90,13 +85,13 @@ public final class LanceMetadataLoader {
             Map<String, String> lanceStorageOptions, long version, BufferAllocator allocator)
             throws Exception {
         return loadInternal(
-                datasetUri, lanceStorageOptions, OptionalLong.of(version), allocator, false);
+                datasetUri, lanceStorageOptions, OptionalLong.of(version), allocator, true);
     }
 
     /** Shared implementation for the latest-version and explicit-version public entry points. */
     private static LanceTableMetadata loadInternal(String datasetUri,
             Map<String, String> lanceStorageOptions, OptionalLong version,
-            BufferAllocator allocator, boolean loadIndexSegments) throws Exception {
+            BufferAllocator allocator, boolean includeIndexSegments) throws Exception {
         try (Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
                 .readOptions(LanceReadOptions.build(lanceStorageOptions, version)).build()) {
             long resolvedVersion = dataset.version();
@@ -106,11 +101,11 @@ public final class LanceMetadataLoader {
                         Integer.toUnsignedLong(fragment.getId()), fragment.metadata().getNumRows(),
                         fragment.metadata().getPhysicalRows()));
             }
-            Map<String, Integer> lanceFieldIds = loadIndexSegments
+            Map<String, Integer> lanceFieldIds = includeIndexSegments
                     ? loadTopLevelFieldIds(dataset) : Collections.emptyMap();
-            List<LanceIndexSegmentInfo> indexSegments = loadIndexSegments
-                    ? loadSearchIndexSegments(dataset) : Collections.emptyList();
-            return loadIndexSegments
+            List<LanceIndexSegmentInfo> indexSegments = includeIndexSegments
+                    ? loadIndexSegments(dataset) : Collections.emptyList();
+            return includeIndexSegments
                     ? LanceTableMetadata.withIndexSegments(datasetUri, resolvedVersion,
                             dataset.getSchema(), fragments, lanceFieldIds,
                             indexSegments, lanceStorageOptions)
@@ -134,13 +129,12 @@ public final class LanceMetadataLoader {
         return result;
     }
 
-    private static List<LanceIndexSegmentInfo> loadSearchIndexSegments(Dataset dataset) {
+    private static List<LanceIndexSegmentInfo> loadIndexSegments(Dataset dataset) {
         List<LanceIndexSegmentInfo> result = new ArrayList<>();
-        for (IndexDescription description : dataset.describeIndices()) {
+        for (IndexDescription description : LanceIndexMetadataLoader.describeUserIndexes(dataset)) {
             String metric = parseMetric(description.getDetailsJson());
             for (Index segment : description.getSegments()) {
-                if (segment.indexType() == null || (segment.indexType().getValue() < 100
-                        && segment.indexType() != org.lance.index.IndexType.INVERTED)) {
+                if (segment.indexType() == null) {
                     continue;
                 }
                 List<Long> fragmentIds = segment.fragments()
