@@ -68,6 +68,7 @@
 #include "util/debug_points.h"
 #endif
 #include "util/json/path_in_data.h"
+#include "util/time.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
@@ -977,6 +978,7 @@ void OlapScanner::_collect_profile_before_close() {
     tablet->query_scan_bytes->increment(local_state->_read_uncompressed_counter->value());
     tablet->query_scan_rows->increment(local_state->_scan_rows->value());
     tablet->query_scan_count->increment(1);
+    tablet->last_query_scan_time_ms.store(UnixMillis(), std::memory_order_relaxed);
 
     COUNTER_UPDATE(local_state->_ann_range_search_filter_counter,
                    stats.rows_ann_index_range_filtered);

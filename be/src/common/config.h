@@ -325,6 +325,18 @@ DECLARE_mInt32(report_task_interval_seconds);
 DECLARE_mInt32(report_disk_state_interval_seconds);
 // the interval time(seconds) for agent report olap table to FE
 DECLARE_mInt32(report_tablet_interval_seconds);
+// Per-list cap: a report carries at most 2 * report_active_tablet_max_num entries
+// (one top-N list for queries, one for loads).
+//
+// MUST satisfy:  report_active_tablet_max_num >= fe cloud_active_partition_scheduling_topn / 2
+//
+// FE's getTopNActive() picks topn/2 per bucket. When the hot set is concentrated on a
+// single BE, that BE alone has to be able to fill a whole bucket, so a smaller cap here
+// silently drops information. 5000 is exactly the lower bound for the FE default of 10000
+// -- raising the FE value without raising this one loses data silently.
+DECLARE_mInt32(report_active_tablet_max_num);
+// Only tablets queried / loaded within this window are reported as active.
+DECLARE_mInt32(report_active_tablet_window_second);
 // the max download speed(KB/s)
 DECLARE_mInt32(max_download_speed_kbps);
 // download low speed limit(KB/s)
