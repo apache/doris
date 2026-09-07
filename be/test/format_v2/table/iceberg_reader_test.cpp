@@ -820,6 +820,69 @@ void write_nested_equality_orc_file(const std::string& file_path, const std::vec
     output.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
+void write_nested_key_value_parquet_file(const std::string& file_path,
+                                         const std::vector<int32_t>& keys,
+                                         const std::vector<int32_t>& values) {
+    ASSERT_EQ(keys.size(), values.size());
+    auto key_field = arrow::field("delete_key", arrow::int32(), false)
+                             ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"2"}));
+    auto value_field =
+            arrow::field("visible_value", arrow::int32(), false)
+                    ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"3"}));
+    auto payload_result = arrow::StructArray::Make(
+            {build_int32_array(keys), build_int32_array(values)}, {key_field, value_field});
+    ASSERT_TRUE(payload_result.ok()) << payload_result.status();
+    auto payload_field =
+            arrow::field("payload", arrow::struct_({key_field, value_field}), false)
+                    ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"1"}));
+    auto table = arrow::Table::Make(arrow::schema({payload_field}), {*payload_result});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      static_cast<int64_t>(keys.size()),
+                                                      builder.build()));
+}
+
+void write_nested_key_value_orc_file(const std::string& file_path, const std::vector<int64_t>& keys,
+                                     const std::vector<int64_t>& values) {
+    ASSERT_EQ(keys.size(), values.size());
+    auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
+            "struct<payload:struct<delete_key:int,visible_value:int>>"));
+    type->getSubtype(0)->setAttribute("iceberg.id", "1");
+    type->getSubtype(0)->getSubtype(0)->setAttribute("iceberg.id", "2");
+    type->getSubtype(0)->getSubtype(1)->setAttribute("iceberg.id", "3");
+
+    MemoryOutputStream memory_stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setMemoryPool(::orc::getDefaultPool());
+    auto writer = ::orc::createWriter(*type, &memory_stream, options);
+    auto batch = writer->createRowBatch(keys.size());
+    auto& root_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& payload_batch = dynamic_cast<::orc::StructVectorBatch&>(*root_batch.fields[0]);
+    const std::array value_sets = {&keys, &values};
+    for (size_t field_idx = 0; field_idx < value_sets.size(); ++field_idx) {
+        auto& value_batch = dynamic_cast<::orc::LongVectorBatch&>(*payload_batch.fields[field_idx]);
+        for (size_t row = 0; row < keys.size(); ++row) {
+            value_batch.data[row] = (*value_sets[field_idx])[row];
+        }
+        value_batch.numElements = keys.size();
+    }
+    root_batch.numElements = keys.size();
+    payload_batch.numElements = keys.size();
+    writer->add(*batch);
+    writer->close();
+
+    std::ofstream output(file_path, std::ios::binary);
+    output.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
 void write_timestamp_int_parquet_file(const std::string& file_path,
                                       const std::vector<int64_t>& timestamps,
                                       const std::vector<int32_t>& ids) {
@@ -3172,6 +3235,157 @@ TEST(IcebergV2ReaderTest, IcebergNestedEqualityDeleteFiltersCurrentAndDroppedFie
         run_case(file_format, true);
     }
     run_case(FileFormat::PARQUET, false, false);
+}
+
+// Keep the Parquet/ORC setup identical because both readers must preserve the projected child
+// ordinal when an equality-delete key widens the same struct root after mapper localization.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+TEST(IcebergV2ReaderTest, IcebergNestedEqualityDeletePreservesVisibleSiblingProjection) {
+    const auto run_case = [](FileFormat file_format) {
+        const bool is_parquet = file_format == FileFormat::PARQUET;
+        const std::string format_name = is_parquet ? "parquet" : "orc";
+        const auto test_dir = std::filesystem::temp_directory_path() /
+                              ("doris_v2_nested_equality_visible_sibling_" + format_name);
+        std::filesystem::remove_all(test_dir);
+        std::filesystem::create_directories(test_dir);
+        const auto file_path = (test_dir / ("split." + format_name)).string();
+        const auto delete_file_path = (test_dir / ("equality-delete." + format_name)).string();
+        if (is_parquet) {
+            write_nested_key_value_parquet_file(file_path, {100, 200, 300}, {10, 20, 30});
+            write_nested_equality_parquet_file(delete_file_path, {}, {200}, {false}, true,
+                                               "delete_key", 2);
+        } else {
+            write_nested_key_value_orc_file(file_path, {100, 200, 300}, {10, 20, 30});
+            write_nested_equality_orc_file(delete_file_path, {}, {200}, {false}, "delete_key", 2);
+        }
+
+        auto schema_payload = external_struct_schema_field(
+                "payload", 1,
+                {external_schema_field("delete_key", 2, {}, std::nullopt,
+                                       external_primitive_type(TPrimitiveType::INT)),
+                 external_schema_field("visible_value", 3, {}, std::nullopt,
+                                       external_primitive_type(TPrimitiveType::INT))});
+        auto scan_params = make_local_scan_params(file_format);
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+        scan_params.__set_current_schema_id(100);
+        scan_params.__set_history_schema_info({external_schema(100, {schema_payload})});
+
+        const auto int_type = std::make_shared<DataTypeInt32>();
+        auto visible_value = make_table_column(3, "visible_value", int_type);
+        auto payload_type =
+                std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"visible_value"});
+        auto payload = make_table_column(1, "payload", payload_type);
+        payload.children = {visible_value};
+        std::vector<ColumnDefinition> projected_columns = {payload};
+
+        RuntimeProfile profile("test_profile");
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        io::FileReaderStats file_reader_stats;
+        io::FileCacheStatistics file_cache_stats;
+        auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+        ShardedKVCache cache(1);
+        doris::format::iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile,
+                            file_format);
+
+        auto split_options = build_split_options(file_path);
+        split_options.cache = &cache;
+        split_options.current_split_format = file_format;
+        const auto thrift_file_format =
+                is_parquet ? TFileFormatType::FORMAT_PARQUET : TFileFormatType::FORMAT_ORC;
+        split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                file_path,
+                {make_iceberg_equality_delete_file(delete_file_path, {2}, thrift_file_format)}, 3));
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+        Block block = build_table_block(projected_columns);
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        ASSERT_FALSE(eos);
+        const auto& payload_result =
+                assert_cast<const ColumnStruct&>(expect_not_null_table_column(block, 0));
+        expect_int32_column_values(payload_result.get_column(0), {10, 30});
+
+        ASSERT_TRUE(reader.close().ok());
+        std::filesystem::remove_all(test_dir);
+    };
+
+    for (const auto file_format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        run_case(file_format);
+    }
+}
+
+// Metadata-only projections cannot carry schema aliases themselves. The complete Iceberg schema
+// must still select name mapping for hidden equality-delete keys in both physical readers.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+TEST(IcebergV2ReaderTest, IcebergMetadataOnlyEqualityDeleteUsesHistoryNameMapping) {
+    const auto run_case = [](FileFormat file_format) {
+        const bool is_parquet = file_format == FileFormat::PARQUET;
+        const std::string format_name = is_parquet ? "parquet" : "orc";
+        const auto test_dir = std::filesystem::temp_directory_path() /
+                              ("doris_v2_metadata_only_equality_delete_" + format_name);
+        std::filesystem::remove_all(test_dir);
+        std::filesystem::create_directories(test_dir);
+        const auto file_path = (test_dir / ("split." + format_name)).string();
+        const auto delete_file_path = (test_dir / ("equality-delete." + format_name)).string();
+        if (is_parquet) {
+            write_single_int_parquet_file(file_path, "legacy_key", {5, 7, 9}, std::nullopt);
+            write_iceberg_equality_delete_parquet_file(delete_file_path, 1, 7, "legacy_key");
+        } else {
+            write_single_int_orc_file(file_path, "legacy_key", {5, 7, 9}, std::nullopt);
+            write_single_int_orc_file(delete_file_path, "legacy_key", {7}, 1);
+        }
+
+        auto key_field =
+                external_schema_field("current_key", 1, {"legacy_key"}, std::nullopt,
+                                      external_primitive_type(TPrimitiveType::INT), false, true);
+        key_field.field_ptr->__set_name_mapping_is_authoritative(true);
+        auto scan_params = make_local_scan_params(file_format);
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+        scan_params.__set_current_schema_id(100);
+        scan_params.__set_history_schema_info({external_schema(100, {key_field})});
+
+        std::vector<ColumnDefinition> projected_columns;
+        projected_columns.push_back(make_synthesized_table_column(
+                BeConsts::ICEBERG_FILE_PATH_COL, std::make_shared<DataTypeString>()));
+        projected_columns.push_back(make_synthesized_table_column(
+                BeConsts::ICEBERG_ROW_POSITION_COL, std::make_shared<DataTypeInt64>()));
+
+        RuntimeProfile profile("test_profile");
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        io::FileReaderStats file_reader_stats;
+        io::FileCacheStatistics file_cache_stats;
+        auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+        ShardedKVCache cache(1);
+        doris::format::iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile,
+                            file_format);
+
+        auto split_options = build_split_options(file_path);
+        split_options.cache = &cache;
+        split_options.current_split_format = file_format;
+        const auto thrift_file_format =
+                is_parquet ? TFileFormatType::FORMAT_PARQUET : TFileFormatType::FORMAT_ORC;
+        split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                file_path,
+                {make_iceberg_equality_delete_file(delete_file_path, {1}, thrift_file_format)}, 3));
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+        Block block = build_table_block(projected_columns);
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        ASSERT_FALSE(eos);
+        ASSERT_EQ(block.rows(), 2);
+        expect_string_column_values(*block.get_by_position(0).column, {file_path, file_path});
+        expect_int64_column_values(*block.get_by_position(1).column, {0, 2});
+
+        ASSERT_TRUE(reader.close().ok());
+        std::filesystem::remove_all(test_dir);
+    };
+
+    for (const auto file_format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        run_case(file_format);
+    }
 }
 
 // Keep the shared Parquet/ORC reader setup together so both V2 paths exercise identical ID-less

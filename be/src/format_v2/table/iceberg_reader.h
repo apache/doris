@@ -74,7 +74,7 @@ public:
             return format::TableColumnMappingMode::BY_FIELD_ID;
         }
         if (!_data_reader.file_schema.empty() && supports_iceberg_scan_semantics_v2(_scan_params) &&
-            !schema_has_any_authoritative_name_mapping(_projected_columns)) {
+            !_scan_has_any_authoritative_name_mapping()) {
             // ID-less migrated files are name-readable only while Iceberg's explicit default name
             // mapping exists; current names must not resurrect file fields after it is removed.
             return format::TableColumnMappingMode::BY_FIELD_ID;
@@ -120,6 +120,8 @@ private:
     static constexpr const char* ICEBERG_ROW_POS = "pos";
     static constexpr size_t ICEBERG_FILE_PATH_BLOCK_POSITION = 0;
     static constexpr size_t ICEBERG_ROW_POS_BLOCK_POSITION = 1;
+
+    bool _scan_has_any_authoritative_name_mapping() const;
 
     class PositionDeleteRowsCollector final {
     public:

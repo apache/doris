@@ -1162,6 +1162,8 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
         }
     }
     RETURN_IF_ERROR(customize_file_scan_request(refreshed_request.get()));
+    RETURN_IF_ERROR(
+            refreshed_mapper->reconcile_scan_request_after_customization(refreshed_request.get()));
     if (_file_scan_request == nullptr ||
         !same_physical_scan_layout(*refreshed_request, *_file_scan_request)) {
         // A reader cannot reinterpret columns already materialized with another block layout.

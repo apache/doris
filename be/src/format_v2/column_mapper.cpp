@@ -2134,6 +2134,20 @@ static const LocalColumnIndex* find_scan_projection(
     return projection_it == scan_columns.end() ? nullptr : &*projection_it;
 }
 
+static bool same_projected_file_shape(const std::vector<ColumnDefinition>& lhs,
+                                      const std::vector<ColumnDefinition>& rhs) {
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+    for (size_t index = 0; index < lhs.size(); ++index) {
+        if (lhs[index].local_id != rhs[index].local_id ||
+            !same_projected_file_shape(lhs[index].children, rhs[index].children)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Apply the final scan projection of one root file column back to its ColumnMapping. This updates
 // mapping.file_type/projected_file_children from the original file schema to the exact shape that
 // FileReader will return.
@@ -2574,6 +2588,36 @@ Status TableColumnMapper::create_scan_request(
                 << mapping.file_column_name;
         rebuild_projection(&mapping, file_request->non_predicate_position(local_id));
     }
+    return Status::OK();
+}
+
+Status TableColumnMapper::reconcile_scan_request_after_customization(
+        FileScanRequest* file_request) {
+    DORIS_CHECK(file_request != nullptr);
+    bool output_shape_changed = false;
+    for (auto& mapping : _mappings) {
+        if (!mapping.file_local_id.has_value() ||
+            !file_request->local_positions.contains(LocalColumnId(*mapping.file_local_id))) {
+            continue;
+        }
+        const auto previous_file_type = mapping.file_type;
+        const auto previous_file_children = mapping.projected_file_children;
+        RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
+        output_shape_changed |=
+                previous_file_type == nullptr || mapping.file_type == nullptr ||
+                !previous_file_type->equals(*mapping.file_type) ||
+                !same_projected_file_shape(previous_file_children, mapping.projected_file_children);
+        rebuild_projection(&mapping, file_request->non_predicate_position(
+                                             LocalColumnId(*mapping.file_local_id)));
+    }
+    if (output_shape_changed) {
+        // Localized conjuncts embed nested child ordinals from the pre-hook projection. Scanner
+        // still evaluates the original table conjuncts, so discard stale file-local copies rather
+        // than allowing a late equality-delete dependency to reinterpret another child.
+        file_request->conjuncts.clear();
+        file_request->metadata_pruning_safe_conjunct_count = 0;
+    }
+    RETURN_IF_ERROR(_build_filter_entries(*file_request));
     return Status::OK();
 }
 

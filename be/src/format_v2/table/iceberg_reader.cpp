@@ -53,6 +53,7 @@
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
+#include "format_v2/table/schema_history_util.h"
 #include "format_v2/table_reader.h"
 #include "io/file_factory.h"
 #include "util/debug_points.h"
@@ -65,6 +66,40 @@ static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr int32_t ROW_LINEAGE_ROW_ID_FIELD_ID = 2147483540;
 
 namespace {
+
+bool external_field_has_authoritative_name_mapping(const schema::external::TField& field) {
+    if (field.__isset.name_mapping_is_authoritative && field.name_mapping_is_authoritative) {
+        return true;
+    }
+    if (!field.__isset.nestedField) {
+        return false;
+    }
+    if (field.nestedField.__isset.struct_field && field.nestedField.struct_field.__isset.fields) {
+        return std::ranges::any_of(field.nestedField.struct_field.fields, [](const auto& child) {
+            const auto* child_field = format::get_field_ptr(child);
+            return child_field != nullptr &&
+                   external_field_has_authoritative_name_mapping(*child_field);
+        });
+    }
+    if (field.nestedField.__isset.array_field && field.nestedField.array_field.__isset.item_field) {
+        const auto* item = format::get_field_ptr(field.nestedField.array_field.item_field);
+        return item != nullptr && external_field_has_authoritative_name_mapping(*item);
+    }
+    if (field.nestedField.__isset.map_field) {
+        const auto& map_field = field.nestedField.map_field;
+        if (map_field.__isset.key_field) {
+            const auto* key = format::get_field_ptr(map_field.key_field);
+            if (key != nullptr && external_field_has_authoritative_name_mapping(*key)) {
+                return true;
+            }
+        }
+        if (map_field.__isset.value_field) {
+            const auto* value = format::get_field_ptr(map_field.value_field);
+            return value != nullptr && external_field_has_authoritative_name_mapping(*value);
+        }
+    }
+    return false;
+}
 
 bool contains_variant_type(const DataTypePtr& input) {
     if (input == nullptr) {
@@ -128,6 +163,30 @@ const char* file_format_name(FileFormat format) {
 }
 
 } // namespace
+
+bool IcebergTableReader::_scan_has_any_authoritative_name_mapping() const {
+    if (schema_has_any_authoritative_name_mapping(_projected_columns)) {
+        return true;
+    }
+    if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info) {
+        return false;
+    }
+    // Metadata-only scans have no projected data column carrying aliases. Consult the complete
+    // schema so hidden equality-delete keys use the same authoritative mapping as visible fields.
+    for (const auto& schema : _scan_params->history_schema_info) {
+        if (!schema.__isset.root_field || !schema.root_field.__isset.fields) {
+            continue;
+        }
+        if (std::ranges::any_of(schema.root_field.fields, [](const auto& field) {
+                const auto* schema_field = format::get_field_ptr(field);
+                return schema_field != nullptr &&
+                       external_field_has_authoritative_name_mapping(*schema_field);
+            })) {
+            return true;
+        }
+    }
+    return false;
+}
 
 Status IcebergTableReader::validate_variant_file_mappings(
         FileFormat format, const std::vector<format::ColumnMapping>& mappings) {
