@@ -17,11 +17,16 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
+
+import java.util.Set;
 
 class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
@@ -49,6 +54,22 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
                         + ")\n"
                         + "DUPLICATE KEY(id3)\n"
                         + "DISTRIBUTED BY HASH(id3) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS pk_parent (\n"
+                        + "    id int not null,\n"
+                        + "    name char\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id)\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS fk_child (\n"
+                        + "    row_id int not null,\n"
+                        + "    parent_id int not null,\n"
+                        + "    amount int,\n"
+                        + "    parent_name char\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(row_id)\n"
+                        + "DISTRIBUTED BY HASH(row_id) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n",
                 // Tables for tree-structured multi-join test (like TPC-H Q10):
                 // t_primary acts as the "bridge" table (like customer):
@@ -96,6 +117,10 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
                 + "references pri(id1)");
         addConstraint("Alter table foreign_null add constraint f_not_null foreign key (id3)\n"
                 + "references pri(id1)");
+        addConstraint("Alter table pk_parent add constraint pk_parent_pk primary key (id)");
+        addConstraint("Alter table fk_child add constraint fk_child_pk primary key (row_id)");
+        addConstraint("Alter table fk_child add constraint fk_child_fk foreign key (parent_id)\n"
+                + "references pk_parent(id)");
         // Constraints for tree-structured multi-join test
         addConstraint("Alter table t_primary add constraint pk_t_primary primary key (pk_id)");
         addConstraint("Alter table t_foreign1 add constraint fk1_to_primary foreign key (fk_to_primary)\n"
@@ -104,7 +129,14 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
         addConstraint("Alter table t_primary add constraint fk_primary_to_other foreign key (fk_to_other)\n"
                 + "references t_other_primary(other_pk_id)");
         connectContext.getSessionVariable().setDisableNereidsRules(
-                "PRUNE_EMPTY_PARTITION,ELIMINATE_JOIN_BY_FK");
+                "PRUNE_EMPTY_PARTITION,ELIMINATE_JOIN_BY_FK,PUSH_DOWN_AGG_THROUGH_JOIN");
+    }
+
+    private Set<String> getGroupBySlotNames(LogicalAggregate<?> aggregate) {
+        return aggregate.getGroupByExpressions().stream()
+                .map(Slot.class::cast)
+                .map(Slot::getName)
+                .collect(ImmutableSet.toImmutableSet());
     }
 
     @Test
@@ -176,6 +208,33 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
     void testGroupByFkWithPrimaryAgg() {
         String sql = "select sum(pri.id1) from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
                 + "group by foreign_not_null.id2, pri.id1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate(logicalProject(logicalJoin())))
+                .printlnTree();
+    }
+
+    @Test
+    void testAddForeignKeyToGroupByWhenGroupingByForeignPrimaryKey() {
+        String sql = "select p.name, count(f.row_id) from pk_parent p "
+                + "inner join fk_child f on p.id = f.parent_id "
+                + "group by f.row_id, f.amount, p.name";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(logicalProject(logicalAggregate()
+                        .when(agg ->
+                                getGroupBySlotNames(agg).equals(ImmutableSet.of("parent_id", "row_id", "amount"))
+                                && agg.getOutputExpressions().size() == 4)), any()))
+                .printlnTree();
+    }
+
+    @Test
+    void testNotPushDownWhenGroupByDoesNotDetermineForeignKey() {
+        String sql = "select f.amount, count(f.row_id) from pk_parent p "
+                + "inner join fk_child f on p.id = f.parent_id "
+                + "group by f.amount";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()

@@ -19,6 +19,9 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
+import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.joinorder.JoinReorderRule;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -35,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -45,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableSet;
@@ -99,12 +104,39 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         if (mode < 0) {
             return plan;
         } else {
+            Plan originalPlan = plan;
+            plan = reorderJoinBeforePush(plan, jobContext);
             Plan result = plan.accept(this, jobContext);
+            if (result == plan) {
+                return originalPlan;
+            }
             if (SessionVariable.isFeDebug()) {
                 result = new AdjustNullable(true).rewriteRoot(result, null);
             }
             return result;
         }
+    }
+
+    private Plan reorderJoinBeforePush(Plan plan, JobContext jobContext) {
+        List<CatalogRelation> scans = plan.collectToList(CatalogRelation.class::isInstance);
+        StatsCalculator.disableJoinReorderIfStatsInvalid(scans, jobContext.getCascadesContext());
+        ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
+        if (connectContext.getSessionVariable().isDisableJoinReorder()
+                || jobContext.getCascadesContext().isLeadingDisableJoinReorder()
+                || !connectContext.getSessionVariable().enableJoinReorderBeforeEagerAgg) {
+            return plan;
+        }
+        long startNanos = System.nanoTime();
+        Plan reorderedPlan = JoinReorderRule.INSTANCE.rewrite(plan, null);
+        if (LOG.isDebugEnabled()) {
+            double elapsedMs = (System.nanoTime() - startNanos) / 1_000_000.0;
+            LOG.debug("{} join reorder before eager aggregation [changed={}, elapsedMs={}]",
+                    connectContext.getQueryIdentifier(), reorderedPlan != plan, elapsedMs);
+        }
+        if (reorderedPlan == plan) {
+            return plan;
+        }
+        return new ColumnPruning().rewriteRoot(reorderedPlan, jobContext);
     }
 
     @Override

@@ -58,6 +58,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Utils for join
@@ -365,6 +366,34 @@ public class JoinUtils {
 
         Map<Slot, Slot> primaryToForeignKey = mapPrimaryToForeign(equalSet, foreignKey);
         return context.satisfyConstraint(primaryToForeignKey);
+    }
+
+    /**
+     * Check whether the given join can be eliminated by pk-fk
+     */
+    public @Nullable static Pair<Set<Slot>, Set<Slot>> canEliminateByFk2(
+            LogicalJoin<?, ?> join, Plan primaryPlan, Plan foreignPlan) {
+        if (!(join.getJoinType().isInnerJoin() || join.getJoinType().isAsofInnerJoin())
+                || !join.getOtherJoinConjuncts().isEmpty() || join.isMarkJoin()) {
+            return null;
+        }
+
+        ForeignKeyContext context = new ForeignKeyContext();
+        context.collectForeignKeyConstraint(primaryPlan);
+        context.collectForeignKeyConstraint(foreignPlan);
+
+        ImmutableEqualSet<Slot> equalSet = join.getEqualSlots();
+        Set<Slot> primaryKey = Sets.intersection(equalSet.getAllItemSet(), primaryPlan.getOutputSet());
+        Set<Slot> foreignKey = Sets.intersection(equalSet.getAllItemSet(), foreignPlan.getOutputSet());
+        if (!context.isForeignKey(foreignKey) || !context.isPrimaryKey(primaryKey)) {
+            return null;
+        }
+
+        Map<Slot, Slot> primaryToForeignKey = mapPrimaryToForeign(equalSet, foreignKey);
+        if (context.satisfyConstraint(primaryToForeignKey)) {
+            return Pair.of(primaryKey, foreignKey);
+        }
+        return null;
     }
 
     /**
