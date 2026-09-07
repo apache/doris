@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -513,6 +514,23 @@ public class TypeCoercionUtilsTest {
                             .get().getDataType());
         } finally {
             ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testTimeEndpointCharacterLiteralTypeCoercion() {
+        String fraction = ".000000499999999999999999";
+        for (String sign : ImmutableList.of("", "-")) {
+            String endpoint = sign + "838:59:59.000000";
+            EqualTo comparison = new EqualTo(
+                    new TimeV2Literal(TimeV2Type.of(6), endpoint),
+                    new VarcharLiteral(sign + "838:59:59" + fraction));
+
+            EqualTo coerced = (EqualTo) TypeCoercionUtils.processComparisonPredicate(comparison);
+
+            Assertions.assertEquals(TimeV2Type.of(6), coerced.left().getDataType());
+            Assertions.assertInstanceOf(TimeV2Literal.class, coerced.right());
+            Assertions.assertEquals(endpoint, ((TimeV2Literal) coerced.right()).getStringValue());
         }
     }
 

@@ -33,9 +33,8 @@ namespace doris {
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-template <DatelikeParseMode ParseMode>
-[[nodiscard]] [[maybe_unused]] static bool init_microsecond(int64_t frac_input,
-                                                            uint32_t frac_length,
+template <DatelikeParseMode ParseMode, typename T>
+[[nodiscard]] [[maybe_unused]] static bool init_microsecond(T frac_input, uint32_t frac_length,
                                                             TimeValue::TimeType& val,
                                                             uint32_t target_scale,
                                                             CastParameters& params) {
@@ -49,19 +48,19 @@ template <DatelikeParseMode ParseMode>
         }
 
         // align to `target_scale` digits
-        uint32_t in_scale_part =
+        T in_scale_part =
                 (frac_length > target_scale)
-                        ? (uint32_t)(frac_input / common::exp10_i64(frac_length - target_scale))
-                        : (uint32_t)(frac_input * common::exp10_i64(target_scale - frac_length));
+                        ? frac_input / decimal_scale_multiplier<T>(frac_length - target_scale)
+                        : frac_input * decimal_scale_multiplier<T>(target_scale - frac_length);
 
         if (frac_length > target_scale) { // to_scale is up to 6
             // round off to at most `to_scale` digits
-            auto digit_next =
-                    (uint32_t)(frac_input / common::exp10_i64(frac_length - target_scale - 1)) % 10;
+            auto digit_next = static_cast<uint32_t>(
+                    frac_input / decimal_scale_multiplier<T>(frac_length - target_scale - 1) % 10);
             if (digit_next >= 5) {
                 in_scale_part++;
-                DCHECK(in_scale_part <= 1000000);
-                if (in_scale_part == common::exp10_i32(target_scale)) {
+                DCHECK(in_scale_part <= decimal_scale_multiplier<T>(target_scale));
+                if (in_scale_part == decimal_scale_multiplier<T>(target_scale)) {
                     // overflow, round up to next second
                     val += sign * TimeValue::ONE_SECOND_MICROSECONDS;
                     SET_PARAMS_RET_FALSE_IFN(TimeValue::valid(val),
@@ -70,8 +69,12 @@ template <DatelikeParseMode ParseMode>
                 }
             }
         }
-        val = TimeValue::init_microsecond(
-                val, sign * in_scale_part * common::exp10_i32(6 - (int)target_scale));
+        DCHECK(in_scale_part < decimal_scale_multiplier<T>(target_scale));
+        auto microsecond = static_cast<int32_t>(in_scale_part) *
+                           common::exp10_i32(6 - static_cast<int>(target_scale));
+        val = TimeValue::init_microsecond(val, sign * microsecond);
+        SET_PARAMS_RET_FALSE_IFN(TimeValue::valid(val),
+                                 "time overflow after adding fractional seconds");
     }
     return true;
 }
@@ -163,8 +166,8 @@ struct CastToTimeV2 {
             return false;
         }
 
-        if (!init_microsecond<ParseMode>((int64_t)frac_part, (uint32_t)decimal_scale, res, to_scale,
-                                         params)) {
+        if (!init_microsecond<ParseMode>(frac_part, static_cast<uint32_t>(decimal_scale), res,
+                                         to_scale, params)) {
             return false; // status set in init_microsecond
         }
         return true;

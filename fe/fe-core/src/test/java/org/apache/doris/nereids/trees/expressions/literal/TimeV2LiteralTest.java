@@ -69,25 +69,25 @@ public class TimeV2LiteralTest {
         s = literal.getStringValue();
         Assertions.assertEquals(s, "12:12:12.121212");
         // max val
-        literal = new TimeV2Literal(TimeV2Type.of(6), "838:59:59.999999");
+        literal = new TimeV2Literal(TimeV2Type.of(6), "838:59:59.000000");
         s = literal.getStringValue();
-        Assertions.assertEquals(s, "838:59:59.999999");
+        Assertions.assertEquals(s, "838:59:59.000000");
         // min val
-        literal = new TimeV2Literal(TimeV2Type.of(6), "-838:59:59.999999");
+        literal = new TimeV2Literal(TimeV2Type.of(6), "-838:59:59.000000");
         s = literal.getStringValue();
-        Assertions.assertEquals(s, "-838:59:59.999999");
+        Assertions.assertEquals(s, "-838:59:59.000000");
         // not string
         literal = new TimeV2Literal(12, 12, 12, 121212, 6, false);
         s = literal.getStringValue();
         Assertions.assertEquals(s, "12:12:12.121212");
         // max val
-        literal = new TimeV2Literal(838, 59, 59, 999999, 6, false);
+        literal = new TimeV2Literal(838, 59, 59, 0, 6, false);
         s = literal.getStringValue();
-        Assertions.assertEquals(s, "838:59:59.999999");
+        Assertions.assertEquals(s, "838:59:59.000000");
         // min val
-        literal = new TimeV2Literal(838, 59, 59, 999999, 6, true);
+        literal = new TimeV2Literal(838, 59, 59, 0, 6, true);
         s = literal.getStringValue();
-        Assertions.assertEquals(s, "-838:59:59.999999");
+        Assertions.assertEquals(s, "-838:59:59.000000");
         // string without ":"
         literal = new TimeV2Literal(TimeV2Type.of(0), "8385959");
         s = literal.getStringValue();
@@ -98,12 +98,12 @@ public class TimeV2LiteralTest {
         literal = new TimeV2Literal(TimeV2Type.of(0), "120000");
         s = literal.getStringValue();
         Assertions.assertEquals(s, "12:00:00");
-        literal = new TimeV2Literal(TimeV2Type.of(6), "8385959.999999");
+        literal = new TimeV2Literal(TimeV2Type.of(6), "8385959.000000");
         s = literal.getStringValue();
-        Assertions.assertEquals(s, "838:59:59.999999");
-        literal = new TimeV2Literal(TimeV2Type.of(6), "-8385959.999999");
+        Assertions.assertEquals(s, "838:59:59.000000");
+        literal = new TimeV2Literal(TimeV2Type.of(6), "-8385959.000000");
         s = literal.getStringValue();
-        Assertions.assertEquals(s, "-838:59:59.999999");
+        Assertions.assertEquals(s, "-838:59:59.000000");
         // one ":"
         literal = new TimeV2Literal(TimeV2Type.of(0), "12:00");
         s = literal.getStringValue();
@@ -112,6 +112,10 @@ public class TimeV2LiteralTest {
 
     @Test
     public void testTimeV2LiteralOutOfRange() {
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new TimeV2Literal(TimeV2Type.of(6), "838:59:59.000001"));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new TimeV2Literal(TimeV2Type.of(6), "-838:59:59.000001"));
         Assertions.assertThrows(AnalysisException.class, () -> {
             new TimeV2Literal(838, 59, 59, 1000000, 6, false);
         });
