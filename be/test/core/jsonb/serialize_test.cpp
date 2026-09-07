@@ -46,8 +46,8 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_bitmap.h"
@@ -71,7 +71,9 @@
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/field.h"
+#include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "core/value/bitmap_value.h"
 #include "core/value/hll.h"
@@ -480,14 +482,14 @@ static void build_all_row_store_types_block(Block& block, TabletSchema& schema) 
     // ---- VARIANT (parsed from JSON literals) ----
     {
         auto t = std::make_shared<DataTypeVariant>();
-        auto col = t->create_column();
-        auto json_col = ColumnString::create();
+        auto col = ColumnVariantV2::create();
         const char* jsons[] = {"{\"a\":1}", "{\"b\":\"hello\"}", "[1,2,3]"};
+        DataTypeSerDe::FormatOptions options;
+        DataTypeVariantV2SerDe serde;
         for (const auto* j : jsons) {
-            json_col->insert_data(j, strlen(j));
+            Slice slice(j, strlen(j));
+            THROW_IF_ERROR(serde.deserialize_one_cell_from_json(*col, slice, options));
         }
-        ParseConfig parse_config;
-        variant_util::parse_json_to_variant(*col, *json_col, parse_config);
         add("c_variant", t, std::move(col));
     }
 
@@ -1528,21 +1530,19 @@ TEST(BlockSerializeTest, AllRowStoreSupportedTypes) {
         }
     }
     {
-        // c_variant: round-trip semantics are intentionally lossy at the structure
-        // level — DataTypeVariantSerDe::read_one_cell_from_jsonb re-inserts each cell
-        // as a single path-less Variant whose root holds the encoded JSON blob/string.
-        // Validate that (a) the row count matches and (b) each row serializes back to
-        // a non-empty JSON string equivalent to what we originally fed in, regardless
-        // of internal subcolumn layout.
         SCOPED_TRACE("c_variant");
-        const auto& col = assert_cast<const ColumnVariant&>(
+        const auto& col = assert_cast<const ColumnVariantV2&>(
                 *dst.get_by_position(dst.get_position_by_name("c_variant")).column);
         ASSERT_EQ(col.size(), 3);
         DataTypeSerDe::FormatOptions opts;
+        DataTypeVariantV2SerDe serde;
         const std::vector<std::string> expected = {"{\"a\":1}", "{\"b\":\"hello\"}", "[1,2,3]"};
         for (size_t i = 0; i < 3; ++i) {
-            std::string out;
-            col.serialize_one_row_to_string(static_cast<int64_t>(i), &out, opts);
+            auto output = ColumnString::create();
+            BufferWritable writer(*output);
+            ASSERT_TRUE(serde.serialize_one_cell_to_json(col, i, writer, opts).ok());
+            writer.commit();
+            std::string out = output->get_data_at(0).to_string();
             EXPECT_FALSE(out.empty()) << "row " << i;
             EXPECT_EQ(out, expected[i]) << "row " << i;
         }

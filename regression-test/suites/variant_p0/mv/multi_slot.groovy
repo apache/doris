@@ -16,13 +16,7 @@
 // under the License.
 
 suite ("multi_slot") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
-    // ColumnVariantV2 returns a scalar subpath type for element_at, while the materialized-view
-    // expression currently declares a Variant result. Keep this case on V1 until they agree.
-    if (getFeConfig("enable_variant_v2").toBoolean()) {
-        return
-    }
-
+    def variantV2Function = "parse_to_variant"
     sql """ DROP TABLE IF EXISTS multi_slot; """
 
     sql """
@@ -84,6 +78,7 @@ suite ("multi_slot") {
         sql "create materialized view mv_x as select `client_request`['url'] as `b4`, `status` as b5 from test_mv"
         exception("The first column could not be float, double or complex type like array, struct, map, json, variant.")
     }
+    createMV("create materialized view mv_cast as select cast(`client_request`['url'] as varchar(65533)) as `b4`, `status` as b5 from test_mv")
 
 
     // def retry_times = 60

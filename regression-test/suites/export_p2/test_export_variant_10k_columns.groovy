@@ -156,59 +156,66 @@ suite("test_export_variant_10k_columns", "p0") {
         def res = sql """ SELECT count(*) FROM ${s3_tvf_sql} """
         assertEquals(num_rows, res[0][0])
 
-        def value_type = "VARIANT<PROPERTIES (\"variant_max_subcolumns_count\" = \"2048\")>"
-        if (new Random().nextInt(2) == 0) {
-            value_type = "text"
-        }
-        // 6. Load back into Doris (to a new table) to verify import performance/capability
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE ${table_load_name} (
-            `id` INT,
-            `v` ${value_type}
-        )
-        DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
-        """
-        
-        // Use LOAD LABEL. The label contains '-' from UUID, so it must be quoted with back-quotes.
-        def load_label = "load_${uuid}"
-        
-        sql """
-            LOAD LABEL `${load_label}`
-            (
-                DATA INFILE("s3://${outFilePath}/*")
-                INTO TABLE ${table_load_name}
-                FORMAT AS "${format}"
-                (id, v)
-            )
-            WITH S3 (
-                "s3.endpoint" = "${s3_endpoint}",
-                "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}",
-                "provider" = "${getS3Provider()}"
-            );
-        """
-        
-        Awaitility.await().atMost(20, MINUTES).pollInterval(5, SECONDS).until({
-            def loadResult = sql """
-           show load where label = '${load_label}'
-           """
-            logger.info("load state: " + loadResult.get(0).get(2))
-            if (loadResult.get(0).get(2) == 'CANCELLED' || loadResult.get(0).get(2) == 'FAILED') {
-                println("load failed: " + loadResult.get(0))
-                throw new RuntimeException("load failed"+ loadResult.get(0))
-            }
-            return loadResult.get(0).get(2) == 'FINISHED'
-        }) 
-        // Check if data loaded
-        def load_count = sql """ SELECT count(*) FROM ${table_load_name} """
-        assertEquals(num_rows, load_count[0][0])
+        def load_targets = [
+            [suffix: "variant",
+             type: "VARIANT<PROPERTIES (\"variant_max_subcolumns_count\" = \"2048\")>",
+             value: "cast(v['k1'] as int)"],
+            // CAST(STRING AS VARIANT) creates a Variant string scalar. Parsing a JSON document
+            // from the native-to-text representation must therefore be explicit.
+            [suffix: "text", type: "TEXT", value: "cast(parse_to_variant(v)['k1'] as int)"]
+        ]
 
-        // Check variant data integrity (sample)
-        // Row 1 has keys: (1 + k*200) % 10000. For k=0, key is k1. Value is 1.
-        def check_v = sql """ SELECT cast(v['k1'] as int) FROM ${table_load_name} WHERE id = 1 """
-        assertEquals(1, check_v[0][0])
+        // 6. Load back into both supported target types. Keep both paths deterministic so one
+        // successful random branch cannot hide a regression in the other conversion.
+        load_targets.each { target ->
+            def current_table_load_name = "${table_load_name}_${target.suffix}"
+            sql """ DROP TABLE IF EXISTS ${current_table_load_name} """
+            sql """
+            CREATE TABLE ${current_table_load_name} (
+                `id` INT,
+                `v` ${target.type}
+            )
+            DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
+            """
+
+            // Use LOAD LABEL. The label contains '-' from UUID, so it must be quoted with back-quotes.
+            def load_label = "load_${target.suffix}_${uuid}"
+
+            sql """
+                LOAD LABEL `${load_label}`
+                (
+                    DATA INFILE("s3://${outFilePath}/*")
+                    INTO TABLE ${current_table_load_name}
+                    FORMAT AS "${format}"
+                    (id, v)
+                )
+                WITH S3 (
+                    "s3.endpoint" = "${s3_endpoint}",
+                    "s3.region" = "${region}",
+                    "s3.secret_key"="${sk}",
+                    "s3.access_key" = "${ak}",
+                    "provider" = "${getS3Provider()}"
+                );
+            """
+
+            Awaitility.await().atMost(20, MINUTES).pollInterval(5, SECONDS).until({
+                def loadResult = sql """
+               show load where label = '${load_label}'
+               """
+                logger.info("load state: " + loadResult.get(0).get(2))
+                if (loadResult.get(0).get(2) == 'CANCELLED' || loadResult.get(0).get(2) == 'FAILED') {
+                    println("load failed: " + loadResult.get(0))
+                    throw new RuntimeException("load failed"+ loadResult.get(0))
+                }
+                return loadResult.get(0).get(2) == 'FINISHED'
+            })
+            def load_count = sql """ SELECT count(*) FROM ${current_table_load_name} """
+            assertEquals(num_rows, load_count[0][0])
+
+            // Row 1 has keys: (1 + k*200) % 10000. For k=0, key is k1. Value is 1.
+            def check_v = sql """ SELECT ${target.value} FROM ${current_table_load_name} WHERE id = 1 """
+            assertEquals(1, check_v[0][0])
+        }
 
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${table_export_name}")

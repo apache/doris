@@ -41,13 +41,7 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
     if (argument_types.size() == 1) {
         const DataTypePtr argument_type = remove_nullable(argument_types[0]);
         if (argument_type->get_primitive_type() == TYPE_VARIANT) {
-            if (dynamic_cast<const DataTypeVariantV2*>(argument_type.get()) == nullptr) {
-                throw Exception(
-                        ErrorCode::INVALID_ARGUMENT,
-                        "Aggregate function {} does not support legacy Variant; Variant V2 is "
-                        "required",
-                        name);
-            }
+            DORIS_CHECK(dynamic_cast<const DataTypeVariantV2*>(argument_type.get()) != nullptr);
             return creator_without_type::create<AggregateFunctionUniqVariant>(
                     argument_types, result_is_nullable, attr);
         }

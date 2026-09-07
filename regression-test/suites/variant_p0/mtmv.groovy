@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("regression_test_variant_mtmv"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
@@ -29,8 +29,8 @@ suite("regression_test_variant_mtmv"){
             table "${table_name}"
 
             // set http request header params
-            set 'read_json_by_line', 'true' 
-            set 'format', 'json' 
+            set 'read_json_by_line', 'true'
+            set 'format', 'json'
             set 'max_filter_ratio', '0.1'
             set 'jsonpaths', '[\"$.v.id\", \"$.v.type\", \"$.v.actor\", \"$.v.repo\", \"$.v.payload\", \"$.v.public\", \"$.v.created_at\"]'
             file file_name // import json file
@@ -69,7 +69,7 @@ suite("regression_test_variant_mtmv"){
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1"
-        );  
+        );
     """
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-3.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-16.json'}""")
@@ -77,21 +77,21 @@ suite("regression_test_variant_mtmv"){
     sql """
         CREATE MATERIALIZED VIEW mv1
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
+        PROPERTIES ('replication_num' = '1')
             as SELECT id, type, actor['id'], actor['display_login'], actor, payload['ref'] FROM github_events_mtmv limit 1024;
-    """ 
+    """
     String db = context.config.getDbNameByFile(context.file)
-    def job_name_1 = getJobName(db, "mv1") 
+    def job_name_1 = getJobName(db, "mv1")
     waitingMTMVTaskFinished(job_name_1)
 
     sql """DROP MATERIALIZED VIEW IF EXISTS mv2"""
     sql """
         CREATE MATERIALIZED VIEW mv2
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
+        PROPERTIES ('replication_num' = '1')
             as SELECT id, cast(actor['id'] as bigint) FROM github_events_mtmv limit 1024;
-    """ 
-    def job_name_2 = getJobName(db, "mv2") 
+    """
+    def job_name_2 = getJobName(db, "mv2")
     waitingMTMVTaskFinished(job_name_2)
 
     sql """DROP TABLE IF EXISTS tbl1"""

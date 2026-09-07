@@ -16,6 +16,8 @@
 // under the License.
 
 suite("explode") {
+    def enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     qt_explode """ select e1 from (select 1 k1) as t lateral view explode([1,2,3]) tmp1 as e1; """
     qt_explode_outer """ select e1 from (select 1 k1) as t lateral view explode_outer([1,2,3]) tmp1 as e1; """
 
@@ -161,7 +163,7 @@ suite("explode") {
     );
     """
 
-    sql """insert into array_test values( 1, [4,5,6], ["2","3"], '{"a": [4,5,6]}', '{"a": ["2","3"]}'),( 2, [14,15], ["2",null], '{"a": [14,15]}', '{"a": ["2",null]}'),( 3, [114,115,116], null, '{"a": [114,115,116]}','{"a": null}');"""
+    sql """insert into array_test values( 1, [4,5,6], ["2","3"], ${variantV2Function}('{"a": [4,5,6]}'), ${variantV2Function}('{"a": ["2","3"]}')),( 2, [14,15], ["2",null], ${variantV2Function}('{"a": [14,15]}'), ${variantV2Function}('{"a": ["2",null]}')),( 3, [114,115,116], null, ${variantV2Function}('{"a": [114,115,116]}'),${variantV2Function}('{"a": null}'));"""
 
 
     qt_test6 "select id,e1 from array_test as a lateral view explode(a.array_string) tmp1 as e1;"
@@ -178,12 +180,12 @@ suite("explode") {
     qt_test16 "select id,e1,e2,e3 from array_test as a lateral view explode_outer(a.array_string,a.array_int,a.array_int) tmp1 as e1,e2,e3;"
     qt_test17 "select id,e1,e2,e11,e12 from array_test as a lateral view explode_outer(a.array_int,a.array_string) tmp1 as e1,e2 lateral view explode_outer(a.array_int,a.array_string) tmp2 as e11,e12;"
 
-    qt_test18 "select id,e1 from array_test as a lateral view explode_variant_array(a.v_string['a']) tmp1 as e1;"
-    qt_test19 "select id,e1 from array_test as a lateral view explode_variant_array(a.v_int['a']) tmp1 as e1;"
-    qt_test20 "select id,e1,e2 from array_test as a lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp1 as e1,e2;"
-    qt_test21 "select id,e1,e2 from array_test as a lateral view explode_variant_array(a.v_string['a'],a.v_int['a']) tmp1 as e1,e2;"
-    qt_test22 "select id,e1,e2,e3 from array_test as a lateral view explode_variant_array(a.v_string['a'],a.v_int['a'],a.v_int['a']) tmp1 as e1,e2,e3;"
-    qt_test23 "select id,e1,e2,e11,e12 from array_test as a lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp1 as e1,e2 lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp2 as e11,e12;"
+    qt_test18 "select id, cast(e1 as string), e1 is null, variant_type(e1) from array_test as a lateral view explode_variant_array(a.v_string['a']) tmp1 as e1;"
+    qt_test19 "select id, cast(e1 as string), e1 is null, variant_type(e1) from array_test as a lateral view explode_variant_array(a.v_int['a']) tmp1 as e1;"
+    qt_test20 "select id, cast(e1 as string), e1 is null, variant_type(e1), cast(e2 as string), e2 is null, variant_type(e2) from array_test as a lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp1 as e1,e2;"
+    qt_test21 "select id, cast(e1 as string), e1 is null, variant_type(e1), cast(e2 as string), e2 is null, variant_type(e2) from array_test as a lateral view explode_variant_array(a.v_string['a'],a.v_int['a']) tmp1 as e1,e2;"
+    qt_test22 "select id, cast(e1 as string), e1 is null, variant_type(e1), cast(e2 as string), e2 is null, variant_type(e2), cast(e3 as string), e3 is null, variant_type(e3) from array_test as a lateral view explode_variant_array(a.v_string['a'],a.v_int['a'],a.v_int['a']) tmp1 as e1,e2,e3;"
+    qt_test23 "select id, cast(e1 as string), e1 is null, variant_type(e1), cast(e2 as string), e2 is null, variant_type(e2), cast(e11 as string), e11 is null, variant_type(e11), cast(e12 as string), e12 is null, variant_type(e12) from array_test as a lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp1 as e1,e2 lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp2 as e11,e12;"
 
     sql "DROP TABLE IF EXISTS array_test2;"
     sql """
@@ -206,8 +208,8 @@ suite("explode") {
     qt_test24 """
         select
             *
-        from array_test2 
-        lateral view explode([], [1, 2, null, 4, 5], ["ab", "cd", "ef"], [null, null, 1, 2, 3, 4, 5]) t2 as c0, c1, c2, c3 
+        from array_test2
+        lateral view explode([], [1, 2, null, 4, 5], ["ab", "cd", "ef"], [null, null, 1, 2, 3, 4, 5]) t2 as c0, c1, c2, c3
         order by 1,2,3,4,5;
     """
 
@@ -219,14 +221,14 @@ suite("explode") {
     """
 
     qt_select27 """
-        select * from (select 1) t1 
+        select * from (select 1) t1
             lateral view explode(
                 array(struct(1, "a"), struct(2, "b")),
                 array(struct(3, "c"), struct(4, "d"))
             ) t2 as c1 order by 1,2;
     """
     qt_select28 """
-        select * from (select 1) t1 
+        select * from (select 1) t1
             lateral view explode(
                 array(struct(1, "a"), struct(2, "b")),
                 array(struct(3, "c"), struct(4, "d"))

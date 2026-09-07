@@ -38,7 +38,7 @@
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "io/fs/local_file_system.h"
@@ -252,7 +252,7 @@ protected:
 
         Block block = tablet_schema->create_storage_block();
         auto columns = std::move(block).mutate_columns();
-        auto* variant_col = assert_cast<ColumnVariant*>(columns[1].get());
+        auto* variant_col = assert_cast<ColumnVariantV2*>(columns[1].get());
         auto raw_json_column = ColumnString::create();
         raw_json_column->reserve(kRowsPerSegment);
         for (uint32_t i = 0; i < kRowsPerSegment; ++i) {
@@ -263,8 +263,7 @@ protected:
             raw_json_column->insert_data(json.data(), json.size());
         }
 
-        variant_col->create_root(make_nullable(std::make_shared<DataTypeString>()),
-                                 std::move(raw_json_column));
+        VariantUtil::insert_json_rows(*variant_col, *raw_json_column);
 
         auto import_start = std::chrono::steady_clock::now();
         auto s = rowset_writer->add_block(&block);
@@ -439,8 +438,8 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
             ASSERT_EQ(1, input_block.columns());
             ASSERT_GT(input_block.rows(), 0);
             const auto& var =
-                    assert_cast<const ColumnVariant&>(*input_block.get_by_position(0).column);
-            ASSERT_GT(var.serialized_doc_value_column_offsets()[0], 0);
+                    assert_cast<const ColumnVariantV2&>(*input_block.get_by_position(0).column);
+            ASSERT_GT(var.size(), 0);
         }
         ASSERT_TRUE(tablet->add_rowset(rowset).ok());
         input_rowsets.push_back(rowset);

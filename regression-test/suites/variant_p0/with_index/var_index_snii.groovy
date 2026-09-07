@@ -70,10 +70,10 @@ suite("regression_test_variant_var_index_snii", "p0, nonConcurrent"){
     // a scan-wide counter, so splitting the rows across single-row segments would only reach the
     // expected total on whichever segment happens to be processed after the filtering one.
     sql """insert into ${typed_table} values
-               (1, 'alpha plain', '{"a" : 123, "b" : "xxxyyy", "c" : 111999111}'),
-               (2, 'beta plain', '{"a" : 18811, "b" : "hello world", "c" : 1181111}'),
-               (3, 'alpha other', '{"a" : 18811, "b" : "hello wworld", "c" : 11111}'),
-               (4, 'gamma plain', '{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}')"""
+               (1, 'alpha plain', parse_to_variant('{"a" : 123, "b" : "xxxyyy", "c" : 111999111}')),
+               (2, 'beta plain', parse_to_variant('{"a" : 18811, "b" : "hello world", "c" : 1181111}')),
+               (3, 'alpha other', parse_to_variant('{"a" : 18811, "b" : "hello wworld", "c" : 11111}')),
+               (4, 'gamma plain', parse_to_variant('{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}'))"""
 
     sql """set enable_match_without_inverted_index = false"""
     qt_typed_match """select k from ${typed_table} where cast(v["b"] as string) match 'hello' order by k"""
@@ -103,9 +103,9 @@ suite("regression_test_variant_var_index_snii", "p0, nonConcurrent"){
         properties("replication_num" = "1", "disable_auto_compaction" = "true",
                    "inverted_index_storage_format" = "SNII");
     """
-    sql """insert into ${dynamic_table} values(1, '{"a" : 123, "b" : "xxxyyy"}')"""
-    sql """insert into ${dynamic_table} values(2, '{"a" : 18811, "b" : "hello world"}')"""
-    sql """insert into ${dynamic_table} values(3, '{"a" : 1234, "b" : "hello xxx world"}')"""
+    sql """insert into ${dynamic_table} values(1, parse_to_variant('{"a" : 123, "b" : "xxxyyy"}'))"""
+    sql """insert into ${dynamic_table} values(2, parse_to_variant('{"a" : 18811, "b" : "hello world"}'))"""
+    sql """insert into ${dynamic_table} values(3, parse_to_variant('{"a" : 1234, "b" : "hello xxx world"}'))"""
 
     sql """set enable_match_without_inverted_index = false"""
     qt_dynamic_match """select k from ${dynamic_table} where cast(v["b"] as string) match 'hello' order by k"""

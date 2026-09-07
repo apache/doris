@@ -332,7 +332,7 @@ public class VariantSubPathPruning implements CustomRewriter {
                         } else {
                             pushDownExpr = constExpr;
                         }
-                        for (int sp = entry.getKey().size() - 1; sp >= 0; sp--) {
+                        for (int sp = 0; sp < entry.getKey().size(); sp++) {
                             VarcharLiteral path = new VarcharLiteral(entry.getKey().get(sp));
                             pushDownExpr = new ElementAt(pushDownExpr, path);
                         }
@@ -611,7 +611,7 @@ public class VariantSubPathPruning implements CustomRewriter {
                     .get((SlotReference) projection.toSlot());
             for (List<String> subPath : subPaths) {
                 Expression pushDownExpr = child;
-                for (int i = subPath.size() - 1; i >= 0; i--) {
+                for (int i = 0; i < subPath.size(); i++) {
                     VarcharLiteral path = new VarcharLiteral(subPath.get(i));
                     pushDownExpr = new ElementAt(pushDownExpr, path);
                 }

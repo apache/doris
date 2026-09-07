@@ -165,7 +165,6 @@ struct IndexReadOptions {
     VExprContextSPtrs common_expr_ctxs_push_down;
     bool collect_string_values = false;
     bool collect_variant_values = false;
-    bool use_variant_v2 = false;
     bool enable_inverted_index_query = true;
     bool enable_fallback_on_missing_inverted_index = true;
     bool enable_no_need_read_data_opt = true;

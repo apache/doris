@@ -18,14 +18,12 @@
 #include "storage/transform/block_transform.h"
 
 #include <limits>
-#include <numeric>
 #include <unordered_set>
 
 #include "common/cast_set.h"
 #include "common/logging.h"
 #include "core/block/block.h"
 #include "core/column/column_string.h"
-#include "exec/common/variant_util.h"
 #include "storage/partial_update_info.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/tablet/tablet_schema.h"
@@ -36,23 +34,6 @@
 namespace doris::segment_v2 {
 
 namespace {
-
-// Parses raw variant columns into subcolumn form, in place. The heavy variant
-// work stays in the variant ColumnWriter; this stage only reshapes the block
-// before conversion.
-class VariantParseStage : public BlockTransform {
-public:
-    Status apply(TransformExecContext& ctx, Block* block) const override {
-        const auto& schema = *ctx.tablet_schema;
-        if (schema.num_variant_columns() == 0) {
-            return Status::OK();
-        }
-        std::vector<uint32_t> column_ids(block->columns());
-        std::iota(column_ids.begin(), column_ids.end(), 0);
-        return variant_util::parse_and_materialize_variant_columns(*block, schema, column_ids);
-    }
-    std::string_view name() const override { return "VariantParse"; }
-};
 
 // Checks schema rules and block width for every block entering a seam. The
 // horizontal writer keeps a transitional duplicate of the width check until a
@@ -157,9 +138,7 @@ private:
 };
 
 // Registers a row-store generator over a COW snapshot of the block at this
-// exact stage. Variant parsing can change its JSONB representation, so the
-// snapshot preserves the legacy writer's RowStore/Variant ordering while the
-// vertical writer still materializes the column in bounded batches.
+// exact stage so the vertical writer can materialize it in bounded batches.
 class RowStoreFillStage : public BlockTransform {
 public:
     Status apply(TransformExecContext& ctx, Block* block) const override {
@@ -215,25 +194,16 @@ BlockTransformChain build_transform_chain(const RowsetWriterContext& context) {
         // always rebuilt.
         if (context.partial_update_info->is_fixed_partial_update()) {
             stages.push_back(std::make_shared<FixedPartialUpdateFillStage>());
-            // The legacy fixed path parsed both provided and missing Variant
-            // columns before rebuilding RowStore.
-            stages.push_back(std::make_shared<VariantParseStage>());
             stages.push_back(std::make_shared<RowStoreFillStage>());
         } else {
             stages.push_back(std::make_shared<FlexiblePartialUpdateFillStage>());
-            // The legacy flexible path rebuilt RowStore before parsing the
-            // filled Variant columns.
             stages.push_back(std::make_shared<RowStoreFillStage>());
-            stages.push_back(std::make_shared<VariantParseStage>());
         }
         return BlockTransformChain {std::move(stages)};
     }
-    // Direct and schema-change writers rebuilt RowStore from the raw Variant
-    // representation, then parsed Variant for its column writer.
     if (rebuild_row_store) {
         stages.push_back(std::make_shared<RowStoreFillStage>());
     }
-    stages.push_back(std::make_shared<VariantParseStage>());
     return BlockTransformChain {std::move(stages)};
 }
 

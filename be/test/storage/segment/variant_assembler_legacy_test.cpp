@@ -1402,7 +1402,7 @@ TEST(VariantAssemblerLegacyTest, EmptyDocRowKeepsRawOrderedMaterializedPaths) {
               R"({"a":{"b":"1970-01-03"},"a-":"1970-01-02"})");
 }
 
-TEST(VariantAssemblerLegacyTest, EmptyPhysicalRowsPublishAsNull) {
+TEST(VariantAssemblerLegacyTest, EmptyPhysicalRowsPreserveOuterNullBoundary) {
     VariantAssemblerOptions root_options;
     root_options.has_root = true;
     auto root_assembler = create_assembler(std::move(root_options));
@@ -1421,7 +1421,7 @@ TEST(VariantAssemblerLegacyTest, EmptyPhysicalRowsPublishAsNull) {
     ASSERT_TRUE(root_assembler->assemble(root_batch, &root_output).ok());
     EXPECT_EQ(json_at(assembled_values(root_output), 0), "null");
     EXPECT_EQ(json_at(assembled_values(root_output), 1), "null");
-    EXPECT_EQ(root_output->get_null_map_data(), (PaddedPODArray<uint8_t> {1, 1}));
+    EXPECT_EQ(root_output->get_null_map_data(), (PaddedPODArray<uint8_t> {0, 1}));
 
     VariantAssemblerOptions subtree_options;
     subtree_options.requested_path = PathInData("a");

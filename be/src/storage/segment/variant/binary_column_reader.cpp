@@ -24,7 +24,6 @@
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/string_ref.h"
 #include "exec/common/variant_util.h"
 #include "storage/segment/segment.h"
@@ -204,7 +203,7 @@ Status CombineMultipleBinaryColumnIterator::next_batch(size_t* n, MutableColumnP
     _binary_column_data.clear();
     _binary_column_data.reserve(_iters.size());
     for (auto& it : _iters) {
-        MutableColumnPtr m = ColumnVariant::create_binary_column_fn();
+        MutableColumnPtr m = variant_util::create_variant_binary_column();
         RETURN_IF_ERROR(it->next_batch(n, m, has_null));
         _binary_column_data.emplace_back(std::move(m));
     }
@@ -218,7 +217,7 @@ Status CombineMultipleBinaryColumnIterator::read_by_rowids(const rowid_t* rowids
     _binary_column_data.clear();
     _binary_column_data.reserve(_iters.size());
     for (auto& it : _iters) {
-        MutableColumnPtr m = ColumnVariant::create_binary_column_fn();
+        MutableColumnPtr m = variant_util::create_variant_binary_column();
         RETURN_IF_ERROR(it->read_by_rowids(rowids, count, m));
         _binary_column_data.emplace_back(std::move(m));
     }

@@ -142,6 +142,18 @@ TEST(VariantElementV2EncodedTest, InterleavedMetadataAndCacheIsPerCall) {
     EXPECT_EQ(variant_result(next_result).get_value_ref(1).get_int(), 9);
 }
 
+TEST(VariantElementV2EncodedTest, EmptyObjectKeyIsAddressable) {
+    auto source = ColumnVariantV2::create();
+    append_json(*source, R"({"":42,"other":7})");
+    auto path = resolve({Segment::object_key(StringRef(""))});
+
+    ColumnPtr result = extract(*source, *path);
+    const auto& nullable = nullable_result(result);
+    ASSERT_EQ(nullable.size(), 1);
+    EXPECT_EQ(nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(variant_result(result).get_value_ref(0).get_int(), 42);
+}
+
 TEST(VariantElementV2EncodedTest, ResolvedPathRejectsInvalidInputAndOwnsKeys) {
     std::string key = "target";
     auto path = resolve({Segment::object_key({key.data(), key.size()})});

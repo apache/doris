@@ -33,6 +33,8 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
+#include "core/column/column_map.h"
+#include "core/column/column_struct.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
