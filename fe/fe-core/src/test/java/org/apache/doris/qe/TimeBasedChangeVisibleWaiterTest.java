@@ -61,7 +61,8 @@ public class TimeBasedChangeVisibleWaiterTest {
                 mockContext(), newChangeRelation(1, ImmutableMap.of()),
                 ImmutableMap.of(TABLE_QUALIFIER, table), DEFAULT_END_TS_MS);
 
-        Assertions.assertEquals(TSOTimestamp.composeEmptyCounterTSO(DEFAULT_END_TS_MS),
+        // default "read up to now" bound covers the whole millisecond, so it is compose(M + 1, 0).
+        Assertions.assertEquals(TSOTimestamp.composeEmptyCounterTSO(DEFAULT_END_TS_MS + 1),
                 result.get(DB_ID).get(TABLE_ID));
     }
 
