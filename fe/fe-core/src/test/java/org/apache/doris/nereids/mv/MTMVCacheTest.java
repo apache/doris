@@ -19,14 +19,24 @@ package org.apache.doris.nereids.mv;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVJobInfo;
+import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshSnapshot;
+import org.apache.doris.mtmv.MTMVRelation;
+import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.rules.exploration.mv.AsyncMaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
@@ -39,17 +49,20 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Collections;
@@ -283,7 +296,7 @@ public class MTMVCacheTest extends SqlTestBase {
                             .when(cacheContext).getStartTimeInstant();
                     cacheContext.setThreadLocalInfo();
                     MTMVCache cache = MTMVCache.from("select id, score from T1 where score > " + expression,
-                            cacheContext, false, true, connectContext, false);
+                            cacheContext, false, true, connectContext, SessionVarGuardRewriter.GUARD_NONE);
                     LogicalFilter<? extends Plan> filter = cache.getOriginalFinalPlan()
                             .<LogicalFilter<? extends Plan>>collectFirst(LogicalFilter.class::isInstance)
                             .orElseThrow(AssertionError::new);
@@ -300,6 +313,70 @@ public class MTMVCacheTest extends SqlTestBase {
             connectContext.setThreadLocalInfo();
             executeNereidsSql("drop function mv_cache_day(int)");
         }
+    }
+
+    /**
+     * A successful refresh ({@link MTMV#addTaskResult}) replaces the cache set and advances the rewrite
+     * generation, so an in-flight rewrite-cache builder that captured the previous generation (e.g. it
+     * expanded a base-view definition that was ALTERed in the meantime) must discard its stale result
+     * instead of publishing it over the newly refreshed data.
+     */
+    @Test
+    void testAddTaskResultShouldNotPublishInFlightRewriteCache() throws Exception {
+        ControlledCacheMTMV mtmv = new ControlledCacheMTMV();
+        // persisted creation zone +00:00; the query session below uses +08:00 so the in-flight builder
+        // needs the time-zone guarded cache (mask 1), which the refresh (mask 0 only) does not cover
+        setPrivateField(mtmv, "sessionVariables", ImmutableMap.of(SessionVariable.TIME_ZONE, "+00:00"));
+        setPrivateField(mtmv, "jobInfo", new MTMVJobInfo(MTMVJobManager.MTMV_JOB_PREFIX + "test"));
+        setPrivateField(mtmv, "mvPartitionInfo", new MTMVPartitionInfo(MTMVPartitionType.SELF_MANAGE));
+        setPrivateField(mtmv, "refreshSnapshot", new MTMVRefreshSnapshot());
+        setPrivateField(mtmv, "status", new MTMVStatus());
+        // the no-arg MTMV constructor leaves ivmInfo null, but addTaskResult reads ivmInfo.isEnableIvm()
+        setPrivateField(mtmv, "ivmInfo", new IvmInfo());
+        connectContext.getSessionVariable().setTimeZone("+08:00");
+        // addTaskResult's refreshComplete hook builds a BaseTableInfo from the (uninitialized) test MTMV,
+        // which requires a resolved database; deregister the hook for the duration of the test
+        MTMVService mtmvService = Env.getCurrentEnv().getMtmvService();
+        mtmvService.deregisterHook("MTMVRelationManager");
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<MTMVCache> cacheFuture = executor.submit(() -> mtmv.getOrGenerateCache(connectContext));
+            Assertions.assertTrue(mtmv.firstBuildStarted.await(5, TimeUnit.SECONDS));
+
+            MTMVTask task = new MTMVTask();
+            setPrivateField(task, "status", TaskStatus.SUCCESS);
+            AlterMTMV alterMTMV = new AlterMTMV(
+                    new TableNameInfo("db", "test_mv"), MTMVAlterOpType.ADD_TASK);
+            alterMTMV.setTask(task);
+            alterMTMV.setRelation(new MTMVRelation(Collections.emptySet(), Collections.emptySet(),
+                    Collections.emptySet(), Collections.emptySet(), Collections.emptySet()));
+            alterMTMV.setPartitionSnapshots(Collections.emptyMap());
+            mtmv.addTaskResult(alterMTMV, false);
+            mtmv.releaseFirstBuild.countDown();
+
+            MTMVCache generatedCache = cacheFuture.get(5, TimeUnit.SECONDS);
+            // the in-flight builder captured the pre-refresh generation; it must NOT publish its stale plan
+            Assertions.assertNotSame(mtmv.firstCache, generatedCache);
+            Assertions.assertSame(mtmv.secondCache, generatedCache);
+        } finally {
+            mtmvService.registerHook("MTMVRelationManager", mtmvService.getRelationManager());
+            executor.shutdownNow();
+        }
+    }
+
+    private static void setPrivateField(Object target, String fieldName, Object value) throws Exception {
+        Field field = null;
+        Class<?> clazz = target.getClass();
+        while (clazz != null && field == null) {
+            try {
+                field = clazz.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                clazz = clazz.getSuperclass();
+            }
+        }
+        Assertions.assertNotNull(field, "field not found: " + fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 
     @ParameterizedTest(name = "throughView={0}")
@@ -322,7 +399,8 @@ public class MTMVCacheTest extends SqlTestBase {
                         MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE,
                         connectContext.getSessionVariable().getAffectQueryResultInPlanVariables());
                 cacheContext.setThreadLocalInfo();
-                MTMVCache cache = MTMVCache.from(definitionSql, cacheContext, false, true, connectContext, false);
+                MTMVCache cache = MTMVCache.from(definitionSql, cacheContext, false, true, connectContext,
+                        SessionVarGuardRewriter.GUARD_NONE);
                 LogicalFilter<? extends Plan> filter = cache.getOriginalFinalPlan()
                         .<LogicalFilter<? extends Plan>>collectFirst(LogicalFilter.class::isInstance)
                         .orElseThrow(AssertionError::new);
