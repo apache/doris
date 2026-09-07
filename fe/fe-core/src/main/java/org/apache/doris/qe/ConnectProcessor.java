@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.proto.Data;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -108,11 +109,6 @@ import java.util.UUID;
  * Process one connection, the life cycle is the same as connection
  */
 public abstract class ConnectProcessor {
-    public enum ConnectType {
-        MYSQL,
-        ARROW_FLIGHT_SQL
-    }
-
     private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
     protected final ConnectContext ctx;
     protected StmtExecutor executor;
