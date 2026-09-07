@@ -102,11 +102,6 @@ public class MTMV extends OlapTable {
     private MTMVRefreshSnapshot refreshSnapshot;
     @SerializedName("ii")
     private IvmInfo ivmInfo;
-    // Should update after every fresh, not persist
-    // Cache with SessionVarGuardExpr: used when query session variables differ from MV creation variables
-    private MTMVCache cacheWithGuard;
-    // Cache without SessionVarGuardExpr: used when query session variables match MV creation variables
-    private MTMVCache cacheWithoutGuard;
     // Should update after every fresh, not persist.
     // Keyed by the session-variable dependency family mask that must be guarded in the cache (see
     // SessionVarGuardRewriter.GUARD_*). Mask 0 is the cache without any SessionVarGuardExpr, used when the
@@ -251,7 +246,6 @@ public class MTMV extends OlapTable {
         MTMVTask task = alterMTMV.getTask();
         MTMVRelation relation = alterMTMV.getRelation();
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = alterMTMV.getPartitionSnapshots();
-        MTMVCache mtmvCacheWithGuard = null;
         MTMVCache mtmvCacheWithoutGuard = null;
         boolean needUpdateCache = false;
         long cacheGeneration = -1;

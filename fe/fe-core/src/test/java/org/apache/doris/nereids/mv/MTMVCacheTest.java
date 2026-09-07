@@ -19,8 +19,10 @@ package org.apache.doris.nereids.mv;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
@@ -30,6 +32,7 @@ import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.AsyncMaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
@@ -40,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
@@ -279,6 +283,8 @@ public class MTMVCacheTest extends SqlTestBase {
         setPrivateField(mtmv, "mvPartitionInfo", new MTMVPartitionInfo(MTMVPartitionType.SELF_MANAGE));
         setPrivateField(mtmv, "refreshSnapshot", new MTMVRefreshSnapshot());
         setPrivateField(mtmv, "status", new MTMVStatus());
+        // the no-arg MTMV constructor leaves ivmInfo null, but addTaskResult reads ivmInfo.isEnableIvm()
+        setPrivateField(mtmv, "ivmInfo", new IvmInfo());
         connectContext.getSessionVariable().setTimeZone("+08:00");
         // addTaskResult's refreshComplete hook builds a BaseTableInfo from the (uninitialized) test MTMV,
         // which requires a resolved database; deregister the hook for the duration of the test
@@ -291,10 +297,13 @@ public class MTMVCacheTest extends SqlTestBase {
 
             MTMVTask task = new MTMVTask();
             setPrivateField(task, "status", TaskStatus.SUCCESS);
-            mtmv.addTaskResult(task,
-                    new MTMVRelation(Collections.emptySet(), Collections.emptySet(),
-                            Collections.emptySet(), Collections.emptySet(), Collections.emptySet()),
-                    Collections.emptyMap(), false);
+            AlterMTMV alterMTMV = new AlterMTMV(
+                    new TableNameInfo("db", "test_mv"), MTMVAlterOpType.ADD_TASK);
+            alterMTMV.setTask(task);
+            alterMTMV.setRelation(new MTMVRelation(Collections.emptySet(), Collections.emptySet(),
+                    Collections.emptySet(), Collections.emptySet(), Collections.emptySet()));
+            alterMTMV.setPartitionSnapshots(Collections.emptyMap());
+            mtmv.addTaskResult(alterMTMV, false);
             mtmv.releaseFirstBuild.countDown();
 
             MTMVCache generatedCache = cacheFuture.get(5, TimeUnit.SECONDS);

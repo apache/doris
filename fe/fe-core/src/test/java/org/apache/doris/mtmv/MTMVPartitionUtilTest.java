@@ -221,12 +221,11 @@ public class MTMVPartitionUtilTest {
         );
         // ensure the desc really goes through the long-name branch (> 50 chars)
         String name = MTMVPartitionUtil.generatePartitionName(tzDesc);
-        Assert.assertTrue("generated name should be shorter than the cleaned long name",
-                name.length() < tzDesc.toSql().length());
-        Assert.assertTrue(name.length() <= 50);
+        Assertions.assertTrue(name.length() < tzDesc.toSql().length());
+        Assertions.assertTrue(name.length() <= 50);
         // repeated generation must produce the identical name (no time-based suffix)
         for (int i = 0; i < 10; i++) {
-            Assert.assertEquals("partition name must be deterministic", name,
+            Assertions.assertEquals("partition name must be deterministic", name,
                     MTMVPartitionUtil.generatePartitionName(tzDesc));
         }
         // two different descs must not collide
@@ -235,7 +234,7 @@ public class MTMVPartitionUtilTest {
                 Lists.newArrayList(new PartitionValue("2024-01-03 00:00:00.000000+00:00"))
         );
         String name2 = MTMVPartitionUtil.generatePartitionName(tzDesc2);
-        Assert.assertNotEquals(name, name2);
+        Assertions.assertNotEquals(name, name2);
     }
 
     @Test
