@@ -98,14 +98,6 @@ Status GroupJoinProbeOperatorX::prepare(RuntimeState* state) {
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK(_output_tuple_desc != nullptr);
     const auto key_size = _probe_expr_ctxs.size();
-    for (size_t i = 0; i < key_size; ++i) {
-        auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
-        auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
-        if (nullable_output != nullable_input) {
-            DCHECK(nullable_output);
-            _make_nullable_keys.emplace_back(i);
-        }
-    }
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
         const auto agg_idx = _aggregate_indices[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[key_size + agg_idx];
@@ -182,12 +174,10 @@ Status GroupJoinProbeOperatorX::pull(RuntimeState* state, Block* output_block, b
     MutableColumns key_columns;
     key_columns.reserve(key_size);
     for (size_t i = 0; i < key_size; ++i) {
-        const auto output_key_need_nullable =
-                std::ranges::find(_make_nullable_keys, i) != _make_nullable_keys.end();
-        key_columns.emplace_back((output_key_need_nullable
-                                          ? remove_nullable(columns_with_schema[i].type)
-                                          : columns_with_schema[i].type)
-                                         ->create_column());
+        // GroupJoin strips nullable wrappers from its internal hash keys and keeps NULL rows
+        // separately. Decode the hash key into the matching non-nullable column first; restore
+        // the output tuple's nullable type after the key has been decoded.
+        key_columns.emplace_back(remove_nullable(columns_with_schema[i].type)->create_column());
     }
 
     MutableColumns value_columns;
@@ -208,15 +198,12 @@ Status GroupJoinProbeOperatorX::pull(RuntimeState* state, Block* output_block, b
     for (size_t i = 0; i < agg_size; ++i) {
         columns_with_schema[key_size + i].column = std::move(value_columns[i]);
     }
-    *output_block = Block(std::move(columns_with_schema));
-    if (output_block->rows() != 0) {
-        for (auto cid : _make_nullable_keys) {
-            output_block->get_by_position(cid).column =
-                    make_nullable(output_block->get_by_position(cid).column);
-            output_block->get_by_position(cid).type =
-                    make_nullable(output_block->get_by_position(cid).type);
+    for (size_t i = 0; i < key_size; ++i) {
+        if (columns_with_schema[i].type->is_nullable()) {
+            columns_with_schema[i].column = make_nullable(columns_with_schema[i].column);
         }
     }
+    *output_block = Block(std::move(columns_with_schema));
     shared_state->result_emitted = output_eos;
     *eos = output_eos;
     return Status::OK();
