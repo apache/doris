@@ -21,6 +21,7 @@
 #include <set>
 #include <vector>
 
+#include "exprs/late_runtime_filter.h"
 #include "exprs/score_runtime.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -71,6 +72,7 @@ struct RowsetReaderContext {
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
     VExprContextSPtrs common_expr_ctxs_push_down;
+    std::shared_ptr<const LateRuntimeFilterContainer> late_runtime_filter_container;
     bool use_page_cache = false;
     // Whether equal-key merge should use the sequence column as its tie-break column.
     bool use_sequence_column_for_merge_order = true;

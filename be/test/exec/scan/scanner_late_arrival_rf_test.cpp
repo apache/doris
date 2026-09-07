@@ -227,8 +227,8 @@ public:
 // via the fast path at the top of the function.
 TEST_F(ScannerLateArrivalRfTest, applied_rf_num_advances_after_late_arrival) {
     std::vector<TRuntimeFilterDesc> rf_descs = {
-            TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build(),
-            TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build()};
+            TRuntimeFilterDescBuilder(101).add_planId_to_target_expr(0).build(),
+            TRuntimeFilterDescBuilder(202).add_planId_to_target_expr(0).build()};
 
     SlotDescriptor slot_desc;
     slot_desc._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
@@ -250,6 +250,11 @@ TEST_F(ScannerLateArrivalRfTest, applied_rf_num_advances_after_late_arrival) {
     std::vector<std::shared_ptr<Dependency>> rf_dependencies;
     ASSERT_TRUE(local_state->_helper.init(_runtime_states[0].get(), true, 0, 0, rf_dependencies, "")
                         .ok());
+    VExprContextSPtrs open_conjuncts;
+    ASSERT_TRUE(local_state->_helper
+                        .acquire_runtime_filter(_runtime_states[0].get(), open_conjuncts, row_desc)
+                        .ok());
+    ASSERT_TRUE(open_conjuncts.empty());
 
     auto scanner = std::make_unique<TestScanner>(_runtime_states[0].get(), local_state.get(),
                                                  -1 /*limit*/, &_profile);
@@ -257,11 +262,17 @@ TEST_F(ScannerLateArrivalRfTest, applied_rf_num_advances_after_late_arrival) {
     ASSERT_EQ(scanner->_total_rf_num, 2);
     ASSERT_EQ(scanner->_applied_rf_num, 0);
 
-    std::shared_ptr<RuntimeFilterProducer> producer;
-    ASSERT_TRUE(RuntimeFilterProducer::create(_query_ctx.get(), rf_descs.data(), &producer).ok());
-    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
-    local_state->_helper._consumers[0]->signal(producer.get());
-    local_state->_helper._consumers[1]->signal(producer.get());
+    std::shared_ptr<RuntimeFilterProducer> first_producer;
+    ASSERT_TRUE(
+            RuntimeFilterProducer::create(_query_ctx.get(), &rf_descs[0], &first_producer).ok());
+    first_producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    local_state->_helper._consumers[0]->signal(first_producer.get());
+
+    std::shared_ptr<RuntimeFilterProducer> second_producer;
+    ASSERT_TRUE(
+            RuntimeFilterProducer::create(_query_ctx.get(), &rf_descs[1], &second_producer).ok());
+    second_producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    local_state->_helper._consumers[1]->signal(second_producer.get());
 
     // First call after both RFs arrived: counter must advance to total. Before
     // the fix this stayed at 0 because the assignment was missing.
