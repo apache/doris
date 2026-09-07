@@ -4523,6 +4523,16 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileIsReusedAcrossSplits) {
             first_file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
     ASSERT_TRUE(reader.prepare_split(first_split).ok());
     EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+    auto* cache_misses = profile.get_counter("EqualityDeleteIndexCacheMissCount");
+    auto* cache_hits = profile.get_counter("EqualityDeleteIndexCacheHitCount");
+    auto* index_memory = profile.get_counter("EqualityDeleteHashIndexMemory");
+    ASSERT_NE(cache_misses, nullptr);
+    ASSERT_NE(cache_hits, nullptr);
+    ASSERT_NE(index_memory, nullptr);
+    EXPECT_EQ(cache_misses->value(), 1);
+    EXPECT_EQ(cache_hits->value(), 0);
+    EXPECT_GT(index_memory->value(), 0);
+    const auto first_index_memory = index_memory->value();
 
     // Removing the source after the first split proves that the second split consumes the parsed
     // delete block from SplitReadOptions.cache instead of reopening the delete file.
@@ -4533,6 +4543,9 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileIsReusedAcrossSplits) {
             second_file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
     ASSERT_TRUE(reader.prepare_split(second_split).ok());
     EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+    EXPECT_EQ(cache_misses->value(), 1);
+    EXPECT_EQ(cache_hits->value(), 1);
+    EXPECT_EQ(index_memory->value(), first_index_memory);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

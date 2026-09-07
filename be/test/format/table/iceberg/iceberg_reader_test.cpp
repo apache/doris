@@ -2388,6 +2388,9 @@ TEST_F(IcebergReaderTest, v1_multi_equality_delete_hashes_materialized_missing_d
     delete_block.insert({std::move(delete_default_column), int_type, "added_column"});
     MultiEqualityDelete equality_delete(&delete_block, {0, 1});
     ASSERT_TRUE(equality_delete.init(&profile).ok());
+    auto* index_memory = profile.get_counter("EqualityDeleteHashIndexMemory");
+    ASSERT_NE(index_memory, nullptr);
+    EXPECT_EQ(index_memory->value(), static_cast<int64_t>(sizeof(uint64_t) + sizeof(size_t)));
 
     std::unordered_map<int, std::string> id_to_name = {{0, "id"}, {1, "added_column"}};
     IColumn::Filter filter(3, 1);

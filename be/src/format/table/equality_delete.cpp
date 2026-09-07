@@ -94,14 +94,12 @@ Status SimpleEqualityDelete::filter_data_block(
 Status MultiEqualityDelete::_build_set() {
     COUNTER_UPDATE(num_delete_rows, _delete_block->rows());
     size_t rows = _delete_block->rows();
-    _delete_hashes.clear();
-    _delete_hashes.resize(rows, 0);
+    std::vector<uint64_t> delete_hashes(rows, 0);
     for (ColumnPtr column : _delete_block->get_columns()) {
-        column->update_hashes_with_value(_delete_hashes.data(), nullptr);
+        column->update_hashes_with_value(delete_hashes.data(), nullptr);
     }
-    for (size_t i = 0; i < rows; ++i) {
-        _delete_hash_map.insert({_delete_hashes[i], i});
-    }
+    _delete_hash_index = std::make_unique<EqualityDeleteHashIndex>(std::move(delete_hashes));
+    COUNTER_UPDATE(hash_index_memory, static_cast<int64_t>(_delete_hash_index->memory_usage()));
     _data_column_index.resize(_delete_block->columns());
     return Status::OK();
 }
@@ -143,10 +141,9 @@ Status MultiEqualityDelete::filter_data_block(
     }
     auto* filter_data = filter.data();
     for (size_t i = 0; i < rows; ++i) {
-        for (auto beg = _delete_hash_map.lower_bound(_data_hashes[i]),
-                  end = _delete_hash_map.upper_bound(_data_hashes[i]);
-             beg != end; ++beg) {
-            if (filter[i] && _equal(data_block, i, beg->second)) {
+        const auto range = _delete_hash_index->equal_range(_data_hashes[i]);
+        for (auto it = range.first; it != range.second; ++it) {
+            if (filter[i] && _equal(data_block, i, it->row_index)) {
                 filter_data[i] = 0;
                 break;
             }
