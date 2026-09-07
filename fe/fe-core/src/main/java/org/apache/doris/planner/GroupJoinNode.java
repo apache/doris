@@ -57,7 +57,11 @@ public class GroupJoinNode extends PlanNode {
     private List<Expr> aggregateFunctions;
     private List<TGroupJoinAggSide> aggSides;
     private TGroupJoinAggOutputMode aggOutputMode;
-    private TupleDescriptor outputTupleDesc;
+    // Tuple that BE materializes the raw group-join result into (group keys + aggregate
+    // values). It is distinct from PlanNode.outputTupleDesc: the latter is reused by the
+    // generic projection attach (final projections above the fused aggregate) and must not
+    // shadow this node's own materialization tuple (see getOutputTupleIds/toThrift).
+    private TupleDescriptor materializedTupleDesc;
     private DistributionMode distrMode;
     private boolean isColocate = false;
 
@@ -76,8 +80,8 @@ public class GroupJoinNode extends PlanNode {
 
     @Override
     public ArrayList<TupleId> getOutputTupleIds() {
-        if (outputTupleDesc != null) {
-            return Lists.newArrayList(outputTupleDesc.getId());
+        if (materializedTupleDesc != null) {
+            return Lists.newArrayList(materializedTupleDesc.getId());
         }
         return tupleIds;
     }
@@ -130,16 +134,24 @@ public class GroupJoinNode extends PlanNode {
         return aggOutputMode;
     }
 
-    public void setOutputTupleDesc(TupleDescriptor outputTupleDesc) {
-        this.outputTupleDesc = outputTupleDesc;
-        if (outputTupleDesc != null) {
-            tupleIds.add(outputTupleDesc.getId());
+    /**
+     * Set the tuple the BE group-join operator materializes its raw rows (group keys +
+     * aggregate values) into. Must be called before toThrift.
+     * <p>
+     * Note: this is intentionally NOT an override of PlanNode.setOutputTupleDesc. The
+     * generic final-projection attach (PhysicalPlanTranslator.visitPhysicalProject) writes
+     * PlanNode.outputTupleDesc for the projections above the fused aggregate; that field is
+     * read by PlanNode.getExplainString and PlanNode.treeToThriftHelper (top-level
+     * output_tuple_id). Keeping the materialization tuple separate mirrors AggregationNode,
+     * whose raw result tuple lives in AggregateInfo while PlanNode.outputTupleDesc holds the
+     * final projected tuple. Mixing the two (as a shadowing field did) made EXPLAIN NPE and
+     * made TPlanNode miss its output_tuple_id when projections were attached.
+     */
+    public void setMaterializedTupleDesc(TupleDescriptor materializedTupleDesc) {
+        this.materializedTupleDesc = materializedTupleDesc;
+        if (materializedTupleDesc != null) {
+            tupleIds.add(materializedTupleDesc.getId());
         }
-    }
-
-    @Override
-    public TupleDescriptor getOutputTupleDesc() {
-        return outputTupleDesc;
     }
 
     public void setDistributionMode(DistributionMode distrMode) {
@@ -206,9 +218,11 @@ public class GroupJoinNode extends PlanNode {
             msg.group_join_node.addToAggregateFunctions(aggFunc);
         }
         msg.group_join_node.setAggOutputMode(aggOutputMode);
-        if (outputTupleDesc != null) {
-            msg.group_join_node.setOutputTupleId(outputTupleDesc.getId().asInt());
-        }
+        // BE always materializes into this tuple (groupjoin_probe_operator reads
+        // group_join_node.output_tuple_id), so it must be set.
+        Preconditions.checkState(materializedTupleDesc != null,
+                "materializedTupleDesc must be set before GroupJoinNode.toThrift");
+        msg.group_join_node.setOutputTupleId(materializedTupleDesc.getId().asInt());
     }
 
     @Override
@@ -237,8 +251,8 @@ public class GroupJoinNode extends PlanNode {
     public ArrayList<TupleId> getTupleIds() {
         ArrayList<TupleId> tupleIds = Lists.newArrayList();
         tupleIds.addAll(super.getTupleIds());
-        if (outputTupleDesc != null) {
-            tupleIds.add(outputTupleDesc.getId());
+        if (materializedTupleDesc != null) {
+            tupleIds.add(materializedTupleDesc.getId());
         }
         return tupleIds;
     }
