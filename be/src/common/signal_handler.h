@@ -337,40 +337,28 @@ void InvokeDefaultSignalHandler(int signal_number) {
 // See also comments in FailureSignalHandler().
 static pthread_t* g_entered_thread_id_pointer = nullptr;
 
-// Wrapper of __sync_val_compare_and_swap. If the GCC extension isn't
-// defined, we try the CPU specific logics (we only support x86 and
-// x86_64 for now) first, then use a naive implementation, which has a
-// race condition.
+// Wrapper of the compiler's atomic compare-and-swap builtin.
+// __atomic_compare_exchange_n is available on every architecture supported
+// by GCC/Clang (x86, aarch64, ...). The previous fallback chain
+// (HAVE___SYNC_VAL_COMPARE_AND_SWAP, which nothing in this CMake-based
+// project ever defines, then x86-only inline asm) ended in a naive
+// non-atomic read-check-write on aarch64. That races when several threads
+// crash at the same time on many-core ARM machines: multiple threads win
+// the FailureSignalHandler election below and dump concurrently.
 template <typename T>
 T sync_val_compare_and_swap(T* ptr, T oldval, T newval) {
-#if defined(HAVE___SYNC_VAL_COMPARE_AND_SWAP)
-    return __sync_val_compare_and_swap(ptr, oldval, newval);
-#elif defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
-    T ret;
-    __asm__ __volatile__("lock; cmpxchg %1, (%2);"
-                         : "=a"(ret)
-                         // GCC may produces %sil or %dil for
-                         // constraint "r", but some of apple's gas
-                         // dosn't know the 8 bit registers.
-                         // We use "q" to avoid these registers.
-                         : "q"(newval), "q"(ptr), "a"(oldval)
-                         : "memory", "cc");
-    return ret;
-#else
-    T ret = *ptr;
-    if (ret == oldval) {
-        *ptr = newval;
-    }
-    return ret;
-#endif
+    T expected = oldval;
+    __atomic_compare_exchange_n(ptr, &expected, newval, false, __ATOMIC_SEQ_CST,
+                                __ATOMIC_SEQ_CST);
+    return expected;
 }
 
 // Dumps signal and stack frame information, and invokes the default
 // signal handler once our job is done.
 void FailureSignalHandler(int signal_number, siginfo_t* signal_info, void* ucontext) {
-    // First check if we've already entered the function.  We use an atomic
-    // compare and swap operation for platforms that support it.  For other
-    // platforms, we use a naive method that could lead to a subtle race.
+    // First check if we've already entered the function.  The election uses
+    // the compiler's atomic compare-and-swap builtin, which is available on
+    // every supported platform (x86_64 and aarch64 alike).
 
     // We assume pthread_self() is async signal safe, though it's not
     // officially guaranteed.

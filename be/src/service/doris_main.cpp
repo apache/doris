@@ -239,9 +239,15 @@ void check_required_instructions_impl(volatile InstructionFail& fail) {
     __asm__ volatile("vpabsw %%zmm0, %%zmm0" : : : "zmm0");
 #endif
 
-#if defined(__ARM_NEON__)
+// GCC aarch64 defines __ARM_NEON, Clang additionally defines __ARM_NEON__ on
+// some targets (e.g. Apple). The 32-bit "vadd.i32 q8,..." syntax is AArch32
+// only and does not assemble on AArch64, which needs "add v8.4s,...". Pick
+// the spelling per architecture so every ARM toolchain passes this check.
+#if defined(__ARM_NEON__) || defined(__ARM_NEON)
     fail = InstructionFail::ARM_NEON;
-#ifndef __APPLE__
+#if defined(__aarch64__)
+    __asm__ volatile("add v8.4s, v8.4s, v8.4s" : : : "v8");
+#elif !defined(__APPLE__)
     __asm__ volatile("vadd.i32  q8, q8, q8" : : : "q8");
 #endif
 #endif

@@ -23,6 +23,7 @@
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
 #include "util/pdep_unpack.h"
 #endif
+#include "util/unaligned.h"
 
 namespace doris {
 inline int64_t BitPacking::NumValuesToUnpack(int bit_width, int64_t in_bytes, int64_t num_values) {
@@ -192,7 +193,7 @@ std::pair<const uint8_t*, int64_t> BitPacking::UnpackAndDecodeValues(
 // avoid buffer overflow (if we are unpacking 32 values, we can safely assume an input
 // buffer of length 32 * BIT_WIDTH).
 template <int BIT_WIDTH, int VALUE_IDX, bool FULL_BATCH>
-uint64_t NO_SANITIZE_UNDEFINED UnpackValue(const uint8_t* __restrict__ in_buf) {
+uint64_t UnpackValue(const uint8_t* __restrict__ in_buf) {
     if (BIT_WIDTH == 0) return 0;
 
     constexpr int FIRST_BIT_IDX = VALUE_IDX * BIT_WIDTH;
@@ -204,7 +205,11 @@ uint64_t NO_SANITIZE_UNDEFINED UnpackValue(const uint8_t* __restrict__ in_buf) {
 
     constexpr int FIRST_BIT_OFFSET = FIRST_BIT_IDX - FIRST_WORD_IDX * 32;
     constexpr uint64_t mask = GetMask(BIT_WIDTH);
-    const uint32_t* const in = reinterpret_cast<const uint32_t*>(in_buf);
+    // in_buf is an arbitrary byte pointer into a page buffer; word loads must
+    // go through unaligned_load (memcpy-based, compiles to the same single
+    // load instruction) instead of reinterpret_cast dereferences, which are
+    // misaligned UB whenever in_buf is not word-aligned.
+    const uint8_t* const in = in_buf;
 
     // Avoid reading past the end of the buffer. We can safely read 64 bits if we know that
     // this is a full batch read (so the input buffer is 32 * BIT_WIDTH long) and there is
@@ -222,17 +227,17 @@ uint64_t NO_SANITIZE_UNDEFINED UnpackValue(const uint8_t* __restrict__ in_buf) {
             WORDS_TO_READ == 1 && (!CAN_SAFELY_READ_64_BITS || BitUtil::IsPowerOf2(BIT_WIDTH));
 
     if (READ_32_BITS) {
-        uint32_t word = in[FIRST_WORD_IDX];
+        uint32_t word = unaligned_load<uint32_t>(in + 4 * FIRST_WORD_IDX);
         word >>= FIRST_BIT_OFFSET < 32 ? FIRST_BIT_OFFSET : 0;
         return word & mask;
     }
 
-    uint64_t word = *reinterpret_cast<const uint64_t*>(in + FIRST_WORD_IDX);
+    uint64_t word = unaligned_load<uint64_t>(in + 4 * FIRST_WORD_IDX);
     word >>= FIRST_BIT_OFFSET;
 
     if (WORDS_TO_READ > 2) {
         constexpr int USEFUL_BITS = FIRST_BIT_OFFSET == 0 ? 0 : 64 - FIRST_BIT_OFFSET;
-        uint64_t extra_word = in[FIRST_WORD_IDX + 2];
+        uint64_t extra_word = unaligned_load<uint32_t>(in + 4 * (FIRST_WORD_IDX + 2));
         word |= extra_word << USEFUL_BITS;
     }
 
