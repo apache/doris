@@ -25,6 +25,8 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 
 /**
@@ -177,16 +179,14 @@ public class TimeV2Literal extends Literal {
         if (parts[2].startsWith("60")) {
             return Result.err(() -> new AnalysisException("second out of range"));
         }
-        double secPart;
+        long secPart;
         try {
-            secPart = Double.parseDouble(parts[2]);
-        } catch (NumberFormatException e) {
+            secPart = parseSecondPart(parts[2], TimeV2Type.MAX_SCALE);
+            second = Math.toIntExact(secPart / 1000000);
+            microsecond = Math.toIntExact(secPart % 1000000);
+        } catch (NumberFormatException | ArithmeticException e) {
             return Result.err(() -> new AnalysisException("Invalid second format"));
         }
-        secPart = secPart * (int) Math.pow(10, 6);
-        secPart = Math.round(secPart);
-        second = (int) (secPart / 1000000);
-        microsecond = (int) (secPart % 1000000);
         if (second == 60) {
             minute += 1;
             second -= 60;
@@ -232,28 +232,21 @@ public class TimeV2Literal extends Literal {
         if (parts[2].startsWith("60")) {
             throw new AnalysisException("second out of range");
         }
-        double secPart;
+        long secPart;
         try {
-            secPart = Double.parseDouble(parts[2]);
-        } catch (NumberFormatException e) {
+            secPart = parseSecondPart(parts[2], scale);
+            second = Math.toIntExact(secPart / 1000000);
+            microsecond = Math.toIntExact(secPart % 1000000);
+        } catch (NumberFormatException | ArithmeticException e) {
             throw new AnalysisException("Invalid second format", e);
         }
-        secPart = secPart * (int) Math.pow(10, scale);
-        secPart = Math.round(secPart);
-        secPart = (long) secPart * (long) Math.pow(10, 6 - scale);
-        second = (int) (secPart / 1000000);
-        if (scale != 0) {
-            microsecond = (int) (secPart % 1000000);
-            if (second == 60) {
-                minute += 1;
-                second -= 60;
-                if (minute == 60) {
-                    hour += 1;
-                    minute -= 60;
-                }
+        if (second == 60) {
+            minute += 1;
+            second -= 60;
+            if (minute == 60) {
+                hour += 1;
+                minute -= 60;
             }
-        } else {
-            microsecond = 0;
         }
 
         if (checkRange(hour, minute, second, microsecond)) {
@@ -264,6 +257,11 @@ public class TimeV2Literal extends Literal {
     protected static boolean checkRange(double hour, int minute, int second, int microsecond) {
         return hour > 838 || minute > 59 || second > 59 || microsecond > 999999 || minute < 0 || second < 0
                 || microsecond < 0 || (hour == 838 && minute == 59 && second == 59 && microsecond != 0);
+    }
+
+    private static long parseSecondPart(String secondPart, int scale) {
+        return new BigDecimal(secondPart).setScale(scale, RoundingMode.HALF_UP)
+                .movePointRight(TimeV2Type.MAX_SCALE).longValueExact();
     }
 
     /**
