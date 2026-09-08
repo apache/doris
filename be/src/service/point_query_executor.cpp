@@ -27,6 +27,7 @@
 #include <stdlib.h>
 
 #include <memory>
+#include <sstream>
 #include <unordered_map>
 #include <vector>
 
@@ -43,6 +44,7 @@
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -419,13 +421,29 @@ void PointQueryExecutor::print_profile() {
             _profile_metrics.read_stats.file_cache_stats.remote_io_timer,
             _profile_metrics.read_stats.file_cache_stats.write_cache_io_timer);
 
+    const auto read_ahead_profile = [&]() {
+        if (_profile_metrics.read_stats.read_ahead_stats == nullptr &&
+            _read_stats.read_ahead_stats == nullptr) {
+            return std::string {};
+        }
+        RuntimeProfile profile("PageReadAhead");
+        for (auto* stats : {&_profile_metrics.read_stats, &_read_stats}) {
+            if (stats->read_ahead_stats != nullptr) {
+                stats->read_ahead_stats->update_profile(&profile);
+            }
+        }
+        std::ostringstream output;
+        profile.pretty_print(&output);
+        return "\n" + output.str();
+    };
+
     constexpr static int kSlowThreholdUs = 50 * 1000; // 50ms
     if (total_us > kSlowThreholdUs) {
-        LOG(WARNING) << "slow query, " << stats_str;
+        LOG(WARNING) << "slow query, " << stats_str << read_ahead_profile();
     } else if (VLOG_DEBUG_IS_ON) {
-        VLOG_DEBUG << stats_str;
+        VLOG_DEBUG << stats_str << read_ahead_profile();
     } else {
-        LOG_EVERY_N(INFO, 1000) << stats_str;
+        LOG_EVERY_N(INFO, 1000) << stats_str << read_ahead_profile();
     }
 }
 

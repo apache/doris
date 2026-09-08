@@ -39,6 +39,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/path.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
 
@@ -176,6 +177,9 @@ protected:
         }
         std::memcpy(result.data, _content.data() + offset, read_size);
         *bytes_read = read_size;
+        if (io_context != nullptr && io_context->file_cache_stats != nullptr) {
+            io_context->file_cache_stats->bytes_read_from_remote += read_size;
+        }
         return Status::OK();
     }
 
@@ -392,6 +396,7 @@ TEST(FileRangeReadSchedulerTest, ExecutesReadsOnProvidedThreadPool) {
 }
 
 TEST(FileRangeReadSchedulerTest, ExecutorRejectionRollsBackWholeBatch) {
+    const auto failed_before = read_ahead_bvars().failed_ranges.get_value();
     std::unique_ptr<ThreadPool> executor;
     ASSERT_TRUE(ThreadPoolBuilder("StoppedRangeExecutor")
                         .set_min_threads(1)
@@ -403,8 +408,11 @@ TEST(FileRangeReadSchedulerTest, ExecutorRejectionRollsBackWholeBatch) {
 
     auto file_reader = std::make_shared<ControllableFileReader>(alphabet(128));
     auto query = scheduler->create_context();
+    auto io_context = default_read_context();
+    auto statistics = std::make_shared<ReadAheadStatistics>();
+    io_context.statistics = statistics;
     auto result = scheduler->try_submit({{.offset = 0, .size = 8}, {.offset = 16, .size = 8}},
-                                        file_reader, default_read_context(), query);
+                                        file_reader, io_context, query);
 
     EXPECT_FALSE(result.accepted());
     EXPECT_EQ(result.reject_reason, FileRangeReadRejectReason::EXECUTOR_REJECTED);
@@ -412,9 +420,16 @@ TEST(FileRangeReadSchedulerTest, ExecutorRejectionRollsBackWholeBatch) {
     EXPECT_EQ(query->resident_bytes(), 0);
     EXPECT_EQ(scheduler->global_budget()->resident_bytes(), 0);
     EXPECT_EQ(file_reader->read_calls(), 0);
+    EXPECT_EQ(statistics->submitted_ranges.value(), 0);
+    EXPECT_EQ(statistics->submit_failed_ranges.value(), 2);
+    EXPECT_EQ(statistics->rejected_batches.value(), 1);
+    EXPECT_EQ(statistics->failed_ranges.value(), 0);
+    EXPECT_EQ(statistics->cancelled_ranges.value(), 0);
+    EXPECT_EQ(read_ahead_bvars().failed_ranges.get_value(), failed_before);
 }
 
 TEST(FileRangeReadSchedulerTest, ExecutorRejectionFailsOnlyUnsubmittedRanges) {
+    const auto failed_before = read_ahead_bvars().failed_ranges.get_value();
     std::unique_ptr<ThreadPool> executor;
     ASSERT_TRUE(ThreadPoolBuilder("PartiallyFullRangeExecutor")
                         .set_min_threads(1)
@@ -437,8 +452,11 @@ TEST(FileRangeReadSchedulerTest, ExecutorRejectionFailsOnlyUnsubmittedRanges) {
     auto scheduler = create_scheduler(scheduler_options(), executor.get());
     auto file_reader = std::make_shared<ControllableFileReader>(alphabet(128));
     auto query = scheduler->create_context();
+    auto io_context = default_read_context();
+    auto statistics = std::make_shared<ReadAheadStatistics>();
+    io_context.statistics = statistics;
     auto result = scheduler->try_submit({{.offset = 0, .size = 8}, {.offset = 16, .size = 8}},
-                                        file_reader, default_read_context(), query);
+                                        file_reader, io_context, query);
 
     ASSERT_TRUE(result.accepted());
     EXPECT_FALSE(result.reads[1]->wait().ok());
@@ -449,6 +467,13 @@ TEST(FileRangeReadSchedulerTest, ExecutorRejectionFailsOnlyUnsubmittedRanges) {
     EXPECT_TRUE(result.reads[0]->wait().ok());
     EXPECT_EQ(result.reads[0]->state(), FileRangeRead::State::READY);
     EXPECT_EQ(file_reader->read_calls(), 1);
+    EXPECT_EQ(statistics->submitted_ranges.value(), 1);
+    EXPECT_EQ(statistics->submit_failed_ranges.value(), 1);
+    EXPECT_EQ(statistics->completed_ranges.value(), 1);
+    EXPECT_EQ(statistics->failed_ranges.value(), 0);
+    EXPECT_EQ(statistics->cancelled_ranges.value(), 0);
+    EXPECT_EQ(statistics->rejected_batches.value(), 0);
+    EXPECT_EQ(read_ahead_bvars().failed_ranges.get_value(), failed_before);
     scheduler.reset();
     executor->shutdown();
 }
@@ -494,10 +519,16 @@ TEST(FileRangeReadSchedulerTest, GlobalBudgetIsSharedAcrossQueries) {
     ASSERT_TRUE(accepted.accepted());
     ASSERT_TRUE(file_reader->wait_for_entered(1));
 
-    auto rejected_result = scheduler->try_submit({{.offset = 16, .size = 5}}, file_reader,
-                                                 default_read_context(), query2);
+    auto io_context = default_read_context();
+    io_context.statistics = std::make_shared<ReadAheadStatistics>();
+    auto rejected_result =
+            scheduler->try_submit({{.offset = 16, .size = 5}}, file_reader, io_context, query2);
     EXPECT_EQ(rejected_result.reject_reason, FileRangeReadRejectReason::GLOBAL_BYTE_LIMIT);
     EXPECT_EQ(scheduler->global_budget()->resident_bytes(), 6);
+    EXPECT_EQ(io_context.statistics->rejected_batches.value(), 1);
+    EXPECT_EQ(io_context.statistics->be_budget_rejected_batches.value(), 1);
+    EXPECT_EQ(io_context.statistics->query_budget_rejected_batches.value(), 0);
+    EXPECT_EQ(io_context.statistics->submit_failed_ranges.value(), 0);
 
     file_reader->release_reads();
     ASSERT_TRUE(accepted.reads.front()->wait().ok());
@@ -525,13 +556,63 @@ TEST(FileRangeReadSchedulerTest, ResidentBytesFollowReadLifetime) {
     executor->shutdown();
 }
 
+TEST(FileRangeReadSchedulerTest, ReportsIOAdmissionAndBufferLifetime) {
+    auto& metrics = read_ahead_bvars();
+    const auto resident_before = metrics.resident_bytes.get_value();
+    const auto inflight_before = metrics.inflight_ranges.get_value();
+    const auto rejected_before = metrics.rejected_batches.get_value();
+    const auto failed_before = metrics.failed_ranges.get_value();
+    auto executor = create_test_executor("RangeMetricsExecutor", 1);
+    auto scheduler = create_scheduler(scheduler_options(16), executor.get());
+    auto file_reader = std::make_shared<ControllableFileReader>(alphabet(128));
+    file_reader->fail_at(16);
+    auto query = scheduler->create_context();
+    auto io_context = default_read_context();
+    auto statistics = std::make_shared<ReadAheadStatistics>();
+    io_context.statistics = statistics;
+    auto result = scheduler->try_submit({{.offset = 0, .size = 8}, {.offset = 16, .size = 8}},
+                                        file_reader, io_context, query);
+    ASSERT_TRUE(result.accepted());
+    EXPECT_TRUE(result.reads[0]->wait().ok());
+    EXPECT_FALSE(result.reads[1]->wait().ok());
+    executor->wait();
+
+    EXPECT_EQ(statistics->submitted_ranges.value(), 2);
+    EXPECT_EQ(statistics->submitted_bytes.value(), 16);
+    EXPECT_EQ(statistics->completed_ranges.value(), 1);
+    EXPECT_EQ(statistics->failed_ranges.value(), 1);
+    EXPECT_EQ(statistics->source_bytes.value(), 8);
+    EXPECT_EQ(statistics->successful_source_bytes.value(), 8);
+    EXPECT_EQ(statistics->remote_requests.value(), 2);
+    EXPECT_GT(statistics->queue_wait_time.value(), 0);
+    EXPECT_GT(statistics->read_time.value(), 0);
+    EXPECT_EQ(metrics.resident_bytes.get_value() - resident_before, 16);
+    EXPECT_EQ(metrics.inflight_ranges.get_value(), inflight_before);
+    EXPECT_EQ(metrics.failed_ranges.get_value() - failed_before, 1);
+
+    auto rejected =
+            scheduler->try_submit({{.offset = 32, .size = 1}}, file_reader, io_context, query);
+    EXPECT_FALSE(rejected.accepted());
+    EXPECT_EQ(statistics->rejected_batches.value(), 1);
+    EXPECT_EQ(statistics->query_budget_rejected_batches.value(), 1);
+    EXPECT_EQ(statistics->be_budget_rejected_batches.value(), 0);
+    EXPECT_EQ(metrics.rejected_batches.get_value() - rejected_before, 1);
+    result.reads.clear();
+    EXPECT_EQ(metrics.resident_bytes.get_value(), resident_before);
+    scheduler.reset();
+    executor->shutdown();
+}
+
 TEST(FileRangeReadSchedulerTest, QueryCancellationSkipsQueuedIOAndCancelsRunningRead) {
     auto executor = create_test_executor("RangeCancellationExecutor", 1);
     auto scheduler = create_scheduler(scheduler_options(), executor.get());
     auto file_reader = std::make_shared<ControllableFileReader>(alphabet(128), true);
     auto query = scheduler->create_context();
+    auto io_context = default_read_context();
+    auto statistics = std::make_shared<ReadAheadStatistics>();
+    io_context.statistics = statistics;
     auto result = scheduler->try_submit({{.offset = 0, .size = 8}, {.offset = 16, .size = 8}},
-                                        file_reader, default_read_context(), query);
+                                        file_reader, io_context, query);
     ASSERT_TRUE(result.accepted());
     ASSERT_TRUE(file_reader->wait_for_entered(1));
 
@@ -544,6 +625,12 @@ TEST(FileRangeReadSchedulerTest, QueryCancellationSkipsQueuedIOAndCancelsRunning
     EXPECT_FALSE(result.reads[0]->wait().ok());
     EXPECT_EQ(result.reads[0]->state(), FileRangeRead::State::CANCELLED);
     EXPECT_EQ(file_reader->read_calls(), 1);
+    executor->wait();
+    EXPECT_EQ(statistics->cancelled_ranges.value(), 2);
+    EXPECT_EQ(statistics->completed_ranges.value(), 0);
+    EXPECT_EQ(statistics->failed_ranges.value(), 0);
+    EXPECT_EQ(statistics->source_bytes.value(), 8);
+    EXPECT_EQ(statistics->successful_source_bytes.value(), 8);
     scheduler.reset();
     executor->shutdown();
 }
@@ -569,6 +656,7 @@ TEST(FileRangeReadSchedulerTest, CancellationWinsBeforeReadyIsPublished) {
     EXPECT_FALSE(result.reads.front()->wait().ok());
     EXPECT_EQ(result.reads.front()->state(), FileRangeRead::State::CANCELLED);
     EXPECT_EQ(result.reads.front()->stats().bytes_read, 8);
+    EXPECT_EQ(result.reads.front()->stats().successful_source_bytes, 8);
 }
 
 TEST(FileRangeReadSchedulerTest, CancelledContextRejectsBatchBeforeAdmission) {
@@ -583,6 +671,67 @@ TEST(FileRangeReadSchedulerTest, CancelledContextRejectsBatchBeforeAdmission) {
     EXPECT_EQ(result.reject_reason, FileRangeReadRejectReason::QUERY_CANCELLED);
     EXPECT_EQ(query->resident_bytes(), 0);
     EXPECT_EQ(file_reader->read_calls(), 0);
+}
+
+TEST(FileRangeReadSchedulerTest, CancellationBeforeExecutorRejectionIsNotSubmittedWork) {
+    auto executor = create_test_executor("CancelledRejectedRangeExecutor", 1);
+    auto scheduler = create_scheduler(scheduler_options(), executor.get());
+    executor->shutdown();
+    auto query = scheduler->create_context();
+    auto io_context = default_read_context();
+    io_context.statistics = std::make_shared<ReadAheadStatistics>();
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "FileRangeRead::create:inject_failure", [&](auto&&) { query->cancel(); }, &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    auto result = scheduler->try_submit({{.offset = 0, .size = 8}},
+                                        std::make_shared<ControllableFileReader>(alphabet(128)),
+                                        io_context, query);
+    EXPECT_EQ(result.reject_reason, FileRangeReadRejectReason::EXECUTOR_REJECTED);
+    EXPECT_EQ(io_context.statistics->submitted_ranges.value(), 0);
+    EXPECT_EQ(io_context.statistics->submit_failed_ranges.value(), 1);
+    EXPECT_EQ(io_context.statistics->cancelled_ranges.value(), 0);
+    EXPECT_EQ(io_context.statistics->failed_ranges.value(), 0);
+}
+
+TEST(FileRangeReadSchedulerTest, GlobalBytesIncludeCompletionAfterFinalProfileReport) {
+    auto& metrics = read_ahead_bvars();
+    const auto source_before = metrics.source_bytes.get_value();
+    const auto successful_before = metrics.successful_source_bytes.get_value();
+    const auto remote_before = metrics.remote_bytes.get_value();
+    const auto requests_before = metrics.remote_requests.get_value();
+    auto executor = create_test_executor("RangeTailMetricsExecutor", 1);
+    auto scheduler = create_scheduler(scheduler_options(), executor.get());
+    auto file_reader = std::make_shared<ControllableFileReader>(alphabet(128), true);
+    auto query = scheduler->create_context();
+    auto io_context = default_read_context();
+    io_context.statistics = std::make_shared<ReadAheadStatistics>();
+    auto result = scheduler->try_submit({{.offset = 0, .size = 8}}, file_reader, io_context, query);
+    ASSERT_TRUE(result.accepted());
+    ASSERT_TRUE(file_reader->wait_for_entered(1));
+    {
+        RuntimeProfile profile("ClosingScanner");
+        io_context.statistics->update_profile(&profile);
+        EXPECT_EQ(profile.get_counter("ReadAheadSubmittedRanges")->value(), 1);
+        EXPECT_EQ(profile.get_counter("ReadAheadSourceBytes")->value(), 0);
+    }
+    query->cancel();
+    file_reader->release_reads();
+    EXPECT_FALSE(result.reads.front()->wait().ok());
+    executor->wait();
+    EXPECT_EQ(metrics.source_bytes.get_value() - source_before, 8);
+    EXPECT_EQ(metrics.successful_source_bytes.get_value() - successful_before, 8);
+    EXPECT_EQ(metrics.remote_bytes.get_value() - remote_before, 8);
+    EXPECT_EQ(metrics.remote_requests.get_value() - requests_before, 1);
+    EXPECT_EQ(io_context.statistics->cancelled_ranges.value(), 1);
+    scheduler.reset();
+    executor->shutdown();
 }
 
 TEST(FileRangeReadSchedulerTest, ShutdownCancelsPendingReadAndWaitsForRunningRead) {
@@ -635,6 +784,8 @@ TEST(FileRangeReadSchedulerTest, PublishesReadFailureAndShortRead) {
     EXPECT_EQ(result.reads[1]->state(), FileRangeRead::State::FAILED);
     EXPECT_EQ(result.reads[0]->stats().bytes_read, 0);
     EXPECT_EQ(result.reads[1]->stats().bytes_read, 7);
+    EXPECT_EQ(result.reads[0]->stats().successful_source_bytes, 0);
+    EXPECT_EQ(result.reads[1]->stats().successful_source_bytes, 0);
 }
 
 TEST(FileRangeReadSchedulerTest, AllocationFailureRollsBackWholeBatch) {

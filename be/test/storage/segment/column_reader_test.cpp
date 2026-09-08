@@ -41,6 +41,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "storage/olap_common.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/column_writer.h"
@@ -652,6 +653,7 @@ TEST_F(ColumnReaderTest, FileColumnIteratorConsumesSubmittedReadAheadPage) {
     status = reader->new_iterator(&iterator, nullptr);
     ASSERT_TRUE(status.ok()) << status;
     OlapReaderStatistics stats;
+    stats.read_ahead_stats = segment_read_ahead->_statistics;
     ColumnIteratorOptions iterator_options;
     iterator_options.file_reader = segment_read_ahead->file_reader().get();
     iterator_options.stats = &stats;
@@ -686,6 +688,8 @@ TEST_F(ColumnReaderTest, FileColumnIteratorConsumesSubmittedReadAheadPage) {
     ASSERT_EQ(output->size(), 1);
     EXPECT_EQ(assert_cast<const ColumnInt32&>(*output).get_data()[0], 0);
     EXPECT_FALSE(column->pending(page_index));
+    EXPECT_EQ(stats.read_ahead_stats->fallback_pages.value(), 0);
+    EXPECT_GT(stats.read_ahead_stats->consumed_page_bytes.value(), 0);
 }
 
 TEST_F(ColumnReaderTest, FileColumnIteratorFallsBackAfterReadAheadChecksumFailure) {
@@ -727,6 +731,7 @@ TEST_F(ColumnReaderTest, FileColumnIteratorFallsBackAfterReadAheadChecksumFailur
     status = reader->new_iterator(&iterator, nullptr);
     ASSERT_TRUE(status.ok()) << status;
     OlapReaderStatistics stats;
+    stats.read_ahead_stats = segment_read_ahead->_statistics;
     ColumnIteratorOptions iterator_options;
     iterator_options.file_reader = segment_read_ahead->file_reader().get();
     iterator_options.stats = &stats;
@@ -766,6 +771,9 @@ TEST_F(ColumnReaderTest, FileColumnIteratorFallsBackAfterReadAheadChecksumFailur
     EXPECT_EQ(source_reader->read_calls(), reads_before_submit + 2);
     EXPECT_FALSE(column->pending(page_index));
     EXPECT_THAT(consumed_ranges, ::testing::ElementsAre(page_range));
+    EXPECT_EQ(stats.read_ahead_stats->fallback_pages.value(), 1);
+    EXPECT_EQ(stats.read_ahead_stats->fallback_bytes.value(), page_range.size);
+    EXPECT_GT(stats.read_ahead_stats->fallback_time.value(), 0);
 }
 
 TEST_F(ColumnReaderTest, StructReadAheadRoutesPhysicalColumnsByReadPhase) {

@@ -87,6 +87,11 @@ public:
 
     const io::FileReaderSPtr& inner_reader() const { return _inner; }
 
+    /// Try an exact data page, waiting for its range when necessary. A true return means the page
+    /// was registered; a failed status leaves the caller to use the original reader. PageIO uses
+    /// this entry to distinguish buffer reuse from synchronous data-page fallback.
+    bool try_read_page(size_t offset, Slice output, Status* status);
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const io::IOContext* io_ctx) override;
@@ -127,20 +132,19 @@ private:
         size_t buffer_offset {0};
     };
 
-    explicit SegmentReadAheadFileReader(io::FileReaderSPtr inner);
+    SegmentReadAheadFileReader(io::FileReaderSPtr inner,
+                               std::shared_ptr<io::ReadAheadStatistics> statistics);
     /// Associate one exact page read with its location in a scheduled physical range.
     void _register_page(ColumnReadAhead* column, const ColumnReadAheadPage& page,
                         std::shared_ptr<BufferedRange> range, size_t buffer_offset);
     /// Drop one column's prediction after its scan has passed the page.
     void _release_page(ColumnReadAhead* column, const ColumnReadAheadPage& page);
-    /// Serve an exact registered page, waiting for its range when necessary. A true return means
-    /// the key was registered; `status` distinguishes successful buffer reuse from fallback.
-    bool _try_read(const PageKey& key, Slice output, Status* status);
     /// Remove a page from every owning column and invoke the range consumer once after a successful
     /// read. Callbacks run without `_mutex`.
     void _finish_page(const PageKey& key, bool consumed);
 
     const io::FileReaderSPtr _inner;
+    const std::shared_ptr<io::ReadAheadStatistics> _statistics;
     std::mutex _mutex;
     std::map<PageKey, PageSlot> _pages;
 };
@@ -185,8 +189,9 @@ private:
     const io::FileReaderSPtr _source_reader;
     io::FileRangeReadScheduler* const _scheduler;
     const std::shared_ptr<io::FileRangeReadContext> _context;
-    const io::FileRangeReadIOContext _io_context;
+    io::FileRangeReadIOContext _io_context;
     const SegmentReadAheadOptions _options;
+    const std::shared_ptr<io::ReadAheadStatistics> _statistics;
     const std::shared_ptr<SegmentReadAheadFileReader> _reader;
     const ColumnReadAheadContext _column_context;
 };

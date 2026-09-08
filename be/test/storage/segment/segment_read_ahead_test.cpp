@@ -30,7 +30,12 @@
 #include <vector>
 
 #include "common/cast_set.h"
+#include "io/fs/read_ahead_metrics.h"
+#include "storage/olap_common.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/page_handle.h"
+#include "storage/segment/page_io.h"
+#include "util/coding.h"
 #include "util/threadpool.h"
 
 namespace doris::segment_v2 {
@@ -203,6 +208,7 @@ roaring::Roaring rows(size_t count) {
 }
 
 TEST(SegmentReadAheadTest, CoalescesColumnsAndServesExactPageSlices) {
+    const auto consumed_before = io::read_ahead_bvars().consumed_page_bytes.get_value();
     auto source = std::make_shared<TestFileReader>(std::string(256, 'x'));
     auto scheduler = make_scheduler();
     size_t consumer_factory_calls = 0;
@@ -249,6 +255,22 @@ TEST(SegmentReadAheadTest, CoalescesColumnsAndServesExactPageSlices) {
     ASSERT_EQ(consumed_ranges.size(), 1);
     EXPECT_EQ(source->read_calls(), 1);
     EXPECT_EQ(source->reads(), (std::vector<io::FileRange> {{.offset = 0, .size = 40}}));
+
+    const auto& statistics = *read_ahead->_statistics;
+    EXPECT_EQ(statistics.plan_calls.value(), 1);
+    EXPECT_EQ(statistics.candidate_pages.value(), 2);
+    EXPECT_EQ(statistics.candidate_bytes.value(), 32);
+    EXPECT_EQ(statistics.input_bytes.value(), 32);
+    EXPECT_EQ(statistics.coalesced_bytes.value(), 40);
+    EXPECT_EQ(statistics.submitted_ranges.value(), 1);
+    EXPECT_EQ(statistics.remote_requests.value(), 1);
+    EXPECT_EQ(statistics.remote_bytes.value(), 40);
+    EXPECT_EQ(statistics.ready_page_hits.value() + statistics.wait_page_hits.value(), 2);
+    EXPECT_EQ(statistics.consumed_page_bytes.value(), 32);
+    EXPECT_EQ(statistics.consumed_range_bytes.value(), 40);
+    EXPECT_EQ(io::read_ahead_bvars().consumed_page_bytes.get_value() - consumed_before, 32);
+    EXPECT_GT(statistics.plan_time.value(), 0);
+    EXPECT_GT(statistics.read_time.value(), 0);
 }
 
 TEST(SegmentReadAheadTest, PrefetchesExactRowIdsAcrossColumnsInOneSubmission) {
@@ -364,6 +386,117 @@ TEST(SegmentReadAheadTest, PageCacheHitCompletesWindowWithoutSubmission) {
     EXPECT_EQ(result.submitted_ranges, 0);
     EXPECT_EQ(window->pending_bytes(), 0);
     EXPECT_FALSE(window->pending(0));
+    EXPECT_EQ(read_ahead->_statistics->candidate_bytes.value(), 16);
+    EXPECT_EQ(read_ahead->_statistics->page_cache_hit_bytes.value(), 16);
+}
+
+TEST(SegmentReadAheadTest, ReportsCandidateBytesBeforeCacheProbeAndDeduplication) {
+    auto source = std::make_shared<TestFileReader>(std::string(64, 'p'));
+    auto scheduler = make_scheduler();
+    auto read_ahead = make_segment_read_ahead(
+            source, scheduler.get(),
+            {.range_plan = plan_options(),
+             .page_cache_probe = [](const io::FileRange& page) { return page.offset == 0; },
+             .range_consumer_factory = {}});
+    auto cached = make_window(1, 16);
+    auto first = make_window(1, 8, 24);
+    auto second = make_window(1, 8, 24);
+    const auto scan_rows = rows(100);
+    ASSERT_TRUE(read_ahead
+                        ->apply_plans({plan_window(cached.get(), scan_rows, 0),
+                                       plan_window(first.get(), scan_rows, 0),
+                                       plan_window(second.get(), scan_rows, 0)})
+                        .accepted());
+    EXPECT_EQ(read_ahead->_statistics->candidate_bytes.value(), 32);
+    EXPECT_EQ(read_ahead->_statistics->page_cache_hit_bytes.value(), 16);
+    EXPECT_EQ(read_ahead->_statistics->input_bytes.value(), 8);
+    // Keep the column owners alive until their buffered page mappings are released.
+    read_ahead.reset();
+}
+
+TEST(SegmentReadAheadTest, ConsumedPageReportsTheWholeRangeBeforeClose) {
+    auto source = std::make_shared<TestFileReader>(std::string(64, 'c'));
+    auto scheduler = make_scheduler();
+    auto options = plan_options();
+    options.cache_block_size = 64;
+    options.block_fill_min_coverage = 0.25;
+    auto read_ahead = make_segment_read_ahead(
+            source, scheduler.get(),
+            {.range_plan = options, .page_cache_probe = {}, .range_consumer_factory = {}});
+    auto window = make_window(1, 16, 8);
+    ASSERT_TRUE(read_ahead->apply_plans({plan_window(window.get(), rows(100), 0)}).accepted());
+    char data[16];
+    size_t bytes_read = 0;
+    ASSERT_TRUE(read_ahead->file_reader()->read_at(8, Slice(data, sizeof(data)), &bytes_read).ok());
+    RuntimeProfile profile("ClosingScanner");
+    read_ahead->_statistics->update_profile(&profile);
+    EXPECT_EQ(profile.get_counter("ReadAheadSourceBytes")->value(), 64);
+    EXPECT_EQ(profile.get_counter("ReadAheadSuccessfulSourceBytes")->value(), 64);
+    EXPECT_EQ(profile.get_counter("ReadAheadConsumedPageBytes")->value(), 16);
+    EXPECT_EQ(profile.get_counter("ReadAheadConsumedRangeBytes")->value(), 64);
+    EXPECT_EQ(profile.get_counter("ReadAheadBlockFillBytes")->value(), 48);
+}
+
+TEST(SegmentReadAheadTest, PageIOCountsDataFallbackAfterRejectionOrReadFailure) {
+    PageFooterPB written_footer;
+    written_footer.set_type(DATA_PAGE);
+    written_footer.set_uncompressed_size(4);
+    written_footer.mutable_data_page_footer()->set_first_ordinal(0);
+    written_footer.mutable_data_page_footer()->set_num_values(1);
+    written_footer.mutable_data_page_footer()->set_nullmap_size(0);
+    const std::string serialized_footer = written_footer.SerializeAsString();
+    char trailer[8] {};
+    encode_fixed32_le(reinterpret_cast<uint8_t*>(trailer),
+                      cast_set<uint32_t>(serialized_footer.size()));
+    const std::string content = "data" + serialized_footer + std::string(trailer, sizeof(trailer));
+
+    for (bool reject : {false, true}) {
+        auto source = std::make_shared<TestFileReader>(content);
+        auto scheduler = make_scheduler(reject ? 1 : 4096);
+        auto read_ahead = make_segment_read_ahead(source, scheduler.get(),
+                                                  {.range_plan = plan_options(),
+                                                   .page_cache_probe = {},
+                                                   .range_consumer_factory = {}});
+        auto window = make_window(1, content.size());
+        if (!reject) {
+            source->fail_next_read();
+        }
+        const auto submitted = read_ahead->apply_plans({plan_window(window.get(), rows(100), 0)});
+        ASSERT_EQ(submitted.accepted(), !reject);
+
+        OlapReaderStatistics stats;
+        stats.read_ahead_stats = read_ahead->_statistics;
+        PageReadOptions options(io::IOContext {});
+        options.file_reader = read_ahead->file_reader().get();
+        options.stats = &stats;
+        options.type = DATA_PAGE;
+        options.page_pointer = PagePointer(0, cast_set<uint32_t>(content.size()));
+        options.verify_checksum = false;
+        options.pre_decode = false;
+        PageHandle handle;
+        Slice body;
+        PageFooterPB footer;
+        ASSERT_TRUE(PageIO::read_and_decompress_page(options, &handle, &body, &footer).ok());
+        EXPECT_EQ(body.to_string(), "data");
+        EXPECT_EQ(stats.read_ahead_stats->fallback_pages.value(), 1);
+        EXPECT_EQ(stats.read_ahead_stats->fallback_bytes.value(), content.size());
+        EXPECT_GT(stats.read_ahead_stats->fallback_time.value(), 0);
+        EXPECT_EQ(stats.read_ahead_stats->consumed_page_bytes.value(), 0);
+        EXPECT_EQ(stats.read_ahead_stats->ready_page_hits.value(), 0);
+        EXPECT_EQ(stats.read_ahead_stats->wait_page_hits.value(), 0);
+        EXPECT_EQ(source->read_calls(), reject ? 1 : 2);
+
+        // Index and dictionary reads use the INDEX_PAGE cache category and are not fallbacks.
+        options.type = INDEX_PAGE;
+        ASSERT_TRUE(PageIO::read_and_decompress_page(options, &handle, &body, &footer).ok());
+        EXPECT_EQ(stats.read_ahead_stats->fallback_pages.value(), 1);
+
+        options.type = DATA_PAGE;
+        source->fail_next_read();
+        EXPECT_FALSE(PageIO::read_and_decompress_page(options, &handle, &body, &footer).ok());
+        EXPECT_EQ(stats.read_ahead_stats->fallback_pages.value(), 2);
+        EXPECT_EQ(stats.read_ahead_stats->fallback_bytes.value(), 2 * content.size());
+    }
 }
 
 TEST(SegmentReadAheadTest, AdmissionRejectionFallsBackWithoutWaiting) {

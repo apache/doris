@@ -23,6 +23,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "io/fs/read_ahead_metrics.h"
 
 namespace doris::io {
 
@@ -219,8 +220,8 @@ FileRangePlan build_final_plan(const std::vector<FileRange>& input_ranges,
 } // namespace
 
 Status FileRangePlanner::plan(const std::vector<FileRange>& input_ranges, size_t file_size,
-                              const FileRangePlanOptions& options,
-                              FileRangePlan* const output_plan) {
+                              const FileRangePlanOptions& options, FileRangePlan* const output_plan,
+                              ReadAheadStatistics* statistics) {
     DORIS_CHECK(output_plan != nullptr);
     RETURN_IF_ERROR(options.validate());
     RETURN_IF_ERROR(validate_input_ranges(input_ranges, file_size));
@@ -228,6 +229,29 @@ Status FileRangePlanner::plan(const std::vector<FileRange>& input_ranges, size_t
     const auto base_ranges = FileRangeCoalescer::coalesce(input_ranges, options.coalesce_options);
     auto components = choose_components(input_ranges, base_ranges, file_size, options);
     *output_plan = build_final_plan(input_ranges, std::move(components));
+    if (statistics != nullptr) {
+        size_t input_bytes = 0;
+        size_t coalesced_bytes = 0;
+        size_t planned_bytes = 0;
+        for (const auto& range : input_ranges) {
+            input_bytes += range.size;
+        }
+        for (const auto& range : base_ranges) {
+            coalesced_bytes += range.size;
+        }
+        for (const auto& range : output_plan->ranges) {
+            planned_bytes += range.size;
+        }
+        COUNTER_UPDATE(&statistics->input_pages, static_cast<int64_t>(input_ranges.size()));
+        COUNTER_UPDATE(&statistics->input_bytes, static_cast<int64_t>(input_bytes));
+        COUNTER_UPDATE(&statistics->coalesced_ranges, static_cast<int64_t>(base_ranges.size()));
+        COUNTER_UPDATE(&statistics->coalesced_bytes, static_cast<int64_t>(coalesced_bytes));
+        COUNTER_UPDATE(&statistics->block_fill_bytes,
+                       static_cast<int64_t>(planned_bytes - coalesced_bytes));
+        COUNTER_UPDATE(&statistics->planned_ranges,
+                       static_cast<int64_t>(output_plan->ranges.size()));
+        COUNTER_UPDATE(&statistics->planned_bytes, static_cast<int64_t>(planned_bytes));
+    }
     return Status::OK();
 }
 

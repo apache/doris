@@ -51,6 +51,10 @@
 #include "util/uid_util.h"
 
 namespace doris {
+namespace io {
+struct ReadAheadStatistics;
+}
+
 using SchemaHash = int32_t;
 
 using TabletUid = UniqueId;
@@ -377,6 +381,8 @@ struct OlapReaderStatistics {
     int64_t total_segment_number = 0;
 
     io::FileCacheStatistics file_cache_stats;
+    // Shared with range tasks so asynchronous completion never writes into this reader's lifetime.
+    std::shared_ptr<io::ReadAheadStatistics> read_ahead_stats;
     int64_t load_segments_timer = 0;
 
     int64_t collect_iterator_merge_next_timer = 0;
