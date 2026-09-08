@@ -19,7 +19,6 @@ package org.apache.doris.tso;
 
 import org.junit.Assert;
 import org.junit.Test;
-import org.junit.jupiter.api.Assertions;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -65,8 +64,8 @@ public class TSOTimestampTest {
 
         long composed = TSOTimestamp.composePhysicalTimestamp(physicalTime);
 
-        Assertions.assertEquals(physicalTime, TSOTimestamp.extractPhysicalTime(composed));
-        Assertions.assertEquals(0L, TSOTimestamp.extractLogicalCounter(composed));
+        org.junit.jupiter.api.Assertions.assertEquals(physicalTime, TSOTimestamp.extractPhysicalTime(composed));
+        org.junit.jupiter.api.Assertions.assertEquals(0L, TSOTimestamp.extractLogicalCounter(composed));
     }
 
     @Test
