@@ -78,17 +78,29 @@ public:
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                               int64_t end) const override {
+        auto ptype = result.mutable_type();
+        ptype->set_id(PGenericType::QUANTILE_STATE);
+        const auto& col = assert_cast<const ColumnQuantileState&>(column);
         result.mutable_bytes_value()->Reserve(cast_set<int>(end - start));
         for (size_t row_num = start; row_num < end; ++row_num) {
-            StringRef data = column.get_data_at(row_num);
-            result.add_bytes_value(data.to_string());
+            const auto& val = col.get_element(row_num);
+            size_t size = val.get_serialized_size();
+            std::string buf(size, '\0');
+            val.serialize(reinterpret_cast<uint8_t*>(buf.data()));
+            result.add_bytes_value(std::move(buf));
         }
         return Status::OK();
     }
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        column.reserve(arg.bytes_value_size());
+        auto& col = assert_cast<ColumnQuantileState&>(column);
+        col.reserve(arg.bytes_value_size());
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
-            column.insert_data(arg.bytes_value(i).c_str(), arg.bytes_value(i).size());
+            QuantileState value;
+            if (!value.deserialize(Slice(arg.bytes_value(i)))) {
+                return Status::InternalError(
+                        "deserialize QuantileState from protobuf fail at index {}", i);
+            }
+            col.insert_value(std::move(value));
         }
         return Status::OK();
     }
