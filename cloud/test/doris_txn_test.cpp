@@ -22,12 +22,128 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <bit>
 #include <cstring>
+#include <utility>
 
 #include "common/config.h"
 #include "common/util.h"
 #include "meta-service/meta_service.h"
 #include "meta-store/txn_kv.h"
+#include "meta-store/versionstamp.h"
+
+namespace {
+
+#if defined(__x86_64__) || defined(__aarch64__)
+// Preserve the original, unsafe load solely as a historical output oracle on
+// hosts that support unaligned integer loads. Suppress only its known alignment
+// violation, not instrumentation of the memcpy reference or production decoder.
+// Matching its results does not establish that the old code was well-defined.
+__attribute__((noinline, no_sanitize("alignment"))) int64_t legacy_aliased_load(const char* data) {
+    return *reinterpret_cast<const int64_t*>(data);
+}
+#endif
+
+int64_t legacy_memcpy_load(const char* data) {
+    int64_t value;
+    std::memcpy(&value, data, sizeof(value));
+    return value;
+}
+
+// Freeze the pre-Versionstamp algorithm, including the overlapping eight-byte
+// sequence read and its signed intermediate values. Do not use Versionstamp or
+// its byte-swap helpers here: this must remain an independent regression oracle.
+template <int64_t (*load)(const char*)>
+int legacy_get_txn_id_from_fdb_ts(std::string_view fdb_vts, int64_t* txn_id) {
+    if (fdb_vts.size() != 10) {
+        return 1;
+    }
+    static_assert(std::endian::native == std::endian::little);
+    auto to_little = [](int64_t v) {
+        v = ((v & 0xffffffff00000000) >> 32) | ((v & 0x00000000ffffffff) << 32);
+        v = ((v & 0xffff0000ffff0000) >> 16) | ((v & 0x0000ffff0000ffff) << 16);
+        v = ((v & 0xff00ff00ff00ff00) >> 8) | ((v & 0x00ff00ff00ff00ff) << 8);
+        return v;
+    };
+    int64_t ver = to_little(load(fdb_vts.data()));
+    int64_t seq = to_little(load(fdb_vts.data() + 2));
+    seq &= 0xffff;
+    static constexpr int SEQ_RETAIN_BITS = 10;
+    if (seq >= (1L << SEQ_RETAIN_BITS)) {
+        return 2;
+    }
+    seq &= ((1L << SEQ_RETAIN_BITS) - 1L);
+    ver <<= SEQ_RETAIN_BITS;
+    ver |= seq;
+    *txn_id = ver;
+    return 0;
+}
+
+using TxnIdDecoder = int (*)(std::string_view, int64_t*);
+
+void check_decoded_txn_id(TxnIdDecoder legacy_decode, std::string_view input, int expected_ret) {
+    int64_t expected_txn_id = -1;
+    int64_t actual_txn_id = -1;
+    ASSERT_EQ(legacy_decode(input, &expected_txn_id), expected_ret);
+    ASSERT_EQ(doris::cloud::get_txn_id_from_fdb_ts(input, &actual_txn_id), expected_ret);
+    ASSERT_EQ(actual_txn_id, expected_txn_id);
+    if (expected_ret != 0) {
+        ASSERT_EQ(actual_txn_id, -1);
+    }
+}
+
+void check_legacy_txn_id_compatibility(TxnIdDecoder legacy_decode) {
+    // Include the positive txn_id limit, the sign transition, and discarded high
+    // version bits. These latter cases preserve old behavior, not uniqueness.
+    constexpr std::array<uint64_t, 8> versions = {0,
+                                                  1,
+                                                  0x00000182a5ed173f,
+                                                  0x001f82a5ed173f80,
+                                                  0x001fffffffffffff,
+                                                  0x0020000000000000,
+                                                  0x0040000000000000,
+                                                  0x7fffffffffffffff};
+    alignas(int64_t) std::array<char, 10 + alignof(int64_t) - 1> buffer {};
+    for (uint64_t ver : versions) {
+        SCOPED_TRACE(ver);
+        std::array<uint8_t, 10> bytes {};
+        for (size_t i = 0; i < 8; ++i) {
+            bytes[i] = static_cast<uint8_t>(ver >> (8 * (7 - i)));
+        }
+        for (uint32_t seq = 0; seq <= 0xffff; ++seq) {
+            bytes[8] = static_cast<uint8_t>(seq >> 8);
+            bytes[9] = static_cast<uint8_t>(seq);
+            // Also check the complete fields: txn_id packing discards version
+            // bits and rejects most orders, so output equality alone misses them.
+            const doris::cloud::Versionstamp versionstamp(bytes);
+            ASSERT_EQ(std::make_pair(versionstamp.version(), versionstamp.order()),
+                      std::make_pair(ver, static_cast<uint16_t>(seq)));
+            for (size_t offset = 0; offset < alignof(int64_t); ++offset) {
+                std::memcpy(buffer.data() + offset, bytes.data(), bytes.size());
+                const std::string_view input(buffer.data() + offset, bytes.size());
+                ASSERT_NO_FATAL_FAILURE(
+                        check_decoded_txn_id(legacy_decode, input, seq < 1024 ? 0 : 2))
+                        << "seq=" << seq << " offset=" << offset;
+            }
+        }
+    }
+}
+
+void check_invalid_txn_id_inputs(TxnIdDecoder legacy_decode) {
+    // Check short/long inputs and that failures leave the output untouched.
+    std::array<char, 17> buffer {};
+    for (size_t size = 0; size <= buffer.size(); ++size) {
+        if (size == 10) {
+            continue;
+        }
+        SCOPED_TRACE(size);
+        const std::string_view input(buffer.data(), size);
+        ASSERT_NO_FATAL_FAILURE(check_decoded_txn_id(legacy_decode, input, 1));
+    }
+    check_decoded_txn_id(legacy_decode, {}, 1);
+}
+
+} // namespace
 
 int main(int argc, char** argv) {
     doris::cloud::config::init(nullptr, true);
@@ -141,4 +257,20 @@ TEST(TxnIdConvert, SequenceValues) {
             EXPECT_EQ(txn_id, -1);
         }
     }
+}
+
+TEST(TxnIdConvert, LegacyMemcpyCompatibility) {
+    ASSERT_NO_FATAL_FAILURE(
+            check_legacy_txn_id_compatibility(legacy_get_txn_id_from_fdb_ts<legacy_memcpy_load>));
+    check_invalid_txn_id_inputs(legacy_get_txn_id_from_fdb_ts<legacy_memcpy_load>);
+}
+
+TEST(TxnIdConvert, LegacyReinterpretCastCompatibility) {
+#if defined(__x86_64__) || defined(__aarch64__)
+    ASSERT_NO_FATAL_FAILURE(
+            check_legacy_txn_id_compatibility(legacy_get_txn_id_from_fdb_ts<legacy_aliased_load>));
+    check_invalid_txn_id_inputs(legacy_get_txn_id_from_fdb_ts<legacy_aliased_load>);
+#else
+    GTEST_SKIP() << "The original decoder requires a host that supports unaligned integer loads";
+#endif
 }
