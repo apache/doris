@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
@@ -29,6 +30,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.persist.gson.GsonUtilsCatalog;
 import org.apache.doris.persist.gson.RuntimeTypeAdapterFactory;
 
+import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -51,6 +53,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -59,6 +62,38 @@ import java.util.stream.Stream;
 public class ExprGsonSerializationTest {
     private static final Pattern CLASS_DECLARATION_PATTERN = Pattern.compile(
             "public\\s+(abstract\\s+)?(?:final\\s+)?class\\s+(\\w+)\\s+extends\\s+(\\w+)\\b");
+    // These fields are analysis caches or execution-only state. They can be rebuilt after the
+    // restored expression is converted to SQL and analyzed again. Keeping this list explicit
+    // makes every newly added unannotated Expr field fail the persistence contract test.
+    private static final Set<String> NON_DURABLE_EXPR_FIELDS = new TreeSet<>(Arrays.asList(
+            "BinaryPredicate.slotIsLeft",
+            "Expr.fn",
+            "Expr.isConstant",
+            "Expr.nullable",
+            "FunctionCallExpr.aggFnParams",
+            "FunctionCallExpr.isMergeAggFn",
+            "FunctionCallExpr.originChildSize",
+            "InformationFunction.intValue",
+            "InformationFunction.strValue",
+            "JsonLiteral.beConverted",
+            "JsonLiteral.parser",
+            "MatchPredicate.invertedIndexAnalyzerName",
+            "MatchPredicate.invertedIndexCharFilter",
+            "MatchPredicate.invertedIndexParser",
+            "MatchPredicate.invertedIndexParserLowercase",
+            "MatchPredicate.invertedIndexParserMode",
+            "MatchPredicate.invertedIndexParserStopwords",
+            "SearchPredicate.fieldIndexes",
+            "SearchPredicate.qsPlan",
+            "SlotRef.desc",
+            "TryCastExpr.originCastNullable",
+            "VariableExpr.boolValue",
+            "VariableExpr.decimalValue",
+            "VariableExpr.floatValue",
+            "VariableExpr.intValue",
+            "VariableExpr.isNull",
+            "VariableExpr.literalExpr",
+            "VariableExpr.strValue"));
 
     private static class ExprHolder {
         @SerializedName("expr")
@@ -94,7 +129,34 @@ public class ExprGsonSerializationTest {
     }
 
     @Test
-    public void testExprHolderRoundTrip() {
+    public void testExprSqlRoundTripForAllConcreteRegisteredSubtypes() throws Exception {
+        Map<Class<? extends Expr>, Expr> samples = createExprSamples();
+        Assertions.assertAll(
+                () -> assertExprSqlRoundTrip(samples, GsonUtils.GSON, "GsonUtils.GSON"),
+                () -> assertExprSqlRoundTrip(samples, GsonUtilsCatalog.GSON, "GsonUtilsCatalog.GSON"));
+    }
+
+    @Test
+    public void testExprFieldsAreExplicitlyClassifiedForPersistence() throws Exception {
+        Set<String> unclassifiedFields = new TreeSet<>();
+        for (Class<? extends Expr> exprClass : createExprSamples().keySet()) {
+            for (Class<?> current = exprClass; Expr.class.isAssignableFrom(current);
+                    current = current.getSuperclass()) {
+                for (Field field : current.getDeclaredFields()) {
+                    int modifiers = field.getModifiers();
+                    if (!field.isSynthetic() && !Modifier.isStatic(modifiers) && !Modifier.isTransient(modifiers)
+                            && field.getAnnotation(SerializedName.class) == null) {
+                        unclassifiedFields.add(current.getSimpleName() + "." + field.getName());
+                    }
+                }
+            }
+        }
+        Assertions.assertEquals(NON_DURABLE_EXPR_FIELDS, unclassifiedFields,
+                "New Expr fields must use @SerializedName or be explicitly classified as non-durable");
+    }
+
+    @Test
+    public void testExprHolderRoundTrip() throws Exception {
         ExprHolder holder = new ExprHolder(
                 createArithmeticExpr(),
                 Arrays.asList(createSearchPredicate(), createVirtualSlotRef(), createLambdaFunctionExpr()));
@@ -110,11 +172,65 @@ public class ExprGsonSerializationTest {
         Assertions.assertEquals(json, GsonUtilsCatalog.GSON.toJson(restored));
     }
 
+    @Test
+    public void testFunctionOrderByElementRoundTrip() {
+        FunctionCallExpr original = createFunctionCallExpr();
+        Assertions.assertAll(
+                () -> assertFunctionOrderByElementRoundTrip(original, GsonUtils.GSON, "GsonUtils.GSON"),
+                () -> assertFunctionOrderByElementRoundTrip(
+                        original, GsonUtilsCatalog.GSON, "GsonUtilsCatalog.GSON"));
+    }
+
+    @Test
+    public void testPlaceHolderMysqlTypeRoundTrip() {
+        PlaceHolderExpr original = new PlaceHolderExpr(new StringLiteral("placeholder"));
+        original.mysqlTypeCode = MysqlColType.MYSQL_TYPE_LONG.getCode() | MysqlColType.UNSIGNED_MASK;
+        Assertions.assertAll(
+                () -> assertPlaceHolderMysqlTypeRoundTrip(original, GsonUtils.GSON, "GsonUtils.GSON"),
+                () -> assertPlaceHolderMysqlTypeRoundTrip(
+                        original, GsonUtilsCatalog.GSON, "GsonUtilsCatalog.GSON"));
+    }
+
     private void assertExprRoundTrip(Class<? extends Expr> expectedClass, Expr expr) {
         String json = GsonUtilsCatalog.GSON.toJson(expr, Expr.class);
         Expr restored = GsonUtilsCatalog.GSON.fromJson(json, Expr.class);
         Assertions.assertEquals(expectedClass, restored.getClass());
         Assertions.assertEquals(json, GsonUtilsCatalog.GSON.toJson(restored, Expr.class));
+    }
+
+    private void assertExprSqlRoundTrip(Map<Class<? extends Expr>, Expr> samples, Gson gson, String gsonName) {
+        Assertions.assertAll(samples.entrySet().stream().flatMap(entry -> Stream.of(
+                () -> assertExprSqlRoundTrip(entry.getValue(), gson, gsonName, ToSqlParams.WITHOUT_TABLE),
+                () -> assertExprSqlRoundTrip(entry.getValue(), gson, gsonName, ToSqlParams.WITH_TABLE))));
+    }
+
+    private void assertExprSqlRoundTrip(Expr original, Gson gson, String gsonName, ToSqlParams params) {
+        String expectedSql = original.accept(ExprToSqlVisitor.INSTANCE, params);
+        String json = gson.toJson(original, Expr.class);
+        Expr restored = gson.fromJson(json, Expr.class);
+        String actualSql = restored.accept(ExprToSqlVisitor.INSTANCE, params);
+        Assertions.assertEquals(expectedSql, actualSql,
+                gsonName + " changed SQL for " + original.getClass().getSimpleName());
+    }
+
+    private void assertFunctionOrderByElementRoundTrip(FunctionCallExpr original, Gson gson, String gsonName) {
+        String json = gson.toJson(original, Expr.class);
+        FunctionCallExpr restored = (FunctionCallExpr) gson.fromJson(json, Expr.class);
+        Assertions.assertEquals(1, restored.getOrderByElements().size(), gsonName);
+        OrderByElement expected = original.getOrderByElements().get(0);
+        OrderByElement actual = restored.getOrderByElements().get(0);
+        Assertions.assertEquals(
+                expected.getExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE),
+                actual.getExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE), gsonName);
+        Assertions.assertEquals(expected.getIsAsc(), actual.getIsAsc(), gsonName);
+        Assertions.assertEquals(expected.getNullsFirstParam(), actual.getNullsFirstParam(), gsonName);
+    }
+
+    private void assertPlaceHolderMysqlTypeRoundTrip(PlaceHolderExpr original, Gson gson, String gsonName) {
+        String json = gson.toJson(original, Expr.class);
+        PlaceHolderExpr restored = (PlaceHolderExpr) gson.fromJson(json, Expr.class);
+        Assertions.assertEquals(original.mysqlTypeCode, restored.mysqlTypeCode, gsonName);
+        Assertions.assertTrue(restored.isUnsigned(), gsonName);
     }
 
     private Map<Class<? extends Expr>, Expr> createExprSamples() throws Exception {
@@ -146,7 +262,7 @@ public class ExprGsonSerializationTest {
         samples.put(StringLiteral.class, new StringLiteral("expr-gson"));
         samples.put(StructLiteral.class, new StructLiteral(new StructType(),
                 new IntLiteral(7L), new StringLiteral("field")));
-        samples.put(TimeV2Literal.class, new TimeV2Literal(12, 34, 56, 123456, 6, false));
+        samples.put(TimeV2Literal.class, new TimeV2Literal(12, 34, 56, 123456, 6, true));
         samples.put(VarBinaryLiteral.class, new VarBinaryLiteral("bin".getBytes(StandardCharsets.UTF_8)));
         samples.put(BetweenPredicate.class, createBetweenPredicate());
         samples.put(BinaryPredicate.class, createBinaryPredicate());
@@ -164,8 +280,12 @@ public class ExprGsonSerializationTest {
     }
 
     private FunctionCallExpr createFunctionCallExpr() {
-        return new FunctionCallExpr("ifnull",
-                Arrays.asList(NullLiteral.create(Type.VARCHAR), new StringLiteral("fallback")), true);
+        IntLiteral orderKey = new IntLiteral(7L);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("group_concat",
+                Arrays.asList(new StringLiteral("value"), orderKey), true);
+        functionCallExpr.setOrderByElements(
+                Collections.singletonList(new OrderByElement(orderKey, true, Boolean.TRUE)));
+        return functionCallExpr;
     }
 
     private LambdaFunctionCallExpr createLambdaFunctionCallExpr() {
@@ -224,7 +344,7 @@ public class ExprGsonSerializationTest {
 
     private MatchPredicate createMatchPredicate() {
         return new MatchPredicate(MatchPredicate.Operator.MATCH_ANY,
-                new SlotRef(Type.VARCHAR, false), new StringLiteral("hello"),
+                createNamedSlotRef("content"), new StringLiteral("hello"),
                 Type.BOOLEAN, NullableMode.DEPEND_ON_ARGUMENT, null, false, "english");
     }
 
@@ -268,13 +388,14 @@ public class ExprGsonSerializationTest {
                 Type.BIGINT, NullableMode.ALWAYS_NOT_NULLABLE, false);
     }
 
-    private SlotRef createSlotRef() {
+    private SlotRef createSlotRef() throws Exception {
         SlotRef slotRef = createNamedSlotRef("col1");
         slotRef.setType(Type.BIGINT);
+        setDeclaredField(SlotRef.class, slotRef, "subColPath", Arrays.asList("nested", "leaf"));
         return slotRef;
     }
 
-    private VirtualSlotRef createVirtualSlotRef() {
+    private VirtualSlotRef createVirtualSlotRef() throws Exception {
         String json = GsonUtilsCatalog.GSON.toJson(createSlotRef(), Expr.class)
                 .replace("\"clazz\":\"SlotRef\"", "\"clazz\":\"VirtualSlotRef\"");
         return (VirtualSlotRef) GsonUtilsCatalog.GSON.fromJson(json, Expr.class);
@@ -288,7 +409,7 @@ public class ExprGsonSerializationTest {
     }
 
     private VariableExpr createVariableExpr() {
-        VariableExpr variableExpr = new VariableExpr("sql_mode");
+        VariableExpr variableExpr = new VariableExpr("sql_mode", SetType.GLOBAL);
         variableExpr.setStringValue("STRICT_TRANS_TABLES");
         variableExpr.setType(Type.VARCHAR);
         return variableExpr;

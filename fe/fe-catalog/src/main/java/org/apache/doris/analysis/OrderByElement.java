@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
 
@@ -28,11 +29,14 @@ import java.util.List;
  * Combination of expr and ASC/DESC, and nulls ordering.
  */
 public class OrderByElement {
+    @SerializedName("e")
     private Expr expr;
+    @SerializedName("ia")
     private final boolean isAsc;
 
     // Represents the NULLs ordering specified: true when "NULLS FIRST", false when
     // "NULLS LAST", and null if not specified.
+    @SerializedName("nfp")
     private final Boolean nullsFirstParam;
 
     public OrderByElement(Expr expr, boolean isAsc, Boolean nullsFirstParam) {
