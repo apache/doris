@@ -29,6 +29,8 @@ suite("query72") {
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
 sql 'set enable_runtime_filter_prune=true'
+sql "set enable_runtime_filter_partition_prune=true"
+sql "set enable_runtime_filter_bucket_prune=true"
     sql 'set parallel_pipeline_task_num=8'
     sql 'set forbid_unknown_col_stats=false'
     sql 'set enable_stats=false'

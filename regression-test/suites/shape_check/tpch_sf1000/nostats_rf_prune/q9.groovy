@@ -38,6 +38,8 @@ suite("q9") {
     sql "set runtime_filter_type=8"
 sql 'set forbid_unknown_col_stats=false;'
 sql 'set enable_runtime_filter_prune=true'
+sql "set enable_runtime_filter_partition_prune=true"
+sql "set enable_runtime_filter_bucket_prune=true"
 sql 'set enable_stats=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
