@@ -171,6 +171,11 @@ suite("test_ivm_agg_join_same_name_group_key") {
     waitingMTMVTaskFinishedByMvName(fkMv)
     order_qt_same_key_fk_incremental """SELECT lid, rid, total, cnt FROM ${fkMv}"""
 
+    // Cross-check the full-keys MV against a fresh COMPLETE rebuild.
+    sql """REFRESH MATERIALIZED VIEW ${fkMv} COMPLETE"""
+    waitingMTMVTaskFinishedByMvName(fkMv)
+    order_qt_same_key_fk_complete2 """SELECT lid, rid, total, cnt FROM ${fkMv}"""
+
     sql """drop materialized view if exists ${fkMv}"""
     sql """drop table if exists ${fkL}"""
     sql """drop table if exists ${fkR}"""
@@ -246,6 +251,11 @@ suite("test_ivm_agg_join_same_name_group_key") {
     sql """REFRESH MATERIALIZED VIEW ${upMv} INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName(upMv)
     order_qt_same_key_up_incremental """SELECT lid, rid, total, cnt FROM ${upMv}"""
+
+    // Cross-check the UPDATE result against a fresh COMPLETE rebuild.
+    sql """REFRESH MATERIALIZED VIEW ${upMv} COMPLETE"""
+    waitingMTMVTaskFinishedByMvName(upMv)
+    order_qt_same_key_up_complete2 """SELECT lid, rid, total, cnt FROM ${upMv}"""
 
     sql """drop materialized view if exists ${upMv}"""
     sql """drop table if exists ${upL}"""
