@@ -283,11 +283,14 @@ private:
         if (auto* nullable = check_and_get_column<ColumnNullable>(*mutable_column)) {
             auto& values = assert_cast<ColumnUInt8&>(*nullable->get_nested_column_ptr()).get_data();
             auto& null_map = nullable->get_null_map_data();
+            auto* values_data = values.data();
+            const auto* null_map_data = null_map.data();
             // Collapse SQL NULL to the filter decision: NULLS FIRST keeps it, while NULLS LAST
             // rejects it. Preserve the nullable wrapper so strict block execution still matches
             // the expression's declared Nullable(Boolean) type.
-            for (size_t row = 0; row < values.size(); ++row) {
-                values[row] = null_map[row] ? _predicate->nulls_first() : values[row];
+            for (size_t row = 0; row < rows; ++row) {
+                values_data[row] =
+                        null_map_data[row] ? _predicate->nulls_first() : values_data[row];
             }
             nullable->fill_false_to_nullmap(rows);
             return mutable_column;

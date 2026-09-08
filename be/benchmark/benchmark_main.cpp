@@ -32,6 +32,7 @@
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
 #include "benchmark_json_extract.hpp"
+#include "benchmark_predicate_vectorization.hpp"
 #include "benchmark_variant_segment.hpp"
 #include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
