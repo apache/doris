@@ -34,7 +34,9 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeE
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -179,6 +181,14 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
     private DateTimeV2Literal strToDate(String value,
             Optional<String> dateFormat) throws AnalysisException {
         try {
+            if (DateTimeChecker.hasTimeZone(value)) {
+                // For TIMESTAMPTZ values, parse preserving UTC semantics.
+                // DateTimeV2Literal would convert to session timezone, which would
+                // produce incorrect MV partition boundaries when session tz != UTC.
+                TimestampTzLiteral tzLiteral = new TimestampTzLiteral(value);
+                return new DateTimeV2Literal(tzLiteral.getYear(), tzLiteral.getMonth(), tzLiteral.getDay(),
+                        tzLiteral.getHour(), tzLiteral.getMinute(), tzLiteral.getSecond());
+            }
             return new DateTimeV2Literal(value);
         } catch (Exception e) {
             if (!dateFormat.isPresent()) {
@@ -237,11 +247,18 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         if (partitionColumnType.isDate() || partitionColumnType.isDateV2()) {
             return String.format(PartitionExprUtil.DATE_FORMATTER, literal.getYear(), literal.getMonth(),
                     literal.getDay());
-        } else if (partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2()
-                || partitionColumnType.isTimeStampTz()) {
+        } else if (partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2()) {
             return String.format(PartitionExprUtil.DATETIME_FORMATTER,
                     literal.getYear(), literal.getMonth(), literal.getDay(),
                     literal.getHour(), literal.getMinute(), literal.getSecond());
+        } else if (partitionColumnType.isTimeStampTz()) {
+            // The internal DateTimeV2Literal values are always in UTC after truncation.
+            // Emit an explicit +00:00 suffix so that downstream consumers
+            // (PartitionKey.createPartitionKey -> TimestampTzLiteral.fromSessionTimeZone)
+            // interpret the value as UTC rather than session-local time.
+            return String.format(PartitionExprUtil.DATETIME_FORMATTER,
+                    literal.getYear(), literal.getMonth(), literal.getDay(),
+                    literal.getHour(), literal.getMinute(), literal.getSecond()) + "+00:00";
         } else {
             throw new AnalysisException(
                     "MTMV not support partition with column type : " + partitionColumnType);
