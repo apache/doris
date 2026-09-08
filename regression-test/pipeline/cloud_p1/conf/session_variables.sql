@@ -4,3 +4,5 @@ set global enable_auto_analyze=false;
 set global enable_audit_plugin=true;
 set global enable_memtable_on_sink_node=false;
 set global enable_pipeline_x_engine=false;
+set global audit_plugin_max_sql_length = 419430;
+set global audit_plugin_max_insert_stmt_length = 429496729;
