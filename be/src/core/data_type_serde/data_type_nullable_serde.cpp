@@ -312,11 +312,11 @@ Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues&
     const auto& null_col = nullable_col.get_null_map_column();
     if (nullable_col.has_null(start, end)) {
         result.set_has_null(true);
-        auto* null_map = result.mutable_null_map();
-        null_map->Reserve(row_count);
-        const auto& data = null_col.get_data();
-        null_map->Add(data.begin() + start, data.begin() + end);
     }
+    auto* null_map = result.mutable_null_map();
+    null_map->Reserve(null_map->size() + row_count);
+    const auto& data = null_col.get_data();
+    null_map->Add(data.begin() + start, data.begin() + end);
     return nested_serde->write_column_to_pb(nullable_col.get_nested_column(), result, start, end);
 }
 
