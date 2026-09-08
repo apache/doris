@@ -75,11 +75,12 @@ TEST(SniiProtoFieldNumbers, SectionRefsMatchTheShippedLayout) {
 }
 
 TEST(SniiProtoFieldNumbers, CoreMetadataMatchesTheShippedLayout) {
-    expect_field_numbers(SniiCoreMetadataPB::descriptor(), {{"index_config", 1},
-                                                            {"stats", 2},
-                                                            {"section_refs", 3},
-                                                            {"legacy_common_grams", 4},
-                                                            {"legacy_common_grams_posting_policy", 5}});
+    expect_field_numbers(SniiCoreMetadataPB::descriptor(),
+                         {{"index_config", 1},
+                          {"stats", 2},
+                          {"section_refs", 3},
+                          {"legacy_common_grams", 4},
+                          {"legacy_common_grams_posting_policy", 5}});
 }
 
 } // namespace doris::snii

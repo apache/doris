@@ -130,9 +130,7 @@ public:
     explicit FixedAnalyzerProvider(std::shared_ptr<lucene::analysis::Analyzer> analyzer)
             : _analyzer(std::move(analyzer)) {}
 
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
-        return _analyzer;
-    }
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override { return _analyzer; }
 
 private:
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
@@ -607,8 +605,8 @@ protected:
 
     // 落在 SNII 内部命名空间（\x1f 开头）里的词项，对 V3（CLucene）索引只是普通字节。
     VExprContextSPtrs create_reserved_exact_search_contexts() {
-        return create_search_contexts(
-                "EXACT", std::string(snii::format::kPhraseBigramTermMarker) + "user");
+        return create_search_contexts("EXACT",
+                                      std::string(snii::format::kPhraseBigramTermMarker) + "user");
     }
 
     void expect_no_collected_tokens(const std::wstring& field_name) {
@@ -941,8 +939,7 @@ TEST_F(CollectionStatisticsTest, SniiScoringLookupUsesCallerIoContext) {
     auto expr_contexts = create_match_expr_contexts("alpha");
 
     const std::string segment_path = test_dir_ + "/snii_io_context_0.dat";
-    ASSERT_TRUE(write_snii_scoring_segment(segment_path)
-                        .ok());
+    ASSERT_TRUE(write_snii_scoring_segment(segment_path).ok());
 
     auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
     auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
@@ -1128,11 +1125,8 @@ TEST_F(CollectionStatisticsTest, CollectionStatisticsInstancesKeepAdmissionState
     CollectionStatistics first;
     CollectionStatistics second;
 
-    ASSERT_TRUE(admit_snii_segment_for_test(&first, L"1", 2, 6)
-                        .ok());
-    ASSERT_TRUE(admit_snii_segment_for_test(
-                        &second, L"1", 5, 25)
-                        .ok());
+    ASSERT_TRUE(admit_snii_segment_for_test(&first, L"1", 2, 6).ok());
+    ASSERT_TRUE(admit_snii_segment_for_test(&second, L"1", 5, 25).ok());
 
     EXPECT_FLOAT_EQ(first.get_or_calculate_avg_dl(L"1"), 3.0F);
     EXPECT_FLOAT_EQ(second.get_or_calculate_avg_dl(L"1"), 5.0F);
@@ -1150,26 +1144,16 @@ TEST_F(CollectionStatisticsTest, SegmentWithoutNormsRejectsWholeCollection) {
 }
 
 TEST_F(CollectionStatisticsTest, SegmentsAccumulatePhysicalStatistics) {
-    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 2, 6)
-                        .ok());
-    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 3, 9)
-                        .ok());
+    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 2, 6).ok());
+    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 3, 9).ok());
 
     expect_collected_stats(L"1", 5, 15);
     EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 3.0F);
 }
 
 TEST_F(CollectionStatisticsTest, MultiFieldSegmentsCommitAndAccumulateAtomically) {
-    ASSERT_TRUE(admit_snii_fields_for_test(
-                        stats_.get(),
-                        {{L"1", 3, 7},
-                         {L"2", 3, 12}})
-                        .ok());
-    ASSERT_TRUE(admit_snii_fields_for_test(
-                        stats_.get(),
-                        {{L"1", 2, 5},
-                         {L"2", 2, 8}})
-                        .ok());
+    ASSERT_TRUE(admit_snii_fields_for_test(stats_.get(), {{L"1", 3, 7}, {L"2", 3, 12}}).ok());
+    ASSERT_TRUE(admit_snii_fields_for_test(stats_.get(), {{L"1", 2, 5}, {L"2", 2, 8}}).ok());
 
     expect_collected_stats(L"1", 5, 12);
     expect_collected_tokens(L"2", 20);
@@ -1178,9 +1162,7 @@ TEST_F(CollectionStatisticsTest, MultiFieldSegmentsCommitAndAccumulateAtomically
 }
 
 TEST_F(CollectionStatisticsTest, MultiFieldSegmentDocCountsMustAgree) {
-    auto status = admit_snii_fields_for_test(
-            stats_.get(), {{L"1", 3, 7},
-                           {L"2", 4, 12}});
+    auto status = admit_snii_fields_for_test(stats_.get(), {{L"1", 3, 7}, {L"2", 4, 12}});
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     expect_no_collected_tokens(L"1");
@@ -1189,21 +1171,16 @@ TEST_F(CollectionStatisticsTest, MultiFieldSegmentDocCountsMustAgree) {
 }
 
 TEST_F(CollectionStatisticsTest, LaterFieldFileNotFoundDoesNotPublishPartialSegment) {
-    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 2, 6)
-                        .ok());
+    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 2, 6).ok());
 
-    auto status = stage_snii_fields_then_file_not_found_for_test(
-            stats_.get(),
-            {{L"2", 3, 12}});
+    auto status = stage_snii_fields_then_file_not_found_for_test(stats_.get(), {{L"2", 3, 12}});
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
     expect_collected_stats(L"1", 2, 6);
     expect_no_collected_tokens(L"2");
     expect_no_collected_term(L"2", L"staged");
 
-    ASSERT_TRUE(admit_snii_segment_for_test(
-                        stats_.get(), L"2", 1, 4)
-                        .ok());
+    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"2", 1, 4).ok());
     expect_collected_tokens(L"2", 4);
 }
 

@@ -27,15 +27,11 @@
 namespace doris {
 namespace {
 
-class SingleAnalyzerProvider final
-        : public segment_v2::inverted_index::AnalyzerProvider {
+class SingleAnalyzerProvider final : public segment_v2::inverted_index::AnalyzerProvider {
 public:
-    explicit SingleAnalyzerProvider(AnalyzerPtr analyzer)
-            : _analyzer(std::move(analyzer)) {}
+    explicit SingleAnalyzerProvider(AnalyzerPtr analyzer) : _analyzer(std::move(analyzer)) {}
 
-    AnalyzerPtr get_analyzer() const override {
-        return _analyzer;
-    }
+    AnalyzerPtr get_analyzer() const override { return _analyzer; }
 
 private:
     const AnalyzerPtr _analyzer;
@@ -175,8 +171,7 @@ AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
     auto name_it = _name_to_id.find(normalized_name);
     if (name_it == _name_to_id.end()) {
         if (is_builtin_normalizer(normalized_name)) {
-            return std::make_shared<SingleAnalyzerProvider>(
-                    build_builtin_normalizer(name));
+            return std::make_shared<SingleAnalyzerProvider>(build_builtin_normalizer(name));
         }
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
     }
@@ -194,7 +189,6 @@ AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
     }
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Analyzer policy not found: " + name);
 }
-
 
 segment_v2::inverted_index::CustomAnalyzerConfigPtr
 IndexPolicyMgr::build_analyzer_config_from_policy(const TIndexPolicy& index_policy_analyzer) {

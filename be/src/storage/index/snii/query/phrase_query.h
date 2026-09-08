@@ -39,7 +39,6 @@
 // An empty term list -> empty result. Any term absent -> empty result.
 namespace doris::snii::query {
 
-
 struct PhraseMatch {
     uint32_t docid = 0;
     float frequency = 0.0F;
@@ -68,8 +67,6 @@ Status phrase_query_with_frequencies(const reader::LogicalIndexReader& idx,
                                      std::vector<PhraseMatch>* matches,
                                      QueryProfile* profile = nullptr,
                                      const PhraseQueryOptions& options = {});
-
-
 
 // phrase_prefix_query -- MATCH_PHRASE_PREFIX: the last item in `terms` is a
 // term prefix and preceding items are exact terms. For example {"quick", "bro"}

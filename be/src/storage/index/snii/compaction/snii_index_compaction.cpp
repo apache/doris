@@ -17,8 +17,6 @@
 
 #include "storage/index/snii/compaction/snii_index_compaction.h"
 
-#include "storage/index/snii/query/bm25_scorer.h"
-
 #include <algorithm>
 #include <limits>
 #include <memory>
@@ -33,6 +31,7 @@
 #include "storage/index/snii/compaction/term_cursor.h"
 #include "storage/index/snii/compaction/term_merge_frontier.h"
 #include "storage/index/snii/format/norms_pod.h"
+#include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 
 namespace doris::snii::compaction {
@@ -47,7 +46,6 @@ Status index_compaction_merge_corruption(std::string_view reason) {
     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("snii_compaction: {}",
                                                                           reason);
 }
-
 
 template <typename T>
 Status reserve_tracked_vector(std::vector<T>* values, size_t additional,

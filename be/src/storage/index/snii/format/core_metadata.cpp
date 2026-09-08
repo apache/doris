@@ -29,7 +29,6 @@
 namespace doris::snii::format {
 namespace {
 
-
 Status corrupted(std::string_view message) {
     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
 }

@@ -66,7 +66,6 @@ public:
     bool has_norms() const { return has_norms_; }
 
 private:
-
     const reader::LogicalIndexReader* idx_ = nullptr;
     uint64_t doc_count_ = 0;
     uint64_t indexed_doc_count_ = 0;

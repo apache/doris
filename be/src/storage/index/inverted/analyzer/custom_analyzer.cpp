@@ -26,9 +26,7 @@
 #include "storage/index/inverted/token_stream.h"
 
 namespace doris::segment_v2::inverted_index {
-namespace {
-
-} // namespace
+namespace {} // namespace
 
 CustomAnalyzer::CustomAnalyzer(Builder* builder) {
     _tokenizer = builder->_tokenizer;

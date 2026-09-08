@@ -119,7 +119,7 @@ std::unique_ptr<OpenedIndex> open_index(const IndexShape& shape) {
 
     format::CoreMetadata core;
     core.index_config = shape.tier == format::IndexTier::kT1 ? format::IndexConfig::kDocsOnly
-                                                              : format::IndexConfig::kDocsPositions;
+                                                             : format::IndexConfig::kDocsPositions;
     core.stats = shape.stats;
     core.section_refs = refs;
     ByteSink core_frame;
@@ -167,9 +167,7 @@ void expect_rejected(const Status& status, std::string_view reason) {
 
 class StubAnalyzerProvider final : public inverted_index::AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
-        return nullptr;
-    }
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override { return nullptr; }
 };
 
 TEST(SniiCompactionEligibilityTest, AcceptsIdenticalPlainT2SourcesAndDestination) {

@@ -28,7 +28,6 @@ class Analyzer;
 
 namespace doris::segment_v2::inverted_index {
 
-
 class AnalyzerProvider {
 public:
     virtual ~AnalyzerProvider() = default;

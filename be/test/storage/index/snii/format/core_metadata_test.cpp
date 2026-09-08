@@ -33,7 +33,6 @@
 namespace doris::snii::format {
 namespace {
 
-
 CoreMetadata sample_core(IndexConfig index_config = IndexConfig::kDocsOnly) {
     CoreMetadata metadata;
     metadata.index_config = index_config;

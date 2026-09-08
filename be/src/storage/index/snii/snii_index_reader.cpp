@@ -450,10 +450,11 @@ Status SniiIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
     return Status::OK();
 }
 
-Status SniiIndexReader::_parse_query_terms(
-        const IndexQueryContextPtr& context, std::string search_str,
-        InvertedIndexQueryType query_type, const InvertedIndexAnalyzerCtx* analyzer_ctx,
-        InvertedIndexQueryInfo* query_info) {
+Status SniiIndexReader::_parse_query_terms(const IndexQueryContextPtr& context,
+                                           std::string search_str,
+                                           InvertedIndexQueryType query_type,
+                                           const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                           InvertedIndexQueryInfo* query_info) {
     DCHECK(query_info != nullptr);
     if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
         query_type == InvertedIndexQueryType::WILDCARD_QUERY) {
@@ -711,14 +712,13 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
                     : nullptr;
     Status single_flight_status;
     if (!allow_result_cache) {
-        single_flight_status =
-                _compute_query_bitmap(context,
-                                      {.query_type = query_type,
-                                       .query_info = execution_query_info,
-                                       .search_str = search_str,
-                                       .max_expansions = max_expansions,
-                                       .logical_reader = logical_reader},
-                                      &terms, &result_bitmap, phrase_matches_out);
+        single_flight_status = _compute_query_bitmap(context,
+                                                     {.query_type = query_type,
+                                                      .query_info = execution_query_info,
+                                                      .search_str = search_str,
+                                                      .max_expansions = max_expansions,
+                                                      .logical_reader = logical_reader},
+                                                     &terms, &result_bitmap, phrase_matches_out);
     } else {
         DORIS_CHECK(phrase_matches_out == nullptr);
         single_flight_status = run_query_single_flight(
@@ -729,14 +729,13 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
                 _single_flight_leader_before_compute_opaque,
 #endif
                 [&](std::shared_ptr<roaring::Roaring>* out) {
-                    auto status = _compute_query_bitmap(
-                            context,
-                            {.query_type = query_type,
-                             .query_info = execution_query_info,
-                             .search_str = search_str,
-                             .max_expansions = max_expansions,
-                             .logical_reader = logical_reader},
-                            &terms, out, nullptr);
+                    auto status = _compute_query_bitmap(context,
+                                                        {.query_type = query_type,
+                                                         .query_info = execution_query_info,
+                                                         .search_str = search_str,
+                                                         .max_expansions = max_expansions,
+                                                         .logical_reader = logical_reader},
+                                                        &terms, out, nullptr);
                     if (status.ok()) {
                         insert_query_cache(context, cache, cache_key, *out, &cache_handler,
                                            allow_result_cache);

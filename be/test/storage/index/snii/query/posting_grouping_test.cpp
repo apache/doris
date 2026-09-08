@@ -329,9 +329,9 @@ std::vector<uint32_t> DecodePerWindow(const LogicalIndexReader& idx, const DictE
         EXPECT_TRUE(fetcher.fetch().ok());
         std::vector<uint32_t> wd;
         std::vector<std::vector<uint32_t>> wp;
-        EXPECT_TRUE(decode_window_slices(m, fetcher.get(h), Slice(), /*want_positions=*/false, &wd,
-                                         &wp)
-                            .ok());
+        EXPECT_TRUE(
+                decode_window_slices(m, fetcher.get(h), Slice(), /*want_positions=*/false, &wd, &wp)
+                        .ok());
         docids.insert(docids.end(), wd.begin(), wd.end());
     }
     return docids;

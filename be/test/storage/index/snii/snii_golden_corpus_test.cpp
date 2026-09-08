@@ -75,30 +75,30 @@ using ScalarRow = std::optional<std::string>; // nullopt = NULL
 
 std::vector<ScalarRow> scalar_corpus() {
     std::vector<ScalarRow> rows;
-    rows.emplace_back("hello world hello doris");                                      // 0
-    rows.emplace_back("");                                                             // 1 空串
-    rows.emplace_back("The QUICK brown-fox; jumped!! over_the lazy dog 42 times");     // 2
+    rows.emplace_back("hello world hello doris");                                     // 0
+    rows.emplace_back("");                                                            // 1 空串
+    rows.emplace_back("The QUICK brown-fox; jumped!! over_the lazy dog 42 times");    // 2
     rows.emplace_back("重复 重复 重复 词元 Doris 数据库 全文检索 mixed 中英 tokens"); // 3
-    rows.emplace_back(std::nullopt);                                                   // 4 NULL
-    rows.emplace_back(std::nullopt);                                                   // 5 NULL
-    rows.emplace_back(std::nullopt);                                                   // 6 NULL
-    rows.emplace_back(std::string(300, 'x'));                                          // 7 > ignore_above
-    rows.emplace_back("single");                                                       // 8
-    rows.emplace_back("!!! ??? ,,,");                                                  // 9 无词元
-    rows.emplace_back("hello world again and again and again");                       // 10
-    rows.emplace_back(std::nullopt);                                                   // 11 NULL
-    rows.emplace_back(std::string("\x1f") + "hidden term inside");                     // 12 内部命名空间前缀
-    rows.emplace_back(std::string("\x1e") + "escaped start");                          // 13 转义前缀
-    rows.emplace_back("prefix prefixes prefixing prefab");                             // 14
-    rows.emplace_back("alpha beta gamma alpha beta alpha");                            // 15
+    rows.emplace_back(std::nullopt);                                                  // 4 NULL
+    rows.emplace_back(std::nullopt);                                                  // 5 NULL
+    rows.emplace_back(std::nullopt);                                                  // 6 NULL
+    rows.emplace_back(std::string(300, 'x'));                      // 7 > ignore_above
+    rows.emplace_back("single");                                   // 8
+    rows.emplace_back("!!! ??? ,,,");                              // 9 无词元
+    rows.emplace_back("hello world again and again and again");    // 10
+    rows.emplace_back(std::nullopt);                               // 11 NULL
+    rows.emplace_back(std::string("\x1f") + "hidden term inside"); // 12 内部命名空间前缀
+    rows.emplace_back(std::string("\x1e") + "escaped start");      // 13 转义前缀
+    rows.emplace_back("prefix prefixes prefixing prefab");         // 14
+    rows.emplace_back("alpha beta gamma alpha beta alpha");        // 15
     {
         std::string long_doc; // 16 超过 255 个词元（norm 饱和）
         for (int i = 0; i < 300; ++i) long_doc += (i ? " tok" : "tok");
         rows.emplace_back(std::move(long_doc));
     }
-    rows.emplace_back("Ünïcode Straße naïve café");                                    // 17
-    rows.emplace_back("hello");                                                        // 18
-    rows.emplace_back("world hello");                                                  // 19
+    rows.emplace_back("Ünïcode Straße naïve café"); // 17
+    rows.emplace_back("hello");                     // 18
+    rows.emplace_back("world hello");               // 19
     return rows;
 }
 
@@ -191,16 +191,17 @@ using ArrayRow = std::optional<std::vector<std::optional<std::string>>>;
 std::vector<ArrayRow> array_corpus() {
     std::vector<ArrayRow> rows;
     rows.emplace_back(std::vector<std::optional<std::string>> {"hello world", "hello doris"}); // 0
-    rows.emplace_back(std::vector<std::optional<std::string>> {});                            // 1 空数组
-    rows.emplace_back(std::nullopt);                                                          // 2 NULL 行
-    rows.emplace_back(std::vector<std::optional<std::string>> {"single"});                    // 3
+    rows.emplace_back(std::vector<std::optional<std::string>> {});         // 1 空数组
+    rows.emplace_back(std::nullopt);                                       // 2 NULL 行
+    rows.emplace_back(std::vector<std::optional<std::string>> {"single"}); // 3
     rows.emplace_back(std::vector<std::optional<std::string>> {"alpha beta", std::nullopt,
-                                                               "gamma alpha"});               // 4 含元素 NULL
-    rows.emplace_back(std::vector<std::optional<std::string>> {"world", "hello"});            // 5 跨元素不成短语
-    rows.emplace_back(std::vector<std::optional<std::string>> {"重复 词元", "Doris 数据库"});   // 6
-    rows.emplace_back(std::nullopt);                                                          // 7 NULL 行
+                                                               "gamma alpha"}); // 4 含元素 NULL
+    rows.emplace_back(
+            std::vector<std::optional<std::string>> {"world", "hello"}); // 5 跨元素不成短语
+    rows.emplace_back(std::vector<std::optional<std::string>> {"重复 词元", "Doris 数据库"}); // 6
+    rows.emplace_back(std::nullopt); // 7 NULL 行
     rows.emplace_back(std::vector<std::optional<std::string>> {"prefix prefixes", "",
-                                                               "hello world hello doris"});   // 8
+                                                               "hello world hello doris"}); // 8
     return rows;
 }
 
@@ -439,15 +440,15 @@ Observation observe(const Sample& sample, const OpenedSample& opened, const Quer
     o.type = query.type;
     o.text = query.text;
     auto bitmap = std::make_shared<roaring::Roaring>();
-    const Status st = opened.index_reader->query(env.context, kColumn,
-                                                 Field::create_field<TYPE_STRING>(query.text),
-                                                 query.type, bitmap);
+    const Status st = opened.index_reader->query(
+            env.context, kColumn, Field::create_field<TYPE_STRING>(query.text), query.type, bitmap);
     o.status_code = static_cast<int>(st.code());
     if (st.ok() && bitmap != nullptr) o.docids = join_docids(*bitmap);
     InvertedIndexQueryCacheHandle handle;
     const Status ns = opened.index_reader->read_null_bitmap(env.context, &handle);
     o.null_status_code = static_cast<int>(ns.code());
-    if (ns.ok() && handle.get_bitmap() != nullptr) o.null_docids = join_docids(*handle.get_bitmap());
+    if (ns.ok() && handle.get_bitmap() != nullptr)
+        o.null_docids = join_docids(*handle.get_bitmap());
     return o;
 }
 
@@ -500,8 +501,7 @@ TEST_F(SniiGoldenCorpus, WriteOrVerify) {
             for (const auto& [k, v] : sample.properties) out << " " << k << "=" << v;
             out << "\n";
             for (const Query& query : queries) {
-                out << observe(sample, opened, query, /*enable_query_cache=*/false).line()
-                    << "\n";
+                out << observe(sample, opened, query, /*enable_query_cache=*/false).line() << "\n";
             }
             continue;
         }

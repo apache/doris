@@ -362,9 +362,9 @@ Status decode_windowed_position_source(const LogicalIndexReader& idx, const Term
         }
 
         reader::WindowAbsRange range;
-        RETURN_IF_ERROR(reader::windowed_window_range(
-                idx, p.entry, p.frq_base, p.prx_base, p.prelude, doc_chunk.window,
-                /*want_positions=*/true, &range));
+        RETURN_IF_ERROR(reader::windowed_window_range(idx, p.entry, p.frq_base, p.prx_base,
+                                                      p.prelude, doc_chunk.window,
+                                                      /*want_positions=*/true, &range));
         chunk.windowed = true;
         chunk.window = doc_chunk.window;
         const size_t prx_handle = prx_fetcher->add(range.prx_off, range.prx_len);

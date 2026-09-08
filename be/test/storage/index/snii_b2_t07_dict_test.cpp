@@ -83,7 +83,7 @@ DictEntry MakePodRefWindowed(std::string term, uint32_t df, uint64_t frq_off) {
     e.df = df;
     e.frq_off_delta = frq_off;
     e.frq_len = 200;
-    e.prelude_len = 10;   // 0 < prelude_len <= frq_len
+    e.prelude_len = 10; // 0 < prelude_len <= frq_len
     e.prx_off_delta = 0;
     e.prx_len = 50;
     return e;
