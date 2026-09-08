@@ -64,21 +64,18 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     endif ()
     pch_reuse(doris_be)
 
-    # This permits libraries loaded by dlopen to link to the symbols in the program.
-    set_target_properties(doris_be PROPERTIES ENABLE_EXPORTS 1)
+    # Keep doris_be symbols private. Java UDF callbacks are registered explicitly through JNI and
+    # Python UDFs run out of process, so neither requires executable exports. Exporting all symbols
+    # would also let dlopened libraries bind to private copies from static dependencies.
 
-    # ...but not the symbols of the RocksDB we link statically. Exporting those makes this
-    # executable the definition every later-loaded library binds to, and a JNI library that
-    # carries its own RocksDB then runs half on ours: the fluss scanner bundles frocksdbjni,
-    # whose librocksdbjni.so defines 2576 rocksdb symbols under names identical to ours but
-    # was built against the pre-C++11 libstdc++ string ABI. Objects laid out by one and used
-    # by the other yield a garbage length, an std::bad_alloc that escapes the JNI frame, and
-    # an aborted BE. Hiding this archive lets that library bind to its own copy.
-    #
-    # Scoped to the archive rather than dropping ENABLE_EXPORTS: what needs the exports is
-    # native UDFs (runtime/user_function_cache.cpp dlopens them), and those use the Doris UDF
-    # ABI, which has nothing to do with RocksDB. Crash stacks do not need it either -- they are
-    # symbolized from debug info, which is why they name even anonymous-namespace functions.
+    # Keep the symbols of the RocksDB we link statically out of the dynamic symbol table. Making
+    # them visible would make this executable the definition every later-loaded library binds to.
+    # A JNI library that carries its own RocksDB would then run half on ours: the fluss scanner
+    # bundles frocksdbjni, whose librocksdbjni.so defines 2576 rocksdb symbols under names
+    # identical to ours but was built against the pre-C++11 libstdc++ string ABI. Objects laid out
+    # by one implementation and used by the other yield a garbage length, an std::bad_alloc that
+    # escapes the JNI frame, and an aborted BE. Hiding this archive lets that library bind to its
+    # own copy.
     #
     # The same library also duplicates zstd, lz4, snappy, bzip2 and zlib symbols. Those are C
     # ABIs, stable across versions and layout-free, so they are left alone until something
@@ -94,6 +91,23 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     target_link_libraries(doris_be
         ${DORIS_LINK_LIBS}
     )
+
+    if (OS_LINUX AND GLIBC_COMPATIBILITY)
+        # Use TARGET_FILE rather than an install/output directory so this check
+        # follows doris_be if its build location or output name changes.
+        set(GLIBC_COMPATIBILITY_CHECK
+            "${BASE_DIR}/cmake/check_glibc_compatibility.cmake")
+        set_property(TARGET doris_be APPEND PROPERTY LINK_DEPENDS
+            "${GLIBC_COMPATIBILITY_CHECK}")
+        add_custom_command(TARGET doris_be POST_BUILD
+            COMMAND "${CMAKE_COMMAND}"
+                "-DARTIFACT=$<TARGET_FILE:doris_be>"
+                "-DOBJDUMP=${CMAKE_OBJDUMP}"
+                "-DBASELINE=2.17"
+                -P "${GLIBC_COMPATIBILITY_CHECK}"
+            COMMENT "Checking that doris_be requires no glibc symbols newer than GLIBC_2.17"
+            VERBATIM)
+    endif()
 
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
     install(TARGETS doris_be DESTINATION ${OUTPUT_DIR}/lib/)
