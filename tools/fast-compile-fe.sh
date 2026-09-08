@@ -67,9 +67,9 @@ error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 # via heartbeat and `show frontends` shows as the Version column. A full mvn build
 # regenerates it, but fast-compile never triggers that, so the hash goes stale.
 # Here we compare the on-disk Version.java's hash against `git log -1 %h` and, when
-# they differ, delete Version.java (gen_build_version.sh early-exits if it exists),
-# re-run the generator, recompile Version.class, and refresh the fe-common jars so
-# the running FE picks up the new commit.
+# they differ, delete Version.java (gen_build_version.sh early-exits if generated
+# files already exist), re-run the generator, recompile Version.class, and refresh
+# the fe-common jars so the running FE picks up the new commit.
 update_version_if_commit_changed() {
     [[ -d "$DORIS_HOME/.git" ]] || return 0
     local current_hash
@@ -78,7 +78,7 @@ update_version_if_commit_changed() {
 
     local baked_hash=""
     if [[ -f "$VERSION_JAVA" ]]; then
-        baked_hash="$(sed -n 's/.*DORIS_BUILD_SHORT_HASH[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$VERSION_JAVA" | head -1)"
+        baked_hash="$(sed -n 's/.*DORIS_BUILD_SHORT_HASH[^"]*"\([^"]*\)".*/\1/p' "$VERSION_JAVA" | head -1)"
     fi
 
     if [[ "$baked_hash" == "$current_hash" ]]; then
@@ -87,8 +87,6 @@ update_version_if_commit_changed() {
 
     info "Git commit changed: ${baked_hash:-<missing>} → $current_hash, regenerating Version.java"
 
-    # gen_build_version.sh exits early when all three generated files exist, so
-    # force regeneration by removing Version.java first.
     rm -f "$VERSION_JAVA"
     (cd "$DORIS_HOME" && bash gensrc/script/gen_build_version.sh) \
         || { error "gen_build_version.sh failed"; return 1; }
