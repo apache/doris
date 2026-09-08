@@ -245,8 +245,8 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                 ImmutableList.of()),
                         Triple.of(
                                 "array<bigint>",
-                                ImmutableList.of(path("indexes")),
-                                ImmutableList.of(path("indexes", "NULL")))
+                                ImmutableList.of(path("indexes", "*"), metaPath("indexes", "NULL")),
+                                ImmutableList.of(metaPath("indexes", "NULL")))
                 ));
     }
 
