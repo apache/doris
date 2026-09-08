@@ -31,6 +31,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
@@ -104,6 +106,7 @@ public class RefreshMTMVInfoTest {
             ConnectContext ctx = new ConnectContext();
             ctx.setThreadLocalInfo();
 
+            stubCompleteRefreshMethod(mtmv);
             RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
                     Lists.newArrayList(shaName), RefreshMode.COMPLETE);
             info.analyze(ctx);
@@ -174,6 +177,7 @@ public class RefreshMTMVInfoTest {
 
             // both the physical legacy name and the regenerated alias address the same descriptor, so the
             // resolved target list must contain the physical partition exactly once
+            stubCompleteRefreshMethod(mtmv);
             RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
                     Lists.newArrayList(legacyName, shaName), RefreshMode.COMPLETE);
             info.analyze(ctx);
@@ -237,6 +241,7 @@ public class RefreshMTMVInfoTest {
 
             // refreshing a not-yet-created partition is allowed and the generated name is kept: alignment
             // will materialize the physical partition before the refresh task dereferences it
+            stubCompleteRefreshMethod(mtmv);
             RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
                     Lists.newArrayList(shaName), RefreshMode.COMPLETE);
             info.analyze(ctx);
@@ -310,6 +315,7 @@ public class RefreshMTMVInfoTest {
             ConnectContext ctx = new ConnectContext();
             ctx.setThreadLocalInfo();
 
+            stubCompleteRefreshMethod(mtmv);
             RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
                     Lists.newArrayList("p_collision"), RefreshMode.COMPLETE);
             try {
@@ -385,6 +391,7 @@ public class RefreshMTMVInfoTest {
             ctx.setThreadLocalInfo();
 
             // bulk request addressing every generated alias at once
+            stubCompleteRefreshMethod(mtmv);
             RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
                     expectedNames, RefreshMode.COMPLETE);
             info.analyze(ctx);
@@ -399,5 +406,13 @@ public class RefreshMTMVInfoTest {
                 previousContext.setThreadLocalInfo();
             }
         }
+    }
+
+    // RefreshMTMVInfo.analyze() rejects an MV whose refresh method is unknown before it resolves the
+    // requested partitions, so the MTMV mock must report a concrete (COMPLETE) refresh method.
+    private static void stubCompleteRefreshMethod(MTMV mtmv) {
+        MTMVRefreshInfo refreshInfo = Mockito.mock(MTMVRefreshInfo.class);
+        Mockito.when(refreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.COMPLETE);
+        Mockito.when(mtmv.getRefreshInfo()).thenReturn(refreshInfo);
     }
 }

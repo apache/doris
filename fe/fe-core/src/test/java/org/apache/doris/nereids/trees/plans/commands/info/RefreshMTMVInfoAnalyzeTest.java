@@ -18,11 +18,14 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.NameSpaceContext;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -42,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.Refres
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -136,6 +140,35 @@ public class RefreshMTMVInfoAnalyzeTest {
     private void setupMvLookup(MTMV mtmv) throws Exception {
         Mockito.when(db.getTableOrMetaException("mv1", TableIf.TableType.MATERIALIZED_VIEW))
                 .thenReturn(mtmv);
+    }
+
+    /**
+     * Makes the requested partitionSpec names (p1, p2) resolvable by RefreshMTMVInfo.checkPartitionExist:
+     * they must be reported as stored physical partitions whose descriptors are still derivable from the
+     * base-table partition descs (checkPartitionExist resolves requests against generateRelatedPartitionDescs
+     * and the MV's own partition names).
+     */
+    private void allowPartitionSpecResolution(MTMV mtmv) throws Exception {
+        PartitionKeyDesc desc1 = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00")),
+                Lists.newArrayList(new PartitionValue("2024-01-02 00:00:00")));
+        PartitionKeyDesc desc2 = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2024-02-01 00:00:00")),
+                Lists.newArrayList(new PartitionValue("2024-02-02 00:00:00")));
+        PartitionItem item1 = Mockito.mock(PartitionItem.class);
+        PartitionItem item2 = Mockito.mock(PartitionItem.class);
+        Mockito.when(item1.toPartitionKeyDesc()).thenReturn(desc1);
+        Mockito.when(item2.toPartitionKeyDesc()).thenReturn(desc2);
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet("p1", "p2"));
+        Mockito.when(mtmv.getPartitionItemOrAnalysisException("p1")).thenReturn(item1);
+        Mockito.when(mtmv.getPartitionItemOrAnalysisException("p2")).thenReturn(item2);
+        mockedPartitionUtilStatic.when(() -> MTMVPartitionUtil.generateRelatedPartitionDescs(
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(ImmutableMap.of(desc1, Maps.newHashMap(), desc2, Maps.newHashMap()));
+        // MTMVPartitionUtil is fully mocked (no CALLS_REAL_METHODS), so name generation must be stubbed
+        // to yield distinct names for the two descriptors.
+        mockedPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionName(desc1)).thenReturn("p_gen1");
+        mockedPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionName(desc2)).thenReturn("p_gen2");
     }
 
     private MTMV createMtmv(RefreshMethod method, MTMVPartitionType partitionType, boolean enableIvm)
@@ -245,6 +278,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     @Test
     public void testPartitionSpecOnCompleteMVAllowedForCompatibility() throws Exception {
         setupMvLookup(completePartitionMtmv);
+        allowPartitionSpecResolution(completePartitionMtmv);
         RefreshMTMVInfo info = createInfoWithPartitions(RefreshMode.PARTITIONS, false);
         info.analyze(ctx);
     }
@@ -252,6 +286,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     @Test
     public void testPartitionSpecOnPartitionsMVAllowedForCompatibility() throws Exception {
         setupMvLookup(partitionMtmv);
+        allowPartitionSpecResolution(partitionMtmv);
         RefreshMTMVInfo info = createInfoWithPartitions(RefreshMode.PARTITIONS, false);
         info.analyze(ctx);
     }
