@@ -3368,6 +3368,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (!aggFunctionsSingleSide(agg, join)) {
             return null;
         }
+        // The fused GroupJoin operator requires at least one aggregate function: the BE
+        // group-join node validates `aggregate_functions` non-empty and the probe operator
+        // materializes aggregate values into the output tuple. An aggregate with only
+        // GROUP BY keys and no functions (e.g. SELECT DISTINCT over an INNER join) must
+        // stay on the regular AggregationNode + HashJoinNode path.
+        boolean hasAggregateFunction = agg.getOutputExpressions().stream()
+                .anyMatch(expr -> expr.containsType(AggregateExpression.class));
+        if (!hasAggregateFunction) {
+            return null;
+        }
 
         // All checks passed — generate GroupJoinNode
         return translateToGroupJoinNode(agg, join, context);
