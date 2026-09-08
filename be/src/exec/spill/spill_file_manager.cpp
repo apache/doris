@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <memory>
+#include <random>
 #include <string>
 #include <utility>
 
@@ -148,11 +149,36 @@ std::vector<SpillDataDir*> SpillFileManager::_get_stores_for_spill(
 
     std::ranges::sort(stores_with_usage, [](auto&& a, auto&& b) { return a.second < b.second; });
 
+    // Shuffle the disks that are effectively as empty as the emptiest one, so concurrent
+    // callers do not all land on the same disk.
+    //
+    // _get_disk_usage() is derived from SpillDataDir::_available_bytes, which is only
+    // refreshed by the GC thread every config::spill_gc_interval_ms (2s by default). Within
+    // that window every caller computes an identical usage vector, sorts it identically and
+    // would otherwise pick an identical winner -- so all spill files created during those
+    // two seconds pile onto one disk while the others stay idle. Randomizing among the
+    // near-equal head of the list keeps the "prefer the emptiest disk" intent (a disk that
+    // is genuinely emptier by more than the band still wins outright) while spreading load
+    // across disks whose usage only differs by sampling noise.
+    const double lowest_usage = stores_with_usage.front().second;
+    auto equally_empty_end =
+            std::ranges::find_if(stores_with_usage, [lowest_usage](const auto& entry) {
+                return entry.second > lowest_usage + USAGE_EQUIVALENCE_BAND;
+            });
+    std::shuffle(stores_with_usage.begin(), equally_empty_end, _rng_for_store_selection());
+
     std::vector<SpillDataDir*> stores;
     for (const auto& [store, _] : stores_with_usage) {
         stores.emplace_back(store);
     }
     return stores;
+}
+
+std::mt19937& SpillFileManager::_rng_for_store_selection() {
+    // Thread-local so concurrent callers draw independent permutations without contending
+    // on a shared generator.
+    static thread_local std::mt19937 rng(std::random_device {}());
+    return rng;
 }
 
 Status SpillFileManager::create_spill_file(const std::string& relative_path,
@@ -166,7 +192,8 @@ Status SpillFileManager::create_spill_file(const std::string& relative_path,
                 "no available disk can be used for spill.");
     }
 
-    // Select the first available data dir (sorted by usage ascending)
+    // Select the first available data dir (sorted by usage ascending, with the
+    // equally-empty head shuffled -- see _get_stores_for_spill)
     SpillDataDir* data_dir = data_dirs.front();
     spill_file = std::make_shared<SpillFile>(data_dir, relative_path);
     return Status::OK();
