@@ -548,6 +548,51 @@ TEST(VariantCanonicalTest, NumericEquivalenceMatrix) {
               VariantPrimitiveId::DOUBLE);
 }
 
+TEST(VariantCanonicalTest, ComparisonPreservesEqualityAndNumericOrder) {
+    const auto expect_order = [](const OwnedValue& left, const OwnedValue& right) {
+        EXPECT_LT(canonical_compare(left.ref(), right.ref()), 0);
+        EXPECT_GT(canonical_compare(right.ref(), left.ref()), 0);
+        EXPECT_FALSE(canonical_equals(left.ref(), right.ref()));
+    };
+    const auto expect_equal = [](const OwnedValue& left, const OwnedValue& right) {
+        EXPECT_EQ(canonical_compare(left.ref(), right.ref()), 0);
+        EXPECT_EQ(canonical_compare(right.ref(), left.ref()), 0);
+        EXPECT_TRUE(canonical_equals(left.ref(), right.ref()));
+        EXPECT_EQ(hashes(left.ref()).sip, hashes(right.ref()).sip);
+    };
+
+    expect_order(decimal_value(15, 1), integer_value(100, 1));
+    expect_order(decimal_value(1, 1), double_value(0.1));
+    expect_order(double_value(std::nextafter(1.0, 0.0)), integer_value(1, 1));
+    expect_order(integer_value(1, 1), double_value(std::nextafter(1.0, 2.0)));
+    expect_order(decimal_value(15, 1), double_value(1.5));
+    expect_order(double_value(-std::numeric_limits<double>::infinity()),
+                 decimal_value(-999999999999999999LL, 1));
+    expect_order(double_value(std::numeric_limits<double>::infinity()),
+                 double_value(std::numeric_limits<double>::quiet_NaN()));
+
+    expect_equal(integer_value(42, 1), decimal_value(4200, 2));
+    expect_equal(integer_value(42, 1), double_value(42.0));
+    expect_equal(double_bits(0x7FF0000000000001ULL), double_bits(0xFFFABCDE12345678ULL));
+}
+
+TEST(VariantCanonicalTest, ContainerComparisonIsLexicographicAndTransitive) {
+    const OwnedValue array_a = array_value({integer_value(1, 1).value});
+    const OwnedValue array_b = array_value({integer_value(1, 1).value, integer_value(2, 1).value});
+    const OwnedValue array_c = array_value({integer_value(1, 1).value, integer_value(3, 1).value});
+    EXPECT_LT(canonical_compare(array_a.ref(), array_b.ref()), 0);
+    EXPECT_LT(canonical_compare(array_b.ref(), array_c.ref()), 0);
+    EXPECT_LT(canonical_compare(array_a.ref(), array_c.ref()), 0);
+
+    const OwnedValue object_a = object_value({"a"}, true, {0}, {integer_value(1, 1).value}, {0});
+    const OwnedValue object_b = object_value({"a"}, true, {0}, {integer_value(2, 1).value}, {0});
+    const OwnedValue object_c = object_value({"b"}, true, {0}, {integer_value(0, 1).value}, {0});
+    EXPECT_LT(canonical_compare(object_a.ref(), object_b.ref()), 0);
+    EXPECT_LT(canonical_compare(object_b.ref(), object_c.ref()), 0);
+    EXPECT_LT(canonical_compare(object_a.ref(), object_c.ref()), 0);
+    EXPECT_GT(canonical_compare(object_c.ref(), object_a.ref()), 0);
+}
+
 TEST(VariantCanonicalTest, PrimitiveTypeClasses) {
     const OwnedValue null_a = scalar(primitive(VariantPrimitiveId::NULL_VALUE));
     const OwnedValue null_b = scalar(primitive(VariantPrimitiveId::NULL_VALUE));
@@ -881,6 +926,11 @@ TEST(VariantCanonicalTest, RandomizedEqualsHashAndArenaProperties) {
         auto [left, right] = random_pair(random, index, expected_equal);
         const bool equal = canonical_equals(left.ref(), right.ref());
         EXPECT_EQ(equal, expected_equal);
+        const int comparison = canonical_compare(left.ref(), right.ref());
+        const int reverse_comparison = canonical_compare(right.ref(), left.ref());
+        EXPECT_EQ(comparison == 0, equal);
+        EXPECT_EQ((comparison > 0) - (comparison < 0),
+                  -((reverse_comparison > 0) - (reverse_comparison < 0)));
 
         const std::string left_arena = arena(left.ref());
         const std::string right_arena = arena(right.ref());

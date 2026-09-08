@@ -35,6 +35,11 @@ struct VariantScalarAdapter;
 
 bool canonical_equals(const VariantScalarRef& left, const VariantScalarRef& right);
 
+// Returns a negative value, zero, or a positive value when left is respectively less than, equal
+// to, or greater than right in the canonical Variant total order. Zero is exactly equivalent to
+// canonical_equals().
+int canonical_compare(const VariantScalarRef& left, const VariantScalarRef& right);
+
 template <typename Sink>
 void canonical_hash(const VariantScalarRef& value, Sink& sink);
 
@@ -78,6 +83,11 @@ private:
 // integer domain that canonical Variant decimal16 can encode: [-(10^38-1), +(10^38-1)]. A finite
 // integral float/double outside that domain remains floating so canonical arena bytes stay valid.
 bool canonical_equals(VariantRef left, VariantRef right);
+
+// Container values are compared lexicographically after scalar normalization. Object keys use
+// their canonical byte order. Numeric kinds share a numeric order, with canonical kind as a
+// deterministic tie-breaker when two numerically equal values are not canonically equal.
+int canonical_compare(VariantRef left, VariantRef right);
 
 // Hashes canonical logical tokens without re-encoding the value. Supported production sinks are
 // SipHash, VariantXxHashSink, VariantCrc32HashSink, and VariantCrc32cHashSink; all four are explicit

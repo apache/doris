@@ -21,8 +21,15 @@
 #include "exec/sort/sort_block.h"
 
 #include "core/block/column_with_type_and_name.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 
 namespace doris {
+void ColumnSorter::sort_column(const ColumnVariantV2& column, EqualFlags& flags,
+                               IColumn::Permutation& perms, EqualRange& range,
+                               bool last_column) const {
+    _sort_by_default(column, flags, perms, range, last_column);
+}
+
 ColumnsWithSortDescriptions get_columns_with_sort_description(const Block& block,
                                                               const SortDescription& description) {
     size_t size = description.size();
