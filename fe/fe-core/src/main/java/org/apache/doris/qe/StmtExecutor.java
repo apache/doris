@@ -1352,6 +1352,12 @@ public class StmtExecutor {
             LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
             LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
             if (logicalPlan instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache) {
+                // sendCachedValues replays MySQL protocol packets, so it needs a MysqlChannel.
+                // ConnectProcessor.executeQuery only looks the sql cache up for a MySQL connection,
+                // so a cached plan must never reach another protocol here.
+                Preconditions.checkState(channel != null,
+                        "sql cache can only be replayed on a MySQL connection, but connect type is %s",
+                        context.getConnectType());
                 NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
                 PhysicalSqlCache physicalSqlCache = (PhysicalSqlCache) nereidsPlanner.getPhysicalPlan();
                 sendCachedValues(channel, physicalSqlCache.getCacheValues(), logicalPlanAdapter, false, true);
@@ -1439,8 +1445,10 @@ public class StmtExecutor {
                 // need deferral (the BE buffers their result independently) but are captured by the
                 // same gate; the trade-off is their coordinator, query queue slot and query
                 // registration stay held until the next query / teardown instead of being released
-                // at the end of GetFlightInfo. Point queries use a different coordBase (not
-                // deferred). See #62259.
+                // at the end of GetFlightInfo. A short-circuit point query is the one case with a
+                // different coordBase, and it can no longer reach here: it has no Arrow result on
+                // either side, so LogicalResultSinkToShortCircuitPointQuery keeps Arrow Flight SQL
+                // on the normal execution path. See #62259 and #67368.
                 if (coordBase == coord) {
                     deferredForArrowFlight = true;
                     context.addFlightSqlDeferredExecutor(this);
