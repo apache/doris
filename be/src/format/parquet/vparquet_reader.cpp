@@ -512,6 +512,23 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
             }
             if (!_table_info_node_ptr->children_column_exists(col_name)) {
                 _fill_missing_cols.insert(col_name);
+                continue;
+            }
+            // Safety net for schema-evolution mismatches: a table-format reader builds the schema
+            // tree from FE-supplied schema info (history_schema_info / field-id mapping), so it can
+            // map a table column to a file column that is NOT in this file's physical schema — e.g.
+            // a column added by schema change whose default was never materialized into the old
+            // data files. Such a column is neither read (_init_read_columns matches file-schema
+            // order, so it is silently dropped) nor filled, and later surfaces as a 0-row column
+            // that trips the "filter.size() == offsets.size()" check in filter_block_internal.
+            // Demote it to a missing column so it gets its default/null values instead.
+            const auto file_col_name = _table_info_node_ptr->children_file_column_name(col_name);
+            if (_file_metadata->schema().get_column_index(file_col_name) < 0) {
+                _fill_missing_cols.insert(col_name);
+                LOG(WARNING) << "Demoting table column '" << col_name << "' to a missing column: "
+                             << "it maps to file column '" << file_col_name
+                             << "' which is absent from the physical parquet schema, file="
+                             << _scan_range.path;
             }
         }
         if (_column_descs && !_fill_missing_cols.empty()) {
