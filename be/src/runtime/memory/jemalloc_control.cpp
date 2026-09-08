@@ -29,10 +29,15 @@ std::atomic<bool> JemallocControl::je_enable_dirty_page {true};
 std::condition_variable JemallocControl::je_reset_dirty_decay_cv;
 std::atomic<bool> JemallocControl::je_reset_dirty_decay_notify {false};
 
+std::atomic<int64_t> JemallocControl::je_resident_bytes_ = 0;
+std::atomic<int64_t> JemallocControl::je_allocated_bytes_ = 0;
+std::atomic<int64_t> JemallocControl::je_active_bytes_ = 0;
+std::atomic<int64_t> JemallocControl::je_tcache_bytes_ = 0;
+std::atomic<int64_t> JemallocControl::je_metadata_bytes_ = 0;
+std::atomic<int64_t> JemallocControl::je_dirty_bytes_ = 0;
+std::atomic<int64_t> JemallocControl::je_muzzy_bytes_ = 0;
+std::atomic<int64_t> JemallocControl::je_internal_bytes_ = 0;
 std::atomic<int64_t> JemallocControl::je_cache_bytes_ = 0;
-std::atomic<int64_t> JemallocControl::je_tcache_mem_ = 0;
-std::atomic<int64_t> JemallocControl::je_metadata_mem_ = 0;
-std::atomic<int64_t> JemallocControl::je_dirty_pages_mem_ = std::numeric_limits<int64_t>::min();
 std::atomic<int64_t> JemallocControl::je_virtual_memory_used_ = 0;
 
 void JemallocControl::refresh_allocator_mem() {
@@ -49,23 +54,42 @@ void JemallocControl::refresh_allocator_mem() {
     size_t sz = sizeof(epoch);
     jemallctl("epoch", &epoch, &sz, &epoch, sz);
 
+    auto resident_bytes = get_jemallctl_value<int64_t>("stats.resident");
+    auto allocated_bytes = get_jemallctl_value<int64_t>("stats.allocated");
+    auto active_bytes = get_jemallctl_value<int64_t>("stats.active");
+    auto tcache_bytes = get_je_all_arena_metrics("tcache_bytes");
+    auto metadata_bytes = get_jemallctl_value<int64_t>("stats.metadata");
+    je_resident_bytes_.store(resident_bytes, std::memory_order_relaxed);
+    je_allocated_bytes_.store(allocated_bytes, std::memory_order_relaxed);
+    je_active_bytes_.store(active_bytes, std::memory_order_relaxed);
+    je_tcache_bytes_.store(tcache_bytes, std::memory_order_relaxed);
+    // Total number of bytes dedicated to metadata, which comprise base allocations used
+    // for bootstrap-sensitive allocator metadata structures.
+    je_metadata_bytes_.store(metadata_bytes, std::memory_order_relaxed);
+
     // Number of extents of the given type in this arena in the bucket corresponding to page size index.
     // Large size class starts at 16384, the extents have three sizes before 16384: 4096, 8192, and 12288, so + 3
     int64_t dirty_pages_bytes = 0;
+    int64_t muzzy_pages_bytes = 0;
     for (unsigned i = 0; i < get_jemallctl_value<unsigned>("arenas.nlextents") + 3; i++) {
         dirty_pages_bytes += get_je_all_arena_extents_metrics(i, "dirty_bytes");
+        muzzy_pages_bytes += get_je_all_arena_extents_metrics(i, "muzzy_bytes");
     }
-    je_dirty_pages_mem_.store(dirty_pages_bytes, std::memory_order_relaxed);
-    je_tcache_mem_.store(get_je_all_arena_metrics("tcache_bytes"));
+    je_dirty_bytes_.store(dirty_pages_bytes, std::memory_order_relaxed);
+    je_muzzy_bytes_.store(muzzy_pages_bytes, std::memory_order_relaxed);
 
-    // Doris uses Jemalloc as default Allocator, Jemalloc Cache consists of two parts:
-    // - Thread Cache, cache a specified number of Pages in Thread Cache.
-    // - Dirty Page, memory Page that can be reused in all Arenas.
-    je_cache_bytes_.store(je_tcache_mem_ + dirty_pages_bytes, std::memory_order_relaxed);
-    // Total number of bytes dedicated to metadata, which comprise base allocations used
-    // for bootstrap-sensitive allocator metadata structures.
-    je_metadata_mem_.store(get_jemallctl_value<int64_t>("stats.metadata"),
-                           std::memory_order_relaxed);
+    je_cache_bytes_.store(resident_bytes - allocated_bytes - metadata_bytes,
+                          std::memory_order_relaxed);
+    // For physical memory occupied by jemalloc itself, don’t calculate it as:
+    // tcache + dirty + muzzy + metadata
+    // That can be misleading and can double count or include memory that is not actually resident.
+    // For memory overview, the best calculation is based on jemalloc’s own resident total and allocated total:
+    // stats.allocated is application live allocation bytes already represented by Doris MemTrackers where allocations
+    // go through Doris Allocator.
+    // `stats.resident - stats.allocated` is the allocator-side resident delta: metadata, dirty reusable memory, tcache/cache effects,
+    // fragmentation/slack, and page-size rounding. That is the number we want for
+    // physical memory occupied by jemalloc itself beyond application live allocation.
+    je_internal_bytes_.store(resident_bytes - allocated_bytes, std::memory_order_relaxed);
     je_virtual_memory_used_.store(get_jemallctl_value<int64_t>("stats.mapped"),
                                   std::memory_order_relaxed);
 #else
@@ -132,7 +156,7 @@ void JemallocControl::je_decay_all_arena_dirty_pages() {
 
 void JemallocControl::je_thread_tcache_flush() {
     constexpr size_t TCACHE_LIMIT = (1ULL << 30); // 1G
-    if (je_tcache_mem() > TCACHE_LIMIT) {
+    if (je_tcache_bytes() > TCACHE_LIMIT) {
         action_jemallctl("thread.tcache.flush");
     }
 }
