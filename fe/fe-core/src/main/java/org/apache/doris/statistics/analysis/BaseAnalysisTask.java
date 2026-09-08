@@ -691,6 +691,8 @@ public abstract class BaseAnalysisTask {
                 jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
                 long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
                 jobInfo.addIndexRowCount(indexId, colStatsData.count);
+                rejustStaleZeroRowCount(jobInfo, indexId, colStatsData.count,
+                        ((OlapTable) tbl).getBaseIndexId());
             }
             Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
             queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
@@ -708,6 +710,14 @@ public abstract class BaseAnalysisTask {
             }
             // Release the reference to stmtExecutor, reduce memory usage.
             stmtExecutor = null;
+        }
+    }
+
+    @VisibleForTesting
+    static void rejustStaleZeroRowCount(AnalysisInfo jobInfo, long indexId,
+            long colStatsCount, long baseIndexId) {
+        if (jobInfo.rowCount == 0 && colStatsCount > 0 && indexId == baseIndexId) {
+            jobInfo.rowCount = colStatsCount;
         }
     }
 

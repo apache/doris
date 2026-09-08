@@ -181,7 +181,7 @@ public class AnalysisInfo implements Writable {
     public long endTime;
 
     @SerializedName("rowCount")
-    public final long rowCount;
+    public long rowCount;
 
     @SerializedName("updateRows")
     public final long updateRows;

@@ -112,4 +112,31 @@ public class BaseAnalysisTaskTest {
         Assertions.assertFalse(data.isValid());
         Assertions.assertEquals(ColumnStatistic.UNKNOWN, data.toColumnStatistic());
     }
+
+    @Test
+    public void testReconcileStaleZeroRowCount() {
+        // Case 1: initial rowCount==0, real base-index count>0 -> promote.
+        AnalysisInfo info = new AnalysisInfoBuilder().setRowCount(0).build();
+        BaseAnalysisTask.rejustStaleZeroRowCount(info, 100L, 720536L, 100L);
+        Assertions.assertEquals(720536L, info.rowCount,
+                "stale zero rowCount must be promoted from the real base-index scan count");
+
+        // Case 2: initial rowCount already >0 -> preserved (never overwrite a live estimate).
+        info = new AnalysisInfoBuilder().setRowCount(500L).build();
+        BaseAnalysisTask.rejustStaleZeroRowCount(info, 100L, 720536L, 100L);
+        Assertions.assertEquals(500L, info.rowCount,
+                "non-zero rowCount must not be overwritten by a per-column scan result");
+
+        // Case 3: initial rowCount==0 but real count is also 0 -> stay 0 (table really empty).
+        info = new AnalysisInfoBuilder().setRowCount(0).build();
+        BaseAnalysisTask.rejustStaleZeroRowCount(info, 100L, 0L, 100L);
+        Assertions.assertEquals(0L, info.rowCount,
+                "empty scan result must not spuriously bump rowCount");
+
+        // Case 4: indexId != baseIndexId -> ignored (MV/rollup counts are not table row count).
+        info = new AnalysisInfoBuilder().setRowCount(0).build();
+        BaseAnalysisTask.rejustStaleZeroRowCount(info, 200L, 720536L, 100L);
+        Assertions.assertEquals(0L, info.rowCount,
+                "non-base index counts must not overwrite table-level rowCount");
+    }
 }
