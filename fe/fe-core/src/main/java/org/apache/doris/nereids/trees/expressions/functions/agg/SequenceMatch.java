@@ -25,6 +25,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -44,6 +45,8 @@ public class SequenceMatch extends NullableAggregateFunction
                     .varArgs(StringType.INSTANCE, DateV2Type.INSTANCE, BooleanType.INSTANCE),
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .varArgs(StringType.INSTANCE, TimeStampTzType.WILDCARD, BooleanType.INSTANCE),
+            FunctionSignature.ret(BooleanType.INSTANCE)
+                    .varArgs(StringType.INSTANCE, TimeStampNsType.INSTANCE, BooleanType.INSTANCE),
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .varArgs(StringType.INSTANCE, DateTimeV2Type.WILDCARD, BooleanType.INSTANCE)
     );

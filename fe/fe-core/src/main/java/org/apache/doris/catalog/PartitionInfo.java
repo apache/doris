@@ -24,6 +24,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -398,7 +399,7 @@ public class PartitionInfo {
         return partitionKey.getKeys().stream().map(expr -> {
             if (expr == MaxLiteral.MAX_VALUE) {
                 return PartitionValue.MAX_VALUE;
-            } else if (expr instanceof DateLiteral) {
+            } else if (expr instanceof DateLiteral || expr instanceof TimeStampNsLiteral) {
                 return new PartitionValue(expr.getStringValue());
             } else if (expr instanceof NullLiteral) {
                 return new PartitionValue("NULL", true);

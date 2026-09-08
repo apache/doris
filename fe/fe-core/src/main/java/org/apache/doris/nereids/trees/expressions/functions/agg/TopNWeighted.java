@@ -36,6 +36,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -75,6 +76,8 @@ public class TopNWeighted extends NullableAggregateFunction
                     .args(DateV2Type.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(TimeStampTzType.WILDCARD))
                     .args(TimeStampTzType.WILDCARD, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(TimeStampNsType.INSTANCE))
+                    .args(TimeStampNsType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
                     .args(DateTimeV2Type.WILDCARD, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))
@@ -111,6 +114,11 @@ public class TopNWeighted extends NullableAggregateFunction
                     .args(DateV2Type.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(TimeStampTzType.WILDCARD))
                     .args(TimeStampTzType.WILDCARD,
+                            BigIntType.INSTANCE,
+                            IntegerType.INSTANCE,
+                            IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(TimeStampNsType.INSTANCE))
+                    .args(TimeStampNsType.INSTANCE,
                             BigIntType.INSTANCE,
                             IntegerType.INSTANCE,
                             IntegerType.INSTANCE),

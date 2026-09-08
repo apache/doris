@@ -448,7 +448,7 @@ public class PropertyAnalyzer {
                         cooldownTimestamp = TZ_FORMATTER.parse(normalized, ZonedDateTime::from)
                                 .toInstant().toEpochMilli();
                     } else {
-                        DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
+                        DateLiteral dateLiteral = new DateLiteral(value, ScalarType.createDatetimeV2Type(6));
                         cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
                     }
                 } catch (AnalysisException | DateTimeParseException e) {

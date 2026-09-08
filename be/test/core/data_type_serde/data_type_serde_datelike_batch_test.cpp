@@ -17,7 +17,7 @@
 
 // This test exercises the serde batch functions (from_int_batch, from_float_batch,
 // from_decimal_batch and their strict_mode counterparts) for all datelike types:
-//   DateV1, DateTimeV1, DateV2, DateTimeV2, TimeV2
+//   DateV1, DateTimeV1, DateV2, DateTimeV2, TimeStampNs, TimeV2
 //
 // The primary goal is to verify that the non-strict batch path uses NON_STRICT parse
 // mode (returning OK with null for invalid rows) and the strict batch path uses STRICT
@@ -38,6 +38,7 @@
 #include "core/data_type_serde/data_type_datetimev2_serde.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
 #include "core/data_type_serde/data_type_time_serde.h"
+#include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 
 namespace doris {
 
@@ -328,6 +329,81 @@ TEST_F(DatelikeSerDeBatchTest, datetimev2_from_float_strict_mode_batch) {
     auto float_col = build_float64_column({-1.0});
 
     auto target = ColumnDateTimeV2::create();
+    auto st = serde.from_float_strict_mode_batch<DataTypeFloat64>(*float_col, *target);
+    ASSERT_FALSE(st.ok());
+}
+
+// ============================================================================
+// TimeStampNs (DataTypeTimeStampNsSerDe)
+// ============================================================================
+TEST_F(DatelikeSerDeBatchTest, timestamp_ns_from_decimal_batch) {
+    DataTypeTimeStampNsSerDe serde;
+    auto dec_col = build_decimal64_column({20230115143059, -1}, /*scale=*/0);
+
+    auto data_col = ColumnTimeStampNs::create();
+    auto null_col = ColumnUInt8::create();
+    auto target = ColumnNullable::create(std::move(data_col), std::move(null_col));
+
+    auto st = serde.from_decimal_batch<DataTypeDecimal64>(*dec_col, *target);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(target->size(), 2);
+    EXPECT_FALSE(target->is_null_at(0));
+    EXPECT_TRUE(target->is_null_at(1));
+}
+
+TEST_F(DatelikeSerDeBatchTest, timestamp_ns_from_decimal_strict_mode_batch) {
+    DataTypeTimeStampNsSerDe serde;
+    auto dec_col = build_decimal64_column({-1}, /*scale=*/0);
+
+    auto target = ColumnTimeStampNs::create();
+    auto st = serde.from_decimal_strict_mode_batch<DataTypeDecimal64>(*dec_col, *target);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST_F(DatelikeSerDeBatchTest, timestamp_ns_from_int_batch) {
+    DataTypeTimeStampNsSerDe serde;
+    auto int_col = build_int64_column({20230115143059, -1});
+
+    auto data_col = ColumnTimeStampNs::create();
+    auto null_col = ColumnUInt8::create();
+    auto target = ColumnNullable::create(std::move(data_col), std::move(null_col));
+
+    auto st = serde.from_int_batch<DataTypeInt64>(*int_col, *target);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(target->size(), 2);
+    EXPECT_FALSE(target->is_null_at(0));
+    EXPECT_TRUE(target->is_null_at(1));
+}
+
+TEST_F(DatelikeSerDeBatchTest, timestamp_ns_from_int_strict_mode_batch) {
+    DataTypeTimeStampNsSerDe serde;
+    auto int_col = build_int64_column({-1});
+
+    auto target = ColumnTimeStampNs::create();
+    auto st = serde.from_int_strict_mode_batch<DataTypeInt64>(*int_col, *target);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST_F(DatelikeSerDeBatchTest, timestamp_ns_from_float_batch) {
+    DataTypeTimeStampNsSerDe serde;
+    auto float_col = build_float64_column({20230115143059.0, -1.0});
+
+    auto data_col = ColumnTimeStampNs::create();
+    auto null_col = ColumnUInt8::create();
+    auto target = ColumnNullable::create(std::move(data_col), std::move(null_col));
+
+    auto st = serde.from_float_batch<DataTypeFloat64>(*float_col, *target);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(target->size(), 2);
+    EXPECT_FALSE(target->is_null_at(0));
+    EXPECT_TRUE(target->is_null_at(1));
+}
+
+TEST_F(DatelikeSerDeBatchTest, timestamp_ns_from_float_strict_mode_batch) {
+    DataTypeTimeStampNsSerDe serde;
+    auto float_col = build_float64_column({-1.0});
+
+    auto target = ColumnTimeStampNs::create();
     auto st = serde.from_float_strict_mode_batch<DataTypeFloat64>(*float_col, *target);
     ASSERT_FALSE(st.ok());
 }

@@ -121,8 +121,12 @@ public class NereidsLoadScanProvider {
                     Column seqCol = olapTable.getFullSchema().stream()
                             .filter(col -> col.getName().equals(olapTable.getSequenceMapCol()))
                             .findFirst().get();
-                    if (seqCol.getDefaultValue() == null
-                            || !seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                    boolean isCurrentTimestamp = seqCol.getDefaultValue() != null
+                            && (seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)
+                            || (seqCol.getType().isTimeStampNs()
+                            && org.apache.doris.analysis.ColumnDef.DefaultValue
+                                    .isCurrentTimeStampDefaultValue(seqCol.getDefaultValue())));
+                    if (!isCurrentTimestamp) {
                         throw new UserException("Table " + olapTable.getName()
                                 + " has sequence column, need to specify the sequence column");
                     }

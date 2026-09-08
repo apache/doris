@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
@@ -185,13 +186,22 @@ public class TimestampTzLiteral extends DateTimeLiteral {
             return new VarcharLiteral(getStringValueInSessionTimeZone(), ((VarcharType) targetType).getLen());
         } else if (targetType instanceof StringType) {
             return new StringLiteral(getStringValueInSessionTimeZone());
+        } else if (targetType instanceof TimeStampNsType) {
+            DateTimeV2Literal dtV2Lit = new DateTimeV2Literal(DateTimeV2Type.MAX,
+                    year, month, day, hour, minute, second, microSecond);
+            dtV2Lit = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
+                    dtV2Lit, new StringLiteral("UTC"),
+                    new StringLiteral(getSessionTimeZone()));
+            return new TimeStampNsLiteral(dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
+                    dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(),
+                    dtV2Lit.getMicroSecond() * 1000L);
         } else if (targetType.isDateTimeV2Type()) {
             DateTimeV2Literal dtV2Lit = new DateTimeV2Literal((DateTimeV2Type) targetType,
                     year, month, day, hour, minute, second, microSecond);
             dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
                     dtV2Lit,
                     new StringLiteral("UTC"),
-                    new StringLiteral(ConnectContext.get().getSessionVariable().timeZone)));
+                    new StringLiteral(getSessionTimeZone())));
             return dtV2Lit;
         }
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));

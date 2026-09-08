@@ -18,6 +18,7 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
@@ -187,7 +188,7 @@ public class MysqlSerializer {
         // Column length: four byte integer
         writeInt4(getMysqlTypeLength(type));
         // Column type: one byte integer
-        writeInt1(type.getPrimitiveType().toMysqlType().getCode());
+        writeInt1(getMysqlResultType(type).getCode());
         // Flags: two byte integer
         writeInt2(getMysqlFlags(type));
         // Decimals: one byte integer
@@ -216,7 +217,7 @@ public class MysqlSerializer {
         // TODO(zhaochun): fix Column length: four byte integer
         writeInt4(getMysqlTypeLength(column.getType()));
         // Column type: one byte integer
-        writeInt1(column.getDataType().toMysqlType().getCode());
+        writeInt1(getMysqlResultType(column.getType()).getCode());
         // Flags: two byte integer
         writeInt2(getMysqlFlags(column.getType()));
         // Decimals: one byte integer
@@ -251,7 +252,7 @@ public class MysqlSerializer {
         // Column length: four byte integer
         writeInt4(getMysqlTypeLength(type));
         // Column type: one byte integer
-        writeInt1(type.getPrimitiveType().toMysqlType().getCode());
+        writeInt1(getMysqlResultType(type).getCode());
         // Flags: two byte integer
         writeInt2(getMysqlFlags(type));
         // Decimals: one byte integer
@@ -268,7 +269,7 @@ public class MysqlSerializer {
      * @param type
      * @return
      */
-    private int getMysqlTypeLength(Type type) {
+    int getMysqlTypeLength(Type type) {
         switch (type.getPrimitiveType()) {
             // MySQL use Tinyint(1) to represent boolean
             case BOOLEAN:
@@ -291,6 +292,9 @@ public class MysqlSerializer {
             case TIMESTAMPTZ:
                 // yyyy-MM-dd HH:mm:ss[.ffffff]+HH:mm
                 return 32;
+            case TIMESTAMP_NS:
+                // yyyy-MM-dd HH:mm:ss.nnnnnnnnn
+                return 29;
             case DATETIME:
             case DATETIMEV2: {
                 if (type.getPrimitiveType().isTimeType()) {
@@ -332,6 +336,9 @@ public class MysqlSerializer {
 
     // this is used for decimal scale
     public int getMysqlDecimals(Type type) {
+        if (isTimestampNs(type)) {
+            return 0;
+        }
         switch (type.getPrimitiveType()) {
             case DECIMALV2:
             case DECIMAL32:
@@ -347,6 +354,17 @@ public class MysqlSerializer {
             default:
                 return 0;
         }
+    }
+
+    private MysqlColType getMysqlResultType(Type type) {
+        // MySQL's binary temporal value contains at most microseconds. TIMESTAMP_NS is
+        // serialized by BE as a length-encoded string so the metadata must advertise a string too.
+        return isTimestampNs(type) ? MysqlColType.MYSQL_TYPE_STRING
+                : type.getPrimitiveType().toMysqlType();
+    }
+
+    private boolean isTimestampNs(Type type) {
+        return type.isTimeStampNs();
     }
 
     // see https://github.com/mysql/mysql-server/blob/trunk/include/mysql_com.h#L161

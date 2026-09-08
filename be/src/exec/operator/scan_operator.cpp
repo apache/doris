@@ -224,9 +224,9 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     return status;
 }
 
-static void init_slot_value_range(
+void ScanLocalStateBase::_init_slot_value_range(
         phmap::flat_hash_map<int, ColumnValueRangeType>& slot_id_to_value_range,
-        SlotDescriptor* slot, const DataTypePtr type_desc) {
+        SlotDescriptor* slot, const DataTypePtr& type_desc) {
     switch (type_desc->get_primitive_type()) {
 #define M(NAME)                                                                        \
     case TYPE_##NAME: {                                                                \
@@ -249,6 +249,7 @@ static void init_slot_value_range(
     M(DATETIME)                  \
     M(DATEV2)                    \
     M(DATETIMEV2)                \
+    M(TIMESTAMP_NS)              \
     M(TIMESTAMPTZ)               \
     M(VARCHAR)                   \
     M(STRING)                    \
@@ -299,7 +300,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                 continue;
             }
         }
-        init_slot_value_range(_slot_id_to_value_range, slot, slot->type());
+        _init_slot_value_range(_slot_id_to_value_range, slot, slot->type());
         _slot_id_to_predicates.insert(
                 {slot->id(), std::vector<std::shared_ptr<ColumnPredicate>>()});
     }
@@ -307,7 +308,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     get_cast_types_for_variants();
     for (const auto& [colname, type] : _cast_types_for_variants) {
         auto* slot = p._slot_id_to_slot_desc[p._colname_to_slot_id[colname]];
-        init_slot_value_range(_slot_id_to_value_range, slot, type);
+        _init_slot_value_range(_slot_id_to_value_range, slot, type);
         _slot_id_to_predicates.insert(
                 {slot->id(), std::vector<std::shared_ptr<ColumnPredicate>>()});
     }
@@ -900,12 +901,13 @@ Status ScanLocalStateBase::_change_value_range(bool is_equal_op,
             func(temp_range, to_olap_filter_type(fn_name), tmp_value);
         }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_DATETIMEV2) ||
-                         (PrimitiveType == TYPE_TINYINT) || (PrimitiveType == TYPE_SMALLINT) ||
-                         (PrimitiveType == TYPE_INT) || (PrimitiveType == TYPE_BIGINT) ||
-                         (PrimitiveType == TYPE_LARGEINT) || (PrimitiveType == TYPE_FLOAT) ||
-                         (PrimitiveType == TYPE_DOUBLE) || (PrimitiveType == TYPE_IPV4) ||
-                         (PrimitiveType == TYPE_IPV6) || (PrimitiveType == TYPE_DECIMAL32) ||
-                         (PrimitiveType == TYPE_DECIMAL64) || (PrimitiveType == TYPE_DECIMAL128I) ||
+                         (PrimitiveType == TYPE_TIMESTAMP_NS) || (PrimitiveType == TYPE_TINYINT) ||
+                         (PrimitiveType == TYPE_SMALLINT) || (PrimitiveType == TYPE_INT) ||
+                         (PrimitiveType == TYPE_BIGINT) || (PrimitiveType == TYPE_LARGEINT) ||
+                         (PrimitiveType == TYPE_FLOAT) || (PrimitiveType == TYPE_DOUBLE) ||
+                         (PrimitiveType == TYPE_IPV4) || (PrimitiveType == TYPE_IPV6) ||
+                         (PrimitiveType == TYPE_DECIMAL32) || (PrimitiveType == TYPE_DECIMAL64) ||
+                         (PrimitiveType == TYPE_DECIMAL128I) ||
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_BOOLEAN) ||
                          (PrimitiveType == TYPE_DATEV2) || (PrimitiveType == TYPE_TIMESTAMPTZ) ||
                          (PrimitiveType == TYPE_DATETIME) || is_string_type(PrimitiveType)) {
