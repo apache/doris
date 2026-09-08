@@ -88,6 +88,15 @@ public class PlanPostProcessors {
         }
         builder.add(new TopNScanOpt());
         builder.add(new FragmentProcessor());
+        // Align the equi-join conjunct order of group-join-fusable aggregates with their GROUP BY
+        // key order. Registered only when GroupJoin fusion is enabled: it must run before runtime
+        // filters are generated (and the plan is translated) - runtime-filter expr_order indexes
+        // the join's conjunct list, so it must observe the final order, and the GroupJoin fusion
+        // gate relies on the alignment as well. When the switch is off the plan must stay
+        // untouched, so the processor is not even added.
+        if (cascadesContext.getConnectContext().getSessionVariable().isEnableGroupJoinFusion()) {
+            builder.add(new AlignGroupJoinConjunctOrder());
+        }
         if (!cascadesContext.getConnectContext().getSessionVariable().getRuntimeFilterMode()
                         .toUpperCase().equals(TRuntimeFilterMode.OFF.name())) {
             builder.add(new RegisterParent());
