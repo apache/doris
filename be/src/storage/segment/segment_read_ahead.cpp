@@ -28,6 +28,7 @@
 #include "common/logging.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/cache/range_cache_writeback.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "runtime/exec_env.h"
 #include "storage/cache/page_cache.h"
 #include "storage/iterators.h"
@@ -43,8 +44,9 @@ struct PendingPage {
 
 } // namespace
 
-SegmentReadAheadFileReader::SegmentReadAheadFileReader(io::FileReaderSPtr inner)
-        : _inner(std::move(inner)) {
+SegmentReadAheadFileReader::SegmentReadAheadFileReader(
+        io::FileReaderSPtr inner, std::shared_ptr<io::ReadAheadStatistics> statistics)
+        : _inner(std::move(inner)), _statistics(std::move(statistics)) {
     DORIS_CHECK(_inner != nullptr);
 }
 
@@ -89,7 +91,8 @@ void SegmentReadAheadFileReader::_release_page(ColumnReadAhead* column,
     }
 }
 
-bool SegmentReadAheadFileReader::_try_read(const PageKey& key, Slice output, Status* status) {
+bool SegmentReadAheadFileReader::try_read_page(size_t offset, Slice output, Status* status) {
+    const PageKey key {.offset = offset, .size = output.size};
     std::shared_ptr<BufferedRange> range;
     size_t buffer_offset = 0;
     {
@@ -102,7 +105,11 @@ bool SegmentReadAheadFileReader::_try_read(const PageKey& key, Slice output, Sta
         buffer_offset = slot->second.buffer_offset;
     }
 
-    *status = range->read->wait();
+    bool ready = false;
+    {
+        SCOPED_TIMER(&_statistics->wait_time);
+        *status = range->read->wait(&ready);
+    }
     if (!status->ok()) {
         _finish_page(key, false);
         return true;
@@ -110,6 +117,10 @@ bool SegmentReadAheadFileReader::_try_read(const PageKey& key, Slice output, Sta
     DORIS_CHECK(output.size == key.size);
     const Slice source = range->read->slice(buffer_offset, key.size);
     std::memcpy(output.data, source.data, source.size);
+    auto& hits = ready ? _statistics->ready_page_hits : _statistics->wait_page_hits;
+    COUNTER_UPDATE(&hits, 1);
+    COUNTER_UPDATE(&_statistics->consumed_page_bytes, static_cast<int64_t>(source.size));
+    io::read_ahead_bvars().consumed_page_bytes << static_cast<int64_t>(source.size);
     _finish_page(key, true);
     return true;
 }
@@ -128,6 +139,8 @@ void SegmentReadAheadFileReader::_finish_page(const PageKey& key, bool consumed)
         _pages.erase(slot);
         if (consumed && !range->consumed) {
             range->consumed = true;
+            COUNTER_UPDATE(&_statistics->consumed_range_bytes,
+                           static_cast<int64_t>(range->read->range().size));
             consumed_range = std::move(range);
         }
     }
@@ -144,7 +157,7 @@ void SegmentReadAheadFileReader::_finish_page(const PageKey& key, bool consumed)
 Status SegmentReadAheadFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                                 const io::IOContext* io_ctx) {
     Status read_ahead_status;
-    if (_try_read({.offset = offset, .size = result.size}, result, &read_ahead_status)) {
+    if (try_read_page(offset, result, &read_ahead_status)) {
         if (read_ahead_status.ok()) {
             *bytes_read = result.size;
             return Status::OK();
@@ -171,13 +184,17 @@ SegmentReadAhead::SegmentReadAhead(io::FileReaderSPtr source_reader,
           _context(std::move(context)),
           _io_context(std::move(io_context)),
           _options(std::move(options)),
+          _statistics(_io_context.statistics != nullptr
+                              ? _io_context.statistics
+                              : std::make_shared<io::ReadAheadStatistics>()),
           _reader(std::shared_ptr<SegmentReadAheadFileReader>(
-                  new SegmentReadAheadFileReader(_source_reader))),
+                  new SegmentReadAheadFileReader(_source_reader, _statistics))),
           _column_context {
                   .eager_options = eager_options, .lazy_options = lazy_options, .segment = this} {
     DORIS_CHECK(_source_reader != nullptr);
     DORIS_CHECK(_scheduler != nullptr);
     DORIS_CHECK(_context != nullptr);
+    _io_context.statistics = _statistics;
 }
 
 bool SegmentReadAhead::enabled() {
@@ -208,6 +225,15 @@ Status SegmentReadAhead::create_for_query(io::FileReaderSPtr source_reader, Exec
     RETURN_IF_ERROR(eager_options.validate());
     RETURN_IF_ERROR(lazy_options.validate());
 
+    auto statistics =
+            read_options.stats != nullptr ? read_options.stats->read_ahead_stats : nullptr;
+    if (statistics == nullptr) {
+        statistics = std::make_shared<io::ReadAheadStatistics>();
+        if (read_options.stats != nullptr) {
+            read_options.stats->read_ahead_stats = statistics;
+        }
+    }
+
     auto* file_cache_stats = read_options.io_ctx.file_cache_stats;
     auto* file_reader_stats = read_options.io_ctx.file_reader_stats;
     std::shared_ptr<io::RangeCacheWriteback> range_writeback;
@@ -220,13 +246,13 @@ Status SegmentReadAhead::create_for_query(io::FileReaderSPtr source_reader, Exec
     }
     ReadAheadRangeConsumerFactory range_consumer_factory;
     if (file_cache_stats != nullptr || file_reader_stats != nullptr || range_writeback != nullptr) {
-        range_consumer_factory = [file_cache_stats, file_reader_stats,
+        range_consumer_factory = [file_cache_stats, file_reader_stats, statistics,
                                   range_writeback]() -> ReadAheadRangeConsumer {
             std::optional<io::AsyncCacheWriteEpoch> write_epoch;
             if (range_writeback != nullptr) {
                 write_epoch = range_writeback->capture_write_epoch();
             }
-            return [file_cache_stats, file_reader_stats, range_writeback,
+            return [file_cache_stats, file_reader_stats, range_writeback, statistics,
                     write_epoch = std::move(write_epoch)](const io::FileRangeRead& read) {
                 const auto stats = read.stats();
                 if (file_cache_stats != nullptr) {
@@ -237,7 +263,7 @@ Status SegmentReadAhead::create_for_query(io::FileReaderSPtr source_reader, Exec
                 }
                 if (write_epoch.has_value()) {
                     static_cast<void>(range_writeback->submit_consumed_range(
-                            read.range(), read.data(), *write_epoch));
+                            read.range(), read.data(), *write_epoch, statistics.get()));
                 }
             };
         };
@@ -260,9 +286,11 @@ Status SegmentReadAhead::create_for_query(io::FileReaderSPtr source_reader, Exec
     };
     auto* scheduler = exec_env->file_range_read_scheduler();
     DORIS_CHECK(scheduler != nullptr);
+    auto io_context = io::FileRangeReadIOContext::from_caller(read_options.io_ctx);
+    io_context.statistics = std::move(statistics);
     output->reset(new SegmentReadAhead(std::move(source_reader), scheduler, std::move(context),
-                                       io::FileRangeReadIOContext::from_caller(read_options.io_ctx),
-                                       std::move(options), eager_options, lazy_options));
+                                       std::move(io_context), std::move(options), eager_options,
+                                       lazy_options));
     return Status::OK();
 }
 
@@ -297,6 +325,8 @@ SegmentReadAheadResult SegmentReadAhead::prefetch_by_rowids(
 }
 
 SegmentReadAheadResult SegmentReadAhead::apply_plans(std::vector<ColumnReadAheadPlan> plans) {
+    COUNTER_UPDATE(&_statistics->plan_calls, 1);
+    SCOPED_TIMER(&_statistics->plan_time);
     SegmentReadAheadResult result;
     std::vector<PendingPage> misses;
 
@@ -305,11 +335,18 @@ SegmentReadAheadResult SegmentReadAhead::apply_plans(std::vector<ColumnReadAhead
         for (const auto& page : plan.released_pages) {
             _reader->_release_page(plan.column, page);
         }
+        COUNTER_UPDATE(&_statistics->released_pages,
+                       static_cast<int64_t>(plan.released_pages.size()));
+        COUNTER_UPDATE(&_statistics->candidate_pages, static_cast<int64_t>(plan.new_pages.size()));
         for (const auto& page : plan.new_pages) {
             ++result.new_pages;
+            COUNTER_UPDATE(&_statistics->candidate_bytes, static_cast<int64_t>(page.range.size));
             if (_options.page_cache_probe && _options.page_cache_probe(page.range)) {
                 plan.column->complete(page.page_index);
                 ++result.page_cache_hits;
+                COUNTER_UPDATE(&_statistics->page_cache_hits, 1);
+                COUNTER_UPDATE(&_statistics->page_cache_hit_bytes,
+                               static_cast<int64_t>(page.range.size));
             } else {
                 misses.push_back({.column = plan.column, .page = page});
             }
@@ -335,7 +372,7 @@ SegmentReadAheadResult SegmentReadAhead::apply_plans(std::vector<ColumnReadAhead
 
     io::FileRangePlan range_plan;
     result.status = io::FileRangePlanner::plan(input_ranges, _source_reader->size(),
-                                               _options.range_plan, &range_plan);
+                                               _options.range_plan, &range_plan, _statistics.get());
     if (!result.status.ok()) {
         for (const auto& miss : misses) {
             miss.column->complete(miss.page.page_index);
