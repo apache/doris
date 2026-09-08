@@ -1190,6 +1190,51 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionTrueToFalse) {
     sp->clear_all_call_backs();
 }
 
+// Regression test: disable_auto_compaction false -> true -> false on the SAME tablet.
+//
+// The property used to pollute shared TabletSchema cache entries and could not be switched back.
+// TabletMeta now owns it independently; two ALTER updates must round-trip without changing the
+// shared schema or metadata fetched for another tablet.
+TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionRoundTrip) {
+    EXPECT_FALSE(_tablet->tablet_meta()->disable_auto_compaction());
+
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    // Step 1: ALTER TABLE ... SET ("disable_auto_compaction" = "true") reaches BE
+    auto meta_true = createMockTabletMeta(true);
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [meta_true](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = meta_true;
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+    EXPECT_TRUE(_tablet->sync_meta().ok());
+    EXPECT_TRUE(_tablet->tablet_meta()->disable_auto_compaction());
+    // sync_meta must not touch the shared TabletSchema object
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+
+    // Step 2: ALTER TABLE ... SET ("disable_auto_compaction" = "false") reaches BE. The schema
+    // content is identical to the one used at tablet creation, so it resolves to the same
+    // TabletSchemaCache entry.
+    auto meta_false = createMockTabletMeta(false);
+    EXPECT_FALSE(meta_false->tablet_schema()->disable_auto_compaction())
+            << "TabletSchemaCache entry for the disable_auto_compaction=false schema was mutated "
+               "in place";
+    sp->clear_all_call_backs();
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [meta_false](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = meta_false;
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+    EXPECT_TRUE(_tablet->sync_meta().ok());
+    EXPECT_FALSE(_tablet->tablet_meta()->disable_auto_compaction())
+            << "compaction was not re-enabled after false -> true -> false round trip";
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
 // Test sync_meta when disable_auto_compaction is unchanged
 TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionUnchanged) {
     // Verify initial state: disable_auto_compaction = false
