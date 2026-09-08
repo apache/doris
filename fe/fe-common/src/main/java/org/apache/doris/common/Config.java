@@ -1220,6 +1220,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_get_kafka_meta_timeout_second = 60;
 
+    /** Total timeout for resolving initial Kinesis LATEST positions; -1 disables the timeout. */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int kinesis_latest_sequence_timeout_second = -1;
+
 
     /**
      * the expire time of routine load blacklist.

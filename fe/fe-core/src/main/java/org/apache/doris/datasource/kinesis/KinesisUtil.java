@@ -56,24 +56,13 @@ public class KinesisUtil {
     public static List<String> getAllKinesisShards(String region, String stream, String endpoint,
             Map<String, String> convertedCustomProperties) throws LoadException {
         try {
-            InternalService.PKinesisLoadInfo.Builder kinesisInfoBuilder =
-                    InternalService.PKinesisLoadInfo.newBuilder()
-                            .setRegion(region)
-                            .setStream(stream)
-                            .addAllProperties(convertedCustomProperties.entrySet().stream()
-                                    .map(e -> InternalService.PStringPair.newBuilder()
-                                            .setKey(e.getKey())
-                                            .setVal(e.getValue())
-                                            .build())
-                                    .collect(Collectors.toList()));
-            if (endpoint != null && !endpoint.isEmpty()) {
-                kinesisInfoBuilder.setEndpoint(endpoint);
-            }
+            InternalService.PKinesisLoadInfo kinesisInfo = buildKinesisInfo(
+                    region, stream, endpoint, convertedCustomProperties);
 
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder()
                     .setKinesisMetaRequest(
                             InternalService.PKinesisMetaProxyRequest.newBuilder()
-                                    .setKinesisInfo(kinesisInfoBuilder))
+                                    .setKinesisInfo(kinesisInfo))
                     .setTimeoutSecs(Config.max_get_kafka_meta_timeout_second)
                     .build();
 
@@ -82,6 +71,51 @@ public class KinesisUtil {
         } catch (Exception e) {
             throw new LoadException(
                     "Failed to get shards of Kinesis stream: " + stream + ". error: " + e.getMessage());
+        }
+    }
+
+    private static InternalService.PKinesisLoadInfo buildKinesisInfo(String region, String stream,
+            String endpoint, Map<String, String> properties) {
+        InternalService.PKinesisLoadInfo.Builder builder = InternalService.PKinesisLoadInfo.newBuilder()
+                .setRegion(region).setStream(stream)
+                .addAllProperties(properties.entrySet().stream()
+                        .map(e -> InternalService.PStringPair.newBuilder()
+                                .setKey(e.getKey()).setVal(e.getValue()).build())
+                        .collect(Collectors.toList()));
+        if (endpoint != null && !endpoint.isEmpty()) {
+            builder.setEndpoint(endpoint);
+        }
+        return builder.build();
+    }
+
+    /** Submit one tail-scan RPC without blocking the FE routine load scheduler. */
+    public static Future<InternalService.PProxyResult> getLatestSequenceNumbersAsync(String region,
+            String stream, String endpoint, Map<String, String> properties, Set<String> shardIds,
+            int timeoutSeconds) throws LoadException {
+        InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder()
+                .setKinesisMetaRequest(InternalService.PKinesisMetaProxyRequest.newBuilder()
+                        .setKinesisInfo(buildKinesisInfo(region, stream, endpoint, properties))
+                        .addAllShardIdsForLatestSequences(shardIds))
+                .setTimeoutSecs(timeoutSeconds).build();
+        List<Backend> backends = new ArrayList<>();
+        for (long beId : Env.getCurrentSystemInfo().getAllBackendIds(true)) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+            if (isBackendAvailableForMetaRequest(backend)) {
+                backends.add(backend);
+            }
+        }
+        if (backends.isEmpty()) {
+            throw new LoadException("No available BE for Kinesis latest sequence scan");
+        }
+        Collections.shuffle(backends);
+        Backend backend = backends.stream()
+                .filter(be -> !Env.getCurrentEnv().getRoutineLoadManager().isInBlacklist(be.getId()))
+                .findFirst().orElse(backends.get(0));
+        try {
+            return BackendServiceProxy.getInstance().getInfoOnDedicatedConnection(
+                    new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
+        } catch (Exception e) {
+            throw new LoadException("Failed to submit Kinesis latest sequence scan: " + e.getMessage());
         }
     }
 

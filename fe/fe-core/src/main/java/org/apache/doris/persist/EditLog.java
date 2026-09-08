@@ -90,6 +90,7 @@ import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -903,6 +904,13 @@ public class EditLog {
                     Env.getCurrentEnv().getJobTaskManager().replayDeleteTask(task);
                     break;
                 }*/
+                case OperationType.OP_KINESIS_LATEST_POSITION: {
+                    KinesisLatestPositionOperation operation = (KinesisLatestPositionOperation) journal.getData();
+                    KinesisRoutineLoadJob job = (KinesisRoutineLoadJob)
+                            env.getRoutineLoadManager().getJob(operation.getJobId());
+                    job.replayLatestPosition(operation);
+                    break;
+                }
                 case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB: {
                     RoutineLoadOperation operation = (RoutineLoadOperation) journal.getData();
                     Env.getCurrentEnv().getRoutineLoadManager().replayChangeRoutineLoadJob(operation);
@@ -2197,6 +2205,10 @@ public class EditLog {
 
     public void logDeleteJob(AbstractJob job) {
         logEdit(OperationType.OP_DELETE_SCHEDULER_JOB, job);
+    }
+
+    public void logKinesisLatestPosition(KinesisLatestPositionOperation operation) {
+        logEdit(OperationType.OP_KINESIS_LATEST_POSITION, operation);
     }
 
     public void logOpRoutineLoadJob(RoutineLoadOperation routineLoadOperation) {

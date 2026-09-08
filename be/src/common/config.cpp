@@ -819,6 +819,11 @@ DEFINE_mInt32(max_consumer_num_per_group, "3");
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
 DEFINE_Int32(max_routine_load_thread_pool_size, "1024");
 
+// Shared by all initial Kinesis LATEST scans on this BE.
+DEFINE_Int32(kinesis_latest_sequence_scan_threads, "8");
+// Bound individual HTTP calls even when the total initialization timeout is disabled.
+DEFINE_Int32(kinesis_latest_sequence_request_timeout_ms, "30000");
+
 // the timeout of condition variable wait in blocking_get and blocking_put
 DEFINE_mInt32(blocking_queue_cv_wait_timeout_ms, "1000");
 
