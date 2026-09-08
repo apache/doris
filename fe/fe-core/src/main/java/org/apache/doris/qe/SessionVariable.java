@@ -1477,6 +1477,12 @@ public class SessionVariable implements Serializable, Writable {
         IGNORE_PAIMON_CPP
     }
 
+    // Experimental opt-in. Only enable on a homogeneous cluster built with WITH_PAIMON_CPP.
+    @VariableMgr.VarAttr(name = "enable_paimon_cpp_writer", needForward = true, fuzzy = false,
+            description = {"实验性 Paimon native 写入，未支持组合使用 JNI",
+                    "Experimental Paimon native writer; unsupported combinations use JNI"})
+    public boolean enablePaimonCppWriter = false;
+
     public static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
     @VariableMgr.VarAttr(name = IGNORE_SPLIT_TYPE,
             checker = "checkIgnoreSplitType",

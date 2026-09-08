@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonCppWriteSupport;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.datasource.paimon.PaimonWriteBinding;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
@@ -91,6 +93,11 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
         strBuilder.append(prefix).append("PAIMON TABLE SINK\n");
+        if (tDataSink != null && tDataSink.isSetPaimonTableSink()) {
+            TPaimonTableSink sink = tDataSink.getPaimonTableSink();
+            strBuilder.append(prefix).append("  backend: ").append(sink.getBackendType())
+                    .append(" (").append(sink.getBackendSelectionReason()).append(")\n");
+        }
         if (explainLevel == TExplainLevel.BRIEF) {
             return strBuilder.toString();
         }
@@ -142,6 +149,22 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         tSink.setHadoopConfig(binding.getHadoopConfig());
 
         tSink.setColumnNames(outputColumnNames);
+
+        tSink.setBackendSelectionReason("JNI default");
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().enablePaimonCppWriter) {
+            String reason = PaimonCppWriteSupport.unsupportedReason(
+                    binding.getTable(), outputColumnNames, tSink.getWriteMode());
+            if (reason == null) {
+                tSink.setCppDescriptor(PaimonCppWriteSupport.describe(binding.getTable()));
+                tSink.setBackendType(TPaimonWriteBackendType.CPP);
+                tSink.unsetSerializedTable();
+                tSink.unsetHadoopConfig();
+                tSink.setBackendSelectionReason("experimental native append v1");
+            } else {
+                tSink.setBackendSelectionReason("JNI fallback: " + reason);
+            }
+        }
 
         tDataSink = new TDataSink(TDataSinkType.PAIMON_TABLE_SINK);
         tDataSink.setPaimonTableSink(tSink);

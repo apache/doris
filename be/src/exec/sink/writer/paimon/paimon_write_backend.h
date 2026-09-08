@@ -33,6 +33,8 @@ class RuntimeProfile;
 enum class PaimonBackendType {
     JNI, // Java via JNI (PaimonJniWriter)
     FFI, // Rust via FFI (placeholder, not yet implemented)
+    CPP, // Paimon native SDK via Arrow C Data
+    UNKNOWN,
 };
 
 /// Writer contract implemented by one SDK writer adapter. Each

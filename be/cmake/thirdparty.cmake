@@ -20,6 +20,38 @@
 # define COMMON_THIRDPARTY list variable
 set(COMMON_THIRDPARTY)
 
+# Native Paimon is opt-in while its write capability and recovery matrix are expanded.
+# Do not import Paimon's exported Arrow C++ targets into the Doris link graph.
+option(WITH_PAIMON_CPP "Build the experimental Paimon native writer" OFF)
+if(WITH_PAIMON_CPP)
+    set(DORIS_PAIMON_PREFIX "${THIRDPARTY_DIR}/paimon-cpp")
+    find_path(DORIS_PAIMON_INCLUDE NAMES paimon/file_store_write.h
+        PATHS "${DORIS_PAIMON_PREFIX}/doris-include" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+    find_library(DORIS_PAIMON_LIBRARY NAMES paimon
+        PATHS "${DORIS_PAIMON_PREFIX}/lib" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+    add_library(doris_paimon_cpp SHARED IMPORTED)
+    set_target_properties(doris_paimon_cpp PROPERTIES
+        IMPORTED_LOCATION "${DORIS_PAIMON_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${DORIS_PAIMON_INCLUDE}")
+    list(APPEND COMMON_THIRDPARTY doris_paimon_cpp)
+    add_compile_definitions(USE_PAIMON_CPP)
+    # Exec is an independently compiled static target, not a consumer of the final BE
+    # executable's transitive include directories.
+    include_directories(SYSTEM "${DORIS_PAIMON_INCLUDE}")
+    # Factories are loaded explicitly, so --as-needed cannot discard registration plugins.
+    foreach(plugin paimon_local_file_system paimon_parquet_file_format paimon_avro_file_format)
+        find_library(DORIS_PAIMON_${plugin} NAMES ${plugin}
+            PATHS "${DORIS_PAIMON_PREFIX}/lib" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+    endforeach()
+    install(DIRECTORY "${DORIS_PAIMON_PREFIX}/lib/" DESTINATION "${OUTPUT_DIR}/lib"
+        FILES_MATCHING PATTERN "*.so*" PATTERN "*.dylib*")
+    if(APPLE)
+        list(APPEND CMAKE_INSTALL_RPATH "@loader_path")
+    else()
+        list(APPEND CMAKE_INSTALL_RPATH "$ORIGIN")
+    endif()
+endif()
+
 # define add_thirdparty function, append thirdparty libraries to COMMON_THIRDPARTY variable, and pass arg too add_library
 # if arg exist lib64, use lib64, else use lib
 # if arg exist noadd, not append to COMMON_THIRDPARTY variable

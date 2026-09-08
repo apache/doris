@@ -1697,6 +1697,8 @@ DECLARE_mInt64(iceberg_sink_max_file_size);
 /** Paimon sink configurations **/
 // Hard upper bound for Doris-managed Paimon write-buffer memory per JNI writer.
 DECLARE_mInt64(paimon_jni_writer_memory_pool_limit_bytes);
+// Experimental native SDK pool cap; excludes Doris Arrow conversion and unpooled SDK objects.
+DECLARE_mInt64(paimon_cpp_writer_memory_limit_bytes);
 
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.

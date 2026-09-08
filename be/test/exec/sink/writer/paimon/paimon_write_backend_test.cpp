@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include "exec/sink/writer/paimon/cpp_paimon_write_backend.h"
 #include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
 
 namespace doris {
@@ -29,6 +30,25 @@ TEST(PaimonWriteBackendFactoryTest, SelectBackendType) {
 
     sink.__set_backend_type(TPaimonWriteBackendType::FFI);
     EXPECT_EQ(PaimonBackendType::FFI, PaimonWriteBackendFactory::select_backend_type(sink));
+
+    sink.__set_backend_type(TPaimonWriteBackendType::CPP);
+    EXPECT_EQ(PaimonBackendType::CPP, PaimonWriteBackendFactory::select_backend_type(sink));
+
+    sink.__set_backend_type(static_cast<TPaimonWriteBackendType::type>(99));
+    EXPECT_EQ(PaimonBackendType::UNKNOWN, PaimonWriteBackendFactory::select_backend_type(sink));
+    std::unique_ptr<IPaimonWriteBackend> backend;
+    EXPECT_FALSE(PaimonWriteBackendFactory::create(sink, &backend).ok());
+    EXPECT_EQ(nullptr, backend);
+}
+
+TEST(CppPaimonWriteBackendTest, DpcmFrame) {
+    TPaimonCommitMessage message;
+    ASSERT_TRUE(frame_paimon_cpp_commit(std::string("a\0b", 3), 11, &message).ok());
+    EXPECT_EQ(std::string("DPCM\0\0\0\x0b\0\0\0\x03", 12) + std::string("a\0b", 3),
+              message.payload);
+    EXPECT_TRUE(message.__isset.payload);
+    EXPECT_FALSE(frame_paimon_cpp_commit(std::string(8 * 1024 * 1024, 'x'), 11, &message).ok());
+    EXPECT_FALSE(frame_paimon_cpp_commit("", -1, &message).ok());
 }
 
 TEST(JniPaimonWriteBackendTest, OpenAbiAndWriteModes) {

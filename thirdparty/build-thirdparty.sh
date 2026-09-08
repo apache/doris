@@ -1094,6 +1094,40 @@ build_grpc() {
 }
 
 # arrow
+build_paimon_cpp() {
+    check_if_source_exist "${PAIMON_CPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+    # Repository-owned patch; upstream scripts must not be sourced into this shell.
+    if [[ ! -f doris-schema-pin.patched ]]; then
+        patch -p1 < "${TP_DIR}/patches/paimon-cpp-0.3.0-schema-pin.patch"
+        touch doris-schema-pin.patched
+    fi
+    # All non-toolchain dependencies are bundled below Doris thirdparty. Never resolve a
+    # host Arrow package: v0.3.0 requires its own Arrow patches and symbol isolation.
+    "${CMAKE_CMD}" -S . -B doris-build -G "${GENERATOR}" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER="${CC:-cc}" -DCMAKE_CXX_COMPILER="${CXX:-c++}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}/paimon-cpp" \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        '-DCMAKE_INSTALL_RPATH=$ORIGIN' \
+        -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \
+        -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF \
+        -DPAIMON_DEPENDENCY_SOURCE=BUNDLED \
+        -DPAIMON_DEPENDENCY_USE_SHARED=OFF \
+        -DPAIMON_BUILD_SHARED=ON -DPAIMON_BUILD_STATIC=OFF \
+        -DPAIMON_BUILD_TESTS=OFF -DPAIMON_BUILD_BENCHMARKS=OFF \
+        -DPAIMON_ENABLE_AVRO=ON -DPAIMON_ENABLE_ORC=OFF \
+        -DPAIMON_ENABLE_S3=OFF -DPAIMON_ENABLE_JINDO=OFF \
+        -DPAIMON_ENABLE_LUCENE=OFF -DPAIMON_ENABLE_LUMINA=OFF \
+        -DPAIMON_ENABLE_TANTIVY=OFF
+    "${CMAKE_CMD}" --build doris-build --parallel "${PARALLEL}"
+    "${CMAKE_CMD}" --install doris-build
+    # Expose only Paimon headers, never its private Arrow headers, to Doris compilation.
+    mkdir -p "${TP_INSTALL_DIR}/paimon-cpp/doris-include"
+    cp -a "${TP_INSTALL_DIR}/paimon-cpp/include/paimon" \
+        "${TP_INSTALL_DIR}/paimon-cpp/doris-include/"
+}
+
 build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
@@ -2278,6 +2312,7 @@ cleanup_package_source() {
         librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
         flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
         arrow)           src_var="ARROW_SOURCE" ;;
+        paimon_cpp)      src_var="PAIMON_CPP_SOURCE" ;;
         brotli)          src_var="BROTLI_SOURCE" ;;
         cares)           src_var="CARES_SOURCE" ;;
         grpc)            src_var="GRPC_SOURCE" ;;
