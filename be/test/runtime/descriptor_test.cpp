@@ -19,8 +19,12 @@
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
+#include <memory>
+
 #include "common/exception.h"
+#include "core/data_type/data_type_number.h"
 #include "runtime/descriptors.h"
+#include "testutil/desc_tbl_builder.h"
 
 namespace doris {
 
@@ -194,6 +198,20 @@ TEST_F(SlotDescriptorTest, DebugString) {
     std::string debug_str2 = slot_desc2.debug_string();
     EXPECT_TRUE(debug_str2.find("virtual_col") != std::string::npos);
     EXPECT_TRUE(debug_str2.find("is_virtual=true") != std::string::npos);
+}
+
+TEST(TupleDescriptorTest, GetColumnId) {
+    ObjectPool pool;
+    DescriptorTblBuilder builder(&pool);
+    builder.declare_tuple() << std::make_shared<DataTypeInt32>()
+                            << std::make_shared<DataTypeInt64>();
+    auto* desc_tbl = builder.build();
+    auto* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+
+    ASSERT_EQ(tuple_desc->slots().size(), 2);
+    EXPECT_EQ(tuple_desc->get_column_id(tuple_desc->slots()[0]->id()), 0);
+    EXPECT_EQ(tuple_desc->get_column_id(tuple_desc->slots()[1]->id()), 1);
+    EXPECT_EQ(tuple_desc->get_column_id(100), -1);
 }
 
 } // namespace doris

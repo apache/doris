@@ -81,7 +81,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     public Optional<MaterializeSource> visitPhysicalFilter(PhysicalFilter<? extends Plan> filter,
                                                            ProbeContext context) {
         if (SessionVariable.getTopNLazyMaterializationUsingIndex() && filter.child() instanceof PhysicalOlapScan) {
-            // agg table / non-light-schema-change table do not support lazy materialize
+            // Reject OLAP tables whose storage semantics cannot be reconstructed from one row-id.
             OlapTable table = ((PhysicalOlapScan) filter.child()).getTable();
             if (!supportOlapTopnLazyMaterialize(table)) {
                 return Optional.empty();
@@ -138,7 +138,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     /**
      * Whether an OLAP table can perform topn lazy materialization.
      *
-     * <p>Two hard requirements:
+     * <p>Three hard requirements:
      * <ul>
      *   <li>Not an AGG_KEYS table: aggregate tables cannot locate a single source row for a value.</li>
      *   <li>light_schema_change is enabled: lazy materialization appends a synthetic global row-id
@@ -148,6 +148,8 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
      *       synthetic row-id column. That path either fails with "field name is invalid" during the
      *       scan or silently returns NULL for the lazily-fetched columns. Disable the optimization
      *       for such tables and fall back to normal topn.</li>
+     *   <li>No sequence-map: different value groups can come from different physical rows, while
+     *       topn lazy materialization keeps only one row-id for each relation.</li>
      * </ul>
      */
     private boolean supportOlapTopnLazyMaterialize(OlapTable table) {
@@ -155,6 +157,9 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
             return false;
         }
         if (!table.getEnableLightSchemaChange()) {
+            return false;
+        }
+        if (table.hasColumnSeqMapping()) {
             return false;
         }
         return true;
@@ -179,7 +184,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         if (scan.getSelectedIndexId() != scan.getTable().getBaseIndexId()) {
             return Optional.empty();
         }
-        // agg table / non-light-schema-change table do not support lazy materialize
+        // Reject OLAP tables whose storage semantics cannot be reconstructed from one row-id.
         OlapTable table = scan.getTable();
         if (!supportOlapTopnLazyMaterialize(table)) {
             return Optional.empty();

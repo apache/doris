@@ -79,7 +79,8 @@ Status RepeatOperatorX::prepare(RuntimeState* state) {
     for (const auto& slot_desc : output_tuple_desc->slots()) {
         _output_slots.push_back(slot_desc);
     }
-    RETURN_IF_ERROR(VExpr::prepare(_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_expr_ctxs, state, _child->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(VExpr::open(_expr_ctxs, state));
     return Status::OK();
 }
@@ -226,7 +227,8 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, Block* output_block, bo
 
             if (_repeat_id_idx >= _repeat_id_list_size) {
                 _intermediate_block->clear();
-                _child_block.clear_column_data(_child->row_desc().num_materialized_slots());
+                _child_block.clear_column_data(
+                        _child->operator_row_desc_after_projection().num_materialized_slots());
                 _repeat_id_idx = 0;
             }
         } else if (local_state._expr_ctxs.empty()) {
@@ -243,7 +245,8 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, Block* output_block, bo
 
             if (_repeat_id_idx >= _repeat_id_list_size) {
                 _intermediate_block->clear();
-                _child_block.clear_column_data(_child->row_desc().num_materialized_slots());
+                _child_block.clear_column_data(
+                        _child->operator_row_desc_after_projection().num_materialized_slots());
                 _repeat_id_idx = 0;
             }
         }

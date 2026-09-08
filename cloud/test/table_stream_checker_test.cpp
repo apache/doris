@@ -18,6 +18,8 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
+#include <array>
+
 #include "cpp/sync_point.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/keys.h"
@@ -35,9 +37,13 @@ protected:
     }
 
     InstanceInfoPB write_only_instance(std::string_view instance_id) {
+        return make_instance(instance_id, MULTI_VERSION_WRITE_ONLY);
+    }
+
+    InstanceInfoPB make_instance(std::string_view instance_id, MultiVersionStatus status) {
         InstanceInfoPB instance;
         instance.set_instance_id(std::string(instance_id));
-        instance.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        instance.set_multi_version_status(status);
         return instance;
     }
 
@@ -50,17 +56,31 @@ protected:
         return value;
     }
 
+    void put_latest_offset(Transaction* txn, std::string_view instance_id, int64_t base_db_id,
+                           int64_t base_table_id, int64_t stream_db_id, int64_t stream_id,
+                           int64_t partition_id, const TableStreamOffsetPB& value) {
+        txn->put(table_stream_offset_key({instance_id, base_db_id, base_table_id, stream_db_id,
+                                          stream_id, partition_id}),
+                 value.SerializeAsString());
+    }
+
+    void put_versioned_offset(Transaction* txn, std::string_view instance_id, int64_t base_db_id,
+                              int64_t base_table_id, int64_t stream_db_id, int64_t stream_id,
+                              int64_t partition_id, const TableStreamOffsetPB& value) {
+        versioned_put(txn,
+                      versioned::table_stream_offset_key({instance_id, base_db_id, base_table_id,
+                                                          stream_db_id, stream_id, partition_id}),
+                      Versionstamp(10, 1), value.SerializeAsString());
+    }
+
     void put_offsets(Transaction* txn, std::string_view instance_id, int64_t base_db_id,
                      int64_t base_table_id, int64_t stream_db_id, int64_t stream_id,
                      int64_t partition_id, const TableStreamOffsetPB& latest,
                      const TableStreamOffsetPB& versioned) {
-        txn->put(table_stream_offset_key({instance_id, base_db_id, base_table_id, stream_db_id,
-                                          stream_id, partition_id}),
-                 latest.SerializeAsString());
-        versioned_put(txn,
-                      versioned::table_stream_offset_key({instance_id, base_db_id, base_table_id,
-                                                          stream_db_id, stream_id, partition_id}),
-                      Versionstamp(10, 1), versioned.SerializeAsString());
+        put_latest_offset(txn, instance_id, base_db_id, base_table_id, stream_db_id, stream_id,
+                          partition_id, latest);
+        put_versioned_offset(txn, instance_id, base_db_id, base_table_id, stream_db_id, stream_id,
+                             partition_id, versioned);
     }
 
     std::shared_ptr<MemTxnKv> txn_kv_;
@@ -89,6 +109,257 @@ TEST_F(TableStreamCheckerTest, DetectsLatestVersionedMismatch) {
     InstanceChecker checker(txn_kv_, instance_id);
     ASSERT_EQ(checker.init(write_only_instance(instance_id)), 0);
     EXPECT_EQ(checker.do_table_stream_check(), 1);
+}
+
+TEST_F(TableStreamCheckerTest, ProjectionValidationFollowsMultiVersionStatus) {
+    enum class ProjectionShape { LATEST_ONLY, VERSIONED_ONLY, MISMATCHED, CONSISTENT };
+    struct TestCase {
+        const char* name;
+        MultiVersionStatus status;
+        ProjectionShape shape;
+        int expected;
+    };
+    const std::array<TestCase, 12> test_cases {{
+            {.name = "disabled_latest_only",
+             .status = MULTI_VERSION_DISABLED,
+             .shape = ProjectionShape::LATEST_ONLY,
+             .expected = 0},
+            {.name = "disabled_versioned_residual",
+             .status = MULTI_VERSION_DISABLED,
+             .shape = ProjectionShape::VERSIONED_ONLY,
+             .expected = 0},
+            {.name = "disabled_mismatched_residual",
+             .status = MULTI_VERSION_DISABLED,
+             .shape = ProjectionShape::MISMATCHED,
+             .expected = 0},
+            {.name = "disabled_consistent",
+             .status = MULTI_VERSION_DISABLED,
+             .shape = ProjectionShape::CONSISTENT,
+             .expected = 0},
+            {.name = "write_only_latest_only",
+             .status = MULTI_VERSION_WRITE_ONLY,
+             .shape = ProjectionShape::LATEST_ONLY,
+             .expected = 1},
+            {.name = "write_only_versioned_only",
+             .status = MULTI_VERSION_WRITE_ONLY,
+             .shape = ProjectionShape::VERSIONED_ONLY,
+             .expected = 1},
+            {.name = "write_only_mismatched",
+             .status = MULTI_VERSION_WRITE_ONLY,
+             .shape = ProjectionShape::MISMATCHED,
+             .expected = 1},
+            {.name = "write_only_consistent",
+             .status = MULTI_VERSION_WRITE_ONLY,
+             .shape = ProjectionShape::CONSISTENT,
+             .expected = 0},
+            {.name = "read_write_latest_only",
+             .status = MULTI_VERSION_READ_WRITE,
+             .shape = ProjectionShape::LATEST_ONLY,
+             .expected = 1},
+            {.name = "read_write_versioned_only",
+             .status = MULTI_VERSION_READ_WRITE,
+             .shape = ProjectionShape::VERSIONED_ONLY,
+             .expected = 1},
+            {.name = "read_write_mismatched",
+             .status = MULTI_VERSION_READ_WRITE,
+             .shape = ProjectionShape::MISMATCHED,
+             .expected = 1},
+            {.name = "read_write_consistent",
+             .status = MULTI_VERSION_READ_WRITE,
+             .shape = ProjectionShape::CONSISTENT,
+             .expected = 0},
+    }};
+
+    for (const TestCase& test_case : test_cases) {
+        SCOPED_TRACE(test_case.name);
+        const std::string instance_id = "checker-mode-" + std::string(test_case.name);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const TableStreamOffsetPB latest = offset(5, 100);
+        const TableStreamOffsetPB versioned =
+                offset(5, test_case.shape == ProjectionShape::MISMATCHED ? 99 : 100);
+        if (test_case.shape != ProjectionShape::VERSIONED_ONLY) {
+            put_latest_offset(txn.get(), instance_id, 1, 2, 3, 4, 5, latest);
+        }
+        if (test_case.shape != ProjectionShape::LATEST_ONLY) {
+            put_versioned_offset(txn.get(), instance_id, 1, 2, 3, 4, 5, versioned);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        InstanceChecker checker(txn_kv_, instance_id);
+        ASSERT_EQ(checker.init(make_instance(instance_id, test_case.status)), 0);
+        EXPECT_EQ(checker.do_table_stream_check(), test_case.expected);
+    }
+}
+
+TEST_F(TableStreamCheckerTest, RecycleIndexMustMatchStreamAndLifecycleState) {
+    constexpr int64_t base_db_id = 1;
+    constexpr int64_t base_table_id = 2;
+    constexpr int64_t stream_db_id = 3;
+    constexpr int64_t stream_id = 4;
+    constexpr int64_t partition_id = 5;
+
+    struct TestCase {
+        const char* name;
+        RecycleIndexPB::State state;
+        IndexObjectTypePB object_type;
+        int64_t recycle_db_id;
+        bool set_table_id;
+        int expected;
+    };
+    const std::array<TestCase, 6> test_cases {{
+            {.name = "recycling",
+             .state = RecycleIndexPB::RECYCLING,
+             .object_type = TABLE_STREAM,
+             .recycle_db_id = base_db_id,
+             .set_table_id = true,
+             .expected = 0},
+            {.name = "prepared",
+             .state = RecycleIndexPB::PREPARED,
+             .object_type = TABLE_STREAM,
+             .recycle_db_id = base_db_id,
+             .set_table_id = true,
+             .expected = 1},
+            {.name = "dropped",
+             .state = RecycleIndexPB::DROPPED,
+             .object_type = TABLE_STREAM,
+             .recycle_db_id = base_db_id,
+             .set_table_id = true,
+             .expected = 1},
+            {.name = "unknown",
+             .state = RecycleIndexPB::UNKNOWN,
+             .object_type = TABLE_STREAM,
+             .recycle_db_id = base_db_id,
+             .set_table_id = true,
+             .expected = 1},
+            {.name = "physical_index",
+             .state = RecycleIndexPB::RECYCLING,
+             .object_type = MATERIALIZED_INDEX,
+             .recycle_db_id = base_db_id,
+             .set_table_id = true,
+             .expected = 1},
+            {.name = "missing_table_id",
+             .state = RecycleIndexPB::RECYCLING,
+             .object_type = TABLE_STREAM,
+             .recycle_db_id = base_db_id,
+             .set_table_id = false,
+             .expected = 1},
+    }};
+
+    for (const TestCase& test_case : test_cases) {
+        SCOPED_TRACE(test_case.name);
+        const std::string instance_id = "checker-recycle-index-" + std::string(test_case.name);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const auto value = offset(partition_id, 100);
+        if (test_case.state == RecycleIndexPB::PREPARED ||
+            test_case.state == RecycleIndexPB::DROPPED) {
+            put_latest_offset(txn.get(), instance_id, base_db_id, base_table_id, stream_db_id,
+                              stream_id, partition_id, value);
+        } else {
+            put_offsets(txn.get(), instance_id, base_db_id, base_table_id, stream_db_id, stream_id,
+                        partition_id, value, value);
+        }
+        RecycleIndexPB recycle_index;
+        recycle_index.set_db_id(test_case.recycle_db_id);
+        if (test_case.set_table_id) {
+            recycle_index.set_table_id(base_table_id);
+        }
+        recycle_index.set_stream_db_id(stream_db_id);
+        recycle_index.set_object_type(test_case.object_type);
+        recycle_index.set_state(test_case.state);
+        txn->put(recycle_index_key({instance_id, stream_id}), recycle_index.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        InstanceChecker checker(txn_kv_, instance_id);
+        ASSERT_EQ(checker.init(write_only_instance(instance_id)), 0);
+        EXPECT_EQ(checker.do_table_stream_check(), test_case.expected);
+    }
+}
+
+TEST_F(TableStreamCheckerTest, RejectsMalformedOrMismatchedRecycleIndex) {
+    constexpr int64_t base_db_id = 1;
+    constexpr int64_t base_table_id = 2;
+    constexpr int64_t stream_db_id = 3;
+    constexpr int64_t stream_id = 4;
+    constexpr int64_t partition_id = 5;
+
+    {
+        const std::string instance_id = "checker-malformed-recycle-index";
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const auto matching = offset(partition_id, 100);
+        put_offsets(txn.get(), instance_id, base_db_id, base_table_id, stream_db_id, stream_id,
+                    partition_id, matching, matching);
+        txn->put(recycle_index_key({instance_id, stream_id}), "malformed");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        InstanceChecker checker(txn_kv_, instance_id);
+        ASSERT_EQ(checker.init(write_only_instance(instance_id)), 0);
+        EXPECT_EQ(checker.do_table_stream_check(), -1);
+    }
+
+    {
+        const std::string instance_id = "checker-mismatched-recycle-index";
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        put_latest_offset(txn.get(), instance_id, base_db_id, base_table_id, stream_db_id,
+                          stream_id, partition_id, offset(partition_id, 100));
+        const auto mismatched = offset(partition_id + 1, 100);
+        put_offsets(txn.get(), instance_id, base_db_id + 1, base_table_id, stream_db_id, stream_id,
+                    partition_id + 1, mismatched, mismatched);
+        RecycleIndexPB recycle_index;
+        recycle_index.set_db_id(base_db_id);
+        recycle_index.set_table_id(base_table_id);
+        recycle_index.set_stream_db_id(stream_db_id);
+        recycle_index.set_object_type(TABLE_STREAM);
+        recycle_index.set_state(RecycleIndexPB::RECYCLING);
+        txn->put(recycle_index_key({instance_id, stream_id}), recycle_index.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        InstanceChecker checker(txn_kv_, instance_id);
+        ASSERT_EQ(checker.init(write_only_instance(instance_id)), 0);
+        EXPECT_EQ(checker.do_table_stream_check(), 1);
+    }
+}
+
+TEST_F(TableStreamCheckerTest, RecheckAcceptsProjectionGapAfterRecyclingStarts) {
+    const std::string instance_id = "checker-recycling-during-check";
+    constexpr int64_t base_db_id = 1;
+    constexpr int64_t base_table_id = 2;
+    constexpr int64_t stream_db_id = 3;
+    constexpr int64_t stream_id = 4;
+    constexpr int64_t partition_id = 5;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+    put_latest_offset(txn.get(), instance_id, base_db_id, base_table_id, stream_db_id, stream_id,
+                      partition_id, offset(partition_id, 100));
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "InstanceChecker::do_table_stream_check::after_latest_scan",
+            [&](auto&&) {
+                std::unique_ptr<Transaction> update_txn;
+                ASSERT_EQ(txn_kv_->create_txn(&update_txn), TxnErrorCode::TXN_OK);
+                RecycleIndexPB recycle_index;
+                recycle_index.set_db_id(base_db_id);
+                recycle_index.set_table_id(base_table_id);
+                recycle_index.set_stream_db_id(stream_db_id);
+                recycle_index.set_object_type(TABLE_STREAM);
+                recycle_index.set_state(RecycleIndexPB::RECYCLING);
+                update_txn->put(recycle_index_key({instance_id, stream_id}),
+                                recycle_index.SerializeAsString());
+                ASSERT_EQ(update_txn->commit(), TxnErrorCode::TXN_OK);
+            },
+            &guard);
+    sync_point->enable_processing();
+
+    InstanceChecker checker(txn_kv_, instance_id);
+    ASSERT_EQ(checker.init(write_only_instance(instance_id)), 0);
+    EXPECT_EQ(checker.do_table_stream_check(), 0);
+    sync_point->disable_processing();
 }
 
 TEST_F(TableStreamCheckerTest, RechecksConcurrentProjectionChanges) {

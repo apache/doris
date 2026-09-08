@@ -24,7 +24,6 @@
 #include <stdint.h>
 
 #include <memory>
-#include <optional>
 #include <set>
 #include <string>
 #include <unordered_set>
@@ -33,7 +32,6 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h"
-#include "exprs/function_filter.h"
 #include "io/io_common.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/iterators.h"
@@ -61,7 +59,6 @@ class RuntimeProfile;
 class VCollectIterator;
 class Block;
 class VExpr;
-class Arena;
 class VExprContext;
 
 // Used to compare row with input scan key. Scan key only contains key columns,
@@ -144,7 +141,6 @@ public:
         bool end_key_include = false;
 
         std::vector<std::shared_ptr<ColumnPredicate>> predicates;
-        std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
         // slots that cast may be eliminated in storage layer
         std::map<std::string, DataTypePtr> target_cast_type_for_variants;
@@ -156,13 +152,15 @@ public:
         // For unique key table with merge-on-write
         DeleteBitmapPtr delete_bitmap = nullptr;
 
-        // return_columns is init from query schema
-        std::vector<ColumnId> return_columns;
-        // TSO predicate column that is absent from return_columns but must be read by storage.
-        std::optional<ColumnId> tso_predicate_column_id;
+        // The read schema of every Block at the TabletReader boundary.
+        // Query scanners construct the FE-slot prefix in scan-tuple order;
+        // TabletReader may append storage-only delete-predicate columns.
+        ReadSchemaSPtr read_schema;
         // output_columns only contain columns in OrderByExprs and outputExprs
+        // (column unique ids, not ordinals)
         std::set<int32_t> output_columns;
-        // Extra storage key columns that are present only for scan-schema alignment.
+        // Ordinals (positions in read_schema) of extra storage key columns
+        // that are present only for scan-schema alignment.
         // Example: for AGG keys (k1, k2), a query that returns k2 can scan
         // (k1, k2) and project away k1. Direct readers may avoid reading such
         // columns only if the lower iterator proves their real values are not
@@ -171,9 +169,6 @@ public:
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
-        // use only in vec exec engine
-        std::vector<ColumnId>* origin_return_columns = nullptr;
-        std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
         VExprContextSPtrs common_expr_ctxs_push_down;
 
@@ -181,7 +176,6 @@ public:
         bool record_rowids = false;
         RowIdConversion* rowid_conversion = nullptr;
         std::vector<int> topn_filter_source_node_ids;
-        int topn_filter_target_node_id = -1;
         // used for special optimization for query : ORDER BY key LIMIT n
         bool read_orderby_key = false;
         // used for special optimization for query : ORDER BY key DESC LIMIT n
@@ -189,10 +183,9 @@ public:
         // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
         // For example, use lower rowset version / segment id first.
         bool use_insert_order_when_same = false;
-        // Force a key-ordered merge across all segments even when their key ranges do not
-        // overlap. By default a rowset reader can skip the merge heap if its segments are
-        // mono-ascending and disjoint, but row-binlog scans require strict global key order
-        // (e.g. so MIN_DELTA can group consecutive same-key changes), so this flag is set.
+        // Force globally key-ordered reading for row-binlog scans (e.g. so MIN_DELTA can
+        // group consecutive same-key changes across segments). Overlapping segments use the
+        // merge iterator; segments proven non-overlapping use an ordered union.
         // See BetaRowsetReader::is_merge_iterator() in beta_rowset_reader.h:62.
         bool force_key_ordered_read = false;
         // num of columns for orderby key
@@ -218,6 +211,7 @@ public:
 
         int64_t batch_size = -1;
 
+        // virtual column ordinal (position in read_schema) -> expression
         std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
 
         std::shared_ptr<ScoreRuntime> score_runtime;
@@ -229,11 +223,6 @@ public:
         // General LIMIT budget forwarded to SegmentIterator. -1 means no limit.
         int64_t general_read_limit = -1;
         TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
-        // Binlog/snapshot incremental read TSO range (start_tso, end_tso]. Forced down to
-        // BetaRowsetReader, which builds the tso predicates directly on read options,
-        // bypassing the value/key predicate split in _init_conditions_param.
-        std::optional<int64_t> start_tso;
-        std::optional<int64_t> end_tso;
     };
 
     TabletReader() = default;
@@ -265,8 +254,6 @@ public:
 
     void set_batch_size(int batch_size) { _reader_context.batch_size = batch_size; }
 
-    int batch_size() const { return _reader_context.batch_size; }
-
     size_t batch_max_rows() const { return _reader_context.batch_size; }
 
     void set_preferred_block_size_bytes(size_t bytes) {
@@ -282,21 +269,16 @@ public:
     OlapReaderStatistics* mutable_stats() { return &_stats; }
 
     virtual void update_profile(RuntimeProfile* profile) {}
-    static Status init_reader_params_and_create_block(
-            TabletSharedPtr tablet, ReaderType reader_type,
-            const std::vector<RowsetSharedPtr>& input_rowsets,
-            TabletReader::ReaderParams* reader_params, Block* block);
 
     // Remove the delete-condition columns from `all_access_paths` so they fall back to a full
     // read (a meta-only read would make the storage delete predicate match nothing and leak
     // deleted rows).
     static void remove_delete_columns_from_access_paths(
-            const DeleteHandler& delete_handler, const TabletSchema& tablet_schema,
+            const DeleteHandler& delete_handler, const ReadSchema& read_schema,
             std::map<int32_t, TColumnAccessPaths>& all_access_paths);
 
 protected:
     friend class VCollectIterator;
-    friend class DeleteHandler;
 
     Status _init_params(const ReaderParams& read_params);
 
@@ -306,36 +288,18 @@ protected:
 
     Status _init_orderby_keys_param(const ReaderParams& read_params);
 
-    Status _init_conditions_param(const ReaderParams& read_params);
-
-    virtual std::shared_ptr<ColumnPredicate> _parse_to_predicate(
-            const FunctionFilter& function_filter);
+    Status _init_column_predicates(const ReaderParams& read_params);
 
     Status _init_delete_condition(const ReaderParams& read_params);
 
-    Status _init_return_columns(const ReaderParams& read_params);
-
     const BaseTabletSPtr& tablet() { return _tablet; }
-    // If original column is a variant type column, and it's predicate is normalized
-    // so in order to get the real type of column predicate, we need to reset type
-    // according to the related type in `target_cast_type_for_variants`.Since variant is not
-    // an predicate applicable type.Otherwise return the original tablet column.
-    // Eg. `where cast(v:a as bigint) > 1` will elimate cast, and materialize this variant column
-    // to type bigint
-    TabletColumn materialize_column(const TabletColumn& orig);
 
-    const TabletSchema& tablet_schema() { return *_tablet_schema; }
-
-    Arena _predicate_arena;
-    std::vector<ColumnId> _return_columns;
+    // The read schema shared by the caller, TabletReader, VCollect and each rowset reader.
+    ReadSchemaSPtr _read_schema;
 
     // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
     // columns for orderby keys
     std::vector<uint32_t> _orderby_key_columns;
-    // only use in outer join which change the column nullable which must keep same in
-    // vec query engine
-    std::unordered_set<uint32_t>* _tablet_columns_convert_to_null_set = nullptr;
-
     BaseTabletSPtr _tablet;
     RowsetReaderContext _reader_context;
     TabletSchemaSPtr _tablet_schema;
@@ -350,14 +314,9 @@ protected:
     bool _aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;
-    bool _next_delete_flag = false;
     bool _delete_sign_available = false;
     bool _filter_delete = false;
-    int32_t _sequence_col_idx = -1;
     bool _direct_mode = false;
-
-    std::vector<uint32_t> _key_cids;
-    std::vector<uint32_t> _value_cids;
 
     uint64_t _merged_rows = 0;
     OlapReaderStatistics _stats;

@@ -62,56 +62,36 @@ using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
 
 class IndexExecContext {
 public:
-    IndexExecContext(const std::vector<ColumnId>& col_ids,
-                     const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
+    IndexExecContext(const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
                      const std::vector<IndexFieldNameAndTypePair>& storage_name_and_type_vec,
                      std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
                              common_expr_index_status,
                      ScoreRuntimeSPtr score_runtime, segment_v2::Segment* segment,
                      const segment_v2::ColumnIteratorOptions& column_iter_opts)
-            : _col_ids(col_ids),
-              _index_iterators(index_iterators),
+            : _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
               _expr_index_status(common_expr_index_status),
               _score_runtime(std::move(score_runtime)),
               _segment(segment),
               _column_iter_opts(column_iter_opts) {}
 
-    segment_v2::IndexIterator* get_inverted_index_iterator_by_column_id(int column_index) const {
-        if (column_index < 0 || column_index >= _col_ids.size()) {
+    segment_v2::IndexIterator* get_inverted_index_iterator(int32_t read_ordinal) const {
+        if (read_ordinal < 0 || static_cast<size_t>(read_ordinal) >= _index_iterators.size()) {
             return nullptr;
         }
-        const auto& column_id = _col_ids[column_index];
-        if (column_id >= _index_iterators.size()) {
+        const auto& iterator = _index_iterators[read_ordinal];
+        if (!iterator) {
             return nullptr;
         }
-        if (!_index_iterators[column_id]) {
-            return nullptr;
-        }
-        return _index_iterators[column_id].get();
+        return iterator.get();
     }
 
-    const IndexFieldNameAndTypePair* get_storage_name_and_type_by_column_id(
-            int column_index) const {
-        if (column_index < 0 || column_index >= _col_ids.size()) {
+    const IndexFieldNameAndTypePair* get_storage_name_and_type(int32_t read_ordinal) const {
+        if (read_ordinal < 0 ||
+            static_cast<size_t>(read_ordinal) >= _storage_name_and_type.size()) {
             return nullptr;
         }
-        const auto& column_id = _col_ids[column_index];
-        if (column_id >= _storage_name_and_type.size()) {
-            return nullptr;
-        }
-        return &_storage_name_and_type[column_id];
-    }
-
-    bool get_column_id(int column_index, ColumnId* column_id) const {
-        if (column_id == nullptr) {
-            return false;
-        }
-        if (column_index < 0 || column_index >= _col_ids.size()) {
-            return false;
-        }
-        *column_id = _col_ids[column_index];
-        return true;
+        return &_storage_name_and_type[read_ordinal];
     }
 
     segment_v2::Segment* segment() const { return _segment; }
@@ -148,14 +128,10 @@ public:
         _index_result_column[expr] = std::move(column);
     }
 
-    void set_true_for_index_status(const VExpr* expr, int column_index) {
-        if (column_index < 0 || column_index >= _col_ids.size()) {
-            return;
-        }
-        const auto& column_id = _col_ids[column_index];
-        if (_expr_index_status.contains(column_id)) {
-            if (_expr_index_status[column_id].contains(expr)) {
-                _expr_index_status[column_id][expr] = true;
+    void set_true_for_index_status(const VExpr* expr, int32_t read_ordinal) {
+        if (_expr_index_status.contains(read_ordinal)) {
+            if (_expr_index_status[read_ordinal].contains(expr)) {
+                _expr_index_status[read_ordinal][expr] = true;
             }
         }
     }
@@ -186,9 +162,6 @@ public:
     }
 
 private:
-    // A reference to a vector of column IDs for the current expression's output columns.
-    const std::vector<ColumnId>& _col_ids;
-
     // A reference to a vector of unique pointers to index iterators.
     const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& _index_iterators;
 
@@ -344,8 +317,7 @@ public:
     void prepare_ann_range_search(const doris::VectorSearchUserParams& params);
 
     Status evaluate_ann_range_search(
-            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
-            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                     common_expr_to_slotref_map,

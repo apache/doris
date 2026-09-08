@@ -57,6 +57,7 @@ struct PackedAppendContext {
     std::string resource_id;
     int64_t tablet_id = 0;
     std::string rowset_id;
+    int64_t first_segment_id = 0;
     int64_t txn_id = 0;
     uint64_t expiration_time = 0; // TTL expiration time in seconds since epoch, 0 means no TTL
     bool write_file_cache = true; // Whether to write data to file cache

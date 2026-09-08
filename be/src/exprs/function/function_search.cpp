@@ -474,9 +474,10 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
             bool use_wand = index_query_context->runtime_state != nullptr &&
                             index_query_context->runtime_state->query_options()
                                     .enable_inverted_index_wand_query;
-            query_v2::collect_multi_segment_top_k(
-                    weight, exec_ctx, root_binding_key, top_k, roaring,
-                    index_query_context->collection_similarity, use_wand);
+            query_v2::collect_multi_segment_top_k(weight, exec_ctx, root_binding_key, top_k,
+                                                  roaring,
+                                                  index_query_context->collection_similarity,
+                                                  use_wand, index_query_context->delete_bitmap);
         } else {
             query_v2::collect_multi_segment_doc_set(
                     weight, exec_ctx, root_binding_key, roaring,
@@ -772,7 +773,12 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
     };
 
     FieldReaderBinding binding;
-    RETURN_IF_ERROR(resolver.resolve(field_name, query_type, &binding));
+    const bool require_analyzer_context = clause_type != "WILDCARD" && clause_type != "REGEXP";
+    if (require_analyzer_context) {
+        RETURN_IF_ERROR(resolver.resolve_with_analyzer_context(field_name, query_type, &binding));
+    } else {
+        RETURN_IF_ERROR(resolver.resolve(field_name, query_type, &binding));
+    }
 
     if (!binding.is_bound()) {
         LOG(INFO) << "search: No inverted index for field '" << field_name
@@ -854,14 +860,10 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                    !inverted_index::InvertedIndexAnalyzer::should_analyzer(
                            binding.index_properties)) {
             // FE keeps the trailing '*' in the PREFIX value unstripped (SearchDslParser.java).
-            // On an analysed field the tokenizer drops it, leaving a clean single prefix term,
-            // so the default clause_type_to_query_type mapping (MATCH_PHRASE_PREFIX_QUERY) is
-            // correct as-is. On a keyword (non-analysed) field the whole string -- '*' included
-            // -- becomes one literal term (InvertedIndexAnalyzer::get_analyse_result), so
-            // MATCH_PHRASE_PREFIX_QUERY would search for a term that can never exist. Route
-            // those to WILDCARD_QUERY instead, exactly like the CLucene path's
-            // WildcardQuery(value) for PREFIX (function_search.cpp:1075-1076): the reader
-            // forwards a WILDCARD_QUERY value unanalysed, so the trailing '*' works the same way.
+            // A non-analysed keyword field needs that marker for WILDCARD_QUERY, matching the
+            // CLucene path's WildcardQuery(value) for PREFIX (function_search.cpp:1075-1076).
+            // Analysed fields stay on MATCH_PHRASE_PREFIX_QUERY; its reader input is normalized
+            // below because a custom keyword tokenizer preserves '*' as a literal byte.
             snii_query_type = InvertedIndexQueryType::WILDCARD_QUERY;
         }
 
@@ -897,16 +899,24 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
         if (clause_type == "WILDCARD" && value == "*") {
             data_bitmap->addRange(0, num_rows);
         } else {
-            // Wildcard patterns carry the analyzer's lower_case semantics; every other clause
-            // passes its value through untouched, since the reader analyses it.
-            std::string pattern =
-                    clause_type == "WILDCARD"
-                            ? normalize_wildcard_pattern(value, binding.index_properties)
-                            : value;
+            // Wildcard patterns carry the analyzer's lower_case semantics. Phrase-prefix analysis
+            // consumes the prefix text, not the DSL's trailing '*' syntax marker. This must happen
+            // before analysis because custom keyword tokenizers preserve the marker as a literal.
+            std::string pattern = value;
+            if (clause_type == "WILDCARD") {
+                pattern = normalize_wildcard_pattern(value, binding.index_properties);
+            } else if (snii_query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
+                DORIS_CHECK(clause_type == "PREFIX");
+                DORIS_CHECK(pattern.ends_with('*'));
+                pattern.pop_back();
+            }
             Field query_value = Field::create_field<TYPE_STRING>(pattern);
-            RETURN_IF_ERROR(binding.inverted_reader->query(reader_context,
-                                                           binding.stored_field_name, query_value,
-                                                           snii_query_type, data_bitmap, nullptr));
+            const bool raw_pattern_query =
+                    snii_query_type == InvertedIndexQueryType::WILDCARD_QUERY ||
+                    snii_query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY;
+            RETURN_IF_ERROR(binding.inverted_reader->query(
+                    reader_context, binding.stored_field_name, query_value, snii_query_type,
+                    data_bitmap, raw_pattern_query ? nullptr : binding.analyzer_context.get()));
             // Reply-direction fields land on the copy the reader was given, so they have to be
             // folded back. Today this is unreachable rather than load-bearing: the count-only
             // fast path requires the scan to have no score runtime, while the similarity that
@@ -916,10 +926,9 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
             if (reader_context != context) {
                 context->merge_reader_outputs(*reader_context);
             }
-            // Restore the pre-normalization value for WILDCARD so the trace still shows what the
-            // caller actually asked for, not just what was sent to the reader.
+            // Preserve the caller's pre-normalization value in the trace.
             std::string log_suffix =
-                    clause_type == "WILDCARD" ? (" (original='" + value + "')") : std::string();
+                    pattern != value ? (" (original='" + value + "')") : std::string();
             VLOG_DEBUG << "search: SNII clause processed, type=" << clause_type
                        << ", field=" << field_name << ", value='" << pattern << "'" << log_suffix;
         }

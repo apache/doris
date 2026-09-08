@@ -50,16 +50,13 @@ TEST(SegmentIteratorNoNeedReadDataTest, extracted_variant_count_on_index) {
     const ColumnId subcol_cid = tablet_schema->field_index(*subcol.path_info_ptr());
     ASSERT_GE(subcol_cid, 0);
 
-    std::vector<ColumnId> read_column_ids(tablet_schema->num_columns());
-    for (uint32_t cid = 0; cid < read_column_ids.size(); ++cid) {
-        read_column_ids[cid] = cid;
-    }
-    auto read_schema = std::make_shared<Schema>(tablet_schema->columns(), read_column_ids);
+    // Read schema covers all tablet columns in order, so ordinal == tablet cid.
+    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns());
     SegmentIterator iter(nullptr, read_schema);
     iter._opts.tablet_schema = tablet_schema;
     iter._opts.push_down_agg_type_opt = TPushAggOp::COUNT_ON_INDEX;
-    iter._need_read_data_indices[static_cast<uint32_t>(subcol_cid)] = false;
-    iter._output_columns.emplace(1);
+    iter._column_states[subcol_cid].need_read_data = false;
+    iter._output_column_uids.emplace(1);
 
     EXPECT_FALSE(iter._need_read_data(subcol_cid));
 
@@ -81,24 +78,22 @@ TEST(SegmentIteratorNoNeedReadDataTest, zonemap_always_true_predicate_column) {
     pred_col->set_unique_id(2);
     pred_col->set_name("event_time");
     pred_col->set_type("DATETIMEV2");
+    pred_col->set_frac(0);
     pred_col->set_is_key(false);
     pred_col->set_is_nullable(false);
 
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->init_from_pb(schema_pb);
 
-    std::vector<ColumnId> read_column_ids(tablet_schema->num_columns());
-    for (uint32_t cid = 0; cid < read_column_ids.size(); ++cid) {
-        read_column_ids[cid] = cid;
-    }
-    auto read_schema = std::make_shared<Schema>(tablet_schema->columns(), read_column_ids);
+    // Read schema covers all tablet columns in order, so ordinal == tablet cid.
+    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns());
     SegmentIterator iter(nullptr, read_schema);
     iter._opts.tablet_schema = tablet_schema;
     iter._opts.zonemap_always_true_pred_cols.emplace(1);
 
     EXPECT_FALSE(iter._need_read_data(1));
 
-    iter._output_columns.emplace(2);
+    iter._output_column_uids.emplace(2);
     EXPECT_TRUE(iter._need_read_data(1));
 
     iter._opts.push_down_agg_type_opt = TPushAggOp::COUNT_ON_INDEX;

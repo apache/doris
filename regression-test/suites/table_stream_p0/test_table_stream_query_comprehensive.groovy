@@ -172,6 +172,23 @@ suite("test_table_stream_query_comprehensive", "nonConcurrent") {
         assertEquals(0, sql("SELECT id, v FROM dup_ao_stream").size())
         order_qt_dup_ao_target "SELECT id, v FROM dup_ao_target ORDER BY id"
 
+        // A.5 incremental DUP stream exposes positive and unique per-row LSNs.
+        sql "INSERT INTO dup_ao_base VALUES (6, 'f'), (7, 'g')"
+        sql "INSERT INTO dup_ao_base VALUES (8, 'h'), (9, 'i')"
+        sql "INSERT INTO dup_ao_base VALUES (10, 'j'), (11, 'k')"
+        sql "sync"
+        sleep(1200)
+        def streamLsnRows = sql """
+            SELECT __DORIS_STREAM_SEQUENCE_COL__, __DORIS_STREAM_LSN_COL__
+            FROM dup_ao_stream
+            ORDER BY __DORIS_STREAM_SEQUENCE_COL__, __DORIS_STREAM_LSN_COL__
+        """
+        assertEquals(6, streamLsnRows.size())
+        def streamLsns = streamLsnRows.collect { it[1] as long }
+        streamLsns.each { lsn -> assertTrue(lsn > 0, "stream lsn should be positive but got ${lsn}") }
+        assertEquals(streamLsns.size(), streamLsns.toSet().size())
+        assertEquals([2, 2, 2], streamLsnRows.groupBy { it[0] }.values().collect { it.size() }.sort())
+
         // ============================================================
         // Section B. DUP, non-partitioned, append_only, initial=true.
         //   Focus: historical seed rows are returned first (APPEND), then

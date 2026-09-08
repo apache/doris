@@ -3554,13 +3554,30 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     if (!cloud_unique_id.empty() && instance_id.empty()) {
         auto [is_degraded_format, id] =
                 ResourceManager::get_instance_id_by_cloud_unique_id(cloud_unique_id);
-        if (config::enable_check_instance_id && is_degraded_format &&
-            !resource_mgr_->is_instance_id_registered(id)) {
-            msg = "use degrade cloud_unique_id, but instance_id invalid, cloud_unique_id=" +
-                  cloud_unique_id;
-            LOG(WARNING) << msg;
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            return;
+        if (config::enable_check_instance_id && is_degraded_format) {
+            InstanceInfoPB instance;
+            auto [code1, get_msg] = resource_mgr_->get_instance(nullptr, id, &instance);
+            { TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &code1); }
+            if (code1 == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                msg = "use degrade cloud_unique_id, but instance_id is not registered, "
+                      "cloud_unique_id=" +
+                      cloud_unique_id;
+                LOG(WARNING) << msg;
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                return;
+            }
+            if (instance.has_status() && instance.status() == InstanceInfoPB::DELETED) {
+                msg = "instance status has been set delete, plz check it, recycle_state=" +
+                      InstanceRecycleState_Name(instance.recycle_state());
+                LOG(WARNING) << "use degraded format cloud_unique_id, but check instance failed, "
+                                "cloud_unique_id="
+                             << cloud_unique_id << " code=" << code1 << " info=" << get_msg
+                             << " status=" << instance.status() << " recycle_state="
+                             << InstanceRecycleState_Name(instance.recycle_state());
+                LOG(WARNING) << msg;
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                return;
+            }
         }
         instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
         if (instance_id.empty()) {

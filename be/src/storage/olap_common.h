@@ -325,6 +325,9 @@ struct OlapReaderStatistics {
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
     int64_t inverted_index_downgrade_count = 0;
+    // Pushed-down conjuncts skipped (never index-evaluated) because the row
+    // bitmap was already empty when their turn came.
+    int64_t inverted_index_conjuncts_short_circuited = 0;
     int64_t inverted_index_analyzer_timer = 0;
     int64_t inverted_index_lookup_timer = 0;
     // See snii_query_stats.h: one field here instead of one per SNII counter.
@@ -382,7 +385,6 @@ struct OlapReaderStatistics {
 
     int64_t tablet_reader_init_timer_ns = 0;
     int64_t tablet_reader_capture_rs_readers_timer_ns = 0;
-    int64_t tablet_reader_init_return_columns_timer_ns = 0;
     int64_t tablet_reader_init_keys_param_timer_ns = 0;
     int64_t tablet_reader_init_orderby_keys_param_timer_ns = 0;
     int64_t tablet_reader_init_conditions_param_timer_ns = 0;
@@ -397,7 +399,7 @@ struct OlapReaderStatistics {
     int64_t rowset_reader_load_segments_timer_ns = 0;
 
     int64_t segment_iterator_init_timer_ns = 0;
-    int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_column_iterators_timer_ns = 0;
     int64_t segment_iterator_init_index_iterators_timer_ns = 0;
     int64_t segment_iterator_init_segment_prefetchers_timer_ns = 0;
 

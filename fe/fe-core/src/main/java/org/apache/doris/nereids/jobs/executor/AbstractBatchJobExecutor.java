@@ -22,7 +22,6 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.AdaptiveBottomUpRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.AdaptiveTopDownRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.BottomUpVisitorRewriteJob;
-import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
@@ -98,10 +97,6 @@ public abstract class AbstractBatchJobExecutor {
         return new TopicRewriteJob(topicName, Arrays.asList(jobs), condition);
     }
 
-    public static RewriteJob costBased(RewriteJob... jobs) {
-        return new CostBasedRewriteJob(Arrays.asList(jobs));
-    }
-
     public static RewriteJob bottomUp(RuleFactory... ruleFactories) {
         return bottomUp(Arrays.asList(ruleFactories));
     }
@@ -161,20 +156,14 @@ public abstract class AbstractBatchJobExecutor {
                 continue;
             }
 
-            if (shouldRun(currentJob, jobContext, jobs, i)) {
-                do {
-                    jobContext.setRewritten(false);
-                    currentJob.execute(jobContext);
-                } while (!currentJob.isOnce() && jobContext.isRewritten());
-            }
+            do {
+                jobContext.setRewritten(false);
+                currentJob.execute(jobContext);
+            } while (!currentJob.isOnce() && jobContext.isRewritten());
         }
     }
 
     public abstract List<RewriteJob> getJobs();
-
-    protected boolean shouldRun(RewriteJob rewriteJob, JobContext jobContext, List<RewriteJob> jobs, int jobIndex) {
-        return true;
-    }
 
     private static Predicate<Plan> getTraversePredicate() {
         Set<Class<Plan>> notTraverseChildren = NOT_TRAVERSE_CHILDREN.get();

@@ -20,8 +20,8 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import jakarta.servlet.http.HttpServletRequest;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 public class RestBaseControllerTest {
@@ -37,7 +37,7 @@ public class RestBaseControllerTest {
         String redirectUrl = controller.buildRedirectUrlForTest(request,
                 new TNetworkAddress("be-host", 8040), "/api/db%2Ftbl/_stream_load", "k=a%2Bb");
 
-        Assert.assertEquals("http://be-host:8040/api/db%2Ftbl/_stream_load?k=a%2Bb", redirectUrl);
+        Assertions.assertEquals("http://be-host:8040/api/db%2Ftbl/_stream_load?k=a%2Bb", redirectUrl);
     }
 
     @Test
@@ -51,7 +51,7 @@ public class RestBaseControllerTest {
         String redirectUrl = controller.buildRedirectUrlForTest(request,
                 new TNetworkAddress("be-host", 8040), "/api/db%2Ftbl/_stream_load", null);
 
-        Assert.assertEquals("http://be-host:8040/api/db%2Ftbl/_stream_load", redirectUrl);
+        Assertions.assertEquals("http://be-host:8040/api/db%2Ftbl/_stream_load", redirectUrl);
     }
 
     @Test
@@ -65,7 +65,7 @@ public class RestBaseControllerTest {
         String redirectUrl = controller.buildRedirectUrlToBackendForTest(request,
                 new TNetworkAddress("be-host", 8040), "/api/db/tbl/_stream_load", "k=v");
 
-        Assert.assertEquals("http://be-host:8040/api/db/tbl/_stream_load?k=v", redirectUrl);
+        Assertions.assertEquals("http://be-host:8040/api/db/tbl/_stream_load?k=v", redirectUrl);
     }
 
     // Expose the protected helper so the redirect URL can be verified directly.

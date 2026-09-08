@@ -831,10 +831,17 @@ private:
     size_t find_pos(size_t pos, const StringRef str_ref, const StringRef pattern_ref) const {
         size_t old_size = pos;
         size_t str_size = str_ref.size;
-        while (pos < str_size &&
+        if (pattern_ref.size > str_size || pos > str_size - pattern_ref.size) {
+            return str_size - old_size;
+        }
+        const size_t last_match_pos = str_size - pattern_ref.size;
+        while (pos <= last_match_pos &&
                memcmp_small_allow_overflow15((const uint8_t*)str_ref.data + pos,
                                              (const uint8_t*)pattern_ref.data, pattern_ref.size)) {
             pos++;
+        }
+        if (pos > last_match_pos) {
+            return str_size - old_size;
         }
         return pos - old_size;
     }

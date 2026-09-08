@@ -26,6 +26,7 @@
 
 #include "common/check.h"
 #include "storage/index/snii/writer/temp_dir.h"
+#include "util/debug_points.h"
 
 namespace doris::snii::bkd {
 
@@ -60,6 +61,8 @@ StagedBlobFile::~StagedBlobFile() {
 Status StagedBlobFile::append(Slice data) {
     DORIS_CHECK_GE(fd_, 0);
     DORIS_CHECK(!finalized_);
+    DBUG_EXECUTE_IF("StagedBlobFile::append_error",
+                    { return Status::IOError("injected blob staging append failure"); })
     const uint8_t* cursor = data.data();
     size_t remaining = data.size();
     while (remaining > 0) {
@@ -80,13 +83,24 @@ Status StagedBlobFile::append(Slice data) {
 Status StagedBlobFile::finalize() {
     DORIS_CHECK_GE(fd_, 0);
     DORIS_CHECK(!finalized_);
-    // The descriptor stays open on purpose: read_at reads through this same one,
-    // so the file survives an unlink and cannot be swapped out from under us.
-    // A deferred write error would surface at close(), which happens in remove()
-    // after the container has already sealed -- so force it out here instead.
-    if (::fsync(fd_) != 0) {
-        return Status::IOError("failed to flush a blob staging file: {}", std::strerror(errno));
-    }
+    // Kept as a seam for the seal-failure plumbing (an error here has to become a
+    // Status and unwind the staging). Nothing in the seal itself can fail any
+    // more; the reachable staging failure is append().
+    DBUG_EXECUTE_IF("StagedBlobFile::finalize_error",
+                    { return Status::IOError("injected blob staging finalize failure"); })
+    // NO fsync. This file is scratch: SniiCompoundWriter copies every byte of it
+    // into the real container, IndexFileWriter::begin_close() makes THAT durable,
+    // and remove() then unlinks this inode -- so its contents can never recover
+    // anything. Forcing a GiB-scale HNSW/IVF payload to storage here would buy a
+    // full durable write plus a latency barrier before the second, real write,
+    // once per sub-file, and could fail a build on scratch writeback alone.
+    //
+    // Error reporting does not depend on it either: the descriptor stays open on
+    // purpose (read_at reads through this same one, so the file survives an
+    // unlink and cannot be swapped out from under us), and a writeback failure
+    // surfaces there as EIO -- which read_at reports, as it does a short read. A
+    // damaged scratch file therefore still fails the build instead of being
+    // checksummed into the container.
     finalized_ = true;
     return Status::OK();
 }

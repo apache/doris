@@ -71,7 +71,7 @@ suite("multi_column_range_partition") {
         }
         explain {
             sql "select * from t_multi_column_range_partition where a=10 and date_trunc(dt, 'day') ='2024-01-10'"
-            contains("partitions=2/5 (p0,p10)")
+            contains("partitions=1/5 (p10)")
         }
         explain {
             sql "select * from t_multi_column_range_partition where a<19 and (date_trunc(dt, 'day') <'2024-01-20' OR date_trunc(dt, 'day') >'2024-02-10')"
@@ -211,7 +211,7 @@ suite("multi_column_range_partition") {
         }
         explain {
             sql "SELECT * FROM t_multi_column_partition_datetime_first WHERE date_trunc(dt,'day')='2024-1-10 00:00:00' and a >100"
-            contains("partitions=2/5 (p0,p10)")
+            contains("partitions=1/5 (p10)")
         }
         explain {
             sql "SELECT * FROM t_multi_column_partition_datetime_first WHERE date_trunc(dt,'day')='2024-1-1 00:00:00' and a <0"

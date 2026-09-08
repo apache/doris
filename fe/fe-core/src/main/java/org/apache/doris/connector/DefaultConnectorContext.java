@@ -603,6 +603,8 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         if (dorisHome != null) {
             env.put("doris_home", dorisHome);
         }
+        // HMS resources may be read before storage binding publishes this process-global FE setting.
+        env.put("hadoop_config_dir", Config.hadoop_config_dir);
         env.put("jdbc_drivers_dir", Config.jdbc_drivers_dir);
         env.put("force_sqlserver_jdbc_encrypt_false",
                 String.valueOf(Config.force_sqlserver_jdbc_encrypt_false));

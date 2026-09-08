@@ -271,7 +271,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
                 "disable_auto_compaction" = "true",
                 "in_memory" = "false",
                 "storage_format" = "V2",
-                "inverted_index_storage_format" = "V1"
+                "inverted_index_storage_format" = "V2"
             )
             """
 
@@ -307,7 +307,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
                 "enable_unique_key_merge_on_write" = "true",
                 "in_memory" = "false",
                 "storage_format" = "V2",
-                "inverted_index_storage_format" = "V1"
+                "inverted_index_storage_format" = "V2"
             )
             """
         sql """ set enable_segment_limit_pushdown = true """

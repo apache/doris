@@ -336,7 +336,8 @@ Status DistinctStreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState*
 
 Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(StatefulOperatorX<DistinctStreamingAggLocalState>::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_probe_expr_ctxs, state, _child->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
     init_make_nullable(state);
     return Status::OK();

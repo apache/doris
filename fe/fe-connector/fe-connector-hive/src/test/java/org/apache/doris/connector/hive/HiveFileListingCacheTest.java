@@ -416,7 +416,7 @@ public class HiveFileListingCacheTest {
     public void resolutionFailureThroughCacheFailsLoudAndIsNotCached() {
         // Drives the REAL production lister THROUGH the cache lookup with a forLocation failure. WHY (Rule 9): pins
         // that (1) a systemic storage-config failure propagates from listDataFiles as the loud plain
-        // DorisConnectorException — MetaCacheEntry's manual-miss load rethrows RuntimeException unwrapped, so the
+        // DorisConnectorException — MetaCache's manual-miss load rethrows RuntimeException unwrapped, so the
         // type survives the cache boundary — and NOT the skippable subtype; and (2) the failure leaves NO cache
         // entry. (2) kills the mutation "catch -> return emptyList" in the loader, which would cache a poisoned
         // empty listing and silently turn every later scan into 0 rows for the TTL.

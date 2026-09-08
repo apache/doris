@@ -19,66 +19,29 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.minidump.Minidump;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
 
-import org.json.JSONObject;
-
-import java.util.List;
-
 /**
- * replay command.
+ * replay command: PLAN REPLAYER DUMP query.
  */
 public class ReplayCommand extends Command implements NoForward {
 
-    private final String dumpFileFullPath;
-
     private final LogicalPlan plan;
 
-    private final ReplayType replayType;
-
-    public ReplayCommand(PlanType type, String dumpFileFullPath, LogicalPlan plan, ReplayType replayType) {
+    public ReplayCommand(PlanType type, LogicalPlan plan) {
         super(type);
-        this.dumpFileFullPath = dumpFileFullPath;
         this.plan = plan;
-        this.replayType = replayType;
-    }
-
-    public String getDumpFileFullPath() {
-        return dumpFileFullPath;
-    }
-
-    public ReplayType getReplayType() {
-        return replayType;
-    }
-
-    /**
-     * explain level.
-     */
-    public enum ReplayType {
-        DUMP,
-        PLAY
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (this.replayType == ReplayType.DUMP) {
-            handleDump(ctx, executor);
-        } else if (this.replayType == ReplayType.PLAY) {
-            handleLoad();
-        }
-    }
-
-    private void handleDump(ConnectContext ctx, StmtExecutor executor) throws Exception {
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
         MinidumpUtils.openDump();
         executor.setParsedStmt(logicalPlanAdapter);
@@ -90,22 +53,6 @@ public class ReplayCommand extends Command implements NoForward {
         executor.setPlanner(planner);
         executor.checkBlockRules();
         executor.handleReplayStmt(MinidumpUtils.getHttpGetString());
-    }
-
-    private void handleLoad() throws Exception {
-        // 1. check fe version, if not matched throw exception
-        // 2. load every thing from minidump file and replace original ones
-        Minidump minidump = MinidumpUtils.loadMinidumpInputs(dumpFileFullPath);
-        // 3. run nereids planner with sql in minidump file
-        StatementContext statementContext = new StatementContext(ConnectContext.get(),
-                new OriginStatement(minidump.getSql(), 0));
-        statementContext.setTables(minidump.getTables());
-        ConnectContext.get().setStatementContext(statementContext);
-        JSONObject resultPlan = MinidumpUtils.executeSql(minidump.getSql());
-        JSONObject minidumpResult = new JSONObject(minidump.getResultPlanJson());
-
-        List<String> differences = MinidumpUtils.compareJsonObjects(minidumpResult, resultPlan, "");
-        assert (differences.isEmpty());
     }
 
     @Override

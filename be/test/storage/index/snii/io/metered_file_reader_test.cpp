@@ -18,8 +18,10 @@
 #include "storage/index/snii/io/metered_file_reader.h"
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -35,27 +37,41 @@ using doris::snii::io::Range;
 
 namespace {
 
-// Writes 256 bytes (byte[i] = i) to a temp file and returns its path.
-std::string MakeRampFile() {
-    const std::string path = "/tmp/snii_metered_ramp.bin";
-    LocalFileWriter w;
-    EXPECT_TRUE(w.open(path).ok());
-    std::vector<uint8_t> data(256);
-    for (int i = 0; i < 256; ++i) {
-        data[i] = static_cast<uint8_t>(i);
+// Owns one scratch file holding 256 bytes (byte[i] = i) and removes it on scope
+// exit. The name carries the pid and a counter, like the other scratch paths in
+// this directory: a fixed /tmp name left behind by another user on a shared
+// machine makes ::open fail with EACCES and takes every test here down with it.
+class RampFile {
+public:
+    RampFile() {
+        static int counter = 0;
+        path_ = "/tmp/snii_metered_ramp_" + std::to_string(::getpid()) + "_" +
+                std::to_string(counter++) + ".bin";
+        LocalFileWriter w;
+        EXPECT_TRUE(w.open(path_).ok());
+        std::vector<uint8_t> data(256);
+        for (int i = 0; i < 256; ++i) {
+            data[i] = static_cast<uint8_t>(i);
+        }
+        EXPECT_TRUE(w.append(Slice(data)).ok());
+        EXPECT_TRUE(w.finalize().ok());
     }
-    EXPECT_TRUE(w.append(Slice(data)).ok());
-    EXPECT_TRUE(w.finalize().ok());
-    return path;
-}
+    ~RampFile() { std::remove(path_.c_str()); }
+
+    const std::string& path() const { return path_; }
+
+private:
+    std::string path_;
+};
 
 } // namespace
 
 // Single reads: first read to a block is a cache miss (1 round, 1 GET, 1 block of
 // remote bytes); a second read to the same 16-byte block is a hit (no new round).
 TEST(SniiMeteredFileReader, SingleReadCacheAccounting) {
+    const RampFile ramp;
     LocalFileReader inner;
-    ASSERT_TRUE(inner.open(MakeRampFile()).ok());
+    ASSERT_TRUE(inner.open(ramp.path()).ok());
     MeteredFileReader m(&inner, /*block_size=*/16);
 
     std::vector<uint8_t> out;
@@ -84,8 +100,9 @@ TEST(SniiMeteredFileReader, SingleReadCacheAccounting) {
 
 // A read spanning 3 contiguous blocks is one round and one coalesced GET.
 TEST(SniiMeteredFileReader, SpanMultipleBlocksCoalesced) {
+    const RampFile ramp;
     LocalFileReader inner;
-    ASSERT_TRUE(inner.open(MakeRampFile()).ok());
+    ASSERT_TRUE(inner.open(ramp.path()).ok());
     MeteredFileReader m(&inner, 16);
 
     std::vector<uint8_t> out;
@@ -98,8 +115,9 @@ TEST(SniiMeteredFileReader, SpanMultipleBlocksCoalesced) {
 
 // A batch of reads to non-adjacent blocks: one serial round, one GET per run.
 TEST(SniiMeteredFileReader, BatchNonAdjacent) {
+    const RampFile ramp;
     LocalFileReader inner;
-    ASSERT_TRUE(inner.open(MakeRampFile()).ok());
+    ASSERT_TRUE(inner.open(ramp.path()).ok());
     MeteredFileReader m(&inner, 16);
 
     std::vector<Range> ranges = {{.offset = 0, .len = 4},
@@ -117,8 +135,9 @@ TEST(SniiMeteredFileReader, BatchNonAdjacent) {
 
 // A batch of reads to adjacent blocks coalesces into a single GET.
 TEST(SniiMeteredFileReader, BatchAdjacentCoalesced) {
+    const RampFile ramp;
     LocalFileReader inner;
-    ASSERT_TRUE(inner.open(MakeRampFile()).ok());
+    ASSERT_TRUE(inner.open(ramp.path()).ok());
     MeteredFileReader m(&inner, 16);
 
     std::vector<Range> ranges = {{.offset = 0, .len = 4},
@@ -134,8 +153,9 @@ TEST(SniiMeteredFileReader, BatchAdjacentCoalesced) {
 
 // reset_metrics clears both counters and the resident cache (cold query).
 TEST(SniiMeteredFileReader, ResetClearsCacheAndCounters) {
+    const RampFile ramp;
     LocalFileReader inner;
-    ASSERT_TRUE(inner.open(MakeRampFile()).ok());
+    ASSERT_TRUE(inner.open(ramp.path()).ok());
     MeteredFileReader m(&inner, 16);
 
     std::vector<uint8_t> out;
@@ -150,8 +170,9 @@ TEST(SniiMeteredFileReader, ResetClearsCacheAndCounters) {
 }
 
 TEST(SniiMeteredFileReader, InvalidRangeDoesNotPolluteMetrics) {
+    const RampFile ramp;
     LocalFileReader inner;
-    ASSERT_TRUE(inner.open(MakeRampFile()).ok());
+    ASSERT_TRUE(inner.open(ramp.path()).ok());
     MeteredFileReader m(&inner, 16);
 
     std::vector<uint8_t> out;
@@ -165,8 +186,9 @@ TEST(SniiMeteredFileReader, InvalidRangeDoesNotPolluteMetrics) {
 }
 
 TEST(SniiMeteredFileReader, InvalidBatchRangeDoesNotPolluteMetrics) {
+    const RampFile ramp;
     LocalFileReader inner;
-    ASSERT_TRUE(inner.open(MakeRampFile()).ok());
+    ASSERT_TRUE(inner.open(ramp.path()).ok());
     MeteredFileReader m(&inner, 16);
 
     std::vector<std::vector<uint8_t>> outs;

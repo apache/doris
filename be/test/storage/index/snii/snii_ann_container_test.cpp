@@ -22,8 +22,9 @@
 // what faiss emits. What was missing was the adapter on both ends:
 //
 //   write: the ANN writer had nowhere to write, because SNII opens no CLucene
-//          filesystem directory. It now gets a memory-backed staging directory
-//          (open_ann_directory) that begin_close() seals into a kAnn blob.
+//          filesystem directory. It now gets a bounded, file-backed staging
+//          directory (open_ann_directory) that begin_close() seals into a kAnn
+//          blob.
 //   read:  _open() refused too. A blob entry records ABSOLUTE container offsets,
 //          the same thing a V2 compound entry records, so DorisCompoundReader is
 //          reused over the container stream rather than reimplemented.
@@ -42,21 +43,30 @@
 #include <CLucene.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
+#ifdef ADDRESS_SANITIZER
+#include <sanitizer/allocator_interface.h>
+#endif
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <roaring/roaring.hh>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
+#include "exec/scan/vector_search_user_params.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/index/ann/ann_index_files.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_index_writer.h"
+#include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
@@ -64,6 +74,8 @@
 #include "storage/index/snii/format/metadata_directory.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_blob_staging_directory.h"
+#include "storage/index/snii/staged_file_probe.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
 #include "storage/tablet/tablet_schema.h"
@@ -148,6 +160,16 @@ TabletIndex make_ivf_on_disk_index_meta() {
     return meta;
 }
 
+// Faiss opens its sub-files as ann.faiss / ann.ivfdata, so this tag selects
+// exactly the ANN staging and leaves the native BKD staging of other suites
+// alone. Observed on the filesystem rather than through the directory's own
+// bookkeeping: the bookkeeping is what the retention below disagrees with.
+constexpr const char* kAnnStageTag = "ann.";
+
+std::set<std::string> staged_ann_files() {
+    return doris::snii_test::snii_staged_files(kAnnStageTag);
+}
+
 TabletIndex make_fake_bkd_index_meta() {
     TabletIndexPB pb;
     pb.set_index_type(IndexType::INVERTED);
@@ -181,26 +203,54 @@ protected:
         // the wrong entry would then also disagree on fileLength.
         _synthetic["fake_bkd_data"] = synthetic_bytes(0x11, 4096 + 17);
         _synthetic["fake_bkd_index"] = synthetic_bytes(0x77, 1024 + 3);
+        // IVF-on-disk reads its lists through AnnIndexIVFListCache, which
+        // exec_env_init installs unconditionally at BE startup -- so this is the
+        // production path, not a test convenience. Installed only if nobody else
+        // in this binary already has one, and torn down only by whoever installed
+        // it: create_global_cache DCHECKs on a second install, and clobbering
+        // another fixture's cache is how shared-state bugs start.
+        if (AnnIndexIVFListCache::instance() == nullptr) {
+            (void)AnnIndexIVFListCache::create_global_cache(8 * 1024 * 1024);
+            _owns_ivf_list_cache = true;
+        }
     }
 
     void TearDown() override {
+        if (_owns_ivf_list_cache) {
+            AnnIndexIVFListCache::destroy_global_cache();
+            _owns_ivf_list_cache = false;
+        }
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
-    // Builds one ANN index on `writer` and seals it into the writer's staging
-    // area, i.e. everything up to (but not including) begin_close().
-    void feed_ann_index(IndexFileWriter* writer, const TabletIndex* meta) {
-        AnnIndexColumnWriter ann(writer, meta);
-        ASSERT_TRUE(ann.init().ok());
+    // Feeds the standard vector set into an ANN writer the CALLER owns. The
+    // producer therefore outlives the call -- which is the shape both a failed
+    // segment flush and the whole ADD INDEX path leave behind, and the shape
+    // finish_ann_index() below cannot express.
+    static Status feed_and_finish(AnnIndexColumnWriter* ann) {
         const std::vector<float> vectors = make_vectors();
         std::vector<size_t> offsets(kRows + 1);
         for (uint32_t i = 0; i <= kRows; ++i) {
             offsets[i] = static_cast<size_t>(i) * kDim;
         }
-        ASSERT_TRUE(ann.add_array_values(sizeof(float), vectors.data(), /*null_map=*/nullptr,
-                                         reinterpret_cast<const uint8_t*>(offsets.data()), kRows)
-                            .ok());
-        ASSERT_TRUE(ann.finish().ok());
+        RETURN_IF_ERROR(ann->add_array_values(sizeof(float), vectors.data(), /*null_map=*/nullptr,
+                                              reinterpret_cast<const uint8_t*>(offsets.data()),
+                                              kRows));
+        return ann->finish();
+    }
+
+    // NOLINTNEXTLINE(readability-non-const-parameter): AnnIndexColumnWriter's
+    // constructor takes a mutable IndexFileWriter*, so this cannot be const.
+    Status finish_ann_index(IndexFileWriter* writer, const TabletIndex* meta) {
+        AnnIndexColumnWriter ann(writer, meta);
+        RETURN_IF_ERROR(ann.init());
+        return feed_and_finish(&ann);
+    }
+
+    // Builds one ANN index on `writer` and seals it into the writer's staging
+    // area, i.e. everything up to (but not including) begin_close().
+    void feed_ann_index(IndexFileWriter* writer, const TabletIndex* meta) {
+        assert_ok(finish_ann_index(writer, meta));
     }
 
     // One SNII container holding an ANN blob and a NON-ANN blob, and the path
@@ -244,6 +294,7 @@ protected:
     TabletIndex _meta;
     TabletIndex _fake_bkd_meta;
     TabletIndex _ivf_on_disk_meta;
+    bool _owns_ivf_list_cache = false;
     std::map<std::string, std::vector<uint8_t>> _synthetic;
 };
 
@@ -334,6 +385,64 @@ TEST_F(SniiAnnContainerTest, FaissLoadsTheIndexBackOutOfTheContainer) {
     assert_ok(ann_reader->load_index(&io_ctx));
 }
 
+// IVF-on-disk is the only ANN shape that emits two sub-files, and ann.ivfdata --
+// the bulk of the index -- is the one whose bytes reach faiss through
+// StagedBlobFile::read_at and DorisCompoundReader rather than through faiss's own
+// file handling. Nothing else exercises that: the load test above uses _meta (a
+// single ann.faiss), IvfOnDiskSubFilesAreSealedInAscendingNameOrder checks only
+// the two names and their order, and the standalone IVF save/load test runs on a
+// RAMDirectory. A wrong length or a wrong absolute extent on ann.ivfdata would
+// leave every one of those green and surface only when the index is queried.
+//
+// The oracle is make_vectors(), not anything the container reported: a row's own
+// vector must come back as its own row id at distance zero. nlist is 4 and the
+// default ivf_nprobe is 32, so every list is probed and the answer is exact.
+TEST_F(SniiAnnContainerTest, IvfOnDiskAnswersAQueryThroughTheProductionReader) {
+    const std::string prefix = std::string(kTestDir) + "/ivf_query_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_ivf_query_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9912);
+    feed_ann_index(&writer, &_ivf_on_disk_meta);
+    ASSERT_FALSE(testing::Test::HasFatalFailure());
+    assert_ok(writer.begin_close());
+    assert_ok(writer.finish_close());
+
+    auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix,
+                                                    InvertedIndexStorageFormatPB::SNII);
+    assert_ok(reader->init());
+    auto ann_reader = std::make_shared<AnnIndexReader>(&_ivf_on_disk_meta, reader);
+    io::IOContext io_ctx;
+    assert_ok(ann_reader->load_index(&io_ctx));
+
+    constexpr uint32_t kProbeRow = 17;
+    const std::vector<float> vectors = make_vectors();
+    const std::vector<float> query(vectors.begin() + static_cast<int64_t>(kProbeRow) * kDim,
+                                   vectors.begin() + static_cast<int64_t>(kProbeRow + 1) * kDim);
+    roaring::Roaring candidates;
+    candidates.addRange(0, kRows);
+
+    AnnTopNParam param {.query_value = query.data(),
+                        .query_value_size = kDim,
+                        .limit = 4,
+                        ._user_params = VectorSearchUserParams {},
+                        .roaring = &candidates,
+                        .rows_of_segment = kRows,
+                        .enable_result_cache = false};
+    AnnIndexStats stats;
+    assert_ok(ann_reader->query(&io_ctx, &param, &stats));
+
+    ASSERT_NE(param.row_ids, nullptr);
+    ASSERT_FALSE(param.row_ids->empty());
+    EXPECT_EQ((*param.row_ids)[0], kProbeRow)
+            << "the nearest neighbour of a row's own vector must be that row";
+    ASSERT_NE(param.distance, nullptr);
+    EXPECT_NEAR(param.distance[0], 0.0F, 1e-4F);
+}
+
 // A BKD blob has its own reader and no CLucene representation at all. Serving a
 // directory over it would hand a caller bytes no CLucene code can parse, so the
 // read adapter refuses by KIND. Probing an ABSENT id cannot test this: the
@@ -394,6 +503,39 @@ TEST_F(SniiAnnContainerTest, AnnStagingUnderSniiCreatesNoFilesystemDirectory) {
     assert_ok(writer.finish_close());
 }
 
+// ANN serialization can be much larger than the final rowset writer's other
+// resident state. Staging must therefore retain only a fixed-size write buffer,
+// not a second in-memory copy of the complete faiss output.
+TEST_F(SniiAnnContainerTest, LargeAnnOutputUsesBoundedHeapForStaging) {
+#ifndef ADDRESS_SANITIZER
+    GTEST_SKIP() << "heap sampling requires the ASAN allocator interface";
+#else
+    constexpr size_t kChunkBytes = 64U << 10;
+    constexpr size_t kStagedBytes = 64U << 20;
+    // The ASAN counter is process-wide, so leave ample room for unrelated
+    // background allocations. The old vector staging retained the complete
+    // 64 MiB payload and therefore still exceeds this limit by a wide margin.
+    constexpr size_t kMaximumHeapGrowth = kStagedBytes / 2;
+
+    snii_doris::SniiBlobStagingDirectory staging;
+    std::unique_ptr<lucene::store::IndexOutput> output(staging.createOutput("ann.faiss"));
+    std::array<uint8_t, kChunkBytes> chunk {};
+
+    const size_t baseline = __sanitizer_get_current_allocated_bytes();
+    size_t peak = baseline;
+    for (size_t written = 0; written < kStagedBytes; written += chunk.size()) {
+        output->writeBytes(chunk.data(), static_cast<int32_t>(chunk.size()));
+        peak = std::max(peak, __sanitizer_get_current_allocated_bytes());
+    }
+    output->close();
+    peak = std::max(peak, __sanitizer_get_current_allocated_bytes());
+
+    EXPECT_EQ(staging.staged_bytes(), kStagedBytes);
+    EXPECT_LT(peak - baseline, kMaximumHeapGrowth)
+            << "ANN staging retained heap proportional to the serialized index";
+#endif
+}
+
 // Scoped debug-point switch: enables the fault injection sites for one test and
 // restores the process-wide config afterwards.
 class ScopedDebugPoints {
@@ -411,6 +553,260 @@ public:
 private:
     const bool _was_enabled;
 };
+
+TEST_F(SniiAnnContainerTest, AnnStagingFinalizeFailureIsReturnedFromFinish) {
+    ScopedDebugPoints debug_points;
+    debug_points.enable("StagedBlobFile::finalize_error");
+
+    const std::string prefix = std::string(kTestDir) + "/finalize_failure_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_ann_finalize_failure",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9904);
+
+    Status finish_status = Status::OK();
+    ASSERT_NO_THROW({ finish_status = finish_ann_index(&writer, &_meta); });
+    EXPECT_FALSE(finish_status.ok());
+    EXPECT_NE(finish_status.to_string().find("injected blob staging finalize failure"),
+              std::string::npos)
+            << finish_status.to_string();
+}
+
+TEST_F(SniiAnnContainerTest, FinalBufferedAppendFailureIsReturnedFromFinish) {
+    ScopedDebugPoints debug_points;
+    debug_points.enable("StagedBlobFile::append_error");
+
+    const std::string prefix = std::string(kTestDir) + "/append_failure_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_ann_append_failure",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9905);
+
+    Status finish_status = Status::OK();
+    ASSERT_NO_THROW({ finish_status = finish_ann_index(&writer, &_meta); });
+    EXPECT_FALSE(finish_status.ok());
+    EXPECT_NE(finish_status.to_string().find("injected blob staging append failure"),
+              std::string::npos)
+            << finish_status.to_string();
+}
+
+TEST_F(SniiAnnContainerTest, IvfDataWriteFailuresAreReturnedFromFinish) {
+    struct FaultCase {
+        const char* debug_point;
+        const char* message;
+        const char* suffix;
+        int64_t tablet_id;
+    };
+    const std::array faults {
+            FaultCase {"StagedBlobFile::append_error", "injected blob staging append failure",
+                       "append", 9906},
+            FaultCase {"StagedBlobFile::finalize_error", "injected blob staging finalize failure",
+                       "finalize", 9907},
+    };
+
+    for (const auto& fault : faults) {
+        SCOPED_TRACE(fault.debug_point);
+        ScopedDebugPoints debug_points;
+        debug_points.enable(fault.debug_point);
+
+        const std::string prefix = std::string(kTestDir) + "/ivf_" + fault.suffix + "_failure_seg";
+        io::FileWriterPtr file_writer;
+        assert_ok(io::global_local_filesystem()->create_file(
+                InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+        IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_ivf_write_failure",
+                               /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII,
+                               std::move(file_writer),
+                               /*can_use_ram_dir=*/false, fault.tablet_id);
+
+        Status finish_status = Status::OK();
+        ASSERT_NO_THROW({ finish_status = finish_ann_index(&writer, &_ivf_on_disk_meta); });
+        EXPECT_FALSE(finish_status.ok());
+        EXPECT_NE(finish_status.to_string().find("Failed to close IVF data output"),
+                  std::string::npos)
+                << finish_status.to_string();
+        EXPECT_NE(finish_status.to_string().find(fault.message), std::string::npos)
+                << finish_status.to_string();
+    }
+}
+
+// A failed faiss serialization must unlink its staging file THERE, not whenever
+// the writers happen to be destroyed. Both owners are still alive at that point
+// -- the ANN writer through _dir, the IndexFileWriter through _indices_dirs --
+// and neither caller unwinds them: VerticalSegmentWriter::finalize_columns_index()
+// returns before clear() and close_inverted_index(), and IndexBuilder's SNII ADD
+// INDEX path keeps every producer alive until the whole rowset has been closed.
+// So both writers are held here on purpose; the failure tests above scope their
+// producer out inside finish_ann_index() and cannot see this.
+TEST_F(SniiAnnContainerTest, AFailedSaveUnlinksItsStagingFile) {
+    struct Case {
+        const char* what;
+        const TabletIndex* meta;
+        int64_t tablet_id;
+    };
+    const std::array cases {
+            Case {.what = "hnsw", .meta = &_meta, .tablet_id = 9908},
+            Case {.what = "ivf_on_disk", .meta = &_ivf_on_disk_meta, .tablet_id = 9909},
+    };
+
+    for (const auto& one : cases) {
+        SCOPED_TRACE(one.what);
+        const std::set<std::string> before = staged_ann_files();
+        ScopedDebugPoints debug_points;
+        // append(), not the seal: a write is the staging failure production can
+        // actually hit (ENOSPC on the scratch volume), and the seal makes no
+        // durability call any more.
+        debug_points.enable("StagedBlobFile::append_error");
+
+        const std::string prefix = std::string(kTestDir) + "/failed_save_" + one.what + "_seg";
+        io::FileWriterPtr file_writer;
+        assert_ok(io::global_local_filesystem()->create_file(
+                InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+        IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_ann_failed_save_rowset",
+                               /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII,
+                               std::move(file_writer), /*can_use_ram_dir=*/false, one.tablet_id);
+
+        AnnIndexColumnWriter ann(&writer, one.meta);
+        assert_ok(ann.init());
+        Status finish_status = Status::OK();
+        ASSERT_NO_THROW({ finish_status = feed_and_finish(&ann); });
+        ASSERT_FALSE(finish_status.ok()) << "the injected fault must fail the save";
+        // The specific fault, not just any error: a save that failed for some
+        // other reason would not prove anything about the staging file.
+        ASSERT_NE(finish_status.to_string().find("injected blob staging append failure"),
+                  std::string::npos)
+                << finish_status.to_string();
+
+        EXPECT_EQ(staged_ann_files(), before)
+                << "the failed save left its staging file on the temp filesystem while the ANN "
+                   "writer and the IndexFileWriter are both still alive";
+    }
+}
+
+// Sealing hands the staged files to the container, so a producer that outlives
+// the seal must not keep them pinned. IndexBuilder's SNII ADD INDEX path
+// (_handle_single_rowset_snii) is exactly that shape: it builds every segment,
+// closes every IndexFileWriter, and only then clears _index_column_writers. If
+// the handover does not happen, one whole rowset's ANN staging sits on the temp
+// filesystem at once -- which is precisely what SniiCompoundWriter::finish()
+// releases per blob to avoid.
+TEST_F(SniiAnnContainerTest, SealingDrainsStagedFilesWhileProducersAreStillAlive) {
+    struct Segment {
+        std::unique_ptr<IndexFileWriter> file_writer;
+        std::unique_ptr<AnnIndexColumnWriter> producer;
+    };
+    constexpr int kSegments = 3;
+
+    const std::set<std::string> before = staged_ann_files();
+    std::vector<Segment> segments;
+    for (int seg_id = 0; seg_id < kSegments; ++seg_id) {
+        const std::string prefix =
+                std::string(kTestDir) + "/held_producer_seg" + std::to_string(seg_id);
+        io::FileWriterPtr file_writer;
+        assert_ok(io::global_local_filesystem()->create_file(
+                InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+        Segment segment;
+        segment.file_writer = std::make_unique<IndexFileWriter>(
+                io::global_local_filesystem(), prefix, "snii_ann_held_producer_rowset", seg_id,
+                InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                /*can_use_ram_dir=*/false, /*tablet_id=*/9910);
+        segment.producer =
+                std::make_unique<AnnIndexColumnWriter>(segment.file_writer.get(), &_meta);
+        assert_ok(segment.producer->init());
+        Status finish_status = Status::OK();
+        ASSERT_NO_THROW({ finish_status = feed_and_finish(segment.producer.get()); });
+        assert_ok(finish_status);
+        segments.push_back(std::move(segment));
+    }
+    // Sanity: their absence below must mean the seal drained them, not that they
+    // were never staged.
+    ASSERT_EQ(staged_ann_files().size(), before.size() + kSegments);
+
+    for (auto& segment : segments) {
+        assert_ok(segment.file_writer->begin_close());
+    }
+    // Every producer is STILL alive here, exactly as it is in IndexBuilder when
+    // it runs its begin_close loop.
+    EXPECT_EQ(staged_ann_files(), before)
+            << "sealing left the staged files pinned by the producers";
+
+    for (auto& segment : segments) {
+        assert_ok(segment.file_writer->finish_close());
+    }
+}
+
+// A segment that fails AFTER its ANN indexes have staged must not leave them
+// behind. This is the state such a failure leaves: every index staged fine, the
+// producers are still alive because clear() has not run, and nobody will ever
+// call begin_close() -- so the seal that normally consumes the staging never
+// happens. Distinct from AFailedSaveUnlinksItsStagingFile, where serialization
+// itself failed and the per-index discard fires immediately.
+TEST_F(SniiAnnContainerTest, AbandoningASegmentDropsEveryStagedAnnFile) {
+    const std::set<std::string> before = staged_ann_files();
+    const std::string prefix = std::string(kTestDir) + "/abandoned_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_abandoned_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9913);
+
+    std::vector<std::unique_ptr<AnnIndexColumnWriter>> producers;
+    for (const TabletIndex* meta : {&_meta, &_ivf_on_disk_meta}) {
+        auto producer = std::make_unique<AnnIndexColumnWriter>(&writer, meta);
+        assert_ok(producer->init());
+        Status finish_status = Status::OK();
+        ASSERT_NO_THROW({ finish_status = feed_and_finish(producer.get()); });
+        assert_ok(finish_status);
+        producers.push_back(std::move(producer));
+    }
+    ASSERT_EQ(staged_ann_files().size(), before.size() + 3);
+
+    writer.abandon_snii_staging();
+    // The producers are still alive, as they are in a segment writer whose
+    // finalize failed before clear().
+    EXPECT_EQ(staged_ann_files(), before)
+            << "abandoning the segment left its staged ANN files on the temp filesystem";
+}
+
+// The same handover inside ONE container: _indices_dirs holds every staging
+// directory for the whole of finish(), so the per-blob release in
+// SniiCompoundWriter::finish() can only free a sub-file that the directory has
+// already given up. Two ANN indexes, three sub-files (hnsw writes ann.faiss,
+// ivf_on_disk writes ann.faiss and ann.ivfdata).
+TEST_F(SniiAnnContainerTest, EveryAnnIndexInOneContainerIsDrainedBySealing) {
+    const std::set<std::string> before = staged_ann_files();
+    const std::string prefix = std::string(kTestDir) + "/multi_ann_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_multi_ann_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9911);
+
+    std::vector<std::unique_ptr<AnnIndexColumnWriter>> producers;
+    for (const TabletIndex* meta : {&_meta, &_ivf_on_disk_meta}) {
+        auto producer = std::make_unique<AnnIndexColumnWriter>(&writer, meta);
+        assert_ok(producer->init());
+        Status finish_status = Status::OK();
+        ASSERT_NO_THROW({ finish_status = feed_and_finish(producer.get()); });
+        assert_ok(finish_status);
+        producers.push_back(std::move(producer));
+    }
+    ASSERT_EQ(staged_ann_files().size(), before.size() + 3);
+
+    assert_ok(writer.begin_close());
+    EXPECT_EQ(staged_ann_files(), before)
+            << "one container's seal did not drain every ANN index it sealed";
+    assert_ok(writer.finish_close());
+}
 
 // begin_close() returns Status. Nothing on its SNII path may throw across that
 // boundary -- the non-SNII branch of the same function wraps its directory

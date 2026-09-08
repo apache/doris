@@ -53,20 +53,20 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     case TSortAlgorithm::HEAP_SORT: {
         _shared_state->sorter = HeapSorter::create_shared(
                 _ordering_expr_ctxs, state, p._limit, p._offset, p._pool, p._is_asc_order,
-                p._nulls_first, p._child->row_desc(),
+                p._nulls_first, p._child->operator_row_desc_after_projection(),
                 state->get_query_ctx()->has_runtime_predicate(p._node_id));
         break;
     }
     case TSortAlgorithm::TOPN_SORT: {
         _shared_state->sorter = TopNSorter::create_shared(
                 _ordering_expr_ctxs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc(), state, custom_profile());
+                p._child->operator_row_desc_after_projection(), state, custom_profile());
         break;
     }
     case TSortAlgorithm::FULL_SORT: {
-        auto sorter = FullSorter::create_shared(_ordering_expr_ctxs, p._limit, p._offset, p._pool,
-                                                p._is_asc_order, p._nulls_first,
-                                                p._child->row_desc(), state, custom_profile());
+        auto sorter = FullSorter::create_shared(
+                _ordering_expr_ctxs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
+                p._child->operator_row_desc_after_projection(), state, custom_profile());
         if (p._max_buffered_bytes > 0) {
             sorter->set_max_buffered_block_bytes(p._max_buffered_bytes);
         }

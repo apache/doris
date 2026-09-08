@@ -17,11 +17,11 @@
 
 package org.apache.doris.datasource.doris;
 
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
+import org.apache.doris.connector.cache.MetaCache;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
@@ -37,17 +37,17 @@ public class DorisExternalMetaCacheTest {
             long catalogId = 1L;
             cache.initCatalog(catalogId, Collections.emptyMap());
 
-            MetaCacheEntry<String, ImmutableMap<Long, org.apache.doris.system.Backend>> backendsEntry = cache.entry(
+            MetaCache<String, ImmutableMap<Long, org.apache.doris.system.Backend>> backendsEntry = cache.entry(
                     catalogId,
                     DorisExternalMetaCache.ENTRY_BACKENDS,
                     String.class,
                     DorisExternalMetaCacheTestSupport.backendMapClass());
             backendsEntry.put("backends", ImmutableMap.of());
-            Assert.assertNotNull(backendsEntry.getIfPresent("backends"));
+            Assertions.assertNotNull(backendsEntry.getIfPresent("backends"));
 
             cache.invalidateBackendCache(catalogId);
 
-            Assert.assertNull(backendsEntry.getIfPresent("backends"));
+            Assertions.assertNull(backendsEntry.getIfPresent("backends"));
         } finally {
             executor.shutdownNow();
         }

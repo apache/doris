@@ -55,6 +55,9 @@ DEFINE_mInt32(max_base_compaction_task_num_per_disk, "2");
 DEFINE_mBool(prioritize_query_perf_in_compaction, "false");
 DEFINE_mInt32(compaction_max_rowset_count, "10000");
 DEFINE_mInt64(compaction_txn_max_size_bytes, "7340032"); // 7MB
+DEFINE_mBool(enable_cloud_single_rowset_compaction, "false");
+DEFINE_mInt32(cloud_single_rowset_compaction_min_segments, "512");
+DEFINE_mInt32(cloud_single_rowset_compaction_segment_group_size, "64");
 
 DEFINE_mInt32(refresh_s3_info_interval_s, "60");
 DEFINE_mInt32(vacuum_stale_rowsets_interval_s, "300");
@@ -192,6 +195,7 @@ DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");
 
 // MS RPC rate limiting config
 DEFINE_mBool(enable_ms_rpc_host_level_rate_limit, "false");
+DEFINE_mBool(enable_ms_rpc_host_level_rate_limit_dry_run, "true");
 
 // Per-RPC QPS limit configs (per CPU core)
 // QPS limit = config_value * num_cores
@@ -223,6 +227,7 @@ DEFINE_mInt32(ms_rpc_qps_update_packed_file_info, "-1");
 
 // Table-level backpressure handling config
 DEFINE_mBool(enable_ms_backpressure_handling, "false");
+DEFINE_mBool(enable_ms_backpressure_handling_dry_run, "true");
 DEFINE_Int32(ms_rpc_table_qps_window_sec, "3");
 
 // Throttle upgrade config

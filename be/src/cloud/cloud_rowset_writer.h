@@ -33,7 +33,8 @@ public:
     Status build(RowsetSharedPtr& rowset) override;
 
 private:
-    Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false) override;
+    Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false,
+                              std::vector<int64_t>* completed_segment_ids = nullptr) override;
 
     Status _collect_all_packed_slice_locations(RowsetMeta* rowset_meta);
 

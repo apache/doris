@@ -212,6 +212,96 @@ public class IcebergStatementScopeTest {
         Assertions.assertTrue(checked > 0, "expected at least one *_NAMESPACE constant to guard");
     }
 
+    @Test
+    public void nullAndNoneScopesBypassBorrowingWithoutDroppingALease() {
+        AtomicInteger borrows = new AtomicInteger();
+        AtomicInteger directLoads = new AtomicInteger();
+        Supplier<IcebergTableCache.TableLease> forbiddenBorrow = () -> {
+            borrows.incrementAndGet();
+            throw new AssertionError("an unscoped caller has no close locus for a lease");
+        };
+        Supplier<Table> direct = () -> {
+            directLoads.incrementAndGet();
+            return table("direct");
+        };
+
+        Assertions.assertEquals("direct", IcebergStatementScope.sharedBorrowedTable(
+                null, "db", "t", forbiddenBorrow, direct).name());
+        ScopeSession none = new ScopeSession(7L, "q1", ConnectorStatementScope.NONE);
+        Assertions.assertEquals("direct", IcebergStatementScope.sharedBorrowedTable(
+                none, "db", "t", forbiddenBorrow, direct).name());
+        Assertions.assertEquals(0, borrows.get());
+        Assertions.assertEquals(2, directLoads.get(), "NONE preserves load-every-time behavior");
+    }
+
+    @Test
+    public void directTrackedTablePinsCatalogUntilStatementClose() {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        TestStatementScope scope = new TestStatementScope();
+        ScopeSession session = new ScopeSession(7L, "q1", scope);
+        AtomicInteger catalogCloses = new AtomicInteger();
+
+        Table loaded = IcebergStatementScope.sharedTrackedTable(
+                session, "db1", "t", tracker, () -> table("t"), ignored -> () -> { });
+        tracker.close(catalogCloses::incrementAndGet);
+
+        Assertions.assertEquals("t", loaded.name());
+        Assertions.assertEquals(0, catalogCloses.get());
+        scope.closeAll();
+        Assertions.assertEquals(1, catalogCloses.get());
+    }
+
+    @Test
+    public void unscopedMetadataOperationReleasesExactGenerationBeforeReturning() {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        AtomicInteger tableCloses = new AtomicInteger();
+        AtomicInteger catalogCloses = new AtomicInteger();
+
+        String name = IcebergStatementScope.withTrackedTable(
+                new ScopeSession(7L, "background", ConnectorStatementScope.NONE), "db1", "t", tracker,
+                () -> table("t"), ignored -> tableCloses::incrementAndGet, Table::name);
+        tracker.close(catalogCloses::incrementAndGet);
+
+        Assertions.assertEquals("t", name);
+        Assertions.assertEquals(1, tableCloses.get());
+        Assertions.assertEquals(1, catalogCloses.get());
+    }
+
+    @Test
+    public void writableTableTransfersItsExactGenerationToTransactionOwner() {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        TestStatementScope scope = new TestStatementScope();
+        ScopeSession session = new ScopeSession(7L, "q1", scope);
+        AtomicInteger catalogCloses = new AtomicInteger();
+        AtomicInteger tableCloses = new AtomicInteger();
+
+        IcebergStatementScope.TrackedTable writable = IcebergStatementScope.sharedTrackedWritableTable(
+                session, "db1", "t", tracker, () -> table("t"), ignored -> tableCloses::incrementAndGet);
+        IcebergStatementScope.TrackedTableLease transactionLease = writable.retainLease();
+        tracker.close(catalogCloses::incrementAndGet);
+
+        scope.closeAll();
+        Assertions.assertEquals(0, tableCloses.get(), "the transaction still owns the direct table FileIO");
+        Assertions.assertEquals(0, catalogCloses.get(), "transaction remains the catalog generation owner");
+        transactionLease.close();
+        Assertions.assertEquals(1, tableCloses.get());
+        Assertions.assertEquals(1, catalogCloses.get());
+    }
+
+    @Test
+    public void directReadClosesTableOwnedFileIoAtStatementEnd() {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        TestStatementScope scope = new TestStatementScope();
+        ScopeSession session = new ScopeSession(7L, "q1", scope);
+        AtomicInteger tableCloses = new AtomicInteger();
+
+        IcebergStatementScope.sharedTrackedTable(session, "db1", "t", tracker, () -> table("t"),
+                ignored -> tableCloses::incrementAndGet);
+        Assertions.assertEquals(0, tableCloses.get());
+        scope.closeAll();
+        Assertions.assertEquals(1, tableCloses.get());
+    }
+
     /** A scope that records the last key handed to {@link #computeIfAbsent}, for the byte-key parity assertion. */
     private static final class KeyCapturingScope implements ConnectorStatementScope {
         private String lastKey;

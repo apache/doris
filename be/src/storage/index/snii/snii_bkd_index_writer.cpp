@@ -196,14 +196,17 @@ Status SniiBkdIndexColumnWriter::finish() {
     RETURN_IF_ERROR(null_writer.finish(_rid, &null_sink));
 
     // The container pulls at IndexFileWriter::finish_close(), long after this
-    // returns, so the staging file has to outlive this object. Ownership moves
-    // into the read callback itself.
-    _data = std::move(data);
-    std::shared_ptr<::doris::snii::bkd::StagedBlobFile> staged = _data;
+    // returns, so the staging file has to outlive this object. Ownership MOVES
+    // into the read callback, which is then its only owner: the per-blob release
+    // in SniiCompoundWriter::finish() unlinks bkd_data as soon as the bytes are
+    // in the container, instead of whenever this writer happens to be destroyed.
+    // Keeping a second reference here would defeat that -- a producer routinely
+    // outlives the seal (see the header).
+    std::shared_ptr<::doris::snii::bkd::StagedBlobFile> staged = std::move(data);
     ::doris::snii::writer::BlobFileSource cold;
     cold.name = kDataFileName;
     cold.length = staged->bytes_written();
-    cold.read_fn = [staged](uint64_t offset, size_t len, uint8_t* out) {
+    cold.read_fn = [staged = std::move(staged)](uint64_t offset, size_t len, uint8_t* out) {
         return staged->read_at(offset, len, out);
     };
 
@@ -219,11 +222,12 @@ Status SniiBkdIndexColumnWriter::finish() {
 }
 
 void SniiBkdIndexColumnWriter::close_on_error() {
-    // The builder unlinks its own spilled runs; the staging file removes itself
-    // on destruction. Dropping both here means an aborted segment leaves no temp
-    // file behind even if this writer is kept alive for a while.
+    // The builder unlinks its own spilled runs. Dropping it here means an aborted
+    // segment leaves no temp file behind even if this writer is kept alive for a
+    // while. There is nothing else to drop: bkd_data only exists between
+    // finish()'s create() and its handover to the read callback, and it unlinks
+    // itself if finish() fails in between.
     _builder.reset();
-    _data.reset();
 }
 
 } // namespace doris::segment_v2

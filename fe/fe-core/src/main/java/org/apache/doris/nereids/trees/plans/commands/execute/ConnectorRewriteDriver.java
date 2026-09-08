@@ -172,6 +172,10 @@ public class ConnectorRewriteDriver {
         // failed commit needs no rollback (it would find nothing) — surface it directly.
         txnManager.commit(txnId);
 
+        // The rewrite is committed. Persist follower replay identity and refresh leader caches before the
+        // post-commit statistics and result construction below, which can fail independently of the mutation.
+        Env.getCurrentEnv().getRefreshManager().refreshTableAfterExternalMutation(table);
+
         // STEP 5: post-commit statistics. The added-files count is only valid after commit (it is
         // materialized from the BE commit fragments during commit); the other three are summed from the
         // planning groups (the connector exposes them on each ConnectorRewriteGroup).

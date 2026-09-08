@@ -25,6 +25,8 @@
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "storage/adaptive_thread_pool_controller.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -99,8 +101,20 @@ Status CloudDeltaWriter::write(const Block* block, const TabletAddRowsPayload& r
     CHECK(_is_init || _is_cancelled);
     {
         SCOPED_TIMER(_wait_flush_limit_timer);
-        while (_memtable_writer->flush_running_count() >=
-               config::memtable_flush_running_count_limit) {
+        auto* s3_file_upload_pool = rowset_builder()->is_s3_storage()
+                                            ? ExecEnv::GetInstance()->s3_file_upload_thread_pool()
+                                            : nullptr;
+        const auto need_backpressure = [this, s3_file_upload_pool] {
+            if (s3_file_upload_pool != nullptr) {
+                return s3_file_upload_pool->get_queue_size() >
+                       AdaptiveThreadPoolController::kS3QueueBusyThreshold;
+            }
+            const auto effective_flush_running_count_limit =
+                    config::memtable_flush_running_count_limit *
+                    (_req.write_req_type == WriteRequestType::GROUP ? 2 : 1);
+            return _memtable_writer->flush_running_count() >= effective_flush_running_count_limit;
+        };
+        while (need_backpressure()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }

@@ -78,7 +78,7 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
         if (rs->num_segments() == 0) {
             return;
         }
-        auto maybe_seg_path = rs->segment_path(0);
+        auto maybe_seg_path = rs->segment(0).path();
         if (!maybe_seg_path) {
             st = std::move(maybe_seg_path.error());
             return;
@@ -129,7 +129,7 @@ Result<std::string> get_last_encrypt_footer(const BaseTabletSPtr& tablet) {
     if (rs->num_segments() == 0) {
         return "{}";
     }
-    auto maybe_seg_path = rs->segment_path(0);
+    auto maybe_seg_path = rs->segment(0).path();
     if (!maybe_seg_path) {
         return ResultError(maybe_seg_path.error());
     }

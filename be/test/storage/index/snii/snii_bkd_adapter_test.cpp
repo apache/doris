@@ -36,6 +36,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -58,6 +59,7 @@
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/snii_bkd_index_reader.h"
 #include "storage/index/snii/snii_bkd_index_writer.h"
+#include "storage/index/snii/staged_file_probe.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -284,6 +286,49 @@ TEST_F(SniiBkdAdapterTest, NumericColumnLandsInTheContainerAsAQueryableBkd) {
         assert_ok(opened.reader->range(slice_of(lower), true, slice_of(upper), true, &hits));
         EXPECT_TRUE(hits == brute_force(rows, low, high));
     }
+}
+
+// The bkd_data staging file must be gone once the container has sealed, even
+// though the producer is still alive. It routinely is: IndexBuilder's SNII ADD
+// INDEX path keeps every writer in _index_column_writers until the whole rowset
+// has been closed, and a close error returns before that map is cleared. Since
+// bkd_data is sized by the point count, a producer that keeps holding it pins one
+// such file per numeric index per segment on the temp filesystem.
+//
+// write_segment() above already keeps its writer alive across begin_close(), so
+// this asserts what that flow was silently doing rather than inventing a shape.
+TEST_F(SniiBkdAdapterTest, SealingDrainsTheStagedDataWhileTheProducerIsStillAlive) {
+    const std::set<std::string> before = doris::snii_test::snii_staged_files("bkd_data");
+    const std::vector<Row> rows = sample_rows(3000, 500);
+    const std::string prefix = test_path("held_producer");
+
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter index_file_writer(io::global_local_filesystem(), prefix, "held_rowset",
+                                      /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII,
+                                      std::move(file_writer), /*can_use_ram_dir=*/true,
+                                      /*tablet_id=*/302);
+
+    SniiBkdIndexColumnWriter writer(&index_file_writer, &_meta, kFieldType);
+    assert_ok(writer.init());
+    std::vector<int64_t> values;
+    for (const Row& row : rows) {
+        if (!row.is_null) {
+            values.push_back(row.value);
+        }
+    }
+    assert_ok(writer.add_values("c1", values.data(), values.size()));
+    assert_ok(writer.finish());
+    // Sanity: its absence below must mean the seal drained it, not that it was
+    // never staged.
+    ASSERT_EQ(doris::snii_test::snii_staged_files("bkd_data").size(), before.size() + 1);
+
+    assert_ok(index_file_writer.begin_close());
+    // `writer` is STILL in scope here, exactly as it is in IndexBuilder.
+    EXPECT_EQ(doris::snii_test::snii_staged_files("bkd_data"), before)
+            << "sealing left bkd_data pinned by the producer";
+    assert_ok(index_file_writer.finish_close());
 }
 
 // NULL rows are carried by the SNII null-bitmap POD, not by the point set: a

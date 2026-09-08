@@ -23,11 +23,14 @@ import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
+import org.apache.doris.thrift.TTargetExprMonotonicity;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * runtime filter
@@ -52,6 +55,11 @@ public class RuntimeFilter {
     private final boolean bloomFilterSizeCalculatedByNdv;
 
     private boolean nonBlocking;
+
+    // Generated once with the runtime filter at its final target scan. Translation only
+    // maps this target-scoped metadata to the legacy scan node id.
+    private boolean canPruneBuckets;
+    private Map<Long, TTargetExprMonotonicity> partitionMonotonicity = ImmutableMap.of();
 
     /**
      * constructor
@@ -194,5 +202,23 @@ public class RuntimeFilter {
 
     public boolean isBloomFilterSizeCalculatedByNdv() {
         return bloomFilterSizeCalculatedByNdv;
+    }
+
+    public void setPruningMetadata(boolean canPruneBuckets,
+            Map<Long, TTargetExprMonotonicity> partitionMonotonicity) {
+        this.canPruneBuckets = canPruneBuckets;
+        this.partitionMonotonicity = ImmutableMap.copyOf(partitionMonotonicity);
+    }
+
+    public boolean canPruneBuckets() {
+        return canPruneBuckets;
+    }
+
+    public boolean canPrunePartitions() {
+        return !partitionMonotonicity.isEmpty();
+    }
+
+    public Map<Long, TTargetExprMonotonicity> getPartitionMonotonicity() {
+        return partitionMonotonicity;
     }
 }

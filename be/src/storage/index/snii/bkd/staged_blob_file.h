@@ -25,7 +25,9 @@
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/io/file_writer.h"
 
-// Build-time staging for one blob sub-file (design 10).
+// Build-time staging for one blob sub-file (design 10). Native BKD and ANN both
+// use this file because their compound-container producers finish long before
+// the container pulls the payload.
 //
 // The container is a PULL consumer: SniiCompoundWriter::add_blob_index registers
 // a BlobFileSource and only asks for the bytes at finish(), because placement
@@ -51,8 +53,10 @@ public:
     StagedBlobFile(const StagedBlobFile&) = delete;
     StagedBlobFile& operator=(const StagedBlobFile&) = delete;
 
-    // io::FileWriter. append() is the producer side; finalize() flushes and
-    // switches the file to readable.
+    // io::FileWriter. append() is the producer side; finalize() switches the file
+    // to readable. It makes NO durability promise -- this is scratch that the
+    // container copies out and then unlinks, so a barrier here would be a second
+    // full write for nothing (see the .cpp).
     Status append(Slice data) override;
     Status finalize() override;
     uint64_t bytes_written() const override { return bytes_written_; }

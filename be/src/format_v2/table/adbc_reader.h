@@ -79,6 +79,8 @@ public:
 
     Status init(RuntimeState* state) override;
     Status get_schema(std::vector<ColumnDefinition>* file_schema) const override;
+    std::unique_ptr<TableColumnMapper> create_column_mapper(
+            TableColumnMapperOptions options) const override;
     Status open(std::shared_ptr<FileScanRequest> request) override;
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
     Status close() override;

@@ -30,8 +30,8 @@ import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -137,8 +137,8 @@ public class BrokerLoadPendingTaskTest {
             brokerLoadPendingTask.executeTask();
             BrokerPendingTaskAttachment brokerPendingTaskAttachment =
                     Deencapsulation.getField(brokerLoadPendingTask, "attachment");
-            Assert.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(aggKey));
-            Assert.assertEquals(1L,
+            Assertions.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(aggKey));
+            Assertions.assertEquals(1L,
                     brokerPendingTaskAttachment.getFileStatusByTable(aggKey).get(0).get(0).size);
         } finally {
             mockedFsFactory.close();

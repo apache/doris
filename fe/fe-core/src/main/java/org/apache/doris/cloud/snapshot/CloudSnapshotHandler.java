@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.snapshot;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -30,24 +31,51 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Constructor;
+import java.util.ServiceConfigurationError;
+import java.util.ServiceLoader;
 
 public class CloudSnapshotHandler extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(CloudSnapshotHandler.class);
+    private static final String DEFAULT_HANDLER_CLASS = CloudSnapshotHandler.class.getName();
+    private static volatile Env snapshotEnv;
 
     public CloudSnapshotHandler() {
         super("cloud snapshot handler", Config.cloud_snapshot_handler_interval_second * 1000);
     }
 
     public static CloudSnapshotHandler getInstance() {
+        if (!DEFAULT_HANDLER_CLASS.equals(Config.cloud_snapshot_handler_class)) {
+            return createByClassName(Config.cloud_snapshot_handler_class);
+        }
         try {
-            Class<CloudSnapshotHandler> theClass = (Class<CloudSnapshotHandler>) Class.forName(
-                    Config.cloud_snapshot_handler_class);
+            for (CloudSnapshotHandler handler : ServiceLoader.load(CloudSnapshotHandler.class)) {
+                return handler;
+            }
+        } catch (ServiceConfigurationError e) {
+            LOG.error("failed to create cloud snapshot handler from service loader", e);
+            System.exit(-1);
+            return null;
+        }
+        return new CloudSnapshotHandler();
+    }
+
+    public static Env getSnapshotEnv() {
+        return snapshotEnv;
+    }
+
+    public static void setSnapshotEnv(Env env) {
+        snapshotEnv = env;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static CloudSnapshotHandler createByClassName(String className) {
+        try {
+            Class<CloudSnapshotHandler> theClass = (Class<CloudSnapshotHandler>) Class.forName(className);
             Constructor<CloudSnapshotHandler> constructor = theClass.getDeclaredConstructor();
             return constructor.newInstance();
         } catch (Exception e) {
-            LOG.error("failed to create cloud snapshot handler, class name: {}", Config.cloud_snapshot_handler_class,
-                    e);
+            LOG.error("failed to create cloud snapshot handler, class name: {}", className, e);
             System.exit(-1);
             return null;
         }

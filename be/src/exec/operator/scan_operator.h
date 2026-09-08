@@ -32,7 +32,6 @@
 #include "exec/runtime_filter/runtime_filter_partition_pruner.h"
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner_context.h"
-#include "exprs/function_filter.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vin_predicate.h"
 #include "runtime/descriptors.h"
@@ -99,10 +98,6 @@ public:
     [[nodiscard]] virtual int min_scanners_concurrency(RuntimeState* state) const;
     [[nodiscard]] virtual ScannerScheduler* scan_scheduler(RuntimeState* state) const;
 
-    // Thread-safe check whether a partition has been pruned by runtime filter.
-    // Callable from any scan type's scanner in scheduling threads.
-    bool is_partition_pruned(int64_t partition_id) const;
-
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
     uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
@@ -117,12 +112,12 @@ protected:
 
     virtual Status _init_profile() = 0;
 
-    // Hook for subclasses to react after new runtime filters are appended.
-    // Called inside update_late_arrival_runtime_filter() while _conjuncts_lock is held.
-    // Default implementation runs partition pruning on the newly appended RFs.
-    virtual Status _on_runtime_filter_update();
+    // Hook for subclasses to process only the runtime-filter conjuncts appended by the current
+    // update. Late-arrival updates call this while holding _conjuncts_lock because pruning may
+    // execute expression nodes shared with scanner clones.
+    virtual Status _on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts);
 
-    Status _do_partition_pruning_by_rf();
+    Status _do_partition_pruning_by_rf(const VExprContextSPtrs& conjuncts);
 
     std::atomic<bool> _opened {false};
 
@@ -167,9 +162,6 @@ protected:
     // Moved from ScanLocalState<Derived> to avoid re-instantiation for each Derived type.
     std::atomic<bool> _eos = false;
     int _max_pushdown_conditions_per_column = 1024;
-    // Save all function predicates which may be pushed down to data source.
-    std::vector<FunctionFilter> _push_down_functions;
-
     // Virtual methods with default implementations; overridden by subclasses when supported.
     // Declared here so that the normalize methods below (non-Derived-template) can call them.
     virtual bool _push_down_topn(const RuntimePredicate& predicate) { return false; }
@@ -210,6 +202,7 @@ protected:
                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                   PushDownType* pdt);
     Status _normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
+                                       std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                        PushDownType* pdt);
 
     // Inner PrimitiveType-template methods. Moved to base to avoid N(Derived)×M(PrimitiveType)
@@ -299,10 +292,7 @@ protected:
     friend class Scanner;
 
     Status _init_profile() override;
-    virtual Status _process_conjuncts(RuntimeState* state) {
-        RETURN_IF_ERROR(_do_partition_pruning_by_rf());
-        return _normalize_conjuncts(state);
-    }
+    virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
     virtual bool _should_push_down_common_expr(const VExprSPtr&) { return false; }
 
     virtual bool can_push_down_column_predicate(const SlotDescriptor* slot) {
@@ -355,7 +345,6 @@ protected:
     // Parsed from conjuncts
     phmap::flat_hash_map<int, ColumnValueRangeType> _slot_id_to_value_range;
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> _slot_id_to_predicates;
-    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> _or_predicates;
 
     std::vector<std::shared_ptr<Dependency>> _filter_dependencies;
 
@@ -395,8 +384,6 @@ public:
     const ParsedPartitionBoundaries* parsed_partition_boundaries() const override {
         return &_parsed_partition_boundaries;
     }
-
-    [[nodiscard]] virtual int get_column_id(const std::string& col_name) const { return -1; }
 
     [[nodiscard]] virtual bool can_push_down_column_predicate(const SlotDescriptor*) const {
         return true;

@@ -21,6 +21,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
+#include <optional>
 #include <vector>
 
 #include "common/status.h"
@@ -209,9 +211,15 @@ public:
         return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
     }
 
-    // Returns true if this scanner's partition has been pruned by a runtime filter.
-    // Overridden by OlapScanner to check partition pruning state.
-    virtual bool check_partition_pruned() const { return false; }
+    // Returns true if this scanner's scan range has been pruned by a runtime filter.
+    virtual bool is_pruned_by_runtime_filter() const { return false; }
+
+    // Releases resources owned by a scanner that runtime-filter pruning makes unnecessary before
+    // open(). The scanner will not be scheduled again after this call.
+    virtual void release_unopened_resources() {
+        DORIS_CHECK(!_is_open);
+        _has_prepared = false;
+    }
 
     bool need_to_close() const { return _need_to_close; }
 
@@ -244,7 +252,8 @@ protected:
     RuntimeProfile* _profile = nullptr;
 
     const TupleDescriptor* _output_tuple_desc = nullptr;
-    const RowDescriptor* _output_row_descriptor = nullptr;
+    std::optional<std::reference_wrapper<const RowDescriptor>> _projection_output_row_descriptor;
+    bool _has_projection = false;
 
     // If _input_tuple_desc is set, the scanner will read data into
     // this _input_block first, then convert to the output block.

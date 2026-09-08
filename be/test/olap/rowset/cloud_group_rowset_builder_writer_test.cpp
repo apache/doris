@@ -252,7 +252,7 @@ protected:
     }
 
     Block create_block(int start_key, int num_rows) const {
-        Block block = _tablet->tablet_schema()->create_block();
+        Block block = _tablet->tablet_schema()->create_storage_block();
         {
             auto columns_guard = block.mutate_columns_scoped();
             auto& columns = columns_guard.mutable_columns();
@@ -296,9 +296,10 @@ protected:
         cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
-        auto lsn_ids = std::make_shared<std::vector<int64_t>>();
-        RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, num_rows, *lsn_ids));
-        cfg.insert_seg_lsn(0, lsn_ids);
+        std::vector<int64_t> allocated_lsns;
+        RETURN_IF_ERROR(allocate_lsn(lsn_buffer, num_rows, allocated_lsns));
+        auto lsn_ids = std::make_shared<std::vector<int64_t>>(allocated_lsns.begin(),
+                                                              allocated_lsns.end());
 
         auto row_binlog_writer_res =
                 _row_binlog_tablet->create_rowset_writer(row_binlog_context, false);
@@ -313,6 +314,10 @@ protected:
         (*group_writer)
                 ->set_row_binlog_writer(
                         std::shared_ptr<RowsetWriter>(std::move(row_binlog_writer_res.value())));
+        RETURN_IF_ERROR((*group_writer)->init((*group_writer)->data_writer()->context()));
+        auto& group_binlog_ctx =
+                const_cast<RowsetWriterContext&>((*group_writer)->row_binlog_writer()->context());
+        group_binlog_ctx.insert_segment_allocated_lsns(0, lsn_ids);
         return Status::OK();
     }
 

@@ -460,6 +460,7 @@ DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
 DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
+// Legacy name retained for compatibility; controls GLOBAL_ROWID_COL file-map GC.
 DECLARE_mInt32(quering_rowsets_evict_interval);
 DECLARE_String(storage_root_path);
 DECLARE_mString(broken_storage_path);
@@ -1027,6 +1028,10 @@ DECLARE_String(thrift_server_type_of_fe);
 // disable zone map index when page row is too few
 DECLARE_mInt32(zone_map_row_num_threshold);
 
+// Maximum number of IN values checked exactly against a zone map. For larger sets, only the
+// IN-set min/max range is checked.
+DECLARE_mInt32(in_zonemap_point_check_threshold);
+
 // aws sdk log level
 //    Off = 0,
 //    Fatal = 1,
@@ -1274,6 +1279,7 @@ DECLARE_Int32(blocking_pipeline_executor_size);
 
 // block file cache
 DECLARE_Bool(enable_file_cache);
+DECLARE_mBool(enable_file_cache_write_from_s3_file_writer);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}]
@@ -1346,6 +1352,13 @@ DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 DECLARE_mBool(file_cache_enable_only_warm_up_idx);
+
+// async file cache write
+DECLARE_mBool(enable_async_file_cache_write);
+DECLARE_mInt32(async_file_cache_write_workers_per_disk);
+DECLARE_mInt64(async_file_cache_write_max_pending_bytes);
+DECLARE_mBool(enable_async_file_cache_write_inflight_write_buffer_index);
+DECLARE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1447,6 +1460,8 @@ DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
 DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
+// The kuromoji (Japanese) analyzer
+DECLARE_mBool(enable_kuromoji_analyzer);
 DECLARE_Int32(inverted_index_read_buffer_size);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
@@ -1772,8 +1787,9 @@ DECLARE_mInt64(hive_sink_max_file_size);
 /** Iceberg sink configurations **/
 DECLARE_mInt64(iceberg_sink_max_file_size);
 
-/** Paimon file system configurations **/
-DECLARE_Strings(paimon_file_system_scheme_mappings);
+/** Paimon sink configurations **/
+// Hard upper bound for Doris-managed Paimon write-buffer memory per JNI writer.
+DECLARE_mInt64(paimon_jni_writer_memory_pool_limit_bytes);
 
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
@@ -1969,6 +1985,7 @@ DECLARE_mInt32(concurrency_stats_dump_interval_ms);
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 
 DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
+DECLARE_mBool(enable_cloud_random_segment_id);
 DECLARE_mInt32(file_handles_deplenish_frequency_times);
 
 #ifdef BE_TEST

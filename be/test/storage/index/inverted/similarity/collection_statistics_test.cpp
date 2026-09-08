@@ -186,9 +186,7 @@ private:
 class MockRowset : public Rowset {
 public:
     MockRowset(TabletSchemaSPtr schema, RowsetMetaSharedPtr rowset_meta)
-            : Rowset(schema, rowset_meta, "/mock/tablet/path") {
-        _num_segments = 0;
-    }
+            : Rowset(schema, rowset_meta, "/mock/tablet/path") {}
 
     Status create_reader(std::shared_ptr<RowsetReader>* result) override {
         return Status::NotSupported("MockRowset::create_reader not implemented");
@@ -228,8 +226,6 @@ public:
 
     Status check_current_rowset_segment() override { return Status::OK(); }
 
-    int64_t num_segments() const override { return _num_segments; }
-
     Result<std::string> segment_path(int64_t seg_id) override {
         _segment_path_requests.push_back(seg_id);
         if (_segment_paths.find(seg_id) != _segment_paths.end()) {
@@ -242,12 +238,11 @@ public:
         _segment_paths[seg_id] = path;
     }
 
-    void set_num_segments(int64_t num) { _num_segments = num; }
+    void set_num_segments(int64_t num) { rowset_meta()->set_num_segments(num); }
 
     const std::vector<int64_t>& segment_path_requests() const { return _segment_path_requests; }
 
 private:
-    int64_t _num_segments;
     std::map<int64_t, std::string> _segment_paths;
     std::vector<int64_t> _segment_path_requests;
 };
@@ -257,6 +252,7 @@ public:
     MockRowsetReader(std::shared_ptr<MockRowset> rowset) : _rowset(rowset) {}
 
     Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) override {
+        _read_schema = read_context->read_schema;
         return Status::OK();
     }
 
@@ -286,6 +282,8 @@ public:
 
     RowsetSharedPtr rowset() override { return _rowset; }
 
+    const ReadSchema& read_schema() const override { return *_read_schema; }
+
     int64_t filtered_rows() override { return 0; }
 
     uint64_t merged_rows() override { return 0; }
@@ -302,6 +300,7 @@ public:
 
 private:
     std::shared_ptr<MockRowset> _rowset;
+    ReadSchemaSPtr _read_schema;
 };
 
 } // namespace collection_statistics

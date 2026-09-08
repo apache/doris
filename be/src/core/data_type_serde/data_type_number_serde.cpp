@@ -1661,10 +1661,6 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
     const auto size = str.size();
     column.resize(size);
 
-    size_t current_offset = 0;
-    const ColumnString::Chars* chars = &str.get_chars();
-    const IColumn::Offsets* offsets = &str.get_offsets();
-
     auto& column_to = assert_cast<ColumnType&>(column);
     auto& vec_to = column_to.get_data();
     CastParameters params;
@@ -1673,16 +1669,10 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
         if (null_map && null_map[i]) {
             continue;
         }
-        size_t next_offset = (*offsets)[i];
-        size_t string_size = next_offset - current_offset;
-
-        StringRef str_ref(&(*chars)[current_offset], string_size);
+        const auto str_ref = str.get_data_at(i);
         if (!try_parse_impl<T, true>(vec_to[i], str_ref, params)) {
-            return Status::InvalidArgument(
-                    "parse number fail, string: '{}'",
-                    std::string((char*)&(*chars)[current_offset], string_size));
+            return Status::InvalidArgument("parse number fail, string: '{}'", str_ref.to_string());
         }
-        current_offset = next_offset;
     }
     return Status::OK();
 }

@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <atomic>
 // IWYU pragma: no_include <bits/chrono.h>
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
 #include <chrono> // IWYU pragma: keep
@@ -227,10 +228,10 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
     LOG(INFO) << "unused rowset monitor thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "evict_querying_rowset_thread",
-            [this]() { this->_evict_quring_rowset_thread_callback(); },
-            &_evict_quering_rowset_thread));
-    LOG(INFO) << "evict quering thread started";
+            "StorageEngine", "id_file_map_gc_thread",
+            [this]() { this->_gc_expired_id_file_map_thread_callback(); },
+            &_id_file_map_gc_thread));
+    LOG(INFO) << "id file map gc thread started";
 
     // start thread for monitoring the snapshot and trash folder
     RETURN_IF_ERROR(Thread::create(

@@ -17,15 +17,22 @@
 
 package org.apache.doris.datasource.plugin;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.IOException;
@@ -50,6 +57,27 @@ import java.util.function.Supplier;
  */
 public class PluginDrivenExternalCatalogConcurrencyTest {
 
+    private MockedStatic<Env> mockedEnv;
+    private ExternalMetaCacheMgr cacheMgr;
+
+    @BeforeEach
+    public void setUp() {
+        Env env = Mockito.mock(Env.class);
+        cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(accessManager.detachAccessController(Mockito.anyString(), Mockito.anyLong()))
+                .thenReturn(() -> { });
+        mockedEnv = Mockito.mockStatic(Env.class);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        mockedEnv.close();
+    }
+
     @Test
     public void testAlterRejectsInvalidHiveParquetTimezone() {
         Map<String, String> properties = new HashMap<>();
@@ -62,6 +90,42 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
         DdlException exception = Assertions.assertThrows(DdlException.class,
                 () -> catalog.validatePropertiesBeforeUpdate(properties, updates));
         Assertions.assertTrue(exception.getMessage().contains("short timezone aliases are not supported"));
+    }
+
+    @Test
+    public void testPropertyUpdateInvalidatesCatalogCaches() throws Exception {
+        TestablePluginCatalog catalog = new TestablePluginCatalog(
+                mockConnector("old", new ConcurrentLinkedQueue<>()));
+
+        catalog.notifyPropertiesUpdated(Collections.singletonMap("endpoint", "new-source"));
+
+        Mockito.verify(cacheMgr).invalidateCatalog(1L);
+        Mockito.verify(cacheMgr, Mockito.never()).removeCatalog(Mockito.anyLong());
+    }
+
+    @Test
+    public void testDeferredPropertyUpdateInvalidatesCatalogCaches() throws Exception {
+        TestablePluginCatalog catalog = new TestablePluginCatalog(
+                mockConnector("old", new ConcurrentLinkedQueue<>()));
+
+        Runnable cleanup = catalog.modifyCatalogPropsWithDeferredAccessControllerCleanup(
+                Collections.singletonMap("endpoint", "new-source"));
+        cleanup.run();
+
+        Mockito.verify(cacheMgr).invalidateCatalog(1L);
+        Mockito.verify(cacheMgr, Mockito.never()).removeCatalog(Mockito.anyLong());
+    }
+
+    @Test
+    public void testSchemaCachePropertyUsesSingleCatalogInvalidation() throws Exception {
+        TestablePluginCatalog catalog = new TestablePluginCatalog(
+                mockConnector("old", new ConcurrentLinkedQueue<>()));
+
+        catalog.notifyPropertiesUpdated(Collections.singletonMap(
+                ExternalCatalog.SCHEMA_CACHE_TTL_SECOND, "10"));
+
+        Mockito.verify(cacheMgr).removeCatalog(1L);
+        Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(Mockito.anyLong());
     }
 
     /**

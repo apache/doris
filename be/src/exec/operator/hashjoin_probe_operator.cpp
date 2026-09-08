@@ -171,7 +171,8 @@ void HashJoinProbeLocalState::_prepare_probe_block() {
         column_type.type = remove_nullable(column_type.type);
     }
     _key_columns_holder.clear();
-    _probe_block.clear_column_data(_parent->get_child()->row_desc().num_materialized_slots());
+    _probe_block.clear_column_data(
+            _parent->get_child()->operator_row_desc_after_projection().num_materialized_slots());
 }
 
 HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
@@ -231,7 +232,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
         /// increase the output rows count(just same as `_probe_block`'s rows count).
         RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, eos,
                                                                  &local_state._probe_block, false));
-        local_state._probe_block.clear_column_data(_child->row_desc().num_materialized_slots());
+        local_state._probe_block.clear_column_data(
+                _child->operator_row_desc_after_projection().num_materialized_slots());
         return Status::OK();
     }
 
@@ -572,36 +574,43 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
             }
         }
     };
-    init_output_slots_flags(_child->row_desc().tuple_descriptors(), _left_output_slot_flags, true);
-    init_output_slots_flags(_build_side_child->row_desc().tuple_descriptors(),
-                            _right_output_slot_flags);
+    init_output_slots_flags(_child->operator_row_desc_after_projection().tuple_descriptors(),
+                            _left_output_slot_flags, true);
+    init_output_slots_flags(
+            _build_side_child->operator_row_desc_after_projection().tuple_descriptors(),
+            _right_output_slot_flags);
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node
     for (auto& conjunct : _other_join_conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+        RETURN_IF_ERROR(conjunct->prepare(state, join_row_desc()));
         conjunct->root()->collect_slot_column_ids(_should_not_lazy_materialized_column_ids);
     }
 
     for (auto& conjunct : _mark_join_conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+        RETURN_IF_ERROR(conjunct->prepare(state, join_row_desc()));
         conjunct->root()->collect_slot_column_ids(_should_not_lazy_materialized_column_ids);
     }
 
-    RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_probe_expr_ctxs, state, _child->operator_row_desc_after_projection()));
     // Prepare ASOF probe-side expression against probe child's row_desc directly.
     if (is_asof_join(_join_op)) {
         DORIS_CHECK(_asof_probe_expr);
-        RETURN_IF_ERROR(_asof_probe_expr->prepare(state, _child->row_desc()));
+        RETURN_IF_ERROR(
+                _asof_probe_expr->prepare(state, _child->operator_row_desc_after_projection()));
         RETURN_IF_ERROR(_asof_probe_expr->open(state));
     }
 
     DCHECK(_build_side_child != nullptr);
     // right table data types
-    _right_table_data_types = VectorizedUtils::get_data_types(_build_side_child->row_desc());
-    _left_table_data_types = VectorizedUtils::get_data_types(_child->row_desc());
-    _right_table_column_names = VectorizedUtils::get_column_names(_build_side_child->row_desc());
+    _right_table_data_types = VectorizedUtils::get_data_types(
+            _build_side_child->operator_row_desc_after_projection());
+    _left_table_data_types =
+            VectorizedUtils::get_data_types(_child->operator_row_desc_after_projection());
+    _right_table_column_names = VectorizedUtils::get_column_names(
+            _build_side_child->operator_row_desc_after_projection());
 
     std::vector<const SlotDescriptor*> slots_to_check;
-    for (const auto& tuple_descriptor : _intermediate_row_desc->tuple_descriptors()) {
+    for (const auto& tuple_descriptor : join_row_desc().tuple_descriptors()) {
         for (const auto& slot : tuple_descriptor->slots()) {
             slots_to_check.emplace_back(slot);
         }

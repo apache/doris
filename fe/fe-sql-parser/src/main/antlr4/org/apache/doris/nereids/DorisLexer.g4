@@ -21,6 +21,13 @@ lexer grammar DorisLexer;
 
 @members {
   public boolean isNoBackslashEscapes = false;
+  public boolean isLeanTokenMode = false;
+
+  private void skipInLeanTokenMode() {
+    if (isLeanTokenMode) {
+      skip();
+    }
+  }
 
   /**
    * Verify whether current token is a valid decimal token (which contains dot).
@@ -108,6 +115,7 @@ BITMAP_UNION: 'BITMAP_UNION';
 BITOR: 'BITOR';
 BITXOR: 'BITXOR';
 BLOB: 'BLOB';
+BLOOMFILTER: 'BLOOMFILTER';
 BOOLEAN: 'BOOLEAN';
 BOTH: 'BOTH';
 BRANCH: 'BRANCH';
@@ -214,6 +222,7 @@ DOW: 'DOW';
 DOY: 'DOY';
 DROP: 'DROP';
 DROPP: 'DROPP';
+DRY: 'DRY';
 DUAL: 'DUAL';
 DUMP: 'DUMP';
 DUPLICATE: 'DUPLICATE';
@@ -243,6 +252,7 @@ EXPORT: 'EXPORT';
 EXTENDED: 'EXTENDED';
 EXTERNAL: 'EXTERNAL';
 EXTRACT: 'EXTRACT';
+FALLBACK: 'FALLBACK';
 FAILED_LOGIN_ATTEMPTS: 'FAILED_LOGIN_ATTEMPTS';
 FALSE: 'FALSE';
 FAST: 'FAST';
@@ -437,7 +447,6 @@ PHYSICAL: 'PHYSICAL';
 PI: 'PI';
 PLACEHOLDER: '?';
 PLAN: 'PLAN';
-PLAY: 'PLAY';
 PRIVILEGES: 'PRIVILEGES';
 PROCESS: 'PROCESS';
 PYTHON: 'PYTHON';
@@ -504,6 +513,7 @@ ROOT: 'ROOT';
 ROTATE: 'ROTATE';
 ROUTINE: 'ROUTINE';
 RULE: 'RULE';
+RUN: 'RUN';
 ROW: 'ROW';
 ROWS: 'ROWS';
 S3: 'S3';
@@ -523,7 +533,6 @@ SESSION: 'SESSION';
 SESSION_USER: 'SESSION_USER';
 SET: 'SET';
 SETS: 'SETS';
-SET_SESSION_VARIABLE: 'SET_SESSION_VARIABLE';
 SHAPE: 'SHAPE';
 SHOW: 'SHOW';
 SIGNED: 'SIGNED';
@@ -665,8 +674,14 @@ ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
 STRING_LITERAL
-    :  '\'' ( {!isNoBackslashEscapes}? '\\'. | '\'\'' | {!isNoBackslashEscapes}? ~('\'' | '\\') | {isNoBackslashEscapes}? ~('\''))* '\''
-    | '"' ( {!isNoBackslashEscapes}? '\\'. | '""' | {!isNoBackslashEscapes}? ~('"'| '\\') | {isNoBackslashEscapes}? ~('"'))* '"'
+    : '\'' (
+          {!isNoBackslashEscapes}? ('\\' . | '\'\'' | ~('\'' | '\\'))*
+        | {isNoBackslashEscapes}? ('\'\'' | ~('\''))*
+      ) '\''
+    | '"' (
+          {!isNoBackslashEscapes}? ('\\' . | '""' | ~('"' | '\\'))*
+        | {isNoBackslashEscapes}? ('""' | ~('"'))*
+      ) '"'
     ;
 
 VARBINARY_LITERAL
@@ -743,7 +758,7 @@ fragment LETTER
     ;
 
 SIMPLE_COMMENT
-    : '--' ('\\\n' | ~[\r\n])* '\r'? '\n'? -> channel(HIDDEN)
+    : '--' ('\\\n' | ~[\r\n])* '\r'? '\n'? {skipInLeanTokenMode();} -> channel(HIDDEN)
     ;
 
 BRACKETED_COMMENT
@@ -752,7 +767,7 @@ BRACKETED_COMMENT
 
 
 WS
-    : [ \r\n\t]+ -> channel(HIDDEN)
+    : [ \r\n\t]+ {skipInLeanTokenMode();} -> channel(HIDDEN)
     ;
 
 // Catch-all for anything we can't recognize.

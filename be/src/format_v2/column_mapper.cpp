@@ -197,6 +197,14 @@ std::string virtual_column_type_to_string(TableVirtualColumnType type) {
         return "LAST_UPDATED_SEQUENCE_NUMBER";
     case TableVirtualColumnType::ICEBERG_ROWID:
         return "ICEBERG_ROWID";
+    case TableVirtualColumnType::ICEBERG_FILE_PATH:
+        return "ICEBERG_FILE_PATH";
+    case TableVirtualColumnType::ICEBERG_ROW_POSITION:
+        return "ICEBERG_ROW_POSITION";
+    case TableVirtualColumnType::PAIMON_FILE_PATH:
+        return "PAIMON_FILE_PATH";
+    case TableVirtualColumnType::PAIMON_ROW_POSITION:
+        return "PAIMON_ROW_POSITION";
     }
     return "UNKNOWN";
 }
@@ -427,7 +435,10 @@ std::string TableColumnMapperOptions::debug_string() const {
     out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode)
         << ", reject_missing_required_field=" << reject_missing_required_field
         << ", allow_idless_complex_wrapper_projection=" << allow_idless_complex_wrapper_projection
-        << ", enable_row_lineage_virtual_columns=" << enable_row_lineage_virtual_columns << "}";
+        << ", enable_row_lineage_virtual_columns=" << enable_row_lineage_virtual_columns
+        << ", enable_iceberg_metadata_virtual_columns=" << enable_iceberg_metadata_virtual_columns
+        << ", enable_paimon_metadata_virtual_columns=" << enable_paimon_metadata_virtual_columns
+        << "}";
     return out.str();
 }
 
@@ -454,7 +465,8 @@ std::string ColumnDefinition::debug_string() const {
     } else {
         out << "unknown";
     }
-    out << ", is_partition_key=" << is_partition_key << "}";
+    out << ", is_partition_key=" << is_partition_key << ", is_synthesized=" << is_synthesized
+        << "}";
     return out.str();
 }
 
@@ -1916,6 +1928,32 @@ static void attach_timestamp_semantics(const ColumnMapping& mapping, LocalColumn
         attach_timestamp_semantics(child_mapping, &*child_it);
     }
 }
+static Status apply_projected_file_definition_to_mapping(const ColumnDefinition& projected_field,
+                                                         ColumnMapping* mapping) {
+    DORIS_CHECK(mapping != nullptr);
+    mapping->file_type = projected_field.type;
+    mapping->projected_file_children = projected_field.children;
+    for (auto& child_mapping : mapping->child_mappings) {
+        if (!child_mapping.file_local_id.has_value()) {
+            continue;
+        }
+        const auto child_it =
+                std::ranges::find_if(projected_field.children, [&](const ColumnDefinition& child) {
+                    return child.file_local_id() == *child_mapping.file_local_id;
+                });
+        if (child_it == projected_field.children.end()) {
+            return Status::InternalError(
+                    "Projected file type for '{}' is missing mapped child id {}",
+                    mapping->file_column_name, *child_mapping.file_local_id);
+        }
+        // A full root projection changes every descendant's runtime shape too. Keep the recursive
+        // mapping in sync so a formerly pruned child cannot be mistaken for a trivial direct column.
+        RETURN_IF_ERROR(apply_projected_file_definition_to_mapping(*child_it, &child_mapping));
+    }
+    mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
+    return Status::OK();
+}
+
 // Update the mapping's file type according to the projection, and determine whether the projection
 // is trivial (i.e. the projected file type is the same as the table type, so no need to
 // rematerialize the complex value back to table layout after reading from file).
@@ -1934,10 +1972,7 @@ static Status apply_projection_to_mapping_file_type(const LocalColumnIndex& proj
     field.children = mapping->original_file_children;
     ColumnDefinition projected_field;
     RETURN_IF_ERROR(project_column_definition(field, projection, &projected_field));
-    mapping->file_type = std::move(projected_field.type);
-    mapping->projected_file_children = std::move(projected_field.children);
-    mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
-    return Status::OK();
+    return apply_projected_file_definition_to_mapping(projected_field, mapping);
 }
 
 static const ColumnDefinition* find_file_child_by_name(
@@ -2236,14 +2271,47 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
     mapping->variant_access_paths = table_column.variant_access_paths;
+    const auto iceberg_metadata_type = [&] {
+        if (!_options.enable_iceberg_metadata_virtual_columns || !table_column.is_synthesized) {
+            return TableVirtualColumnType::INVALID;
+        }
+        if (iequal(table_column.name, BeConsts::ICEBERG_FILE_PATH_COL)) {
+            return TableVirtualColumnType::ICEBERG_FILE_PATH;
+        }
+        if (iequal(table_column.name, BeConsts::ICEBERG_ROW_POSITION_COL)) {
+            return TableVirtualColumnType::ICEBERG_ROW_POSITION;
+        }
+        return TableVirtualColumnType::INVALID;
+    }();
+    const auto paimon_metadata_type = [&] {
+        if (!_options.enable_paimon_metadata_virtual_columns || !table_column.is_synthesized) {
+            return TableVirtualColumnType::INVALID;
+        }
+        if (iequal(table_column.name, BeConsts::PAIMON_FILE_PATH_COL)) {
+            return TableVirtualColumnType::PAIMON_FILE_PATH;
+        }
+        if (iequal(table_column.name, BeConsts::PAIMON_ROW_POSITION_COL)) {
+            return TableVirtualColumnType::PAIMON_ROW_POSITION;
+        }
+        return TableVirtualColumnType::INVALID;
+    }();
     // Row-lineage names are Iceberg metadata contracts, not reserved names in generic Hive,
     // Hudi, or Paimon schemas. Only the Iceberg reader may opt into virtual synthesis.
     const auto row_lineage_type =
             _options.enable_row_lineage_virtual_columns
                     ? row_lineage_virtual_column_type(table_column, _options.mode)
                     : TableVirtualColumnType::INVALID;
-    if (const auto* partition_value = find_partition_value(table_column, _partition_values);
-        table_column.is_partition_key && partition_value != nullptr) {
+    if (iceberg_metadata_type != TableVirtualColumnType::INVALID) {
+        // Iceberg `_file` and `_pos` are metadata contracts only when the current FE explicitly
+        // classifies the slot as synthesized. Old FE plans can still read physical fields with the
+        // same spelling during a rolling upgrade.
+        mapping->virtual_column_type = iceberg_metadata_type;
+    } else if (paimon_metadata_type != TableVirtualColumnType::INVALID) {
+        // Paimon metadata is carried by RawFile. The explicit synthesized marker prevents a
+        // physical same-name field from being reinterpreted during a rolling upgrade.
+        mapping->virtual_column_type = paimon_metadata_type;
+    } else if (const auto* partition_value = find_partition_value(table_column, _partition_values);
+               table_column.is_partition_key && partition_value != nullptr) {
         // Partition values are split constants and must take precedence over defaults.
         _set_constant_mapping(mapping, VExprContext::create_shared(VLiteral::create_shared(
                                                mapping->table_type, *partition_value)));

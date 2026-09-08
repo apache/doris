@@ -34,6 +34,8 @@ list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/benchmark/fs_benchmark
 # Standalone tool with its own main(); must not be an archive member of libIO.a,
 # or unity builds merge it into an object that the doris_be link actually pulls in.
 list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/cache/file_cache_lru_tool.cpp")
+list(REMOVE_ITEM IO_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/cache/benchmark/async_file_cache_write_microbench.cpp")
 
 add_library(IO STATIC ${IO_FILES})
 

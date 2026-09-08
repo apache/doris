@@ -2316,8 +2316,6 @@ Status parse_and_materialize_variant_columns(Block& block, const std::vector<uin
             { return _parse_and_materialize_variant_columns(block, variant_pos, configs); });
 }
 
-namespace {
-
 ParseConfig::ParseTo select_storage_variant_parse_target(const TabletColumn& column,
                                                          const ParseConfig& config) {
     // NestedGroup consumes the parse-time subcolumn tree to build nested storage structures, so it
@@ -2356,8 +2354,6 @@ ParseConfig::ParseTo select_storage_variant_parse_target(const TabletColumn& col
         return ParseConfig::ParseTo::OnlyDocValueColumn;
     }
 }
-
-} // namespace
 
 Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& tablet_schema,
                                              const std::vector<uint32_t>& column_pos) {

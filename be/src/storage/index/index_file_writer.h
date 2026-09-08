@@ -91,6 +91,20 @@ public:
     // need the DorisFSDirectory subclass.
     Result<std::shared_ptr<lucene::store::Directory>> open_ann_directory(
             const TabletIndex* index_meta);
+    // SNII only: drops the staging directory of one ANN index whose serialization
+    // failed. Its sub-files unlink themselves once their last owner is gone, and
+    // the producer releases its own reference alongside this call -- without that
+    // a failed save keeps an ANN-sized file and its descriptor on the temp
+    // filesystem until this writer is destroyed, which for a rowset build is not
+    // until every other segment has been written. V1/V2 keep their directory: its
+    // files ARE the index output, and begin_close() is what removes them.
+    void discard_ann_staging_directory(const TabletIndex* index_meta);
+    // SNII only: drops the staging of EVERY index on this writer because the
+    // segment they belong to is being abandoned. Layered above the per-index
+    // discard, not a duplicate of it: that one fires the instant one ANN
+    // serialization fails, while this one covers a segment that failed AFTER its
+    // indexes staged successfully, when nothing else will ever seal them.
+    void abandon_snii_staging();
     // Write-path facts for one SNII index flush.
     struct SniiAddIndexOptions {
         // This flush serves a stream/broker load (DataWriteType::TYPE_DIRECT):

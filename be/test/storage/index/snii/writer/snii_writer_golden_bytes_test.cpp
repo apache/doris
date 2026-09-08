@@ -31,6 +31,11 @@
 // If a digest changes INTENTIONALLY (format or analyzer change), re-harvest by
 // running the test and copying the "actual=" value from the failure message --
 // and say so loudly in the commit message.
+//
+// RE-HARVESTED when SniiStatsPB and SniiSectionRefsPB were renumbered back to the
+// field numbers the format shipped with. Protobuf tags are part of the image, so
+// EVERY digest moved -- including kGoldenKeywordDocsOnly, which is what tells you
+// the change reaches all SNII segments and not just one lane.
 
 #include <gtest/gtest.h>
 
@@ -303,9 +308,9 @@ private:
 // Whole-image digests re-harvested for the protobuf v1 metadata layout. They
 // still pin posting bytes together with every framing, directory, and metadata
 // byte, so future format changes remain explicit.
-constexpr uint64_t kGoldenEnglishPhrase = 0x0adb7bf49bed5dc2ULL;
-constexpr uint64_t kGoldenUnicodePhrase = 0x2ea85ae3a736665cULL;
-constexpr uint64_t kGoldenKeywordDocsOnly = 0xcdfd89278e7a7979ULL;
+constexpr uint64_t kGoldenEnglishPhrase = 0x21fa508c4b24585eULL;
+constexpr uint64_t kGoldenUnicodePhrase = 0xf3132d01603c7613ULL;
+constexpr uint64_t kGoldenKeywordDocsOnly = 0x45e45e6f7b81c65aULL;
 
 TEST_F(SniiWriterGoldenBytes, EnglishPhrase) {
     const TabletIndex meta =
@@ -385,9 +390,9 @@ TEST_F(SniiWriterGoldenBytes, PostingShapeMatrixCompleteImageDigest) {
             "df-8192", "recut-full", "recut-tail", "docs-only",
     };
     constexpr std::array<uint64_t, 9> expected = {
-            0x3d00d59799c7d0adULL, 0x1ae78d4f5bcfe8b9ULL, 0x2b6f0cf4ba73bfb0ULL,
-            0xc3e82019faf77965ULL, 0x8152796902268ea2ULL, 0xe9219cd6881137a9ULL,
-            0xc7da487463843f7aULL, 0xc65096369e752f3eULL, 0x70e35f7c3b9c42a1ULL,
+            0x5c9d83ad451240d5ULL, 0xbc57a5703b9ad0b2ULL, 0x41bbd0018cad67eeULL,
+            0x5fd78aaa9e3d2387ULL, 0x19fb79ed197b52b1ULL, 0x53d66eb1b705907cULL,
+            0xdae9ed00bf186842ULL, 0x72e87672c20f8cafULL, 0xc86fb412bf9c7686ULL,
     };
     for (size_t i = 0; i < images.size(); ++i) {
         const uint64_t actual = fnv1a64(images[i].bytes);

@@ -123,7 +123,6 @@ struct CountEmitShortcutFacts {
     bool has_remaining_col_predicates = false;
     bool has_remaining_common_exprs = false;
     bool has_delete_predicates = false;
-    bool lazy_materialization_read = false;
     // (3) consumers of real row ids / per-row values.
     bool has_virtual_columns = false;
     bool record_rowids = false;
@@ -139,10 +138,9 @@ struct CountEmitShortcutFacts {
 inline bool count_emit_shortcut_safe(const CountEmitShortcutFacts& f) {
     return f.count_fastpath_hit && !f.needs_vec_eval && !f.needs_short_eval && !f.needs_expr_eval &&
            !f.has_remaining_col_predicates && !f.has_remaining_common_exprs &&
-           !f.has_delete_predicates && !f.lazy_materialization_read && !f.has_virtual_columns &&
-           !f.record_rowids && !f.has_read_limit && !f.read_orderby_key_reverse &&
-           !f.has_condition_cache_digest && f.block_shape_matches_schema &&
-           f.all_columns_emit_defaults;
+           !f.has_delete_predicates && !f.has_virtual_columns && !f.record_rowids &&
+           !f.has_read_limit && !f.read_orderby_key_reverse && !f.has_condition_cache_digest &&
+           f.block_shape_matches_schema && f.all_columns_emit_defaults;
 }
 
 } // namespace doris::segment_v2

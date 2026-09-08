@@ -58,7 +58,7 @@ TEST_F(ConstantColumnIteratorTest, ColumnReaderCreateWithConstValueReturnsConsta
     TabletColumn column;
     column.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
     ColumnIteratorUPtr iter;
-    st = reader->new_iterator(&iter, &column, nullptr);
+    st = reader->new_iterator(&iter, &column);
     ASSERT_TRUE(st.ok()) << st;
 
     MutableColumnPtr dst = ColumnVector<TYPE_BIGINT>::create();

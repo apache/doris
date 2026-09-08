@@ -69,6 +69,10 @@ Status wildcard_query(const reader::LogicalIndexReader& idx, std::string_view pa
     // visited dictionary term, so the whole-dictionary scan triggered by a
     // leading wildcard performs O(1) scratch allocations instead of O(2N).
     internal::WildcardMatcher<> matcher(pattern);
+    if (!matcher.pattern_valid()) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "wildcard_query: pattern is not valid UTF-8");
+    }
     return internal::emit_expanded_docid_union(
             idx, enum_prefix, [&matcher](std::string_view term) { return matcher(term); }, sink,
             max_expansions);

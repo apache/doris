@@ -161,14 +161,12 @@ private:
 // takes ownership of rowwise iterator
 class VerticalMergeIteratorContext {
 public:
-    VerticalMergeIteratorContext(RowwiseIteratorUPtr&& iter, RowsetId rowset_id,
-                                 size_t ori_return_cols, uint32_t order, uint32_t seq_col_idx,
-                                 VerticalCompactionContextStats* context_stats,
+    VerticalMergeIteratorContext(RowwiseIteratorUPtr&& iter, RowsetId rowset_id, uint32_t order,
+                                 int32_t seq_col_idx, VerticalCompactionContextStats* context_stats,
                                  bool use_insert_order_when_same = false,
                                  std::vector<uint32_t> key_group_cluster_key_idxes = {})
             : _iter(std::move(iter)),
               _rowset_id(rowset_id),
-              _ori_return_cols(ori_return_cols),
               _order(order),
               _seq_col_idx(seq_col_idx),
               _num_key_columns(_iter->schema().num_key_columns()),
@@ -259,7 +257,6 @@ private:
 
     RowwiseIteratorUPtr _iter;
     RowsetId _rowset_id;
-    size_t _ori_return_cols = 0;
 
     // segment order, used to compare key
     const uint32_t _order = 0;
@@ -294,15 +291,13 @@ public:
     // VerticalMergeIterator takes the ownership of input iterators
     VerticalHeapMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters,
                               std::vector<bool> iterator_init_flags,
-                              std::vector<RowsetId> rowset_ids, size_t ori_return_cols,
-                              KeysType keys_type, int32_t seq_col_idx,
-                              RowSourcesBuffer* row_sources_buf,
+                              std::vector<RowsetId> rowset_ids, KeysType keys_type,
+                              int32_t seq_col_idx, RowSourcesBuffer* row_sources_buf,
                               VerticalCompactionContextStats* context_stats,
                               std::vector<uint32_t> key_group_cluster_key_idxes)
             : _origin_iters(std::move(iters)),
               _iterator_init_flags(std::move(iterator_init_flags)),
               _rowset_ids(std::move(rowset_ids)),
-              _ori_return_cols(ori_return_cols),
               _keys_type(keys_type),
               _seq_col_idx(seq_col_idx),
               _row_sources_buf(row_sources_buf),
@@ -315,7 +310,7 @@ public:
 
     Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info) override;
     Status next_batch(Block* block) override;
-    const Schema& schema() const override { return *_schema; }
+    const ReadSchema& schema() const override { return *_schema; }
     uint64_t merged_rows() const override { return _merged_rows; }
     Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override {
         DCHECK(_record_rowids);
@@ -330,9 +325,8 @@ private:
     std::vector<RowwiseIteratorUPtr> _origin_iters;
     std::vector<bool> _iterator_init_flags;
     std::vector<RowsetId> _rowset_ids;
-    size_t _ori_return_cols;
 
-    const Schema* _schema = nullptr;
+    const ReadSchema* _schema = nullptr;
 
     struct VerticalMergeContextComparator {
         bool operator()(const VerticalMergeIteratorContext* lhs,
@@ -365,14 +359,12 @@ public:
     // VerticalFifoMergeIterator takes the ownership of input iterators
     VerticalFifoMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters,
                               std::vector<bool> iterator_init_flags,
-                              std::vector<RowsetId> rowset_ids, size_t ori_return_cols,
-                              KeysType keys_type, int32_t seq_col_idx,
-                              RowSourcesBuffer* row_sources_buf,
+                              std::vector<RowsetId> rowset_ids, KeysType keys_type,
+                              int32_t seq_col_idx, RowSourcesBuffer* row_sources_buf,
                               VerticalCompactionContextStats* context_stats)
             : _origin_iters(std::move(iters)),
               _iterator_init_flags(std::move(iterator_init_flags)),
               _rowset_ids(std::move(rowset_ids)),
-              _ori_return_cols(ori_return_cols),
               _keys_type(keys_type),
               _seq_col_idx(seq_col_idx),
               _row_sources_buf(row_sources_buf),
@@ -384,7 +376,7 @@ public:
 
     Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info) override;
     Status next_batch(Block* block) override;
-    const Schema& schema() const override { return *_schema; }
+    const ReadSchema& schema() const override { return *_schema; }
     uint64_t merged_rows() const override { return _merged_rows; }
     Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override {
         DCHECK(_record_rowids);
@@ -399,9 +391,8 @@ private:
     std::vector<RowwiseIteratorUPtr> _origin_iters;
     std::vector<bool> _iterator_init_flags;
     std::vector<RowsetId> _rowset_ids;
-    size_t _ori_return_cols;
 
-    const Schema* _schema = nullptr;
+    const ReadSchema* _schema = nullptr;
 
     std::unique_ptr<VerticalMergeIteratorContext> _cur_iter_ctx;
     int _block_row_max = 0;
@@ -430,11 +421,10 @@ struct RowBatch {
 class VerticalMaskMergeIterator : public RowwiseIterator {
 public:
     // VerticalMaskMergeIterator takes the ownership of input iterators
-    VerticalMaskMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters, size_t ori_return_cols,
+    VerticalMaskMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters,
                               RowSourcesBuffer* row_sources_buf,
                               VerticalCompactionContextStats* context_stats)
             : _origin_iters(std::move(iters)),
-              _ori_return_cols(ori_return_cols),
               _row_sources_buf(row_sources_buf),
               _context_stats(context_stats) {}
 
@@ -446,7 +436,7 @@ public:
 
     Status next_batch(Block* block) override;
 
-    const Schema& schema() const override { return *_schema; }
+    const ReadSchema& schema() const override { return *_schema; }
 
     Status next_row(IteratorRowRef* ref) override;
 
@@ -468,11 +458,10 @@ private:
 
     // released after build ctx
     std::vector<RowwiseIteratorUPtr> _origin_iters;
-    size_t _ori_return_cols = 0;
 
     std::vector<std::unique_ptr<VerticalMergeIteratorContext>> _origin_iter_ctx;
 
-    const Schema* _schema = nullptr;
+    const ReadSchema* _schema = nullptr;
 
     int _block_row_max = 0;
     size_t _filtered_rows = 0;
@@ -485,19 +474,17 @@ private:
 // segment merge iterator
 std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, const std::vector<bool>& iterator_init_flag,
-        const std::vector<RowsetId>& rowset_ids, size_t _ori_return_cols, KeysType key_type,
-        uint32_t seq_col_idx, RowSourcesBuffer* row_sources_buf,
-        VerticalCompactionContextStats* context_stats,
+        const std::vector<RowsetId>& rowset_ids, KeysType key_type, int32_t seq_col_idx,
+        RowSourcesBuffer* row_sources_buf, VerticalCompactionContextStats* context_stats,
         std::vector<uint32_t> key_group_cluster_key_idxes);
 
 std::shared_ptr<RowwiseIterator> new_vertical_fifo_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, const std::vector<bool>& iterator_init_flag,
-        const std::vector<RowsetId>& rowset_ids, size_t _ori_return_cols, KeysType key_type,
-        uint32_t seq_col_idx, RowSourcesBuffer* row_sources_buf,
-        VerticalCompactionContextStats* context_stats);
+        const std::vector<RowsetId>& rowset_ids, KeysType key_type, int32_t seq_col_idx,
+        RowSourcesBuffer* row_sources_buf, VerticalCompactionContextStats* context_stats);
 
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
-        std::vector<RowwiseIteratorUPtr>&& inputs, size_t ori_return_cols,
-        RowSourcesBuffer* row_sources_buf, VerticalCompactionContextStats* context_stats);
+        std::vector<RowwiseIteratorUPtr>&& inputs, RowSourcesBuffer* row_sources_buf,
+        VerticalCompactionContextStats* context_stats);
 
 } // namespace doris

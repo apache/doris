@@ -25,9 +25,8 @@ import java.util.Map;
 import java.util.OptionalLong;
 
 /**
- * Pins the shared {@link CacheSpec} validators and parsing (the single source of truth after the
- * three prior copies — fe-core {@code datasource.metacache.CacheSpec}, the {@code connector.api.cache}
- * mirror, and the connectors' hand-rolled checks — were collapsed here).
+ * Pins the shared {@link CacheSpec} validators and parsing after the prior copies and hand-rolled checks were
+ * collapsed here.
  *
  * <p><b>WHY this matters:</b> this class restores the legacy CREATE/ALTER CATALOG meta-cache property
  * validation that was dropped at the SPI cutover. The validators MUST throw {@link IllegalArgumentException}

@@ -82,7 +82,8 @@ Status UnionSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status UnionSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<UnionSinkLocalState>::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_child_expr, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_child_expr, state, _child->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(VExpr::check_expr_output_type(_child_expr, row_descriptor()));
     // open const expr lists.
     RETURN_IF_ERROR(VExpr::open(_const_expr, state));

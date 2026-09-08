@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -25,9 +26,11 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.StatementContext;
@@ -43,12 +46,12 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -127,7 +130,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 Thread.sleep(1000);
             }
             LOG.info("alter job {} is done. state: {}", alterJobV2.getJobId(), alterJobV2.getJobState());
-            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Assertions.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
 
             Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());
             OlapTable tbl = (OlapTable) db.getTableOrMetaException(alterJobV2.getTableId(), Table.TableType.OLAP);
@@ -189,7 +192,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         List<String> cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
                 .collect(Collectors.toList());
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v1")));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v1")));
 
         // single add column
         alterTable("ALTER TABLE test." + tableName + " ADD COLUMN v2 INT AFTER v1", connectContext);
@@ -197,10 +200,10 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(2, cols.indexOf("v2"));
-        Assert.assertEquals(3, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assert.assertEquals(4, cols.indexOf(Column.BINLOG_LSN_COL));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v2")));
+        Assertions.assertEquals(2, cols.indexOf("v2"));
+        Assertions.assertEquals(3, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(4, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v2")));
 
         // multiple add column clauses in one ALTER
         alterTable("ALTER TABLE test." + tableName
@@ -209,12 +212,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(3, cols.indexOf("v3"));
-        Assert.assertEquals(4, cols.indexOf("v4"));
-        Assert.assertEquals(5, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assert.assertEquals(6, cols.indexOf(Column.BINLOG_LSN_COL));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v3")));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v4")));
+        Assertions.assertEquals(3, cols.indexOf("v3"));
+        Assertions.assertEquals(4, cols.indexOf("v4"));
+        Assertions.assertEquals(5, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(6, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v3")));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v4")));
 
         // AddColumnsOp: ADD COLUMN (colDef1, colDef2)
         alterTable("ALTER TABLE test." + tableName + " ADD COLUMN (v5 INT, v6 INT)", connectContext);
@@ -222,12 +225,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(5, cols.indexOf("v5"));
-        Assert.assertEquals(6, cols.indexOf("v6"));
-        Assert.assertEquals(7, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assert.assertEquals(8, cols.indexOf(Column.BINLOG_LSN_COL));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v5")));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
+        Assertions.assertEquals(5, cols.indexOf("v5"));
+        Assertions.assertEquals(6, cols.indexOf("v6"));
+        Assertions.assertEquals(7, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(8, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v5")));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
 
         // drop column
         alterTable("ALTER TABLE test." + tableName + " DROP COLUMN v6", connectContext);
@@ -235,9 +238,9 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertFalse(cols.contains("v6"));
-        Assert.assertEquals(6, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assert.assertEquals(7, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertFalse(cols.contains("v6"));
+        Assertions.assertEquals(6, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(7, cols.indexOf(Column.BINLOG_LSN_COL));
     }
 
     @Test
@@ -259,7 +262,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         List<String> cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
                 .collect(Collectors.toList());
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v1")));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v1")));
 
         // single add column
         alterTable("ALTER TABLE test." + tableName + " ADD COLUMN v2 INT AFTER v1", connectContext);
@@ -267,9 +270,9 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(2, cols.indexOf("v2"));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v2")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v1")) + 1,
+        Assertions.assertEquals(2, cols.indexOf("v2"));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v2")));
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v1")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v2")));
 
         // multiple add column clauses in one ALTER
@@ -279,13 +282,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(3, cols.indexOf("v3"));
-        Assert.assertEquals(4, cols.indexOf("v4"));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v3")));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v4")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v2")) + 1,
+        Assertions.assertEquals(3, cols.indexOf("v3"));
+        Assertions.assertEquals(4, cols.indexOf("v4"));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v3")));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v4")));
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v2")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v3")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v3")) + 1,
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v3")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v4")));
 
         // AddColumnsOp: ADD COLUMN (colDef1, colDef2)
@@ -294,13 +297,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(5, cols.indexOf("v5"));
-        Assert.assertEquals(6, cols.indexOf("v6"));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v5")));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v6")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v4")) + 1,
+        Assertions.assertEquals(5, cols.indexOf("v5"));
+        Assertions.assertEquals(6, cols.indexOf("v6"));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v5")));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v6")));
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v4")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v5")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v5")) + 1,
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v5")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v6")));
 
         // drop column
@@ -308,8 +311,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertFalse(cols.contains("v6"));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
+        Assertions.assertFalse(cols.contains("v6"));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
 
         // enable hidden sequence column should not pollute row binlog schema
         alterTable("ALTER TABLE test." + tableName
@@ -318,10 +321,89 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
-        Assert.assertTrue(tbl.getBaseSchema(true).stream().anyMatch(Column::isSequenceColumn));
+        Assertions.assertTrue(tbl.getBaseSchema(true).stream().anyMatch(Column::isSequenceColumn));
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertFalse(cols.contains(Column.SEQUENCE_COL));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName(Column.SEQUENCE_COL)));
+        Assertions.assertFalse(cols.contains(Column.SEQUENCE_COL));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName(Column.SEQUENCE_COL)));
+    }
+
+    @Test
+    public void testModifyTableLightSchemaChangeReplayNormalizesBfColumns() throws Exception {
+        String tableName = "sc_replay_bf_case";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "v1 STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true', "
+                + "'bloom_filter_columns' = 'k1');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        LinkedList<Column> alteredSchema = table.getBaseSchema().stream()
+                .map(Column::new)
+                .collect(Collectors.toCollection(LinkedList::new));
+        alteredSchema.add(new Column("v2", ScalarType.createType(PrimitiveType.INT),
+                false, AggregateType.NONE, "0", ""));
+
+        Map<Long, LinkedList<Column>> indexSchemaMap = Maps.newHashMap();
+        indexSchemaMap.put(table.getBaseIndexId(), alteredSchema);
+        long replayJobId = Env.getCurrentEnv().getNextId();
+
+        table.writeLock();
+        try {
+            table.setBloomFilterInfo(Sets.newHashSet("K1"), table.getBfFpp());
+            schemaChangeHandler.modifyTableLightSchemaChange("", db, table, indexSchemaMap, table.getIndexes(),
+                    null, false, replayJobId, true, Maps.newHashMap());
+
+            Assertions.assertNotNull(table.getColumn("v2"));
+            Assertions.assertEquals(Sets.newHashSet("k1"), table.getCopiedBfColumns());
+        } finally {
+            table.writeUnlock();
+            schemaChangeHandler.getAlterJobsV2().remove(replayJobId);
+            schemaChangeHandler.runnableSchemaChangeJobV2.remove(replayJobId);
+        }
+    }
+
+    @Test
+    public void testCreateJobRejectsUnchangedBfColumnsAndFpp() throws Exception {
+        String tableName = "sc_bf_unchanged_cols_fpp";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "v1 STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true', "
+                + "'bloom_filter_columns' = 'k1', 'bloom_filter_fpp' = '0.05');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        Map<Long, LinkedList<Column>> indexSchemaMap = Maps.newHashMap();
+        indexSchemaMap.put(table.getBaseIndexId(), table.getBaseSchema().stream()
+                .map(Column::new)
+                .collect(Collectors.toCollection(LinkedList::new)));
+
+        // This unit test invokes createJob() directly because SQL ALTER TABLE SET with both
+        // bloom_filter_columns and bloom_filter_fpp is rejected earlier by property validation.
+        // The goal here is to hit SchemaChangeHandler's "columns: yes, fpp: yes, nothing changed"
+        // branch and verify the exact no-change exception.
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("bloom_filter_columns", "k1");
+        properties.put("bloom_filter_fpp", "0.05");
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> Deencapsulation.invoke(schemaChangeHandler, "createJob", "",
+                        db.getId(), table, indexSchemaMap, properties, table.getIndexes(), Maps.newHashMap()));
+        Assertions.assertTrue(exception.getMessage().contains("Bloom filter index has no change"),
+                exception.getMessage());
     }
 
     @Test
@@ -350,7 +432,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             createTable(createVariant);
             Assertions.fail("Expected exception for VARIANT column");
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().toLowerCase().contains("variant"));
+            Assertions.assertTrue(e.getMessage().toLowerCase().contains("variant"));
         }
 
         String tableName2 = "binlog_add_variant";
@@ -372,7 +454,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             createTable(createAutoinc);
             Assertions.fail("Expected exception for AUTO_INCREMENT column");
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().toLowerCase().contains("auto"));
+            Assertions.assertTrue(e.getMessage().toLowerCase().contains("auto"));
         }
     }
 
@@ -699,7 +781,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             // process agg drop key column with replace schema change, expect exception.
             String dropKeyColStmtStr = "alter table test.sc_agg drop column new_k1";
             alterTable(dropKeyColStmtStr, connectContext);
-            Assert.fail();
+            Assertions.fail();
         } catch (Exception e) {
             LOG.info(e.getMessage());
         }
@@ -886,7 +968,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         try {
             Deencapsulation.invoke(schemaChangeHandler, "addColumnInternal", olapTable, newColumn, columnPosition,
                     Long.valueOf(2), Long.valueOf(1), Maps.newHashMap(), Sets.newHashSet(), false, Maps.newHashMap());
-            Assert.fail();
+            Assertions.fail();
         } catch (Exception e) {
             System.out.println(e.getMessage());
         }
@@ -1211,6 +1293,39 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertNotNull(indexMeta);
         } finally {
             tbl.readUnlock();
+        }
+    }
+
+    @Test
+    public void testLocalBfIndexDropUsesHeavySchemaChange() throws Exception {
+        String tableName = "sc_bf_drop_heavy";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "v1 STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        int jobsBefore = schemaChangeHandler.getAlterJobsV2().size();
+        List<Long> jobIdsBefore = Lists.newArrayList(schemaChangeHandler.getAlterJobsV2().keySet());
+        connectContext.getSessionVariable().setEnableAddIndexForNewData(true);
+        try {
+            alterTable("ALTER TABLE test." + tableName + " ADD INDEX idx_v1(v1) USING BLOOMFILTER",
+                    connectContext);
+            Assertions.assertEquals(OlapTable.OlapTableState.NORMAL, table.getState());
+
+            alterTable("ALTER TABLE test." + tableName + " DROP INDEX idx_v1", connectContext);
+
+            Assertions.assertEquals(OlapTable.OlapTableState.SCHEMA_CHANGE, table.getState());
+            Assertions.assertEquals(jobsBefore + 2, schemaChangeHandler.getAlterJobsV2().size());
+        } finally {
+            connectContext.getSessionVariable().setEnableAddIndexForNewData(false);
+            schemaChangeHandler.getAlterJobsV2().keySet().retainAll(jobIdsBefore);
         }
     }
 

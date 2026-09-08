@@ -280,7 +280,15 @@ public abstract class ConnectProcessor {
         ctx.setSqlHash(sqlHash);
 
         SessionVariable sessionVariable = ctx.getSessionVariable();
-        boolean wantToParseSqlFromSqlCache = CacheAnalyzer.canUseSqlCache(sessionVariable);
+        // The sql cache keeps the result rows in MySQL wire format and replays them through a
+        // MysqlChannel (StmtExecutor.sendCachedValues -> sendFields), which only exists on a MySQL
+        // connection. An Arrow Flight SQL connection has no channel and needs Arrow batches built by
+        // the BE, and the cached rows would be wrong for it anyway (object types such as HLL /
+        // BITMAP / QUANTILE_STATE were serialized as NULL under return_object_data_as_binary=false).
+        // So a non-MySQL connection must always re-execute the query instead of replaying the cache.
+        // The cache is never populated by such a connection either, see StmtExecutor.handleQueryStmt.
+        boolean wantToParseSqlFromSqlCache = connectType.equals(ConnectType.MYSQL)
+                && CacheAnalyzer.canUseSqlCache(sessionVariable);
         List<StatementBase> stmts = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
@@ -831,6 +839,11 @@ public abstract class ConnectProcessor {
             }
         }
         if (executor != null) {
+            List<Long> auditStatisticsBackendIds = Lists.newArrayList(
+                    AuditLogHelper.getExternalDmlAuditBackendIds(executor));
+            if (!auditStatisticsBackendIds.isEmpty()) {
+                result.setAuditStatisticsBackendIds(auditStatisticsBackendIds);
+            }
             if (executor.getProxyShowResultSet() != null) {
                 result.setResultSet(executor.getProxyShowResultSet().tothrift());
             } else if (!executor.getProxyQueryResultBufList().isEmpty()) {

@@ -87,6 +87,14 @@ public:
     Status finish(VariantShreddedColumns* output);
     size_t byte_size() const;
 
+#ifdef BE_TEST
+    struct TestAccess {
+#if !defined(BE_BENCHMARK)
+        static size_t binary_chunk_count(const VariantShredder& shredder);
+        static void set_binary_cells_per_chunk(VariantShredder& shredder, size_t cells);
+#endif
+    };
+#endif
 private:
     struct Impl;
     std::unique_ptr<Impl> _impl;

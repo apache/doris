@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
-import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
@@ -34,25 +34,36 @@ import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.kerberos.AuthType;
+import org.apache.doris.kerberos.AuthenticationConfig;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.catalog.CachingCatalog;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
-import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.fs.FileIO;
+import org.apache.paimon.fs.Path;
+import org.apache.paimon.hive.HiveCatalog;
+import org.apache.paimon.hive.HiveCatalogOptions;
+import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.privilege.PrivilegedCatalog;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -125,12 +136,14 @@ public class PaimonConnector implements Connector {
     // returns a fresh metadata per query, so this lives on the connector and is injected into the metadata so
     // beginQuerySnapshot pins a stable id across queries. Cleared wholesale on REFRESH CATALOG (connector rebuilt).
     private final PaimonLatestSnapshotCache latestSnapshotCache;
+    private final CatalogMetaCache metaCache = new CatalogMetaCache();
 
     // FIX-B-MC2: connector-level (per-catalog, long-lived) second-level memo for the time-travel
     // schema-at-snapshot read. getMetadata() returns a FRESH metadata per query, so this must live on the
     // connector (not the metadata) to give the cross-query hit the legacy PaimonExternalMetaCache provided.
     // Cleared wholesale on REFRESH CATALOG (the connector is rebuilt). See PaimonSchemaAtMemo.
-    private final PaimonSchemaAtMemo schemaAtMemo = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
+    private final PaimonSchemaAtMemo schemaAtMemo =
+            new PaimonSchemaAtMemo(metaCache, PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
 
     // PERF-06: cross-query DERIVED partition-view cache ("cache A", the generic ConnectorMetadataCache from
     // fe-connector-cache), layered ABOVE the raw remote catalog.listPartitions call (PaimonCatalogOps#listPartitions):
@@ -164,10 +177,12 @@ public class PaimonConnector implements Connector {
         this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader(),
                 this::pluginAuthenticator);
         this.latestSnapshotCache =
-                new PaimonLatestSnapshotCache(resolveTableCacheTtlSecond(properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                new PaimonLatestSnapshotCache(
+                        metaCache, resolveTableCacheTtlSecond(properties), DEFAULT_TABLE_CACHE_CAPACITY);
         // Reads its own meta.cache.paimon.partition_view.(enable|ttl-second|capacity) from the catalog
         // properties via the framework's CacheSpec (default ON / 24h / 1000).
-        this.partitionViewCache = new ConnectorMetadataCache<>("paimon", "partition_view", properties);
+        this.partitionViewCache = new ConnectorMetadataCache<>(
+                metaCache, "paimon.partition-view", "paimon", "partition_view", properties);
     }
 
     /**
@@ -190,26 +205,8 @@ public class PaimonConnector implements Connector {
     }
 
     /**
-     * Resolves the plugin-side Kerberos authenticator for the catalog, or {@code null} for a non-Kerberos
-     * catalog. Two Kerberos sources are covered, in precedence order:
-     * <ol>
-     *   <li><b>Storage</b> Kerberos — the raw {@code hadoop.security.authentication=kerberos} passthrough
-     *       (HDFS / data-lake login), built from the storage Hadoop configuration. Unchanged prior behavior;
-     *       when storage is Kerberos this single login also carries the HMS metastore RPC (same UGI). The
-     *       Kerberos keys ride the {@code hadoop.*} passthrough in
-     *       {@link PaimonCatalogFactory#buildHadoopConfiguration}; {@link HadoopAuthenticator#getHadoopAuthenticator}
-     *       resolves the plugin (child-first) copy of fe-kerberos, so its {@code doAs} acts on the plugin UGI.</li>
-     *   <li><b>HMS-metastore</b> Kerberos with non-Kerberos storage — a secured Hive Metastore whose data
-     *       storage is simple (e.g. a Kerberized HMS over S3). Legacy fe-core served this from the fe-core
-     *       {@code PaimonHMSMetaStoreProperties} HMS authenticator (delivered via {@code DefaultConnectorContext});
-     *       once the fe-core pre-execution authenticator is retired (design S6) the connector must own it,
-     *       mirroring {@code IcebergConnector.buildPluginAuthenticator}: the HMS client principal/keytab facts
-     *       ({@link HmsMetaStoreProperties#kerberos()}) feed a
-     *       {@link KerberosAuthenticationConfig}, so the {@code doAs} logs in the same client identity fe-core
-     *       used. The HMS <em>service</em> principal / SASL settings ride the catalog's own HiveConf, not the
-     *       login.</li>
-     * </ol>
-     * Package-visible + static for direct unit testing (mirrors {@code IcebergConnector.buildPluginAuthenticator}).
+     * Resolves only the storage-side Kerberos authenticator used by FileIO. HMS authentication is intentionally
+     * resolved separately by {@link #buildHmsAuthenticator} and applied at the client-pool boundary.
      */
     static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties,
             Map<String, String> storageHadoopConfig) {
@@ -217,20 +214,39 @@ public class PaimonConnector implements Connector {
             return HadoopAuthenticator.getHadoopAuthenticator(
                     PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig));
         }
-        if (PaimonCatalogProperties.HMS.equals(PaimonCatalogProperties.of(properties).getFlavor())) {
-            HmsMetaStoreProperties hms =
-                    (HmsMetaStoreProperties) MetaStoreProviders.bind(properties, storageHadoopConfig);
+        return null;
+    }
+
+    static HadoopAuthenticator buildHmsAuthenticator(Map<String, String> properties,
+            Map<String, String> storageHadoopConfig) {
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(PaimonConnector.class.getClassLoader());
+            if (!PaimonCatalogProperties.HMS.equals(PaimonCatalogProperties.of(properties).getFlavor())) {
+                return null;
+            }
+            AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bind(
+                    properties, storageHadoopConfig);
             Optional<KerberosAuthSpec> spec = hms.kerberos();
             if (spec.isPresent() && spec.get().hasCredentials()) {
-                Configuration conf =
-                        PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
+                Configuration conf = PaimonCatalogFactory.assembleHiveConf(
+                        hms.getConfResources(), hms.toHiveConfOverrides(""));
                 conf.set("hadoop.security.authentication", "kerberos");
                 conf.set("hive.metastore.sasl.enabled", "true");
                 return HadoopAuthenticator.getHadoopAuthenticator(
-                        new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
+                        new KerberosAuthenticationConfig(
+                                spec.get().getPrincipal(), spec.get().getKeytab(), conf));
             }
+            if (hms.getAuthType() == AuthType.KERBEROS) {
+                return null;
+            }
+            Configuration conf = PaimonCatalogFactory.assembleHiveConf(
+                    hms.getConfResources(), hms.toHiveConfOverrides(""));
+            return HadoopAuthenticator.getHadoopAuthenticator(
+                    AuthenticationConfig.getSimpleAuthenticationConfig(conf));
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
         }
-        return null;
     }
 
     /**
@@ -281,14 +297,12 @@ public class PaimonConnector implements Connector {
         // DROP/CREATE of this name): drop the cached latest snapshot id so the next read goes live. Keyed by
         // the REMOTE db/table names, matching the key beginQuerySnapshot stores (PaimonTableHandle carries
         // remote names).
-        latestSnapshotCache.invalidate(Identifier.create(dbName, tableName));
         // Also drop the time-travel schema memo for this table: unlike the snapshot cache it is keyed by
         // (db,table,sysTable,branch,schemaId) and would otherwise serve a stale schema-at-snapshot after a
         // drop+recreate that reuses a schemaId (the memo's narrow write-once-per-schemaId assumption breaks).
-        schemaAtMemo.invalidate(dbName, tableName);
         // PERF-06: also drop this table's cached derived partition-view entries (every snapshotId cached for
         // it), so the next listPartitions re-enumerates live.
-        partitionViewCache.invalidateTable(dbName, tableName);
+        metaCache.invalidateTable(dbName, tableName);
     }
 
     /**
@@ -303,16 +317,12 @@ public class PaimonConnector implements Connector {
      */
     @Override
     public void invalidateDb(String dbName) {
-        latestSnapshotCache.invalidateDb(dbName);
-        schemaAtMemo.invalidateDb(dbName);
-        partitionViewCache.invalidateDb(dbName);
+        metaCache.invalidateDatabase(dbName);
     }
 
     @Override
     public void invalidateAll() {
-        latestSnapshotCache.invalidateAll();
-        schemaAtMemo.invalidateAll();
-        partitionViewCache.invalidateAll();
+        metaCache.invalidateCatalog();
     }
 
     @Override
@@ -446,7 +456,13 @@ public class PaimonConnector implements Connector {
                 HiveConf hc = PaimonCatalogFactory.assembleHiveConf(
                         hms.getConfResources(),
                         hms.toHiveConfOverrides(PaimonConf.metastoreClientTimeoutSecond(context)));
+                // Paimon's pool cache is JVM-static and URI-only by default. Configuration-derived identities
+                // isolate catalogs without coupling the cache key to whichever storage UGI creates the catalog.
+                options.set("client-pool-cache.keys", appendHmsCacheKeys(
+                        options.get("client-pool-cache.keys")));
+                HadoopAuthenticator hmsAuth = buildHmsAuthenticator(catalogProps.getRaw(), storageHadoopConfig);
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
+                        hmsAuth, storageHadoopConfig,
                         "Failed to create Paimon catalog with HMS metastore");
             }
             default:
@@ -478,6 +494,11 @@ public class PaimonConnector implements Connector {
     }
 
     private Catalog createCatalogFromContext(CatalogContext catalogContext, String flavor, String failureMessage) {
+        return createCatalogFromContext(catalogContext, flavor, null, Collections.emptyMap(), failureMessage);
+    }
+
+    private Catalog createCatalogFromContext(CatalogContext catalogContext, String flavor,
+            HadoopAuthenticator hmsAuth, Map<String, String> storageHadoopConfig, String failureMessage) {
         // Pin the thread-context classloader to the plugin loader for the duration of catalog
         // creation (FIX-PAIMON-HADOOP-CLASSLOADER). Hadoop's FileSystem ServiceLoader
         // (FileSystem.loadFileSystems -> ServiceLoader.load(FileSystem.class)) and SecurityUtil's
@@ -489,12 +510,79 @@ public class PaimonConnector implements Connector {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
-            return context.executeAuthenticated(() -> CatalogFactory.createCatalog(catalogContext));
+            return context.executeAuthenticated(() -> {
+                Catalog catalog = PaimonCatalogProperties.HMS.equals(flavor)
+                        ? createHmsCatalog(catalogContext, hmsAuth, catalogProps.getRaw(),
+                                storageHadoopConfig)
+                        : CatalogFactory.createCatalog(catalogContext);
+                return catalog;
+            });
         } catch (Exception e) {
             throw new RuntimeException(failureMessage + " (flavor=" + flavor + "): " + e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
+    }
+
+    static Catalog createHmsCatalog(CatalogContext catalogContext, HadoopAuthenticator hmsAuth,
+            Map<String, String> properties, Map<String, String> storageHadoopConfig) {
+        HiveConf hiveConf = HiveCatalog.createHiveConf(catalogContext);
+        Options options = catalogContext.options();
+        String warehouse = options.get(CatalogOptions.WAREHOUSE);
+        if (warehouse == null) {
+            warehouse = hiveConf.get(HiveConf.ConfVars.METASTOREWAREHOUSE.varname,
+                    HiveConf.ConfVars.METASTOREWAREHOUSE.defaultStrVal);
+        }
+        Path warehousePath = new Path(warehouse);
+        Path fileIoPath = warehousePath.toUri().getScheme() == null
+                ? new Path(FileSystem.getDefaultUri(hiveConf)) : warehousePath;
+        try {
+            FileIO fileIO = FileIO.get(fileIoPath, catalogContext);
+            // Paimon checks or creates the warehouse eagerly; it must retain the outer storage identity.
+            fileIO.checkOrMkdirs(warehousePath);
+            String clientClass = options.get(HiveCatalogOptions.METASTORE_CLIENT_CLASS);
+            Catalog catalog = hmsAuth == null
+                    ? new HiveCatalog(fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString())
+                    : hmsAuth.doAs(() -> new HiveCatalog(
+                            fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString()));
+            catalog = PaimonHmsClientPool.install(catalog, hmsAuth);
+            catalog = PaimonHmsCatalog.install(catalog, properties, storageHadoopConfig);
+            catalog = CachingCatalog.tryToCreate(catalog, options);
+            return PrivilegedCatalog.tryToCreate(catalog, options);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    static String appendHmsCacheKeys(String existing) {
+        String keys = appendCacheKey(existing, "conf:hadoop.username");
+        keys = appendCacheKey(keys, "conf:hive.metastore.client.principal");
+        keys = appendCacheKey(keys, "conf:hive.metastore.kerberos.principal");
+        keys = appendCacheKey(keys, "conf:hadoop.kerberos.principal");
+        // Both settings are captured by the JVM-static SDK pool and must distinguish ALTER CATALOG generations.
+        return appendCacheKey(keys, "conf:hive.metastore.sasl.enabled");
+    }
+
+    static String appendCacheKey(String existing, String required) {
+        if (StringUtils.isBlank(existing)) {
+            return required;
+        }
+        for (String element : existing.split(",")) {
+            if (sameCacheKey(required, element.trim())) {
+                return existing;
+            }
+        }
+        return existing + "," + required;
+    }
+
+    private static boolean sameCacheKey(String required, String existing) {
+        String prefix = "conf:";
+        if (required.regionMatches(true, 0, prefix, 0, prefix.length())
+                && existing.regionMatches(true, 0, prefix, 0, prefix.length())) {
+            // Paimon accepts a case-insensitive marker, but Configuration property names remain case-sensitive.
+            return required.substring(prefix.length()).equals(existing.substring(prefix.length()));
+        }
+        return required.equalsIgnoreCase(existing);
     }
 
     /**
@@ -642,6 +730,7 @@ public class PaimonConnector implements Connector {
 
     @Override
     public void close() throws IOException {
+        metaCache.close();
         Catalog cat = catalog;
         if (cat != null) {
             try {

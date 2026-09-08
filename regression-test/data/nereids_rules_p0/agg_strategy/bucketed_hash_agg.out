@@ -38,3 +38,13 @@ c	220
 a	4	200
 b	5	370
 c	4	340
+
+-- !distinct_stddev_pop_result --
+37.416573867739416	2.1289773081689303
+
+-- !distinct_stddev_samp_result --
+38.94440481849308	2.215909838025097
+
+-- !distinct_var_pop_result --
+1400	4.5325443786982245
+

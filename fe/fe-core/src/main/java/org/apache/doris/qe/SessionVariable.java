@@ -470,6 +470,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_RUNTIME_FILTER_PARTITION_PRUNE =
             "enable_runtime_filter_partition_prune";
 
+    public static final String ENABLE_RUNTIME_FILTER_BUCKET_PRUNE =
+            "enable_runtime_filter_bucket_prune";
+
     public static final String ENABLE_PRUNE_NESTED_COLUMN = "enable_prune_nested_column";
 
     static final String SESSION_CONTEXT = "session_context";
@@ -805,8 +808,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DESCRIBE_EXTEND_VARIANT_COLUMN = "describe_extend_variant_column";
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
-
-    public static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
 
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
@@ -1470,6 +1471,7 @@ public class SessionVariable implements Serializable, Writable {
         NONE,
         IGNORE_JNI,
         IGNORE_NATIVE,
+        // Deprecated compatibility value. It behaves like NONE because no C++ splits are emitted.
         IGNORE_PAIMON_CPP
     }
 
@@ -1989,7 +1991,12 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = GLOBAL_PARTITION_TOPN_THRESHOLD)
     private double globalPartitionTopNThreshold = 100;
 
-    @VarAttrDef.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
+    // Forwarded to the BE as a query option and read by the MySQL result writer: when it is false
+    // the object types (HLL / BITMAP / QUANTILE_STATE) are serialized as NULL instead of their raw
+    // bytes. It therefore changes the result rows the sql cache stores, and must take part in the
+    // cache key, otherwise a session that turns it on replays the NULLs cached by a session that
+    // had it off. It only affects execution, not the plan, so it does not force forwarding.
+    @VarAttrDef.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY, affectQueryResultInExecution = true)
     private boolean returnObjectDataAsBinary = false;
 
     @VarAttrDef.VarAttr(name = BLOCK_ENCRYPTION_MODE, affectQueryResultInPlan = true)
@@ -2175,6 +2182,9 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true,
             fuzzy = true)
     public boolean enableRuntimeFilterPartitionPrune = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_BUCKET_PRUNE, needForward = true, fuzzy = true)
+    public boolean enableRuntimeFilterBucketPrune = true;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -2920,11 +2930,6 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = "Force the use of jni mode to read external table")
     private boolean forceJniScanner = false;
-
-    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_CPP_READER,
-            fuzzy = true,
-            description = "Use paimon-cpp for non-native Paimon reads")
-    private boolean enablePaimonCppReader = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
@@ -3710,6 +3715,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableParallelScan = random.nextInt(2) == 0;
         this.enableRuntimeFilterPrune = (randomInt % 10) == 0;
         this.enableRuntimeFilterPartitionPrune = (randomInt % 2) == 0;
+        this.enableRuntimeFilterBucketPrune = (randomInt % 2) == 0;
         this.runtimeFilterTreePublishMaxSendBytes =
                 Util.getRandomLong(0, 64L * 1024L * 1024L, 128L * 1024L * 1024L,
                         256L * 1024L * 1024L);
@@ -3799,8 +3805,6 @@ public class SessionVariable implements Serializable, Writable {
 
         // jni
         this.forceJniScanner = random.nextBoolean();
-        this.enablePaimonCppReader = random.nextBoolean();
-
         // statistics
         this.fetchHiveRowCountSync = random.nextBoolean();
 
@@ -5291,6 +5295,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableRuntimeFilterPartitionPrune = enableRuntimeFilterPartitionPrune;
     }
 
+    public boolean isEnableRuntimeFilterBucketPrune() {
+        return enableRuntimeFilterBucketPrune;
+    }
+
+    public void setEnableRuntimeFilterBucketPrune(boolean enableRuntimeFilterBucketPrune) {
+        this.enableRuntimeFilterBucketPrune = enableRuntimeFilterBucketPrune;
+    }
+
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
     }
@@ -5581,7 +5593,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
-        tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
         tResult.setAiContextWindowSize(aiContextWindowSize);
@@ -5669,6 +5680,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
         tResult.setProfileLevel(getProfileLevel());
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
+        tResult.setEnableRuntimeFilterBucketPrune(enableRuntimeFilterBucketPrune);
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
@@ -6331,6 +6343,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableDmlMaterializedViewRewrite;
     }
 
+    public void setEnableDmlMaterializedViewRewrite(boolean enableDmlMaterializedViewRewrite) {
+        this.enableDmlMaterializedViewRewrite = enableDmlMaterializedViewRewrite;
+    }
+
     public boolean isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness() {
         return enableDmlMaterializedViewRewriteWhenBaseTableUnawareness;
     }
@@ -6397,10 +6413,6 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
-    public boolean isEnablePaimonCppReader() {
-        return enablePaimonCppReader;
-    }
-
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -6420,10 +6432,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
-    }
-
-    public void setEnablePaimonCppReader(boolean enable) {
-        enablePaimonCppReader = enable;
     }
 
     public boolean isEnableCountPushDownForExternalTable() {

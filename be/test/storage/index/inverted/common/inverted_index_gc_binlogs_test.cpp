@@ -148,7 +148,7 @@ TEST_F(IndexGcBinglogsTest, gc_binlogs_test) {
         EXPECT_TRUE(res.has_value()) << res.error();
         const auto& rowset_writer = res.value();
 
-        Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_storage_block();
         auto columns = std::move(block).mutate_columns();
 
         Field key = Field::create_field<TYPE_INT>(10);

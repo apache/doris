@@ -926,6 +926,53 @@ public class MvExplorationSuiteTest extends SqlTestBase {
                 .anyMatch(expression -> isNotNullOnSlot(expression, "o_orderdate")));
     }
 
+    @Test
+    void testNullRejectCompensationWithCastJoinConditionFallsBack() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
+        CascadesContext queryContext = createCascadesContext(
+                "select lineitem.l_orderkey, orders.o_orderkey, orders.o_orderdate from lineitem "
+                        + "inner join orders on cast(lineitem.l_orderkey as bigint) "
+                        + "= cast(orders.o_orderkey as bigint)",
+                connectContext
+        );
+        Plan queryPlan = PlanChecker.from(queryContext)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
+
+        CascadesContext viewContext = createCascadesContext(
+                "select lineitem.l_orderkey, orders.o_orderkey, orders.o_orderdate from lineitem "
+                        + "left outer join orders on cast(lineitem.l_orderkey as bigint) "
+                        + "= cast(orders.o_orderkey as bigint)",
+                connectContext
+        );
+        Plan viewPlan = PlanChecker.from(viewContext)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
+
+        StructInfo queryStructInfo = StructInfo.of(queryPlan, queryPlan, queryContext);
+        StructInfo viewStructInfo = StructInfo.of(viewPlan, viewPlan, viewContext);
+        RelationMapping relationMapping = RelationMapping.generate(
+                queryStructInfo.getRelations(), viewStructInfo.getRelations(), 8).get(0);
+        SlotMapping queryToView = SlotMapping.generate(relationMapping);
+        SlotMapping viewToQuery = queryToView.inverse();
+        LogicalCompatibilityContext compatibilityContext = LogicalCompatibilityContext.from(
+                relationMapping, viewToQuery, queryStructInfo, viewStructInfo);
+        ComparisonResult comparisonResult = StructInfo.isGraphLogicalEquals(
+                queryStructInfo, viewStructInfo, compatibilityContext);
+
+        Assertions.assertFalse(comparisonResult.isInvalid());
+        Assertions.assertFalse(comparisonResult.getViewNoNullableSlot().isEmpty());
+
+        SplitPredicate compensatePredicates = Assertions.assertDoesNotThrow(
+                () -> TEST_RULE.predicatesCompensateForTest(
+                        queryStructInfo, viewStructInfo, viewToQuery, comparisonResult, queryContext));
+        Assertions.assertTrue(compensatePredicates.isInvalid());
+    }
+
     private static boolean isNotNullOnSlot(Expression expression, String slotName) {
         if (!(expression instanceof Not) || ((Not) expression).isGeneratedIsNotNull()
                 || !(((Not) expression).child() instanceof IsNull)) {

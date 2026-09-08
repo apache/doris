@@ -95,12 +95,9 @@ TabletSchemaSPtr make_tablet_schema() {
     return tablet_schema;
 }
 
-SchemaSPtr make_read_schema(const TabletSchemaSPtr& tablet_schema) {
-    std::vector<ColumnId> read_column_ids(tablet_schema->num_columns());
-    for (uint32_t cid = 0; cid < read_column_ids.size(); ++cid) {
-        read_column_ids[cid] = cid;
-    }
-    return std::make_shared<Schema>(tablet_schema->columns(), read_column_ids);
+// Read schema covers all tablet columns in order, so ordinal == tablet cid.
+ReadSchemaSPtr make_read_schema(const TabletSchemaSPtr& tablet_schema) {
+    return std::make_shared<ReadSchema>(tablet_schema->columns());
 }
 
 Block make_int_block() {
@@ -122,7 +119,7 @@ protected:
         auto iter = std::make_unique<SegmentIterator>(nullptr, _read_schema);
         iter->_opts.tablet_schema = _tablet_schema;
         iter->_opts.stats = &_stats;
-        iter->_support_lazy_read_pruned_columns.insert(0);
+        iter->_lazy_pruned_ordinals.push_back(0);
         iter->_column_iterators.resize(1);
 
         auto column_iter = std::make_unique<TrackingLazyColumnIterator>();
@@ -132,7 +129,7 @@ protected:
     }
 
     TabletSchemaSPtr _tablet_schema;
-    SchemaSPtr _read_schema;
+    ReadSchemaSPtr _read_schema;
     OlapReaderStatistics _stats;
 };
 

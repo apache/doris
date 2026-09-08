@@ -65,6 +65,29 @@ void add_search_binding_diagnostic(const std::shared_ptr<IndexQueryContext>& con
     }
 }
 
+InvertedIndexAnalyzerCtxSPtr build_analyzer_context(
+        const std::map<std::string, std::string>& properties, const std::string& analyzer_key) {
+    InvertedIndexAnalyzerConfig config;
+    config.analyzer_name = get_analyzer_name_from_properties(properties);
+    config.parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(properties));
+    config.parser_mode = get_parser_mode_string_from_properties(properties);
+    config.lower_case = get_parser_lowercase_from_properties(properties);
+    config.stop_words = get_parser_stopwords_from_properties(properties);
+    config.char_filter_map = get_parser_char_filter_map_from_properties(properties);
+
+    auto analyzer_context = std::make_shared<InvertedIndexAnalyzerCtx>();
+    analyzer_context->analyzer_key = analyzer_key;
+    analyzer_context->analyzer_name = config.analyzer_name;
+    analyzer_context->parser_type = config.parser_type;
+    analyzer_context->char_filter_map = config.char_filter_map;
+    if (analyzer_context->requires_analysis()) {
+        analyzer_context->analyzer_provider =
+                inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(&config);
+    }
+    return analyzer_context;
+}
+
 } // namespace
 
 FieldReaderResolver::FieldReaderResolver(
@@ -381,6 +404,20 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                                 &inverted_reader->get_index_meta())));
     }
     *binding = resolved;
+    return Status::OK();
+}
+
+Status FieldReaderResolver::resolve_with_analyzer_context(const std::string& field_name,
+                                                          InvertedIndexQueryType query_type,
+                                                          FieldReaderBinding* binding) {
+    RETURN_IF_ERROR(resolve(field_name, query_type, binding));
+    if (!binding->use_snii_native_reader() || binding->analyzer_context != nullptr) {
+        return Status::OK();
+    }
+
+    binding->analyzer_context =
+            build_analyzer_context(binding->index_properties, binding->analyzer_key);
+    _cache.at(binding->binding_key).analyzer_context = binding->analyzer_context;
     return Status::OK();
 }
 

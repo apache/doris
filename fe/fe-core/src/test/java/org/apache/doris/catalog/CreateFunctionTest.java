@@ -172,6 +172,39 @@ public class CreateFunctionTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateFunctionRejectsBuiltinAggStateCombinatorNames() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database reserved_function_db;");
+        String expectedMessage = "is reserved for built-in aggregate state combinators";
+
+        assertCreateFunctionAnalysisException(ctx,
+                "create alias function reserved_function_db.avg_combine(int, int) "
+                        + "with parameter(lhs, rhs) as lhs + rhs;",
+                expectedMessage);
+        assertCreateFunctionAnalysisException(ctx,
+                "create function reserved_function_db.avg_union(int) returns int "
+                        + "properties('type'='JAVA_UDF', 'symbol'='evaluate');",
+                expectedMessage);
+        assertCreateFunctionAnalysisException(ctx,
+                "create aggregate function reserved_function_db.avg_merge(int) returns int "
+                        + "properties('type'='JAVA_UDF', 'symbol'='Agg');",
+                expectedMessage);
+        assertCreateFunctionAnalysisException(ctx,
+                "create tables function reserved_function_db.avg_foreach(int) returns array<int> "
+                        + "properties('type'='JAVA_UDF', 'symbol'='evaluate');",
+                expectedMessage);
+        assertCreateFunctionAnalysisException(ctx,
+                "create global alias function avg_state(int) with parameter(value) as value;",
+                expectedMessage);
+
+        createFunction("create alias function reserved_function_db.abs_combine(int) "
+                + "with parameter(value) as abs(value);", ctx);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("reserved_function_db");
+        Assertions.assertNotNull(db);
+        Assertions.assertNotNull(findFunction(db, "abs_combine"));
+    }
+
+    @Test
     public void testCreateFunctionRollbackOnlyFailedOverload() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         createDatabase(ctx, "create database rollback_function_db;");
@@ -204,6 +237,37 @@ public class CreateFunctionTest extends TestWithFeService {
         } finally {
             Env.getCurrentEnv().setEditLog(editLog);
         }
+    }
+
+    @Test
+    public void testDropFunctionReturnsCurrentGenerationId() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database drop_function_id_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("drop_function_id_db");
+        Assertions.assertNotNull(db);
+
+        Function firstGeneration = createJavaUdf("drop_function_id_db", "generation_fn", Type.INT);
+        db.addFunction(firstGeneration, false);
+        Assertions.assertEquals(ImmutableList.of(firstGeneration.getId()),
+                db.dropFunction(searchDesc(firstGeneration), false));
+
+        Function secondGeneration = createJavaUdf("drop_function_id_db", "generation_fn", Type.INT);
+        db.addFunction(secondGeneration, false);
+        Assertions.assertNotEquals(firstGeneration.getId(), secondGeneration.getId());
+        Assertions.assertEquals(ImmutableList.of(secondGeneration.getId()),
+                db.dropFunction(searchDesc(secondGeneration), false));
+    }
+
+    @Test
+    public void testDropGlobalFunctionReturnsCurrentGenerationId() throws Exception {
+        GlobalFunctionMgr globalFunctionMgr = Env.getCurrentEnv().getGlobalFunctionMgr();
+        Function function = createJavaUdf(null, "drop_global_function_id_fn", Type.INT);
+        FunctionSearchDesc functionDesc = searchDesc(function);
+        globalFunctionMgr.dropFunction(functionDesc, true);
+
+        globalFunctionMgr.addFunction(function, false);
+        Assertions.assertEquals(ImmutableList.of(function.getId()),
+                globalFunctionMgr.dropFunction(functionDesc, false));
     }
 
     @Test

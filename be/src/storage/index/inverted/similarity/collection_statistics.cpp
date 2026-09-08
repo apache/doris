@@ -104,10 +104,8 @@ Status CollectionStatistics::collect_full_collection(
 
     for (const auto& rowset : rowsets) {
         DORIS_CHECK(rowset != nullptr);
-        const auto num_segments = rowset->num_segments();
-        for (int64_t seg_id = 0; seg_id < num_segments; ++seg_id) {
-            auto status =
-                    process_segment(rowset, seg_id, tablet_schema.get(), collect_infos, io_ctx);
+        for (auto seg : rowset->segments()) {
+            auto status = process_segment(rowset, seg, tablet_schema.get(), collect_infos, io_ctx);
             if (!status.ok()) {
                 if (tablet_schema->get_inverted_index_storage_format() !=
                             InvertedIndexStorageFormatPB::SNII &&
@@ -210,18 +208,18 @@ Status CollectionStatistics::extract_collect_info(
     return Status::OK();
 }
 
-Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int64_t seg_id,
+Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
+                                             const RowsetSegmentView& seg,
                                              const TabletSchema* tablet_schema,
                                              const CollectInfoMap& collect_infos,
                                              io::IOContext* io_ctx) {
-    auto seg_path = DORIS_TRY(rowset->segment_path(seg_id));
+    auto seg_path = DORIS_TRY(seg.path());
     auto rowset_meta = rowset->rowset_meta();
 
     auto idx_file_reader = std::make_unique<IndexFileReader>(
             rowset_meta->fs(),
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
-            tablet_schema->get_inverted_index_storage_format(),
-            rowset_meta->inverted_index_file_info(static_cast<int>(seg_id)),
+            tablet_schema->get_inverted_index_storage_format(), seg.inverted_index_file_info(),
             rowset_meta->tablet_id());
     const bool is_snii =
             idx_file_reader->get_storage_format() == InvertedIndexStorageFormatPB::SNII;

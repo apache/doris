@@ -159,4 +159,79 @@ suite("bucketed_hash_agg") {
     GROUP BY grp
     ORDER BY grp;
     """
+
+    // ============================================================
+    // Test 6: DISTINCT stddev/var mixed with a non-distinct aggregate.
+    //         3-phase DISTINCT plans build a one-phase GLOBAL(INPUT_TO_RESULT)
+    //         dedup aggregate whose non-distinct functions run in
+    //         INPUT_TO_BUFFER mode (Varchar output slots). Such an aggregate
+    //         must NOT be fused into BucketedAggregationNode — the bucketed
+    //         node always finalizes into the tuple slot types, so writing the
+    //         final DOUBLE result into the Varchar slot fails the BE
+    //         result-type check ("Column type String is not compatible with
+    //         data type DOUBLE").
+    //         parallel_pipeline_task_num=1 makes the single-execution-instance
+    //         path pick the 3-phase plan deterministically.
+    // ============================================================
+    sql "set be_number_for_test=1"
+    sql "set enable_bucketed_hash_agg = true;"
+    sql "set parallel_pipeline_task_num=1"
+
+    order_qt_distinct_stddev_pop_result """
+    SELECT STDDEV_POP(DISTINCT val), STDDEV_POP(id)
+    FROM bucketed_agg_reg_test;
+    """
+
+    order_qt_distinct_stddev_samp_result """
+    SELECT STDDEV_SAMP(DISTINCT val), STDDEV_SAMP(id)
+    FROM bucketed_agg_reg_test;
+    """
+
+    order_qt_distinct_var_pop_result """
+    SELECT VAR_POP(DISTINCT val), VAR_POP(id)
+    FROM bucketed_agg_reg_test;
+    """
+
+    // ============================================================
+    // Test 7: Aggregate functions with internal ORDER BY require
+    //         agg_sort_infos, which BucketedAggregationNode cannot carry.
+    // ============================================================
+    sql "set agg_phase=1"
+    sql "set be_number_for_test=1"
+    sql "set enable_bucketed_hash_agg=true"
+    sql "set use_one_phase_agg_for_group_concat_with_order=false"
+    sql "set parallel_pipeline_task_num=2"
+
+    sql "DROP TABLE IF EXISTS agg_group_concat_table"
+    sql """
+        CREATE TABLE agg_group_concat_table (
+            kint INT NOT NULL,
+            kbint INT NOT NULL,
+            kstr STRING NOT NULL,
+            kstr2 STRING NOT NULL,
+            kastr ARRAY<STRING> NOT NULL
+        ) ENGINE=OLAP
+        DISTRIBUTED BY HASH(kint) BUCKETS 4
+        PROPERTIES('replication_num' = '1');
+    """
+    sql """
+        INSERT INTO agg_group_concat_table VALUES
+        (1, 1, 'string1', 'string3', ['s11', 's12', 's13']),
+        (1, 2, 'string2', 'string1', ['s21', 's22', 's23']),
+        (2, 3, 'string3', 'string2', ['s31', 's32', 's33']),
+        (1, 1, 'string1', 'string3', ['s11', 's12', 's13']),
+        (1, 2, 'string2', 'string1', ['s21', 's22', 's23']),
+        (2, 3, 'string3', 'string2', ['s31', 's32', 's33']);
+    """
+
+    String groupConcatWithOrder = """
+        SELECT multi_distinct_group_concat(kstr ORDER BY kint)
+        FROM agg_group_concat_table
+        GROUP BY kbint
+    """
+    explain {
+        sql(groupConcatWithOrder)
+        notContains("BUCKETED AGGREGATE")
+    }
+    sql(groupConcatWithOrder)
 }

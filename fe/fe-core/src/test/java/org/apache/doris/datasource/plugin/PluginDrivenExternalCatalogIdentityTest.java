@@ -17,15 +17,18 @@
 
 package org.apache.doris.datasource.plugin;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.log.InitCatalogLog;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.HashMap;
@@ -61,8 +64,14 @@ public class PluginDrivenExternalCatalogIdentityTest {
     private static void assertRegisteredIdentity(
             int mode, String remoteName, String mappedName, String expectedLocalName) {
         RecordingCatalog catalog = new RecordingCatalog(mode, mappedName);
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
 
-        catalog.registerDatabase(remoteName);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            catalog.registerDatabaseFromEvent(remoteName, catalog.canonicalNameForTest(remoteName));
+        }
 
         Assertions.assertEquals(remoteName, catalog.registeredRemoteName);
         Assertions.assertEquals(expectedLocalName, catalog.registeredLocalName);
@@ -71,6 +80,8 @@ public class PluginDrivenExternalCatalogIdentityTest {
         Assertions.assertFalse(catalog.registeredCheckExists);
         Assertions.assertEquals(expectedLocalName, catalog.canonicalNameForTest(remoteName));
         Assertions.assertFalse(catalog.hasMetaCacheEntriesForTest());
+        Mockito.verify(cacheMgr).invalidateDb(
+                catalog.getId(), Util.genIdByName(catalog.getName(), expectedLocalName), expectedLocalName);
     }
 
     private static class RecordingCatalog extends PluginDrivenExternalCatalog {

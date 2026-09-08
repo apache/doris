@@ -51,7 +51,7 @@ namespace doris {
 class IDataType;
 
 class ShortKeyIndexDecoder;
-class Schema;
+class ReadSchema;
 class StorageReadOptions;
 class PrimaryKeyIndexReader;
 class RowwiseIterator;
@@ -110,7 +110,7 @@ public:
     int64_t get_metadata_size() const override;
     void update_metadata_size();
 
-    Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
+    Status new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
 
     static Status new_default_iterator(const TabletColumn& tablet_column,
@@ -180,21 +180,21 @@ public:
     // another method `get_metadata_size` not include the column reader, only the segment object itself.
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
-    // Get the inner file column's data type.
-    // When `read_options` is provided, the decision (e.g. flat-leaf vs hierarchical) can depend
-    // on the reader type and tablet schema; when it is nullptr, we treat it as a query reader.
-    // nullptr will be returned if storage type does not contain such column.
-    std::shared_ptr<const IDataType> get_data_type_of(const TabletColumn& column,
+    // Variant paths use segment metadata; other columns use `read_type`.
+    std::shared_ptr<const IDataType> get_data_type_of(const TabletColumn& read_column,
+                                                      const DataTypePtr& read_type,
                                                       const StorageReadOptions& read_options);
 
     // If column in segment is the same type in schema, then it is safe to apply predicate.
+    // `ordinal` is a read-schema ordinal (the coordinate ColumnPredicate::column_id() carries).
     bool can_apply_predicate_safely(
-            int cid, const Schema& schema,
+            int ordinal, const ReadSchema& schema,
             const std::map<std::string, DataTypePtr>& target_cast_type_for_variants,
             const StorageReadOptions& read_options) {
-        const TabletColumn* col = schema.column(cid);
-        DCHECK(col != nullptr) << "Column not found in schema for cid=" << cid;
-        DataTypePtr storage_column_type = get_data_type_of(*col, read_options);
+        const TabletColumn* col = schema.column(ordinal);
+        DCHECK(col != nullptr) << "Column not found in schema for ordinal=" << ordinal;
+        DataTypePtr storage_column_type =
+                get_data_type_of(*col, schema.data_type(ordinal), read_options);
         if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
             !target_cast_type_for_variants.contains(col->name())) {
             // Default column iterator or not variant column
@@ -212,7 +212,7 @@ public:
     // (SegmentIterator::_update_tso_col_if_needed). Its zonemap reflects the placeholder, so
     // it must NOT drive zonemap pruning. Mirrors the guards of _update_tso_col_if_needed.
     // Returns false for range (compaction) segments whose on-disk value is real.
-    bool is_tso_placeholder_col(int cid, const Schema& schema,
+    bool is_tso_placeholder_col(int cid, const ReadSchema& schema,
                                 const StorageReadOptions& read_options) const;
 
     const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }

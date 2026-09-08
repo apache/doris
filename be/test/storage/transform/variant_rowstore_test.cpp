@@ -141,7 +141,7 @@ protected:
                 cids.push_back(static_cast<uint32_t>(i));
             }
         }
-        Block dst = schema->create_block_by_cids(cids);
+        Block dst = schema->create_storage_block(cids);
         DataTypeSerDeSPtrs serdes = create_data_type_serdes(dst.get_data_types());
         std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
         std::vector<std::string> default_values(cids.size());
@@ -170,7 +170,7 @@ TEST_F(VariantRowStoreTest, VariantParseNoVariantPassThrough) {
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(schema, &rwc);
 
-    Block block = schema->create_block(); // full width, 2 rows
+    Block block = schema->create_storage_block(); // full width, 2 rows
     IColumn* k = block.get_by_position(0).column->assert_mutable().get();
     IColumn* v = block.get_by_position(1).column->assert_mutable().get();
     IColumn* ds = block.get_by_position(2).column->assert_mutable().get();
@@ -206,7 +206,7 @@ TEST_F(VariantRowStoreTest, VariantParseDirectSingleRow) {
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(schema, &rwc);
 
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     int32_t k = 1;
     int8_t z = 0;
     block.get_by_position(0).column->assert_mutable()->insert_data(
@@ -233,7 +233,7 @@ TEST_F(VariantRowStoreTest, VariantParseDirectMultiRow) {
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(schema, &rwc);
 
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     IColumn* k = block.get_by_position(0).column->assert_mutable().get();
     IColumn* ds = block.get_by_position(2).column->assert_mutable().get();
     int32_t ks[] = {1, 2};
@@ -268,7 +268,7 @@ TEST_F(VariantRowStoreTest, VariantParseEmptyBlock) {
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(schema, &rwc);
 
-    Block block = schema->create_block(); // typed columns, 0 rows
+    Block block = schema->create_storage_block(); // typed columns, 0 rows
     ASSERT_EQ(block.rows(), 0);
     ASSERT_TRUE(chain.apply(ctx, &block).ok());
     EXPECT_EQ(block.columns(), schema->num_columns());
@@ -315,7 +315,7 @@ TEST_F(VariantRowStoreTest, VariantParseAfterPartialUpdateFill) {
     ctx.rowset_id = new_rsid;
 
     // narrow block in update_cids order {k, v}: 2 rows, k = 1 and 3
-    Block block = schema->create_block_by_cids({0, 1});
+    Block block = schema->create_storage_block({0, 1});
     IColumn* kc = block.get_by_position(0).column->assert_mutable().get();
     int32_t k1 = 1;
     kc->insert_data(reinterpret_cast<const char*>(&k1), sizeof(int32_t));
@@ -353,7 +353,7 @@ TEST_F(VariantRowStoreTest, VariantParseAfterPartialUpdateFill) {
 // Builds a full-width row-store block of `rows` rows (k = i+1, v = base+10*i),
 // row-store column left as a placeholder default for the generator to overwrite.
 static Block make_row_store_block(const TabletSchemaSPtr& schema, int num_rows, int32_t base) {
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     IColumn* k = block.get_by_position(0).column->assert_mutable().get();
     IColumn* v = block.get_by_position(1).column->assert_mutable().get();
     IColumn* ds = block.get_by_position(2).column->assert_mutable().get();
@@ -378,7 +378,7 @@ TEST_F(VariantRowStoreTest, RowStoreFillRowsZeroNoGenerator) {
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(schema, &rwc);
 
-    Block block = schema->create_block(); // 0 rows
+    Block block = schema->create_storage_block(); // 0 rows
     ASSERT_EQ(block.rows(), 0);
     ASSERT_TRUE(chain.apply(ctx, &block).ok());
     EXPECT_EQ(ctx.derived_column.second, nullptr);
@@ -432,7 +432,7 @@ TEST_F(VariantRowStoreTest, RowStoreFillMaterializeContent) {
     TransformExecContext ctx = exec_ctx(schema, &rwc);
 
     // one row: k=42, v=-5, delete_sign=0
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     int32_t k = 42;
     int32_t v = -5;
     int8_t z = 0;
@@ -487,7 +487,7 @@ TEST_F(VariantRowStoreTest, RowStoreSnapshotsVariantBeforeParse) {
               (std::vector<std::string_view> {"Validate", "RowStoreFill", "VariantParse"}));
     TransformExecContext ctx = exec_ctx(schema, &rwc);
 
-    Block block = schema->create_block();
+    Block block = schema->create_storage_block();
     int32_t key = 1;
     int8_t delete_sign = 0;
     block.get_by_position(0).column->assert_mutable()->insert_data(
@@ -675,7 +675,7 @@ TEST_F(VariantRowStoreTest, RowStoreFillAfterPartialUpdate) {
     ctx.partial_update_info = pui;
     ctx.rowset_id = new_rsid;
 
-    Block block = schema->create_block_by_cids({0}); // narrow: key only
+    Block block = schema->create_storage_block({0}); // narrow: key only
     IColumn* kc = block.get_by_position(0).column->assert_mutable().get();
     for (int32_t kk : {1, 2}) {
         kc->insert_data(reinterpret_cast<const char*>(&kk), sizeof(int32_t));

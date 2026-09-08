@@ -521,7 +521,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                 props("iceberg.catalog.type", "hms",
                         "hive.metastore.uris", "thrift://h:9083",
                         "warehouse", "s3://bucket/wh",
-                        "catalog-impl", "org.apache.iceberg.hive.HiveCatalog"),
+                        "catalog-impl", DorisHiveCatalog.class.getName()),
                 props("iceberg.catalog.type", "hms",
                         "hive.metastore.uris", "thrift://h:9083",
                         "warehouse", "s3://bucket/wh"), s3(new FakeS3CompatibleStorageProperties("S3").endpoint("https://s3")

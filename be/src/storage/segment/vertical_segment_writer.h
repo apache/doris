@@ -135,6 +135,12 @@ public:
     }
 
 private:
+    // Bodies of finalize()/finalize_columns_index(); the public wrappers add the
+    // abandon-on-failure step. See the .cpp.
+    Status _finalize_impl(uint64_t* segment_file_size, uint64_t* index_size,
+                          SegmentIndexFileCacheInfo* index_file_cache_info);
+    Status _finalize_columns_index_impl(uint64_t* index_size);
+    void _abandon_index_staging();
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                            const ColumnWriterOptions& opts);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -138,19 +139,57 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
-    void testNotPushDownDistinctAgg() {
-        // Distinct aggregation should not be pushed down.
+    void testPushDownDistinctAggWithSameKey() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        disableDistinctAggregateRewrite();
+        try {
+            String sql = "select count(distinct t1.id1), sum(distinct t1.id1), t2.id2 from t1 join t2"
+                    + " on t1.id1 = t2.id2 group by t2.id2";
+            assertDistinctAggPushDown(sql, 1);
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+            resetDisabledRules();
+        }
+    }
+
+    @Test
+    void testPushDownMultiColumnCountDistinct() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        disableDistinctAggregateRewrite();
+        try {
+            String sql = "select count(distinct t1.id1, t1.name), t2.id2 from t1 join t2"
+                    + " on t1.id1 = t2.id2 group by t2.id2";
+            assertDistinctAggPushDown(sql, 2);
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+            resetDisabledRules();
+        }
+    }
+
+    @Test
+    void testNotPushDownDistinctAggWithDifferentKeys() {
         connectContext.getSessionVariable().setEagerAggregationMode(1);
         connectContext.getSessionVariable().setDisableJoinReorder(true);
         try {
-            String sql = "select count(distinct t1.name), t2.id2 from t1 join t2"
-                    + " on t1.id1 = t2.id2 group by t2.id2";
-            PlanChecker.from(connectContext)
-                    .analyze(sql)
-                    .rewrite()
-                    .nonMatch(logicalJoin(logicalAggregate(), any()))
-                    .nonMatch(logicalJoin(any(), logicalAggregate()))
-                    .printlnTree();
+            assertNoAggregateUnderJoin("select count(distinct t1.id1), count(distinct t1.name), t2.id2"
+                    + " from t1 join t2 on t1.id1 = t2.id2 group by t2.id2");
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
+    void testNotPushDownDistinctAggWithNonDistinctAgg() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            assertNoAggregateUnderJoin("select count(distinct t1.name), max(t1.id1), t2.id2"
+                    + " from t1 join t2 on t1.id1 = t2.id2 group by t2.id2");
         } finally {
             connectContext.getSessionVariable().setEagerAggregationMode(0);
             connectContext.getSessionVariable().setDisableJoinReorder(false);
@@ -848,6 +887,34 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                 .rewrite()
                 .getPlan();
         Assertions.assertFalse(containsAggregateUnderJoin(plan), plan.treeString());
+    }
+
+    private void assertDistinctAggPushDown(String sql, int expectedLeftGroupKeyCount) {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getPlan();
+        LogicalAggregate<?> topAggregate = findFirstPlan(plan, LogicalAggregate.class);
+        Assertions.assertNotNull(topAggregate, plan.treeString());
+        Assertions.assertTrue(topAggregate.getAggregateFunctions().stream()
+                .allMatch(aggFunction -> aggFunction.isDistinct()), plan.treeString());
+        LogicalJoin<?, ?> join = findFirstPlan(topAggregate.child(), LogicalJoin.class);
+        Assertions.assertNotNull(join, plan.treeString());
+        LogicalAggregate<?> leftAggregate = findFirstPlan(join.left(), LogicalAggregate.class);
+        Assertions.assertNotNull(leftAggregate, plan.treeString());
+        Assertions.assertEquals(expectedLeftGroupKeyCount,
+                leftAggregate.getGroupByExpressions().size(), plan.treeString());
+    }
+
+    private void disableDistinctAggregateRewrite() {
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",",
+                RuleType.PRUNE_EMPTY_PARTITION.name(),
+                RuleType.DISTINCT_AGGREGATE_SPLIT.name(),
+                RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT.name()));
+    }
+
+    private void resetDisabledRules() {
+        connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
     }
 
     private boolean containsAggregateUnderJoin(Plan plan) {

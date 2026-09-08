@@ -357,7 +357,8 @@ void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) 
     ZoneMap zone_map;
     THROW_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
 
-    if (zone_map.has_null) {
+    // pass_all leaves min/max unset, so there is nothing to check the data against.
+    if (zone_map.has_null || zone_map.pass_all) {
         return;
     }
 
@@ -477,6 +478,9 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) co
     // TODO: this work to get min/max value seems should only do once
     ZoneMap zone_map;
     RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    // Segment::new_iterator does not build this iterator on an invalid zone map, whose min/max
+    // are unset and would be reported below as if they were data.
+    DORIS_CHECK(!zone_map.pass_all);
 
     dst->reserve(*n);
     if (!zone_map.has_not_null) {
@@ -559,26 +563,25 @@ Status ColumnReader::_get_filtered_pages(
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
     size_t page_size = _zone_map_index->num_pages();
     for (size_t i = 0; i < page_size; ++i) {
-        if (zone_maps[i].pass_all()) {
+        segment_v2::ZoneMap zone_map;
+        RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
+        // from_proto also sets pass_all when the zone map it parsed is invalid.
+        if (zone_map.pass_all) {
             page_indexes->push_back(cast_set<uint32_t>(i));
-        } else {
-            segment_v2::ZoneMap zone_map;
-            RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
-            if (_zone_map_match_condition(zone_map, col_predicates)) {
-                bool should_read = true;
-                if (delete_predicates != nullptr) {
-                    for (auto del_pred : *delete_predicates) {
-                        // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
-                        //  So nullable only need to judge once.
-                        if (del_pred->evaluate_del(zone_map)) {
-                            should_read = false;
-                            break;
-                        }
+        } else if (_zone_map_match_condition(zone_map, col_predicates)) {
+            bool should_read = true;
+            if (delete_predicates != nullptr) {
+                for (auto del_pred : *delete_predicates) {
+                    // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
+                    //  So nullable only need to judge once.
+                    if (del_pred->evaluate_del(zone_map)) {
+                        should_read = false;
+                        break;
                     }
                 }
-                if (should_read) {
-                    page_indexes->push_back(cast_set<uint32_t>(i));
-                }
+            }
+            if (should_read) {
+                page_indexes->push_back(cast_set<uint32_t>(i));
             }
         }
     }
@@ -730,8 +733,9 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
         if (is_string_type(type)) {
             auto reader_type = should_analyzer ? InvertedIndexReaderType::FULLTEXT
                                                : InvertedIndexReaderType::STRING_TYPE;
-            index_reader =
-                    SniiIndexReader::create_shared(index_meta, index_file_reader, reader_type);
+            index_reader = SniiIndexReader::create_shared(
+                    index_meta, index_file_reader, reader_type, rows_of_segment,
+                    _meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY);
         } else if (field_is_numeric_type(type)) {
             index_reader = SniiBkdIndexReader::create_shared(index_meta, index_file_reader);
         } else {

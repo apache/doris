@@ -69,12 +69,32 @@
 4	40	d	0
 5	50	e	0
 
+-- !mow_append_value_only --
+20
+21
+40
+50
+
 -- !mow_min_delta_range --
 1	10	a	2
 1	13	a3	3
 2	21	b1	0
 3	30	c	1
 4	40	d	0
+
+-- !mow_min_delta_value_only --
+10
+13
+21
+30
+40
+
+-- !mow_min_delta_select_star --
+1	10	a
+1	13	a3
+2	21	b1
+3	30	c
+4	40	d
 
 -- !mow_detail_range --
 1	10	a	2
@@ -90,6 +110,21 @@
 4	40	d	0
 5	50	e	0
 5	50	e	1
+
+-- !mow_detail_value_only --
+10
+11
+11
+12
+12
+13
+20
+20
+21
+30
+40
+50
+50
 
 -- !mow_detail_start --
 1	10	2
@@ -206,3 +241,6 @@
 1	1,2	2
 1	3,4	3
 
+-- !bitmap_equal_min_delta --
+1	3,4	2
+1	3,4	3

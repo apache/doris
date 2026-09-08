@@ -32,6 +32,7 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "exec/operator/spill_counters.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
@@ -62,27 +63,24 @@ protected:
         _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
         ADD_TIMER_WITH_LEVEL(_common_profile.get(), "ExecTime", 1);
 
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillTotalTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillWriteTime", 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteTaskWaitInQueueCount", TUnit::UNIT,
+        // Register exactly what PipelineXSpillLocalState registers in production, by
+        // reusing the same initializers. Hand-copying the counter names here is what let
+        // a misspelled lookup in SpillFileReader ("SpillReadDerializeBlockTime") go
+        // unnoticed: the test registered the same misspelling, so the lookup "worked"
+        // here while silently returning null in a real query.
+        SpillWriteCounters write_counters;
+        write_counters.init(_custom_profile.get());
+        SpillReadCounters read_counters;
+        read_counters.init(_custom_profile.get());
+
+        // Source-only extras, see PipelineXSpillLocalState::init_spill_{write,read}_counters.
+        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_TOTAL_TIME, 1);
+        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_WRITE_FILE_BYTES, TUnit::BYTES,
                                1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteTaskCount", TUnit::UNIT, 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillWriteTaskWaitInQueueTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillWriteSerializeBlockTime", 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteBlockCount", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileBytes", TUnit::BYTES, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteRows", TUnit::UNIT, 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileTime", 1);
-        ADD_TIMER_WITH_LEVEL(_custom_profile.get(), "SpillReadDerializeBlockTime", 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadBlockCount", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadBlockBytes", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileBytes", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadRows", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillReadFileCount", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileTotalCount", TUnit::UNIT, 1);
-        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), "SpillWriteFileCurrentBytes", TUnit::UNIT, 1);
+        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_WRITE_FILE_TOTAL_COUNT,
+                               TUnit::UNIT, 1);
+        ADD_COUNTER_WITH_LEVEL(_custom_profile.get(), profile::SPILL_WRITE_FILE_CURRENT_BYTES,
+                               TUnit::BYTES, 1);
 
         _profile->add_child(_custom_profile.get(), true);
         _profile->add_child(_common_profile.get(), true);
@@ -1539,6 +1537,58 @@ TEST_F(SpillFileTest, ReadCounters) {
     auto* read_file_size = _custom_profile->get_counter("SpillReadFileBytes");
     ASSERT_TRUE(read_file_size != nullptr);
     ASSERT_GT(read_file_size->value(), 0);
+}
+
+// Regression test: SpillFileReader used to look up the deserialize timer under a
+// misspelled name ("SpillReadDerializeBlockTime"), so get_counter() returned null and
+// SCOPED_TIMER silently recorded nothing. The counter stayed at 0 in every profile.
+TEST_F(SpillFileTest, ReadDeserializeTimerIsRecorded) {
+    SpillFileSPtr spill_file;
+    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(
+            "test_query/read_deserialize_timer", spill_file);
+    ASSERT_TRUE(st.ok());
+
+    {
+        SpillFileWriterSPtr writer;
+        st = spill_file->create_writer(_runtime_state.get(), _profile.get(), writer);
+        ASSERT_TRUE(st.ok());
+
+        auto block = _create_int_block({1, 2, 3, 4, 5});
+        st = writer->write_block(_runtime_state.get(), block);
+        ASSERT_TRUE(st.ok());
+
+        st = writer->close();
+        ASSERT_TRUE(st.ok());
+    }
+
+    // The timer is registered by SpillReadCounters::init under the canonical name and
+    // must still be untouched before any read happens.
+    auto* deserialize_timer =
+            _custom_profile->get_counter(profile::SPILL_READ_DESERIALIZE_BLOCK_TIME);
+    ASSERT_TRUE(deserialize_timer != nullptr)
+            << "counter name drifted from " << profile::SPILL_READ_DESERIALIZE_BLOCK_TIME;
+    ASSERT_EQ(deserialize_timer->value(), 0);
+
+    auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
+    st = reader->open();
+    ASSERT_TRUE(st.ok());
+
+    Block block;
+    bool eos = false;
+    st = reader->read(&block, &eos);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(block.rows(), 5);
+
+    st = reader->close();
+    ASSERT_TRUE(st.ok());
+
+    // Deserializing a real block must land on the canonical counter. This is 0 whenever
+    // the reader's lookup name does not match what the operator registered.
+    ASSERT_GT(deserialize_timer->value(), 0);
+
+    // The misspelled name must not exist: if it reappears, some caller registered it and
+    // the two spellings will drift apart again.
+    ASSERT_TRUE(_custom_profile->get_counter("SpillReadDerializeBlockTime") == nullptr);
 }
 
 // ═══════════════════════════════════════════════════════════════════════

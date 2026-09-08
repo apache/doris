@@ -72,17 +72,15 @@ class OlapMeta;
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
 
-static std::shared_ptr<Schema> create_full_schema(const TabletSchemaSPtr& tablet_schema) {
+static std::shared_ptr<ReadSchema> create_full_schema(const TabletSchemaSPtr& tablet_schema) {
     size_t num_columns = tablet_schema->num_columns();
     if (num_columns > 0 && tablet_schema->columns().back()->name() == BeConsts::ROW_STORE_COL) {
         --num_columns;
     }
 
-    std::vector<ColumnId> column_ids(num_columns);
-    for (uint32_t cid = 0; cid < num_columns; ++cid) {
-        column_ids[cid] = cid;
-    }
-    return std::make_shared<Schema>(tablet_schema->columns(), column_ids);
+    std::vector<TabletColumnPtr> columns(tablet_schema->columns().begin(),
+                                         tablet_schema->columns().begin() + num_columns);
+    return std::make_shared<ReadSchema>(std::move(columns));
 }
 
 static void set_up() {
@@ -838,10 +836,10 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     opts.tablet_schema = rowset->tablet_schema();
 
     std::unique_ptr<RowwiseIterator> iter;
-    std::shared_ptr<Schema> schema = create_full_schema(rowset->tablet_schema());
+    std::shared_ptr<ReadSchema> schema = create_full_schema(rowset->tablet_schema());
     auto s = segments[0]->new_iterator(schema, opts, &iter);
     ASSERT_TRUE(s.ok());
-    auto read_block = rowset->tablet_schema()->create_block();
+    auto read_block = schema->create_read_block();
     res = iter->next_batch(&read_block);
     ASSERT_TRUE(res.ok()) << res;
     ASSERT_EQ(1, read_block.rows());
@@ -1046,12 +1044,12 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg(
                                               {rowset1->rowset_id(), 0, cur_version}));
         std::unique_ptr<RowwiseIterator> iter;
-        std::shared_ptr<Schema> schema = create_full_schema(rowset1->tablet_schema());
+        std::shared_ptr<ReadSchema> schema = create_full_schema(rowset1->tablet_schema());
         std::vector<segment_v2::SegmentSharedPtr> segments;
         static_cast<void>(((BetaRowset*)rowset1.get())->load_segments(&segments));
         auto s = segments[0]->new_iterator(schema, opts, &iter);
         ASSERT_TRUE(s.ok());
-        auto read_block = rowset1->tablet_schema()->create_block();
+        auto read_block = schema->create_read_block();
         res = iter->next_batch(&read_block);
         ASSERT_TRUE(res.ok()) << res;
         // key of (10, 123) is deleted
@@ -1074,12 +1072,12 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg(
                                               {rowset2->rowset_id(), 0, cur_version}));
         std::unique_ptr<RowwiseIterator> iter;
-        std::shared_ptr<Schema> schema = create_full_schema(rowset2->tablet_schema());
+        std::shared_ptr<ReadSchema> schema = create_full_schema(rowset2->tablet_schema());
         std::vector<segment_v2::SegmentSharedPtr> segments;
         static_cast<void>(((BetaRowset*)rowset2.get())->load_segments(&segments));
         auto s = segments[0]->new_iterator(schema, opts, &iter);
         ASSERT_TRUE(s.ok());
-        auto read_block = rowset2->tablet_schema()->create_block();
+        auto read_block = schema->create_read_block();
         res = iter->next_batch(&read_block);
         ASSERT_TRUE(res.ok());
         // key of (20, 123) is deleted, because it's seq value is low

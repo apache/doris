@@ -171,6 +171,17 @@ Status AnnIndexColumnWriter::_build_and_save(Int64 min_train_rows, Int64 effecti
     // full-segment build buffer is released before saving the index.
     PODArray<float> empty_buffered_vectors;
     _buffered_vectors.swap(empty_buffered_vectors);
-    return _vector_index->save(_dir.get());
+    Status status = _vector_index->save(_dir.get());
+    if (!status.ok()) {
+        // A failed save keeps whatever it managed to write, and under SNII that is
+        // an ANN-sized staging file plus its descriptor. Nothing downstream
+        // unwinds it: the segment flush returns before clear() and
+        // close_inverted_index(), and ADD INDEX holds every producer until the
+        // whole rowset has been closed. Drop BOTH owners of the staging area here
+        // -- the index file writer's, and this writer's own.
+        _index_file_writer->discard_ann_staging_directory(_index_meta);
+        _dir.reset();
+    }
+    return status;
 }
 } // namespace doris::segment_v2

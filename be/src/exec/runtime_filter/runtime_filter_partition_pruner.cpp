@@ -854,66 +854,70 @@ Status RuntimeFilterPartitionPruner::prune_by_runtime_filters(
         }
     }
 
-    // This function is serialized by _conjuncts_lock in the caller, so our reads
-    // of _pruned_partition_ids never race with our writes below. The only concurrent
-    // readers are is_partition_pruned() calls (under shared_lock), which are
-    // properly synchronized by the unique_lock we take when inserting.
     phmap::flat_hash_set<int64_t> newly_pruned;
+    {
+        // _try_prune_by_single_rf() skips IDs already published by previous filters.
+        // Hold a shared lock while it reads that set; concurrent updates merge their
+        // local results under the unique lock below.
+        std::shared_lock lock(_prune_mutex);
+        for (const auto& conjunct_ctx : conjuncts) {
+            VExprSPtr root = conjunct_ctx->root();
+            if (!root->is_rf_wrapper()) {
+                continue;
+            }
 
-    for (const auto& conjunct_ctx : conjuncts) {
-        VExprSPtr root = conjunct_ctx->root();
-        if (!root->is_rf_wrapper()) {
-            continue;
+            VExprSPtr impl = root->get_impl();
+            if (!impl) {
+                continue;
+            }
+
+            if (impl->children().empty()) {
+                continue;
+            }
+
+            auto* wrapper_root = assert_cast<RuntimeFilterExpr*>(root.get());
+            int filter_id = wrapper_root->filter_id();
+
+            VExprSPtr target_subtree = impl->children()[0];
+
+            auto partition_mono_it = filter_id_to_partition_monotonicity.find(filter_id);
+            // For LIST partition targets, this metadata is also the per-partition eligibility map;
+            // BE projects every finite LIST value, so the direction itself is neutral there.
+            bool has_partition_mono =
+                    partition_mono_it != filter_id_to_partition_monotonicity.end() &&
+                    !partition_mono_it->second.empty();
+            if (!has_partition_mono) {
+                continue;
+            }
+
+            const VSlotRef* leaf_slot = find_unique_slot_ref(target_subtree.get());
+            DORIS_CHECK(leaf_slot != nullptr);
+
+            SlotId leaf_slot_id = leaf_slot->slot_id();
+            DORIS_CHECK(slot_to_boundaries.contains(leaf_slot_id));
+
+            int leaf_column_id = leaf_slot->column_id();
+
+            std::shared_ptr<const std::vector<ParsedBoundary>> projected;
+            RETURN_IF_ERROR(parsed.get_or_compute_projected_boundaries(
+                    filter_id, target_subtree, leaf_slot_id, leaf_column_id,
+                    partition_mono_it->second, conjunct_ctx.get(), &projected));
+
+            if (projected == nullptr || projected->empty()) {
+                continue;
+            }
+
+            _try_prune_by_single_rf(*projected, impl, newly_pruned);
         }
-
-        VExprSPtr impl = root->get_impl();
-        if (!impl) {
-            continue;
-        }
-
-        if (impl->children().empty()) {
-            continue;
-        }
-
-        auto* wrapper_root = assert_cast<RuntimeFilterExpr*>(root.get());
-        int filter_id = wrapper_root->filter_id();
-
-        VExprSPtr target_subtree = impl->children()[0];
-
-        auto partition_mono_it = filter_id_to_partition_monotonicity.find(filter_id);
-        // For LIST partition targets, this metadata is also the per-partition eligibility map;
-        // BE projects every finite LIST value, so the direction itself is neutral there.
-        bool has_partition_mono = partition_mono_it != filter_id_to_partition_monotonicity.end() &&
-                                  !partition_mono_it->second.empty();
-        if (!has_partition_mono) {
-            continue;
-        }
-
-        const VSlotRef* leaf_slot = find_unique_slot_ref(target_subtree.get());
-        DORIS_CHECK(leaf_slot != nullptr);
-
-        SlotId leaf_slot_id = leaf_slot->slot_id();
-        DORIS_CHECK(slot_to_boundaries.contains(leaf_slot_id));
-
-        int leaf_column_id = leaf_slot->column_id();
-
-        std::shared_ptr<const std::vector<ParsedBoundary>> projected;
-        RETURN_IF_ERROR(parsed.get_or_compute_projected_boundaries(
-                filter_id, target_subtree, leaf_slot_id, leaf_column_id, partition_mono_it->second,
-                conjunct_ctx.get(), &projected));
-
-        if (projected == nullptr || projected->empty()) {
-            continue;
-        }
-
-        _try_prune_by_single_rf(*projected, impl, newly_pruned);
     }
 
-    auto count = static_cast<int64_t>(newly_pruned.size());
-    if (count > 0) {
+    int64_t count = 0;
+    if (!newly_pruned.empty()) {
         std::unique_lock lock(_prune_mutex);
         for (int64_t pid : newly_pruned) {
-            _pruned_partition_ids.insert(pid);
+            if (_pruned_partition_ids.insert(pid).second) {
+                ++count;
+            }
         }
     }
     *newly_pruned_count = count;

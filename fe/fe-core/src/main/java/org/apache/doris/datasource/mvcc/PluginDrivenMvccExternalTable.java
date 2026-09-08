@@ -630,7 +630,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * <p>Why bypass rather than rely on the cache TTL: the SPI routes the latest schema through the generic
      * {@code DefaultExternalMetaCache} schema entry keyed by table NAME only (no schemaId, unlike master's
      * {@code PaimonSchemaCacheKey(nameMapping, schemaId)}), and that entry's TTL spec is frozen at first build
-     * ({@code AbstractExternalMetaCache.initCatalog} computeIfAbsent), so a {@code ttl-second=0} cannot reliably
+     * ({@code ExternalCatalogMetaCache.initCatalog} computeIfAbsent), so a {@code ttl-second=0} cannot reliably
      * bust it after an external schema change. Reading fresh restores master's single-knob semantics
      * ({@code meta.cache.paimon.table.ttl-second=0} -> always-fresh schema) and is cheap at ttl=0 by definition;
      * {@code initSchema()} reloads via the connector's live {@code catalog.getTable} (master parity). The cached

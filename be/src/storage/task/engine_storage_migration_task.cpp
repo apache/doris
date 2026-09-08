@@ -392,6 +392,8 @@ Status EngineStorageMigrationTask::_copy_index_and_data_files(
         TabletSchema tablet_schema;
         tablet_schema.init_from_pb(tablet_schema_pb);
 
+        // Binlog is local-mode only. These files use contiguous segment indexes because
+        // segment-list rowsets are cloud-only.
         // copy segment files and index files
         for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
             std::string segment_file_path = _tablet->get_segment_filepath(rowset_id, segment_index);

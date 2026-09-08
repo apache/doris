@@ -51,6 +51,7 @@ enum class PredicateType {
     IS_NOT_NULL = 10,
     BF = 11,    // BloomFilter
     MATCH = 13, // fulltext match
+    LIKE = 14,
 };
 
 template <PrimitiveType primitive_type, typename ResultType>
@@ -115,6 +116,9 @@ inline std::string type_to_string(PredicateType type) {
 
     case PredicateType::BF:
         return "BF";
+
+    case PredicateType::LIKE:
+        return "LIKE";
     default:
         return "";
     };
@@ -383,6 +387,8 @@ public:
             return "bf";
         case PredicateType::MATCH:
             return "match";
+        case PredicateType::LIKE:
+            return "like";
         default:
             return "unknown";
         }

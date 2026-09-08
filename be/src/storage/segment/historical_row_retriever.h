@@ -54,7 +54,6 @@ public:
     virtual Status build_after_block(Block* block, size_t row_pos, size_t num_rows) = 0;
     virtual Status build_before_block(Block* before_block, const std::vector<uint32_t>& value_cids,
                                       size_t row_pos, size_t num_rows) = 0;
-    virtual void clear() = 0;
 
     virtual std::vector<int64_t>& get_operators() = 0;
 
@@ -82,15 +81,20 @@ public:
     Status retrieve_historical_row(const Int8* delete_sign_column_data, size_t row_pos,
                                    size_t num_rows) override;
 
+    // Row Binlog receives the original flexible-partial-update block, while the base writer fills
+    // its own copy. Reuse the common flexible aggregator/read plans with a read-only MOW probe to
+    // build the same full AFTER rows without changing the base tablet's delete bitmap. The optional
+    // LSN sidecar is merged and filtered together with the rows.
+    Status materialize_flexible_partial_update(Block* block,
+                                               std::shared_ptr<MowContext> mow_context,
+                                               std::vector<int64_t>* row_lsns);
+
     Status build_after_block(Block* block, size_t row_pos, size_t num_rows) override;
 
     Status build_before_block(Block* before_block, const std::vector<uint32_t>& value_cids,
                               size_t /*row_pos*/, size_t num_rows) override;
 
     Status revise_operators_by_old_delete_sign(size_t num_rows);
-
-    // The binlog writer reuses one retriever for every appended block.
-    void clear() override;
 
     std::vector<int64_t>& get_operators() override { return _operators; };
 

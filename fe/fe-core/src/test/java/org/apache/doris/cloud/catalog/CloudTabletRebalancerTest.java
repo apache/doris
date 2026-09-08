@@ -49,6 +49,7 @@ import java.lang.reflect.Modifier;
 import java.util.AbstractList;
 import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -1222,6 +1223,41 @@ public class CloudTabletRebalancerTest {
                     "compute_cluster_a", "cluster-a", CloudTabletRebalancer.StatType.PARTITION, 0L));
             metricRepo.verify(() -> MetricRepo.updateClusterCloudBalanceNum(
                     "compute_cluster_b", "cluster-b", CloudTabletRebalancer.StatType.PARTITION, 0L));
+        }
+    }
+
+    @Test
+    public void testStaleRouteSweepGate() {
+        boolean saved = Config.enable_cloud_replica_stale_route_clean;
+        try {
+            Config.enable_cloud_replica_stale_route_clean = true;
+            TestRebalancer rebalancer = new TestRebalancer();
+            Set<Long> bes = new HashSet<>(Arrays.asList(1L, 2L));
+
+            // no baseline yet, so sweep -- twice, to catch route writers in flight during the first pass
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(bes));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(bes));
+            // unchanged topology: nothing can have gone stale
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(bes));
+
+            // a new backend strands nothing, so it does not trigger a sweep on its own
+            Set<Long> grown = new HashSet<>(Arrays.asList(1L, 2L, 3L));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(grown));
+            // ... but it must have entered the baseline, so dropping it again is still seen as a removal
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(new HashSet<>(Arrays.asList(1L, 2L))));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(new HashSet<>(Arrays.asList(1L, 2L))));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(new HashSet<>(Arrays.asList(1L, 2L))));
+
+            // a backend that disappeared triggers a sweep
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(new HashSet<>(Arrays.asList(1L))));
+
+            // turning the switch off drops the baseline so turning it back on sweeps again
+            Config.enable_cloud_replica_stale_route_clean = false;
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(bes));
+            Config.enable_cloud_replica_stale_route_clean = true;
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(bes));
+        } finally {
+            Config.enable_cloud_replica_stale_route_clean = saved;
         }
     }
 }

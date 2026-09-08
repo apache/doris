@@ -25,13 +25,11 @@
 #include <roaring/roaring.hh>
 #include <set>
 #include <string>
-#include <unordered_map>
 #include <utility>
 
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
-#include "core/data_type/data_type_number.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
@@ -42,7 +40,6 @@
 #include "storage/olap_define.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
-#include "storage/predicate/predicate_creator.h"
 #include "storage/row_cursor.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader_context.h"
@@ -126,45 +123,20 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
 
-    // delete_hanlder is always set, but it maybe not init, so that it will return empty conditions
-    // or predicates when it is not inited.
+    const auto& read_schema = _read_context->read_schema;
+    std::set<ColumnId> delete_columns;
     if (_read_context->delete_handler != nullptr) {
         _read_context->delete_handler->get_delete_conditions_after_version(
                 _rowset->end_version(), _read_options.delete_condition_predicates.get(),
                 &_read_options.del_predicates_for_zone_map);
+        _read_options.delete_condition_predicates->get_all_column_ids(delete_columns);
     }
-
-    std::vector<uint32_t> read_columns;
-    std::set<uint32_t> read_columns_set;
-    std::set<uint32_t> delete_columns_set;
-    for (int i = 0; i < _read_context->return_columns->size(); ++i) {
-        read_columns.push_back(_read_context->return_columns->at(i));
-        read_columns_set.insert(_read_context->return_columns->at(i));
-    }
-    _read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
-    for (auto cid : delete_columns_set) {
-        if (read_columns_set.find(cid) == read_columns_set.end()) {
-            read_columns.push_back(cid);
-        }
-    }
-    if (_read_context->tso_predicate_column_id.has_value() &&
-        read_columns_set.find(*_read_context->tso_predicate_column_id) == read_columns_set.end()) {
-        read_columns.push_back(*_read_context->tso_predicate_column_id);
-    }
-    // disable condition cache if you have delete condition or forced pushed tso predicate
+    // Disable condition cache if you have delete condition.
     _read_context->condition_cache_digest =
-            (delete_columns_set.empty() && !_read_context->tso_predicate_column_id.has_value())
-                    ? _read_context->condition_cache_digest
-                    : 0;
+            delete_columns.empty() ? _read_context->condition_cache_digest : 0;
     // create segment iterators
-    VLOG_NOTICE << "read columns size: " << read_columns.size();
-    _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
+    VLOG_NOTICE << "read columns size: " << read_schema->num_read_columns();
     _read_options.extra_columns = _read_context->extra_columns;
-    // output_schema only contains return_columns (excludes extra columns like delete-predicate
-    // columns and the TSO predicate-only column).
-    // It is used by merge/union iterators to determine how many columns to copy to the output block.
-    _output_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(),
-                                              *(_read_context->return_columns));
     if (_read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),
                                                _read_context->predicates->begin(),
@@ -179,45 +151,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
 
-    // Forced TSO range pushdown for binlog/snapshot incremental read. Build the (start_tso,
-    // end_tso] comparison predicates here and inject them directly, so they always reach the
-    // SegmentIterator for row-level filtering instead of going through the value/key predicate
-    // split in TabletReader::_init_conditions_param (where they may be dropped). This is a
-    // correctness requirement for MIN_DELTA, which groups consecutive same-key rows and would
-    // produce wrong results if out-of-range rows leaked into a group.
-    if (_read_context->tso_predicate_column_id.has_value() &&
-        (_read_context->start_tso.has_value() || _read_context->end_tso.has_value())) {
-        ColumnId tso_cid = *_read_context->tso_predicate_column_id;
-        auto tso_data_type = std::make_shared<DataTypeInt64>();
-        const std::string& tso_col_name = _read_context->tablet_schema->column(tso_cid).name();
-        auto add_tso_predicate = [&](std::shared_ptr<ColumnPredicate> pred) {
-            if (_read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
-                _read_options.col_id_to_predicates.insert(
-                        {pred->column_id(), AndBlockColumnPredicate::create_shared()});
-            }
-            _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
-                    SingleColumnBlockPredicate::create_unique(pred));
-            _read_options.column_predicates.push_back(std::move(pred));
-        };
-        if (_read_context->start_tso.has_value()) {
-            add_tso_predicate(create_comparison_predicate<PredicateType::GT>(
-                    tso_cid, tso_col_name, tso_data_type,
-                    Field::create_field<TYPE_BIGINT>(*_read_context->start_tso), false));
-        }
-        if (_read_context->end_tso.has_value()) {
-            add_tso_predicate(create_comparison_predicate<PredicateType::LE>(
-                    tso_cid, tso_col_name, tso_data_type,
-                    Field::create_field<TYPE_BIGINT>(*_read_context->end_tso), false));
-        }
-    }
-
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
     // until the max read version, which is read_context->version.second
     if (_read_context->delete_bitmap != nullptr) {
         {
             SCOPED_RAW_TIMER(&_stats->delete_bitmap_get_agg_ns);
             RowsetId rowset_id = rowset()->rowset_id();
-            for (uint32_t seg_id = 0; seg_id < rowset()->num_segments(); ++seg_id) {
+            for (auto seg : rowset()->segments()) {
+                uint32_t seg_id = cast_set<uint32_t>(seg.id());
                 auto d = _read_context->delete_bitmap->get_agg(
                         {rowset_id, seg_id, _read_context->version.second});
                 if (d->isEmpty()) {
@@ -253,18 +194,13 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             _read_context->enable_unique_key_merge_on_write;
     _read_options.record_rowids = _read_context->record_rowids;
     _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
-    _read_options.topn_filter_target_node_id = _read_context->topn_filter_target_node_id;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
     _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
     _read_options.read_row_binlog = _read_context->read_row_binlog;
-    int32_t tso_col_id = _read_context->tablet_schema->binlog_tso_col_idx();
-    if (tso_col_id >= 0) {
-        for (size_t i = 0; i < _read_context->return_columns->size(); ++i) {
-            if (_read_context->return_columns->at(i) == static_cast<uint32_t>(tso_col_id)) {
-                _read_options.binlog_tso_idx = static_cast<int>(i);
-                break;
-            }
-        }
+    // Binlog TSO drives the merge tie-break and is therefore part of the exact
+    // read schema shared by the rowset merge.
+    if (int32_t tso_ordinal = read_schema->tso_ordinal(); tso_ordinal >= 0) {
+        _read_options.binlog_tso_idx = tso_ordinal;
     }
     _read_options.read_orderby_key_columns = _read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = _read_context->reader_type;
@@ -323,11 +259,18 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_rows;
         RETURN_IF_ERROR(_rowset->get_segment_num_rows(&segment_rows, should_use_cache, _stats));
-        RETURN_IF_ERROR(_read_context->rowid_conversion->init_segment_map(rowset()->rowset_id(),
-                                                                          segment_rows));
+        std::vector<uint32_t> segment_ids;
+        segment_ids.reserve(segment_rows.size());
+        for (auto seg : rowset()->segments()) {
+            segment_ids.push_back(cast_set<uint32_t>(seg.id()));
+        }
+        RETURN_IF_ERROR(_read_context->rowid_conversion->init_segment_map(
+                rowset()->rowset_id(), segment_ids, segment_rows));
     }
 
     for (int64_t i = seg_start; i < seg_end; i++) {
+        const auto pos = cast_set<size_t>(i);
+        const auto seg = _rowset->segment(pos).ref();
         SCOPED_RAW_TIMER(&_stats->rowset_reader_create_iterators_timer_ns);
         std::unique_ptr<RowwiseIterator> iter;
 
@@ -337,8 +280,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         /// and prevents excessive memory consumption, especially for wide tables.
         if (_segment_row_ranges.empty()) {
             _read_options.row_ranges.clear();
-            iter = std::make_unique<LazyInitSegmentIterator>(_rowset, i, should_use_cache,
-                                                             _input_schema, _read_options);
+            iter = std::make_unique<LazyInitSegmentIterator>(_rowset, seg, should_use_cache,
+                                                             read_schema, _read_options);
         } else {
             DCHECK_EQ(seg_end - seg_start, _segment_row_ranges.size());
             auto local_options = _read_options;
@@ -347,8 +290,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 local_options.condition_cache_digest =
                         local_options.row_ranges.get_digest(local_options.condition_cache_digest);
             }
-            iter = std::make_unique<LazyInitSegmentIterator>(_rowset, i, should_use_cache,
-                                                             _input_schema, local_options);
+            iter = std::make_unique<LazyInitSegmentIterator>(_rowset, seg, should_use_cache,
+                                                             read_schema, local_options);
         }
 
         if (iter->empty()) {
@@ -383,28 +326,22 @@ Status BetaRowsetReader::_init_iterator() {
     }
     // merge or union segment iterator
     if (is_merge_iterator()) {
-        auto sequence_loc = -1;
-        if (_read_context->sequence_id_idx != -1) {
-            for (int loc = 0; loc < _read_context->return_columns->size(); loc++) {
-                if (_read_context->return_columns->at(loc) == _read_context->sequence_id_idx) {
-                    sequence_loc = loc;
-                    break;
-                }
-            }
-        }
+        int32_t sequence_loc = _read_context->use_sequence_column_for_merge_order
+                                       ? _read_context->read_schema->sequence_ordinal()
+                                       : -1;
         if (_read_options.binlog_tso_idx != -1) {
             sequence_loc = _read_options.binlog_tso_idx;
         }
         _iterator = new_merge_iterator(std::move(iterators), sequence_loc, _read_context->is_unique,
                                        _read_context->read_orderby_key_reverse,
-                                       _read_context->merged_rows, _output_schema,
+                                       _read_context->merged_rows, _read_context->read_schema,
                                        _read_options.binlog_tso_idx != -1);
     } else {
         if (_read_context->read_orderby_key_reverse) {
             // reverse iterators to read backward for ORDER BY key DESC
             std::reverse(iterators.begin(), iterators.end());
         }
-        _iterator = new_union_iterator(std::move(iterators), _output_schema);
+        _iterator = new_union_iterator(std::move(iterators), _read_context->read_schema);
     }
 
     auto s = _iterator->init(_read_options);
@@ -423,7 +360,7 @@ bool BetaRowsetReader::_should_push_down_value_predicates() const {
     return _rowset->keys_type() == UNIQUE_KEYS &&
            (((_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
              !_rowset->_rowset_meta->is_segments_overlapping() &&
-             _read_context->sequence_id_idx == -1) ||
+             _read_context->read_schema->sequence_ordinal() == -1) ||
             _read_context->enable_unique_key_merge_on_write ||
             _read_context->enable_mor_value_predicate_pushdown);
 }

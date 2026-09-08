@@ -33,8 +33,8 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -79,9 +79,9 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             PartitionKeyDesc expectDesc202002 = PartitionKeyDesc.createFixed(
                     Lists.newArrayList(new PartitionValue("2020-02-01")),
                     Lists.newArrayList(new PartitionValue("2020-03-01")));
-            Assert.assertEquals(2, res.size());
-            Assert.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc202001));
-            Assert.assertEquals(Sets.newHashSet("name3"), res.get(expectDesc202002));
+            Assertions.assertEquals(2, res.size());
+            Assertions.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc202001));
+            Assertions.assertEquals(Sets.newHashSet("name3"), res.get(expectDesc202002));
         }
     }
 
@@ -106,9 +106,9 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
 
             PartitionKeyDesc expectDesc202001 = generateInDesc("2020-01-01", "2020-01-02");
             PartitionKeyDesc expectDesc202002 = generateInDesc("2020-02-01");
-            Assert.assertEquals(2, res.size());
-            Assert.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc202001));
-            Assert.assertEquals(Sets.newHashSet("name3"), res.get(expectDesc202002));
+            Assertions.assertEquals(2, res.size());
+            Assertions.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc202001));
+            Assertions.assertEquals(Sets.newHashSet("name3"), res.get(expectDesc202002));
         }
     }
 
@@ -162,8 +162,8 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             PartitionKeyDesc expectDesc = PartitionKeyDesc.createFixed(
                     Lists.newArrayList(new PartitionValue("2024-01-15 00:00:00+00:00")),
                     Lists.newArrayList(new PartitionValue("2024-01-16 00:00:00+00:00")));
-            Assert.assertEquals(1, res.size());
-            Assert.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc));
+            Assertions.assertEquals(1, res.size());
+            Assertions.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc));
 
             // Verify that the rolled-up PartitionKeyDesc produces correct UTC partition keys
             // regardless of session timezone (America/New_York = UTC-5).
@@ -180,10 +180,8 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             // Both should be stored as midnight UTC, not shifted to session-local time.
             String lowKeyStr = lowKey.getKeys().get(0).getStringValue();
             String upperKeyStr = upperKey.getKeys().get(0).getStringValue();
-            Assert.assertTrue("Lower bound should be 2024-01-15 midnight UTC, but was: " + lowKeyStr,
-                    lowKeyStr.startsWith("2024-01-15 00:00:00"));
-            Assert.assertTrue("Upper bound should be 2024-01-16 midnight UTC, but was: " + upperKeyStr,
-                    upperKeyStr.startsWith("2024-01-16 00:00:00"));
+            Assertions.assertTrue(lowKeyStr.startsWith("2024-01-15 00:00:00"), "Lower bound should be 2024-01-15 midnight UTC, but was: " + lowKeyStr);
+            Assertions.assertTrue(upperKeyStr.startsWith("2024-01-16 00:00:00"), "Upper bound should be 2024-01-16 midnight UTC, but was: " + upperKeyStr);
         } finally {
             ConnectContext.remove();
         }

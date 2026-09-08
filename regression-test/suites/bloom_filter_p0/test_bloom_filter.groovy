@@ -221,6 +221,7 @@ suite("test_bloom_filter","nonConcurrent") {
         DISTRIBUTED BY HASH(`id`) BUCKETS 5
         PROPERTIES (
             "replication_num" = "1",
+            "disable_auto_compaction" = "true",
             "bloom_filter_columns" = "id",
             "bloom_filter_fpp" = "0.03"
     )"""
@@ -234,11 +235,19 @@ suite("test_bloom_filter","nonConcurrent") {
         GetDebugPoint().disableDebugPointForAllBEs("BloomFilterIndexWriter::create");
     }
 
-    sql """ALTER TABLE ${test_dynamic_fpp_tb} SET("bloom_filter_fpp" = "0.02")"""
-    wait_for_latest_op_on_table_finish(test_dynamic_fpp_tb, timeout)
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("BloomFilterIndexWriter::create",
+                [fpp: "0.02", execute: "1", timeout: "120"])
+        sql """ALTER TABLE ${test_dynamic_fpp_tb} SET("bloom_filter_fpp" = "0.02")"""
+        wait_for_latest_op_on_table_finish(test_dynamic_fpp_tb, timeout)
+        sql """ALTER TABLE ${test_dynamic_fpp_tb} SET("bloom_filter_fpp" = "0.03")"""
+        wait_for_latest_op_on_table_finish(test_dynamic_fpp_tb, timeout)
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("BloomFilterIndexWriter::create");
+    }
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("BloomFilterIndexWriter::create", [fpp: "0.02"])
+        GetDebugPoint().enableDebugPointForAllBEs("BloomFilterIndexWriter::create", [fpp: "0.03"])
         sql """INSERT INTO ${test_dynamic_fpp_tb} VALUES
             (6, 'Grace'),
             (7, 'Henry'),

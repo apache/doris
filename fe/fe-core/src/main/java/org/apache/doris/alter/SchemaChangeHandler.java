@@ -2059,8 +2059,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 // loop to keep copy-on-write O(n). TabletInvertedIndex registration stays
                 // per-iteration because Tablet.addReplica(...) below needs the tablet present
                 // in the inverted index.
+                // Row-binlog tables permit only light schema changes, so this shadow index is ordinary.
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                        newSchemaHash, medium);
+                        newSchemaHash, medium, false /* isRowBinlog */);
                 List<Tablet> shadowTabletsForPartition = Lists.newArrayListWithCapacity(
                         originIndex.getTablets().size());
                 TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
@@ -2544,8 +2545,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                     lightSchemaChange = false;
 
-                    // ngram_bf index can do light_schema_change in both local and cloud mode
-                    // inverted index and ann index can only do light_schema_change in local mode
+                    // BfIndex and NGRAM_BF use light schema change only when new-data-only indexing is enabled.
+                    // Local mode also supports INVERTED and ANN; cloud mode supports non-tokenized INVERTED.
                     if (index.isLightAddIndexSupported(enableAddIndexForNewData)) {
                         alterIndexes.add(index);
                         isDropIndex = false;
@@ -2637,20 +2638,21 @@ public class SchemaChangeHandler extends AlterHandler {
                                 break;
                             }
                         }
-                        // for inverted index, light schema change is supported in both cloud and local mode;
-                        // for ngram index, light schema change is supported only in cloud mode;
+                        // Inverted index supports light schema change in both cloud and local mode.
+                        // NGRAM_BF and BfIndex support it only in cloud mode.
                         boolean supportLightIndexChange = false;
-                        if (Config.isCloudMode()) {
-                            if (enableAddIndexForNewData) {
-                                supportLightIndexChange = (
-                                        found.getIndexType() == IndexType.NGRAM_BF
-                                                || found.getIndexType() == IndexType.INVERTED);
+                        if (found != null) {
+                            if (Config.isCloudMode()) {
+                                supportLightIndexChange = enableAddIndexForNewData
+                                        && (found.getIndexType() == IndexType.NGRAM_BF
+                                        || found.getIndexType() == IndexType.BLOOMFILTER
+                                        || found.getIndexType() == IndexType.INVERTED);
+                            } else {
+                                supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
+                                        || found.getIndexType() == IndexType.ANN;
                             }
-                        } else {
-                            supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
-                                    || found.getIndexType() == IndexType.ANN;
                         }
-                        if (found != null && supportLightIndexChange) {
+                        if (supportLightIndexChange) {
                             alterIndexes.add(found);
                             isDropIndex = true;
                             lightIndexChange = true;
@@ -2678,8 +2680,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                         null, isDropIndex, jobId, false, propertyMap);
             } else if (Config.enable_light_index_change && lightIndexChange) {
+                Index.checkConflict(newIndexes, olapTable.getCopiedBfColumns());
                 long jobId = Env.getCurrentEnv().getNextId();
-                //for schema change add/drop inverted index and ngram_bf optimize, direct modify table meta firstly.
+                // For light index changes, directly modify table metadata first.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                         alterIndexes, isDropIndex, jobId, false, propertyMap);
             } else if (buildIndexChange) {
@@ -3288,6 +3291,13 @@ public class SchemaChangeHandler extends AlterHandler {
                                 + " with merge-on-write enabled");
             }
             AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
+        }
+
+        if (indexDef.getIndexType() == IndexType.INVERTED
+                && olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1) {
+            throw new DdlException("Inverted index V1 is deprecated and no longer allowed for new index creation."
+                    + " Upgrading inverted_index_storage_format via ALTER TABLE is not supported;"
+                    + " recreate the table with inverted_index_storage_format = V2.");
         }
 
         for (String col : indexDef.getColumnNames()) {

@@ -40,6 +40,7 @@ import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -865,7 +866,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case TEST_EXTERNAL_TABLE:
                     return new LogicalTestScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case STREAM:
-                    return makeTableStreamScan(table, unboundRelation, qualifierWithoutTableName);
+                    return makeTableStreamScan(table, unboundRelation, qualifierWithoutTableName,
+                            cascadesContext.getStatementContext());
                 default:
                     throw new AnalysisException("Unsupported tableType " + table.getType());
             }
@@ -1015,9 +1017,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }).collect(ImmutableList.toImmutableList());
     }
 
-    private LogicalPlan makeTableStreamScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier)
+    private LogicalPlan makeTableStreamScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier,
+            StatementContext statementContext)
             throws AnalysisException {
         if (table instanceof OlapTableStream) {
+            if (Config.isCloudMode()) {
+                statementContext.addPlannerHook(CloudTableStreamReadStateHook.INSTANCE);
+            }
             OlapTableStream olapTableStream = (OlapTableStream) table;
             LogicalOlapTableStreamScan scan = makeOlapTableStreamScan(olapTableStream,
                     unboundRelation, qualifier);

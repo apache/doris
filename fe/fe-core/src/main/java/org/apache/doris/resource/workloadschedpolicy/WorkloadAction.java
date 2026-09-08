@@ -30,8 +30,6 @@ public interface WorkloadAction {
             throws UserException {
         if (WorkloadActionType.CANCEL_QUERY.equals(workloadActionMeta.action)) {
             return WorkloadActionCancelQuery.createWorkloadAction();
-        } else if (WorkloadActionType.SET_SESSION_VARIABLE.equals(workloadActionMeta.action)) {
-            return WorkloadActionSetSessionVar.createWorkloadAction(workloadActionMeta.actionArgs);
         }
         throw new UserException("invalid action type " + workloadActionMeta.action);
     }

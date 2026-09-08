@@ -46,11 +46,10 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -71,7 +70,7 @@ public class CloudGlobalTransactionMgrTest {
     private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(
             TransactionState.TxnSourceType.FE, 0, "localfe", System.currentTimeMillis());
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
 
         Config.cloud_unique_id = "cloud_unique_id";
@@ -83,7 +82,7 @@ public class CloudGlobalTransactionMgrTest {
         masterTransMgr = masterEnv.getGlobalTransactionMgr();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (fakeEnv != null) {
             fakeEnv.close();
@@ -111,7 +110,7 @@ public class CloudGlobalTransactionMgrTest {
                     transactionSource,
                     TransactionState.LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
 
-            Assert.assertEquals(transactionId + 1, id.get());
+            Assertions.assertEquals(transactionId + 1, id.get());
         }
     }
 
@@ -140,7 +139,7 @@ public class CloudGlobalTransactionMgrTest {
                     transactionSource,
                     TransactionState.LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
 
-            Assert.assertEquals(transactionId + 1, id.get());
+            Assertions.assertEquals(transactionId + 1, id.get());
         }
     }
 
@@ -245,22 +244,41 @@ public class CloudGlobalTransactionMgrTest {
             CloudOlapTableStreamUpdate update = new CloudOlapTableStreamUpdate(identity,
                     java.util.Map.of(50L, partitionUpdate));
             TableStreamUpdateInfo updateInfo = new TableStreamUpdateInfo(30L, 40L, update);
+            Cloud.TableStreamIdentityPB secondIdentity = Cloud.TableStreamIdentityPB.newBuilder()
+                    .setBaseDbId(11)
+                    .setBaseTableId(21)
+                    .setStreamDbId(31)
+                    .setStreamId(41)
+                    .build();
+            Cloud.TableStreamPartitionUpdatePB secondPartitionUpdate =
+                    Cloud.TableStreamPartitionUpdatePB.newBuilder()
+                            .setPartitionId(51)
+                            .setExpectedState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_UNKNOWN)
+                            .setNextOffsetTso(71)
+                            .build();
+            CloudOlapTableStreamUpdate secondUpdate = new CloudOlapTableStreamUpdate(secondIdentity,
+                    java.util.Map.of(51L, secondPartitionUpdate));
+            TableStreamUpdateInfo secondUpdateInfo = new TableStreamUpdateInfo(31L, 41L, secondUpdate);
             Table table = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
 
             masterTransMgr.commitAndPublishTransaction(
                     masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1),
                     Lists.newArrayList(table), 123533, Lists.newArrayList(), 10_000, null,
-                    Lists.newArrayList(updateInfo));
+                    Lists.newArrayList(updateInfo, secondUpdateInfo));
 
             ArgumentCaptor<Cloud.CommitTxnRequest> requestCaptor =
                     ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
             Mockito.verify(mockProxy).commitTxn(requestCaptor.capture());
-            Assert.assertTrue(requestCaptor.getValue().hasCommitTso());
-            Assert.assertEquals(1, requestCaptor.getValue().getTableStreamUpdatesCount());
-            Assert.assertEquals(identity, requestCaptor.getValue().getTableStreamUpdates(0).getIdentity());
-            Assert.assertEquals(partitionUpdate,
+            Assertions.assertTrue(requestCaptor.getValue().hasCommitTso());
+            Assertions.assertEquals(2, requestCaptor.getValue().getTableStreamUpdatesCount());
+            Assertions.assertEquals(identity, requestCaptor.getValue().getTableStreamUpdates(0).getIdentity());
+            Assertions.assertEquals(partitionUpdate,
                     requestCaptor.getValue().getTableStreamUpdates(0).getPartitionUpdates(0));
+            Assertions.assertEquals(secondIdentity,
+                    requestCaptor.getValue().getTableStreamUpdates(1).getIdentity());
+            Assertions.assertEquals(secondPartitionUpdate,
+                    requestCaptor.getValue().getTableStreamUpdates(1).getPartitionUpdates(0));
         }
     }
 
@@ -272,7 +290,7 @@ public class CloudGlobalTransactionMgrTest {
                 .setIsLazyCommitIncomplete(true)
                 .build();
 
-        Assert.assertFalse(invokeNotifyBesMakeTmpRsVisible(response));
+        Assertions.assertFalse(invokeNotifyBesMakeTmpRsVisible(response));
     }
 
     @Test
@@ -283,7 +301,7 @@ public class CloudGlobalTransactionMgrTest {
                 .setIsLazyCommitIncomplete(true)
                 .build();
 
-        Assert.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
+        Assertions.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
     }
 
     @Test
@@ -294,7 +312,7 @@ public class CloudGlobalTransactionMgrTest {
                 .setIsLazyCommitIncomplete(false)
                 .build();
 
-        Assert.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
+        Assertions.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
     }
 
     @Test
@@ -305,7 +323,7 @@ public class CloudGlobalTransactionMgrTest {
                 .setIsLazyCommitIncomplete(false)
                 .build();
 
-        Assert.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
+        Assertions.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
     }
 
     private boolean invokeNotifyBesMakeTmpRsVisible(CommitTxnResponse response) throws Exception {
@@ -461,8 +479,8 @@ public class CloudGlobalTransactionMgrTest {
             mockedStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
             Mockito.doAnswer(invocation -> {
                 Cloud.AbortTxnRequest request = invocation.getArgument(0);
-                Assert.assertTrue(request.hasCommitAttachment());
-                Assert.assertEquals("invalid source row", request.getCommitAttachment()
+                Assertions.assertTrue(request.hasCommitAttachment());
+                Assertions.assertEquals("invalid source row", request.getCommitAttachment()
                         .getRlTaskTxnCommitAttachment().getFirstErrorMsg());
                 return AbortTxnResponse.newBuilder()
                         .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
@@ -482,7 +500,7 @@ public class CloudGlobalTransactionMgrTest {
                     Mockito.eq("data quality error"));
             RLTaskTxnCommitAttachment callbackAttachment =
                     (RLTaskTxnCommitAttachment) txnStateCaptor.getValue().getTxnCommitAttachment();
-            Assert.assertEquals("invalid source row", callbackAttachment.getFirstErrorMsg());
+            Assertions.assertEquals("invalid source row", callbackAttachment.getFirstErrorMsg());
         } finally {
             masterTransMgr.getCallbackFactory().removeCallback(jobId);
         }
@@ -568,7 +586,7 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.doReturn(response).when(mockProxy).checkTxnConflict(Mockito.any());
             boolean result = masterTransMgr.isPreviousTransactionsFinished(12131231,
                     CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1));
-            Assert.assertEquals(result, true);
+            Assertions.assertEquals(result, true);
         }
     }
 
@@ -585,7 +603,7 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.doReturn(response).when(mockProxy).checkTxnConflict(Mockito.any());
             boolean result = masterTransMgr.isPreviousTransactionsFinished(12131231,
                     CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1));
-            Assert.assertEquals(result, false);
+            Assertions.assertEquals(result, false);
         }
     }
 
@@ -601,7 +619,7 @@ public class CloudGlobalTransactionMgrTest {
                     .build();
             Mockito.doReturn(response).when(mockProxy).getCurrentMaxTxnId(Mockito.any());
             long result = masterTransMgr.getNextTransactionId();
-            Assert.assertEquals(1000, result);
+            Assertions.assertEquals(1000, result);
         }
     }
 

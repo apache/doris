@@ -34,8 +34,8 @@ import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TSortInfo;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -97,15 +97,15 @@ public class PluginDrivenTableSinkTest {
         sink.bindDataSink(Optional.empty());
 
         // The connector-built opaque sink is adopted verbatim.
-        Assert.assertSame(expected, sink.toThrift());
+        Assertions.assertSame(expected, sink.toThrift());
         // The bound facts reach the connector through the write handle.
-        Assert.assertNotNull(provider.seenHandle);
-        Assert.assertSame(tableHandle, provider.seenHandle.getTableHandle());
-        Assert.assertSame(columns, provider.seenHandle.getColumns());
-        Assert.assertFalse(provider.seenHandle.isOverwrite());
-        Assert.assertTrue(provider.seenHandle.getStaticPartitionSpec().isEmpty());
+        Assertions.assertNotNull(provider.seenHandle);
+        Assertions.assertSame(tableHandle, provider.seenHandle.getTableHandle());
+        Assertions.assertSame(columns, provider.seenHandle.getColumns());
+        Assertions.assertFalse(provider.seenHandle.isOverwrite());
+        Assertions.assertTrue(provider.seenHandle.getStaticPartitionSpec().isEmpty());
         // No engine-built write sort by default -> the handle carries no sort info.
-        Assert.assertNull(provider.seenHandle.getSortInfo());
+        Assertions.assertNull(provider.seenHandle.getSortInfo());
     }
 
     @Test
@@ -122,9 +122,9 @@ public class PluginDrivenTableSinkTest {
                 boundTargetColumns, null, WriteOperation.INSERT, false);
         sink.bindDataSink(Optional.empty());
 
-        Assert.assertSame(writeColumns, provider.seenHandle.getColumns());
-        Assert.assertEquals(boundTargetColumns, provider.seenHandle.getBoundTargetColumns());
-        Assert.assertNotSame(boundTargetColumns, provider.seenHandle.getBoundTargetColumns());
+        Assertions.assertSame(writeColumns, provider.seenHandle.getColumns());
+        Assertions.assertEquals(boundTargetColumns, provider.seenHandle.getBoundTargetColumns());
+        Assertions.assertNotSame(boundTargetColumns, provider.seenHandle.getBoundTargetColumns());
     }
 
     @Test
@@ -143,7 +143,7 @@ public class PluginDrivenTableSinkTest {
                 null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(), engineBuilt);
         sink.bindDataSink(Optional.empty());
 
-        Assert.assertSame(engineBuilt, provider.seenHandle.getSortInfo());
+        Assertions.assertSame(engineBuilt, provider.seenHandle.getSortInfo());
     }
 
     @Test
@@ -157,7 +157,7 @@ public class PluginDrivenTableSinkTest {
                 Collections.emptyList(), null, WriteOperation.INSERT, false, metadataIdentity);
         sink.bindDataSink(Optional.empty());
 
-        Assert.assertEquals(metadataIdentity, provider.seenHandle.getBoundWriteMetadataIdentity());
+        Assertions.assertEquals(metadataIdentity, provider.seenHandle.getBoundWriteMetadataIdentity());
     }
 
     @Test
@@ -176,7 +176,7 @@ public class PluginDrivenTableSinkTest {
                 null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>());
         sink.bindDataSink(Optional.of(ctx));
 
-        Assert.assertEquals(Optional.of("br_1"), provider.seenHandle.getBranchName());
+        Assertions.assertEquals(Optional.of("br_1"), provider.seenHandle.getBranchName());
     }
 
     @Test
@@ -203,14 +203,14 @@ public class PluginDrivenTableSinkTest {
                 targetTable, provider, null, tableHandle, new ArrayList<>());
 
         String explain = sink.getExplainString("", TExplainLevel.NORMAL);
-        Assert.assertTrue(explain, explain.contains("PLUGIN-DRIVEN TABLE SINK"));
-        Assert.assertTrue(explain, explain.contains("TABLE: t1"));
+        Assertions.assertTrue(explain.contains("PLUGIN-DRIVEN TABLE SINK"), explain);
+        Assertions.assertTrue(explain.contains("TABLE: t1"), explain);
         // The source-agnostic sink delegates connector-specific detail through appendExplainInfo.
-        Assert.assertTrue(explain, explain.contains("INSERT SQL: SELECT 1"));
+        Assertions.assertTrue(explain.contains("INSERT SQL: SELECT 1"), explain);
 
         // BRIEF short-circuits before any connector detail.
         String brief = sink.getExplainString("", TExplainLevel.BRIEF);
-        Assert.assertFalse(brief, brief.contains("INSERT SQL"));
+        Assertions.assertFalse(brief.contains("INSERT SQL"), brief);
     }
 
     @Test
@@ -225,7 +225,7 @@ public class PluginDrivenTableSinkTest {
                 null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>());
         sink.bindDataSink(Optional.empty());
 
-        Assert.assertEquals(WriteOperation.INSERT, provider.seenHandle.getWriteOperation());
+        Assertions.assertEquals(WriteOperation.INSERT, provider.seenHandle.getWriteOperation());
     }
 
     @Test
@@ -242,7 +242,7 @@ public class PluginDrivenTableSinkTest {
                 null, WriteOperation.MERGE);
         sink.bindDataSink(Optional.empty());
 
-        Assert.assertEquals(WriteOperation.MERGE, provider.seenHandle.getWriteOperation());
+        Assertions.assertEquals(WriteOperation.MERGE, provider.seenHandle.getWriteOperation());
     }
 
     @Test
@@ -257,7 +257,7 @@ public class PluginDrivenTableSinkTest {
                 null, WriteOperation.DELETE);
         sink.bindDataSink(Optional.empty());
 
-        Assert.assertEquals(WriteOperation.DELETE, provider.seenHandle.getWriteOperation());
+        Assertions.assertEquals(WriteOperation.DELETE, provider.seenHandle.getWriteOperation());
     }
 
     @Test
@@ -270,8 +270,8 @@ public class PluginDrivenTableSinkTest {
         sink.bindDataSink(Optional.empty());
 
         // Delete-only MERGE must bypass data-file validation while retaining cardinality enforcement.
-        Assert.assertFalse(provider.seenHandle.isWritesDataFiles());
-        Assert.assertTrue(provider.seenHandle.isRequireMergeCardinalityCheck());
+        Assertions.assertFalse(provider.seenHandle.isWritesDataFiles());
+        Assertions.assertTrue(provider.seenHandle.isRequireMergeCardinalityCheck());
     }
 
     @Test
@@ -288,8 +288,8 @@ public class PluginDrivenTableSinkTest {
                     Collections.singletonList(id), null, WriteOperation.MERGE, false, true, null, null);
 
             nonVariantSink.bindDataSink(Optional.empty());
-            Assert.assertNotNull(provider.seenHandle);
-            Assert.assertEquals(11, provider.seenHandle.getBeExecVersion());
+            Assertions.assertNotNull(provider.seenHandle);
+            Assertions.assertEquals(11, provider.seenHandle.getBeExecVersion());
 
             ConnectorColumn payload = new ConnectorColumn(
                     "payload", ConnectorType.of("VARIANT_COMPUTE_V2"), null, true, null);
@@ -297,9 +297,9 @@ public class PluginDrivenTableSinkTest {
                     null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
                     Collections.singletonList(payload), null, WriteOperation.MERGE, false, true, null, null);
 
-            AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                     () -> variantSink.bindDataSink(Optional.empty()));
-            Assert.assertTrue(exception.getMessage().contains("rolling upgrade"));
+            Assertions.assertTrue(exception.getMessage().contains("rolling upgrade"));
         } finally {
             Config.be_exec_version = original;
         }
@@ -321,7 +321,7 @@ public class PluginDrivenTableSinkTest {
 
         sink.getExplainString("", TExplainLevel.NORMAL);
 
-        Assert.assertNotNull(provider.seenExplainHandle);
-        Assert.assertEquals(WriteOperation.MERGE, provider.seenExplainHandle.getWriteOperation());
+        Assertions.assertNotNull(provider.seenExplainHandle);
+        Assertions.assertEquals(WriteOperation.MERGE, provider.seenExplainHandle.getWriteOperation());
     }
 }

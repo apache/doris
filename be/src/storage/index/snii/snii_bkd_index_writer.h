@@ -90,10 +90,12 @@ private:
     std::vector<uint32_t> _null_docids;
 
     std::unique_ptr<::doris::snii::bkd::BkdBuilder> _builder;
-    // Staged bkd_data, kept alive until the container has pulled its bytes at
-    // IndexFileWriter::finish_close(). Destroying it earlier would unlink the
-    // temp file out from under the pull.
-    std::shared_ptr<::doris::snii::bkd::StagedBlobFile> _data;
+    // No staged-file member on purpose. bkd_data has to outlive this writer --
+    // the container pulls it at IndexFileWriter::finish_close() -- but it must
+    // not outlive the pull, and this writer routinely does: IndexBuilder's SNII
+    // ADD INDEX path holds every producer in _index_column_writers until the
+    // whole rowset has been closed. finish() therefore hands the file to the
+    // read callback and keeps no reference of its own.
 };
 
 } // namespace segment_v2

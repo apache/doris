@@ -203,11 +203,12 @@ public class MetastoreEventSyncDriverClassLoaderTest {
             PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
             Mockito.when(catalog.getId()).thenReturn(1L);
             Mockito.when(catalog.getName()).thenReturn("test_catalog");
+            Mockito.when(catalog.canonicalLocalDatabaseNameFromRemote("db1")).thenReturn("db1");
             CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
             Mockito.doAnswer(invocation -> {
                 mutationClassLoader.set(Thread.currentThread().getContextClassLoader());
                 return null;
-            }).when(catalogMgr).registerExternalDatabaseFromEvent("db1", "test_catalog");
+            }).when(catalogMgr).registerExternalDatabaseFromEvent("db1", "db1", "test_catalog");
             Env env = Mockito.mock(Env.class);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(env.isMaster()).thenReturn(false);
@@ -226,7 +227,7 @@ public class MetastoreEventSyncDriverClassLoaderTest {
                     Deencapsulation.invoke(new MetastoreEventSyncDriver(), "syncCatalog",
                             catalog, connector, eventSource);
                     Mockito.verify(catalogMgr)
-                            .registerExternalDatabaseFromEvent("db1", "test_catalog");
+                            .registerExternalDatabaseFromEvent("db1", "db1", "test_catalog");
                 }
 
                 Assertions.assertSame(eventSourceLoader, pollClassLoader.get());

@@ -101,13 +101,12 @@ VExprSPtr create_slot_ref(int column_id, const std::string& column_name) {
 }
 
 std::shared_ptr<IndexExecContext> make_inverted_context(
-        std::vector<ColumnId>& col_ids,
         std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         std::vector<IndexFieldNameAndTypePair>& storage_types,
         std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>& status_map) {
     segment_v2::ColumnIteratorOptions column_iter_opts;
-    return std::make_shared<IndexExecContext>(col_ids, index_iterators, storage_types, status_map,
-                                              nullptr, nullptr, column_iter_opts);
+    return std::make_shared<IndexExecContext>(index_iterators, storage_types, status_map, nullptr,
+                                              nullptr, column_iter_opts);
 }
 
 std::shared_ptr<segment_v2::Segment> make_segment_with_variant_parent() {
@@ -1305,12 +1304,11 @@ TEST_F(VSearchExprTest, FastExecuteReturnsPrecomputedColumn) {
     auto expr = VSearchExpr::create_shared(test_node);
     auto context = std::make_shared<VExprContext>(expr);
 
-    std::vector<ColumnId> col_ids;
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
     std::vector<IndexFieldNameAndTypePair> storage_types;
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
 
-    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto inverted_ctx = make_inverted_context(index_iterators, storage_types, status_map);
     MutableColumnPtr result_column = ColumnUInt8::create();
     inverted_ctx->set_index_result_column_for_expr(expr.get(), std::move(result_column));
     context->set_index_context(inverted_ctx);
@@ -1327,14 +1325,13 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexFailsWithoutStorageType) {
     auto expr = VSearchExpr::create_shared(test_node);
     expr->add_child(create_slot_ref(0, "title"));
 
-    std::vector<ColumnId> col_ids = {0};
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
     index_iterators.emplace_back(std::make_unique<StubIndexIterator>());
     std::vector<IndexFieldNameAndTypePair> storage_types; // intentionally empty
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
     status_map[0][expr.get()] = false;
 
-    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto inverted_ctx = make_inverted_context(index_iterators, storage_types, status_map);
     auto context = std::make_shared<VExprContext>(expr);
     context->set_index_context(inverted_ctx);
 
@@ -1348,12 +1345,11 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexWithUnsupportedChildReturnsError) {
     auto expr = VSearchExpr::create_shared(test_node);
     expr->add_child(std::make_shared<DummyExpr>());
 
-    std::vector<ColumnId> col_ids;
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
     std::vector<IndexFieldNameAndTypePair> storage_types;
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
 
-    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto inverted_ctx = make_inverted_context(index_iterators, storage_types, status_map);
     auto context = std::make_shared<VExprContext>(expr);
     context->set_index_context(inverted_ctx);
 
@@ -1380,14 +1376,14 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexHandlesMissingIterators) {
     auto expr = VSearchExpr::create_shared(test_node);
     expr->add_child(create_slot_ref(0, "title"));
 
-    std::vector<ColumnId> col_ids = {0};
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
-    index_iterators.emplace_back(nullptr);                // iterator unavailable
-    std::vector<IndexFieldNameAndTypePair> storage_types; // unused because iterator is null
+    index_iterators.emplace_back(nullptr); // iterator unavailable
+    std::vector<IndexFieldNameAndTypePair> storage_types;
+    storage_types.emplace_back("stored_title", std::make_shared<DataTypeString>());
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
     status_map[0][expr.get()] = false;
 
-    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto inverted_ctx = make_inverted_context(index_iterators, storage_types, status_map);
     auto context = std::make_shared<VExprContext>(expr);
     context->set_index_context(inverted_ctx);
 
@@ -1412,7 +1408,6 @@ TEST_F(VSearchExprTest, MissingVariantChildIteratorDoesNotUseParentIterator) {
     // Scan column 0 is the Variant parent and has an iterator. Scan column 1 is the requested
     // child and intentionally has none. SEARCH must not reinterpret the parent iterator as the
     // child's index.
-    std::vector<ColumnId> col_ids = {0, 1};
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
     index_iterators.emplace_back(std::make_unique<StubIndexIterator>());
     index_iterators.emplace_back(nullptr);
@@ -1426,9 +1421,8 @@ TEST_F(VSearchExprTest, MissingVariantChildIteratorDoesNotUseParentIterator) {
     // Keep the parent in the segment schema so a parent-rebinding implementation would find it.
     segment_v2::ColumnIteratorOptions column_iter_opts;
     auto segment = make_segment_with_variant_parent();
-    auto inverted_ctx =
-            std::make_shared<IndexExecContext>(col_ids, index_iterators, storage_types, status_map,
-                                               nullptr, segment.get(), column_iter_opts);
+    auto inverted_ctx = std::make_shared<IndexExecContext>(
+            index_iterators, storage_types, status_map, nullptr, segment.get(), column_iter_opts);
     auto context = std::make_shared<VExprContext>(expr);
     context->set_index_context(inverted_ctx);
 
@@ -1459,11 +1453,10 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexNestedFallbackReturnsNotSupportedIn
     nested_node.__isset.search_param = true;
 
     auto expr = VSearchExpr::create_shared(nested_node);
-    std::vector<ColumnId> col_ids;
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
     std::vector<IndexFieldNameAndTypePair> storage_types;
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
-    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto inverted_ctx = make_inverted_context(index_iterators, storage_types, status_map);
     auto context = std::make_shared<VExprContext>(expr);
     context->set_index_context(inverted_ctx);
 
@@ -1485,7 +1478,6 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexPropagatesFunctionFailure) {
     auto expr = VSearchExpr::create_shared(test_node);
     expr->add_child(create_slot_ref(0, "title"));
 
-    std::vector<ColumnId> col_ids = {0};
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
     index_iterators.emplace_back(std::make_unique<StubIndexIterator>());
     std::vector<IndexFieldNameAndTypePair> storage_types;
@@ -1493,7 +1485,7 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexPropagatesFunctionFailure) {
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
     status_map[0][expr.get()] = false;
 
-    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto inverted_ctx = make_inverted_context(index_iterators, storage_types, status_map);
     auto context = std::make_shared<VExprContext>(expr);
     context->set_index_context(inverted_ctx);
 
@@ -1527,7 +1519,6 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexRejectsSearchFallback) {
     auto iterator = std::make_unique<segment_v2::InvertedIndexIterator>();
     iterator->add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
 
-    std::vector<ColumnId> col_ids = {0};
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
     index_iterators.emplace_back(std::move(iterator));
     std::vector<IndexFieldNameAndTypePair> storage_types;
@@ -1535,7 +1526,7 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexRejectsSearchFallback) {
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
     status_map[0][expr.get()] = false;
 
-    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto inverted_ctx = make_inverted_context(index_iterators, storage_types, status_map);
     auto context = std::make_shared<VExprContext>(expr);
     context->set_index_context(inverted_ctx);
 

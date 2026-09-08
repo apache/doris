@@ -146,6 +146,39 @@ private:
     int32_t _old_value;
 };
 
+TEST(VariantUtilTest, SelectStorageVariantParseTargetPrecedence) {
+    TabletSchema plain_schema = _make_variant_schema(false, false);
+    TabletSchema doc_schema = _make_variant_schema(true, false);
+    TabletSchema nested_doc_schema = _make_variant_schema(true, true);
+    ParseConfig parse_config;
+
+    {
+        ScopedVariantStorageParseMode parse_mode(0);
+        EXPECT_EQ(select_storage_variant_parse_target(plain_schema.column(0), parse_config),
+                  ParseConfig::ParseTo::OnlyDocValueColumn);
+
+        parse_config.deprecated_enable_flatten_nested = true;
+        EXPECT_EQ(select_storage_variant_parse_target(plain_schema.column(0), parse_config),
+                  ParseConfig::ParseTo::OnlySubcolumns);
+        EXPECT_EQ(select_storage_variant_parse_target(doc_schema.column(0), parse_config),
+                  ParseConfig::ParseTo::OnlyDocValueColumn);
+        EXPECT_EQ(select_storage_variant_parse_target(nested_doc_schema.column(0), parse_config),
+                  ParseConfig::ParseTo::OnlySubcolumns);
+    }
+
+    parse_config.deprecated_enable_flatten_nested = false;
+    {
+        ScopedVariantStorageParseMode parse_mode(1);
+        EXPECT_EQ(select_storage_variant_parse_target(plain_schema.column(0), parse_config),
+                  ParseConfig::ParseTo::OnlySubcolumns);
+    }
+    {
+        ScopedVariantStorageParseMode parse_mode(2);
+        EXPECT_EQ(select_storage_variant_parse_target(plain_schema.column(0), parse_config),
+                  ParseConfig::ParseTo::OnlyDocValueColumn);
+    }
+}
+
 TEST(VariantUtilTest, NumericConflictResolvedAsJsonbPreservesOriginalNumberText) {
     // Values distributed to different tablets can reach the reader as a JSONB conflict. JSONB
     // preserves the original number text instead of formatting the value through DOUBLE.

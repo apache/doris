@@ -153,6 +153,7 @@ TableStreamReadResult read_bindings(
         return {};
     }
 
+    TEST_SYNC_POINT("get_table_stream_offset::after_read_versions");
     TableStreamOffsetMap offsets;
     result = reader.read_effective_offsets(bindings, TableStreamReadIntent::SNAPSHOT, &offsets);
     if (!result.ok()) {

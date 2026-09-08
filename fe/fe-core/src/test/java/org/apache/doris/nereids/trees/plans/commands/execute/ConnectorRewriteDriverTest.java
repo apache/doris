@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.execute;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -24,6 +26,8 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.RewriteCapableTransaction;
 import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.spi.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
@@ -33,16 +37,23 @@ import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
+import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Guards the engine-neutral parts of {@link ConnectorRewriteDriver} that are unit-testable without a live
@@ -139,6 +150,69 @@ public class ConnectorRewriteDriverTest {
         UserException ex = Assertions.assertThrows(UserException.class, driver::run);
         Assertions.assertTrue(ex.getMessage().contains("plan boom"),
                 "the connector failure text must be preserved, got: " + ex.getMessage());
+    }
+
+    @Test
+    public void committedRewriteFencesBeforeResultConstruction() throws Exception {
+        ConnectorProcedureOps procedureOps = Mockito.mock(ConnectorProcedureOps.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorTableHandle tableHandle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorTransaction connectorTx = Mockito.mock(ConnectorTransaction.class,
+                Mockito.withSettings().extraInterfaces(RewriteCapableTransaction.class));
+        RewriteCapableTransaction rewriteTx = (RewriteCapableTransaction) connectorTx;
+        PluginDrivenTransactionManager txnManager = Mockito.mock(PluginDrivenTransactionManager.class);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+        ConnectorRewriteGroup group = new ConnectorRewriteGroup(
+                ImmutableSet.of("s3://bucket/table/a.parquet"), 1, 1024L, 0);
+
+        Mockito.when(procedureOps.planRewrite(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any())).thenReturn(Collections.singletonList(group));
+        Mockito.when(metadata.beginTransaction(session, tableHandle)).thenReturn(connectorTx);
+        Mockito.when(catalog.getTransactionManager()).thenReturn(txnManager);
+        Mockito.when(txnManager.begin(connectorTx)).thenReturn(7L);
+        Mockito.when(context.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.getInsertTimeoutS()).thenReturn(1);
+        Mockito.when(rewriteTx.getRewriteAddedDataFilesCount()).thenReturn(1);
+        Mockito.when(procedureOps.buildRewriteResult(Mockito.eq("rewrite_data_files"), Mockito.any()))
+                .thenThrow(new IllegalStateException("invalid committed result"));
+
+        Env env = Mockito.mock(Env.class);
+        RefreshManager refreshManager = Mockito.mock(RefreshManager.class);
+        TransientTaskManager transientTaskManager = Mockito.mock(TransientTaskManager.class);
+        Mockito.when(env.getRefreshManager()).thenReturn(refreshManager);
+        Mockito.when(env.getTransientTaskManager()).thenReturn(transientTaskManager);
+        AtomicReference<ConnectorRewriteGroupTask.RewriteResultCallback> callback = new AtomicReference<>();
+
+        ConnectorRewriteDriver driver = new ConnectorRewriteDriver(
+                context, table, catalog, metadata, procedureOps, session, tableHandle,
+                "rewrite_data_files", Collections.emptyMap(), Collections.emptyList(), null);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedConstruction<ConnectorRewriteGroupTask> taskConstruction = Mockito.mockConstruction(
+                        ConnectorRewriteGroupTask.class, (task, constructionContext) -> {
+                            callback.set((ConnectorRewriteGroupTask.RewriteResultCallback)
+                                    constructionContext.arguments().get(5));
+                            Mockito.when(task.getId()).thenReturn(11L);
+                        })) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(transientTaskManager.addMemoryTask(Mockito.any())).thenAnswer(invocation -> {
+                ConnectorRewriteGroupTask task = invocation.getArgument(0);
+                callback.get().onTaskCompleted(task.getId());
+                return task.getId();
+            });
+
+            Assertions.assertThrows(IllegalStateException.class, driver::run);
+
+            Assertions.assertEquals(1, taskConstruction.constructed().size());
+            InOrder order = Mockito.inOrder(txnManager, refreshManager, procedureOps);
+            order.verify(txnManager).commit(7L);
+            order.verify(refreshManager).refreshTableAfterExternalMutation(table);
+            order.verify(procedureOps).buildRewriteResult(Mockito.eq("rewrite_data_files"), Mockito.any());
+        }
     }
 
     @Test

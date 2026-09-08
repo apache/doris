@@ -351,7 +351,7 @@ public final class IcebergCatalogFactory {
             case IcebergCatalogProperties.TYPE_REST:
                 return "org.apache.iceberg.rest.RESTCatalog";
             case IcebergCatalogProperties.TYPE_HMS:
-                return "org.apache.iceberg.hive.HiveCatalog";
+                return DorisHiveCatalog.class.getName();
             case IcebergCatalogProperties.TYPE_GLUE:
                 return "org.apache.iceberg.aws.glue.GlueCatalog";
             case IcebergCatalogProperties.TYPE_HADOOP:

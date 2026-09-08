@@ -74,6 +74,11 @@ public:
 #ifdef BE_TEST
     size_t rows() const;
     size_t promotion_count() const;
+#endif
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
+    size_t stable_scalar_append_count() const;
+#endif
+#ifdef BE_TEST
     bool is_null_at(size_t row) const;
     Status materialize(ColumnPtr* result) const;
 #endif

@@ -263,6 +263,9 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
         if (replicaLocations.size() == 1) {
             TScanRangeLocation replicaLocation = replicaLocations.get(0);
             DistributedPlanWorker worker = workerManager.getWorker(catalogId, replicaLocation.getBackendId());
+            if (!((BackendWorker) worker).getBackend().isQueryAvailable()) {
+                throw new AnalysisException("No available workers");
+            }
             ScanRanges scanRanges = new ScanRanges();
             TScanRangeParams scanReplicaParams =
                     ScanWorkerSelector.buildScanReplicaParams(tabletLocation, replicaLocation);
@@ -302,7 +305,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
 
         for (TScanRangeLocation replicaLocation : replicaLocations) {
             DistributedPlanWorker worker = workerManager.getWorker(catalogId, replicaLocation.getBackendId());
-            if (!worker.available()) {
+            if (!((BackendWorker) worker).getBackend().isQueryAvailable()) {
                 continue;
             }
 

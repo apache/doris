@@ -437,8 +437,7 @@ public:
 #endif
     virtual Status evaluate_ann_range_search(
             const segment_v2::AnnRangeSearchRuntime& runtime,
-            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
-            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             size_t rows_of_segment, roaring::Roaring& row_bitmap,
             segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,

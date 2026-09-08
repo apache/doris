@@ -375,6 +375,7 @@ DEFINE_mInt32(tablet_lookup_cache_stale_sweep_time_sec, "30");
 DEFINE_mInt32(point_query_row_cache_stale_sweep_time_sec, "300");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");
+// Legacy name retained for compatibility; controls GLOBAL_ROWID_COL file-map GC.
 DEFINE_mInt32(quering_rowsets_evict_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
 DEFINE_mString(broken_storage_path, "");
@@ -946,6 +947,10 @@ DEFINE_String(thrift_server_type_of_fe, "THREAD_POOL");
 // disable zone map index when page row is too few
 DEFINE_mInt32(zone_map_row_num_threshold, "20");
 
+// Maximum number of IN values checked exactly against a zone map. For larger sets, only the
+// IN-set min/max range is checked.
+DEFINE_mInt32(in_zonemap_point_check_threshold, "8192");
+
 // aws sdk log level
 //    Off = 0,
 //    Fatal = 1,
@@ -1208,6 +1213,11 @@ DEFINE_Validator(variant_storage_parse_mode,
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
+// ATTENTION: For test only. Keep this enabled in production.
+// Whether S3 storage write paths populate file cache while writing data to object storage.
+// Disable this for tests that need load and compaction output to bypass file cache while keeping
+// query-side file cache writes enabled.
+DEFINE_mBool(enable_file_cache_write_from_s3_file_writer, "true");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: {"path": "/path/to/file_cache", "total_size":53687091200, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}
@@ -1283,6 +1293,22 @@ DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
+
+// async file cache write
+DEFINE_mBool(enable_async_file_cache_write, "false");
+DEFINE_mInt32(async_file_cache_write_workers_per_disk, "16");
+// A positive value is the BE-wide queued+active task ownership limit. The successfully initialized
+// cache instances receive equal shares. -1 selects max(1 GiB, 1% of the BE memory limit) before
+// that split.
+DEFINE_mInt64(async_file_cache_write_max_pending_bytes, "-1");
+DEFINE_mBool(enable_async_file_cache_write_inflight_write_buffer_index, "true");
+DEFINE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count, "64");
+DEFINE_Validator(async_file_cache_write_workers_per_disk,
+                 [](int32_t value) { return value > 0 && value <= 128; });
+DEFINE_Validator(async_file_cache_write_max_pending_bytes,
+                 [](int64_t value) { return value == -1 || value > 0; });
+DEFINE_Validator(async_file_cache_write_inflight_write_buffer_index_shard_count,
+                 [](int32_t value) { return value > 0; });
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1394,6 +1420,8 @@ DEFINE_mInt64(snii_forced_spill_min_arena_bytes, "67108864");
 DEFINE_mInt32(snii_spill_max_run_files_per_buffer, "64");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
+// The kuromoji (Japanese) analyzer
+DEFINE_mBool(enable_kuromoji_analyzer, "false");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
@@ -1423,6 +1451,8 @@ DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // Log interval when doing s3 upload task
 DEFINE_mInt32(s3_file_writer_log_interval_second, "60");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
+// When file cache is enabled, the configured bytes must be divisible by
+// file_cache_each_block_size so every non-EOF HDFS cache block is canonical.
 DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "1"); // 1MB
 
 //disable shrink memory by default
@@ -1691,40 +1721,10 @@ DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 /** Iceberg sink configurations **/
 DEFINE_mInt64(iceberg_sink_max_file_size, "1073741824"); // 1GB
 
-// URI scheme to Doris file type mappings used by paimon-cpp DorisFileSystem.
-// Each entry uses the format "<scheme>=<file_type>", and file_type must be one of:
-// local, hdfs, s3, http, broker.
-DEFINE_Strings(paimon_file_system_scheme_mappings,
-               "file=local,hdfs=hdfs,viewfs=hdfs,local=hdfs,jfs=hdfs,"
-               "s3=s3,s3a=s3,s3n=s3,oss=s3,obs=s3,cos=s3,cosn=s3,gs=s3,"
-               "abfs=s3,abfss=s3,wasb=s3,wasbs=s3,http=http,https=http,"
-               "ofs=broker,gfs=broker");
-DEFINE_Validator(paimon_file_system_scheme_mappings,
-                 ([](const std::vector<std::string>& mappings) -> bool {
-                     doris::StringCaseUnorderedSet seen_schemes;
-                     static const doris::StringCaseUnorderedSet supported_types = {
-                             "local", "hdfs", "s3", "http", "broker"};
-                     for (const auto& raw_entry : mappings) {
-                         std::string_view entry = doris::trim(raw_entry);
-                         size_t separator = entry.find('=');
-                         if (separator == std::string_view::npos) {
-                             return false;
-                         }
-                         std::string scheme = std::string(doris::trim(entry.substr(0, separator)));
-                         std::string file_type =
-                                 std::string(doris::trim(entry.substr(separator + 1)));
-                         if (scheme.empty() || file_type.empty()) {
-                             return false;
-                         }
-                         if (supported_types.find(file_type) == supported_types.end()) {
-                             return false;
-                         }
-                         if (!seen_schemes.insert(scheme).second) {
-                             return false;
-                         }
-                     }
-                     return true;
-                 }));
+/** Paimon sink configurations **/
+DEFINE_mInt64(paimon_jni_writer_memory_pool_limit_bytes, "536870912"); // 512MB
+DEFINE_Validator(paimon_jni_writer_memory_pool_limit_bytes,
+                 [](int64_t bytes) -> bool { return bytes > 0; });
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
@@ -1933,6 +1933,7 @@ DEFINE_Validator(concurrency_stats_dump_interval_ms,
 DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
 
 DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
+DEFINE_mBool(enable_cloud_random_segment_id, "false");
 DEFINE_mInt32(file_handles_deplenish_frequency_times, "3");
 
 // clang-format off
@@ -2324,6 +2325,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         }                                                                                          \
         TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                          \
         TYPE old_value = ref_conf_value;                                                           \
+        ref_conf_value = new_value;                                                                \
         if (RegisterConfValidator::_s_field_validator != nullptr) {                                \
             auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);        \
             if (validator != RegisterConfValidator::_s_field_validator->end() &&                   \
@@ -2333,7 +2335,6 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
-        ref_conf_value = new_value;                                                                \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \

@@ -57,7 +57,8 @@ Status SetProbeSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, Runtime
 template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_child_exprs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_child_exprs, state, _child->operator_row_desc_after_projection()));
     return VExpr::open(_child_exprs, state);
 }
 

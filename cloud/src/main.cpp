@@ -252,6 +252,13 @@ int main(int argc, char** argv) {
     brpc::FLAGS_max_body_size = config::brpc_max_body_size;
     brpc::FLAGS_socket_max_unwritten_bytes = config::brpc_socket_max_unwritten_bytes;
 
+    std::unique_ptr<ICloudServerStarter> meta_brpc_starter;
+    int port = config::brpc_listen_port;
+    if (!create_meta_brpc_starter(&server, port, &meta_brpc_starter) ||
+        !meta_brpc_starter->validate_config()) {
+        return -1;
+    }
+
     std::shared_ptr<TxnKv> txn_kv;
     if (config::use_mem_kv) {
         // MUST NOT be used in production environment
@@ -326,10 +333,7 @@ int main(int argc, char** argv) {
         pthread_setname_np(periodiccally_log_thread.native_handle(), "recycler_periodically_log");
     }
 
-    std::unique_ptr<ICloudServerStarter> meta_brpc_starter;
-    int port = config::brpc_listen_port;
-    if (!create_meta_brpc_starter(&server, port, &meta_brpc_starter) ||
-        !meta_brpc_starter->start()) {
+    if (!meta_brpc_starter->start()) {
         return -1;
     }
     end = steady_clock::now();

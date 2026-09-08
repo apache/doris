@@ -26,42 +26,111 @@ permissions:
   checks: write
   contents: read
   pull-requests: write
+  issues: write
 
 jobs:
 
   label-when-approved:
     name: "Label when approved"
     runs-on: ubuntu-latest
-    outputs:
-      isApprovedByCommiters: ${{ steps.label-when-approved-by-commiters.outputs.isApproved }}
-      isApprovedByAnyone: ${{ steps.label-when-approved-by-anyone.outputs.isApproved }}
     steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: actions/checkout@v2
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - name: "Get information about the original trigger of the run"
-        uses: ./.github/actions/get-workflow-origin
-        id: source-run-info
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          sourceRunId: ${{ github.event.workflow_run.id }}
-      - name: Label when approved by commiters
-        uses: ./.github/actions/label-when-approved-action
-        id: label-when-approved-by-commiters
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          label: 'approved'
-          require_committers_approval: 'true'
-          remove_label_when_approval_missing: 'true'
-          pullRequestNumber: ${{ steps.source-run-info.outputs.pullRequestNumber }}
-          comment: 'PR approved by at least one committer and no changes requested.'
-      - name: Label when approved by anyone
-        uses: ./.github/actions/label-when-approved-action
-        id: label-when-approved-by-anyone
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          label: 'reviewed'
-          pullRequestNumber: ${{ steps.source-run-info.outputs.pullRequestNumber }}
-          comment: 'PR approved by anyone and no changes requested.'
+      - name: "Resolve the pull request of the triggering review run"
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR_NUM="$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")"
+          if [[ -z "${PR_NUM}" ]]; then
+            HEAD_SHA="$(jq -r '.workflow_run.head_sha' "$GITHUB_EVENT_PATH")"
+            PR_NUM="$(gh api "repos/$GITHUB_REPOSITORY/commits/${HEAD_SHA}/pulls" --jq '.[0].number // empty' 2>/dev/null || true)"
+          fi
+          if [[ -z "${PR_NUM}" ]]; then
+            echo "::error::Unable to resolve the pull request for this workflow run."
+            exit 1
+          fi
+          echo "pr=${PR_NUM}" >> "$GITHUB_OUTPUT"
+
+      # Inline replacement of the TobKed/label-when-approved-action submodule:
+      #   - per reviewer, only the latest APPROVED/CHANGES_REQUESTED review counts
+      #     (reviews are returned in submission order, later entries overwrite earlier ones)
+      #   - "reviewed":  any reviewer's latest review is APPROVED,
+      #     unless anyone's latest review is CHANGES_REQUESTED
+      #   - "approved":  any committer's latest review is APPROVED,
+      #     unless any committer's latest review is CHANGES_REQUESTED
+      - name: "Evaluate approvals"
+        id: approve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR_NUM="${{ steps.pr.outputs.pr }}"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}/reviews?per_page=100" --paginate \
+            --jq '.[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED") | [.user.login, .state] | @tsv' \
+            > "$RUNNER_TEMP/reviews.tsv"
+          awk -F'\t' '{latest[$1]=$2} END {for (u in latest) print u, latest[u]}' "$RUNNER_TEMP/reviews.tsv" \
+            > "$RUNNER_TEMP/latest.tsv"
+
+          any_approved="false"; any_changes="false"
+          committer_approved="false"; committer_changes="false"
+          while read -r user state; do
+            [[ -z "${user}" ]] && continue
+            if [[ "${state}" == "APPROVED" ]]; then any_approved="true"; fi
+            if [[ "${state}" == "CHANGES_REQUESTED" ]]; then any_changes="true"; fi
+            PERM="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/${user}/permission" --jq '.permission // empty' 2>/dev/null || true)"
+            case "${PERM}" in
+              admin|write|maintain)
+                if [[ "${state}" == "APPROVED" ]]; then committer_approved="true"; fi
+                if [[ "${state}" == "CHANGES_REQUESTED" ]]; then committer_changes="true"; fi
+                ;;
+            esac
+          done < "$RUNNER_TEMP/latest.tsv"
+
+          if [[ "${any_approved}" == "true" && "${any_changes}" != "true" ]]; then
+            echo "reviewed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reviewed=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "${committer_approved}" == "true" && "${committer_changes}" != "true" ]]; then
+            echo "approved=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "approved=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The "reviewed" label is only added, never removed (matches the previous action config).
+      - name: "Update the 'reviewed' label"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR_NUM="${{ steps.pr.outputs.pr }}"
+          if [[ "${{ steps.approve.outputs.reviewed }}" != "true" ]]; then
+            exit 0
+          fi
+          HAS_LABEL="$(gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUM}/labels" --jq '[.[].name] | index("reviewed") != null')"
+          if [[ "${HAS_LABEL}" == "true" ]]; then
+            exit 0
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUM}/labels" -f 'labels[]=reviewed' >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUM}/comments" \
+            -f 'body=PR approved by anyone and no changes requested.' >/dev/null
+
+      # The "approved" label is added on committer approval and removed when the
+      # approval is gone (matches the previous action config).
+      - name: "Update the 'approved' label"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR_NUM="${{ steps.pr.outputs.pr }}"
+          if [[ "${{ steps.approve.outputs.approved }}" == "true" ]]; then
+            HAS_LABEL="$(gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUM}/labels" --jq '[.[].name] | index("approved") != null')"
+            if [[ "${HAS_LABEL}" == "true" ]]; then
+              exit 0
+            fi
+            gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUM}/labels" -f 'labels[]=approved' >/dev/null
+            gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUM}/comments" \
+              -f 'body=PR approved by at least one committer and no changes requested.' >/dev/null
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUM}/labels/approved" -X DELETE 2>/dev/null || true
+          fi

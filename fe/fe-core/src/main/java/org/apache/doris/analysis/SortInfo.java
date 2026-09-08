@@ -45,7 +45,6 @@ public class SortInfo {
     private TupleDescriptor sortTupleDesc;
     // Input expressions materialized into sortTupleDesc_. One expr per slot in
     // sortTupleDesc_.
-    private boolean useTwoPhaseRead = false;
 
     /**
      * Used by new optimizer.
@@ -68,7 +67,6 @@ public class SortInfo {
         isAscOrder = Lists.newArrayList(other.isAscOrder);
         nullsFirstParams = Lists.newArrayList(other.nullsFirstParams);
         sortTupleDesc = other.sortTupleDesc;
-        useTwoPhaseRead = other.useTwoPhaseRead;
     }
 
     public List<Expr> getOrderingExprs() {
@@ -77,10 +75,6 @@ public class SortInfo {
 
     public List<Boolean> getIsAscOrder() {
         return isAscOrder;
-    }
-
-    public void setUseTwoPhaseRead() {
-        useTwoPhaseRead = true;
     }
 
     public TupleDescriptor getSortTupleDescriptor() {
@@ -114,9 +108,6 @@ public class SortInfo {
                 ExprToThriftVisitor.treesToThrift(orderingExprs),
                 isAscOrder,
                 nullsFirstParams);
-        if (useTwoPhaseRead) {
-            sortInfo.setUseTwoPhaseRead(true);
-        }
         return sortInfo;
     }
 }

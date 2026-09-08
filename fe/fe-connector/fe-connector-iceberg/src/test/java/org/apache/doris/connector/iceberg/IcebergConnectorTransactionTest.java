@@ -75,6 +75,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -413,6 +414,51 @@ public class IcebergConnectorTransactionTest {
                 () -> txn.beginWrite(SESSION, "db1", "t1", insertCtx()));
         Assertions.assertFalse(ops.log.contains("loadTable:db1.t1"),
                 "loadTable must not run when the authenticator throws first");
+    }
+
+    @Test
+    public void closeRejectsAndReleasesWriteLeasePublishedAfterBlockedLoad() throws Exception {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = catalog.createTable(
+                TableIdentifier.of("db1", "t1"), SCHEMA, PartitionSpec.unpartitioned());
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch allowLoad = new CountDownLatch(1);
+        IcebergCatalogOps blockingOps = (IcebergCatalogOps) Proxy.newProxyInstance(
+                IcebergCatalogOps.class.getClassLoader(),
+                new Class<?>[] {IcebergCatalogOps.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("loadTable")) {
+                        loadStarted.countDown();
+                        Assertions.assertTrue(allowLoad.await(10, TimeUnit.SECONDS));
+                        return table;
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                });
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        IcebergConnectorTransaction txn = new IcebergConnectorTransaction(
+                42L, blockingOps, new RecordingConnectorContext(), tracker, null);
+        AtomicReference<Throwable> beginFailure = new AtomicReference<>();
+        Thread beginThread = new Thread(() -> {
+            try {
+                txn.beginWrite(SESSION, "db1", "t1", insertCtx());
+            } catch (Throwable t) {
+                beginFailure.set(t);
+            }
+        }, "blocked-iceberg-begin");
+
+        beginThread.start();
+        Assertions.assertTrue(loadStarted.await(10, TimeUnit.SECONDS));
+        txn.close();
+        allowLoad.countDown();
+        beginThread.join(10_000);
+
+        Assertions.assertFalse(beginThread.isAlive());
+        Assertions.assertInstanceOf(DorisConnectorException.class, beginFailure.get());
+        Assertions.assertNull(txn.getTransaction(), "a load that loses to close must not publish its SDK transaction");
+        AtomicInteger generationCleanup = new AtomicInteger();
+        tracker.close(generationCleanup::incrementAndGet);
+        Assertions.assertEquals(1, generationCleanup.get(),
+                "the losing load must release its retained catalog generation locally");
     }
 
     // ─────────────────── begin* guards (T04) ───────────────────

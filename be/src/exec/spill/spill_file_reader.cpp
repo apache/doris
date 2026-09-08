@@ -30,6 +30,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
+#include "runtime/runtime_profile_counter_names.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_points.h"
 #include "util/slice.h"
@@ -43,16 +44,24 @@ SpillFileReader::SpillFileReader(RuntimeState* state, RuntimeProfile* profile,
         : _spill_dir(std::move(spill_dir)),
           _part_count(part_count),
           _resource_ctx(state->get_query_ctx()->resource_ctx()) {
-    // Internalize counter setup
-    RuntimeProfile* custom_profile = profile->get_child("CustomCounters");
+    // Internalize counter setup. The counters themselves are registered by the owning
+    // operator (SpillReadCounters::init), so look them up by the shared name constants:
+    // a literal that drifts from the constant silently yields a null counter, which
+    // turns every SCOPED_TIMER/COUNTER_UPDATE on it into a no-op.
+    RuntimeProfile* custom_profile = profile->get_child(profile::CUSTOM_COUNTERS);
     DCHECK(custom_profile != nullptr);
-    _read_file_timer = custom_profile->get_counter("SpillReadFileTime");
-    _deserialize_timer = custom_profile->get_counter("SpillReadDerializeBlockTime");
-    _read_block_count = custom_profile->get_counter("SpillReadBlockCount");
-    _read_block_data_size = custom_profile->get_counter("SpillReadBlockBytes");
-    _read_file_size = custom_profile->get_counter("SpillReadFileBytes");
-    _read_rows_count = custom_profile->get_counter("SpillReadRows");
-    _read_file_count = custom_profile->get_counter("SpillReadFileCount");
+    auto get_counter = [&](const char* name) {
+        auto* counter = custom_profile->get_counter(name);
+        DCHECK(counter != nullptr) << "spill read counter is not registered: " << name;
+        return counter;
+    };
+    _read_file_timer = get_counter(profile::SPILL_READ_FILE_TIME);
+    _deserialize_timer = get_counter(profile::SPILL_READ_DESERIALIZE_BLOCK_TIME);
+    _read_block_count = get_counter(profile::SPILL_READ_BLOCK_COUNT);
+    _read_block_data_size = get_counter(profile::SPILL_READ_BLOCK_BYTES);
+    _read_file_size = get_counter(profile::SPILL_READ_FILE_BYTES);
+    _read_rows_count = get_counter(profile::SPILL_READ_ROWS);
+    _read_file_count = get_counter(profile::SPILL_READ_FILE_COUNT);
 }
 
 Status SpillFileReader::open() {

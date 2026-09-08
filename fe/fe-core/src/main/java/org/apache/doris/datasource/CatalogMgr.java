@@ -700,8 +700,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return () -> { };
     }
 
-    public void unregisterExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfExists)
-            throws DdlException {
+    /** Applies a table drop event using canonical FE-local identities. */
+    public void unregisterExternalTableFromEvent(
+            String localDbName, String localTableName, String catalogName) throws DdlException {
         CatalogIf<?> catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
@@ -709,39 +710,23 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support drop ExternalCatalog Tables");
         }
-        ExternalDatabase<?> db = ((ExternalCatalog) catalog).getDbNullable(dbName);
+        ExternalDatabase<?> db = ((ExternalCatalog) catalog).getDbNullable(localDbName);
         if (db == null) {
-            if (!ignoreIfExists) {
-                throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
-            }
             return;
         }
 
-        String tableNameToInvalidate;
-        if (ignoreIfExists) {
-            tableNameToInvalidate = db.canonicalLocalTableNameFromRemote(tableName);
-        } else {
-            TableIf table = db.getTableNullable(tableName);
-            if (table == null) {
-                throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
-            }
-            tableNameToInvalidate = table.getName();
-        }
-
-        // All current production callers with ignoreIfExists=true are HMS event paths. Skip load-through table
-        // existence validation so local names/object/ID/engine cache cleanup still runs after the table has already
-        // disappeared remotely. Resolve the event's remote name to the same canonical local key used by CREATE_TABLE.
+        // The remote table may already be gone, so do not perform a load-through existence check.
         db.writeLock();
         try {
-            db.unregisterTable(tableNameToInvalidate);
+            db.unregisterTable(localTableName);
         } finally {
             db.writeUnlock();
         }
     }
 
-    public void registerExternalTableFromEvent(String dbName, String tableName,
-            String catalogName, long updateTime,
-            boolean ignoreIfExists) throws DdlException {
+    /** Applies a table create event while preserving both its remote and canonical FE-local identities. */
+    public void registerExternalTableFromEvent(String localDbName,
+            String remoteTableName, String localTableName, String catalogName, long updateTime) throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
@@ -749,24 +734,20 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support create ExternalCatalog Tables");
         }
-        DatabaseIf db = catalog.getDbNullable(dbName);
+        DatabaseIf db = catalog.getDbNullable(localDbName);
         if (db == null) {
-            if (!ignoreIfExists) {
-                throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
-            }
             return;
         }
 
         ExternalDatabase<?> externalDatabase = (ExternalDatabase<?>) db;
-        String localTableName = externalDatabase.canonicalLocalTableNameFromRemote(tableName);
         long tblId = Util.genIdByName(catalogName, db.getFullName(), localTableName);
 
         db.writeLock();
         try {
             // buildTableForInit dispatches to the catalog's own table type, so connector events do not depend
             // on a connector-specific ExternalDatabase subtype.
-            ExternalTable namedTable = externalDatabase.buildTableForInit(tableName, localTableName, tblId,
-                    (ExternalCatalog) catalog, externalDatabase, false);
+            ExternalTable namedTable = externalDatabase.buildTableForInit(
+                    remoteTableName, localTableName, tblId, (ExternalCatalog) catalog, externalDatabase, false);
             namedTable.setUpdateTime(updateTime);
             db.registerTable(namedTable);
         } finally {
@@ -774,7 +755,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public void unregisterExternalDatabase(String dbName, String catalogName)
+    public void unregisterExternalDatabaseFromEvent(String localDbName, String catalogName)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -783,11 +764,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support drop ExternalCatalog databases");
         }
-        ((ExternalCatalog) catalog).unregisterDatabase(dbName);
+        ((ExternalCatalog) catalog).unregisterDatabase(localDbName);
     }
 
-    public void registerExternalDatabaseFromEvent(String dbName, String catalogName)
-            throws DdlException {
+    public void registerExternalDatabaseFromEvent(
+            String remoteDbName, String localDbName, String catalogName) throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
@@ -798,11 +779,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         // Plugin-driven catalogs implement event registration; the generic ExternalCatalog base throws
         // (fail-loud for catalogs that cannot register).
-        ((ExternalCatalog) catalog).registerDatabase(dbName);
+        ((ExternalCatalog) catalog).registerDatabaseFromEvent(remoteDbName, localDbName);
     }
 
-    public void addExternalPartitions(String catalogName, String dbName, String tableName,
-            List<String> partitionNames, long updateTime, boolean ignoreIfNotExists)
+    public void addExternalPartitionsFromEvent(String catalogName,
+            String localDbName, String localTableName, List<String> partitionNames, long updateTime)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -811,33 +792,29 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog");
         }
-        DatabaseIf db = catalog.getDbNullable(dbName);
+        DatabaseIf db = catalog.getDbNullable(localDbName);
         if (db == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
-            }
             return;
         }
 
-        TableIf table = db.getTableNullable(tableName);
+        TableIf table = db.getTableNullable(localTableName);
         if (table == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
-            }
             return;
         }
-        if (catalog instanceof PluginDrivenExternalCatalog) {
-            // The connector owns the partition cache (pull-through), so invalidating by name is enough for
-            // the added partitions to show up on the next listing. Mirrors refreshTableInternal's connector hook.
-            ((PluginDrivenExternalCatalog) catalog).getConnector().invalidatePartition(
-                    ((ExternalDatabase<?>) db).getRemoteName(), ((ExternalTable) table).getRemoteName(),
-                    partitionNames);
-            ((ExternalTable) table).setUpdateTime(updateTime);
+        try {
+            if (catalog instanceof PluginDrivenExternalCatalog) {
+                ((PluginDrivenExternalCatalog) catalog).getConnector().invalidatePartition(
+                        ((ExternalDatabase<?>) db).getRemoteName(), ((ExternalTable) table).getRemoteName(),
+                        partitionNames);
+                ((ExternalTable) table).setUpdateTime(updateTime);
+            }
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableRowCountCache((ExternalTable) table);
         }
     }
 
-    public void dropExternalPartitions(String catalogName, String dbName, String tableName,
-            List<String> partitionNames, long updateTime, boolean ignoreIfNotExists)
+    public void dropExternalPartitionsFromEvent(String catalogName,
+            String localDbName, String localTableName, List<String> partitionNames, long updateTime)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -846,28 +823,25 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog");
         }
-        DatabaseIf db = catalog.getDbNullable(dbName);
+        DatabaseIf db = catalog.getDbNullable(localDbName);
         if (db == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
-            }
             return;
         }
 
-        TableIf table = db.getTableNullable(tableName);
+        TableIf table = db.getTableNullable(localTableName);
         if (table == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
-            }
             return;
         }
 
-        if (catalog instanceof PluginDrivenExternalCatalog) {
-            // The connector owns the partition cache (pull-through); invalidate by name.
-            ((PluginDrivenExternalCatalog) catalog).getConnector().invalidatePartition(
-                    ((ExternalDatabase<?>) db).getRemoteName(), ((ExternalTable) table).getRemoteName(),
-                    partitionNames);
-            ((ExternalTable) table).setUpdateTime(updateTime);
+        try {
+            if (catalog instanceof PluginDrivenExternalCatalog) {
+                ((PluginDrivenExternalCatalog) catalog).getConnector().invalidatePartition(
+                        ((ExternalDatabase<?>) db).getRemoteName(), ((ExternalTable) table).getRemoteName(),
+                        partitionNames);
+                ((ExternalTable) table).setUpdateTime(updateTime);
+            }
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableRowCountCache((ExternalTable) table);
         }
     }
 

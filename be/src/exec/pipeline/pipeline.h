@@ -63,7 +63,7 @@ public:
     DataSinkOperatorPtr sink_shared_pointer() { return _sink; }
 
     [[nodiscard]] const RowDescriptor& output_row_desc() const {
-        return _operators.back()->row_desc();
+        return _operators.back()->operator_row_desc_after_projection();
     }
 
     [[nodiscard]] PipelineId id() const { return _pipeline_id; }

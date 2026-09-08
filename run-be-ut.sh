@@ -307,10 +307,20 @@ if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='ON'
 fi
 
+# The UT build is a compile-and-run loop, not a debugger session: line tables
+# keep stack traces, perf and addr2line working, and drop the variable-level
+# DWARF that dominates the object files (sampled be/test TUs: -6% compile cpu,
+# objects -91%). Ask for the full DWARF back with DORIS_DEV_DEBUG_INFO=full.
+# Only default it in under clang -- gcc has no -gline-tables-only.
+if [[ -z "${DORIS_DEV_DEBUG_INFO}" ]] && [[ "${DORIS_TOOLCHAIN}" == 'clang' ]]; then
+    DORIS_DEV_DEBUG_INFO='line-tables'
+fi
+
 MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
 echo "-- Use ccache: ${CMAKE_USE_CCACHE_CXX} and ${CMAKE_USE_CCACHE_C}"
 echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
+echo "-- Debug info: ${DORIS_DEV_DEBUG_INFO:-full}"
 
 if [[ "${CMAKE_BUILD_TYPE}" = "ASAN" ]]; then
     BUILD_TYPE="ASAN_UT"
@@ -337,6 +347,7 @@ cd "${CMAKE_BUILD_DIR}"
     ${CMAKE_USE_CCACHE_C:+${CMAKE_USE_CCACHE_C}} \
     -DENABLE_PCH="${ENABLE_PCH}" \
     -DENABLE_UNITY_BUILD="${ENABLE_UNITY_BUILD:-ON}" \
+    -DDORIS_DEV_DEBUG_INFO="${DORIS_DEV_DEBUG_INFO}" \
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \
     -DBUILD_AZURE="${BUILD_AZURE}" \
     "${BE_EXTRA_CMAKE_ARGS[@]}" \
@@ -435,8 +446,8 @@ touch "${UT_TMP_DIR}/tmp_file"
 LIB_DIR="${DORIS_TEST_BINARY_DIR}/lib/"
 rm -rf "${LIB_DIR}"
 mkdir "${LIB_DIR}"
-if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
-    cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${LIB_DIR}"
+if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs_3_4/" ]]; then
+    cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs_3_4/" "${LIB_DIR}/hadoop_hdfs"
 fi
 if [[ -f "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" ]]; then
     cp "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" "${LIB_DIR}/"

@@ -32,8 +32,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -53,7 +53,7 @@ public class StreamLoadHandlerTest {
         try {
             Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", systemInfoService);
 
-            Assert.assertEquals(selectedBackend.getId(), StreamLoadHandler.selectBackend("cluster0").getId());
+            Assertions.assertEquals(selectedBackend.getId(), StreamLoadHandler.selectBackend("cluster0").getId());
         } finally {
             Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", originalSystemInfoService);
         }
@@ -81,9 +81,9 @@ public class StreamLoadHandlerTest {
                     request, null, new TStreamLoadPutResult(), "127.0.0.1");
             handler.setCloudCluster();
 
-            Assert.assertEquals("backend_compute_group",
+            Assertions.assertEquals("backend_compute_group",
                     ConnectContext.get().getSessionVariable().getCloudCluster());
-            Assert.assertEquals("backend_compute_group", request.getCloudCluster());
+            Assertions.assertEquals("backend_compute_group", request.getCloudCluster());
         } finally {
             ConnectContext.remove();
             Config.cloud_unique_id = originalCloudUniqueId;
@@ -132,9 +132,9 @@ public class StreamLoadHandlerTest {
                     request, null, new TStreamLoadPutResult(), "127.0.0.1");
             try {
                 handler.setCloudCluster();
-                Assert.fail("group commit should validate compute group privilege");
+                Assertions.fail("group commit should validate compute group privilege");
             } catch (DdlException e) {
-                Assert.assertTrue(e.getMessage().contains("USAGE denied"));
+                Assertions.assertTrue(e.getMessage().contains("USAGE denied"));
             }
 
             Mockito.verify(cloudEnv).changeCloudCluster(

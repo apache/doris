@@ -62,6 +62,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
+#include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "load/channel/load_channel_mgr.h"
 #include "load/channel/load_stream_mgr.h"
@@ -516,6 +517,12 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                 "s3_write_buffer_size {} and config::s3_write_buffer_size % "
                 "config::file_cache_each_block_size must be zero",
                 config::file_cache_each_block_size, config::s3_write_buffer_size);
+        exit(-1);
+    }
+    auto hdfs_batch_status = io::validate_hdfs_write_batch_buffer_size(
+            config::hdfs_write_batch_buffer_size_mb, config::file_cache_each_block_size);
+    if (!hdfs_batch_status.ok()) {
+        LOG_FATAL("{}", hdfs_batch_status.to_string());
         exit(-1);
     }
     Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);

@@ -23,19 +23,14 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Pins {@link PluginDrivenExternalCatalog#onRefreshCache} (H-5): {@code REFRESH CATALOG} with cache
- * invalidation must also drop the connector's OWN caches (e.g. the iceberg latest-snapshot cache, default TTL
- * 24h), which the base engine route resolver never reaches for a plugin catalog. {@code REFRESH CATALOG} does
- * not rebuild the connector (only {@code ADD}/{@code MODIFY CATALOG} does), so this override is the only thing
- * that drops the connector caches on refresh.
- */
+/** Verifies connector-owned caches follow catalog refresh semantics. */
 public class PluginDrivenExternalCatalogCacheTest {
 
     private static PluginDrivenExternalCatalog catalogWith(Connector connector) {
@@ -55,13 +50,10 @@ public class PluginDrivenExternalCatalogCacheTest {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             catalog.onRefreshCache(true);
         }
-        // H-5 has TWO halves; pin both. (a) the base engine invalidation must STILL run: super.onRefreshCache(true)
-        // -> Env...getExtMetaCacheMgr().invalidateCatalog(id) flushes the engine route-resolver/schema cache for
-        // this plugin catalog. MUTATION: dropping the super.onRefreshCache(...) delegation -> verify fails.
-        Mockito.verify(cacheMgr).invalidateCatalog(1L);
-        // (b) the connector's OWN caches must be dropped too (the part the base path never reaches). MUTATION:
-        // removing connector.invalidateAll() -> the connector keeps serving stale snapshots up to 24h -> fails.
-        Mockito.verify(connector, Mockito.times(1)).invalidateAll();
+        // Connector state must be cleared before the engine invalidates row counts derived from it.
+        InOrder order = Mockito.inOrder(connector, cacheMgr);
+        order.verify(connector).invalidateAll();
+        order.verify(cacheMgr).invalidateCatalog(1L);
     }
 
     @Test
@@ -71,8 +63,6 @@ public class PluginDrivenExternalCatalogCacheTest {
         Env env = Mockito.mock(Env.class);
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
-            // invalidCache=false (the plain "reload metadata, keep caches" refresh) must NOT drop connector
-            // caches. MUTATION: dropping the invalidCache guard -> connector cleared unconditionally -> fails.
             catalog.onRefreshCache(false);
         }
         Mockito.verify(connector, Mockito.never()).invalidateAll();
@@ -80,8 +70,7 @@ public class PluginDrivenExternalCatalogCacheTest {
 
     @Test
     public void refreshCatalogWithNullConnectorIsSafe() {
-        // resetToUninitialized() nulls the connector (onClose) BEFORE calling onRefreshCache, and an
-        // uninitialized catalog has no connector yet. The override must be a safe no-op, not an NPE.
+        // A reset catalog has no connector to invalidate.
         PluginDrivenExternalCatalog catalog = catalogWith(null);
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getExtMetaCacheMgr()).thenReturn(Mockito.mock(ExternalMetaCacheMgr.class));

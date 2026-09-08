@@ -89,6 +89,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
@@ -854,6 +855,25 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
         fn.setBinaryType(Function.BinaryType.AGG_STATE);
         return new FunctionCallExpr(fn, new FunctionParams(fnCall.getChildren()), false);
+    }
+
+    @Override
+    public Expr visitCombineCombinator(CombineCombinator combinator, PlanTranslatorContext context) {
+        List<Expr> arguments = combinator.children().stream()
+                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
+                .collect(ImmutableList.toImmutableList());
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr(
+                visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
+                new FunctionParams(false, arguments), false);
+        Function aggregateFunction = functionCallExpr.getFn();
+        aggregateFunction.setName(new FunctionName(combinator.getName()));
+        aggregateFunction.setArgs(arguments.stream().map(Expr::getType).collect(Collectors.toList()));
+        aggregateFunction.setBinaryType(Function.BinaryType.AGG_STATE);
+        aggregateFunction.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
+        Type returnType = combinator.getDataType().toCatalogDataType();
+        aggregateFunction.setReturnType(returnType);
+        functionCallExpr.setType(returnType);
+        return functionCallExpr;
     }
 
     @Override

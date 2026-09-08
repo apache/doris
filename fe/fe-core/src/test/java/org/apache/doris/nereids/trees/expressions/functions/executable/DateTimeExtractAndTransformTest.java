@@ -209,4 +209,48 @@ class DateTimeExtractAndTransformTest {
                         new VarcharLiteral("Europe/Paris"),
                         new VarcharLiteral("UTC")));
     }
+
+    // from_second and from_millisecond widen their argument to microseconds BEFORE the range
+    // check in fromMicroSecond runs. Without an overflow-checked multiply the product wraps back
+    // into the accepted range and folds to a bogus datetime instead of reporting the argument as
+    // out of range: 18446744073710 * 1_000_000 wraps to 448384, and 18446744073709552 * 1000
+    // wraps to 384. The BE rejects both, so only FE constant folding disagreed.
+    @Test
+    void testFromSecondRejectsOverflowingArgument() {
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromSecond(new BigIntLiteral(18446744073710L)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromSecond(new BigIntLiteral(Long.MAX_VALUE)));
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromMilliSecond(new BigIntLiteral(18446744073709552L)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromMilliSecond(new BigIntLiteral(Long.MAX_VALUE)));
+    }
+
+    // The pre-existing range check must keep rejecting a value that is out of range without
+    // overflowing, and negative arguments must still be rejected.
+    @Test
+    void testFromSecondStillRejectsOutOfRangeArgument() {
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromSecond(new BigIntLiteral(253402272000L)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromSecond(new BigIntLiteral(-20L)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromMilliSecond(new BigIntLiteral(-20L)));
+    }
+
+    // In-range arguments must still fold. The exact datetime depends on the session time zone,
+    // so this only asserts that folding happens and produces a datetime literal.
+    @Test
+    void testFromSecondStillFoldsInRangeArgument() {
+        Assertions.assertInstanceOf(DateTimeV2Literal.class,
+                DateTimeExtractAndTransform.fromSecond(new BigIntLiteral(0L)));
+        Assertions.assertInstanceOf(DateTimeV2Literal.class,
+                DateTimeExtractAndTransform.fromSecond(new BigIntLiteral(1735689600L)));
+        Assertions.assertInstanceOf(DateTimeV2Literal.class,
+                DateTimeExtractAndTransform.fromMilliSecond(new BigIntLiteral(1735689600000L)));
+        Assertions.assertInstanceOf(DateTimeV2Literal.class,
+                DateTimeExtractAndTransform.fromMicroSecond(new BigIntLiteral(1735689600000000L)));
+    }
 }

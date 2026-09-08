@@ -22,6 +22,7 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -49,6 +50,36 @@ public class InPartition extends PartitionDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+        checkNoMaxValue();
+    }
+
+    /**
+     * MAXVALUE is only meaningful as the open upper bound of a RANGE partition
+     * ('VALUES LESS THAN (MAXVALUE)'). A LIST partition enumerates concrete values, so a
+     * MAXVALUE key can never be matched on load and breaks partition serialization and
+     * pruning afterwards. Reject it at DDL time; tables created by older versions keep
+     * working (see the load/prune handling that skips MAXVALUE keys).
+     */
+    private void checkNoMaxValue() {
+        if (DebugPointUtil.isEnable("FE.skipCheckMaxValueInListPartition")) {
+            return;
+        }
+        for (List<Expression> item : values) {
+            for (Expression value : item) {
+                if (value instanceof PartitionDefinition.MaxValue) {
+                    throw new AnalysisException(String.format(
+                            "MAXVALUE is not allowed in LIST partition '%s', got VALUES IN (%s). "
+                                    + "MAXVALUE can only be used in RANGE partition with "
+                                    + "'VALUES LESS THAN (MAXVALUE)'. Please use explicit values or NULL instead.",
+                            partitionName,
+                            item.stream().map(InPartition::valueToSql).collect(Collectors.joining(", "))));
+                }
+            }
+        }
+    }
+
+    private static String valueToSql(Expression value) {
+        return value instanceof PartitionDefinition.MaxValue ? "MAXVALUE" : value.toSql();
     }
 
     @Override

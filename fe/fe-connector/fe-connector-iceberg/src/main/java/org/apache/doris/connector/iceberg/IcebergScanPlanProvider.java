@@ -117,6 +117,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 /**
@@ -147,6 +148,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final long DEFAULT_MAX_FILE_SPLIT_SIZE = 64L * 1024 * 1024;
     private static final long DEFAULT_MAX_INITIAL_FILE_SPLIT_NUM = 200L;
     private static final long DEFAULT_MAX_FILE_SPLIT_NUM = 100000L;
+    private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+    private static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     // FIX-M3 streaming (file-count) batch gate — keys byte-identical to fe-core SessionVariable.
     private static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
     private static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
@@ -165,13 +168,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // (org.apache.doris.catalog.Column / IcebergUtils are forbidden), so these literals are duplicated here
     // and pinned to the fe-core constants by IcebergScanPlanProviderClassifyColumnTest (DORIS_ICEBERG_ROWID_COL
     // == Column.ICEBERG_ROWID_COL) and the row-lineage names == IcebergUtils.ICEBERG_ROW_ID_COL /
-    // ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL. The hidden row-id column is SYNTHESIZED (never in the data
-    // file, materialized by IcebergParquet/OrcReader); the v3 row-lineage columns are GENERATED (read from the
-    // file when present, otherwise backfilled). The engine-wide __DORIS_GLOBAL_ROWID_COL__ is NOT handled here
-    // (a generic Doris lazy-materialization mechanism owned by the generic node).
+    // ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL. The hidden row-id, file path, and row position columns are
+    // SYNTHESIZED (never in the data file, materialized by IcebergTableReader); the v3 row-lineage columns are
+    // GENERATED (read from the file when present, otherwise backfilled). The engine-wide
+    // __DORIS_GLOBAL_ROWID_COL__ is NOT handled here (a generic Doris lazy-materialization mechanism owned by
+    // the generic node).
     private static final String DORIS_ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
     private static final String ICEBERG_ROW_ID_COL = "_row_id";
     private static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
+    private static final String ICEBERG_FILE_PATH_COL = "_file";
+    private static final String ICEBERG_ROW_POSITION_COL = "_pos";
 
     // #65784: version marker (TFileScanRangeParams.iceberg_scan_semantics_version) advertising that this plan
     // was produced by an FE honoring authoritative iceberg name mappings + logical initial-default
@@ -238,6 +244,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // IcebergConnector and injected via getScanPlanProvider. Nullable — null via the offline-test ctors; when null
     // getScanNodeProperties resolves file_format_type live (matching pre-PERF-03 behaviour, node-memoized per query).
     private final IcebergFormatCache formatCache;
+    private final IcebergCatalogResourceTracker resourceTracker;
 
     // FIX-SCAN-METRICS: per-query stash of the iceberg SDK scan diagnostics captured by the attached
     // IcebergScanProfileReporter during planScan, keyed by session queryId. fe-core drains it
@@ -300,6 +307,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
             ConnectorContext context, IcebergManifestCache manifestCache, IcebergTableCache tableCache,
             IcebergFormatCache formatCache) {
+        this(catalogProps, catalogOpsResolver, context, manifestCache, tableCache, formatCache, null);
+    }
+
+    IcebergScanPlanProvider(IcebergCatalogProperties catalogProps,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
+            ConnectorContext context, IcebergManifestCache manifestCache, IcebergTableCache tableCache,
+            IcebergFormatCache formatCache, IcebergCatalogResourceTracker resourceTracker) {
         this.catalogProps = catalogProps;
         this.properties = catalogProps.getRaw();
         this.catalogOpsResolver = catalogOpsResolver;
@@ -307,6 +321,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         this.manifestCache = manifestCache;
         this.tableCache = tableCache;
         this.formatCache = formatCache;
+        this.resourceTracker = resourceTracker;
     }
 
     /**
@@ -385,13 +400,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * Classifies iceberg's special columns for the generic {@code PluginDrivenScanNode} (C2 WS-SYNTH-READ),
      * porting the legacy {@code IcebergScanNode.classifyColumn} mapping minus the engine-wide
      * {@code __DORIS_GLOBAL_ROWID_COL__} prefix (which the generic node handles itself): the hidden row-id
-     * column is SYNTHESIZED (a debug/DML metadata column never present in the data file), and the v3
-     * row-lineage columns are GENERATED (read from the file when present, otherwise backfilled). Every other
-     * column returns {@code DEFAULT} so the generic node applies its own partition-key / regular classification.
+     * column is SYNTHESIZED (a debug/DML metadata column never present in the data file), as are the file path
+     * and physical row position metadata columns. The v3 row-lineage columns are GENERATED (read from the file
+     * when present, otherwise backfilled). Every other column returns {@code DEFAULT} so the generic node applies
+     * its own partition-key / regular classification.
      */
     @Override
     public ConnectorColumnCategory classifyColumn(String columnName) {
-        if (DORIS_ICEBERG_ROWID_COL.equalsIgnoreCase(columnName)) {
+        if (DORIS_ICEBERG_ROWID_COL.equalsIgnoreCase(columnName)
+                || ICEBERG_FILE_PATH_COL.equalsIgnoreCase(columnName)
+                || ICEBERG_ROW_POSITION_COL.equalsIgnoreCase(columnName)) {
             return ConnectorColumnCategory.SYNTHESIZED;
         }
         if (ICEBERG_ROW_ID_COL.equalsIgnoreCase(columnName)
@@ -518,6 +536,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter, long limit) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        validateMetadataColumnReader(session, columns);
         if (iceHandle.isResolvedEmptySnapshot()) {
             // The batch decision is made before the engine pins MVCC; once pinned empty, streaming must
             // preserve that boundary instead of interpreting Iceberg's sentinel as the latest snapshot.
@@ -686,6 +705,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        validateMetadataColumnReader(session, columns);
         if (iceHandle.isResolvedEmptySnapshot() && !isSnapshotIndependentSystemTable(iceHandle)) {
             // Iceberg has no snapshot id that can represent "before the first commit". Returning no ranges is
             // the read-side MVCC fence; otherwise a refreshed Table would turn -1 into "latest" and expose a
@@ -2088,7 +2108,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         List<String> names = new ArrayList<>(columns.size());
         for (ConnectorColumnHandle column : columns) {
-            names.add(((IcebergColumnHandle) column).getName());
+            String name = ((IcebergColumnHandle) column).getName();
+            if (!ICEBERG_FILE_PATH_COL.equalsIgnoreCase(name)
+                    && !ICEBERG_ROW_POSITION_COL.equalsIgnoreCase(name)) {
+                names.add(name);
+            }
         }
         return names;
     }
@@ -2302,6 +2326,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Table table, TableScan scan, Schema scanSchema, List<ConnectorColumnHandle> columns,
             boolean hasApplicableEqualityDeletes,
             Optional<Map<Integer, List<String>>> nameMapping) {
+        if (requiresMetadataColumns(columns)) {
+            return true;
+        }
         if (hasApplicableEqualityDeletes) {
             return true;
         }
@@ -3000,6 +3027,30 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return Boolean.parseBoolean(raw.trim());
     }
 
+    private static boolean requiresMetadataColumns(List<ConnectorColumnHandle> columns) {
+        return columns.stream()
+                .filter(column -> column instanceof IcebergColumnHandle)
+                .map(column -> ((IcebergColumnHandle) column).getName())
+                .anyMatch(name -> ICEBERG_FILE_PATH_COL.equalsIgnoreCase(name)
+                        || ICEBERG_ROW_POSITION_COL.equalsIgnoreCase(name));
+    }
+
+    private static void validateMetadataColumnReader(
+            ConnectorSession session, List<ConnectorColumnHandle> columns) {
+        if (!requiresMetadataColumns(columns)) {
+            return;
+        }
+        if (sessionBool(session, FORCE_JNI_SCANNER, false)) {
+            throw new DorisConnectorException(
+                    "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                            + "actual reader is JNI");
+        }
+        if (!sessionBool(session, ENABLE_FILE_SCANNER_V2, true)) {
+            throw new DorisConnectorException(
+                    "Iceberg metadata columns require FileScannerV2 native Parquet/ORC reader");
+        }
+    }
+
     // The session time zone drives zone-adjusted (timestamptz) literal pushdown. Delegates to the shared
     // IcebergTimeUtils (Doris alias map, mirrors fe-core TimeUtils.getTimeZone()) so aliases like CST/PRC/EST
     // match legacy instead of throwing; null/blank/genuinely-invalid -> UTC. Package-private for unit testing.
@@ -3019,16 +3070,28 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim (it
         // re-validates the credential even on a scope hit).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
-        Table raw = IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(), () -> {
+        Supplier<Table> directLoader = () -> {
             try {
-                return context == null
-                        ? loadRawTable(ops, handle)
-                        : context.executeAuthenticated(() -> loadRawTable(ops, handle));
+                return context == null ? ops.loadTable(handle.getDbName(), handle.getTableName())
+                        : context.executeAuthenticated(
+                                () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
             } catch (Exception e) {
                 throw IcebergExceptionUtils.wrapTableLoadFailure(
                         handle, e, "Failed to load table for scan, error message is:");
             }
-        });
+        };
+        Table raw = tableCache == null
+                ? resourceTracker == null
+                        ? IcebergStatementScope.sharedTable(
+                                session, handle.getDbName(), handle.getTableName(), directLoader)
+                        : IcebergStatementScope.sharedTrackedTable(
+                                session, handle.getDbName(), handle.getTableName(), resourceTracker, directLoader,
+                                table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()))
+                : IcebergStatementScope.sharedBorrowedTable(
+                        session, handle.getDbName(), handle.getTableName(),
+                        () -> tableCache.borrow(
+                                TableIdentifier.of(handle.getDbName(), handle.getTableName()), directLoader),
+                        directLoader);
         return wrapTableForScan(raw);
     }
 
@@ -3037,14 +3100,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * enabled (the connector disables it for credential-dependent catalogs), else a direct remote
      * {@code loadTable}. No wrap and no auth scope here — {@link #resolveTable} owns both.
      */
-    private Table loadRawTable(IcebergCatalogOps ops, IcebergTableHandle handle) {
-        if (tableCache != null) {
-            return tableCache.getOrLoad(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
-                    () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
-        }
-        return ops.loadTable(handle.getDbName(), handle.getTableName());
-    }
-
     /**
      * Routes a resolved data table's {@code io()} through the plugin-side Kerberos {@code doAs}
      * ({@link IcebergAuthenticatedFileIO} via {@link IcebergAuthenticatedTableOperations}) — the scan-side
@@ -3094,8 +3149,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         // Keep the raw base shared with metadata binding and ordinary scan properties. The caller already owns
         // the auth scope, and avoiding a fresh load prevents system-table slots and rows crossing generations.
-        Table base = IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
-                () -> loadRawTable(ops, handle));
+        Table base = tableCache == null
+                ? resourceTracker == null
+                        ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
+                                () -> ops.loadTable(handle.getDbName(), handle.getTableName()))
+                        : IcebergStatementScope.sharedTrackedTable(session, handle.getDbName(), handle.getTableName(),
+                                resourceTracker, () -> ops.loadTable(handle.getDbName(), handle.getTableName()),
+                                table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()))
+                : IcebergStatementScope.sharedBorrowedTable(session, handle.getDbName(), handle.getTableName(),
+                        () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
+                                () -> ops.loadTable(handle.getDbName(), handle.getTableName())),
+                        () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
         return MetadataTableUtils.createMetadataTableInstance(
                 base,
                 MetadataTableType.from(handle.getSysTableName()));

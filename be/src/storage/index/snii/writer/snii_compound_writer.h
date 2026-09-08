@@ -299,6 +299,10 @@ private:
     // it serves, so keeping it alive keeps that memory resident for the writer's
     // whole life.
     static void release_blob_sources(std::vector<BlobFileSource>* files);
+    // A terminal finish failure can leave both already-visited and pending blobs.
+    // Drop every callback owner immediately instead of retaining its staging
+    // resource until this compound writer is destroyed.
+    void release_all_blob_sources();
     Status write_blob_files(const std::vector<BlobFileSource>& files,
                             std::vector<format::NamedBlobFileRef>* refs);
     // Emits the blob hot-file region and the blob directory entries; see the .cpp.

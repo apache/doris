@@ -23,8 +23,8 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeA
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -39,27 +39,27 @@ public class MTMVRelatedPartitionDescSyncLimitGeneratorTest {
         Map<String, String> mvProperties = Maps.newHashMap();
         MTMVPartitionSyncConfig config = generator
                 .generateMTMVPartitionSyncConfigByProperties(mvProperties);
-        Assert.assertEquals(-1, config.getSyncLimit());
-        Assert.assertFalse(config.getDateFormat().isPresent());
-        Assert.assertEquals(MTMVPartitionSyncTimeUnit.DAY, config.getTimeUnit());
+        Assertions.assertEquals(-1, config.getSyncLimit());
+        Assertions.assertFalse(config.getDateFormat().isPresent());
+        Assertions.assertEquals(MTMVPartitionSyncTimeUnit.DAY, config.getTimeUnit());
 
         mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT, "1");
         config = generator.generateMTMVPartitionSyncConfigByProperties(mvProperties);
-        Assert.assertEquals(1, config.getSyncLimit());
-        Assert.assertFalse(config.getDateFormat().isPresent());
-        Assert.assertEquals(MTMVPartitionSyncTimeUnit.DAY, config.getTimeUnit());
+        Assertions.assertEquals(1, config.getSyncLimit());
+        Assertions.assertFalse(config.getDateFormat().isPresent());
+        Assertions.assertEquals(MTMVPartitionSyncTimeUnit.DAY, config.getTimeUnit());
 
         mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT, "month");
         config = generator.generateMTMVPartitionSyncConfigByProperties(mvProperties);
-        Assert.assertEquals(1, config.getSyncLimit());
-        Assert.assertFalse(config.getDateFormat().isPresent());
-        Assert.assertEquals(MTMVPartitionSyncTimeUnit.MONTH, config.getTimeUnit());
+        Assertions.assertEquals(1, config.getSyncLimit());
+        Assertions.assertFalse(config.getDateFormat().isPresent());
+        Assertions.assertEquals(MTMVPartitionSyncTimeUnit.MONTH, config.getTimeUnit());
 
         mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT, "%Y%m%d");
         config = generator.generateMTMVPartitionSyncConfigByProperties(mvProperties);
-        Assert.assertEquals(1, config.getSyncLimit());
-        Assert.assertEquals("%Y%m%d", config.getDateFormat().get());
-        Assert.assertEquals(MTMVPartitionSyncTimeUnit.MONTH, config.getTimeUnit());
+        Assertions.assertEquals(1, config.getSyncLimit());
+        Assertions.assertEquals("%Y%m%d", config.getDateFormat().get());
+        Assertions.assertEquals(MTMVPartitionSyncTimeUnit.MONTH, config.getTimeUnit());
     }
 
     @Test
@@ -70,19 +70,19 @@ public class MTMVRelatedPartitionDescSyncLimitGeneratorTest {
             ms.when(DateTimeAcquire::now).thenReturn(dateTimeLiteral);
             long nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 1);
             // 2020-02-03
-            Assert.assertEquals(1580659200L, nowTruncSubSec);
+            Assertions.assertEquals(1580659200L, nowTruncSubSec);
             nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.MONTH, 1);
             // 2020-02-01
-            Assert.assertEquals(1580486400L, nowTruncSubSec);
+            Assertions.assertEquals(1580486400L, nowTruncSubSec);
             nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.YEAR, 1);
             // 2020-01-01
-            Assert.assertEquals(1577808000L, nowTruncSubSec);
+            Assertions.assertEquals(1577808000L, nowTruncSubSec);
             nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.MONTH, 3);
             // 2019-12-01
-            Assert.assertEquals(1575129600L, nowTruncSubSec);
+            Assertions.assertEquals(1575129600L, nowTruncSubSec);
             nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 4);
             // 2020-01-31
-            Assert.assertEquals(1580400000L, nowTruncSubSec);
+            Assertions.assertEquals(1580400000L, nowTruncSubSec);
         }
     }
 }
