@@ -123,6 +123,7 @@ public:
     void collect_slot_column_ids(std::set<int>& column_ids) const override;
 
     int filter_id() const { return _filter_id; }
+    bool is_null_aware() const { return _null_aware; }
 
     std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter() const {
         return _rf_filter_rows;
