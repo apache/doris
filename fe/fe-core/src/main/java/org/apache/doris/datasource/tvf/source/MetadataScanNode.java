@@ -37,7 +37,9 @@ import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.collect.Lists;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class MetadataScanNode extends ExternalScanNode {
 
@@ -65,6 +67,12 @@ public class MetadataScanNode extends ExternalScanNode {
         metaScanNode.setMetadataType(this.tvf.getMetadataType());
         TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
         metaScanNode.setCurrentUserIdent(tCurrentUser);
+        // SU narrowing: carry the session's active role subset so the BE->FE metadata requests
+        // narrow their privilege checks to the same set the session sees; null = not narrowed.
+        Set<String> sessionRoleOverride = ConnectContext.get().getSessionRoleOverride();
+        if (sessionRoleOverride != null) {
+            metaScanNode.setCurrentRoles(new HashSet<>(sessionRoleOverride));
+        }
         planNode.setMetaScanNode(metaScanNode);
     }
 

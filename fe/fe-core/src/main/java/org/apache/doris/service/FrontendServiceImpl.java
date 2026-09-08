@@ -109,6 +109,7 @@ import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
@@ -322,6 +323,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TUpdatePlanStatsCacheRequest;
+import org.apache.doris.thrift.TUserIdentity;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -497,8 +499,41 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return res;
     }
 
+    /**
+     * Runs a metadata RPC handler under the calling session's SU-narrowed role subset when the
+     * request carries one, so every privilege check inside the handler resolves the same narrowed
+     * set a live SU session would (Auth.getRolesByUserWithLdap consults the thread-local). It is
+     * cleared in a finally because handler threads are pooled. A request without an override runs
+     * unchanged.
+     */
+    private static <T> T withSessionRoleOverride(TUserIdentity currentUserIdent, String user, String userIp,
+            Set<String> currentRoles, MetadataRpcHandler<T> handler) throws TException {
+        if (currentRoles == null) {
+            return handler.run();
+        }
+        UserIdentity narrowedUser = currentUserIdent != null
+                ? UserIdentity.fromThrift(currentUserIdent)
+                : UserIdentity.createAnalyzedUserIdentWithIp(user, userIp);
+        Auth.setRpcSessionNarrowing(narrowedUser, Sets.newHashSet(currentRoles));
+        try {
+            return handler.run();
+        } finally {
+            Auth.clearRpcSessionNarrowing();
+        }
+    }
+
+    @FunctionalInterface
+    private interface MetadataRpcHandler<T> {
+        T run() throws TException;
+    }
+
     @Override
     public TGetDbsResult getDbNames(TGetDbsParams params) throws TException {
+        return withSessionRoleOverride(params.current_user_ident, params.user, params.user_ip,
+                params.current_roles, () -> getDbNamesImpl(params));
+    }
+
+    private TGetDbsResult getDbNamesImpl(TGetDbsParams params) throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get db request: {}", params);
         }
@@ -592,6 +627,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TGetTablesResult getTableNames(TGetTablesParams params) throws TException {
+        return withSessionRoleOverride(params.current_user_ident, params.user, params.user_ip,
+                params.current_roles, () -> getTableNamesImpl(params));
+    }
+
+    private TGetTablesResult getTableNamesImpl(TGetTablesParams params) throws TException {
         try {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get table name request: {}", params);
@@ -654,6 +694,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TListTableStatusResult listTableStatus(TGetTablesParams params) throws TException {
+        return withSessionRoleOverride(params.current_user_ident, params.user, params.user_ip,
+                params.current_roles, () -> listTableStatusImpl(params));
+    }
+
+    private TListTableStatusResult listTableStatusImpl(TGetTablesParams params) throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get list table request: {}", params);
         }
@@ -946,6 +991,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TDescribeTablesResult describeTables(TDescribeTablesParams params) throws TException {
+        return withSessionRoleOverride(params.current_user_ident, params.user, params.user_ip,
+                params.current_roles, () -> describeTablesImpl(params));
+    }
+
+    private TDescribeTablesResult describeTablesImpl(TDescribeTablesParams params) throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get desc tables request: {}", params);
         }
@@ -3370,6 +3420,28 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
+        // information_schema tables and metadata table functions: the request names the caller and,
+        // for a session-narrowed (SU) session, the active role subset; MetadataGenerator's privilege
+        // checks then resolve that set instead of the caller's full role union.
+        TUserIdentity currentUserIdent = null;
+        Set<String> currentRoles = null;
+        if (request.isSetSchemaTableParams()) {
+            currentUserIdent = request.getSchemaTableParams().current_user_ident;
+            currentRoles = request.getSchemaTableParams().current_roles;
+        } else if (request.isSetMetadaTableParams()) {
+            currentUserIdent = request.getMetadaTableParams().current_user_ident;
+            currentRoles = request.getMetadaTableParams().current_roles;
+        }
+        if (currentRoles != null && currentUserIdent == null) {
+            // a narrowed request must say whom it narrows; never fall back to the full role union
+            return MetadataGenerator.errorResult("current user ident is not set for a narrowed request");
+        }
+        return withSessionRoleOverride(currentUserIdent, null, null, currentRoles,
+                () -> fetchSchemaTableDataImpl(request));
+    }
+
+    private TFetchSchemaTableDataResult fetchSchemaTableDataImpl(TFetchSchemaTableDataRequest request)
+            throws TException {
         try {
             if (!request.isSetSchemaTableName()) {
                 return MetadataGenerator.errorResult("Fetch schema table name is not set");
@@ -5694,6 +5766,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TShowProcessListResult showProcessList(TShowProcessListRequest request) throws TException {
+        // a narrowed session's ADMIN check inside listConnectionForRpc resolves the narrowed set, so a
+        // tenant-narrowed administrator sees only the sessions of the identity it runs as
+        return withSessionRoleOverride(request.current_user_ident, null, null, request.current_roles,
+                () -> showProcessListImpl(request));
+    }
+
+    private TShowProcessListResult showProcessListImpl(TShowProcessListRequest request) throws TException {
         if (!request.isSetCurrentUserIdent()) {
             throw new TException("Current user identity is not set");
         }

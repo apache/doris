@@ -59,6 +59,9 @@ Status SchemaProcessListScanner::start(RuntimeState* state) {
     request.__set_show_full_sql(true);
     request.__set_time_zone(state->timezone());
     request.__set_current_user_ident(*_param->common_param->current_user_ident);
+    if (!_param->common_param->current_roles.empty()) {
+        request.__set_current_roles(_param->common_param->current_roles);
+    }
 
     for (const auto& fe_addr : _param->common_param->fe_addr_list) {
         TShowProcessListResult tmp_ret;
