@@ -31,8 +31,10 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -58,7 +60,7 @@ public class Embed extends AIFunction {
      * constructor with 1 argument.
      */
     public Embed(Expression arg) {
-        this(new StringLiteral(getResourceName()), arg);
+        this(new StringLiteral(getResourceName(arg)), arg);
     }
 
     /**
@@ -68,12 +70,22 @@ public class Embed extends AIFunction {
         super("embed", arg0, arg1);
     }
 
+    /**
+     * Get the default resource for EMBED.
+     */
+    private static String getResourceName(Expression input) throws AnalysisException {
+        String resourceName = input.getDataType().isJsonType()
+                ? ConnectContext.get().getSessionVariable().defaultMultimodalEmbedResource
+                : ConnectContext.get().getSessionVariable().defaultEmbedResource;
+        return Strings.isNullOrEmpty(resourceName) ? AIFunction.getResourceName() : resourceName;
+    }
+
     @Override
     public Embed withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 1 && children.size() <= 2,
                 "Function EMBED only accepts 1 or 2 arguments");
         if (children.size() == 1) {
-            return new Embed(new StringLiteral(getResourceName()),
+            return new Embed(new StringLiteral(getResourceName(children.get(0))),
                     children.get(0));
         }
         return new Embed(children.get(0), children.get(1));

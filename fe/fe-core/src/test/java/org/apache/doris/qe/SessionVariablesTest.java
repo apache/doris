@@ -27,6 +27,8 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
+import org.apache.doris.nereids.trees.expressions.functions.ai.Embed;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -274,6 +276,64 @@ public class SessionVariablesTest extends TestWithFeService {
                         SessionVariable.AI_CONTEXT_WINDOW_SIZE, new IntLiteral(-1))));
         Assertions.assertTrue(contextException.getMessage().contains(SessionVariable.AI_CONTEXT_WINDOW_SIZE));
         Assertions.assertEquals(1, sv.aiContextWindowSize);
+    }
+
+    @Test
+    public void testDefaultEmbedResources() throws Exception {
+        SessionVariable sv = new SessionVariable();
+
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION, SessionVariable.DEFAULT_EMBED_RESOURCE,
+                new StringLiteral("embed_resource")));
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION, SessionVariable.DEFAULT_MULTIMODAL_EMBED_RESOURCE,
+                new StringLiteral("multimodal_resource")));
+
+        Assertions.assertEquals("embed_resource", sv.defaultEmbedResource);
+        Assertions.assertEquals("multimodal_resource", sv.defaultMultimodalEmbedResource);
+    }
+
+    @Test
+    public void testEmbedDefaultResourceDependsOnLastArgumentTypeAndFallsBackToDefaultAiResource() {
+        connectContext.setThreadLocalInfo();
+        SessionVariable sv = connectContext.getSessionVariable();
+        String originalDefaultAIResource = sv.defaultAIResource;
+        String originalDefaultEmbedResource = sv.defaultEmbedResource;
+        String originalDefaultMultimodalEmbedResource = sv.defaultMultimodalEmbedResource;
+        try {
+            sv.defaultAIResource = "ai_resource";
+            sv.defaultEmbedResource = "embed_resource";
+            sv.defaultMultimodalEmbedResource = "multimodal_embed_resource";
+
+            Embed textEmbed = new Embed(
+                    new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("text"));
+            Assertions.assertEquals("embed_resource",
+                    ((org.apache.doris.nereids.trees.expressions.literal.StringLiteral)
+                            textEmbed.getArgument(0)).getValue());
+
+            Embed multimodalEmbed = new Embed(
+                    new org.apache.doris.nereids.trees.expressions.literal.JsonLiteral("{\"url\":\"image\"}"));
+            Assertions.assertEquals("multimodal_embed_resource",
+                    ((org.apache.doris.nereids.trees.expressions.literal.StringLiteral)
+                            multimodalEmbed.getArgument(0)).getValue());
+            Assertions.assertEquals("ai_resource", AIFunction.getResourceName());
+
+            sv.defaultEmbedResource = "";
+            textEmbed = new Embed(
+                    new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("text"));
+            Assertions.assertEquals("ai_resource",
+                    ((org.apache.doris.nereids.trees.expressions.literal.StringLiteral)
+                            textEmbed.getArgument(0)).getValue());
+
+            sv.defaultMultimodalEmbedResource = "";
+            multimodalEmbed = new Embed(
+                    new org.apache.doris.nereids.trees.expressions.literal.JsonLiteral("{\"url\":\"image\"}"));
+            Assertions.assertEquals("ai_resource",
+                    ((org.apache.doris.nereids.trees.expressions.literal.StringLiteral)
+                            multimodalEmbed.getArgument(0)).getValue());
+        } finally {
+            sv.defaultAIResource = originalDefaultAIResource;
+            sv.defaultEmbedResource = originalDefaultEmbedResource;
+            sv.defaultMultimodalEmbedResource = originalDefaultMultimodalEmbedResource;
+        }
     }
 
     @Test
