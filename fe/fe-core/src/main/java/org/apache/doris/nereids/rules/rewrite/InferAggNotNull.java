@@ -103,7 +103,8 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
 
     private Set<Expression> inferFunctionNotNulls(
             AggregateFunction aggregateFunction, CascadesContext cascadesContext) {
-        return ExpressionUtils.inferNotNull(ImmutableSet.copyOf(aggregateFunction.children()), cascadesContext);
+        return ExpressionUtils.inferNotNullForAggregateArguments(
+                ImmutableSet.copyOf(aggregateFunction.children()), cascadesContext);
     }
 
     private boolean canInferFunctionNotNull(AggregateFunction aggregateFunction) {

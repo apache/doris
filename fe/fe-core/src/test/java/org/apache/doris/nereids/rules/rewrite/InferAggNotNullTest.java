@@ -71,6 +71,23 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testNotInferWhenAggregateArgumentReturnsFalseForNullInput() {
+        Expression isNotNull = new Not(new IsNull(scan1.getOutput().get(1)));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new Count(false, isNotNull), "cnt")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
     void testInferMultipleAggregateSameInput() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .aggGroupUsingIndex(ImmutableList.of(),
