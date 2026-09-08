@@ -580,6 +580,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String LANCE_FRAGMENTS_PER_SPLIT = "lance_fragments_per_split";
 
+    public static final String ENABLE_LANCE_LAZY_MATERIALIZATION = "enable_lance_lazy_materialization";
+
     public static final String FILE_SPLIT_SIZE_ON_FE = "file_split_size_on_fe";
 
     public static final String FILE_SPLIT_SIZE_ON_BE = "file_split_size_on_be";
@@ -2584,6 +2586,14 @@ public class SessionVariable implements Serializable, Writable {
                             + "a positive value groups that many fragments per split, bypassing index grouping "
                             + "and minimum BE parallelism. Does not affect vector/FTS queries."})
     public int lanceFragmentsPerSplit = 0;
+
+    @VariableMgr.VarAttr(name = ENABLE_LANCE_LAZY_MATERIALIZATION, needForward = true,
+            description = {
+                    "是否启用 Lance 两阶段延迟读取，默认开启，不受 topn_lazy_materialization_threshold 控制。"
+                            + "当前支持 vector_search 和 full_text_search 中可安全延迟读取的列。",
+                    "Enable Lance two-phase lazy materialization, independently of topn_lazy_materialization_threshold. "
+                            + "Enabled by default for eligible columns in vector_search and full_text_search."})
+    public boolean enableLanceLazyMaterialization = true;
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE_ON_FE, needForward = true, description = {
             "支持 BE 细粒度切分时，FE 粗粒度文件分片的目标大小，单位为字节，默认为 512MB",

@@ -87,6 +87,7 @@ private:
     Status _open_dataset(const DatasetKey& key);
     Status _prepare_fts_query_context();
     Status _open_scanner(const TFileRangeDesc& range);
+    Status _configure_scan_options(LanceScanner* scanner) const;
     Status _configure_normal_scan(LanceScanner* scanner, const TLanceFileDesc& lance_params) const;
     Status _configure_vector_search(LanceScanner* scanner,
                                     const TLanceFileDesc& lance_params) const;

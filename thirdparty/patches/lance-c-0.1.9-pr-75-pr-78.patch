@@ -1,0 +1,2441 @@
+Lance-C v0.1.9 scanner options: PR #75 followed by PR #78.
+Apply after lance-c-0.1.9-pr-73.patch and lance-c-0.1.9-pr-74.patch.
+The upstream mail patches below are concatenated without modification.
+
+PR #75: https://github.com/lance-format/lance-c/pull/75
+Head: 043a1f7eac253d8ac6be3f970b60fcbf615295aa
+PR #78: https://github.com/lance-format/lance-c/pull/78
+Head: e894f591aef358cd36fdbf915c4d5b95fd0e8348
+
+From 0752592cc4bbc69f8f9333362a00f3bceee73100 Mon Sep 17 00:00:00 2001
+From: zhangstar333 <zhangsida@selectdb.com>
+Date: Fri, 4 Sep 2026 23:35:29 +0800
+Subject: [PATCH 1/2] add some setter
+
+---
+ include/lance/lance.h      |  81 +++++++++++
+ include/lance/lance.hpp    |  47 +++++++
+ src/scanner.rs             | 279 +++++++++++++++++++++++++++++++++++++
+ tests/c_api_test.rs        | 230 ++++++++++++++++++++++++++++++
+ tests/cpp/test_cpp_api.cpp |   7 +
+ 5 files changed, 644 insertions(+)
+
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+index 3bf291f..00f415b 100644
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -934,6 +934,74 @@ LanceScanner* lance_scanner_new(
+ int32_t lance_scanner_set_limit(LanceScanner* scanner, int64_t limit);
+ int32_t lance_scanner_set_offset(LanceScanner* scanner, int64_t offset);
+ int32_t lance_scanner_set_batch_size(LanceScanner* scanner, int64_t batch_size);
++
++/**
++ * Set the target output batch size in bytes.
++ *
++ * When set, this takes precedence over the row-based batch size. The value
++ * must be greater than zero and must be set before scanning starts.
++ */
++int32_t lance_scanner_set_batch_size_bytes(
++    LanceScanner* scanner,
++    uint64_t batch_size_bytes
++);
++
++/**
++ * Set the scanner I/O buffer size in bytes.
++ *
++ * The value must be greater than zero and must be set before scanning starts.
++ * This bounds buffered I/O received from storage, but is not a hard limit on
++ * all memory used by the scanner.
++ *
++ * @param scanner               Scanner handle. Must not be NULL.
++ * @param io_buffer_size_bytes  I/O buffer size in bytes. Must be greater than zero.
++ * @return 0 on success, -1 on error.
++ */
++int32_t lance_scanner_set_io_buffer_size(
++    LanceScanner* scanner,
++    uint64_t io_buffer_size_bytes
++);
++
++/**
++ * Set the maximum number of batches decoded concurrently.
++ *
++ * @param batch_readahead  Number of in-flight batch decode tasks. Must be greater than zero.
++ */
++int32_t lance_scanner_set_batch_readahead(
++    LanceScanner* scanner,
++    size_t batch_readahead
++);
++
++/**
++ * Set fragment readahead for unordered scans.
++ *
++ * This setting is only used when scan-in-order is disabled. The value must be
++ * greater than zero.
++ */
++int32_t lance_scanner_set_fragment_readahead(
++    LanceScanner* scanner,
++    size_t fragment_readahead
++);
++
++/**
++ * Set the target number of physical execution partitions.
++ *
++ * This controls the partition count used by the physical optimizer and can be
++ * used to bound scan CPU parallelism. The value must be greater than zero and
++ * must be set before scanning starts.
++ */
++int32_t lance_scanner_set_target_parallelism(
++    LanceScanner* scanner,
++    size_t target_parallelism
++);
++
++/**
++ * Configure whether batches are returned in storage order (default: true).
++ *
++ * Disabling ordering can improve throughput by returning batches as soon as
++ * they are ready.
++ */
++int32_t lance_scanner_set_scan_in_order(LanceScanner* scanner, bool scan_in_order);
+ int32_t lance_scanner_with_row_id(LanceScanner* scanner, bool enable);
+ 
+ /**
+@@ -1656,6 +1724,19 @@ int32_t lance_scanner_nearest(
+ );
+ 
+ int32_t lance_scanner_set_nprobes(LanceScanner* scanner, uint32_t n);
++
++/**
++ * Set vector index partition-search concurrency for each query.
++ *
++ * A value of -1 uses the CPU pool size, 0 selects Lance's automatic policy,
++ * 1 uses the sequential path, and values greater than 1 request parallel
++ * partition search. The effective value is capped by available parallelism.
++ * Values below -1 are rejected. Must be set before scanning starts.
++ */
++int32_t lance_scanner_set_query_parallelism(
++    LanceScanner* scanner,
++    int32_t query_parallelism
++);
+ int32_t lance_scanner_set_refine_factor(LanceScanner* scanner, uint32_t f);
+ int32_t lance_scanner_set_ef(LanceScanner* scanner, uint32_t e);
+ int32_t lance_scanner_set_metric(LanceScanner* scanner, LanceMetricType metric);
+diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
+index 6cf245f..3c03f86 100644
+--- a/include/lance/lance.hpp
++++ b/include/lance/lance.hpp
+@@ -1196,6 +1196,48 @@ class Scanner {
+         return *this;
+     }
+ 
++    /// Set the target output batch size in bytes.
++    Scanner& batch_size_bytes(uint64_t bytes) {
++        if (lance_scanner_set_batch_size_bytes(handle_.get(), bytes) != 0)
++            check_error();
++        return *this;
++    }
++
++    /// Set the scanner I/O buffer size in bytes.
++    Scanner& io_buffer_size(uint64_t bytes) {
++        if (lance_scanner_set_io_buffer_size(handle_.get(), bytes) != 0)
++            check_error();
++        return *this;
++    }
++
++    /// Set the number of batches decoded concurrently.
++    Scanner& batch_readahead(size_t batches) {
++        if (lance_scanner_set_batch_readahead(handle_.get(), batches) != 0)
++            check_error();
++        return *this;
++    }
++
++    /// Set fragment readahead for unordered scans.
++    Scanner& fragment_readahead(size_t fragments) {
++        if (lance_scanner_set_fragment_readahead(handle_.get(), fragments) != 0)
++            check_error();
++        return *this;
++    }
++
++    /// Set the target number of physical execution partitions.
++    Scanner& target_parallelism(size_t partitions) {
++        if (lance_scanner_set_target_parallelism(handle_.get(), partitions) != 0)
++            check_error();
++        return *this;
++    }
++
++    /// Configure whether batches are returned in storage order.
++    Scanner& scan_in_order(bool ordered = true) {
++        if (lance_scanner_set_scan_in_order(handle_.get(), ordered) != 0)
++            check_error();
++        return *this;
++    }
++
+     /// Enable/disable row ID in output.
+     Scanner& with_row_id(bool enable = true) {
+         if (lance_scanner_with_row_id(handle_.get(), enable) != 0)
+@@ -1313,6 +1355,11 @@ class Scanner {
+         if (lance_scanner_set_nprobes(handle_.get(), n) != 0) check_error();
+         return *this;
+     }
++    Scanner& query_parallelism(int32_t parallelism) {
++        if (lance_scanner_set_query_parallelism(handle_.get(), parallelism) != 0)
++            check_error();
++        return *this;
++    }
+     Scanner& refine_factor(uint32_t f) {
+         if (lance_scanner_set_refine_factor(handle_.get(), f) != 0) check_error();
+         return *this;
+diff --git a/src/scanner.rs b/src/scanner.rs
+index 0c29b17..ebedafc 100644
+--- a/src/scanner.rs
++++ b/src/scanner.rs
+@@ -60,11 +60,18 @@ pub struct LanceScanner {
+     limit: Option<i64>,
+     offset: Option<i64>,
+     batch_size: Option<usize>,
++    batch_size_bytes: Option<u64>,
++    io_buffer_size: Option<u64>,
++    batch_readahead: Option<usize>,
++    fragment_readahead: Option<usize>,
++    target_parallelism: Option<usize>,
++    scan_in_order: Option<bool>,
+     with_row_id: bool,
+     fragment_ids: Option<Vec<u64>>,
+     index_segments: Option<Vec<Uuid>>,
+     nearest: Option<NearestQuery>,
+     nprobes: Option<u32>,
++    query_parallelism: Option<i32>,
+     refine_factor: Option<u32>,
+     ef: Option<u32>,
+     metric_override: Option<crate::index::LanceMetricType>,
+@@ -129,11 +136,18 @@ impl LanceScanner {
+             limit: None,
+             offset: None,
+             batch_size: None,
++            batch_size_bytes: None,
++            io_buffer_size: None,
++            batch_readahead: None,
++            fragment_readahead: None,
++            target_parallelism: None,
++            scan_in_order: None,
+             with_row_id: false,
+             fragment_ids: None,
+             index_segments: None,
+             nearest: None,
+             nprobes: None,
++            query_parallelism: None,
+             refine_factor: None,
+             ef: None,
+             metric_override: None,
+@@ -164,6 +178,15 @@ impl LanceScanner {
+         Arc::clone(&self.poisoned)
+     }
+ 
++    fn ensure_scan_not_started(&self, setting_name: &str) -> Result<()> {
++        if self.scan_started.load(Ordering::Acquire) {
++            return Err(lance_core::Error::invalid_input_source(
++                format!("{setting_name} must be set before the scan starts").into(),
++            ));
++        }
++        Ok(())
++    }
++
+     /// Apply fragment selection to a scanner builder if fragment_ids is set.
+     fn apply_fragment_filter(&self, scanner: &mut lance::dataset::scanner::Scanner) -> Result<()> {
+         if let Some(ids) = &self.fragment_ids {
+@@ -231,6 +254,24 @@ impl LanceScanner {
+         if let Some(bs) = self.batch_size {
+             scanner.batch_size(bs);
+         }
++        if let Some(batch_size_bytes) = self.batch_size_bytes {
++            scanner.batch_size_bytes(batch_size_bytes);
++        }
++        if let Some(io_buffer_size) = self.io_buffer_size {
++            scanner.io_buffer_size(io_buffer_size);
++        }
++        if let Some(batch_readahead) = self.batch_readahead {
++            scanner.batch_readahead(batch_readahead);
++        }
++        if let Some(fragment_readahead) = self.fragment_readahead {
++            scanner.fragment_readahead(fragment_readahead);
++        }
++        if let Some(target_parallelism) = self.target_parallelism {
++            scanner.target_parallelism(target_parallelism);
++        }
++        if let Some(scan_in_order) = self.scan_in_order {
++            scanner.scan_in_order(scan_in_order);
++        }
+         if self.with_row_id {
+             scanner.with_row_id();
+         }
+@@ -260,6 +301,9 @@ impl LanceScanner {
+             if let Some(np) = self.nprobes {
+                 scanner.nprobes(np as usize);
+             }
++            if let Some(query_parallelism) = self.query_parallelism {
++                scanner.query_parallelism(query_parallelism);
++            }
+             if let Some(rf) = self.refine_factor {
+                 scanner.refine(rf);
+             }
+@@ -757,6 +801,205 @@ unsafe fn scanner_set_batch_size_inner(scanner: *mut LanceScanner, batch_size: i
+     Ok(0)
+ }
+ 
++/// Set the target output batch size in bytes. Returns 0 on success.
++///
++/// The size must be greater than zero and must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_batch_size_bytes(
++    scanner: *mut LanceScanner,
++    batch_size_bytes: u64,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_batch_size_bytes_inner(scanner, batch_size_bytes)
++    })
++}
++
++unsafe fn scanner_set_batch_size_bytes_inner(
++    scanner: *mut LanceScanner,
++    batch_size_bytes: u64,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    if batch_size_bytes == 0 {
++        return Err(lance_core::Error::invalid_input_source(
++            "batch_size_bytes must be greater than 0, got 0".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("batch_size_bytes")?;
++    scanner.batch_size_bytes = Some(batch_size_bytes);
++    Ok(0)
++}
++
++/// Set the scanner I/O buffer size in bytes. Returns 0 on success.
++///
++/// The size must be greater than zero and must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_io_buffer_size(
++    scanner: *mut LanceScanner,
++    io_buffer_size_bytes: u64,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_io_buffer_size_inner(scanner, io_buffer_size_bytes)
++    })
++}
++
++unsafe fn scanner_set_io_buffer_size_inner(
++    scanner: *mut LanceScanner,
++    io_buffer_size_bytes: u64,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    if io_buffer_size_bytes == 0 {
++        return Err(lance_core::Error::invalid_input_source(
++            "io_buffer_size_bytes must be greater than 0, got 0".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("io_buffer_size_bytes")?;
++    scanner.io_buffer_size = Some(io_buffer_size_bytes);
++    Ok(0)
++}
++
++/// Set the number of batches to decode concurrently. Returns 0 on success.
++///
++/// The value must be greater than zero and must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_batch_readahead(
++    scanner: *mut LanceScanner,
++    batch_readahead: usize,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_batch_readahead_inner(scanner, batch_readahead)
++    })
++}
++
++unsafe fn scanner_set_batch_readahead_inner(
++    scanner: *mut LanceScanner,
++    batch_readahead: usize,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    if batch_readahead == 0 {
++        return Err(lance_core::Error::invalid_input_source(
++            "batch_readahead must be greater than 0, got 0".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("batch_readahead")?;
++    scanner.batch_readahead = Some(batch_readahead);
++    Ok(0)
++}
++
++/// Set the number of fragments to read ahead for unordered scans.
++///
++/// The value must be greater than zero and must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_fragment_readahead(
++    scanner: *mut LanceScanner,
++    fragment_readahead: usize,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_fragment_readahead_inner(scanner, fragment_readahead)
++    })
++}
++
++unsafe fn scanner_set_fragment_readahead_inner(
++    scanner: *mut LanceScanner,
++    fragment_readahead: usize,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    if fragment_readahead == 0 {
++        return Err(lance_core::Error::invalid_input_source(
++            "fragment_readahead must be greater than 0, got 0".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("fragment_readahead")?;
++    scanner.fragment_readahead = Some(fragment_readahead);
++    Ok(0)
++}
++
++/// Set the target number of physical execution partitions.
++///
++/// The value must be greater than zero and must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_target_parallelism(
++    scanner: *mut LanceScanner,
++    target_parallelism: usize,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_target_parallelism_inner(scanner, target_parallelism)
++    })
++}
++
++unsafe fn scanner_set_target_parallelism_inner(
++    scanner: *mut LanceScanner,
++    target_parallelism: usize,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    if target_parallelism == 0 {
++        return Err(lance_core::Error::invalid_input_source(
++            "target_parallelism must be greater than 0, got 0".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("target_parallelism")?;
++    scanner.target_parallelism = Some(target_parallelism);
++    Ok(0)
++}
++
++/// Configure whether scan results are returned in storage order.
++///
++/// Must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_scan_in_order(
++    scanner: *mut LanceScanner,
++    scan_in_order: bool,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_scan_in_order_inner(scanner, scan_in_order)
++    })
++}
++
++unsafe fn scanner_set_scan_in_order_inner(
++    scanner: *mut LanceScanner,
++    scan_in_order: bool,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("scan_in_order")?;
++    scanner.scan_in_order = Some(scan_in_order);
++    Ok(0)
++}
++
+ /// Enable or disable row ID in scan output. Returns 0.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn lance_scanner_with_row_id(
+@@ -1766,6 +2009,42 @@ scanner_set_u32!(lance_scanner_set_nprobes, nprobes);
+ scanner_set_u32!(lance_scanner_set_refine_factor, refine_factor);
+ scanner_set_u32!(lance_scanner_set_ef, ef);
+ 
++/// Set vector index partition-search concurrency for each query.
++///
++/// `-1` uses the CPU pool size, `0` selects Lance's automatic policy, and
++/// positive values request that many workers. Values below `-1` are invalid.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_query_parallelism(
++    scanner: *mut LanceScanner,
++    query_parallelism: i32,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_query_parallelism_inner(scanner, query_parallelism)
++    })
++}
++
++unsafe fn scanner_set_query_parallelism_inner(
++    scanner: *mut LanceScanner,
++    query_parallelism: i32,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    if query_parallelism < -1 {
++        return Err(lance_core::Error::invalid_input_source(
++            format!("query_parallelism must be -1, 0, or greater than 0, got {query_parallelism}")
++                .into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("query_parallelism")?;
++    scanner.query_parallelism = Some(query_parallelism);
++    Ok(0)
++}
++
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn lance_scanner_set_metric(scanner: *mut LanceScanner, metric: i32) -> i32 {
+     scanner_poison_check!(scanner, -1);
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index 8805764..42f842d 100644
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -1207,6 +1207,154 @@ fn test_scanner_batch_size() {
+     unsafe { lance_dataset_close(ds) };
+ }
+ 
++#[test]
++fn test_scanner_execution_tuning_options() {
++    let (_tmp, uri) = create_multi_fragment_dataset();
++    let c_uri = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++
++    let scanner = unsafe { lance_scanner_new(ds, ptr::null(), ptr::null()) };
++    assert!(!scanner.is_null());
++    assert_eq!(
++        unsafe { lance_scanner_set_batch_size_bytes(scanner, 1024) },
++        0
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_io_buffer_size(scanner, 64 * 1024) },
++        0
++    );
++    assert_eq!(unsafe { lance_scanner_set_batch_readahead(scanner, 1) }, 0);
++    assert_eq!(
++        unsafe { lance_scanner_set_fragment_readahead(scanner, 1) },
++        0
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_target_parallelism(scanner, 1) },
++        0
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_scan_in_order(scanner, false) },
++        0
++    );
++
++    let mut ffi_stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_scanner_to_arrow_stream(scanner, &mut ffi_stream) },
++        0
++    );
++    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut ffi_stream) }.unwrap();
++    let total_rows: usize = reader.map(|batch| batch.unwrap().num_rows()).sum();
++    assert_eq!(total_rows, 10);
++
++    unsafe { lance_scanner_close(scanner) };
++    unsafe { lance_dataset_close(ds) };
++}
++
++#[test]
++fn test_scanner_execution_tuning_options_reject_zero() {
++    let (_tmp, uri) = create_test_dataset();
++    let c_uri = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++
++    let scanner = unsafe { lance_scanner_new(ds, ptr::null(), ptr::null()) };
++    assert!(!scanner.is_null());
++
++    assert_eq!(
++        unsafe { lance_scanner_set_batch_size_bytes(scanner, 0) },
++        -1
++    );
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++    assert!(take_last_error_message().contains("batch_size_bytes must be greater than 0, got 0"));
++
++    assert_eq!(unsafe { lance_scanner_set_io_buffer_size(scanner, 0) }, -1);
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++    assert!(
++        take_last_error_message().contains("io_buffer_size_bytes must be greater than 0, got 0")
++    );
++
++    assert_eq!(unsafe { lance_scanner_set_batch_readahead(scanner, 0) }, -1);
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++    assert!(take_last_error_message().contains("batch_readahead must be greater than 0, got 0"));
++
++    assert_eq!(
++        unsafe { lance_scanner_set_fragment_readahead(scanner, 0) },
++        -1
++    );
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++    assert!(take_last_error_message().contains("fragment_readahead must be greater than 0, got 0"));
++
++    assert_eq!(
++        unsafe { lance_scanner_set_target_parallelism(scanner, 0) },
++        -1
++    );
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++    assert!(take_last_error_message().contains("target_parallelism must be greater than 0, got 0"));
++
++    unsafe { lance_scanner_close(scanner) };
++    unsafe { lance_dataset_close(ds) };
++}
++
++#[test]
++fn test_scanner_execution_tuning_options_reject_after_scan_start() {
++    let (_tmp, uri) = create_test_dataset();
++    let c_uri = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++
++    let scanner = unsafe { lance_scanner_new(ds, ptr::null(), ptr::null()) };
++    assert!(!scanner.is_null());
++
++    let mut ffi_stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_scanner_to_arrow_stream(scanner, &mut ffi_stream) },
++        0
++    );
++
++    assert_eq!(
++        unsafe { lance_scanner_set_batch_size_bytes(scanner, 1024) },
++        -1
++    );
++    assert!(take_last_error_message().contains("batch_size_bytes must be set before"));
++
++    assert_eq!(
++        unsafe { lance_scanner_set_io_buffer_size(scanner, 64 * 1024) },
++        -1
++    );
++    assert!(take_last_error_message().contains("io_buffer_size_bytes must be set before"));
++
++    assert_eq!(unsafe { lance_scanner_set_batch_readahead(scanner, 1) }, -1);
++    assert!(take_last_error_message().contains("batch_readahead must be set before"));
++
++    assert_eq!(
++        unsafe { lance_scanner_set_fragment_readahead(scanner, 1) },
++        -1
++    );
++    assert!(take_last_error_message().contains("fragment_readahead must be set before"));
++
++    assert_eq!(
++        unsafe { lance_scanner_set_target_parallelism(scanner, 1) },
++        -1
++    );
++    assert!(take_last_error_message().contains("target_parallelism must be set before"));
++
++    assert_eq!(
++        unsafe { lance_scanner_set_scan_in_order(scanner, false) },
++        -1
++    );
++    assert!(take_last_error_message().contains("scan_in_order must be set before"));
++
++    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut ffi_stream) }.unwrap();
++    assert_eq!(
++        reader.map(|batch| batch.unwrap().num_rows()).sum::<usize>(),
++        5
++    );
++
++    unsafe { lance_scanner_close(scanner) };
++    unsafe { lance_dataset_close(ds) };
++}
++
+ // ---------------------------------------------------------------------------
+ // Combined filter + projection + limit
+ // ---------------------------------------------------------------------------
+@@ -1441,6 +1589,34 @@ fn test_null_safety_comprehensive() {
+         unsafe { lance_scanner_set_batch_size(ptr::null_mut(), 10) },
+         -1
+     );
++    assert_eq!(
++        unsafe { lance_scanner_set_batch_size_bytes(ptr::null_mut(), 1024) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_io_buffer_size(ptr::null_mut(), 64 * 1024) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_batch_readahead(ptr::null_mut(), 1) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_fragment_readahead(ptr::null_mut(), 1) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_target_parallelism(ptr::null_mut(), 1) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_query_parallelism(ptr::null_mut(), 1) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_scan_in_order(ptr::null_mut(), true) },
++        -1
++    );
+     assert_eq!(
+         unsafe { lance_scanner_with_row_id(ptr::null_mut(), true) },
+         -1
+@@ -5216,6 +5392,7 @@ fn test_scanner_nearest_with_ivf_pq_index() {
+             10,
+         );
+         lance_scanner_set_nprobes(scanner, 4);
++        assert_eq!(lance_scanner_set_query_parallelism(scanner, 4), 0);
+     }
+ 
+     let mut stream = FFI_ArrowArrayStream::empty();
+@@ -5234,6 +5411,59 @@ fn test_scanner_nearest_with_ivf_pq_index() {
+     unsafe { lance_dataset_close(ds) };
+ }
+ 
++#[test]
++fn test_scanner_query_parallelism_validation_and_lifecycle() {
++    let (_tmp, uri) = create_test_dataset();
++    let uri_c = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(uri_c.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++    let scanner = unsafe { lance_scanner_new(ds, ptr::null(), ptr::null()) };
++    assert!(!scanner.is_null());
++
++    assert_eq!(
++        unsafe { lance_scanner_set_query_parallelism(scanner, -1) },
++        0
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_query_parallelism(scanner, 0) },
++        0
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_query_parallelism(scanner, 2) },
++        0
++    );
++
++    assert_eq!(
++        unsafe { lance_scanner_set_query_parallelism(scanner, -2) },
++        -1
++    );
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++    assert!(
++        take_last_error_message()
++            .contains("query_parallelism must be -1, 0, or greater than 0, got -2")
++    );
++
++    let mut stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_scanner_to_arrow_stream(scanner, &mut stream) },
++        0
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_query_parallelism(scanner, 1) },
++        -1
++    );
++    assert!(take_last_error_message().contains("query_parallelism must be set before"));
++
++    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut stream) }.unwrap();
++    assert_eq!(
++        reader.map(|batch| batch.unwrap().num_rows()).sum::<usize>(),
++        5
++    );
++
++    unsafe { lance_scanner_close(scanner) };
++    unsafe { lance_dataset_close(ds) };
++}
++
+ #[test]
+ fn test_scanner_nearest_dim_mismatch() {
+     let (_tmp, uri) = create_vector_dataset(64, 8);
+diff --git a/tests/cpp/test_cpp_api.cpp b/tests/cpp/test_cpp_api.cpp
+index 17b1ab6..28762b8 100644
+--- a/tests/cpp/test_cpp_api.cpp
++++ b/tests/cpp/test_cpp_api.cpp
+@@ -134,6 +134,12 @@ static void test_scanner_fluent(const std::string& uri) {
+     scanner.limit(5)
+            .offset(0)
+            .batch_size(2)
++           .batch_size_bytes(1024)
++           .io_buffer_size(64 * 1024)
++           .batch_readahead(1)
++           .fragment_readahead(1)
++           .target_parallelism(1)
++           .scan_in_order(false)
+            .statistics_callback(capture_scan_statistics, &captured);
+ 
+     ArrowArrayStream stream;
+@@ -370,6 +376,7 @@ static void test_nearest_smoke(const std::string& uri) {
+     try {
+         scanner.nearest("embedding", q, 8, 5)
+                .nprobes(2)
++               .query_parallelism(2)
+                .refine_factor(1)
+                .ef(50)
+                .metric(LANCE_METRIC_L2)
+
+From 043a1f7eac253d8ac6be3f970b60fcbf615295aa Mon Sep 17 00:00:00 2001
+From: zhangstar333 <zhangsida@selectdb.com>
+Date: Sat, 5 Sep 2026 00:07:06 +0800
+Subject: [PATCH 2/2] add check
+
+---
+ include/lance/lance.h   |  8 ++++----
+ include/lance/lance.hpp |  2 +-
+ src/scanner.rs          | 11 ++++++++++-
+ tests/c_api_test.rs     | 17 ++++++++++++++++-
+ 4 files changed, 31 insertions(+), 7 deletions(-)
+
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+index 00f415b..541134f 100644
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -949,12 +949,12 @@ int32_t lance_scanner_set_batch_size_bytes(
+ /**
+  * Set the scanner I/O buffer size in bytes.
+  *
+- * The value must be greater than zero and must be set before scanning starts.
+- * This bounds buffered I/O received from storage, but is not a hard limit on
+- * all memory used by the scanner.
++ * The value must be between 1 and INT64_MAX, inclusive, and must be set before
++ * scanning starts. This bounds buffered I/O received from storage, but is not
++ * a hard limit on all memory used by the scanner.
+  *
+  * @param scanner               Scanner handle. Must not be NULL.
+- * @param io_buffer_size_bytes  I/O buffer size in bytes. Must be greater than zero.
++ * @param io_buffer_size_bytes  I/O buffer size in bytes, in the range [1, INT64_MAX].
+  * @return 0 on success, -1 on error.
+  */
+ int32_t lance_scanner_set_io_buffer_size(
+diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
+index 3c03f86..a60dcd4 100644
+--- a/include/lance/lance.hpp
++++ b/include/lance/lance.hpp
+@@ -1203,7 +1203,7 @@ class Scanner {
+         return *this;
+     }
+ 
+-    /// Set the scanner I/O buffer size in bytes.
++    /// Set the scanner I/O buffer size in bytes, in the range [1, INT64_MAX].
+     Scanner& io_buffer_size(uint64_t bytes) {
+         if (lance_scanner_set_io_buffer_size(handle_.get(), bytes) != 0)
+             check_error();
+diff --git a/src/scanner.rs b/src/scanner.rs
+index ebedafc..6414cc0 100644
+--- a/src/scanner.rs
++++ b/src/scanner.rs
+@@ -837,7 +837,7 @@ unsafe fn scanner_set_batch_size_bytes_inner(
+ 
+ /// Set the scanner I/O buffer size in bytes. Returns 0 on success.
+ ///
+-/// The size must be greater than zero and must be set before the scan starts.
++/// The size must be between 1 and [`i64::MAX`] and must be set before the scan starts.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn lance_scanner_set_io_buffer_size(
+     scanner: *mut LanceScanner,
+@@ -863,6 +863,15 @@ unsafe fn scanner_set_io_buffer_size_inner(
+             "io_buffer_size_bytes must be greater than 0, got 0".into(),
+         ));
+     }
++    if io_buffer_size_bytes > i64::MAX as u64 {
++        return Err(lance_core::Error::invalid_input_source(
++            format!(
++                "io_buffer_size_bytes must be at most {}, got {io_buffer_size_bytes}",
++                i64::MAX
++            )
++            .into(),
++        ));
++    }
+     let scanner = unsafe { &mut *scanner };
+     scanner.ensure_scan_not_started("io_buffer_size_bytes")?;
+     scanner.io_buffer_size = Some(io_buffer_size_bytes);
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index 42f842d..ffdd915 100644
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -1252,7 +1252,7 @@ fn test_scanner_execution_tuning_options() {
+ }
+ 
+ #[test]
+-fn test_scanner_execution_tuning_options_reject_zero() {
++fn test_scanner_execution_tuning_options_reject_invalid_values() {
+     let (_tmp, uri) = create_test_dataset();
+     let c_uri = c_str(&uri);
+     let ds = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
+@@ -1274,6 +1274,21 @@ fn test_scanner_execution_tuning_options_reject_zero() {
+         take_last_error_message().contains("io_buffer_size_bytes must be greater than 0, got 0")
+     );
+ 
++    assert_eq!(
++        unsafe { lance_scanner_set_io_buffer_size(scanner, i64::MAX as u64) },
++        0
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_io_buffer_size(scanner, u64::MAX) },
++        -1
++    );
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++    assert!(take_last_error_message().contains(&format!(
++        "io_buffer_size_bytes must be at most {}, got {}",
++        i64::MAX,
++        u64::MAX
++    )));
++
+     assert_eq!(unsafe { lance_scanner_set_batch_readahead(scanner, 0) }, -1);
+     assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
+     assert!(take_last_error_message().contains("batch_readahead must be greater than 0, got 0"));
+From 057135cdd4ac6ac7b5348a1832caf7081a8541fb Mon Sep 17 00:00:00 2001
+From: zhangstar333 <zhangsida@selectdb.com>
+Date: Mon, 7 Sep 2026 12:35:45 +0800
+Subject: [PATCH 1/2] feat: expose scanner use_scalar_index options
+
+---
+ include/lance/lance.h      |  83 +++++++++
+ include/lance/lance.hpp    |  47 ++++++
+ src/scanner.rs             | 335 +++++++++++++++++++++++++++++++++++++
+ tests/c_api_test.rs        | 296 ++++++++++++++++++++++++++++++++
+ tests/cpp/test_cpp_api.cpp |   8 +
+ 5 files changed, 769 insertions(+)
+
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+index 31213da..6ace2cb 100644
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -147,6 +147,13 @@ typedef enum {
+     LANCE_METRIC_HAMMING = 3,
+ } LanceMetricType;
+ 
++/** Speed / accuracy tradeoff for approximate vector search. */
++typedef enum {
++    LANCE_APPROX_MODE_FAST     = 0,
++    LANCE_APPROX_MODE_NORMAL   = 1,
++    LANCE_APPROX_MODE_ACCURATE = 2,
++} LanceApproxMode;
++
+ typedef enum {
+     LANCE_DTYPE_FLOAT32 = 0,
+     LANCE_DTYPE_FLOAT16 = 1,
+@@ -1002,8 +1009,54 @@ int32_t lance_scanner_set_target_parallelism(
+  * they are ready.
+  */
+ int32_t lance_scanner_set_scan_in_order(LanceScanner* scanner, bool scan_in_order);
++
++/**
++ * Configure whether scalar indices may be used to optimize filters.
++ *
++ * Scalar indices are enabled by default. Disable this to force filter
++ * evaluation without scalar indices. This setting is independent of
++ * `lance_scanner_set_use_index`, which controls vector ANN index usage.
++ * Must be set before scanning starts.
++ */
++int32_t lance_scanner_set_use_scalar_index(
++    LanceScanner* scanner,
++    bool use_scalar_index
++);
++
++/**
++ * Configure whether row-based output batches are strict.
++ *
++ * When enabled, every batch except the last has exactly the configured row
++ * batch size. This may require copying and cannot be combined with a byte-based
++ * batch-size limit. Must be set before scanning starts.
++ */
++int32_t lance_scanner_set_strict_batch_size(
++    LanceScanner* scanner,
++    bool strict_batch_size
++);
++
++/**
++ * Configure whether file statistics may optimize the scan (default: true).
++ * Intended primarily for debugging and benchmarking. Must be set before
++ * scanning starts.
++ */
++int32_t lance_scanner_set_use_stats(LanceScanner* scanner, bool use_stats);
++
+ int32_t lance_scanner_with_row_id(LanceScanner* scanner, bool enable);
+ 
++/** Include or omit the `_rowaddr` metadata column. Must be set before scanning. */
++int32_t lance_scanner_with_row_address(LanceScanner* scanner, bool enable);
++
++/**
++ * Configure whether deleted rows still present in storage are returned.
++ * Deleted rows have a NULL `_rowid`; callers should also enable row IDs.
++ * Must be set before scanning starts.
++ */
++int32_t lance_scanner_set_include_deleted_rows(
++    LanceScanner* scanner,
++    bool include_deleted_rows
++);
++
+ /**
+  * Restrict scan to the given fragment IDs. Must be called before iteration.
+  * @param ids  Array of fragment IDs
+@@ -1725,6 +1778,36 @@ int32_t lance_scanner_nearest(
+ 
+ int32_t lance_scanner_set_nprobes(LanceScanner* scanner, uint32_t n);
+ 
++/**
++ * Set the minimum number of vector-index partitions to search.
++ * Must be greater than zero and no greater than `maximum_nprobes` when set.
++ * Must be set before scanning starts.
++ */
++int32_t lance_scanner_set_minimum_nprobes(
++    LanceScanner* scanner,
++    uint32_t minimum_nprobes
++);
++
++/**
++ * Set the maximum number of vector-index partitions to search.
++ * Must be greater than zero and no less than `minimum_nprobes` when set.
++ * This only affects prefiltered searches that need more candidates.
++ * Must be set before scanning starts.
++ */
++int32_t lance_scanner_set_maximum_nprobes(
++    LanceScanner* scanner,
++    uint32_t maximum_nprobes
++);
++
++/**
++ * Configure the speed / accuracy tradeoff for approximate vector search.
++ * Must be set before scanning starts.
++ */
++int32_t lance_scanner_set_approx_mode(
++    LanceScanner* scanner,
++    LanceApproxMode approx_mode
++);
++
+ /**
+  * Set vector index partition-search concurrency for each query.
+  *
+diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
+index 404d2df..e08f76a 100644
+--- a/include/lance/lance.hpp
++++ b/include/lance/lance.hpp
+@@ -1269,6 +1269,27 @@ class Scanner {
+         return *this;
+     }
+ 
++    /// Configure whether scalar indices may be used to optimize filters.
++    Scanner& use_scalar_index(bool enable = true) {
++        if (lance_scanner_set_use_scalar_index(handle_.get(), enable) != 0)
++            check_error();
++        return *this;
++    }
++
++    /// Configure whether row-based output batches are strict.
++    Scanner& strict_batch_size(bool strict_batch_size = true) {
++        if (lance_scanner_set_strict_batch_size(handle_.get(), strict_batch_size) != 0)
++            check_error();
++        return *this;
++    }
++
++    /// Configure whether file statistics may optimize the scan.
++    Scanner& use_stats(bool use_stats = true) {
++        if (lance_scanner_set_use_stats(handle_.get(), use_stats) != 0)
++            check_error();
++        return *this;
++    }
++
+     /// Enable/disable row ID in output.
+     Scanner& with_row_id(bool enable = true) {
+         if (lance_scanner_with_row_id(handle_.get(), enable) != 0)
+@@ -1276,6 +1297,20 @@ class Scanner {
+         return *this;
+     }
+ 
++    /// Include or omit the `_rowaddr` metadata column.
++    Scanner& with_row_address(bool enable = true) {
++        if (lance_scanner_with_row_address(handle_.get(), enable) != 0)
++            check_error();
++        return *this;
++    }
++
++    /// Configure whether deleted rows still present in storage are returned.
++    Scanner& include_deleted_rows(bool include_deleted_rows = true) {
++        if (lance_scanner_set_include_deleted_rows(handle_.get(), include_deleted_rows) != 0)
++            check_error();
++        return *this;
++    }
++
+     /// Restrict scan to specific fragment IDs.
+     Scanner& fragment_ids(const uint64_t* ids, size_t len) {
+         if (lance_scanner_set_fragment_ids(handle_.get(), ids, len) != 0)
+@@ -1386,6 +1421,18 @@ class Scanner {
+         if (lance_scanner_set_nprobes(handle_.get(), n) != 0) check_error();
+         return *this;
+     }
++    Scanner& minimum_nprobes(uint32_t minimum_nprobes) {
++        if (lance_scanner_set_minimum_nprobes(handle_.get(), minimum_nprobes) != 0) check_error();
++        return *this;
++    }
++    Scanner& maximum_nprobes(uint32_t maximum_nprobes) {
++        if (lance_scanner_set_maximum_nprobes(handle_.get(), maximum_nprobes) != 0) check_error();
++        return *this;
++    }
++    Scanner& approx_mode(LanceApproxMode approx_mode) {
++        if (lance_scanner_set_approx_mode(handle_.get(), approx_mode) != 0) check_error();
++        return *this;
++    }
+     Scanner& query_parallelism(int32_t parallelism) {
+         if (lance_scanner_set_query_parallelism(handle_.get(), parallelism) != 0)
+             check_error();
+diff --git a/src/scanner.rs b/src/scanner.rs
+index d3ef3be..53cd5b6 100644
+--- a/src/scanner.rs
++++ b/src/scanner.rs
+@@ -21,6 +21,7 @@ use lance::dataset::scanner::{
+ use lance::io::exec::fts::{FlatMatchQueryExec, MatchQueryExec, PhraseQueryExec};
+ use lance_core::Result;
+ use lance_index::scalar::FullTextSearchQuery;
++use lance_index::vector::ApproxMode;
+ use lance_io::stream::RecordBatchStream;
+ use lance_table::format::IndexMetadata;
+ use uuid::Uuid;
+@@ -51,6 +52,38 @@ pub enum LanceDataType {
+     Int8 = 4,
+ }
+ 
++/// Speed / accuracy tradeoff for approximate vector search, mirroring the C
++/// enum `LanceApproxMode`.
++#[repr(i32)]
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum LanceApproxMode {
++    Fast = 0,
++    Normal = 1,
++    Accurate = 2,
++}
++
++impl LanceApproxMode {
++    fn from_i32(value: i32) -> Result<Self> {
++        match value {
++            0 => Ok(Self::Fast),
++            1 => Ok(Self::Normal),
++            2 => Ok(Self::Accurate),
++            _ => Err(lance_core::Error::invalid_input_source(
++                format!("approx_mode must be 0 (FAST), 1 (NORMAL), or 2 (ACCURATE), got {value}")
++                    .into(),
++            )),
++        }
++    }
++
++    fn to_approx_mode(self) -> ApproxMode {
++        match self {
++            Self::Fast => ApproxMode::Fast,
++            Self::Normal => ApproxMode::Normal,
++            Self::Accurate => ApproxMode::Accurate,
++        }
++    }
++}
++
+ /// Opaque scanner handle. Stores configuration until stream materialization.
+ pub struct LanceScanner {
+     dataset: Arc<Dataset>,
+@@ -62,16 +95,24 @@ pub struct LanceScanner {
+     offset: Option<i64>,
+     batch_size: Option<usize>,
+     batch_size_bytes: Option<u64>,
++    strict_batch_size: Option<bool>,
+     io_buffer_size: Option<u64>,
+     batch_readahead: Option<usize>,
+     fragment_readahead: Option<usize>,
+     target_parallelism: Option<usize>,
+     scan_in_order: Option<bool>,
++    use_scalar_index: Option<bool>,
++    use_stats: Option<bool>,
+     with_row_id: bool,
++    with_row_address: bool,
++    include_deleted_rows: bool,
+     fragment_ids: Option<Vec<u64>>,
+     index_segments: Option<Vec<Uuid>>,
+     nearest: Option<NearestQuery>,
+     nprobes: Option<u32>,
++    minimum_nprobes: Option<u32>,
++    maximum_nprobes: Option<u32>,
++    approx_mode: Option<LanceApproxMode>,
+     query_parallelism: Option<i32>,
+     refine_factor: Option<u32>,
+     ef: Option<u32>,
+@@ -138,16 +179,24 @@ impl LanceScanner {
+             offset: None,
+             batch_size: None,
+             batch_size_bytes: None,
++            strict_batch_size: None,
+             io_buffer_size: None,
+             batch_readahead: None,
+             fragment_readahead: None,
+             target_parallelism: None,
+             scan_in_order: None,
++            use_scalar_index: None,
++            use_stats: None,
+             with_row_id: false,
++            with_row_address: false,
++            include_deleted_rows: false,
+             fragment_ids: None,
+             index_segments: None,
+             nearest: None,
+             nprobes: None,
++            minimum_nprobes: None,
++            maximum_nprobes: None,
++            approx_mode: None,
+             query_parallelism: None,
+             refine_factor: None,
+             ef: None,
+@@ -258,6 +307,9 @@ impl LanceScanner {
+         if let Some(batch_size_bytes) = self.batch_size_bytes {
+             scanner.batch_size_bytes(batch_size_bytes);
+         }
++        if let Some(strict_batch_size) = self.strict_batch_size {
++            scanner.strict_batch_size(strict_batch_size);
++        }
+         if let Some(io_buffer_size) = self.io_buffer_size {
+             scanner.io_buffer_size(io_buffer_size);
+         }
+@@ -273,9 +325,21 @@ impl LanceScanner {
+         if let Some(scan_in_order) = self.scan_in_order {
+             scanner.scan_in_order(scan_in_order);
+         }
++        if let Some(use_scalar_index) = self.use_scalar_index {
++            scanner.use_scalar_index(use_scalar_index);
++        }
++        if let Some(use_stats) = self.use_stats {
++            scanner.use_stats(use_stats);
++        }
+         if self.with_row_id {
+             scanner.with_row_id();
+         }
++        if self.with_row_address {
++            scanner.with_row_address();
++        }
++        if self.include_deleted_rows {
++            scanner.include_deleted_rows();
++        }
+         self.apply_fragment_filter(&mut scanner)?;
+         if self.index_segments.is_some() && self.nearest.is_none() {
+             return Err(lance_core::Error::invalid_input_source(
+@@ -302,6 +366,15 @@ impl LanceScanner {
+             if let Some(np) = self.nprobes {
+                 scanner.nprobes(np as usize);
+             }
++            if let Some(minimum_nprobes) = self.minimum_nprobes {
++                scanner.minimum_nprobes(minimum_nprobes as usize);
++            }
++            if let Some(maximum_nprobes) = self.maximum_nprobes {
++                scanner.maximum_nprobes(maximum_nprobes as usize);
++            }
++            if let Some(approx_mode) = self.approx_mode {
++                scanner.approx_mode(approx_mode.to_approx_mode());
++            }
+             if let Some(query_parallelism) = self.query_parallelism {
+                 scanner.query_parallelism(query_parallelism);
+             }
+@@ -1035,6 +1108,92 @@ unsafe fn scanner_set_scan_in_order_inner(
+     Ok(0)
+ }
+ 
++/// Configure whether scalar indices may be used to optimize filters.
++///
++/// Scalar indices are enabled by default in Lance. Must be set before the scan
++/// starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_use_scalar_index(
++    scanner: *mut LanceScanner,
++    use_scalar_index: bool,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_use_scalar_index_inner(scanner, use_scalar_index)
++    })
++}
++
++unsafe fn scanner_set_use_scalar_index_inner(
++    scanner: *mut LanceScanner,
++    use_scalar_index: bool,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("use_scalar_index")?;
++    scanner.use_scalar_index = Some(use_scalar_index);
++    Ok(0)
++}
++
++/// Configure whether output batches use the exact row-based batch size.
++///
++/// Must be set before the scan starts. Lance rejects enabling this together
++/// with a byte-based batch-size limit when the scan is materialized.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_strict_batch_size(
++    scanner: *mut LanceScanner,
++    strict_batch_size: bool,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_strict_batch_size_inner(scanner, strict_batch_size)
++    })
++}
++
++unsafe fn scanner_set_strict_batch_size_inner(
++    scanner: *mut LanceScanner,
++    strict_batch_size: bool,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("strict_batch_size")?;
++    scanner.strict_batch_size = Some(strict_batch_size);
++    Ok(0)
++}
++
++/// Configure whether file statistics may be used to optimize the scan.
++///
++/// Statistics are enabled by default. Must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_use_stats(
++    scanner: *mut LanceScanner,
++    use_stats: bool,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_use_stats_inner(scanner, use_stats)
++    })
++}
++
++unsafe fn scanner_set_use_stats_inner(scanner: *mut LanceScanner, use_stats: bool) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("use_stats")?;
++    scanner.use_stats = Some(use_stats);
++    Ok(0)
++}
++
+ /// Enable or disable row ID in scan output. Returns 0.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn lance_scanner_with_row_id(
+@@ -1058,6 +1217,62 @@ unsafe fn scanner_with_row_id_inner(scanner: *mut LanceScanner, enable: bool) ->
+     Ok(0)
+ }
+ 
++/// Enable or disable the `_rowaddr` metadata column in scan output.
++///
++/// Must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_with_row_address(
++    scanner: *mut LanceScanner,
++    enable: bool,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_with_row_address_inner(scanner, enable)
++    })
++}
++
++unsafe fn scanner_with_row_address_inner(scanner: *mut LanceScanner, enable: bool) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("with_row_address")?;
++    scanner.with_row_address = enable;
++    Ok(0)
++}
++
++/// Configure whether deleted rows still present in storage are returned.
++///
++/// Deleted rows have a NULL `_rowid`, so callers should also enable row IDs.
++/// Must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_include_deleted_rows(
++    scanner: *mut LanceScanner,
++    include_deleted_rows: bool,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_include_deleted_rows_inner(scanner, include_deleted_rows)
++    })
++}
++
++unsafe fn scanner_set_include_deleted_rows_inner(
++    scanner: *mut LanceScanner,
++    include_deleted_rows: bool,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("include_deleted_rows")?;
++    scanner.include_deleted_rows = include_deleted_rows;
++    Ok(0)
++}
++
+ /// Restrict the scan to the given fragment IDs.
+ /// Must be called before any iteration method.
+ ///
+@@ -2044,6 +2259,126 @@ scanner_set_u32!(lance_scanner_set_nprobes, nprobes);
+ scanner_set_u32!(lance_scanner_set_refine_factor, refine_factor);
+ scanner_set_u32!(lance_scanner_set_ef, ef);
+ 
++/// Set the minimum number of vector-index partitions to search.
++///
++/// The value must be greater than zero, no greater than a configured
++/// `maximum_nprobes`, and must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_minimum_nprobes(
++    scanner: *mut LanceScanner,
++    minimum_nprobes: u32,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_minimum_nprobes_inner(scanner, minimum_nprobes)
++    })
++}
++
++unsafe fn scanner_set_minimum_nprobes_inner(
++    scanner: *mut LanceScanner,
++    minimum_nprobes: u32,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    if minimum_nprobes == 0 {
++        return Err(lance_core::Error::invalid_input_source(
++            "minimum_nprobes must be greater than 0, got 0".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("minimum_nprobes")?;
++    if let Some(maximum_nprobes) = scanner.maximum_nprobes
++        && minimum_nprobes > maximum_nprobes
++    {
++        return Err(lance_core::Error::invalid_input_source(
++            format!(
++                "minimum_nprobes ({minimum_nprobes}) must not exceed maximum_nprobes ({maximum_nprobes})"
++            )
++            .into(),
++        ));
++    }
++    scanner.minimum_nprobes = Some(minimum_nprobes);
++    Ok(0)
++}
++
++/// Set the maximum number of vector-index partitions to search.
++///
++/// The value must be greater than zero, no less than a configured
++/// `minimum_nprobes`, and must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_maximum_nprobes(
++    scanner: *mut LanceScanner,
++    maximum_nprobes: u32,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_maximum_nprobes_inner(scanner, maximum_nprobes)
++    })
++}
++
++unsafe fn scanner_set_maximum_nprobes_inner(
++    scanner: *mut LanceScanner,
++    maximum_nprobes: u32,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    if maximum_nprobes == 0 {
++        return Err(lance_core::Error::invalid_input_source(
++            "maximum_nprobes must be greater than 0, got 0".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("maximum_nprobes")?;
++    if let Some(minimum_nprobes) = scanner.minimum_nprobes
++        && maximum_nprobes < minimum_nprobes
++    {
++        return Err(lance_core::Error::invalid_input_source(
++            format!(
++                "maximum_nprobes ({maximum_nprobes}) must not be less than minimum_nprobes ({minimum_nprobes})"
++            )
++            .into(),
++        ));
++    }
++    scanner.maximum_nprobes = Some(maximum_nprobes);
++    Ok(0)
++}
++
++/// Configure the speed / accuracy tradeoff for approximate vector search.
++///
++/// Must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_approx_mode(
++    scanner: *mut LanceScanner,
++    approx_mode: i32,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_approx_mode_inner(scanner, approx_mode)
++    })
++}
++
++unsafe fn scanner_set_approx_mode_inner(
++    scanner: *mut LanceScanner,
++    approx_mode: i32,
++) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    let approx_mode = LanceApproxMode::from_i32(approx_mode)?;
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("approx_mode")?;
++    scanner.approx_mode = Some(approx_mode);
++    Ok(0)
++}
++
+ /// Set vector index partition-search concurrency for each query.
+ ///
+ /// `-1` uses the CPU pool size, `0` selects Lance's automatic policy, and
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index bde742d..a550a93 100644
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -1237,6 +1237,12 @@ fn test_scanner_execution_tuning_options() {
+         unsafe { lance_scanner_set_scan_in_order(scanner, false) },
+         0
+     );
++    assert_eq!(
++        unsafe { lance_scanner_set_use_scalar_index(scanner, false) },
++        0
++    );
++    assert_eq!(unsafe { lance_scanner_set_use_stats(scanner, false) }, 0);
++    assert_eq!(unsafe { lance_scanner_with_row_address(scanner, true) }, 0);
+ 
+     let mut ffi_stream = FFI_ArrowArrayStream::empty();
+     assert_eq!(
+@@ -1244,6 +1250,7 @@ fn test_scanner_execution_tuning_options() {
+         0
+     );
+     let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut ffi_stream) }.unwrap();
++    assert!(reader.schema().field_with_name("_rowaddr").is_ok());
+     let total_rows: usize = reader.map(|batch| batch.unwrap().num_rows()).sum();
+     assert_eq!(total_rows, 10);
+ 
+@@ -1360,6 +1367,30 @@ fn test_scanner_execution_tuning_options_reject_after_scan_start() {
+     );
+     assert!(take_last_error_message().contains("scan_in_order must be set before"));
+ 
++    assert_eq!(
++        unsafe { lance_scanner_set_use_scalar_index(scanner, false) },
++        -1
++    );
++    assert!(take_last_error_message().contains("use_scalar_index must be set before"));
++
++    assert_eq!(
++        unsafe { lance_scanner_set_strict_batch_size(scanner, true) },
++        -1
++    );
++    assert!(take_last_error_message().contains("strict_batch_size must be set before"));
++
++    assert_eq!(unsafe { lance_scanner_set_use_stats(scanner, false) }, -1);
++    assert!(take_last_error_message().contains("use_stats must be set before"));
++
++    assert_eq!(unsafe { lance_scanner_with_row_address(scanner, true) }, -1);
++    assert!(take_last_error_message().contains("with_row_address must be set before"));
++
++    assert_eq!(
++        unsafe { lance_scanner_set_include_deleted_rows(scanner, true) },
++        -1
++    );
++    assert!(take_last_error_message().contains("include_deleted_rows must be set before"));
++
+     let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut ffi_stream) }.unwrap();
+     assert_eq!(
+         reader.map(|batch| batch.unwrap().num_rows()).sum::<usize>(),
+@@ -1370,6 +1401,79 @@ fn test_scanner_execution_tuning_options_reject_after_scan_start() {
+     unsafe { lance_dataset_close(ds) };
+ }
+ 
++#[test]
++fn test_scanner_strict_batch_size_across_fragments() {
++    let (_tmp, uri) = create_multi_fragment_dataset();
++    let c_uri = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++
++    let scanner = unsafe { lance_scanner_new(ds, ptr::null(), ptr::null()) };
++    assert!(!scanner.is_null());
++    assert_eq!(unsafe { lance_scanner_set_batch_size(scanner, 3) }, 0);
++    assert_eq!(
++        unsafe { lance_scanner_set_strict_batch_size(scanner, true) },
++        0
++    );
++
++    let mut stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_scanner_to_arrow_stream(scanner, &mut stream) },
++        0
++    );
++    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut stream) }.unwrap();
++    let batch_sizes = reader
++        .map(|batch| batch.unwrap().num_rows())
++        .collect::<Vec<_>>();
++    assert_eq!(batch_sizes, vec![3, 3, 3, 1]);
++
++    unsafe { lance_scanner_close(scanner) };
++    unsafe { lance_dataset_close(ds) };
++}
++
++#[test]
++fn test_scanner_include_deleted_rows() {
++    let (_tmp, uri) = create_multi_fragment_dataset();
++    let c_uri = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++
++    let predicate = c_str("id >= 8");
++    let mut num_deleted = 0;
++    assert_eq!(
++        unsafe { lance_dataset_delete(ds, predicate.as_ptr(), &mut num_deleted) },
++        0
++    );
++    assert_eq!(num_deleted, 2);
++
++    let scanner = unsafe { lance_scanner_new(ds, ptr::null(), ptr::null()) };
++    assert!(!scanner.is_null());
++    assert_eq!(unsafe { lance_scanner_with_row_id(scanner, true) }, 0);
++    assert_eq!(
++        unsafe { lance_scanner_set_include_deleted_rows(scanner, true) },
++        0
++    );
++
++    let mut stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_scanner_to_arrow_stream(scanner, &mut stream) },
++        0
++    );
++    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut stream) }.unwrap();
++    let batches = reader.map(|batch| batch.unwrap()).collect::<Vec<_>>();
++    assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 10);
++    assert_eq!(
++        batches
++            .iter()
++            .map(|batch| batch.column_by_name("_rowid").unwrap().null_count())
++            .sum::<usize>(),
++        2
++    );
++
++    unsafe { lance_scanner_close(scanner) };
++    unsafe { lance_dataset_close(ds) };
++}
++
+ // ---------------------------------------------------------------------------
+ // Combined filter + projection + limit
+ // ---------------------------------------------------------------------------
+@@ -1632,10 +1736,42 @@ fn test_null_safety_comprehensive() {
+         unsafe { lance_scanner_set_scan_in_order(ptr::null_mut(), true) },
+         -1
+     );
++    assert_eq!(
++        unsafe { lance_scanner_set_use_scalar_index(ptr::null_mut(), false) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_strict_batch_size(ptr::null_mut(), true) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_use_stats(ptr::null_mut(), false) },
++        -1
++    );
+     assert_eq!(
+         unsafe { lance_scanner_with_row_id(ptr::null_mut(), true) },
+         -1
+     );
++    assert_eq!(
++        unsafe { lance_scanner_with_row_address(ptr::null_mut(), true) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_include_deleted_rows(ptr::null_mut(), true) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_minimum_nprobes(ptr::null_mut(), 1) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_maximum_nprobes(ptr::null_mut(), 1) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_approx_mode(ptr::null_mut(), LanceApproxMode::Normal as i32,) },
++        -1
++    );
+ 
+     // Scanner iteration with NULL.
+     let mut ffi_stream2 = FFI_ArrowArrayStream::empty();
+@@ -3077,6 +3213,90 @@ fn test_create_scalar_index_btree() {
+     unsafe { lance_dataset_close(ds) };
+ }
+ 
++#[test]
++fn test_scanner_set_use_scalar_index_controls_filter_planning() {
++    let (_tmp, uri) = create_test_dataset();
++    let uri_c = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(uri_c.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++
++    let column = c_str("id");
++    assert_eq!(
++        unsafe {
++            lance_dataset_create_scalar_index(
++                ds,
++                column.as_ptr(),
++                ptr::null(),
++                LanceScalarIndexType::BTree as i32,
++                ptr::null(),
++                false,
++            )
++        },
++        0
++    );
++
++    let run_scan = |use_scalar_index: bool| {
++        let filter = c_str("id = 3");
++        let scanner = unsafe { lance_scanner_new(ds, ptr::null(), filter.as_ptr()) };
++        assert!(!scanner.is_null());
++        assert_eq!(
++            unsafe { lance_scanner_set_use_scalar_index(scanner, use_scalar_index) },
++            0
++        );
++
++        let mut captured = CapturedScanStatistics::default();
++        assert_eq!(
++            unsafe {
++                lance_scanner_set_statistics_callback(
++                    scanner,
++                    Some(capture_scan_statistics),
++                    (&mut captured as *mut CapturedScanStatistics).cast(),
++                )
++            },
++            0
++        );
++
++        let mut stream = FFI_ArrowArrayStream::empty();
++        assert_eq!(
++            unsafe { lance_scanner_to_arrow_stream(scanner, &mut stream) },
++            0
++        );
++        let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut stream) }.unwrap();
++        let ids = reader
++            .flat_map(|batch| {
++                let batch = batch.unwrap();
++                batch
++                    .column_by_name("id")
++                    .unwrap()
++                    .as_any()
++                    .downcast_ref::<Int32Array>()
++                    .unwrap()
++                    .values()
++                    .to_vec()
++            })
++            .collect::<Vec<_>>();
++
++        assert_eq!(captured.calls, 1);
++        unsafe { lance_scanner_close(scanner) };
++        (ids, captured)
++    };
++
++    let (indexed_ids, indexed_statistics) = run_scan(true);
++    let (unindexed_ids, unindexed_statistics) = run_scan(false);
++    assert_eq!(indexed_ids, vec![3]);
++    assert_eq!(unindexed_ids, indexed_ids);
++    assert!(
++        indexed_statistics.indices_loaded > 0,
++        "enabled scan should load the scalar index"
++    );
++    assert_eq!(
++        unindexed_statistics.indices_loaded, 0,
++        "disabled scan should bypass the scalar index"
++    );
++
++    unsafe { lance_dataset_close(ds) };
++}
++
+ #[test]
+ fn test_scalar_index_segment_build_is_fragment_scoped_and_uncommitted() {
+     let (_tmp, uri) = create_many_small_fragments(2);
+@@ -5409,6 +5629,12 @@ fn test_scanner_nearest_with_ivf_pq_index() {
+             10,
+         );
+         lance_scanner_set_nprobes(scanner, 4);
++        assert_eq!(lance_scanner_set_minimum_nprobes(scanner, 2), 0);
++        assert_eq!(lance_scanner_set_maximum_nprobes(scanner, 6), 0);
++        assert_eq!(
++            lance_scanner_set_approx_mode(scanner, LanceApproxMode::Accurate as i32),
++            0
++        );
+         assert_eq!(lance_scanner_set_query_parallelism(scanner, 4), 0);
+     }
+ 
+@@ -5428,6 +5654,76 @@ fn test_scanner_nearest_with_ivf_pq_index() {
+     unsafe { lance_dataset_close(ds) };
+ }
+ 
++#[test]
++fn test_scanner_adaptive_nprobes_and_approx_mode_validation_and_lifecycle() {
++    let (_tmp, uri) = create_test_dataset();
++    let uri_c = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(uri_c.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++    let scanner = unsafe { lance_scanner_new(ds, ptr::null(), ptr::null()) };
++    assert!(!scanner.is_null());
++
++    assert_eq!(unsafe { lance_scanner_set_minimum_nprobes(scanner, 0) }, -1);
++    assert!(take_last_error_message().contains("minimum_nprobes must be greater than 0, got 0"));
++    assert_eq!(unsafe { lance_scanner_set_maximum_nprobes(scanner, 0) }, -1);
++    assert!(take_last_error_message().contains("maximum_nprobes must be greater than 0, got 0"));
++    assert_eq!(unsafe { lance_scanner_set_approx_mode(scanner, 3) }, -1);
++    assert!(
++        take_last_error_message()
++            .contains("approx_mode must be 0 (FAST), 1 (NORMAL), or 2 (ACCURATE), got 3")
++    );
++
++    assert_eq!(unsafe { lance_scanner_set_maximum_nprobes(scanner, 2) }, 0);
++    assert_eq!(unsafe { lance_scanner_set_minimum_nprobes(scanner, 3) }, -1);
++    assert!(
++        take_last_error_message()
++            .contains("minimum_nprobes (3) must not exceed maximum_nprobes (2)")
++    );
++    assert_eq!(unsafe { lance_scanner_set_minimum_nprobes(scanner, 1) }, 0);
++    assert_eq!(unsafe { lance_scanner_set_maximum_nprobes(scanner, 1) }, 0);
++    assert_eq!(unsafe { lance_scanner_set_minimum_nprobes(scanner, 2) }, -1);
++    assert!(
++        take_last_error_message()
++            .contains("minimum_nprobes (2) must not exceed maximum_nprobes (1)")
++    );
++    assert_eq!(unsafe { lance_scanner_set_maximum_nprobes(scanner, 2) }, 0);
++    assert_eq!(unsafe { lance_scanner_set_minimum_nprobes(scanner, 2) }, 0);
++    assert_eq!(unsafe { lance_scanner_set_maximum_nprobes(scanner, 1) }, -1);
++    assert!(
++        take_last_error_message()
++            .contains("maximum_nprobes (1) must not be less than minimum_nprobes (2)")
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_approx_mode(scanner, LanceApproxMode::Fast as i32) },
++        0
++    );
++
++    let mut stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_scanner_to_arrow_stream(scanner, &mut stream) },
++        0
++    );
++
++    assert_eq!(unsafe { lance_scanner_set_minimum_nprobes(scanner, 1) }, -1);
++    assert!(take_last_error_message().contains("minimum_nprobes must be set before"));
++    assert_eq!(unsafe { lance_scanner_set_maximum_nprobes(scanner, 1) }, -1);
++    assert!(take_last_error_message().contains("maximum_nprobes must be set before"));
++    assert_eq!(
++        unsafe { lance_scanner_set_approx_mode(scanner, LanceApproxMode::Normal as i32) },
++        -1
++    );
++    assert!(take_last_error_message().contains("approx_mode must be set before"));
++
++    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut stream) }.unwrap();
++    assert_eq!(
++        reader.map(|batch| batch.unwrap().num_rows()).sum::<usize>(),
++        5
++    );
++
++    unsafe { lance_scanner_close(scanner) };
++    unsafe { lance_dataset_close(ds) };
++}
++
+ #[test]
+ fn test_scanner_query_parallelism_validation_and_lifecycle() {
+     let (_tmp, uri) = create_test_dataset();
+diff --git a/tests/cpp/test_cpp_api.cpp b/tests/cpp/test_cpp_api.cpp
+index 28762b8..60b8fc4 100644
+--- a/tests/cpp/test_cpp_api.cpp
++++ b/tests/cpp/test_cpp_api.cpp
+@@ -140,6 +140,11 @@ static void test_scanner_fluent(const std::string& uri) {
+            .fragment_readahead(1)
+            .target_parallelism(1)
+            .scan_in_order(false)
++           .use_scalar_index(false)
++           .strict_batch_size(false)
++           .use_stats(false)
++           .with_row_address(true)
++           .include_deleted_rows(false)
+            .statistics_callback(capture_scan_statistics, &captured);
+ 
+     ArrowArrayStream stream;
+@@ -376,6 +381,9 @@ static void test_nearest_smoke(const std::string& uri) {
+     try {
+         scanner.nearest("embedding", q, 8, 5)
+                .nprobes(2)
++               .minimum_nprobes(1)
++               .maximum_nprobes(2)
++               .approx_mode(LANCE_APPROX_MODE_NORMAL)
+                .query_parallelism(2)
+                .refine_factor(1)
+                .ef(50)
+
+From e894f591aef358cd36fdbf915c4d5b95fd0e8348 Mon Sep 17 00:00:00 2001
+From: zhangstar333 <zhangsida@selectdb.com>
+Date: Mon, 7 Sep 2026 14:27:10 +0800
+Subject: [PATCH 2/2] update
+
+---
+ include/lance/lance.h   |  18 +++-
+ include/lance/lance.hpp |   7 +-
+ src/scanner.rs          | 210 +++++++++++++++++++++++++++++++---------
+ tests/c_api_test.rs     |  77 +++++++++++++++
+ 4 files changed, 261 insertions(+), 51 deletions(-)
+
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+index 6ace2cb..8173ae5 100644
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -946,7 +946,8 @@ int32_t lance_scanner_set_batch_size(LanceScanner* scanner, int64_t batch_size);
+  * Set the target output batch size in bytes.
+  *
+  * When set, this takes precedence over the row-based batch size. The value
+- * must be greater than zero and must be set before scanning starts.
++ * must be greater than zero and must be set before scanning starts. The call
++ * is rejected without changing scanner state if strict batch sizing is enabled.
+  */
+ int32_t lance_scanner_set_batch_size_bytes(
+     LanceScanner* scanner,
+@@ -1028,7 +1029,8 @@ int32_t lance_scanner_set_use_scalar_index(
+  *
+  * When enabled, every batch except the last has exactly the configured row
+  * batch size. This may require copying and cannot be combined with a byte-based
+- * batch-size limit. Must be set before scanning starts.
++ * batch-size limit. The call is rejected without changing scanner state if a
++ * byte limit is already set. Must be set before scanning starts.
+  */
+ int32_t lance_scanner_set_strict_batch_size(
+     LanceScanner* scanner,
+@@ -1776,11 +1778,19 @@ int32_t lance_scanner_nearest(
+     uint32_t k
+ );
+ 
+-int32_t lance_scanner_set_nprobes(LanceScanner* scanner, uint32_t n);
++/**
++ * Set both the minimum and maximum vector-index partition-search bounds.
++ *
++ * This replaces both bounds configured by earlier calls to any nprobes
++ * setter. The value must be greater than zero. Must be set before scanning.
++ */
++int32_t lance_scanner_set_nprobes(LanceScanner* scanner, uint32_t nprobes);
+ 
+ /**
+  * Set the minimum number of vector-index partitions to search.
++ * This replaces only the minimum bound; the current maximum is preserved.
+  * Must be greater than zero and no greater than `maximum_nprobes` when set.
++ * An invalid resulting range is rejected without changing either bound.
+  * Must be set before scanning starts.
+  */
+ int32_t lance_scanner_set_minimum_nprobes(
+@@ -1790,8 +1800,10 @@ int32_t lance_scanner_set_minimum_nprobes(
+ 
+ /**
+  * Set the maximum number of vector-index partitions to search.
++ * This replaces only the maximum bound; the current minimum is preserved.
+  * Must be greater than zero and no less than `minimum_nprobes` when set.
+  * This only affects prefiltered searches that need more candidates.
++ * An invalid resulting range is rejected without changing either bound.
+  * Must be set before scanning starts.
+  */
+ int32_t lance_scanner_set_maximum_nprobes(
+diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
+index e08f76a..c12c0c6 100644
+--- a/include/lance/lance.hpp
++++ b/include/lance/lance.hpp
+@@ -1417,14 +1417,17 @@ class Scanner {
+         return *this;
+     }
+ 
+-    Scanner& nprobes(uint32_t n) {
+-        if (lance_scanner_set_nprobes(handle_.get(), n) != 0) check_error();
++    /// Replace both minimum and maximum partition-search bounds.
++    Scanner& nprobes(uint32_t nprobes) {
++        if (lance_scanner_set_nprobes(handle_.get(), nprobes) != 0) check_error();
+         return *this;
+     }
++    /// Replace only the minimum partition-search bound.
+     Scanner& minimum_nprobes(uint32_t minimum_nprobes) {
+         if (lance_scanner_set_minimum_nprobes(handle_.get(), minimum_nprobes) != 0) check_error();
+         return *this;
+     }
++    /// Replace only the maximum partition-search bound.
+     Scanner& maximum_nprobes(uint32_t maximum_nprobes) {
+         if (lance_scanner_set_maximum_nprobes(handle_.get(), maximum_nprobes) != 0) check_error();
+         return *this;
+diff --git a/src/scanner.rs b/src/scanner.rs
+index 53cd5b6..4ceeb0e 100644
+--- a/src/scanner.rs
++++ b/src/scanner.rs
+@@ -109,9 +109,7 @@ pub struct LanceScanner {
+     fragment_ids: Option<Vec<u64>>,
+     index_segments: Option<Vec<Uuid>>,
+     nearest: Option<NearestQuery>,
+-    nprobes: Option<u32>,
+-    minimum_nprobes: Option<u32>,
+-    maximum_nprobes: Option<u32>,
++    nprobes: NprobesRange,
+     approx_mode: Option<LanceApproxMode>,
+     query_parallelism: Option<i32>,
+     refine_factor: Option<u32>,
+@@ -148,6 +146,72 @@ struct NearestQuery {
+     k: u32,
+ }
+ 
++/// The effective adaptive partition-search range shared by all three nprobes
++/// setters. Updates are computed and validated before replacing this state.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++struct NprobesRange {
++    minimum: Option<u32>,
++    maximum: Option<u32>,
++}
++
++impl NprobesRange {
++    fn exact(nprobes: u32) -> Result<Self> {
++        if nprobes == 0 {
++            return Err(lance_core::Error::invalid_input_source(
++                "nprobes must be greater than 0, got 0".into(),
++            ));
++        }
++        Ok(Self {
++            minimum: Some(nprobes),
++            maximum: Some(nprobes),
++        })
++    }
++
++    fn with_minimum(self, minimum_nprobes: u32) -> Result<Self> {
++        if minimum_nprobes == 0 {
++            return Err(lance_core::Error::invalid_input_source(
++                "minimum_nprobes must be greater than 0, got 0".into(),
++            ));
++        }
++        if let Some(maximum_nprobes) = self.maximum
++            && minimum_nprobes > maximum_nprobes
++        {
++            return Err(lance_core::Error::invalid_input_source(
++                format!(
++                    "minimum_nprobes ({minimum_nprobes}) must not exceed maximum_nprobes ({maximum_nprobes})"
++                )
++                .into(),
++            ));
++        }
++        Ok(Self {
++            minimum: Some(minimum_nprobes),
++            ..self
++        })
++    }
++
++    fn with_maximum(self, maximum_nprobes: u32) -> Result<Self> {
++        if maximum_nprobes == 0 {
++            return Err(lance_core::Error::invalid_input_source(
++                "maximum_nprobes must be greater than 0, got 0".into(),
++            ));
++        }
++        if let Some(minimum_nprobes) = self.minimum
++            && maximum_nprobes < minimum_nprobes
++        {
++            return Err(lance_core::Error::invalid_input_source(
++                format!(
++                    "maximum_nprobes ({maximum_nprobes}) must not be less than minimum_nprobes ({minimum_nprobes})"
++                )
++                .into(),
++            ));
++        }
++        Ok(Self {
++            maximum: Some(maximum_nprobes),
++            ..self
++        })
++    }
++}
++
+ /// Poll status for `lance_scanner_poll_next`.
+ #[repr(C)]
+ #[derive(Debug, PartialEq, Eq)]
+@@ -193,9 +257,7 @@ impl LanceScanner {
+             fragment_ids: None,
+             index_segments: None,
+             nearest: None,
+-            nprobes: None,
+-            minimum_nprobes: None,
+-            maximum_nprobes: None,
++            nprobes: NprobesRange::default(),
+             approx_mode: None,
+             query_parallelism: None,
+             refine_factor: None,
+@@ -363,13 +425,10 @@ impl LanceScanner {
+         }
+         if let Some(n) = &self.nearest {
+             scanner.nearest(&n.column, n.query.as_ref(), n.k as usize)?;
+-            if let Some(np) = self.nprobes {
+-                scanner.nprobes(np as usize);
+-            }
+-            if let Some(minimum_nprobes) = self.minimum_nprobes {
++            if let Some(minimum_nprobes) = self.nprobes.minimum {
+                 scanner.minimum_nprobes(minimum_nprobes as usize);
+             }
+-            if let Some(maximum_nprobes) = self.maximum_nprobes {
++            if let Some(maximum_nprobes) = self.nprobes.maximum {
+                 scanner.maximum_nprobes(maximum_nprobes as usize);
+             }
+             if let Some(approx_mode) = self.approx_mode {
+@@ -930,6 +989,14 @@ unsafe fn scanner_set_batch_size_bytes_inner(
+     }
+     let scanner = unsafe { &mut *scanner };
+     scanner.ensure_scan_not_started("batch_size_bytes")?;
++    if scanner.strict_batch_size == Some(true) {
++        return Err(lance_core::Error::invalid_input_source(
++            format!(
++                "strict_batch_size=true cannot be combined with batch_size_bytes={batch_size_bytes}"
++            )
++            .into(),
++        ));
++    }
+     scanner.batch_size_bytes = Some(batch_size_bytes);
+     Ok(0)
+ }
+@@ -1140,8 +1207,8 @@ unsafe fn scanner_set_use_scalar_index_inner(
+ 
+ /// Configure whether output batches use the exact row-based batch size.
+ ///
+-/// Must be set before the scan starts. Lance rejects enabling this together
+-/// with a byte-based batch-size limit when the scan is materialized.
++/// Must be set before the scan starts. Enabling this together with a
++/// byte-based batch-size limit is rejected without changing scanner state.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn lance_scanner_set_strict_batch_size(
+     scanner: *mut LanceScanner,
+@@ -1164,6 +1231,14 @@ unsafe fn scanner_set_strict_batch_size_inner(
+     }
+     let scanner = unsafe { &mut *scanner };
+     scanner.ensure_scan_not_started("strict_batch_size")?;
++    if strict_batch_size && let Some(batch_size_bytes) = scanner.batch_size_bytes {
++        return Err(lance_core::Error::invalid_input_source(
++            format!(
++                "strict_batch_size=true cannot be combined with batch_size_bytes={batch_size_bytes}"
++            )
++            .into(),
++        ));
++    }
+     scanner.strict_batch_size = Some(strict_batch_size);
+     Ok(0)
+ }
+@@ -2255,10 +2330,38 @@ macro_rules! scanner_set_u32 {
+     };
+ }
+ 
+-scanner_set_u32!(lance_scanner_set_nprobes, nprobes);
+ scanner_set_u32!(lance_scanner_set_refine_factor, refine_factor);
+ scanner_set_u32!(lance_scanner_set_ef, ef);
+ 
++/// Set both vector-index partition-search bounds to the same value.
++///
++/// This replaces any values previously configured through
++/// `minimum_nprobes` or `maximum_nprobes`. The value must be greater than zero
++/// and must be set before the scan starts.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_nprobes(
++    scanner: *mut LanceScanner,
++    nprobes: u32,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, unsafe {
++        scanner_set_nprobes_inner(scanner, nprobes)
++    })
++}
++
++unsafe fn scanner_set_nprobes_inner(scanner: *mut LanceScanner, nprobes: u32) -> Result<i32> {
++    if scanner.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "scanner is NULL".into(),
++        ));
++    }
++    let scanner = unsafe { &mut *scanner };
++    scanner.ensure_scan_not_started("nprobes")?;
++    let next = NprobesRange::exact(nprobes)?;
++    scanner.nprobes = next;
++    Ok(0)
++}
++
+ /// Set the minimum number of vector-index partitions to search.
+ ///
+ /// The value must be greater than zero, no greater than a configured
+@@ -2283,24 +2386,10 @@ unsafe fn scanner_set_minimum_nprobes_inner(
+             "scanner is NULL".into(),
+         ));
+     }
+-    if minimum_nprobes == 0 {
+-        return Err(lance_core::Error::invalid_input_source(
+-            "minimum_nprobes must be greater than 0, got 0".into(),
+-        ));
+-    }
+     let scanner = unsafe { &mut *scanner };
+     scanner.ensure_scan_not_started("minimum_nprobes")?;
+-    if let Some(maximum_nprobes) = scanner.maximum_nprobes
+-        && minimum_nprobes > maximum_nprobes
+-    {
+-        return Err(lance_core::Error::invalid_input_source(
+-            format!(
+-                "minimum_nprobes ({minimum_nprobes}) must not exceed maximum_nprobes ({maximum_nprobes})"
+-            )
+-            .into(),
+-        ));
+-    }
+-    scanner.minimum_nprobes = Some(minimum_nprobes);
++    let next = scanner.nprobes.with_minimum(minimum_nprobes)?;
++    scanner.nprobes = next;
+     Ok(0)
+ }
+ 
+@@ -2328,24 +2417,10 @@ unsafe fn scanner_set_maximum_nprobes_inner(
+             "scanner is NULL".into(),
+         ));
+     }
+-    if maximum_nprobes == 0 {
+-        return Err(lance_core::Error::invalid_input_source(
+-            "maximum_nprobes must be greater than 0, got 0".into(),
+-        ));
+-    }
+     let scanner = unsafe { &mut *scanner };
+     scanner.ensure_scan_not_started("maximum_nprobes")?;
+-    if let Some(minimum_nprobes) = scanner.minimum_nprobes
+-        && maximum_nprobes < minimum_nprobes
+-    {
+-        return Err(lance_core::Error::invalid_input_source(
+-            format!(
+-                "maximum_nprobes ({maximum_nprobes}) must not be less than minimum_nprobes ({minimum_nprobes})"
+-            )
+-            .into(),
+-        ));
+-    }
+-    scanner.maximum_nprobes = Some(maximum_nprobes);
++    let next = scanner.nprobes.with_maximum(maximum_nprobes)?;
++    scanner.nprobes = next;
+     Ok(0)
+ }
+ 
+@@ -2885,6 +2960,49 @@ mod tests {
+         )
+     }
+ 
++    #[test]
++    fn nprobes_setters_share_one_validated_range() {
++        let (_tmp, uri) = create_test_dataset();
++        let (dataset, scanner) = open_dataset_and_scanner(&uri);
++        let assert_range = |minimum, maximum| {
++            assert_eq!(
++                unsafe { &*scanner }.nprobes,
++                NprobesRange { minimum, maximum }
++            );
++        };
++
++        assert_range(None, None);
++        assert_eq!(unsafe { lance_scanner_set_minimum_nprobes(scanner, 2) }, 0);
++        assert_range(Some(2), None);
++        assert_eq!(unsafe { lance_scanner_set_maximum_nprobes(scanner, 5) }, 0);
++        assert_range(Some(2), Some(5));
++
++        // The combined setter replaces both bounds.
++        assert_eq!(unsafe { lance_scanner_set_nprobes(scanner, 4) }, 0);
++        assert_range(Some(4), Some(4));
++
++        // A failed partial update leaves both bounds unchanged.
++        assert_eq!(unsafe { lance_scanner_set_minimum_nprobes(scanner, 5) }, -1);
++        assert_range(Some(4), Some(4));
++
++        // Widening the maximum first makes the new minimum valid.
++        assert_eq!(unsafe { lance_scanner_set_maximum_nprobes(scanner, 6) }, 0);
++        assert_eq!(unsafe { lance_scanner_set_minimum_nprobes(scanner, 5) }, 0);
++        assert_range(Some(5), Some(6));
++
++        // A later combined call deterministically replaces the widened range.
++        assert_eq!(unsafe { lance_scanner_set_nprobes(scanner, 3) }, 0);
++        assert_range(Some(3), Some(3));
++        assert_eq!(unsafe { lance_scanner_set_maximum_nprobes(scanner, 2) }, -1);
++        assert_eq!(unsafe { lance_scanner_set_nprobes(scanner, 0) }, -1);
++        assert_range(Some(3), Some(3));
++
++        unsafe {
++            lance_scanner_close(scanner);
++            lance_dataset_close(dataset);
++        }
++    }
++
+     #[test]
+     fn prepared_fts_index_only_plan_does_not_scan_indexed_fragment_row_ids() {
+         let (_tmp, uri) = create_test_dataset();
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index a550a93..3b3424b 100644
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -1318,6 +1318,78 @@ fn test_scanner_execution_tuning_options_reject_invalid_values() {
+     unsafe { lance_dataset_close(ds) };
+ }
+ 
++#[test]
++fn test_scanner_strict_batch_size_and_bytes_conflict_is_recoverable() {
++    let (_tmp, uri) = create_test_dataset();
++    let c_uri = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++
++    let consume = |scanner| {
++        let mut stream = FFI_ArrowArrayStream::empty();
++        assert_eq!(
++            unsafe { lance_scanner_to_arrow_stream(scanner, &mut stream) },
++            0
++        );
++        let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut stream) }.unwrap();
++        assert_eq!(
++            reader.map(|batch| batch.unwrap().num_rows()).sum::<usize>(),
++            5
++        );
++    };
++
++    // A byte limit already exists: strict=true is rejected without starting
++    // the scan or replacing the prior strict setting.
++    let bytes_first = unsafe { lance_scanner_new(ds, ptr::null(), ptr::null()) };
++    assert_eq!(
++        unsafe { lance_scanner_set_batch_size_bytes(bytes_first, 1024) },
++        0
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_strict_batch_size(bytes_first, true) },
++        -1
++    );
++    assert!(
++        take_last_error_message()
++            .contains("strict_batch_size=true cannot be combined with batch_size_bytes=1024")
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_use_stats(bytes_first, false) },
++        0,
++        "the rejected setter must not mark the scan as started"
++    );
++    consume(bytes_first);
++
++    // Strict sizing already exists: the byte limit is rejected without
++    // mutation. The caller can disable strict sizing and retry on this handle.
++    let strict_first = unsafe { lance_scanner_new(ds, ptr::null(), ptr::null()) };
++    assert_eq!(
++        unsafe { lance_scanner_set_strict_batch_size(strict_first, true) },
++        0
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_batch_size_bytes(strict_first, 1024) },
++        -1
++    );
++    assert!(
++        take_last_error_message()
++            .contains("strict_batch_size=true cannot be combined with batch_size_bytes=1024")
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_strict_batch_size(strict_first, false) },
++        0
++    );
++    assert_eq!(
++        unsafe { lance_scanner_set_batch_size_bytes(strict_first, 1024) },
++        0
++    );
++    consume(strict_first);
++
++    unsafe { lance_scanner_close(bytes_first) };
++    unsafe { lance_scanner_close(strict_first) };
++    unsafe { lance_dataset_close(ds) };
++}
++
+ #[test]
+ fn test_scanner_execution_tuning_options_reject_after_scan_start() {
+     let (_tmp, uri) = create_test_dataset();
+@@ -1760,6 +1832,7 @@ fn test_null_safety_comprehensive() {
+         unsafe { lance_scanner_set_include_deleted_rows(ptr::null_mut(), true) },
+         -1
+     );
++    assert_eq!(unsafe { lance_scanner_set_nprobes(ptr::null_mut(), 1) }, -1);
+     assert_eq!(
+         unsafe { lance_scanner_set_minimum_nprobes(ptr::null_mut(), 1) },
+         -1
+@@ -5663,6 +5736,8 @@ fn test_scanner_adaptive_nprobes_and_approx_mode_validation_and_lifecycle() {
+     let scanner = unsafe { lance_scanner_new(ds, ptr::null(), ptr::null()) };
+     assert!(!scanner.is_null());
+ 
++    assert_eq!(unsafe { lance_scanner_set_nprobes(scanner, 0) }, -1);
++    assert!(take_last_error_message().contains("nprobes must be greater than 0, got 0"));
+     assert_eq!(unsafe { lance_scanner_set_minimum_nprobes(scanner, 0) }, -1);
+     assert!(take_last_error_message().contains("minimum_nprobes must be greater than 0, got 0"));
+     assert_eq!(unsafe { lance_scanner_set_maximum_nprobes(scanner, 0) }, -1);
+@@ -5704,6 +5779,8 @@ fn test_scanner_adaptive_nprobes_and_approx_mode_validation_and_lifecycle() {
+         0
+     );
+ 
++    assert_eq!(unsafe { lance_scanner_set_nprobes(scanner, 1) }, -1);
++    assert!(take_last_error_message().contains("nprobes must be set before"));
+     assert_eq!(unsafe { lance_scanner_set_minimum_nprobes(scanner, 1) }, -1);
+     assert!(take_last_error_message().contains("minimum_nprobes must be set before"));
+     assert_eq!(unsafe { lance_scanner_set_maximum_nprobes(scanner, 1) }, -1);
