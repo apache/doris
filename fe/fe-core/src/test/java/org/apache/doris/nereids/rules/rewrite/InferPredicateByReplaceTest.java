@@ -174,6 +174,32 @@ public class InferPredicateByReplaceTest {
     }
 
     @Test
+    public void testInferWithDateTimeV2CastPrecision() {
+        for (int sourceScale : new int[] {0, 3, 6}) {
+            SlotReference a = new SlotReference("a", DateTimeV2Type.of(sourceScale));
+            SlotReference b = new SlotReference("b", DateTimeV2Type.of(sourceScale));
+            InPredicate predicate = new InPredicate(a, ImmutableList.of(
+                    new DateTimeV2Literal("2025-01-01 00:00:00"),
+                    new DateTimeV2Literal("2025-01-01 00:00:01")));
+            InPredicate expected = new InPredicate(b, predicate.getOptions());
+            for (int targetScale : new int[] {0, 3, 6}) {
+                EqualTo equality = new EqualTo(new Cast(a, DateTimeV2Type.of(targetScale)),
+                        new Cast(b, DateTimeV2Type.of(targetScale)));
+                Set<Expression> inputs = new HashSet<>(ImmutableList.of(equality, predicate));
+                Assertions.assertEquals(sourceScale <= targetScale,
+                        InferPredicateByReplace.infer(inputs).contains(expected),
+                        "Unexpected inference for scale " + sourceScale + " -> " + targetScale);
+            }
+            EqualTo nestedEquality = new EqualTo(
+                    new Cast(new Cast(a, DateTimeV2Type.of(0)), DateTimeV2Type.of(6)),
+                    new Cast(new Cast(b, DateTimeV2Type.of(0)), DateTimeV2Type.of(6)));
+            Set<Expression> inputs = new HashSet<>(ImmutableList.of(nestedEquality, predicate));
+            Assertions.assertEquals(sourceScale == 0, InferPredicateByReplace.infer(inputs).contains(expected),
+                    "Nested casts must not hide precision loss");
+        }
+    }
+
+    @Test
     public void testValidForInfer() {
         SlotReference a = new SlotReference("a", TinyIntType.INSTANCE);
         Cast castExprA = new Cast(a, IntegerType.INSTANCE);
