@@ -424,6 +424,8 @@ suite("test_json_load_and_function", "p0") {
     qt_select """SELECT JSON_VALID('{"k1":"v31","k2":300}')"""
     qt_select """SELECT JSON_VALID('invalid json')"""
     qt_select """SELECT JSON_VALID(NULL)"""
+    qt_select_object_tail """SELECT JSON_VALID('{}x')"""
+    qt_select_array_tail """SELECT JSON_VALID('[]xxx')"""
 
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k1') FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', '\$.[1]') FROM ${testTable} ORDER BY id"""

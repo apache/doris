@@ -113,13 +113,18 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
             {{STRING("null")}, STRING("null")},
             {{STRING("true")}, STRING("true")},
             {{STRING("false")}, STRING("false")},
-            {{STRING("100")}, STRING("100")},                                 //int8
-            {{STRING("10000")}, STRING("10000")},                             // int16
-            {{STRING("1000000000")}, STRING("1000000000")},                   // int32
-            {{STRING("1152921504606846976")}, STRING("1152921504606846976")}, // int64
-            {{STRING("6.18")}, STRING("6.18")},                               // double
-            {{STRING(R"("abcd")")}, STRING(R"("abcd")")},                     // string
-            {{STRING("{}")}, STRING("{}")},                                   // empty object
+            {{STRING("100")}, STRING("100")},                                   //int8
+            {{STRING("10000")}, STRING("10000")},                               // int16
+            {{STRING("1000000000")}, STRING("1000000000")},                     // int32
+            {{STRING("1152921504606846976")}, STRING("1152921504606846976")},   // int64
+            {{STRING("18446744073709551616")}, STRING("18446744073709551616")}, // int128
+            {{STRING(" 18446744073709551616 ")},
+             STRING("18446744073709551616")}, // int128 with surrounding whitespace
+            {{STRING("12345678901234567890123456789012345678901234567890")},
+             STRING("1.2345678901234567e+49")},           // double fallback
+            {{STRING("6.18")}, STRING("6.18")},           // double
+            {{STRING(R"("abcd")")}, STRING(R"("abcd")")}, // string
+            {{STRING("{}")}, STRING("{}")},               // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})")}, STRING(R"({"k1":"v31","k2":300})")}, // object
             {{STRING("[]")}, STRING("[]")},                              // empty array
             {{STRING("[123, 456]")}, STRING("[123,456]")},               // int array
@@ -151,6 +156,12 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
                                                           -1, -1, true));
 
     data_set_invalid = {
+            {{STRING("18446744073709551616x")}, Null()}, // invalid int with trailing content
+    };
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
+
+    data_set_invalid = {
             {{STRING("6.a8")}, Null()}, // invalid double
     };
     static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
@@ -158,6 +169,13 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
 
     data_set_invalid = {
             {{STRING("{x")}, Null()}, // invalid object
+    };
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
+
+    data_set_invalid = {
+            {{STRING(R"({"k1":"v31"} trailing)")}, Null()}, // invalid object trailing content
+            {{STRING("[123] trailing")}, Null()},           // invalid array trailing content
     };
     static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
                                                           -1, -1, true));
@@ -302,6 +320,27 @@ TEST(FunctionJsonbTEST, JsonbKeysRejectSuperWildcardPath) {
     auto non_const_path_status =
             execute_json_keys_with_path(create_path_column({"$.a", "$**.a"}), 2);
     expect_invalid_json_keys_super_wildcard_path(non_const_path_status);
+}
+
+TEST(FunctionJsonbTEST, JsonValidStrictTest) {
+    std::string func_name = "json_valid";
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR}};
+    const std::string huge_integer(400, '9');
+
+    DataSet data_set = {
+            {{Null()}, Null()},
+            {{STRING("not")}, INT(0)},
+            {{STRING("not json")}, INT(0)},
+            {{STRING("null junk")}, INT(0)},
+            {{STRING(R"({"a":1} junk)")}, INT(0)},
+            {{STRING("1e9999")}, INT(0)},
+            {{STRING(huge_integer)}, INT(0)},
+            {{STRING("null")}, INT(1)},
+            {{STRING("true")}, INT(1)},
+            {{STRING(R"({"a":1})")}, INT(1)},
+    };
+
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractTest) {
