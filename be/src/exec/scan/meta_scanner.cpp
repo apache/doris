@@ -27,6 +27,7 @@
 #include <ostream>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 #include "common/cast_set.h"
 #include "common/logging.h"
@@ -55,12 +56,20 @@ namespace doris {
 
 MetaScanner::MetaScanner(RuntimeState* state, ScanLocalStateBase* local_state, TupleId tuple_id,
                          const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
-                         TUserIdentity user_identity)
+                         TUserIdentity user_identity, std::set<std::string> current_roles)
         : Scanner(state, local_state, limit, profile),
           _meta_eos(false),
           _tuple_id(tuple_id),
           _user_identity(user_identity),
+          _current_roles(std::move(current_roles)),
           _scan_range(scan_range.scan_range) {}
+
+void MetaScanner::_set_session_identity(TMetadataTableRequestParams* params) const {
+    params->__set_current_user_ident(_user_identity);
+    if (!_current_roles.empty()) {
+        params->__set_current_roles(_current_roles);
+    }
+}
 
 Status MetaScanner::_open_impl(RuntimeState* state) {
     VLOG_CRITICAL << "MetaScanner::open";
@@ -313,6 +322,7 @@ Status MetaScanner::_build_backends_metadata_request(const TMetaScanRange& meta_
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::BACKENDS);
+    _set_session_identity(&metadata_table_params);
     metadata_table_params.__set_backends_metadata_params(meta_scan_range.backends_params);
 
     request->__set_metada_table_params(metadata_table_params);
@@ -332,6 +342,7 @@ Status MetaScanner::_build_frontends_metadata_request(const TMetaScanRange& meta
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::FRONTENDS);
+    _set_session_identity(&metadata_table_params);
     metadata_table_params.__set_frontends_metadata_params(meta_scan_range.frontends_params);
 
     request->__set_metada_table_params(metadata_table_params);
@@ -351,6 +362,7 @@ Status MetaScanner::_build_frontends_disks_metadata_request(const TMetaScanRange
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::FRONTENDS_DISKS);
+    _set_session_identity(&metadata_table_params);
     metadata_table_params.__set_frontends_metadata_params(meta_scan_range.frontends_params);
 
     request->__set_metada_table_params(metadata_table_params);
@@ -368,7 +380,7 @@ Status MetaScanner::_build_workload_sched_policy_metadata_request(
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::WORKLOAD_SCHED_POLICY);
-    metadata_table_params.__set_current_user_ident(_user_identity);
+    _set_session_identity(&metadata_table_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
@@ -384,7 +396,7 @@ Status MetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta_
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::CATALOGS);
-    metadata_table_params.__set_current_user_ident(_user_identity);
+    _set_session_identity(&metadata_table_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
@@ -404,6 +416,7 @@ Status MetaScanner::_build_materialized_views_metadata_request(
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::MATERIALIZED_VIEWS);
+    _set_session_identity(&metadata_table_params);
     metadata_table_params.__set_materialized_views_metadata_params(
             meta_scan_range.materialized_views_params);
 
@@ -425,6 +438,7 @@ Status MetaScanner::_build_partitions_metadata_request(const TMetaScanRange& met
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::PARTITIONS);
+    _set_session_identity(&metadata_table_params);
     metadata_table_params.__set_partitions_metadata_params(meta_scan_range.partitions_params);
 
     request->__set_metada_table_params(metadata_table_params);
@@ -444,6 +458,7 @@ Status MetaScanner::_build_jobs_metadata_request(const TMetaScanRange& meta_scan
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::JOBS);
+    _set_session_identity(&metadata_table_params);
     metadata_table_params.__set_jobs_metadata_params(meta_scan_range.jobs_params);
 
     request->__set_metada_table_params(metadata_table_params);
@@ -463,6 +478,7 @@ Status MetaScanner::_build_tasks_metadata_request(const TMetaScanRange& meta_sca
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::TASKS);
+    _set_session_identity(&metadata_table_params);
     metadata_table_params.__set_tasks_metadata_params(meta_scan_range.tasks_params);
 
     request->__set_metada_table_params(metadata_table_params);
@@ -483,6 +499,7 @@ Status MetaScanner::_build_partition_values_metadata_request(
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::PARTITION_VALUES);
+    _set_session_identity(&metadata_table_params);
     metadata_table_params.__set_partition_values_metadata_params(
             meta_scan_range.partition_values_params);
 

@@ -333,4 +333,35 @@ public class SuUserNarrowingTest extends TestWithFeService {
         Object select = new NereidsParser().parseSingle("SELECT su FROM t1");
         Assert.assertNotNull(select);
     }
+
+    // SU narrowing: a BE->FE metadata RPC (getDbNames/getTableNames/listTableStatus/describeTables)
+    // runs on a handler thread with NO ConnectContext. Auth.setRpcSessionNarrowing lets the handler
+    // apply the calling session's narrowed role subset there, so information_schema name visibility
+    // matches the session instead of resolving the target's FULL roles (the pre-fix leak).
+    @Test
+    public void testRpcSessionNarrowingAppliesOnMetadataRpcThread() throws Exception {
+        addUser("rpcuser", true);
+        createRole("rpc_space");
+        grantPriv("GRANT SELECT_PRIV ON internal.test.* TO ROLE 'rpc_space';");
+        grantRole("GRANT 'rpc_space' TO 'rpcuser'@'%'");
+        // a personal (default-role) grant on another db, which the narrowing must DROP
+        grantPriv("GRANT SELECT_PRIV ON internal.perso.* TO 'rpcuser'@'%';");
+        UserIdentity rpcuser = ident("rpcuser");
+        try {
+            // no narrowing installed -> full roles resolved (the pre-fix behavior/leak):
+            // both the personal grant and the role grant are visible.
+            Assert.assertTrue(canSelectDb(rpcuser, "perso"));
+            Assert.assertTrue(canSelectDb(rpcuser, "test"));
+
+            // install exactly what the metadata RPC carries in current_roles
+            Auth.setRpcSessionNarrowing(rpcuser, Collections.singleton("rpc_space"));
+            Assert.assertFalse(canSelectDb(rpcuser, "perso")); // personal grant DROPPED
+            Assert.assertTrue(canSelectDb(rpcuser, "test"));   // requested role KEPT
+            Assert.assertTrue(canSelectInfoSchema(rpcuser));    // info_schema baseline preserved
+        } finally {
+            Auth.clearRpcSessionNarrowing();
+        }
+        // cleared -> full roles restored (no leak of the narrowing to later requests on this thread)
+        Assert.assertTrue(canSelectDb(rpcuser, "perso"));
+    }
 }
