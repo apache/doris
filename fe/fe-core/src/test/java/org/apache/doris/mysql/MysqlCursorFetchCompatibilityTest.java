@@ -18,37 +18,37 @@
 package org.apache.doris.mysql;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 
 public class MysqlCursorFetchCompatibilityTest {
     @Test
     public void testConnectorJBehaviorBoundaries() {
-        Assert.assertEquals(MysqlCursorFetchCompatibility.Behavior.CONSUMES_METADATA_TERMINATOR,
+        Assertions.assertEquals(MysqlCursorFetchCompatibility.Behavior.CONSUMES_METADATA_TERMINATOR,
                 resolve("MySQL Connector Java", "5.1.49"));
-        Assert.assertEquals(MysqlCursorFetchCompatibility.Behavior.CONSUMES_METADATA_TERMINATOR,
+        Assertions.assertEquals(MysqlCursorFetchCompatibility.Behavior.CONSUMES_METADATA_TERMINATOR,
                 resolve("MySQL Connector/J", "6.0.6"));
-        Assert.assertEquals(MysqlCursorFetchCompatibility.Behavior.CONSUMES_METADATA_TERMINATOR,
+        Assertions.assertEquals(MysqlCursorFetchCompatibility.Behavior.CONSUMES_METADATA_TERMINATOR,
                 resolve("MySQL Connector/J", "8.2.0"));
-        Assert.assertEquals(MysqlCursorFetchCompatibility.Behavior.CONSUMES_METADATA_TERMINATOR,
+        Assertions.assertEquals(MysqlCursorFetchCompatibility.Behavior.CONSUMES_METADATA_TERMINATOR,
                 resolve("MySQL Connector/J", "9.4.0"));
-        Assert.assertEquals(MysqlCursorFetchCompatibility.Behavior.STANDARD,
+        Assertions.assertEquals(MysqlCursorFetchCompatibility.Behavior.STANDARD,
                 resolve("MySQL Connector/J", "9.5.0"));
-        Assert.assertEquals(MysqlCursorFetchCompatibility.Behavior.STANDARD,
+        Assertions.assertEquals(MysqlCursorFetchCompatibility.Behavior.STANDARD,
                 resolve("MySQL Connector/J", "9.6.0"));
     }
 
     @Test
     public void testUnknownAndOtherClients() {
-        Assert.assertEquals(MysqlCursorFetchCompatibility.Behavior.UNKNOWN,
+        Assertions.assertEquals(MysqlCursorFetchCompatibility.Behavior.UNKNOWN,
                 MysqlCursorFetchCompatibility.resolve(Collections.emptyMap()));
-        Assert.assertEquals(MysqlCursorFetchCompatibility.Behavior.UNKNOWN,
+        Assertions.assertEquals(MysqlCursorFetchCompatibility.Behavior.UNKNOWN,
                 MysqlCursorFetchCompatibility.resolve(ImmutableMap.of("_client_name", "MySQL Connector/J")));
-        Assert.assertEquals(MysqlCursorFetchCompatibility.Behavior.UNKNOWN,
+        Assertions.assertEquals(MysqlCursorFetchCompatibility.Behavior.UNKNOWN,
                 resolve("MySQL Connector/J", "custom"));
-        Assert.assertEquals(MysqlCursorFetchCompatibility.Behavior.STANDARD,
+        Assertions.assertEquals(MysqlCursorFetchCompatibility.Behavior.STANDARD,
                 resolve("MariaDB Connector/J", "3.5.6"));
     }
 

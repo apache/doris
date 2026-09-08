@@ -22,8 +22,8 @@ import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.io.IOException;
@@ -40,7 +40,7 @@ public class ConnectProcessorForwardProtocolTest {
 
         new TestProcessor(context, executor).finalizeCommand();
 
-        Assert.assertEquals(packet, context.channel.packet);
+        Assertions.assertEquals(packet, context.channel.packet);
         Mockito.verify(executor).sendProxyQueryResult();
     }
 
@@ -58,7 +58,7 @@ public class ConnectProcessorForwardProtocolTest {
 
         new TestProcessor(context, executor).finalizeCommand();
 
-        Assert.assertEquals(packet, context.channel.packet);
+        Assertions.assertEquals(packet, context.channel.packet);
         Mockito.verify(executor).sendProxyQueryResult();
     }
 
@@ -71,7 +71,7 @@ public class ConnectProcessorForwardProtocolTest {
 
         new TestProcessor(context, executor).finalizeCommand();
 
-        Assert.assertEquals(0xFF, MysqlProto.readInt1(context.channel.packet));
+        Assertions.assertEquals(0xFF, MysqlProto.readInt1(context.channel.packet));
         Mockito.verify(executor).sendProxyQueryResult();
     }
 
