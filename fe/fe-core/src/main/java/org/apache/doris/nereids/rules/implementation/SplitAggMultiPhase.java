@@ -76,7 +76,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
         return ImmutableList.of(
                 logicalAggregate()
                         .when(agg -> !agg.getGroupByExpressions().isEmpty())
-                        .when(agg -> agg.getDistinctArguments().size() == 1 || agg.distinctFuncNum() == 1)
+                        .when(agg -> AggregateUtils.distinctArgumentGroupCountUpToTwo(agg) == 1)
                         .thenApplyMulti(this::rewrite)
                         .toRule(RuleType.SPLIT_AGG_MULTI_PHASE)
         );
