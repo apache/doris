@@ -242,7 +242,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     std::vector<std::string> download_success_files;
     std::unordered_map<std::string_view, uint64_t> elapsed_time_map;
     Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus, &watch,
-                  &total_download_bytes, &total_download_files, &elapsed_time_map]() {
+                  &total_download_bytes, &total_download_files, &download_success_files,
+                  &elapsed_time_map]() {
         g_ingest_binlog_latency << watch.elapsed_time_microseconds();
         auto elapsed_time_ms = watch.elapsed_time_milliseconds();
         double copy_rate = 0.0;
@@ -274,8 +275,13 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                 paths.emplace_back(file);
                 LOG(WARNING) << "will delete downloaded success file " << file << " due to error";
             }
-            static_cast<void>(io::global_local_filesystem()->batch_delete(paths));
-            LOG(WARNING) << "done delete downloaded success files due to error " << tstatus;
+            auto cleanup_status = io::global_local_filesystem()->batch_delete(paths);
+            if (!cleanup_status.ok()) {
+                LOG(WARNING) << "failed to delete downloaded success files due to error " << tstatus
+                             << ", cleanup status: " << cleanup_status;
+            } else {
+                LOG(WARNING) << "done delete downloaded success files due to error " << tstatus;
+            }
         }
 
         if (ingest_binlog_tstatus) {
@@ -642,13 +648,24 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             elapsed_time_map.emplace("calc_delete_bitmap", watch.elapsed_time_microseconds());
         }
 
-        static_cast<void>(BaseTablet::commit_phase_update_delete_bitmap(
+        status = BaseTablet::commit_phase_update_delete_bitmap(
                 local_tablet, rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
-                calc_delete_bitmap_token.get(), nullptr));
+                calc_delete_bitmap_token.get(), nullptr);
         elapsed_time_map.emplace("commit_phase_update_delete_bitmap",
                                  watch.elapsed_time_microseconds());
-        static_cast<void>(calc_delete_bitmap_token->wait());
+        auto wait_status = calc_delete_bitmap_token->wait();
         elapsed_time_map.emplace("wait_delete_bitmap", watch.elapsed_time_microseconds());
+        if (status.ok()) {
+            status = wait_status;
+        }
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to calculate delete bitmap for ingest binlog"
+                         << ", tablet_id=" << local_tablet_id
+                         << ", rowset_id=" << rowset->rowset_id() << ", txn_id=" << txn_id
+                         << ", status=" << status;
+            status.to_thrift(&tstatus);
+            return;
+        }
     }
 
     // Step 7.3: commit txn
