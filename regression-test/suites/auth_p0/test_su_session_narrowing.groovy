@@ -55,6 +55,9 @@ suite("test_su_session_narrowing", "p0,auth") {
     sql """GRANT SELECT_PRIV ON ${ownDb}.* TO '${person}'@'%'"""
     // the service account: nothing but the right to switch
     sql """GRANT PROXY_PRIV ON *.*.* TO '${svc}'@'%'"""
+    // the framework connects with the default database in the URL, which needs a privilege on it
+    sql """GRANT SELECT_PRIV ON ${context.config.defaultDb}.* TO '${svc}'@'%'"""
+    sql """GRANT SELECT_PRIV ON ${context.config.defaultDb}.* TO '${person}'@'%'"""
 
     try {
         // PROXY_PRIV is a global privilege, listed like any other
