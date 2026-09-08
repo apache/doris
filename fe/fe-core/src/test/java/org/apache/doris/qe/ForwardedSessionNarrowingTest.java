@@ -27,7 +27,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -79,15 +79,15 @@ public class ForwardedSessionNarrowingTest extends TestWithFeService {
         ctx.setRemoteIP("127.0.0.1");
 
         TMasterOpRequest plain = forwardRequestOf(ctx);
-        Assert.assertFalse(plain.isSetIsSuUser());
-        Assert.assertFalse(plain.isSetCurrentRoles());
+        Assertions.assertFalse(plain.isSetIsSuUser());
+        Assertions.assertFalse(plain.isSetCurrentRoles());
 
         ctx.setSessionRoleOverride(Sets.newHashSet("tenant_a", "tenant_a_scoped"));
         TMasterOpRequest narrowed = forwardRequestOf(ctx);
-        Assert.assertTrue(narrowed.isSetIsSuUser() && narrowed.isIsSuUser());
-        Assert.assertEquals(Sets.newHashSet("tenant_a", "tenant_a_scoped"), narrowed.getCurrentRoles());
+        Assertions.assertTrue(narrowed.isSetIsSuUser() && narrowed.isIsSuUser());
+        Assertions.assertEquals(Sets.newHashSet("tenant_a", "tenant_a_scoped"), narrowed.getCurrentRoles());
         // the identity the master rebuilds is still the session's (switched-to) identity
-        Assert.assertEquals(ctx.getQualifiedUser(), narrowed.getUser());
+        Assertions.assertEquals(ctx.getQualifiedUser(), narrowed.getUser());
     }
 
     @Test
@@ -107,17 +107,17 @@ public class ForwardedSessionNarrowingTest extends TestWithFeService {
         ConnectContext proxy = new ConnectContext();
         proxy.setCurrentUserIdentity(bob);
         ConnectProcessor.applyForwardedSessionNarrowing(proxy, request);
-        Assert.assertEquals(Collections.singleton("tenant_b"), proxy.getSessionRoleOverride());
+        Assertions.assertEquals(Collections.singleton("tenant_b"), proxy.getSessionRoleOverride());
 
         proxy.setThreadLocalInfo();
         try {
-            Assert.assertFalse(canSelectDb(bob, "perso")); // personal grant dropped
-            Assert.assertTrue(canSelectDb(bob, "test"));   // carried role kept
+            Assertions.assertFalse(canSelectDb(bob, "perso")); // personal grant dropped
+            Assertions.assertTrue(canSelectDb(bob, "test"));   // carried role kept
         } finally {
             connectContext.setThreadLocalInfo();
         }
         // the same identity checked outside the proxy session sees its full union
-        Assert.assertTrue(canSelectDb(bob, "perso"));
+        Assertions.assertTrue(canSelectDb(bob, "perso"));
     }
 
     @Test
@@ -126,27 +126,27 @@ public class ForwardedSessionNarrowingTest extends TestWithFeService {
         request.setIsSuUser(true);
         ConnectContext proxy = new ConnectContext();
         ConnectProcessor.applyForwardedSessionNarrowing(proxy, request);
-        Assert.assertNotNull(proxy.getSessionRoleOverride());
-        Assert.assertTrue(proxy.getSessionRoleOverride().isEmpty());
+        Assertions.assertNotNull(proxy.getSessionRoleOverride());
+        Assertions.assertTrue(proxy.getSessionRoleOverride().isEmpty());
     }
 
     @Test
     public void testUnswitchedRequestLeavesProxySessionUnnarrowed() {
         ConnectContext proxy = new ConnectContext();
         ConnectProcessor.applyForwardedSessionNarrowing(proxy, new TMasterOpRequest());
-        Assert.assertNull(proxy.getSessionRoleOverride());
+        Assertions.assertNull(proxy.getSessionRoleOverride());
 
         // a role list without the switched flag is not a narrowing
         TMasterOpRequest rolesOnly = new TMasterOpRequest();
         rolesOnly.setCurrentRoles(Sets.newHashSet("tenant_c"));
         ConnectProcessor.applyForwardedSessionNarrowing(proxy, rolesOnly);
-        Assert.assertNull(proxy.getSessionRoleOverride());
+        Assertions.assertNull(proxy.getSessionRoleOverride());
     }
 
     @Test
     public void testMasterItselfAlwaysRunsTheSameBuild() {
         // the single-FE test environment is its own master: nothing to forward, nothing to refuse
-        Assert.assertTrue(Env.getCurrentEnv().isMaster());
-        Assert.assertTrue(Env.getCurrentEnv().masterRunsSameBuild());
+        Assertions.assertTrue(Env.getCurrentEnv().isMaster());
+        Assertions.assertTrue(Env.getCurrentEnv().masterRunsSameBuild());
     }
 }

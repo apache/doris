@@ -136,10 +136,10 @@ public class AuditLoaderTest {
         List<String> names = InternalSchema.AUDIT_SCHEMA.stream().map(ColumnDef::getName)
                 .collect(Collectors.toList());
         String[] fields = buffer.toString().split(String.valueOf(AuditLoader.AUDIT_TABLE_COL_SEPARATOR), -1);
-        Assert.assertEquals("one field per audit_log column", names.size(), fields.length);
-        Assert.assertEquals(names.indexOf("user") + 1, names.indexOf("authenticated_user"));
-        Assert.assertEquals("alice", fields[names.indexOf("user")]);
-        Assert.assertEquals("svc_gateway", fields[names.indexOf("authenticated_user")]);
+        Assertions.assertEquals(names.size(), fields.length, "one field per audit_log column");
+        Assertions.assertEquals(names.indexOf("user") + 1, names.indexOf("authenticated_user"));
+        Assertions.assertEquals("alice", fields[names.indexOf("user")]);
+        Assertions.assertEquals("svc_gateway", fields[names.indexOf("authenticated_user")]);
     }
 
     // The sanitizer must be a no-op for ordinary statements: no data loss, no mutation.
