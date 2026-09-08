@@ -638,7 +638,7 @@ public class CloudGlobalTransactionMgrTest {
 
             long result = masterTransMgr.getTransactionIdWatermark();
 
-            Assert.assertEquals(1001, result);
+            Assertions.assertEquals(1001, result);
         }
     }
 
