@@ -24,8 +24,8 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -51,23 +51,23 @@ public class ForceForwardAllQueriesTest extends TestWithFeService {
             ctx.getSessionVariable().forceForwardAllQueries = false;
             Config.force_forward_all_queries = false;
             boolean forward = Deencapsulation.invoke(executor, "shouldForwardToMaster");
-            Assert.assertFalse(forward);
+            Assertions.assertFalse(forward);
 
             // session variable enabled -> forwarded
             ctx.getSessionVariable().forceForwardAllQueries = true;
             forward = Deencapsulation.invoke(executor, "shouldForwardToMaster");
-            Assert.assertTrue(forward);
+            Assertions.assertTrue(forward);
 
             // session variable disabled but config enabled -> forwarded
             ctx.getSessionVariable().forceForwardAllQueries = false;
             Config.force_forward_all_queries = true;
             forward = Deencapsulation.invoke(executor, "shouldForwardToMaster");
-            Assert.assertTrue(forward);
+            Assertions.assertTrue(forward);
 
             // both disabled -> not forwarded
             Config.force_forward_all_queries = false;
             forward = Deencapsulation.invoke(executor, "shouldForwardToMaster");
-            Assert.assertFalse(forward);
+            Assertions.assertFalse(forward);
         } finally {
             Deencapsulation.setField(env, "feType", originalFeType);
             canRead.set(false);

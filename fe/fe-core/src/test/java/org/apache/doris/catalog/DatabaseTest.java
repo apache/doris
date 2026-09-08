@@ -28,10 +28,10 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -53,7 +53,7 @@ public class DatabaseTest {
 
     private MockedStatic<Env> mockedEnvStatic;
 
-    @Before
+    @BeforeEach
     public void setup() {
         FeConstants.runningUnitTest = true;
         db = new Database(dbId, "dbTest");
@@ -65,7 +65,7 @@ public class DatabaseTest {
         mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
     }
@@ -74,25 +74,25 @@ public class DatabaseTest {
     public void lockTest() {
         db.readLock();
         try {
-            Assert.assertFalse(db.tryWriteLock(0, TimeUnit.SECONDS));
+            Assertions.assertFalse(db.tryWriteLock(0, TimeUnit.SECONDS));
         } finally {
             db.readUnlock();
         }
 
         db.writeLock();
         try {
-            Assert.assertTrue(db.tryWriteLock(1000, TimeUnit.SECONDS));
+            Assertions.assertTrue(db.tryWriteLock(1000, TimeUnit.SECONDS));
             db.writeUnlock();
         } finally {
             db.writeUnlock();
         }
 
         db.markDropped();
-        Assert.assertFalse(db.writeLockIfExist());
-        Assert.assertFalse(db.isWriteLockHeldByCurrentThread());
+        Assertions.assertFalse(db.writeLockIfExist());
+        Assertions.assertFalse(db.isWriteLockHeldByCurrentThread());
         db.unmarkDropped();
-        Assert.assertTrue(db.writeLockIfExist());
-        Assert.assertTrue(db.isWriteLockHeldByCurrentThread());
+        Assertions.assertTrue(db.writeLockIfExist());
+        Assertions.assertTrue(db.isWriteLockHeldByCurrentThread());
         db.writeUnlock();
     }
 
@@ -116,9 +116,9 @@ public class DatabaseTest {
         db.registerTable(table2);
         List<Long> tableIdList = Lists.newArrayList(2001L, 2000L);
         List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
-        Assert.assertEquals(2, tableList.size());
-        Assert.assertEquals(2000L, tableList.get(0).getId());
-        Assert.assertEquals(2001L, tableList.get(1).getId());
+        Assertions.assertEquals(2, tableList.size());
+        Assertions.assertEquals(2000L, tableList.get(0).getId());
+        Assertions.assertEquals(2001L, tableList.get(1).getId());
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "table not found, tableId=3000",
                 () -> db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(3000L)));
     }
@@ -131,8 +131,8 @@ public class DatabaseTest {
         db.registerTable(table);
         Table resultTable1 = db.getTableOrMetaException(2000L, Table.TableType.OLAP);
         Table resultTable2 = db.getTableOrMetaException("baseTable", Table.TableType.OLAP);
-        Assert.assertEquals(table, resultTable1);
-        Assert.assertEquals(table, resultTable2);
+        Assertions.assertEquals(table, resultTable1);
+        Assertions.assertEquals(table, resultTable2);
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "table not found, tableId=3000",
                 () -> db.getTableOrMetaException(3000L, Table.TableType.OLAP));
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "table not found, tableName=baseTable1",
@@ -147,8 +147,8 @@ public class DatabaseTest {
 
     @Test
     public void createAndDropPartitionTest() {
-        Assert.assertEquals("dbTest", db.getFullName());
-        Assert.assertEquals(dbId, db.getId());
+        Assertions.assertEquals("dbTest", db.getFullName());
+        Assertions.assertEquals(dbId, db.getId());
 
         MaterializedIndex baseIndex = new MaterializedIndex(10001, IndexState.NORMAL);
         Partition partition = new Partition(20000L, "baseTable", baseIndex, new RandomDistributionInfo(10));
@@ -158,29 +158,29 @@ public class DatabaseTest {
         table.addPartition(partition);
 
         // create
-        Assert.assertTrue(db.registerTable(table));
+        Assertions.assertTrue(db.registerTable(table));
         // duplicate
-        Assert.assertFalse(db.registerTable(table));
+        Assertions.assertFalse(db.registerTable(table));
 
-        Assert.assertEquals(table, db.getTableNullable(table.getId()));
-        Assert.assertEquals(table, db.getTableNullable(table.getName()));
+        Assertions.assertEquals(table, db.getTableNullable(table.getId()));
+        Assertions.assertEquals(table, db.getTableNullable(table.getName()));
 
-        Assert.assertEquals(1, db.getTables().size());
-        Assert.assertEquals(table, db.getTables().get(0));
+        Assertions.assertEquals(1, db.getTables().size());
+        Assertions.assertEquals(table, db.getTables().get(0));
 
-        Assert.assertEquals(1, db.getTableNamesWithLock().size());
+        Assertions.assertEquals(1, db.getTableNamesWithLock().size());
         for (String tableFamilyGroupName : db.getTableNamesWithLock()) {
-            Assert.assertEquals(table.getName(), tableFamilyGroupName);
+            Assertions.assertEquals(table.getName(), tableFamilyGroupName);
         }
 
         // drop
         // drop not exist tableFamily
         db.unregisterTable("invalid");
-        Assert.assertEquals(1, db.getTables().size());
+        Assertions.assertEquals(1, db.getTables().size());
 
         db.registerTable(table);
         db.unregisterTable(table.getName());
-        Assert.assertEquals(0, db.getTables().size());
+        Assertions.assertEquals(0, db.getTables().size());
     }
 
     @Test
@@ -234,10 +234,10 @@ public class DatabaseTest {
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         Database rDb1 = Database.read(dis);
-        Assert.assertEquals(rDb1, db1);
+        Assertions.assertEquals(rDb1, db1);
 
         Database rDb2 = Database.read(dis);
-        Assert.assertEquals(rDb2, db2);
+        Assertions.assertEquals(rDb2, db2);
 
         // 3. delete files
         dis.close();

@@ -956,6 +956,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                 dropTableInternal(db, table, false, true, watch, costTimes);
             } else {
                 if (mustTemporary) {
+                    // Name resolution falls back to the normal table when this session owns no
+                    // temporary one, but DROP TEMPORARY TABLE must never drop that table. So the
+                    // temporary table the statement asked for does not exist, and IF EXISTS asks
+                    // for a no-op in exactly that case.
+                    if (ifExists) {
+                        LOG.info("drop temporary table[{}] which does not exist", tableName);
+                        return;
+                    }
                     ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
                 }
                 dropTableInternal(db, table, isView, force, watch, costTimes);

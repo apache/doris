@@ -81,6 +81,8 @@ public class ScalarType extends Type {
     public static final int MAX_DECIMAL256_PRECISION = 76;
     public static final int DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
     public static final int MAX_DATETIMEV2_SCALE = 6;
+    public static final int TIMESTAMP_NS_PRECISION = 29;
+    public static final int TIMESTAMP_NS_SCALE = 9;
     public static final int MAX_PRECISION = MAX_DECIMAL256_PRECISION;
 
     private long byteSize = -1;
@@ -146,6 +148,8 @@ public class ScalarType extends Type {
                 return createDecimalType(precision, scale);
             case DATETIMEV2:
                 return createDatetimeV2Type(scale);
+            case TIMESTAMP_NS:
+                return createTimeStampNsType();
             case TIMEV2:
                 return createTimeV2Type(scale);
             case TIMESTAMPTZ:
@@ -205,6 +209,8 @@ public class ScalarType extends Type {
                 return DATEV2;
             case DATETIMEV2:
                 return DEFAULT_DATETIMEV2;
+            case TIMESTAMP_NS:
+                return Type.TIMESTAMP_NS;
             case TIMEV2:
                 return TIMEV2;
             case TIMESTAMPTZ:
@@ -281,6 +287,8 @@ public class ScalarType extends Type {
                 return DATEV2;
             case "DATETIMEV2":
                 return DATETIMEV2;
+            case "TIMESTAMP_NS":
+                return TIMESTAMP_NS;
             case "TIME":
             case "TIMEV2":
                 return TIMEV2;
@@ -452,6 +460,11 @@ public class ScalarType extends Type {
     }
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createTimeStampNsType() {
+        return new ScalarType(PrimitiveType.TIMESTAMP_NS);
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createTimeV2Type(int scale) {
         ScalarType type = new ScalarType(PrimitiveType.TIMEV2);
         type.precision = DATETIME_PRECISION;
@@ -605,13 +618,15 @@ public class ScalarType extends Type {
                 return "decimal(*,*)";
             }
             return "decimal(" + precision + "," + scale + ")";
-        } else  if (type.isDecimalV3Type()) {
+        } else if (type.isDecimalV3Type()) {
             if (isWildcardDecimal()) {
                 return "decimalv3(*,*)";
             }
             return "decimalv3(" + precision + "," + scale + ")";
-        } else  if (type == PrimitiveType.DATETIMEV2) {
+        } else if (type == PrimitiveType.DATETIMEV2) {
             return "datetimev2(" + scale + ")";
+        } else if (type == PrimitiveType.TIMESTAMP_NS) {
+            return "timestamp_ns";
         } else if (type == PrimitiveType.TIMEV2) {
             return "timev2(" + scale + ")";
         } else if (type == PrimitiveType.TIMESTAMPTZ) {
@@ -679,6 +694,9 @@ public class ScalarType extends Type {
                 break;
             case DATETIMEV2:
                 stringBuilder.append("datetimev2").append("(").append(scale).append(")");
+                break;
+            case TIMESTAMP_NS:
+                stringBuilder.append("timestamp_ns");
                 break;
             case TIMEV2:
                 stringBuilder.append("time").append("(").append(scale).append(")");
@@ -837,11 +855,11 @@ public class ScalarType extends Type {
 
     // add scalar infix to override with getPrecision
     public int getScalarScale() {
-        return scale;
+        return type == PrimitiveType.TIMESTAMP_NS ? TIMESTAMP_NS_SCALE : scale;
     }
 
     public int getScalarPrecision() {
-        return precision;
+        return type == PrimitiveType.TIMESTAMP_NS ? TIMESTAMP_NS_PRECISION : precision;
     }
 
     public String getScalarPrecisionStr() {

@@ -36,6 +36,7 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("dlf.catalog.accessKeySecret"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("dlf.session_token"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("dlf.catalog.sessionToken"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("dlf.catalog.securityToken"));
 
         // Verify other common sensitive keys
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("password"));
@@ -98,6 +99,17 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(result.contains("username = admin"));
         Assertions.assertTrue(result.contains("password = " + DatasourcePrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("dlf.secret_key = " + DatasourcePrintableMap.PASSWORD_MASK));
+    }
+
+    @Test
+    public void testCanonicalDlfSecurityTokenIsMaskedWithoutProviderRegistration() {
+        String secret = "canonical-dlf-token";
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(
+                Map.of("dlf.catalog.securityToken", secret), "=", false, false, true);
+
+        String result = printableMap.toString();
+        Assertions.assertEquals("dlf.catalog.securityToken = " + DatasourcePrintableMap.PASSWORD_MASK, result);
+        Assertions.assertFalse(result.contains(secret), result);
     }
 
     @Test

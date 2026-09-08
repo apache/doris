@@ -23,8 +23,8 @@ import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 
@@ -39,11 +39,11 @@ public class StreamingJobPropertiesTest {
     public void testConstructorParsesPropertiesWithoutValidate() {
         // Case 1: empty properties -> should use defaults
         StreamingJobProperties emptyProps = new StreamingJobProperties(new HashMap<>());
-        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
+        Assertions.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
                 emptyProps.getMaxIntervalSecond());
-        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_S3_BATCH_FILES,
+        Assertions.assertEquals(StreamingJobProperties.DEFAULT_MAX_S3_BATCH_FILES,
                 emptyProps.getS3BatchFiles());
-        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_S3_BATCH_BYTES,
+        Assertions.assertEquals(StreamingJobProperties.DEFAULT_MAX_S3_BATCH_BYTES,
                 emptyProps.getS3BatchBytes());
 
         // Case 2: explicit max_interval=1 (the bug scenario)
@@ -51,15 +51,15 @@ public class StreamingJobPropertiesTest {
         HashMap<String, String> props = new HashMap<>();
         props.put("max_interval", "1");
         StreamingJobProperties customProps = new StreamingJobProperties(props);
-        Assert.assertEquals(1L, customProps.getMaxIntervalSecond());
+        Assertions.assertEquals(1L, customProps.getMaxIntervalSecond());
 
         // Case 3: explicit max_interval=5
         HashMap<String, String> props2 = new HashMap<>();
         props2.put("max_interval", "5");
         StreamingJobProperties customProps2 = new StreamingJobProperties(props2);
-        Assert.assertEquals(5L, customProps2.getMaxIntervalSecond());
+        Assertions.assertEquals(5L, customProps2.getMaxIntervalSecond());
         // s3 properties not set -> should use defaults
-        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_S3_BATCH_FILES,
+        Assertions.assertEquals(StreamingJobProperties.DEFAULT_MAX_S3_BATCH_FILES,
                 customProps2.getS3BatchFiles());
     }
 
@@ -73,21 +73,21 @@ public class StreamingJobPropertiesTest {
         HashMap<String, String> props = new HashMap<>();
         props.put("max_interval", "abc");
         StreamingJobProperties p = new StreamingJobProperties(props);
-        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
+        Assertions.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
                 p.getMaxIntervalSecond());
 
         // zero value -> fallback to default (must be >= 1)
         HashMap<String, String> props2 = new HashMap<>();
         props2.put("max_interval", "0");
         StreamingJobProperties p2 = new StreamingJobProperties(props2);
-        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
+        Assertions.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
                 p2.getMaxIntervalSecond());
 
         // negative value -> fallback to default
         HashMap<String, String> props3 = new HashMap<>();
         props3.put("max_interval", "-1");
         StreamingJobProperties p3 = new StreamingJobProperties(props3);
-        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
+        Assertions.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
                 p3.getMaxIntervalSecond());
     }
 
@@ -101,10 +101,10 @@ public class StreamingJobPropertiesTest {
         props.put("max_interval", "0");
         StreamingJobProperties p = new StreamingJobProperties(props);
         // constructor fallback is fine
-        Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
+        Assertions.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
                 p.getMaxIntervalSecond());
         // but validate() should throw
-        Assert.assertThrows(AnalysisException.class, p::validate);
+        Assertions.assertThrows(AnalysisException.class, p::validate);
     }
 
     @Test
@@ -113,8 +113,8 @@ public class StreamingJobPropertiesTest {
         StreamingJobProperties jobProperties = new StreamingJobProperties(new HashMap<>());
         ConnectContext ctx = InsertTask.makeConnectContext(null, null);
         SessionVariable defaultSessionVar = jobProperties.getSessionVariable(ctx.getSessionVariable());
-        Assert.assertEquals(StreamingJobProperties.DEFAULT_JOB_INSERT_TIMEOUT, defaultSessionVar.getInsertTimeoutS());
-        Assert.assertEquals(StreamingJobProperties.DEFAULT_JOB_QUERY_TIMEOUT, defaultSessionVar.getQueryTimeoutS());
+        Assertions.assertEquals(StreamingJobProperties.DEFAULT_JOB_INSERT_TIMEOUT, defaultSessionVar.getInsertTimeoutS());
+        Assertions.assertEquals(StreamingJobProperties.DEFAULT_JOB_QUERY_TIMEOUT, defaultSessionVar.getQueryTimeoutS());
 
         // set session var
         ctx = InsertTask.makeConnectContext(null, null);
@@ -124,8 +124,8 @@ public class StreamingJobPropertiesTest {
         ctx.setSessionVariable(userSessionVar);
 
         SessionVariable userSessionVarRes = jobProperties.getSessionVariable(ctx.getSessionVariable());
-        Assert.assertEquals(1, userSessionVarRes.getInsertTimeoutS());
-        Assert.assertEquals(2, userSessionVarRes.getQueryTimeoutS());
+        Assertions.assertEquals(1, userSessionVarRes.getInsertTimeoutS());
+        Assertions.assertEquals(2, userSessionVarRes.getQueryTimeoutS());
 
         // set session map in job properties
         ctx = InsertTask.makeConnectContext(null, null);
@@ -134,7 +134,7 @@ public class StreamingJobPropertiesTest {
         props.put("session.query_timeout", "20");
         StreamingJobProperties jobPropertiesMap = new StreamingJobProperties(props);
         SessionVariable sessionVarMap = jobPropertiesMap.getSessionVariable(ctx.getSessionVariable());
-        Assert.assertEquals(10, sessionVarMap.getInsertTimeoutS());
-        Assert.assertEquals(20, sessionVarMap.getQueryTimeoutS());
+        Assertions.assertEquals(10, sessionVarMap.getInsertTimeoutS());
+        Assertions.assertEquals(20, sessionVarMap.getQueryTimeoutS());
     }
 }

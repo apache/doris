@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.io;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class DiskUtilsTest {
     @Test
@@ -44,13 +44,13 @@ public class DiskUtilsTest {
         };
 
         for (int i = 0; i < values.length; i++) {
-            Assert.assertEquals(values[i], DiskUtils.sizeFormat(keys[i]));
+            Assertions.assertEquals(values[i], DiskUtils.sizeFormat(keys[i]));
         }
     }
 
     @Test
     public void testDf() {
         DiskUtils.Df d = DiskUtils.df("/");
-        Assert.assertTrue(d.fileSystem.length() != 0);
+        Assertions.assertTrue(d.fileSystem.length() != 0);
     }
 }

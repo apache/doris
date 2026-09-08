@@ -23,8 +23,8 @@ import org.apache.doris.http.DorisHttpTestCase;
 
 import okhttp3.Request;
 import okhttp3.Response;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -35,42 +35,42 @@ public class RemoteDorisRestClientTest extends DorisHttpTestCase {
     public void testGetDatabaseNameList() throws Exception {
         List<String> res = RemoteDorisRestClient.parseStringLists(
                 execute("api/meta/namespaces/default_cluster/databases"));
-        Assert.assertArrayEquals(new String[]{DB_NAME}, res.toArray());
+        Assertions.assertArrayEquals(new String[]{DB_NAME}, res.toArray());
     }
 
     @Test
     public void testGetTablesNameList() throws Exception {
         List<String> res = RemoteDorisRestClient.parseStringLists(
                 execute("api/meta/namespaces/default_cluster/databases/" + DB_NAME + "/tables"));
-        Assert.assertArrayEquals(new String[]{"testTbl1"}, res.toArray());
+        Assertions.assertArrayEquals(new String[]{"testTbl1"}, res.toArray());
     }
 
     @Test
     public void testGetTablesNameListByErrorDb() throws Exception {
         List<String> res = RemoteDorisRestClient.parseStringLists(
                 execute("api/meta/namespaces/default_cluster/databases/not_" + DB_NAME + "/tables"));
-        Assert.assertEquals(0, res.size());
+        Assertions.assertEquals(0, res.size());
     }
 
     @Test
     public void testTableExist() throws Exception {
         boolean res = RemoteDorisRestClient.parseSuccessResponse(
                 execute("api/" + DB_NAME + "/" + TABLE_NAME + "/_schema"));
-        Assert.assertTrue(res);
+        Assertions.assertTrue(res);
     }
 
     @Test
     public void testTableNotExist() throws Exception {
         boolean res = RemoteDorisRestClient.parseSuccessResponse(
                 execute("api/" + DB_NAME + "/not_" + TABLE_NAME + "/_schema"));
-        Assert.assertFalse(res);
+        Assertions.assertFalse(res);
     }
 
     @Test
     public void testHealth() throws Exception {
         int res = RemoteDorisRestClient.parseOnlineBeNum(
                 execute("api/health"));
-        Assert.assertEquals(3, res);
+        Assertions.assertEquals(3, res);
     }
 
     @Test
@@ -84,7 +84,7 @@ public class RemoteDorisRestClientTest extends DorisHttpTestCase {
         columns.add(k1);
         columns.add(k2);
 
-        Assert.assertArrayEquals(columns.toArray(), res.toArray());
+        Assertions.assertArrayEquals(columns.toArray(), res.toArray());
     }
 
     @Test
@@ -92,7 +92,7 @@ public class RemoteDorisRestClientTest extends DorisHttpTestCase {
         long res = RemoteDorisRestClient.parseRowCount(
                 execute("api/rowcount?db=" + DB_NAME + "&table=" + TABLE_NAME));
 
-        Assert.assertEquals(2000L, res);
+        Assertions.assertEquals(2000L, res);
     }
 
     private String execute(String url) throws IOException {

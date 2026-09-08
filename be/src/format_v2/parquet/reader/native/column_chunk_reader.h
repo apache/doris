@@ -63,6 +63,8 @@ struct ColumnChunkRange {
 struct ParquetReaderCompat {
     bool parquet_816_padding = false;
     bool data_page_v2_always_compressed = false;
+    // Legacy parquet-mr and Arrow writers can under-report null_count.
+    bool null_count_trusted = true;
 };
 
 ParquetReaderCompat parquet_reader_compat(const std::string& created_by);

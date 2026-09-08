@@ -187,7 +187,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         Expression originalPartitionPredicate = partitionPredicate;
         // Keep inferred ranges local to pruning. They can unlock sorted-partition binary search,
         // but must not be written back as extra runtime filter conjuncts.
-        partitionPredicate = InferPredicateFromMonotonicFunction.inferForPartitionPrune(partitionPredicate);
+        partitionPredicate = InferPredicateFromMonotonicFunction.inferForPruning(partitionPredicate);
         partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, cascadesContext);
         int expandThreshold = cascadesContext.getAndCacheSessionVariable(
                 "partitionPruningExpandThreshold",

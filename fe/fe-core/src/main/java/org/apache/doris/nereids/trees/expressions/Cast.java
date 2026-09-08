@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -32,6 +35,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
@@ -42,6 +46,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -55,24 +60,41 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     // CAST can be from SQL Query or Type Coercion. true for explicitly cast from SQL query.
     protected final boolean isExplicitType; //FIXME: now not useful
 
+    // Some system-inserted casts are part of correctness-sensitive normalization and must fail
+    // instead of producing NULL, independently of the session's enable_strict_cast setting.
+    protected final boolean isStrict;
+
     protected final DataType targetType;
 
     public Cast(Expression child, DataType targetType) {
-        this(child, targetType, false);
+        this(child, targetType, false, false);
     }
 
     public Cast(Expression child, DataType targetType, boolean isExplicitType) {
-        this(ImmutableList.of(child), targetType, isExplicitType);
+        this(child, targetType, isExplicitType, false);
+    }
+
+    public Cast(Expression child, DataType targetType, boolean isExplicitType, boolean isStrict) {
+        this(ImmutableList.of(child), targetType, isExplicitType, isStrict);
     }
 
     protected Cast(List<Expression> child, DataType targetType, boolean isExplicitType) {
+        this(child, targetType, isExplicitType, false);
+    }
+
+    protected Cast(List<Expression> child, DataType targetType, boolean isExplicitType, boolean isStrict) {
         super(child);
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
         this.isExplicitType = isExplicitType;
+        this.isStrict = isStrict;
     }
 
     public boolean isExplicitType() {
         return isExplicitType;
+    }
+
+    public boolean isStrict() {
+        return isStrict;
     }
 
     @Override
@@ -113,13 +135,18 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         // StringLike to other type is always nullable.
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
+        } else if ((childDataType.isDateLikeType() || childDataType.isTimeType())
+                && targetType instanceof TimeStampNsType) {
+            // Temporal inputs can fail because TIMESTAMP_NS has a narrower signed epoch-nanos range.
+            return true;
         } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type()
                 || childDataType.isTimeStampTzType())
                 && (targetType.isDateTimeType() || targetType.isDateTimeV2Type())) {
             // datetime to datetime is always nullable
             return true;
-        } else if (childDataType.isDateTimeV2Type() && targetType.isTimeStampTzType()) {
-            // Datetime to timestamptz is always nullable
+        } else if ((childDataType.isDateTimeV2Type() || childDataType.isTimeStampNsType())
+                && targetType.isTimeStampTzType()) {
+            // Datetime and timestamp_ns to timestamptz are always nullable
             return true;
         } else if (childDataType.isTimeStampTzType() && targetType.isTimeStampTzType()) {
             // timestamptz to timestamptz is always nullable
@@ -227,13 +254,13 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     @Override
     public Cast withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Cast(children, targetType, isExplicitType);
+        return new Cast(children, targetType, isExplicitType, isStrict);
     }
 
     /** Return this cast with a different immutable target type. */
     public Cast withTargetType(DataType targetType) {
         return this.targetType.equals(targetType)
-                ? this : new Cast(children, targetType, isExplicitType);
+                ? this : new Cast(children, targetType, isExplicitType, isStrict);
     }
 
     @Override
@@ -268,12 +295,12 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
         Cast cast = (Cast) o;
-        return Objects.equals(targetType, cast.targetType);
+        return isStrict == cast.isStrict && Objects.equals(targetType, cast.targetType);
     }
 
     @Override
     public int computeHashCode() {
-        return Objects.hash(super.computeHashCode(), targetType);
+        return Objects.hash(super.computeHashCode(), targetType, isStrict);
     }
 
     @Override
@@ -288,7 +315,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        return new Cast(literal, targetType, isExplicitType);
+        return new Cast(literal, targetType, isExplicitType, isStrict);
     }
 
     @Override
@@ -298,15 +325,38 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
 
-        if (childType instanceof TimeStampTzType && targetType instanceof DateTimeV2Type) {
-            return isTimeStampTzToDateTimeV2Monotonic(
-                    (TimeStampTzType) childType, (DateTimeV2Type) targetType, lower, upper);
+        if (targetType instanceof TimeStampNsType && !isRangeWithinTimeStampNs(lower, upper)) {
+            return false;
+        }
+
+        if (childType instanceof TimeStampTzType
+                && (targetType instanceof DateTimeV2Type || targetType instanceof TimeStampNsType)) {
+            int destinationScale = targetType instanceof DateTimeV2Type
+                    ? ((DateTimeV2Type) targetType).getScale() : TimeStampNsType.SCALE;
+            return isTimeStampTzToLocalDateTimeMonotonic(
+                    (TimeStampTzType) childType, destinationScale, lower, upper);
+        }
+        if (childType instanceof TimeStampNsType && targetType instanceof TimeStampTzType) {
+            return isTimeStampNsToTimeStampTzMonotonic(
+                    (TimeStampTzType) targetType, lower, upper);
         }
         return true;
     }
 
-    private boolean isTimeStampTzToDateTimeV2Monotonic(
-            TimeStampTzType sourceType, DateTimeV2Type destinationType, Literal lower, Literal upper) {
+    private boolean isRangeWithinTimeStampNs(Literal lower, Literal upper) {
+        if (lower == null || upper == null) {
+            return false;
+        }
+        try {
+            return !(lower.checkedCastTo(targetType) instanceof NullLiteral)
+                    && !(upper.checkedCastTo(targetType) instanceof NullLiteral);
+        } catch (AnalysisException e) {
+            return false;
+        }
+    }
+
+    private boolean isTimeStampTzToLocalDateTimeMonotonic(
+            TimeStampTzType sourceType, int destinationScale, Literal lower, Literal upper) {
         ZoneId timeZone;
         try {
             timeZone = TimeUtils.getDorisZoneId();
@@ -318,7 +368,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         }
         // Scale reduction rounds the UTC value before applying the session timezone. That rounding
         // can move values across a fall-back transition just outside the original partition range.
-        if (destinationType.getScale() < sourceType.getScale()) {
+        if (destinationScale < sourceType.getScale()) {
             return false;
         }
         if (!(lower instanceof TimestampTzLiteral) || !(upper instanceof TimestampTzLiteral)) {
@@ -333,5 +383,36 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
         return !DateUtils.hasFallbackTransitionInInstantRange(timeZone, lowerInstant, upperInstant);
+    }
+
+    private boolean isTimeStampNsToTimeStampTzMonotonic(
+            TimeStampTzType destinationType, Literal lower, Literal upper) {
+        ZoneId timeZone;
+        try {
+            timeZone = TimeUtils.getDorisZoneId();
+        } catch (DateTimeException e) {
+            return false;
+        }
+        if (timeZone.getRules().isFixedOffset()) {
+            return true;
+        }
+        if (!(lower instanceof TimeStampNsLiteral) || !(upper instanceof TimeStampNsLiteral)) {
+            return false;
+        }
+        LocalDateTime lowerDateTime = roundTimeStampNs(
+                (TimeStampNsLiteral) lower, destinationType.getScale());
+        LocalDateTime upperDateTime = roundTimeStampNs(
+                (TimeStampNsLiteral) upper, destinationType.getScale());
+        if (upperDateTime.isBefore(lowerDateTime)) {
+            return false;
+        }
+        return !DateUtils.hasGapTransitionInLocalDateTimeRange(
+                timeZone, lowerDateTime, upperDateTime);
+    }
+
+    private LocalDateTime roundTimeStampNs(TimeStampNsLiteral literal, int scale) {
+        long factor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale);
+        LocalDateTime dateTime = literal.toJavaDateType().plusNanos(factor / 2);
+        return dateTime.withNano((int) (dateTime.getNano() / factor * factor));
     }
 }
