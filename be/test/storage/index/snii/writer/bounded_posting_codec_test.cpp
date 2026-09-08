@@ -90,23 +90,59 @@ TEST(SniiBoundedPostingCodec, FailedSpoolAppendKeepsEarlierSealedRuns) {
     EXPECT_TRUE(consume_encoded_file(spool.path).ok());
 }
 
-TEST(SniiBoundedPostingCodec, SealedSpoolRangesPreserveBoundaryDocuments) {
-    EncodedTemporaryFile spool;
-    std::array<uint64_t, 2> offsets {};
+void write_small_terms(EncodedRunWriter* writer, uint32_t term_count) {
     TermPostings term;
     term.retain_positions = true;
-    term.docids = {7};
-    term.freqs = {1};
-    for (size_t i = 0; i < offsets.size(); ++i) {
-        term.positions_flat = {static_cast<uint32_t>(i)};
-        EncodedRunWriter writer;
-        ASSERT_TRUE(writer.open(spool.path, /*append=*/true).ok());
-        ASSERT_TRUE(writer.write_term(0, term).ok());
-        ASSERT_TRUE(writer.close().ok());
-        offsets[i] = writer.file_offset();
+    term.freqs = {2};
+    term.positions_flat = {0, 1};
+    for (uint32_t id = 0; id < term_count; ++id) {
+        term.docids = {id};
+        ASSERT_TRUE(writer->write_term(id, term).ok());
     }
+}
+
+void verify_small_term(StreamingRunReader* reader, uint32_t id) {
+    ASSERT_FALSE(reader->exhausted());
+    EXPECT_EQ(reader->current().term_id, id);
+    for (uint32_t expected_position = 0; expected_position < 2; ++expected_position) {
+        uint32_t doc = 0;
+        uint32_t position = 0;
+        bool end = false;
+        ASSERT_TRUE(reader->next_token(&doc, &position, &end).ok());
+        EXPECT_FALSE(end);
+        EXPECT_EQ(doc, id);
+        EXPECT_EQ(position, expected_position);
+    }
+    // advance also consumes the term terminator and checks its CRCs.
+    ASSERT_TRUE(reader->advance().ok());
+}
+
+TEST(SniiBoundedPostingCodec, SmallTermsReuseSequentialRunReadAhead) {
+    EncodedTemporaryFile spool;
+    constexpr uint32_t term_count = 10'000;
+    EncodedRunWriter writer;
+    ASSERT_TRUE(writer.open(spool.path).ok());
+    ASSERT_NO_FATAL_FAILURE(write_small_terms(&writer, term_count));
+    ASSERT_TRUE(writer.close().ok());
+    const uint64_t file_bytes = writer.file_offset();
+    MemoryReporter reporter(nullptr, 0, MemoryReporter::CapPolicy::kSpillThreshold, kMiB);
+    {
+        StreamingRunReader reader(&reporter);
+        ASSERT_TRUE(reader.open(spool.path, true).ok());
+        for (uint32_t id = 0; id < term_count; ++id) {
+            ASSERT_NO_FATAL_FAILURE(verify_small_term(&reader, id));
+        }
+        EXPECT_TRUE(reader.exhausted());
+    }
+    // A vocabulary of tiny postings must not reread a full cache per term.
+    EXPECT_LE(reporter.postings_read_bytes(), 2 * file_bytes);
+    EXPECT_LE(reporter.postings_peak_bytes(), kMiB);
+    EXPECT_EQ(reporter.current_bytes(), 0);
+}
+
+void verify_second_spool_range(const std::string& path, const std::array<uint64_t, 2>& offsets) {
     StreamingRunReader second;
-    ASSERT_TRUE(second.open(spool.path, true, false, offsets[0], offsets[1]).ok());
+    ASSERT_TRUE(second.open(path, true, false, offsets[0], offsets[1]).ok());
     uint32_t doc = 0;
     uint32_t position = 0;
     bool end = false;
@@ -119,7 +155,38 @@ TEST(SniiBoundedPostingCodec, SealedSpoolRangesPreserveBoundaryDocuments) {
     ASSERT_TRUE(second.advance().ok());
     EXPECT_TRUE(second.exhausted());
     StreamingRunReader truncated;
-    EXPECT_FALSE(truncated.open(spool.path, true, false, offsets[0], offsets[1] - 1).ok());
+    EXPECT_FALSE(truncated.open(path, true, false, offsets[0], offsets[1] - 1).ok());
+}
+
+void verify_boundary_spool_batch(const TermPostingBuffer& batch, bool exhausted) {
+    EXPECT_TRUE(exhausted);
+    EXPECT_EQ(batch.document_count(), 1U);
+    EXPECT_EQ(batch.docids()[0], 7U);
+    EXPECT_EQ(batch.freqs()[0], 2U);
+    EXPECT_EQ(std::vector<uint32_t>(batch.positions_flat().begin(), batch.positions_flat().end()),
+              (std::vector<uint32_t> {0, 1}));
+}
+
+void write_boundary_spool(const std::string& path, std::array<uint64_t, 2>* offsets) {
+    TermPostings term;
+    term.retain_positions = true;
+    term.docids = {7};
+    term.freqs = {1};
+    for (size_t i = 0; i < offsets->size(); ++i) {
+        term.positions_flat = {static_cast<uint32_t>(i)};
+        EncodedRunWriter writer;
+        ASSERT_TRUE(writer.open(path, /*append=*/true).ok());
+        ASSERT_TRUE(writer.write_term(0, term).ok());
+        ASSERT_TRUE(writer.close().ok());
+        (*offsets)[i] = writer.file_offset();
+    }
+}
+
+TEST(SniiBoundedPostingCodec, SealedSpoolRangesPreserveBoundaryDocuments) {
+    EncodedTemporaryFile spool;
+    std::array<uint64_t, 2> offsets {};
+    ASSERT_NO_FATAL_FAILURE(write_boundary_spool(spool.path, &offsets));
+    ASSERT_NO_FATAL_FAILURE(verify_second_spool_range(spool.path, offsets));
 
     PostingByteBuffer directory;
     for (uint64_t offset : offsets) {
@@ -136,13 +203,7 @@ TEST(SniiBoundedPostingCodec, SealedSpoolRangesPreserveBoundaryDocuments) {
                 TermPostingBuffer batch(nullptr);
                 bool exhausted = false;
                 RETURN_IF_ERROR(posting.source->fill(2, &batch, &exhausted));
-                EXPECT_TRUE(exhausted);
-                EXPECT_EQ(batch.document_count(), 1U);
-                EXPECT_EQ(batch.docids()[0], 7U);
-                EXPECT_EQ(batch.freqs()[0], 2U);
-                EXPECT_EQ(std::vector<uint32_t>(batch.positions_flat().begin(),
-                                                batch.positions_flat().end()),
-                          (std::vector<uint32_t> {0, 1}));
+                verify_boundary_spool_batch(batch, exhausted);
                 ++seen;
                 return Status::OK();
             },
@@ -243,11 +304,20 @@ TEST(SniiBoundedPostingCodec, EmptyTermHasNoEmptyFragment) {
     EXPECT_TRUE(consume_encoded_file(compacted.path).ok());
 }
 
-TEST(SniiBoundedPostingCodec, MultiPassMergeCoalescesBoundaryDocumentsInRunOrder) {
-    constexpr uint32_t kRuns = 55;
-    std::array<EncodedTemporaryFile, kRuns> files;
-    std::vector<std::string> paths;
-    for (uint32_t run = 0; run < kRuns; ++run) {
+void verify_merged_boundary_document(const TermPostingBuffer& buffer, uint32_t next_doc,
+                                     uint32_t run_count) {
+    EXPECT_EQ(buffer.docids()[0], next_doc);
+    const bool boundary = next_doc == 0 || next_doc == run_count;
+    EXPECT_EQ(buffer.freqs()[0], boundary ? 1 : 2);
+    EXPECT_EQ(buffer.positions_flat()[0], next_doc == 0 ? 2 : 1);
+    if (!boundary) {
+        EXPECT_EQ(buffer.positions_flat()[1], 2);
+    }
+}
+
+void write_boundary_runs(std::span<const EncodedTemporaryFile> files,
+                         std::vector<std::string>* paths) {
+    for (uint32_t run = 0; run < files.size(); ++run) {
         TermPostings term;
         term.retain_positions = true;
         term.docids = {run, run + 1};
@@ -257,8 +327,15 @@ TEST(SniiBoundedPostingCodec, MultiPassMergeCoalescesBoundaryDocumentsInRunOrder
         ASSERT_TRUE(writer.open(files[run].path).ok());
         ASSERT_TRUE(writer.write_term(0, term).ok());
         ASSERT_TRUE(writer.close().ok());
-        paths.push_back(files[run].path);
+        paths->push_back(files[run].path);
     }
+}
+
+TEST(SniiBoundedPostingCodec, MultiPassMergeCoalescesBoundaryDocumentsInRunOrder) {
+    constexpr uint32_t kRuns = 55;
+    std::array<EncodedTemporaryFile, kRuns> files;
+    std::vector<std::string> paths;
+    ASSERT_NO_FATAL_FAILURE(write_boundary_runs(files, &paths));
     MemoryReporter reporter(nullptr, kMiB, MemoryReporter::CapPolicy::kHardLimit, kMiB);
     uint32_t next_doc = 0;
     Status merged = merge_run_sources(
@@ -269,12 +346,10 @@ TEST(SniiBoundedPostingCodec, MultiPassMergeCoalescesBoundaryDocumentsInRunOrder
                 while (!end) {
                     buffer.clear_reuse();
                     RETURN_IF_ERROR(term.source->fill(1, &buffer, &end));
-                    if (buffer.empty()) break;
-                    EXPECT_EQ(buffer.docids()[0], next_doc);
-                    const bool boundary = next_doc == 0 || next_doc == kRuns;
-                    EXPECT_EQ(buffer.freqs()[0], boundary ? 1 : 2);
-                    EXPECT_EQ(buffer.positions_flat()[0], next_doc == 0 ? 2 : 1);
-                    if (!boundary) EXPECT_EQ(buffer.positions_flat()[1], 2);
+                    if (buffer.empty()) {
+                        break;
+                    }
+                    verify_merged_boundary_document(buffer, next_doc, kRuns);
                     ++next_doc;
                 }
                 return Status::OK();
@@ -284,14 +359,18 @@ TEST(SniiBoundedPostingCodec, MultiPassMergeCoalescesBoundaryDocumentsInRunOrder
     EXPECT_EQ(next_doc, kRuns + 1);
     EXPECT_EQ(reporter.current_bytes(), 0);
     EXPECT_LE(reporter.postings_peak_bytes(), kMiB);
-    for (const auto& path : paths) EXPECT_EQ(::access(path.c_str(), F_OK), 0);
+    for (const auto& path : paths) {
+        EXPECT_EQ(::access(path.c_str(), F_OK), 0);
+    }
 }
 
 TEST(SniiBoundedPostingCodec, OrdinaryPositionWindowsKeepResidentEncodingWithoutTemporaryIO) {
     const std::vector<uint32_t> docs(8192, 0);
     const std::vector<uint32_t> freqs(8192, 10);
     std::vector<uint32_t> positions(81920);
-    for (size_t i = 0; i < positions.size(); ++i) positions[i] = i % 10;
+    for (size_t i = 0; i < positions.size(); ++i) {
+        positions[i] = i % 10;
+    }
     MemoryReporter reporter(nullptr, 32 * kMiB);
     TermPostingBuffer source(&reporter);
     ASSERT_TRUE(source.append(docs, freqs, positions).ok());
@@ -319,7 +398,8 @@ TEST(SniiBoundedPostingCodec, SplitRequestStillRejectsAnUnrepresentableOrUnsorte
     format::PrxWindowBuildOutcome outcome;
     const std::array<uint32_t, 2> freqs {3, 1};
     std::array<uint32_t, 4> positions {0, 1, 2, 0};
-    const format::PrxWindowLimits limits {1, 4, 100};
+    const format::PrxWindowLimits limits {
+            .max_docs = 1, .max_positions = 4, .max_uncomp_bytes = 100};
     ASSERT_TRUE(encoder.build({positions, nullptr, 0, 4}, freqs, 0, limits, &outcome).ok());
     EXPECT_EQ(outcome, format::PrxWindowBuildOutcome::kNeedsSplit);
     EXPECT_FALSE(encoder.build({positions, nullptr, 0, 4}, freqs, 0, {1, 2, 100}, &outcome).ok());
@@ -328,33 +408,49 @@ TEST(SniiBoundedPostingCodec, SplitRequestStillRejectsAnUnrepresentableOrUnsorte
     EXPECT_FALSE(encoder.build({positions, nullptr, 0, 4}, freqs, 0, limits, &outcome).ok());
 }
 
+void verify_byte_cursor_replay(PostingByteCursor* cursor, std::span<const uint8_t> pattern) {
+    uint64_t offset = 65530;
+    while (cursor->remaining() != 0) {
+        std::span<const uint8_t> part;
+        ASSERT_TRUE(cursor->next_span(&part).ok());
+        for (uint8_t value : part) {
+            EXPECT_EQ(value, pattern[offset++ % pattern.size()]);
+        }
+    }
+}
+
+void build_spilled_byte_fixture(PostingByteBuffer* bytes, std::array<uint8_t, 4096>* pattern) {
+    for (size_t i = 0; i < pattern->size(); ++i) {
+        (*pattern)[i] = static_cast<uint8_t>(i * 37);
+    }
+    for (size_t i = 0; i < 1280; ++i) {
+        ASSERT_TRUE(bytes->append(*pattern).ok());
+    }
+    ASSERT_TRUE(bytes->spilled());
+    ASSERT_EQ(bytes->size(), 5 * kMiB);
+    ASSERT_TRUE(bytes->spill_and_release_buffer().ok());
+}
+
+void verify_byte_buffer_lifetime(MemoryReporter* reporter) {
+    PostingByteBuffer bytes(reporter);
+    std::array<uint8_t, 4096> pattern {};
+    ASSERT_NO_FATAL_FAILURE(build_spilled_byte_fixture(&bytes, &pattern));
+    // Only the temp-path descriptor remains; the payload cache is released.
+    EXPECT_GT(reporter->postings_current_bytes(), 0);
+    EXPECT_LT(reporter->postings_current_bytes(), 4096);
+    PostingByteCursor cursor(&bytes);
+    ASSERT_TRUE(cursor.reset(65530, 8193).ok());
+    ASSERT_NO_FATAL_FAILURE(verify_byte_cursor_replay(&cursor, pattern));
+    std::array<uint8_t, 2> invalid;
+    EXPECT_FALSE(bytes.read_at(bytes.size() - 1, invalid).ok());
+}
+
 TEST(SniiBoundedPostingCodec, ByteBufferReplaysAcrossBlocksAndReleasesItsCache) {
     MemoryReporter reporter(nullptr, 256 * 1024, MemoryReporter::CapPolicy::kHardLimit, 256 * 1024);
-    {
-        PostingByteBuffer bytes(&reporter);
-        std::array<uint8_t, 4096> pattern {};
-        for (size_t i = 0; i < pattern.size(); ++i) pattern[i] = static_cast<uint8_t>(i * 37);
-        for (size_t i = 0; i < 1280; ++i) ASSERT_TRUE(bytes.append(pattern).ok());
-        ASSERT_TRUE(bytes.spilled());
-        ASSERT_EQ(bytes.size(), 5 * kMiB);
-        ASSERT_TRUE(bytes.spill_and_release_buffer().ok());
-        // Only the temp-path descriptor remains; the payload cache is released.
-        EXPECT_GT(reporter.postings_current_bytes(), 0);
-        EXPECT_LT(reporter.postings_current_bytes(), 4096);
-        PostingByteCursor cursor(&bytes);
-        ASSERT_TRUE(cursor.reset(65530, 8193).ok());
-        uint64_t offset = 65530;
-        while (cursor.remaining() != 0) {
-            std::span<const uint8_t> part;
-            ASSERT_TRUE(cursor.next_span(&part).ok());
-            for (uint8_t value : part) EXPECT_EQ(value, pattern[offset++ % pattern.size()]);
-        }
-        EXPECT_LE(reporter.postings_peak_bytes(), 256 * 1024);
-        EXPECT_EQ(reporter.postings_written_bytes(), 5 * kMiB);
-        EXPECT_GT(reporter.postings_read_bytes(), 0);
-        std::array<uint8_t, 2> invalid;
-        EXPECT_FALSE(bytes.read_at(bytes.size() - 1, invalid).ok());
-    }
+    ASSERT_NO_FATAL_FAILURE(verify_byte_buffer_lifetime(&reporter));
+    EXPECT_LE(reporter.postings_peak_bytes(), 256 * 1024);
+    EXPECT_EQ(reporter.postings_written_bytes(), 5 * kMiB);
+    EXPECT_GT(reporter.postings_read_bytes(), 0);
     EXPECT_EQ(reporter.current_bytes(), 0);
     EXPECT_EQ(reporter.postings_current_bytes(), 0);
 }
@@ -366,8 +462,9 @@ TEST(SniiBoundedPostingCodec, SmallWindowsKeepTheExistingBytes) {
         MemoryReporter reporter(nullptr, kMiB);
         PostingPrxEncoder encoder(&reporter);
         format::PrxWindowBuildOutcome outcome;
-        const Status built = encoder.build({positions, nullptr, 0, positions.size()}, frequencies,
-                                           level, format::kReaderPrxWindowLimits, &outcome);
+        const Status built = encoder.build(
+                {.flat = positions, .buffer = nullptr, .offset = 0, .count = positions.size()},
+                frequencies, level, format::kReaderPrxWindowLimits, &outcome);
         ASSERT_TRUE(built.ok()) << built.to_string();
         ASSERT_EQ(outcome, format::PrxWindowBuildOutcome::kBuilt);
         ByteSink reference;
@@ -377,6 +474,38 @@ TEST(SniiBoundedPostingCodec, SmallWindowsKeepTheExistingBytes) {
         EXPECT_EQ(std::vector<uint8_t>(actual.data(), actual.data() + actual.size()),
                   reference.buffer());
     }
+}
+
+void verify_large_position_frame(MemoryReporter* reporter, const std::vector<uint32_t>& docs,
+                                 const std::vector<uint32_t>& frequencies,
+                                 const std::vector<uint32_t>& positions, int level) {
+    TermPostingBuffer source(reporter);
+    ASSERT_TRUE(source.append(docs, frequencies, positions).ok());
+    ASSERT_TRUE(source.positions_spooled());
+    PostingPrxEncoder encoder(reporter);
+    format::PrxWindowBuildOutcome outcome;
+    const Status built =
+            encoder.build({.flat = {}, .buffer = &source, .offset = 0, .count = positions.size()},
+                          frequencies, level, format::kReaderPrxWindowLimits, &outcome);
+    ASSERT_TRUE(built.ok()) << built.to_string();
+    ASSERT_EQ(outcome, format::PrxWindowBuildOutcome::kBuilt);
+    std::vector<uint8_t> encoded;
+    ASSERT_TRUE(encoder.visit_bytes([&](Slice bytes) {
+                           encoded.insert(encoded.end(), bytes.data(), bytes.data() + bytes.size());
+                           return Status::OK();
+                       })
+                        .ok());
+    ByteSource input {Slice(encoded)};
+    std::vector<uint32_t> decoded;
+    std::vector<uint32_t> offsets;
+    ASSERT_TRUE(format::read_prx_window_csr(&input, &decoded, &offsets).ok());
+    EXPECT_TRUE(input.eof());
+    EXPECT_EQ(decoded, positions);
+    ASSERT_EQ(offsets.size(), docs.size() + 1);
+    for (size_t doc = 0; doc <= docs.size(); ++doc) {
+        EXPECT_EQ(offsets[doc], doc * frequencies.front());
+    }
+    EXPECT_LE(reporter->postings_peak_bytes(), 8 * kMiB);
 }
 
 TEST(SniiBoundedPostingCodec, LargePositionFramesDecodeWithTheExistingReader) {
@@ -393,33 +522,8 @@ TEST(SniiBoundedPostingCodec, LargePositionFramesDecodeWithTheExistingReader) {
     }
     for (int level : {0, -1, -3, 3}) {
         MemoryReporter reporter(nullptr, 8 * kMiB, MemoryReporter::CapPolicy::kHardLimit, 8 * kMiB);
-        {
-            TermPostingBuffer source(&reporter);
-            ASSERT_TRUE(source.append(docs, frequencies, positions).ok());
-            ASSERT_TRUE(source.positions_spooled());
-            PostingPrxEncoder encoder(&reporter);
-            format::PrxWindowBuildOutcome outcome;
-            const Status built = encoder.build({{}, &source, 0, positions.size()}, frequencies,
-                                               level, format::kReaderPrxWindowLimits, &outcome);
-            ASSERT_TRUE(built.ok()) << built.to_string();
-            ASSERT_EQ(outcome, format::PrxWindowBuildOutcome::kBuilt);
-            std::vector<uint8_t> encoded;
-            ASSERT_TRUE(encoder.visit_bytes([&](Slice bytes) {
-                                   encoded.insert(encoded.end(), bytes.data(),
-                                                  bytes.data() + bytes.size());
-                                   return Status::OK();
-                               })
-                                .ok());
-            ByteSource input {Slice(encoded)};
-            std::vector<uint32_t> decoded;
-            std::vector<uint32_t> offsets;
-            ASSERT_TRUE(format::read_prx_window_csr(&input, &decoded, &offsets).ok());
-            EXPECT_TRUE(input.eof());
-            EXPECT_EQ(decoded, positions);
-            ASSERT_EQ(offsets.size(), kDocs + 1);
-            for (size_t doc = 0; doc <= kDocs; ++doc) EXPECT_EQ(offsets[doc], doc * kFrequency);
-            EXPECT_LE(reporter.postings_peak_bytes(), 8 * kMiB);
-        }
+        ASSERT_NO_FATAL_FAILURE(
+                verify_large_position_frame(&reporter, docs, frequencies, positions, level));
         EXPECT_EQ(reporter.current_bytes(), 0);
         EXPECT_EQ(reporter.postings_current_bytes(), 0);
     }
@@ -430,8 +534,9 @@ Status encode_high_level_positions(MemoryReporter* reporter, const std::vector<u
     const std::array<uint32_t, 1> frequency {static_cast<uint32_t>(positions.size())};
     PostingPrxEncoder encoder(reporter);
     format::PrxWindowBuildOutcome outcome;
-    RETURN_IF_ERROR(encoder.build({positions, nullptr, 0, positions.size()}, frequency, 19,
-                                  format::kReaderPrxWindowLimits, &outcome));
+    RETURN_IF_ERROR(encoder.build(
+            {.flat = positions, .buffer = nullptr, .offset = 0, .count = positions.size()},
+            frequency, 19, format::kReaderPrxWindowLimits, &outcome));
     if (outcome != format::PrxWindowBuildOutcome::kBuilt) {
         return Status::InternalError("high-level frame unexpectedly needs splitting");
     }
@@ -508,13 +613,26 @@ TEST(SniiBoundedPostingCodec, StreamedInlineDictionaryKeepsBytesAndAnchorOffsets
     EXPECT_EQ(actual, resident.finish_owned());
 }
 
+void verify_sorted_posting_batch(const TermPostingBuffer& postings, uint32_t* next_doc) {
+    for (size_t doc = 0; doc < postings.document_count(); ++doc) {
+        EXPECT_EQ(postings.docids()[doc], (*next_doc)++);
+        EXPECT_EQ(postings.freqs()[doc], 2);
+        EXPECT_EQ(postings.positions_flat()[2 * doc], 3);
+        EXPECT_EQ(postings.positions_flat()[2 * doc + 1], 4);
+    }
+}
+
 TEST(SniiBoundedPostingCodec, OutOfOrderCompatibilityInputUsesBoundedStableSort) {
     constexpr uint32_t kDocs = 100'000;
     MemoryReporter reporter(nullptr, 4 * kMiB, MemoryReporter::CapPolicy::kHardLimit, kMiB);
     {
         SpimiTermBuffer buffer(true, 0, &reporter);
-        for (uint32_t doc = kDocs; doc != 0; --doc) buffer.add_token("term", doc - 1, 3);
-        for (uint32_t doc = kDocs; doc != 0; --doc) buffer.add_token("term", doc - 1, 4);
+        for (uint32_t doc = kDocs; doc != 0; --doc) {
+            buffer.add_token("term", doc - 1, 3);
+        }
+        for (uint32_t doc = kDocs; doc != 0; --doc) {
+            buffer.add_token("term", doc - 1, 4);
+        }
         ASSERT_TRUE(buffer.status().ok());
         uint32_t next_doc = 0;
         const Status drained = buffer.for_each_term_sorted([&](StreamedTermPostings&& term) {
@@ -523,12 +641,7 @@ TEST(SniiBoundedPostingCodec, OutOfOrderCompatibilityInputUsesBoundedStableSort)
             while (!end) {
                 postings.clear_reuse();
                 RETURN_IF_ERROR(term.source->fill(256, &postings, &end));
-                for (size_t doc = 0; doc < postings.document_count(); ++doc) {
-                    EXPECT_EQ(postings.docids()[doc], next_doc++);
-                    EXPECT_EQ(postings.freqs()[doc], 2);
-                    EXPECT_EQ(postings.positions_flat()[2 * doc], 3);
-                    EXPECT_EQ(postings.positions_flat()[2 * doc + 1], 4);
-                }
+                verify_sorted_posting_batch(postings, &next_doc);
             }
             return Status::OK();
         });
