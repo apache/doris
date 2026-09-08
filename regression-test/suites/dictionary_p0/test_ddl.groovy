@@ -175,7 +175,7 @@ suite("test_ddl") {
         )LAYOUT(xxx)
         properties('data_lifetime'='600');
         """
-        exception "Unknown layout type: xxx. must be IP_TRIE or HASH_MAP"
+        exception "Unknown layout type: xxx. must be IP_TRIE, HASH_MAP or FLAT"
     }
 
     test { // wrong type for ip_trie
@@ -189,6 +189,53 @@ suite("test_ddl") {
         """
         exception "Key column k0 must be String type for IP_TRIE layout"
     }
+
+    // FLAT layout DDL validation
+    sql """
+        create table flat_int_table(
+            ik int not null,
+            iv varchar not null,
+            ik2 int not null
+        )
+        DISTRIBUTED BY HASH(`ik`) BUCKETS auto
+        properties("replication_num" = "1");
+    """
+
+    test { // FLAT requires exactly one key column
+        sql """
+        create dictionary dic_flat_multi using flat_int_table
+        (
+            ik KEY,
+            ik2 KEY,
+            iv VALUE
+        )LAYOUT(FLAT)
+        properties('data_lifetime'='600');
+        """
+        exception "FLAT layout requires exactly one key column"
+    }
+
+    test { // FLAT requires integer key type (dc.k1 is varchar)
+        sql """
+        create dictionary dic_flat_str using dc
+        (
+            k1 KEY,
+            k0 VALUE
+        )LAYOUT(FLAT)
+        properties('data_lifetime'='600');
+        """
+        exception "must be integer type for FLAT layout"
+    }
+
+    // FLAT normal creation with integer key
+    sql """
+        create dictionary dic_flat_ok using flat_int_table
+        (
+            ik KEY,
+            iv VALUE
+        )LAYOUT(FLAT)
+        properties('data_lifetime'='600');
+    """
+    sql "drop dictionary dic_flat_ok"
 
     test { // no data_lifetime
         sql """

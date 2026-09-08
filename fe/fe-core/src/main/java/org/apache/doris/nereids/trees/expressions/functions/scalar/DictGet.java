@@ -106,7 +106,7 @@ public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNu
 
         // Do type coercion manually because the function signature accept any initially.
         DataType queryType = getArgumentType(2);
-        if (dictionary.getLayout() == LayoutType.HASH_MAP) {
+        if (dictionary.getLayout() == LayoutType.HASH_MAP || dictionary.getLayout() == LayoutType.FLAT) {
             List<DataType> colTypes = dictionary.getKeyColumnTypes();
             if (colTypes.size() != 1) { // multi-key dict should only use dict_get_many
                 throw new AnalysisException("dict_get() only support one key column");
