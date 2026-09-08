@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
@@ -292,8 +293,17 @@ public class Profile {
 
             if (planner != null && planner instanceof NereidsPlanner) {
                 NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
-                physicalPlan = nereidsPlanner.getPhysicalPlan();
-                physicalRelations.addAll(nereidsPlanner.getPhysicalRelations());
+                if (physicalPlan == null) {
+                    // Profile is a long-lived object. Clone the physical plan and detach it from the
+                    // memo (clear the group expression on every node), otherwise holding the original
+                    // plan would keep the whole memo alive and prevent it from being released early.
+                    physicalPlan = AbstractPhysicalPlan.copyPlanDetachedFromMemo(
+                            nereidsPlanner.getPhysicalPlan());
+                    for (PhysicalRelation relation : nereidsPlanner.getPhysicalRelations()) {
+                        physicalRelations.add((PhysicalRelation) AbstractPhysicalPlan
+                                .copyPlanDetachedFromMemo(relation));
+                    }
+                }
                 if (profileLevel >= 3) {
                     FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
                     if (distributedPlans != null) {
@@ -762,10 +772,6 @@ public class Profile {
 
     public PhysicalPlan getPhysicalPlan() {
         return physicalPlan;
-    }
-
-    public void setPhysicalPlan(PhysicalPlan physicalPlan) {
-        this.physicalPlan = physicalPlan;
     }
 
     private void updateActualRowCountOnPhysicalPlan(Plan plan) {
