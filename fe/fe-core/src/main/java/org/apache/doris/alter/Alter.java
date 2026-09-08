@@ -1368,6 +1368,12 @@ public class Alter {
     public void processAlterMTMVProperty(AlterMTMV alterMTMV, boolean isReplay) throws UserException {
         MTMV mtmv;
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(alterMTMV.getMvName().getDb());
+        // Fail before touching anything when the database is being dropped: a later step
+        // (e.g. the stream drop under the db write lock) would otherwise fail after the
+        // property was already applied.
+        if (db.isDropped()) {
+            throw new DdlException("unknown db, dbName=" + db.getFullName());
+        }
         mtmv = (MTMV) db.getTableOrMetaException(alterMTMV.getMvName().getTbl(), TableType.MATERIALIZED_VIEW);
         if (mtmv.isIvm() && alterMTMV.getMvProperties().containsKey(
                 PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
