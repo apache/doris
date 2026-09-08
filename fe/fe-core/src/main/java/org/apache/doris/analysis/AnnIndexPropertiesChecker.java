@@ -88,9 +88,11 @@ public class AnnIndexPropertiesChecker {
                     if (!quantizer.equals("flat")
                             && !quantizer.equals("sq4")
                             && !quantizer.equals("sq8")
-                            && !quantizer.equals("pq")) {
+                            && !quantizer.equals("pq")
+                            && !quantizer.equals("rabitq")) {
                         throw new AnalysisException(
-                                "only support ann index with quantizer flat, sq4, sq8 or pq, got: " + quantizer);
+                                "only support ann index with quantizer flat, sq4, sq8, pq or rabitq, got: "
+                                        + quantizer);
                     }
                     break;
                 case "pq_m":
@@ -143,6 +145,9 @@ public class AnnIndexPropertiesChecker {
             if (nlist == 0) {
                 throw new AnalysisException("nlist of ann index must be specified for ivf/ivf_on_disk type");
             }
+        }
+        if ("rabitq".equals(quantizer) && type != null && !type.equals("ivf") && !type.equals("ivf_on_disk")) {
+            throw new AnalysisException("quantizer rabitq only supports ivf or ivf_on_disk index type");
         }
 
         if (type == null) {
