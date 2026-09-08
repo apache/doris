@@ -89,6 +89,7 @@ public class FetchRemoteTabletSchemaUtil {
         typeMap.put("DATE", Type.DATE);
         typeMap.put("DATEV2", Type.DATEV2);
         typeMap.put("DATETIMEV2", Type.DATETIMEV2);
+        typeMap.put("TIMESTAMP_NS", Type.TIMESTAMP_NS);
         typeMap.put("DATETIME", Type.DATETIME);
         typeMap.put("DECIMAL32", Type.DECIMAL32);
         typeMap.put("DECIMAL64", Type.DECIMAL64);

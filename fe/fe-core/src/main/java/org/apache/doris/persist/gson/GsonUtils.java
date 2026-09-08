@@ -58,6 +58,7 @@ import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.StructLiteral;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
@@ -339,6 +340,7 @@ public class GsonUtils {
             .registerSubtype(NullLiteral.class, NullLiteral.class.getSimpleName())
             .registerSubtype(MapLiteral.class, MapLiteral.class.getSimpleName())
             .registerSubtype(DateLiteral.class, DateLiteral.class.getSimpleName())
+            .registerSubtype(TimeStampNsLiteral.class, TimeStampNsLiteral.class.getSimpleName())
             .registerSubtype(IPv6Literal.class, IPv6Literal.class.getSimpleName())
             .registerSubtype(IPv4Literal.class, IPv4Literal.class.getSimpleName())
             .registerSubtype(JsonLiteral.class, JsonLiteral.class.getSimpleName())

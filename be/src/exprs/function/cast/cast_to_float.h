@@ -81,6 +81,7 @@ public:
 template <typename FromDataType, typename ToDataType>
     requires(IsDataTypeFloat<ToDataType> &&
              (IsDatelikeV1Types<FromDataType> || IsDatelikeV2Types<FromDataType> ||
+              std::is_same_v<FromDataType, DataTypeTimeStampNs> ||
               std::is_same_v<FromDataType, DataTypeTimeV2>))
 class CastToImpl<CastModeType::NonStrictMode, FromDataType, ToDataType> : public CastToBase {
 public:

@@ -50,6 +50,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/extended_types.h"
 #include "core/types.h"
@@ -155,6 +156,11 @@ template <>
 struct ut_input_type<DataTypeDateTimeV2> {
     using type = std::string;
     inline static type default_value = "1970-01-01";
+};
+template <>
+struct ut_input_type<DataTypeTimeStampNs> {
+    using type = std::string;
+    inline static type default_value = "1970-01-01 00:00:00.000000000";
 };
 template <>
 struct ut_input_type<DataTypeTimeV2> {
@@ -271,6 +277,9 @@ DataTypePtr get_return_type_descriptor(int scale, int precision) {
     } else if (std::is_same_v<ReturnType, DataTypeDateTimeV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIMEV2,
                                                             false, precision, scale);
+    } else if (std::is_same_v<ReturnType, DataTypeTimeStampNs>) {
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_TIMESTAMP_NS,
+                                                            false);
     } else if (std::is_same_v<ReturnType, DataTypeDecimalV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMALV2,
                                                             false, precision, scale);

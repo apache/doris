@@ -517,6 +517,7 @@ template class ColumnVector<TYPE_DATEV2>;
 template class ColumnVector<TYPE_DATETIME>;
 template class ColumnVector<TYPE_DATETIMEV2>;
 template class ColumnVector<TYPE_TIME>;
+template class ColumnVector<TYPE_TIMESTAMP_NS>;
 template class ColumnVector<TYPE_TIMEV2>;
 template class ColumnVector<TYPE_TIMESTAMPTZ>;
 template class ColumnVector<TYPE_UINT32>;

@@ -159,7 +159,6 @@ import org.jetbrains.annotations.NotNull;
 import org.joda.time.DateTime;
 
 import java.security.SecureRandom;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -369,13 +368,8 @@ public class Coordinator implements CoordInterface {
 
         setFromUserProperty(context);
 
-        this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
-        this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
+        CoordinatorContext.refreshQueryGlobals(this.queryGlobals, context);
         this.queryGlobals.setLoadZeroTolerance(false);
-        this.queryGlobals.setTimeZone(
-                TimeUtils.getCanonicalTimeZone(context.getSessionVariable().getTimeZone()));
-        this.queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.topnFilters = planner.getTopnFilters();
 
@@ -398,10 +392,7 @@ public class Coordinator implements CoordInterface {
         this.queryOptions = new TQueryOptions();
         this.queryOptions.setEnableProfile(enableProfile);
         this.queryOptions.setProfileLevel(2);
-        this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
-        this.queryGlobals.setTimeZone(timezone);
-        this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
+        CoordinatorContext.setQueryGlobalsForLoad(this.queryGlobals, timezone, loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
 
         List<Integer> fragmentIds = new ArrayList<>();

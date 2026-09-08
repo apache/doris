@@ -484,6 +484,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 cast.child().accept(this, context), null);
         castExpr.setImplicit(!cast.isExplicitType());
         castExpr.setNullableFromNereids(cast.nullable());
+        castExpr.setStrict(cast.isStrict());
         return castExpr;
     }
 
