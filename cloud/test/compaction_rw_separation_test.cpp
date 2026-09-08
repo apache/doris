@@ -97,6 +97,20 @@ TEST(CompactionRWSeparationTest, CommitTxnUpdatesLastActiveCluster) {
         txn_id = res.txn_id();
     }
 
+    // This fixture creates legacy rowsets without load_id. Persist the state that a real load
+    // writer would establish through prepare_rowset/commit_rowset.
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const std::string key = txn_info_key({"test_instance", db_id, txn_id});
+        std::string value;
+        ASSERT_EQ(txn->get(key, &value), TxnErrorCode::TXN_OK);
+        TxnInfoPB txn_info;
+        ASSERT_TRUE(txn_info.ParseFromString(value));
+        txn_info.set_load_cluster_id_bound_by_writer(true);
+        txn->put(key, txn_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
     // Prepare rowset
     {
         brpc::Controller cntl;
@@ -143,6 +157,8 @@ TEST(CompactionRWSeparationTest, CommitTxnUpdatesLastActiveCluster) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
     }
 
+    int64_t owner_time_ms = 0;
+    int64_t owner_epoch = 0;
     // Commit txn
     {
         brpc::Controller cntl;
@@ -154,6 +170,30 @@ TEST(CompactionRWSeparationTest, CommitTxnUpdatesLastActiveCluster) {
 
         meta_service.commit_txn(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_EQ(res.last_active_tablet_ids_size(), 1);
+        ASSERT_EQ(res.last_active_epochs_size(), 1);
+        EXPECT_EQ(res.last_active_tablet_ids(0), tablet_id);
+        owner_time_ms = res.version_update_time_ms();
+        owner_epoch = res.last_active_epochs(0);
+        EXPECT_GT(owner_time_ms, 0);
+        EXPECT_GT(owner_epoch, 0);
+    }
+
+    // An already-visible retry returns the durable first result, including time and generation.
+    {
+        brpc::Controller cntl;
+        CommitTxnRequest req;
+        CommitTxnResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_txn_id(txn_id);
+        meta_service.commit_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        EXPECT_EQ(res.version_update_time_ms(), owner_time_ms);
+        ASSERT_EQ(res.last_active_tablet_ids_size(), 1);
+        ASSERT_EQ(res.last_active_epochs_size(), 1);
+        EXPECT_EQ(res.last_active_tablet_ids(0), tablet_id);
+        EXPECT_EQ(res.last_active_epochs(0), owner_epoch);
     }
 
     // Get rowset and check last_active_cluster_id
@@ -175,6 +215,90 @@ TEST(CompactionRWSeparationTest, CommitTxnUpdatesLastActiveCluster) {
         // Check that last_active_cluster_id is always set (MS always updates it)
         EXPECT_TRUE(res.stats().has_last_active_cluster_id());
         EXPECT_EQ(res.stats().last_active_cluster_id(), mock_cluster_id);
+        EXPECT_EQ(res.stats().last_active_epoch(), owner_epoch);
+    }
+
+    // A begin-txn routing hint, even with a forged internal bit, is not writer evidence. Model an
+    // in-flight transaction created before all MS nodes were upgraded: its legacy rowset is still
+    // committed, but it must not steal the tablet owner from the last verified writer.
+    int64_t unbound_txn_id = -1;
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        BeginTxnResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        auto* txn_info = req.mutable_txn_info();
+        txn_info->set_db_id(db_id);
+        txn_info->set_label("test_unbound_routing_hint");
+        txn_info->add_table_ids(table_id);
+        txn_info->set_timeout_ms(36000);
+        txn_info->set_load_cluster_id("forged_cluster");
+        txn_info->set_load_cluster_id_bound_by_writer(true);
+        meta_service.begin_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        unbound_txn_id = res.txn_id();
+    }
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(txn_info_key({"test_instance", db_id, unbound_txn_id}), &value),
+                  TxnErrorCode::TXN_OK);
+        TxnInfoPB txn_info;
+        ASSERT_TRUE(txn_info.ParseFromString(value));
+        EXPECT_EQ(txn_info.load_cluster_id(), "forged_cluster");
+        EXPECT_FALSE(txn_info.load_cluster_id_bound_by_writer());
+    }
+    for (bool prepare : {true, false}) {
+        brpc::Controller cntl;
+        CreateRowsetRequest req;
+        CreateRowsetResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        auto* rowset = req.mutable_rowset_meta();
+        rowset->set_rowset_id(0);
+        rowset->set_rowset_id_v2("rowset_unbound_hint");
+        rowset->set_tablet_id(tablet_id);
+        rowset->set_partition_id(partition_id);
+        rowset->set_txn_id(unbound_txn_id);
+        rowset->set_num_segments(1);
+        rowset->set_num_rows(100);
+        rowset->set_data_disk_size(1024);
+        rowset->mutable_tablet_schema()->set_schema_version(0);
+        rowset->set_txn_expiration(::time(nullptr) + 3600);
+        if (prepare) {
+            meta_service.prepare_rowset(&cntl, &req, &res, nullptr);
+        } else {
+            meta_service.commit_rowset(&cntl, &req, &res, nullptr);
+        }
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    }
+    {
+        brpc::Controller cntl;
+        CommitTxnRequest req;
+        CommitTxnResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_txn_id(unbound_txn_id);
+        meta_service.commit_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        EXPECT_EQ(res.last_active_tablet_ids_size(), 0);
+        EXPECT_EQ(res.last_active_epochs_size(), 0);
+    }
+    {
+        brpc::Controller cntl;
+        GetRowsetRequest req;
+        GetRowsetResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.mutable_idx()->set_tablet_id(tablet_id);
+        req.set_start_version(0);
+        req.set_end_version(-1);
+        req.set_base_compaction_cnt(0);
+        req.set_cumulative_compaction_cnt(0);
+        req.set_cumulative_point(2);
+        meta_service.get_rowset(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        EXPECT_EQ(res.stats().last_active_cluster_id(), mock_cluster_id);
+        EXPECT_EQ(res.stats().last_active_time_ms(), owner_time_ms);
+        EXPECT_EQ(res.stats().last_active_epoch(), owner_epoch);
     }
 }
 

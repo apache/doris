@@ -332,6 +332,9 @@ TEST_F(CloudSchemaChangeJobTest, FillVersionHolesBeforeNewTabletRunning) {
         stats->set_num_segments(0);
         stats->set_num_rows(0);
         stats->set_data_size(0);
+        stats->set_last_active_cluster_id("cluster_b");
+        stats->set_last_active_time_ms(123456);
+        stats->set_last_active_epoch(17);
     });
 
     TAlterTabletReqV2 request;
@@ -347,6 +350,9 @@ TEST_F(CloudSchemaChangeJobTest, FillVersionHolesBeforeNewTabletRunning) {
     ASSERT_TRUE(commit_called);
     ASSERT_NE(loaded_new_tablet, nullptr);
     ASSERT_EQ(loaded_new_tablet->tablet_state(), TABLET_RUNNING);
+    EXPECT_EQ(loaded_new_tablet->last_active_cluster_id(), "cluster_b");
+    EXPECT_EQ(loaded_new_tablet->last_active_time_ms(), 123456);
+    EXPECT_EQ(loaded_new_tablet->last_active_epoch(), 17);
     ASSERT_TRUE(loaded_new_tablet->rowset_map().count(Version(3, 3)));
     auto hole_rowset = loaded_new_tablet->rowset_map().at(Version(3, 3));
     ASSERT_TRUE(hole_rowset->empty());

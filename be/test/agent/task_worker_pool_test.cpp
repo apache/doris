@@ -24,13 +24,18 @@
 
 #include <chrono>
 #include <thread>
+#include <unordered_map>
 
 #include "agent/agent_server.h"
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
+#include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet_meta.h"
 
 namespace doris {
 
@@ -104,6 +109,53 @@ TEST(TaskWorkerPoolTest, PreSubmitCallbackWithDedup) {
     std::this_thread::sleep_for(600ms);
     workers.stop();
     EXPECT_EQ(callback_count.load(), 1);
+}
+
+TEST(TaskWorkerPoolTest, CloudOwnerRefreshUsesEpochAndOldSenderOnlyInvalidates) {
+    const bool old_rw_separation = config::enable_compaction_rw_separation;
+    Defer restore_config {[&] { config::enable_compaction_rw_separation = old_rw_separation; }};
+    config::enable_compaction_rw_separation = true;
+
+    CloudStorageEngine engine(EngineOptions {});
+    auto tablet_meta = std::make_shared<TabletMeta>(1, 2, 10001, 10002, 4, 5, TTabletSchema(), 6,
+                                                    std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                    TCompressionType::LZ4F);
+    auto tablet = std::make_shared<CloudTablet>(engine, std::move(tablet_meta));
+    engine.tablet_mgr().put_tablet_for_UT(tablet);
+
+    auto refresh_owner = [&](const std::string& cluster_id, int64_t time_ms,
+                             const std::vector<int64_t>& epochs) {
+        TMakeCloudTmpRsVisibleRequest make_visible;
+        make_visible.__set_txn_id(123);
+        make_visible.__set_tablet_ids({});
+        make_visible.__set_partition_version_map({});
+        make_visible.__set_version_update_time_ms(time_ms);
+        make_visible.__set_load_cluster_id(cluster_id);
+        make_visible.__set_last_active_tablet_ids({tablet->tablet_id()});
+        if (!epochs.empty()) {
+            make_visible.__set_last_active_epochs(epochs);
+        }
+        TAgentTaskRequest task;
+        task.__set_make_cloud_tmp_rs_visible_req(make_visible);
+        make_cloud_committed_rs_visible_callback(engine, task);
+    };
+
+    refresh_owner("cluster_b", 100, {5});
+    EXPECT_EQ(tablet->last_active_cluster_id(), "cluster_b");
+    EXPECT_EQ(tablet->last_active_time_ms(), 100);
+    EXPECT_EQ(tablet->last_active_epoch(), 5);
+
+    refresh_owner("cluster_stale", 200, {4});
+    EXPECT_EQ(tablet->last_active_cluster_id(), "cluster_b");
+    EXPECT_EQ(tablet->last_active_time_ms(), 100);
+    EXPECT_EQ(tablet->last_active_epoch(), 5);
+
+    tablet->last_sync_time_s = 123;
+    refresh_owner("cluster_without_epoch", 300, {});
+    EXPECT_EQ(tablet->last_active_cluster_id(), "cluster_b");
+    EXPECT_EQ(tablet->last_active_epoch(), 5);
+    EXPECT_EQ(tablet->last_sync_time_s, 0);
 }
 
 TEST(TaskWorkerPoolTest, PriorTaskWorkerPool) {

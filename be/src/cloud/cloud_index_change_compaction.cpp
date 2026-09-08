@@ -17,10 +17,12 @@
 
 #include "cloud/cloud_index_change_compaction.h"
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
+#include "runtime/exec_env.h"
 #include "service/backend_options.h"
 
 namespace doris {
@@ -48,6 +50,12 @@ Status CloudIndexChangeCompaction::prepare_compact() {
     }
 
     RETURN_IF_ERROR(cloud_tablet()->sync_rowsets());
+    if (config::enable_compaction_rw_separation &&
+        static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
+                ->should_skip_compaction(cloud_tablet())) {
+        return Status::Error<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>(
+                "tablet is owned by another active compute group");
+    }
 
     {
         std::shared_lock rlock(_tablet->get_header_lock());
@@ -163,6 +171,13 @@ Status CloudIndexChangeCompaction::request_global_lock(bool& should_skip_err) {
         compaction_job->set_type(cloud::TabletCompactionJobPB::CUMULATIVE);
         // Set input version range to let meta-service check version range conflict
         compaction_job->set_check_input_versions_range(config::enable_parallel_cumu_compaction);
+    }
+
+    if (!static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
+                 ->prepare_compaction_job(cloud_tablet(), compaction_job)) {
+        should_skip_err = true;
+        return Status::Error<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>(
+                "tablet is not authorized for compaction by this compute group");
     }
 
     cloud::StartTabletJobResponse resp;

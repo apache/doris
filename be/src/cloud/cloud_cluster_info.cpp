@@ -20,6 +20,8 @@
 #include <gen_cpp/cloud.pb.h>
 #include <glog/logging.h>
 
+#include <algorithm>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
@@ -28,6 +30,32 @@
 #include "util/time.h"
 
 namespace doris {
+
+namespace {
+
+void fill_compaction_authorization(cloud::TabletCompactionJobPB* compaction_job,
+                                   const std::string& owner_cluster_id, int64_t owner_epoch,
+                                   const std::string& requester_cluster_id,
+                                   const ClusterStatusCache* owner_status,
+                                   bool force_by_version_count) {
+    if (compaction_job == nullptr) {
+        return;
+    }
+    compaction_job->set_observed_last_active_cluster_id(owner_cluster_id);
+    compaction_job->set_observed_last_active_epoch(owner_epoch);
+    compaction_job->set_requester_cluster_id(requester_cluster_id);
+    compaction_job->set_force_compaction_by_version_count(force_by_version_count);
+    if (owner_status != nullptr) {
+        compaction_job->set_observed_owner_cluster_status(
+                static_cast<cloud::ClusterStatus>(owner_status->status));
+        compaction_job->set_observed_owner_cluster_status_mtime_ms(
+                owner_status->reported_status_mtime_ms);
+        compaction_job->set_observed_owner_cluster_mtime_ms(
+                owner_status->reported_cluster_mtime_ms);
+    }
+}
+
+} // namespace
 
 CloudClusterInfo::~CloudClusterInfo() {
     stop_bg_worker();
@@ -87,115 +115,194 @@ void CloudClusterInfo::_refresh_cluster_status() {
         return;
     }
 
-    std::unordered_map<std::string, std::pair<int32_t, int64_t>> cluster_status;
+    std::unordered_map<std::string, std::tuple<int32_t, int64_t, int64_t, bool>> cluster_status;
     std::string resolved_cluster_id;
-    Status st = cloud_engine->meta_mgr().get_cluster_status(
-            &cluster_status, my_cluster_id().empty() ? &resolved_cluster_id : nullptr);
+    Status st = cloud_engine->meta_mgr().get_cluster_status(&cluster_status, &resolved_cluster_id);
     if (!st.ok()) {
         LOG(WARNING) << "Failed to refresh cluster status: " << st;
         return;
     }
 
-    // Update cache
-    {
-        std::unique_lock lock(_mutex);
-        _cluster_status_cache.clear();
-        for (const auto& [cluster_id, status_pair] : cluster_status) {
-            _cluster_status_cache[cluster_id] = {status_pair.first, status_pair.second};
-        }
-    }
+    _reconcile_cluster_status_cache(cluster_status, UnixMillis());
 
     VLOG_DEBUG << "Refreshed cluster status cache, " << cluster_status.size() << " clusters";
 
-    // Set our own cluster_id if resolved from the response
-    if (my_cluster_id().empty() && !resolved_cluster_id.empty()) {
+    // Reconcile our cluster identity on every refresh because a running node can be moved between
+    // compute groups.
+    const auto previous_cluster_id = my_cluster_id();
+    if (resolved_cluster_id != previous_cluster_id) {
         set_my_cluster_id(resolved_cluster_id);
-        LOG(INFO) << "Resolved my cluster_id: " << resolved_cluster_id;
+        LOG(INFO) << "Resolved my cluster_id: " << previous_cluster_id << " -> "
+                  << resolved_cluster_id;
     }
 }
 
 bool CloudClusterInfo::should_skip_compaction(CloudTablet* tablet) const {
+    return _should_skip_compaction(tablet, UnixMillis());
+}
+
+std::string CloudClusterInfo::current_cluster_id() const {
+    std::shared_lock lock(_mutex);
+    if (!_my_cluster_id.empty() && !_cloud_compute_group_id.empty() &&
+        _my_cluster_id != _cloud_compute_group_id) {
+        LOG_EVERY_N(WARNING, 100) << "conflicting compute group identities, meta-service="
+                                  << _my_cluster_id << ", heartbeat=" << _cloud_compute_group_id;
+        return "";
+    }
+    return !_cloud_compute_group_id.empty() ? _cloud_compute_group_id : _my_cluster_id;
+}
+
+bool CloudClusterInfo::prepare_compaction_job(CloudTablet* tablet,
+                                              cloud::TabletCompactionJobPB* compaction_job) const {
+    return _authorize_compaction(tablet, compaction_job, UnixMillis());
+}
+
+void CloudClusterInfo::_reconcile_cluster_status_cache(
+        const std::unordered_map<std::string, std::tuple<int32_t, int64_t, int64_t, bool>>&
+                cluster_status,
+        int64_t observed_time_ms) {
+    std::unique_lock lock(_mutex);
+    std::unordered_map<std::string, ClusterStatusCache> next_cache;
+    next_cache.reserve(cluster_status.size());
+    for (const auto& [cluster_id, status_info] : cluster_status) {
+        const auto& [status, status_mtime_ms, cluster_mtime_ms, status_mtime_trusted] = status_info;
+        int64_t takeover_start_time_ms = status_mtime_trusted && status_mtime_ms > 0
+                                                 ? std::min(status_mtime_ms, observed_time_ms)
+                                                 : observed_time_ms;
+        auto old = _cluster_status_cache.find(cluster_id);
+        if (old != _cluster_status_cache.end()) {
+            const auto& previous = old->second;
+            if (previous.status == status && previous.reported_status_mtime_ms == status_mtime_ms &&
+                previous.reported_cluster_mtime_ms == cluster_mtime_ms &&
+                previous.status_mtime_trusted == status_mtime_trusted) {
+                takeover_start_time_ms = previous.takeover_start_time_ms;
+            } else if (previous.status != status && status_mtime_ms > 0 &&
+                       previous.reported_status_mtime_ms == status_mtime_ms) {
+                // An old MetaService can preserve this unknown field while changing the status.
+                takeover_start_time_ms = observed_time_ms;
+            }
+        }
+        next_cache.emplace(cluster_id,
+                           ClusterStatusCache {.status = status,
+                                               .reported_status_mtime_ms = status_mtime_ms,
+                                               .reported_cluster_mtime_ms = cluster_mtime_ms,
+                                               .status_mtime_trusted = status_mtime_trusted,
+                                               .takeover_start_time_ms = takeover_start_time_ms});
+    }
+    _cluster_status_cache.swap(next_cache);
+    _cluster_status_cache_initialized = true;
+}
+
+bool CloudClusterInfo::_should_skip_compaction(CloudTablet* tablet, int64_t now_ms) const {
+    return !_authorize_compaction(tablet, nullptr, now_ms);
+}
+
+bool CloudClusterInfo::_authorize_compaction(CloudTablet* tablet,
+                                             cloud::TabletCompactionJobPB* compaction_job,
+                                             int64_t now_ms) const {
     if (!config::enable_compaction_rw_separation) {
+        return true;
+    }
+
+    const auto owner = tablet->last_active_cluster_info();
+    const std::string requester_cluster_id = current_cluster_id();
+    if (requester_cluster_id.empty()) {
+        LOG_EVERY_N(INFO, 100) << "compaction_rw_separation: skip tablet " << tablet->tablet_id()
+                               << ", requester cluster is not initialized";
         return false;
     }
 
-    std::string last_active_cluster = tablet->last_active_cluster_id();
-    std::string my_cluster = my_cluster_id();
-    int64_t tablet_id = tablet->tablet_id();
-
-    // Case 1: No active cluster record, any cluster can compact
-    if (last_active_cluster.empty()) {
-        VLOG_DEBUG << "tablet " << tablet_id << " has no last_active_cluster record, "
-                   << "my_cluster=" << my_cluster << ", allow compaction";
-        return false;
+    if (owner.cluster_id.empty() || owner.cluster_id == requester_cluster_id) {
+        fill_compaction_authorization(compaction_job, owner.cluster_id, owner.epoch,
+                                      requester_cluster_id, nullptr, false);
+        return true;
     }
 
-    // Case 2: This is the active cluster, allow compaction
-    if (last_active_cluster == my_cluster) {
-        VLOG_DEBUG << "tablet " << tablet_id << " last_active_cluster=" << last_active_cluster
-                   << " equals my_cluster=" << my_cluster << ", allow compaction";
-        return false;
-    }
+    return _authorize_foreign_compaction(tablet, owner.cluster_id, owner.epoch,
+                                         requester_cluster_id, compaction_job, now_ms);
+}
 
-    // Case 3: Check if the last active cluster is available
-    ClusterStatusCache cache;
-    if (!get_cluster_status(last_active_cluster, &cache)) {
-        // Cluster not found in cache, might be deleted, allow takeover
-        LOG(INFO) << "compaction_rw_separation: tablet " << tablet_id
-                  << " last_active_cluster=" << last_active_cluster
-                  << " not found in cache (maybe deleted), my_cluster=" << my_cluster
-                  << ", allow takeover";
-        return false;
-    }
-
-    // Force compaction if tablet has too many rowsets (>80% of max_tablet_version_num),
-    // even on read clusters, to prevent version count from growing unbounded
-    // when the write cluster can't keep up or has compaction disabled.
-    int64_t num_rowsets = tablet->fetch_add_approximate_num_rowsets(0);
-    auto threshold = static_cast<int64_t>(tablet->max_version_config() *
-                                          config::compaction_rw_separation_version_threshold_ratio);
+bool CloudClusterInfo::_authorize_foreign_compaction(CloudTablet* tablet,
+                                                     const std::string& owner_cluster_id,
+                                                     int64_t owner_epoch,
+                                                     const std::string& requester_cluster_id,
+                                                     cloud::TabletCompactionJobPB* compaction_job,
+                                                     int64_t now_ms) const {
+    const int64_t tablet_id = tablet->tablet_id();
+    const int64_t num_rowsets = tablet->fetch_add_approximate_num_rowsets(0);
+    const auto threshold =
+            static_cast<int64_t>(tablet->max_version_config() *
+                                 config::compaction_rw_separation_version_threshold_ratio);
     if (num_rowsets > threshold) {
         LOG(INFO) << "compaction_rw_separation: force compaction on tablet " << tablet_id
-                  << ", num_rowsets=" << num_rowsets << " > threshold=" << threshold << " (80% of "
-                  << tablet->max_version_config() << ")"
-                  << ", my_cluster=" << my_cluster;
-        return false;
+                  << ", num_rowsets=" << num_rowsets << " > threshold=" << threshold
+                  << ", my_cluster=" << requester_cluster_id;
+        fill_compaction_authorization(compaction_job, owner_cluster_id, owner_epoch,
+                                      requester_cluster_id, nullptr, true);
+        return true;
     }
 
-    auto status = static_cast<cloud::ClusterStatus>(cache.status);
-    int64_t status_mtime = cache.mtime_ms;
-    int64_t now = UnixMillis();
-    int64_t elapsed = now - status_mtime;
-    int64_t timeout = config::compaction_cluster_takeover_timeout_ms;
+    ClusterStatusCache cache;
+    bool cache_initialized = false;
+    bool cluster_found = false;
+    {
+        std::shared_lock lock(_mutex);
+        cache_initialized = _cluster_status_cache_initialized;
+        auto it = _cluster_status_cache.find(owner_cluster_id);
+        if (it != _cluster_status_cache.end()) {
+            cache = it->second;
+            cluster_found = true;
+        }
+    }
+    if (!cache_initialized) {
+        LOG_EVERY_N(INFO, 100) << "compaction_rw_separation: skip tablet " << tablet_id
+                               << ", cluster status cache is not initialized"
+                               << ", last_active_cluster=" << owner_cluster_id
+                               << ", my_cluster=" << requester_cluster_id;
+        return false;
+    }
+    if (!cluster_found) {
+        LOG(INFO) << "compaction_rw_separation: tablet " << tablet_id
+                  << " last_active_cluster=" << owner_cluster_id
+                  << " not found in cache (maybe deleted), my_cluster=" << requester_cluster_id
+                  << ", allow takeover";
+        fill_compaction_authorization(compaction_job, owner_cluster_id, owner_epoch,
+                                      requester_cluster_id, nullptr, false);
+        return true;
+    }
 
-    // Case 4: Original cluster is NORMAL (still active), cannot takeover
+    const auto status = static_cast<cloud::ClusterStatus>(cache.status);
+    const int64_t elapsed = now_ms - cache.takeover_start_time_ms;
+    const int64_t timeout = config::compaction_cluster_takeover_timeout_ms;
+
     if (status == cloud::ClusterStatus::NORMAL) {
         LOG_EVERY_N(INFO, 100) << "compaction_rw_separation: skip tablet " << tablet_id
-                               << ", last_active_cluster=" << last_active_cluster
-                               << " is NORMAL (active), my_cluster=" << my_cluster;
+                               << ", last_active_cluster=" << owner_cluster_id
+                               << " is NORMAL (active), my_cluster=" << requester_cluster_id;
+        return false;
+    }
+
+    if (elapsed > timeout) {
+        LOG(INFO) << "compaction_rw_separation: takeover tablet " << tablet_id
+                  << ", last_active_cluster=" << owner_cluster_id
+                  << " status=" << cloud::ClusterStatus_Name(status)
+                  << " reported_status_mtime_ms=" << cache.reported_status_mtime_ms
+                  << " takeover_start_time_ms=" << cache.takeover_start_time_ms
+                  << " elapsed=" << elapsed << "ms > timeout=" << timeout << "ms"
+                  << ", my_cluster=" << requester_cluster_id;
+        fill_compaction_authorization(compaction_job, owner_cluster_id, owner_epoch,
+                                      requester_cluster_id, &cache, false);
         return true;
     }
 
-    // Case 5: Original cluster is unavailable (SUSPENDED/MANUAL_SHUTDOWN/deleted)
-    if (elapsed > timeout) {
-        // Takeover successful
-        LOG(INFO) << "compaction_rw_separation: takeover tablet " << tablet_id
-                  << ", last_active_cluster=" << last_active_cluster
-                  << " status=" << cloud::ClusterStatus_Name(status)
-                  << " status_mtime=" << status_mtime << " elapsed=" << elapsed
-                  << "ms > timeout=" << timeout << "ms"
-                  << ", my_cluster=" << my_cluster;
-        return false;
-    } else {
-        // Timeout not reached yet, waiting
-        LOG_EVERY_N(INFO, 100) << "compaction_rw_separation: skip tablet " << tablet_id
-                               << ", last_active_cluster=" << last_active_cluster
-                               << " status=" << cloud::ClusterStatus_Name(status)
-                               << " status_mtime=" << status_mtime << " elapsed=" << elapsed
-                               << "ms <= timeout=" << timeout << "ms"
-                               << ", my_cluster=" << my_cluster << ", waiting for takeover";
-        return true;
-    }
+    LOG_EVERY_N(INFO, 100) << "compaction_rw_separation: skip tablet " << tablet_id
+                           << ", last_active_cluster=" << owner_cluster_id
+                           << " status=" << cloud::ClusterStatus_Name(status)
+                           << " reported_status_mtime_ms=" << cache.reported_status_mtime_ms
+                           << " takeover_start_time_ms=" << cache.takeover_start_time_ms
+                           << " elapsed=" << elapsed << "ms <= timeout=" << timeout << "ms"
+                           << ", my_cluster=" << requester_cluster_id << ", waiting for takeover";
+    return false;
 }
 
 } // namespace doris
