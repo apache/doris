@@ -144,6 +144,50 @@ suite("test_show_create_mtmv","mtmv") {
     logger.info("showCreateMTMVAgainResult: " + showCreateMTMVResultAgain.toString())
     assertEquals(showCreateMTMVResult.toString(), showCreateMTMVResultAgain.toString())
 
+    // Test case: PARTITION BY (col1) where col1 is date_trunc alias - should display bare column
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        BUILD DEFERRED REFRESH AUTO ON MANUAL
+        partition by (month_dt)
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+        'replication_num' = '1'
+        )
+        AS select date_trunc(`k2`, 'month') as month_dt, k1 from ${tableName};
+    """
+    showCreateMTMVResult = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
+    logger.info("showCreateMTMVResult (bare column): " + showCreateMTMVResult.toString())
+    // Should display PARTITION BY (`month_dt`) not PARTITION BY (date_trunc(`month_dt`, 'month'))
+    assertTrue(showCreateMTMVResult.toString().contains("PARTITION BY (`month_dt`)"))
+    assertFalse(showCreateMTMVResult.toString().contains("PARTITION BY (date_trunc(`month_dt`, 'month'))"))
+
+    // Verify re-execution produces same result
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+            ${showCreateMTMVResult[0][1]}
+        """
+    showCreateMTMVResultAgain = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
+    logger.info("showCreateMTMVAgainResult (bare column): " + showCreateMTMVResultAgain.toString())
+    assertEquals(showCreateMTMVResult.toString(), showCreateMTMVResultAgain.toString())
+
+    // Test case: explicit date_trunc in PARTITION BY - should display with date_trunc
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        BUILD DEFERRED REFRESH AUTO ON MANUAL
+        partition by (date_trunc(month_dt, 'month'))
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+        'replication_num' = '1'
+        )
+        AS select date_trunc(`k2`, 'month') as month_dt, k1 from ${tableName};
+    """
+    showCreateMTMVResult = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
+    logger.info("showCreateMTMVResult (explicit date_trunc): " + showCreateMTMVResult.toString())
+    // Should display PARTITION BY (date_trunc(`month_dt`, 'month'))
+    assertTrue(showCreateMTMVResult.toString().contains("PARTITION BY (date_trunc(`month_dt`, 'month'))"))
+
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 }
