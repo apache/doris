@@ -42,6 +42,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -63,6 +64,12 @@ public class CheckCastTest {
 
         Assertions.assertTrue(CheckCast.check(v1Source, v1SameProperties, true));
         Assertions.assertTrue(CheckCast.check(v1Source, v1DifferentProperties, true));
+    }
+
+    @Test
+    public void testCastFromBigIntToTimeStampTz() {
+        Assertions.assertFalse(CheckCast.check(BigIntType.INSTANCE, TimeStampTzType.of(6), true));
+        Assertions.assertFalse(CheckCast.check(BigIntType.INSTANCE, TimeStampTzType.of(6), false));
     }
 
     @Test
