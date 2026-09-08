@@ -229,8 +229,8 @@ void ColumnMap::insert_from(const IColumn& src_, size_t n) {
     get_offsets().push_back(get_offsets().back() + size);
 }
 
-void ColumnMap::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                                    const uint32_t* indices_end) {
+void ColumnMap::insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                         const uint32_t* indices_end) {
     for (const auto* x = indices_begin; x != indices_end; ++x) {
         ColumnMap::insert_from(src, *x);
     }
@@ -483,7 +483,7 @@ void ColumnMap::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
     }
 }
 
-void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t length) {
+void ColumnMap::insert_range_from_impl(const IColumn& src, size_t start, size_t length) {
     if (length == 0) {
         return;
     }

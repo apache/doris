@@ -198,9 +198,9 @@ public:
     /// Is used in merge-sort and merges. It could be implemented in inherited classes more optimally than default implementation.
     virtual void insert_from(const IColumn& src, size_t n);
 
-    /// Appends range of elements from other column with the same type.
-    /// Could be used to concatenate columns.
-    virtual void insert_range_from(const IColumn& src, size_t start, size_t length) = 0;
+    /// Appends range of elements from another logical column with the same type.
+    /// A top-level ColumnConst source is appended without materializing the whole source column.
+    void insert_range_from(const IColumn& src, size_t start, size_t length);
 
     /// Appends range of elements from other column with the same type.
     /// Do not need throw execption in ColumnString overflow uint32, only
@@ -223,11 +223,12 @@ public:
     virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
                                           const std::vector<size_t>& positions) = 0;
 
-    /// Appends a batch elements from other column with the same type
+    /// Appends a batch of elements from another logical column with the same type.
+    /// A top-level ColumnConst source is appended without materializing the whole source column.
     /// Also here should make sure indices_end is bigger than indices_begin
     /// indices_begin + indices_end represent the row indices of column src
-    virtual void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                                     const uint32_t* indices_end) = 0;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end);
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
     /// used in ColumnString, ColumnFixedString, ColumnVector, not support in ColumnArray|ColumnMap...
@@ -779,6 +780,11 @@ public:
     virtual void replace_float_special_values() {}
 
 protected:
+    virtual void insert_range_from_impl(const IColumn& src, size_t start, size_t length) = 0;
+
+    virtual void insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                          const uint32_t* indices_end) = 0;
+
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {
         append_data_by_selector_impl<Derived>(res, selector, 0, selector.size());

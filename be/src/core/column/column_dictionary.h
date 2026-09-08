@@ -66,13 +66,13 @@ public:
                                "insert_from not supported in ColumnDictionary");
     }
 
-    void insert_range_from(const IColumn& src, size_t start, size_t length) override {
+    void insert_range_from_impl(const IColumn& src, size_t start, size_t length) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "insert_range_from not supported in ColumnDictionary");
     }
 
-    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                             const uint32_t* indices_end) override {
+    void insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "insert_indices_from not supported in ColumnDictionary");
     }

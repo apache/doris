@@ -1186,6 +1186,32 @@ TEST(BlockTest, MergeMaterializesConstNullableDestination) {
     }
 }
 
+TEST(BlockTest, MutableBlockAddRowsSupportsConstNullableSource) {
+    auto type = make_nullable(std::make_shared<DataTypeFloat64>());
+    auto source_column = type->create_column_const_with_default_value(4);
+    Block source({ColumnWithTypeAndName(std::move(source_column), type, "const_nullable")});
+
+    {
+        Block destination({ColumnWithTypeAndName(type->create_column(), type, "const_nullable")});
+        MutableBlock mutable_block(std::move(destination));
+        ASSERT_TRUE(mutable_block.add_rows(&source, 1, 2).ok());
+        ASSERT_EQ(mutable_block.rows(), 2);
+        EXPECT_FALSE(is_column_const(*mutable_block.get_column_by_position(0)));
+        EXPECT_TRUE(mutable_block.get_column_by_position(0)->only_null());
+    }
+
+    {
+        Block destination({ColumnWithTypeAndName(type->create_column(), type, "const_nullable")});
+        MutableBlock mutable_block(std::move(destination));
+        std::vector<uint32_t> indices = {3, 0, 2};
+        ASSERT_TRUE(mutable_block.add_rows(&source, indices.data(), indices.data() + indices.size())
+                            .ok());
+        ASSERT_EQ(mutable_block.rows(), indices.size());
+        EXPECT_FALSE(is_column_const(*mutable_block.get_column_by_position(0)));
+        EXPECT_TRUE(mutable_block.get_column_by_position(0)->only_null());
+    }
+}
+
 TEST(BlockTest, ctor) {
     TDescriptorTableBuilder builder;
     TTupleDescriptorBuilder tuple_builder;

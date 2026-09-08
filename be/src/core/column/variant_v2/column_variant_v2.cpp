@@ -1153,7 +1153,7 @@ void ColumnVariantV2::insert_from(const IColumn& src, size_t row) {
 }
 
 // Range insertion handles typed and encoded state pairs.
-void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
+void ColumnVariantV2::insert_range_from_impl( // NOLINT(readability-function-size)
         const IColumn& src, size_t start, size_t length) {
     const auto& source = assert_cast<const ColumnVariantV2&>(src);
     DORIS_CHECK_LE(start, source.size()) << "source range starts past source size";
@@ -1281,7 +1281,7 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
 }
 
 // Indexed insertion handles typed and encoded state pairs.
-void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
+void ColumnVariantV2::insert_indices_from_impl( // NOLINT(readability-function-size)
         const IColumn& src, const uint32_t* indices_begin, const uint32_t* indices_end) {
     const auto& source = assert_cast<const ColumnVariantV2&>(src);
     const size_t rows = validate_selected_indices(indices_begin, indices_end, source.size());

@@ -417,7 +417,7 @@ void ColumnDecimal<T>::insert_many_from(const IColumn& src, size_t position, siz
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
+void ColumnDecimal<T>::insert_range_from_impl(const IColumn& src, size_t start, size_t length) {
     const ColumnDecimal& src_vec = assert_cast<const ColumnDecimal&>(src);
 
     if (start + length > src_vec.data.size()) {

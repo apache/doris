@@ -184,6 +184,27 @@ void IColumn::insert_from(const IColumn& src, size_t n) {
     insert(src[n]);
 }
 
+void IColumn::insert_range_from(const IColumn& src, size_t start, size_t length) {
+    if (const auto* const_src = check_and_get_column<ColumnConst>(src)) {
+        if (!is_column_const(*this)) {
+            insert_many_from(const_src->get_data_column(), 0, length);
+            return;
+        }
+    }
+    insert_range_from_impl(src, start, length);
+}
+
+void IColumn::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) {
+    if (const auto* const_src = check_and_get_column<ColumnConst>(src)) {
+        if (!is_column_const(*this)) {
+            insert_many_from(const_src->get_data_column(), 0, indices_end - indices_begin);
+            return;
+        }
+    }
+    insert_indices_from_impl(src, indices_begin, indices_end);
+}
+
 void IColumn::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                           IColumn::Permutation& perms, EqualRange& range, bool last_column) const {
     sorter->sort_column(static_cast<const IColumn&>(*this), flags, perms, range, last_column);

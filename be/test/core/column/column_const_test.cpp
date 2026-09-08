@@ -27,7 +27,9 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/primitive_type.h"
 #include "testutil/column_helper.h"
 
@@ -81,6 +83,43 @@ TEST(ColumnConstTest, ConstNullableNullValueKeepsNullSemantics) {
     EXPECT_TRUE(const_null->is_null_at(0));
     EXPECT_TRUE(const_null->is_null_at(4));
     EXPECT_TRUE(const_null->only_null());
+}
+
+TEST(ColumnConstTest, InsertRangeAndIndicesFromConstSource) {
+    std::vector<std::pair<DataTypePtr, Field>> test_cases;
+    test_cases.emplace_back(std::make_shared<DataTypeInt64>(), Field::create_field<TYPE_BIGINT>(7));
+    test_cases.emplace_back(std::make_shared<DataTypeString>(),
+                            Field::create_field<TYPE_STRING>("const string"));
+    test_cases.emplace_back(make_nullable(std::make_shared<DataTypeInt64>()), Field());
+    test_cases.emplace_back(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt64>()),
+            Field::create_field<TYPE_ARRAY>(Array {Field::create_field<TYPE_BIGINT>(1),
+                                                   Field::create_field<TYPE_BIGINT>(2)}));
+
+    for (const auto& [type, value] : test_cases) {
+        SCOPED_TRACE(type->get_name());
+        auto source = type->create_column_const(4, value);
+
+        auto range_destination = type->create_column();
+        range_destination->insert_range_from(*source, 1, 2);
+        ASSERT_EQ(range_destination->size(), 2);
+        EXPECT_EQ((*range_destination)[0], value);
+        EXPECT_EQ((*range_destination)[1], value);
+
+        auto indices_destination = type->create_column();
+        std::vector<uint32_t> indices = {3, 1, 0};
+        indices_destination->insert_indices_from(*source, indices.data(),
+                                                 indices.data() + indices.size());
+        ASSERT_EQ(indices_destination->size(), indices.size());
+        for (size_t i = 0; i < indices.size(); ++i) {
+            EXPECT_EQ((*indices_destination)[i], value);
+        }
+
+        range_destination->insert_range_from(*source, source->size(), 0);
+        indices_destination->insert_indices_from(*source, indices.data(), indices.data());
+        EXPECT_EQ(range_destination->size(), 2);
+        EXPECT_EQ(indices_destination->size(), indices.size());
+    }
 }
 
 TEST(ColumnConstTest, clone_resized_clones_nested_data) {

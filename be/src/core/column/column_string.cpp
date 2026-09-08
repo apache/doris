@@ -158,7 +158,7 @@ bool ColumnStr<T>::has_enough_capacity(const IColumn& src) const {
 }
 
 template <typename T>
-void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
+void ColumnStr<T>::insert_range_from_impl(const IColumn& src, size_t start, size_t length) {
     if (length == 0) {
         return;
     }
@@ -193,7 +193,7 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
             }
         }
     };
-    // insert_range_from maybe called by ColumnArray::insert_indices_from(which is used by hash join operator),
+    // insert_range_from maybe called by ColumnArray::insert_indices_from (which is used by hash join operator),
     // so we need to support both ColumnStr<uint32_t> and ColumnStr<uint64_t>
     if (src.is_column_string64()) {
         do_insert(assert_cast<const ColumnStr<uint64_t>&>(src));
@@ -227,8 +227,8 @@ void ColumnStr<T>::insert_many_from(const IColumn& src, size_t position, size_t 
 }
 
 template <typename T>
-void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                                       const uint32_t* indices_end) {
+void ColumnStr<T>::insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                            const uint32_t* indices_end) {
     auto do_insert = [&](const auto& src_str) {
         const auto* __restrict src_offset_data = src_str.get_offsets().data();
 
