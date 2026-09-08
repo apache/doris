@@ -32,6 +32,7 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h"
+#include "exprs/late_runtime_filter.h"
 #include "io/io_common.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/iterators.h"
@@ -171,6 +172,7 @@ public:
 
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
         VExprContextSPtrs common_expr_ctxs_push_down;
+        std::shared_ptr<const LateRuntimeFilterContainer> late_runtime_filter_container;
 
         // used for compaction to record row ids
         bool record_rowids = false;

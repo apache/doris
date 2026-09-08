@@ -20,6 +20,10 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <memory>
+#include <vector>
+
 #include "common/object_pool.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
@@ -28,6 +32,7 @@
 #include "exec/operator/operator.h"
 #include "exec/pipeline/pipeline_task.h"
 #include "exec/runtime_filter/runtime_filter_consumer.h"
+#include "exec/runtime_filter/runtime_filter_producer.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
 #include "runtime/descriptors.h"
 
@@ -58,16 +63,14 @@ class RuntimeFilterConsumerHelperTest : public RuntimeFilterTest {
     ObjectPool _pool;
 };
 
-TEST_F(RuntimeFilterConsumerHelperTest, basic) {
-    VExprContextSPtr ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            VExpr::create_expr_tree(TRuntimeFilterDescBuilder::get_default_expr(), ctx));
-    ctx->_last_result_column_id = 0;
-
-    VExprContextSPtrs build_expr_ctxs = {ctx};
+TEST_F(RuntimeFilterConsumerHelperTest, late_runtime_filter_container) {
     std::vector<TRuntimeFilterDesc> runtime_filter_descs = {
-            TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build(),
-            TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build()};
+            TRuntimeFilterDescBuilder(101).add_planId_to_target_expr(0).build(),
+            TRuntimeFilterDescBuilder(202)
+                    .set_type(TRuntimeFilterType::MIN_MAX)
+                    .add_planId_to_target_expr(0)
+                    .build(),
+            TRuntimeFilterDescBuilder(303).add_planId_to_target_expr(0).build()};
 
     std::vector<std::shared_ptr<Dependency>> runtime_filter_dependencies;
     SlotDescriptor slot_desc;
@@ -82,28 +85,69 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper.init(_runtime_states[0].get(), true, 0, 0, runtime_filter_dependencies, ""));
 
+    std::shared_ptr<RuntimeFilterProducer> ready_producer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
+            _query_ctx.get(), &runtime_filter_descs[0], &ready_producer));
+    ready_producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    helper._consumers[0]->signal(ready_producer.get());
+
     VExprContextSPtrs conjuncts;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper.acquire_runtime_filter(_runtime_states[0].get(), conjuncts, row_desc));
-    ASSERT_EQ(conjuncts.size(), 0);
+    ASSERT_EQ(conjuncts.size(), 1);
 
-    std::shared_ptr<RuntimeFilterProducer> producer;
+    auto container = helper.late_runtime_filter_container();
+    ASSERT_NE(container, nullptr);
+    ASSERT_EQ(container->filters.size(), 2);
+    EXPECT_EQ(container->filters[0].filter_id, 202);
+    EXPECT_EQ(container->filters[1].filter_id, 303);
+    EXPECT_FALSE(container->filters[0].valid.load(std::memory_order_acquire));
+    EXPECT_FALSE(container->filters[1].valid.load(std::memory_order_acquire));
+    EXPECT_EQ(container->filters[0].expr, nullptr);
+    EXPECT_EQ(container->filters[1].expr, nullptr);
+    EXPECT_EQ(container->arrived_cnt.load(std::memory_order_acquire), 0);
+    const auto* fixed_entries = container->filters.data();
+
+    std::shared_ptr<RuntimeFilterProducer> accepted_producer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
-            _query_ctx.get(), runtime_filter_descs.data(), &producer));
-    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
-    helper._consumers[0]->signal(producer.get());
+            _query_ctx.get(), &runtime_filter_descs[1], &accepted_producer));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(accepted_producer->init(123));
+    accepted_producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    helper._consumers[1]->signal(accepted_producer.get());
 
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.acquire_runtime_filter(_runtime_states[0].get(), conjuncts, row_desc));
-    ASSERT_EQ(conjuncts.size(), 1);
-
-    conjuncts.clear();
+    VExprContextSPtrs late_conjuncts;
     int arrived_rf_num = -1;
-    helper._consumers[1]->signal(producer.get());
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.try_append_late_arrival_runtime_filter(
-            _runtime_states[0].get(), row_desc, arrived_rf_num, conjuncts));
-    ASSERT_EQ(conjuncts.size(), 1);
-    ASSERT_EQ(arrived_rf_num, 2);
+            _runtime_states[0].get(), row_desc, arrived_rf_num, late_conjuncts,
+            [](const VExprSPtr&) { return true; }));
+    ASSERT_EQ(late_conjuncts.size(), 2);
+    EXPECT_EQ(arrived_rf_num, 2);
+    EXPECT_EQ(container->filters.data(), fixed_entries);
+    ASSERT_TRUE(container->filters[0].valid.load(std::memory_order_acquire));
+    ASSERT_NE(container->filters[0].expr, nullptr);
+    EXPECT_EQ(container->filters[0].expr->size(), 2);
+    EXPECT_NE((*container->filters[0].expr)[0].get(), late_conjuncts[0].get());
+    EXPECT_NE((*container->filters[0].expr)[1].get(), late_conjuncts[1].get());
+    EXPECT_FALSE(container->filters[1].valid.load(std::memory_order_acquire));
+    EXPECT_EQ(container->filters[1].expr, nullptr);
+    EXPECT_EQ(container->arrived_cnt.load(std::memory_order_acquire), 1);
+
+    std::shared_ptr<RuntimeFilterProducer> rejected_producer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
+            _query_ctx.get(), &runtime_filter_descs[2], &rejected_producer));
+    rejected_producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    helper._consumers[2]->signal(rejected_producer.get());
+
+    late_conjuncts.clear();
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.try_append_late_arrival_runtime_filter(
+            _runtime_states[0].get(), row_desc, arrived_rf_num, late_conjuncts,
+            [](const VExprSPtr&) { return false; }));
+    ASSERT_EQ(late_conjuncts.size(), 1);
+    EXPECT_EQ(arrived_rf_num, 3);
+    EXPECT_EQ(container->filters.data(), fixed_entries);
+    EXPECT_FALSE(container->filters[1].valid.load(std::memory_order_acquire));
+    EXPECT_EQ(container->filters[1].expr, nullptr);
+    EXPECT_EQ(container->arrived_cnt.load(std::memory_order_acquire), 1);
 }
 
 } // namespace doris

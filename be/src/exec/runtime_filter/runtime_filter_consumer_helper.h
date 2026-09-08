@@ -17,9 +17,15 @@
 
 #pragma once
 
+#include <cstdint>
+#include <functional>
+#include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include "exec/pipeline/dependency.h"
+#include "exprs/late_runtime_filter.h"
 #include "exprs/runtime_filter_expr.h"
 #include "runtime/runtime_profile.h"
 
@@ -30,6 +36,9 @@ namespace doris {
  */
 class RuntimeFilterConsumerHelper {
 public:
+    // Returns whether a late RF implementation is safe to evaluate in the storage layer.
+    using StorageFilterChecker = std::function<bool(const VExprSPtr&)>;
+
     RuntimeFilterConsumerHelper(const std::vector<TRuntimeFilterDesc>& runtime_filters);
     ~RuntimeFilterConsumerHelper() = default;
 
@@ -39,13 +48,15 @@ public:
     // Called by Operator.
     Status acquire_runtime_filter(RuntimeState* state, VExprContextSPtrs& conjuncts,
                                   const RowDescriptor& row_descriptor);
-    // The un-arrival filters will be checked every time the scanner is scheduled.
-    // And once new runtime filters arrived, we will use it to do operator's filtering.
+    // The un-arrival filters will be checked every time the scanner is scheduled. Once a new
+    // runtime filter arrives, append it to the operator conjuncts and, when accepted by
+    // storage_filter_checker, publish it to the shared storage container.
     // Called by Scanner.
     Status try_append_late_arrival_runtime_filter(RuntimeState* state,
                                                   const RowDescriptor& row_descriptor,
                                                   int& arrived_rf_num,
-                                                  VExprContextSPtrs& arrived_conjuncts);
+                                                  VExprContextSPtrs& arrived_conjuncts,
+                                                  StorageFilterChecker storage_filter_checker);
 
     // Called by XXXLocalState::close()
     // parent_operator_profile is owned by LocalState so update it is safe at here.
@@ -53,20 +64,29 @@ public:
 
     size_t runtime_filter_nums() const { return _runtime_filter_descs.size(); }
 
+    std::shared_ptr<const LateRuntimeFilterContainer> late_runtime_filter_container() const {
+        return _late_runtime_filter_container;
+    }
+
 private:
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(RuntimeState* state,
                                      const std::vector<RuntimeFilterExprPtr>& vexprs,
                                      VExprContextSPtrs& conjuncts,
                                      const RowDescriptor& row_descriptor);
+    void _publish_late_runtime_filter(int32_t filter_id,
+                                      std::shared_ptr<const LateRuntimeFilterExprGroup> expr_group);
 
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> _consumers;
     std::mutex _rf_locks;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 
-    // True means all runtime filters are applied to scanners
-    bool _is_all_rf_applied = true;
+    // True means every consumer has been acquired. An acquired RF can still be absent from the
+    // storage container when it is disabled or unsafe to push down.
+    bool _is_all_rf_applied {false};
+
+    std::shared_ptr<LateRuntimeFilterContainer> _late_runtime_filter_container;
 
     std::unique_ptr<RuntimeProfile::Counter> _acquire_runtime_filter_timer =
             std::make_unique<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);

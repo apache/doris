@@ -32,6 +32,7 @@
 #include "exec/runtime_filter/runtime_filter_partition_pruner.h"
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner_context.h"
+#include "exprs/late_runtime_filter.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vin_predicate.h"
 #include "runtime/descriptors.h"
@@ -101,6 +102,10 @@ public:
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
     uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
+
+    std::shared_ptr<const LateRuntimeFilterContainer> late_runtime_filter_container() const {
+        return _helper.late_runtime_filter_container();
+    }
 
     Status update_late_arrival_runtime_filter(RuntimeState* state, int& arrived_rf_num);
 
@@ -189,6 +194,10 @@ protected:
                                                      PushDownType& pdt) {
         pdt = PushDownType::UNACCEPTABLE;
         return Status::OK();
+    }
+    virtual bool _should_push_down_common_expr(const VExprSPtr&) { return false; }
+    virtual bool _should_push_down_late_runtime_filter(const VExprSPtr& expr) {
+        return _should_push_down_common_expr(expr);
     }
 
     // Non-templated normalize methods, moved here to avoid re-compilation per Derived type.
@@ -293,7 +302,6 @@ protected:
 
     Status _init_profile() override;
     virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
-    virtual bool _should_push_down_common_expr(const VExprSPtr&) { return false; }
 
     virtual bool can_push_down_column_predicate(const SlotDescriptor* slot) {
         return _parent->cast<typename Derived::Parent>().can_push_down_column_predicate(slot);
