@@ -303,8 +303,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((ComparableLiteral) greaterThan.left())
-                .compareTo((ComparableLiteral) greaterThan.right()) > 0);
+        if (greaterThan.left() instanceof ComparableLiteral && greaterThan.right() instanceof ComparableLiteral) {
+            return BooleanLiteral.of(((ComparableLiteral) greaterThan.left())
+                    .compareTo((ComparableLiteral) greaterThan.right()) > 0);
+        }
+        return greaterThan;
     }
 
     @Override
@@ -314,8 +317,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((ComparableLiteral) greaterThanEqual.left())
-                .compareTo((ComparableLiteral) greaterThanEqual.right()) >= 0);
+        if (greaterThanEqual.left() instanceof ComparableLiteral
+                && greaterThanEqual.right() instanceof ComparableLiteral) {
+            return BooleanLiteral.of(((ComparableLiteral) greaterThanEqual.left())
+                    .compareTo((ComparableLiteral) greaterThanEqual.right()) >= 0);
+        }
+        return greaterThanEqual;
     }
 
     @Override
@@ -325,8 +332,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((ComparableLiteral) lessThan.left())
-                .compareTo((ComparableLiteral) lessThan.right()) < 0);
+        if (lessThan.left() instanceof ComparableLiteral && lessThan.right() instanceof ComparableLiteral) {
+            return BooleanLiteral.of(((ComparableLiteral) lessThan.left())
+                    .compareTo((ComparableLiteral) lessThan.right()) < 0);
+        }
+        return lessThan;
     }
 
     @Override
@@ -336,8 +346,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((ComparableLiteral) lessThanEqual.left())
-                .compareTo((ComparableLiteral) lessThanEqual.right()) <= 0);
+        if (lessThanEqual.left() instanceof ComparableLiteral
+                && lessThanEqual.right() instanceof ComparableLiteral) {
+            return BooleanLiteral.of(((ComparableLiteral) lessThanEqual.left())
+                    .compareTo((ComparableLiteral) lessThanEqual.right()) <= 0);
+        }
+        return lessThanEqual;
     }
 
     @Override
