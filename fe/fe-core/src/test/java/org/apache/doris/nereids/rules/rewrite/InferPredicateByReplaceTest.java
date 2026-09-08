@@ -179,8 +179,8 @@ public class InferPredicateByReplaceTest {
             SlotReference a = new SlotReference("a", DateTimeV2Type.of(sourceScale));
             SlotReference b = new SlotReference("b", DateTimeV2Type.of(sourceScale));
             InPredicate predicate = new InPredicate(a, ImmutableList.of(
-                    new DateTimeV2Literal("2025-01-01 00:00:00"),
-                    new DateTimeV2Literal("2025-01-01 00:00:01")));
+                    new DateTimeV2Literal(DateTimeV2Type.of(sourceScale), "2025-01-01 00:00:00"),
+                    new DateTimeV2Literal(DateTimeV2Type.of(sourceScale), "2025-01-01 00:00:01")));
             InPredicate expected = new InPredicate(b, predicate.getOptions());
             for (int targetScale : new int[] {0, 3, 6}) {
                 EqualTo equality = new EqualTo(new Cast(a, DateTimeV2Type.of(targetScale)),
