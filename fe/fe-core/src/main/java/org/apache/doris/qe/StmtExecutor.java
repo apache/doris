@@ -1300,16 +1300,16 @@ public class StmtExecutor {
     }
 
     private void forwardToMaster() throws Exception {
-        // FAIL CLOSED for session-narrowed (SU) sessions: the narrowing (sessionRoleOverride)
-        // is local ConnectContext state and is NOT carried in the forward RPC, so the master
-        // would rebuild the session with the target identity but NO override and authorize the
-        // statement against the target's FULL role set. A narrowed serving session's reads run
-        // locally on this FE; a statement that must be forwarded (SHOW-class metadata forwarded
-        // to master, DDL/DML/GRANT) is refused rather than run un-narrowed on the master.
-        if (context.getSessionRoleOverride() != null) {
-            throw new UserException("This statement would be forwarded to the master FE, which is not "
-                    + "allowed in a session-narrowed (SU) session, because the narrowing does not "
-                    + "propagate to the master. Run it in a non-narrowed session.");
+        // A session-narrowed (SU) session carries its active role subset in the forward request
+        // (TMasterOpRequest.is_su_user / current_roles) and the master installs it before
+        // executing. An older master silently ignores those fields and would authorize the
+        // statement against the target's FULL role union, so fail closed unless the master is
+        // known to run this same build (a rolling upgrade upgrades the master last).
+        if (context.getSessionRoleOverride() != null && !Env.getCurrentEnv().masterRunsSameBuild()) {
+            throw new UserException("This statement would be forwarded to the master FE, which runs a "
+                    + "different build than this FE; a session-narrowed (SU) session forwards only when "
+                    + "the master is known to apply the narrowing. Retry once the rolling upgrade "
+                    + "completes, or run it in a non-narrowed session.");
         }
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
         if (LOG.isDebugEnabled()) {

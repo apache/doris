@@ -273,7 +273,49 @@ public class Auth implements Writable {
         }
     }
 
+    // SU narrowing: FE-side SU narrowing for BE->FE metadata RPC handler threads, which have NO
+    // ConnectContext. The handler installs the calling session's narrowed role NAMES here (keyed by
+    // the target identity) around its privilege filter; getRolesByUserWithLdap then narrows exactly
+    // as a live SU session would. The handler MUST clear it in a finally (thrift threads are pooled).
+    private static final ThreadLocal<Map<UserIdentity, Set<String>>> RPC_SESSION_NARROWING =
+            new ThreadLocal<>();
+
+    public static void setRpcSessionNarrowing(UserIdentity user, Set<String> roleNames) {
+        Map<UserIdentity, Set<String>> m = Maps.newHashMap();
+        m.put(user, roleNames);
+        RPC_SESSION_NARROWING.set(m);
+    }
+
+    public static void clearRpcSessionNarrowing() {
+        RPC_SESSION_NARROWING.remove();
+    }
+
+    // The SU-narrowed role set: exactly the override roles + the implicit information_schema/mysql
+    // read baseline (see narrowingBaselineRole). Shared by the live-session and RPC-handler paths.
+    private Set<Role> narrowedRoleSet(Set<String> overrideRoleNames) {
+        Set<Role> narrowed = Sets.newHashSet();
+        for (String roleName : overrideRoleNames) {
+            Role role = roleManager.getRole(roleName);
+            if (role != null) {
+                narrowed.add(role);
+            }
+        }
+        Role baseline = narrowingBaselineRole();
+        if (baseline != null) {
+            narrowed.add(baseline);
+        }
+        return narrowed;
+    }
+
     public Set<Role> getRolesByUserWithLdap(UserIdentity userIdentity) {
+        Map<UserIdentity, Set<String>> rpcNarrow = RPC_SESSION_NARROWING.get();
+        if (rpcNarrow != null) {
+            Set<String> rpcOverride = rpcNarrow.get(userIdentity);
+            if (rpcOverride != null) {
+                // SU narrowing: a BE->FE metadata RPC carried this session's narrowed role subset.
+                return narrowedRoleSet(rpcOverride);
+            }
+        }
         Set<Role> roles = Sets.newHashSet();
         Set<String> roleNames = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roleNames) {
@@ -294,25 +336,9 @@ public class Auth implements Writable {
             if (sessionRoleOverride != null) {
                 // SU-narrowed session: the override REPLACES every role source (user grants, LDAP,
                 // authenticated roles). SuUserCommand enforced the ceiling at switch time.
-                Set<Role> narrowed = Sets.newHashSet();
-                for (String roleName : sessionRoleOverride) {
-                    Role role = roleManager.getRole(roleName);
-                    if (role != null) {
-                        narrowed.add(role);
-                    }
-                }
-                // Preserve the implicit information_schema/mysql read access that every session's
-                // default role carries, so a narrowed session can still do basic metadata/client
-                // operations (BI drivers, SHOW, information_schema listings). These databases are
-                // self-filtered by the session's actual privileges — a narrowed session sees only
-                // rows for objects it can access — so keeping them widens NO data access while every
-                // privilege-bearing role (and the user's direct grants in the default role) stays
-                // dropped.
-                Role baseline = narrowingBaselineRole();
-                if (baseline != null) {
-                    narrowed.add(baseline);
-                }
-                return narrowed;
+                // SU-narrowed session: the override REPLACES every role source; return the
+                // override roles + the information_schema/mysql read baseline (see narrowedRoleSet).
+                return narrowedRoleSet(sessionRoleOverride);
             }
             for (String roleName : ctx.getAuthenticatedRoles()) {
                 Role role = roleManager.getRole(roleName);
