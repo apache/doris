@@ -17,38 +17,24 @@
 
 #include "doris_txn.h"
 
+#include <array>
 #include <bit>
 #include <cstring>
+
+#include "meta-store/versionstamp.h"
 
 namespace doris::cloud {
 
 int get_txn_id_from_fdb_ts(std::string_view fdb_vts, int64_t* txn_id) {
     if (fdb_vts.size() != 10) return 1; // Malformed version timestamp
 
-    // fdb version timestamp is big-endian
-    //           MSB               LSB
-    //           0000000000000000 0000
-    //           ts               seq
-    // byte addr 0 1 2 3 4 5 6 7  8 9
-    // The input may be unaligned; copy bytes instead of aliasing them as int64_t.
-    int64_t ver;
-    std::memcpy(&ver, fdb_vts.data(), sizeof(ver));
-
-    // TODO(gavin): implementation for big-endian or make it endian-independent
-    static_assert(std::endian::native == std::endian::little); // Since c++20
-    // Convert big endian to little endian
-    static auto to_little = [](int64_t v) {
-        v = ((v & 0xffffffff00000000) >> 32) | ((v & 0x00000000ffffffff) << 32);
-        v = ((v & 0xffff0000ffff0000) >> 16) | ((v & 0x0000ffff0000ffff) << 16);
-        v = ((v & 0xff00ff00ff00ff00) >> 8) | ((v & 0x00ff00ff00ff00ff) << 8);
-        return v;
-    };
-    ver = to_little(ver);
-
-    int64_t seq;
-    std::memcpy(&seq, fdb_vts.data() + 2, sizeof(seq));
-    seq = to_little(seq);
-    seq &= 0x000000000000ffff; // Strip off non-seq part
+    static_assert(std::endian::native == std::endian::little);
+    // Copy the possibly unaligned input before decoding its big-endian fields.
+    std::array<uint8_t, 10> bytes;
+    std::memcpy(bytes.data(), fdb_vts.data(), bytes.size());
+    const Versionstamp versionstamp(bytes);
+    uint64_t ver = versionstamp.version();
+    uint16_t seq = versionstamp.order();
 
     // CAUTION: DO NOT EVER TOUCH IT!!! UNLESS YOU ARE PREPARED FOR THE DOOM!!!
     // CAUTION: DO NOT EVER TOUCH IT!!! UNLESS YOU ARE PREPARED FOR THE DOOM!!!
@@ -65,7 +51,7 @@ int get_txn_id_from_fdb_ts(std::string_view fdb_vts, int64_t* txn_id) {
     ver <<= SEQ_RETAIN_BITS;
     ver |= seq;
 
-    *txn_id = ver;
+    *txn_id = static_cast<int64_t>(ver);
     return 0;
 }
 

@@ -103,7 +103,7 @@ TEST(TxnIdConvert, TxnIdTest) {
 }
 
 TEST(TxnIdConvert, UnalignedVersionstamp) {
-    // Cover every alignment for both eight-byte reads, including odd addresses.
+    // Cover every input alignment, including odd addresses.
     // The payload has high bits set in both version bytes and sequence bytes.
     constexpr std::array<unsigned char, 10> versionstamp = {0x00, 0x1f, 0x82, 0xa5, 0xed,
                                                             0x17, 0x3f, 0x80, 0x03, 0xff};
