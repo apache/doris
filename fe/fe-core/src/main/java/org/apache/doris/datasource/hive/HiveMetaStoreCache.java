@@ -499,6 +499,16 @@ public class HiveMetaStoreCache {
         return getAllPartitions(dorisTable, partitionValuesList, true);
     }
 
+    public void putPartitionsCache(ExternalTable dorisTable, List<Partition> partitions) {
+        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        for (Partition partition : partitions) {
+            StorageDescriptor sd = partition.getSd();
+            partitionCache.put(new PartitionCacheKey(nameMapping, partition.getValues()),
+                    new HivePartition(nameMapping, false, sd.getInputFormat(), sd.getLocation(),
+                            partition.getValues(), partition.getParameters()));
+        }
+    }
+
     public List<HivePartition> getAllPartitionsWithoutCache(ExternalTable dorisTable,
             List<List<String>> partitionValuesList) {
         return getAllPartitions(dorisTable, partitionValuesList, false);

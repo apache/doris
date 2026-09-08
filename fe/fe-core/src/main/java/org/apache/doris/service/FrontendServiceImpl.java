@@ -1065,7 +1065,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         SplitSource splitSource =
                 Env.getCurrentEnv().getSplitSourceManager().getSplitSource(request.getSplitSourceId());
         if (splitSource == null) {
-            throw new TException("Split source " + request.getSplitSourceId() + " is released");
+            result.setSplits(Collections.emptyList());
+            result.status = new TStatus(TStatusCode.OK);
+            return result;
         }
         try {
             List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits());

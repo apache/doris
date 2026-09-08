@@ -147,8 +147,15 @@ public class HiveScanNode extends FileQueryScanNode {
                 throw new AnalysisException("Should use Nereids to prune partitions. "
                         + "set enable_fallback_to_original_planner=false and try again");
             }
-            this.totalPartitionNum = selectedPartitions.totalPartitionNum;
-            partitionItems = selectedPartitions.selectedPartitions.values();
+            if (selectedPartitions == SelectedPartitions.NOT_PRUNED) {
+                HiveMetaStoreCache.HivePartitionValues partitionValues = hmsTable.getHivePartitionValues(
+                        MvccUtil.getSnapshotFromContext(hmsTable));
+                this.totalPartitionNum = partitionValues.getIdToPartitionItem().size();
+                partitionItems = partitionValues.getIdToPartitionItem().values();
+            } else {
+                this.totalPartitionNum = selectedPartitions.totalPartitionNum;
+                partitionItems = selectedPartitions.selectedPartitions.values();
+            }
             Preconditions.checkNotNull(partitionItems);
             this.selectedPartitionNum = partitionItems.size();
 
@@ -607,5 +614,4 @@ public class HiveScanNode extends FileQueryScanNode {
         return compressType;
     }
 }
-
 

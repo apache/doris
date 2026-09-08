@@ -297,6 +297,22 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
+    public List<Partition> listPartitionsByFilter(String dbName, String tblName, String filter) {
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                return ugiDoAs(() -> client.client.listPartitionsByFilter(dbName, tblName, filter,
+                        MAX_LIST_PARTITION_NUM));
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to list partitions by filter for table %s in db %s", e,
+                    tblName, dbName);
+        }
+    }
+
+    @Override
     public List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum) {
         // list all parts when the limit is greater than the short maximum
         short limited = maxListPartitionNum <= Short.MAX_VALUE ? (short) maxListPartitionNum : MAX_LIST_PARTITION_NUM;

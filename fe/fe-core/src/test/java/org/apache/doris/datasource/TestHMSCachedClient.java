@@ -110,6 +110,11 @@ public class TestHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
+    public List<Partition> listPartitionsByFilter(String dbName, String tblName, String filter) {
+        return getPartitionList(dbName, tblName);
+    }
+
+    @Override
     public List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum) {
         return listPartitionNames(dbName, tblName);
     }

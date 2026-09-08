@@ -19,6 +19,8 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSClientException;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -33,6 +35,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -50,6 +54,7 @@ import java.util.stream.Collectors;
  * external file ScanNode could do the partition filter by themselves.
  */
 public class PruneFileScanPartition extends OneRewriteRuleFactory {
+    private static final Logger LOG = LogManager.getLogger(PruneFileScanPartition.class);
 
     @Override
     public Rule build() {
@@ -89,7 +94,26 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 .map(column -> scanOutput.get(column.getName().toLowerCase()))
                 .collect(Collectors.toList());
 
+        if (externalTable instanceof HMSExternalTable) {
+            String hmsFilter = ((HMSExternalTable) externalTable).getHmsPartitionFilter(
+                    filter.getPredicate(), partitionSlots);
+            if (hmsFilter != null) {
+                try {
+                    return ((HMSExternalTable) externalTable).getSelectedPartitionsByHmsFilter(
+                            hmsFilter, ctx.getStatementContext().getSnapshot(externalTable));
+                } catch (HMSClientException e) {
+                    LOG.warn("Failed to prune Hive partitions through HMS filter for {}.{} with filter '{}', "
+                                    + "falling back to local partition pruning",
+                            externalTable.getDbName(), externalTable.getName(), hmsFilter, e);
+                }
+            }
+        }
+
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
+        if (nameToPartitionItem.isEmpty() && scan.getSelectedPartitions() == SelectedPartitions.NOT_PRUNED) {
+            nameToPartitionItem = externalTable.getNameToPartitionItems(
+                    ctx.getStatementContext().getSnapshot(externalTable));
+        }
         Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.empty();
         boolean enableBinarySearch = ctx.getConnectContext() == null
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;

@@ -56,6 +56,14 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.GlobalVariable;
@@ -79,6 +87,7 @@ import com.google.gson.JsonObject;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
@@ -360,6 +369,86 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public boolean supportInternalPartitionPruned() {
         return getDlaType() == DLAType.HIVE || getDlaType() == DLAType.HUDI;
+    }
+
+    @Override
+    public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
+        if (getDlaType() == DLAType.HIVE && !getPartitionColumns(snapshot).isEmpty()) {
+            return SelectedPartitions.NOT_PRUNED;
+        }
+        return super.initSelectedPartitions(snapshot);
+    }
+
+    public String getHmsPartitionFilter(Expression predicate, List<Slot> partitionSlots) {
+        if (getDlaType() != DLAType.HIVE) {
+            return null;
+        }
+        Set<String> partitionNames = partitionSlots.stream()
+                .map(slot -> slot.getName().toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
+        return toHmsPartitionFilter(predicate, partitionNames);
+    }
+
+    private String toHmsPartitionFilter(Expression predicate, Set<String> partitionNames) {
+        if (predicate instanceof And) {
+            List<String> filters = new ArrayList<>();
+            for (Expression child : predicate.children()) {
+                String filter = toHmsPartitionFilter(child, partitionNames);
+                if (filter != null) {
+                    filters.add(filter);
+                }
+            }
+            return filters.isEmpty() ? null : "(" + String.join(" AND ", filters) + ")";
+        }
+        if (predicate instanceof EqualTo) {
+            return toHmsComparisonFilter((ComparisonPredicate) predicate, partitionNames);
+        }
+        if (predicate instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) predicate;
+            if (!(inPredicate.getCompareExpr() instanceof SlotReference)
+                    || !partitionNames.contains(inPredicate.getCompareExpr().getInputSlots().iterator().next()
+                            .getName().toLowerCase(Locale.ROOT))) {
+                return null;
+            }
+            List<String> filters = new ArrayList<>();
+            for (Expression option : inPredicate.getOptions()) {
+                if (!(option instanceof Literal)) {
+                    return null;
+                }
+                filters.add(inPredicate.getCompareExpr().toSql() + " = " + option.toSql());
+            }
+            return filters.isEmpty() ? null : "(" + String.join(" OR ", filters) + ")";
+        }
+        return null;
+    }
+
+    private String toHmsComparisonFilter(ComparisonPredicate predicate, Set<String> partitionNames) {
+        if (!(predicate.left() instanceof SlotReference) || !(predicate.right() instanceof Literal)) {
+            return null;
+        }
+        SlotReference slot = (SlotReference) predicate.left();
+        if (!partitionNames.contains(slot.getName().toLowerCase(Locale.ROOT))) {
+            return null;
+        }
+        return slot.getName() + " = " + predicate.right().toSql();
+    }
+
+    public SelectedPartitions getSelectedPartitionsByHmsFilter(String filter,
+            Optional<MvccSnapshot> snapshot) {
+        List<Column> partitionColumns = getPartitionColumns(snapshot);
+        List<Type> partitionTypes = getPartitionColumnTypes(snapshot);
+        List<String> partitionColumnNames = partitionColumns.stream()
+                .map(Column::getName).collect(Collectors.toList());
+        List<Partition> partitions = ((HMSExternalCatalog) catalog).getClient().listPartitionsByFilter(
+                getRemoteDbName(), getRemoteName(), filter);
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) catalog);
+        Map<String, PartitionItem> selected = Maps.newHashMapWithExpectedSize(partitions.size());
+        for (Partition partition : partitions) {
+            String partitionName = FileUtils.makePartName(partitionColumnNames, partition.getValues());
+            selected.put(partitionName, cache.toListPartitionItem(partitionName, partitionTypes));
+        }
+        cache.putPartitionsCache(this, partitions);
+        return new SelectedPartitions(selected.size(), selected, true);
     }
 
     @Override

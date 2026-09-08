@@ -54,6 +54,8 @@ public interface HMSCachedClient {
 
     List<Partition> listPartitions(String dbName, String tblName);
 
+    List<Partition> listPartitionsByFilter(String dbName, String tblName, String filter);
+
     List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum);
 
     Partition getPartition(String dbName, String tblName, List<String> partitionValues);

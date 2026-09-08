@@ -19,41 +19,20 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.common.util.MasterDaemon;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.lang.ref.ReferenceQueue;
-import java.lang.ref.WeakReference;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * `SplitSource` is obtained by RPC call of `FrontendServiceImpl#fetchSplitBatch`.
  * Each `SplitSource` is reference by its unique ID. `SplitSourceManager` provides the register, get, and remove
- * function to manage the split sources. In order to clean the split source when the query finished,
- * `SplitSource` is stored as a weak reference, and use `ReferenceQueue` to remove split source when GC.
+ * function to manage the split sources. Each source remains strongly reachable until the query explicitly
+ * releases it through {@link FileQueryScanNode#stop()}.
  */
 public class SplitSourceManager extends MasterDaemon {
-    private static final Logger LOG = LogManager.getLogger(SplitSourceManager.class);
-
-    public static class SplitSourceReference extends WeakReference<SplitSource> {
-        private final long uniqueId;
-
-        public SplitSourceReference(SplitSource splitSource, ReferenceQueue<? super SplitSource> queue) {
-            super(splitSource, queue);
-            uniqueId = splitSource.getUniqueId();
-        }
-
-        public long getUniqueId() {
-            return uniqueId;
-        }
-    }
-
-    private final ReferenceQueue<SplitSource> splitsRefQueue = new ReferenceQueue<>();
-    private final Map<Long, WeakReference<SplitSource>> splits = new ConcurrentHashMap<>();
+    private final Map<Long, SplitSource> splits = new ConcurrentHashMap<>();
 
     public void registerSplitSource(SplitSource splitSource) {
-        splits.put(splitSource.getUniqueId(), new SplitSourceReference(splitSource, splitsRefQueue));
+        splits.put(splitSource.getUniqueId(), splitSource);
     }
 
     public void removeSplitSource(long uniqueId) {
@@ -61,23 +40,10 @@ public class SplitSourceManager extends MasterDaemon {
     }
 
     public SplitSource getSplitSource(long uniqueId) {
-        WeakReference<SplitSource> ref = splits.get(uniqueId);
-        if (ref == null) {
-            return null;
-        } else {
-            return ref.get();
-        }
+        return splits.get(uniqueId);
     }
 
     @Override
     protected void runAfterCatalogReady() {
-        while (true) {
-            try {
-                SplitSourceReference reference = (SplitSourceReference) splitsRefQueue.remove();
-                removeSplitSource(reference.getUniqueId());
-            } catch (Exception e) {
-                LOG.warn("Failed to clean split source", e);
-            }
-        }
     }
 }
