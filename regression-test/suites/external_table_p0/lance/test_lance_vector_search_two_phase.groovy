@@ -71,7 +71,9 @@ suite("test_lance_vector_search_two_phase", "p0,external") {
         //   phase 1: Lance reads embedding for ANN, but outputs only _distance and the hidden row ID
         //   global TopN: OFFSET 1 / LIMIT 5
         //   phase 2: fetch row_id, category and label by the hidden row ID
-        sql "SET topn_lazy_materialization_threshold = 1024"
+        // Lance remains enabled even when the generic TopN optimization is disabled.
+        sql "SET topn_lazy_materialization_threshold = -1"
+        sql "SET enable_lance_lazy_materialization = true"
         explain {
             sql "verbose ${resultQuery}"
             check { explainString ->
@@ -100,9 +102,10 @@ suite("test_lance_vector_search_two_phase", "p0,external") {
 
         qt_two_phase_execution "${resultQuery}"
 
-        // Turning the threshold off removes both the Materialization node and the hidden row ID.
+        // The Lance switch disables materialization even when the generic threshold allows it.
         // The user-visible result must remain identical to the two-phase result.
-        sql "SET topn_lazy_materialization_threshold = -1"
+        sql "SET topn_lazy_materialization_threshold = 1024"
+        sql "SET enable_lance_lazy_materialization = false"
         explain {
             sql "verbose ${resultQuery}"
             notContains "VMaterializeNode"
@@ -115,7 +118,7 @@ suite("test_lance_vector_search_two_phase", "p0,external") {
         }
         qt_one_phase_execution "${resultQuery}"
 
-        sql "SET topn_lazy_materialization_threshold = 1024"
+        sql "SET enable_lance_lazy_materialization = true"
 
         // TVF filter is a Lance prefilter. Lance reads category while selecting ANN candidates
         // and removes ineligible rows before nearest(), so the three nearest category='odd' rows
