@@ -51,6 +51,18 @@ suite("infer_agg_not_null") {
         LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
     """
 
+    order_qt_count_coalesce_argument """
+        SELECT COUNT(COALESCE(r.v, 0))
+        FROM infer_agg_not_null_left l
+        LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
+    """
+
+    order_qt_mixed_count_array_agg """
+        SELECT COUNT(r.v), ARRAY_SIZE(ARRAY_AGG(r.v))
+        FROM infer_agg_not_null_left l
+        LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
+    """
+
     explain {
         sql """
             SHAPE PLAN
@@ -69,5 +81,25 @@ suite("infer_agg_not_null") {
             LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
         """
         contains "INNER_JOIN"
+    }
+
+    explain {
+        sql """
+            SHAPE PLAN
+            SELECT COUNT(COALESCE(r.v, 0))
+            FROM infer_agg_not_null_left l
+            LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
+        """
+        contains "LEFT_OUTER_JOIN"
+    }
+
+    explain {
+        sql """
+            SHAPE PLAN
+            SELECT COUNT(r.v), ARRAY_SIZE(ARRAY_AGG(r.v))
+            FROM infer_agg_not_null_left l
+            LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
+        """
+        contains "LEFT_OUTER_JOIN"
     }
 }

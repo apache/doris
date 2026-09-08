@@ -28,8 +28,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -92,8 +95,11 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .aggGroupUsingIndex(ImmutableList.of(),
                         ImmutableList.of(
+                                new Alias(new Count(false, scan1.getOutput().get(1)), "count_k"),
                                 new Alias(new Avg(scan1.getOutput().get(1)), "avg_k"),
-                                new Alias(new Sum(scan1.getOutput().get(1)), "sum_k")))
+                                new Alias(new Sum(scan1.getOutput().get(1)), "sum_k"),
+                                new Alias(new Max(scan1.getOutput().get(1)), "max_k"),
+                                new Alias(new Min(scan1.getOutput().get(1)), "min_k")))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -103,6 +109,40 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                                 logicalFilter().when(filter -> filter.getConjuncts().size() == 1
                                         && filter.getConjuncts().stream()
                                         .allMatch(e -> ((Not) e).isGeneratedIsNotNull()))
+                        )
+                );
+    }
+
+    @Test
+    void testNotInferForNullSensitiveAggregate() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new ArrayAgg(scan1.getOutput().get(1)), "values")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
+    void testNullSensitiveAggregateBlocksCommonInference() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(
+                                new Alias(new Count(false, scan1.getOutput().get(1)), "count_k"),
+                                new Alias(new ArrayAgg(scan1.getOutput().get(1)), "values")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
                         )
                 );
     }

@@ -1034,12 +1034,14 @@ public class ExpressionUtils {
     }
 
     /**
-     * Infer not-null predicates from aggregate arguments.
+     * Infer not-null predicates for an aggregate that ignores rows with SQL NULL arguments.
      *
-     * <p>An aggregate row can only be discarded when its argument evaluates to SQL NULL. FALSE is
-     * null-rejecting as a filter predicate, but it is a valid aggregate argument and must be kept.
+     * <p>The caller must first establish the aggregate's null-input contract. Even for a
+     * null-ignoring aggregate, a row can only be discarded when its argument evaluates to SQL
+     * NULL. FALSE is null-rejecting as a filter predicate, but it is a valid aggregate argument
+     * and must be kept.
      */
-    public static Set<Expression> inferNotNullForAggregateArguments(
+    public static Set<Expression> inferNotNullForNullIgnoringAggregate(
             Set<Expression> arguments, CascadesContext cascadesContext) {
         Set<Slot> targetSlots = collectNotNullInferenceTargetSlots(arguments);
         Set<Slot> notNullSlots = inferNotNullSlots(
