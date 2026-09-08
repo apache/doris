@@ -21,7 +21,6 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -43,22 +42,19 @@ import java.util.Set;
 /**
  * SU 'user'[@'host'] WITH ROLES ('role1'[, ...]) [WORKLOAD GROUP 'wg']
  *
- * <p>Session-narrowed identity switch: the session becomes the TARGET identity (audit,
- * current_user(), user-bound row policies, user properties) with a role set that REPLACES
- * every role source — enforced at the single choke point {@code Auth.getRolesByUserWithLdap}.
- * Session-only state; nothing is persisted.
+ * <p>Session-narrowed identity switch, MySQL's proxy-user model with a mandatory role list: the
+ * session becomes the TARGET identity (audit, current_user(), user-bound row policies, user
+ * properties) with a role set that REPLACES every role source, enforced at the single choke point
+ * {@code Auth.getRolesByUserWithLdap}. Session-only state; nothing is persisted.
  *
- * <p>Fail-closed contract:
+ * <p>Contract:
  * <ul>
- * <li>Allowed only for ADMIN or accounts listed in {@code Config.switch_user_users}; a session
- *     that skips SU keeps the switching account's own (minimal) grants.</li>
- * <li>NARROWING-ONLY LAW: every requested role must already be GRANTED to the ceiling identity —
- *     the target user ({@code switch_user_role_ceiling=target}, default; the session can never
- *     exceed the person's real authority) or the switching account ({@code =switcher}).</li>
- * <li>An SU'd session can never SU again, and no SET ROLE exists to widen it. Connection reset
+ * <li>Allowed only for accounts holding {@code PROXY_PRIV} (or {@code ADMIN_PRIV}, which implies
+ *     it); a session that does not switch keeps the switching account's own grants.</li>
+ * <li>Narrowing only: every requested role must already be GRANTED to the target user, so the
+ *     session can never exceed the person's real authority.</li>
+ * <li>One-shot: a switched session cannot SU again, and nothing widens it. A connection reset
  *     reverts to the authenticated identity ({@link ConnectContext#revertSessionNarrowing}).</li>
- * <li>Roles matching {@code Config.su_only_roles_pattern} are dormant in normal sessions and
- *     activate only through this command (see {@code Auth.isSuOnlyRole}).</li>
  * </ul>
  */
 public class SuUserCommand extends Command implements NoForward {
@@ -78,16 +74,12 @@ public class SuUserCommand extends Command implements NoForward {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // Re-SU refusal: a narrowed session must never widen or re-target itself.
+        // a switched session must never widen or re-target itself
         if (ctx.getAuthenticatedIdentity() != null) {
             throw new AnalysisException("SU is not allowed in an already-switched session");
         }
-        // Gate: ADMIN, or explicitly listed switcher accounts (per-FE config).
-        boolean isAdmin = Env.getCurrentEnv().getAccessManager()
-                .checkGlobalPriv(ctx, PrivPredicate.ADMIN);
-        if (!isAdmin && !isListedSwitcher(ctx.getQualifiedUser())) {
-            throw new AnalysisException("Access denied: SU requires ADMIN or membership in "
-                    + "the switch_user_users FE config");
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.PROXY)) {
+            throw new AnalysisException("Access denied: SU requires PROXY_PRIV (or ADMIN_PRIV)");
         }
 
         userIdentity.analyze();
@@ -96,22 +88,16 @@ public class SuUserCommand extends Command implements NoForward {
         }
 
         Auth auth = Env.getCurrentEnv().getAuth();
-        Set<String> targetRoles = auth.getGrantedRoleNamesRaw(userIdentity);
+        Set<String> targetRoles = auth.getGrantedRoleNames(userIdentity);
         if (targetRoles.isEmpty()) {
             // every existing user holds at least its default role
             throw new AnalysisException("SU target user does not exist: " + userIdentity);
         }
-        // NARROWING-ONLY LAW: requested roles must be a subset of the ceiling identity's
-        // RAW granted roles (dormant roles count as granted — SU is their only activation).
-        boolean switcherCeiling = "switcher".equalsIgnoreCase(Config.switch_user_role_ceiling);
-        Set<String> ceiling = switcherCeiling
-                ? auth.getGrantedRoleNamesRaw(ctx.getCurrentUserIdentity())
-                : targetRoles;
+        // narrowing only: the requested roles must be a subset of the target's granted roles
         for (String role : roles) {
-            if (!ceiling.contains(role)) {
-                throw new AnalysisException("SU role '" + role + "' is not granted to the "
-                        + (switcherCeiling ? "switching account" : "target user")
-                        + " — SU can only narrow, never mint authority");
+            if (!targetRoles.contains(role)) {
+                throw new AnalysisException("SU role '" + role + "' is not granted to the target user"
+                        + " -- SU can only narrow, never mint authority");
             }
         }
 
@@ -126,23 +112,11 @@ public class SuUserCommand extends Command implements NoForward {
             // (Auth.getRolesForWorkloadGroupCheck): the person's lane follows the person.
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup);
         }
-        // The SU linkage event: authenticated + effective identity, roles, connection — the
-        // statement itself also lands in the audit log under the effective user.
+        // the switch itself: authenticated + effective identity, roles, connection -- the
+        // statement also lands in the audit log under the effective user
         LOG.info("SU: connection {} narrowed. authenticated={} effective={} roles={} workloadGroup={}",
                 ctx.getConnectionId(), authenticated, userIdentity, roles,
                 workloadGroup == null ? "<unchanged>" : workloadGroup);
-    }
-
-    private static boolean isListedSwitcher(String qualifiedUser) {
-        if (Strings.isNullOrEmpty(Config.switch_user_users) || Strings.isNullOrEmpty(qualifiedUser)) {
-            return false;
-        }
-        for (String allowed : Config.switch_user_users.split(",")) {
-            if (qualifiedUser.equals(allowed.trim())) {
-                return true;
-            }
-        }
-        return false;
     }
 
     @Override

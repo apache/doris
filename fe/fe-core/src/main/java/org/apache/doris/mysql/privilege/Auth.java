@@ -335,8 +335,7 @@ public class Auth implements Writable {
             Set<String> sessionRoleOverride = ctx.getSessionRoleOverride();
             if (sessionRoleOverride != null) {
                 // SU-narrowed session: the override REPLACES every role source (user grants, LDAP,
-                // authenticated roles). SuUserCommand enforced the ceiling at switch time.
-                // SU-narrowed session: the override REPLACES every role source; return the
+                // authenticated roles); SuUserCommand enforced the ceiling at switch time. Return the
                 // override roles + the information_schema/mysql read baseline (see narrowedRoleSet).
                 return narrowedRoleSet(sessionRoleOverride);
             }
@@ -346,42 +345,15 @@ public class Auth implements Writable {
                     roles.add(role);
                 }
             }
-            // Dormant (SU-only) roles never activate in a normal session for the session's OWN
-            // identity: excluded here so grants AND row policies stay inert until an SU switch
-            // explicitly requests them. Introspection of OTHER identities is unaffected (guard above).
-            roles.removeIf(role -> isSuOnlyRole(role.getRoleName()));
         }
         return roles;
     }
 
-    private static volatile String suOnlyPatternSource = null;
-    private static volatile java.util.regex.Pattern suOnlyPattern = null;
-
-    /** Whether a role is dormant outside SU sessions (Config.su_only_roles_pattern; invalid/empty = never). */
-    public static boolean isSuOnlyRole(String roleName) {
-        String src = Config.su_only_roles_pattern;
-        if (src == null || src.isEmpty()) {
-            return false;
-        }
-        java.util.regex.Pattern p = suOnlyPattern;
-        if (p == null || !src.equals(suOnlyPatternSource)) {
-            try {
-                p = java.util.regex.Pattern.compile(src);
-            } catch (Exception e) {
-                LOG.error("invalid su_only_roles_pattern '{}' — dormant-role gating DISABLED", src, e);
-                p = null;
-            }
-            suOnlyPattern = p;
-            suOnlyPatternSource = src;
-        }
-        return p != null && p.matcher(roleName).find();
-    }
-
     /**
-     * RAW granted role names for an identity (user grants + LDAP), bypassing session shaping
-     * (SU override and dormant filtering). Used for the SU ceiling check and existence probing.
+     * The role names granted to an identity (user grants + LDAP), ignoring any SU narrowing of the
+     * current session. Used for the SU ceiling check and for existence probing.
      */
-    public Set<String> getGrantedRoleNamesRaw(UserIdentity userIdentity) {
+    public Set<String> getGrantedRoleNames(UserIdentity userIdentity) {
         Set<String> names = Sets.newHashSet(userRoleManager.getRolesByUser(userIdentity));
         if (isLdapAuthEnabled()) {
             Set<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
@@ -427,12 +399,11 @@ public class Auth implements Writable {
     }
 
     /**
-     * The role set consulted for WORKLOAD GROUP privilege checks.    /**
      * The role set consulted for WORKLOAD GROUP privilege checks. Identical to
      * {@link #getRolesByUserWithLdap} for a normal session. In an SU-narrowed session the
      * narrowed set is widened with the effective identity's own granted roles (its default
-     * role (where direct grants live) plus explicit and LDAP roles; dormant roles stay
-     * excluded unless requested), so the narrowed session may use exactly the workload groups
+     * role (where direct grants live) plus explicit and LDAP roles), so the narrowed session
+     * may use exactly the workload groups
      * the person's own session could use. A workload group is placement, not data authority:
      * the narrowed session runs in the target's default_workload_group (the same resolution as
      * the person's own session), and the person's USAGE on it is typically a direct grant that
@@ -448,10 +419,7 @@ public class Auth implements Writable {
             return roles;
         }
         Set<Role> widened = Sets.newHashSet(roles);
-        for (String roleName : getGrantedRoleNamesRaw(userIdentity)) {
-            if (isSuOnlyRole(roleName)) {
-                continue;
-            }
+        for (String roleName : getGrantedRoleNames(userIdentity)) {
             Role role = roleManager.getRole(roleName);
             if (role != null) {
                 widened.add(role);

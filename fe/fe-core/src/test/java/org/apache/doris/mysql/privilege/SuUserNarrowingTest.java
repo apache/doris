@@ -20,7 +20,6 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
@@ -30,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
@@ -42,10 +40,10 @@ import java.util.Set;
  * (a) a narrowed session loses the target's personal grants (override REPLACES the role union);
  * (c) re-SU is refused; (d) a session that skips SU keeps only the switcher's own grants;
  * (f) narrowing never leaks into checks of OTHER identities; (g) the narrowed session keeps the
- * person's own WORKLOAD GROUP usage (placement follows the person; never wider than her own
- * session); plus the dormant (SU-only) role gating, both ceiling modes, the config gate, and
- * the parser round trip.
- * End-to-end row-policy + audit coverage runs on the scratch rig (gate battery), not here.
+ * person's own WORKLOAD GROUP usage (placement follows the person; never wider than their own
+ * session); plus the PROXY_PRIV gate, the target-grants ceiling, the parser round trip and the
+ * no-ConnectContext metadata-RPC path.
+ * End-to-end row-policy + audit coverage belongs to the regression suite, not here.
  */
 public class SuUserNarrowingTest extends TestWithFeService {
 
@@ -130,40 +128,6 @@ public class SuUserNarrowingTest extends TestWithFeService {
     }
 
     @Test
-    public void testDormantRolesInertUntilRequested() throws Exception {
-        addUser("dorm_user", true);
-        createRole("space_dorm");
-        grantPriv("GRANT SELECT_PRIV ON internal.test.* TO ROLE 'space_dorm';");
-        grantRole("GRANT 'space_dorm' TO 'dorm_user'@'%'");
-        grantPriv("GRANT SELECT_PRIV ON internal.perso2.* TO 'dorm_user'@'%';");
-
-        UserIdentity user = ident("dorm_user");
-        ConnectContext ctx = new ConnectContext();
-        ctx.setCurrentUserIdentity(user);
-        ctx.setThreadLocalInfo();
-        String savedPattern = Config.su_only_roles_pattern;
-        try {
-            Config.su_only_roles_pattern = "^space_";
-            // dormant in a normal session: the role's grants are inert, personal grants live
-            Assert.assertFalse(canSelectDb(user, "test"));
-            Assert.assertTrue(canSelectDb(user, "perso2"));
-            // the RAW view still carries it (the SU ceiling and admin introspection see it)
-            Assert.assertTrue(Env.getCurrentEnv().getAuth()
-                    .getGrantedRoleNamesRaw(user).contains("space_dorm"));
-            // explicit activation via the override path
-            ctx.setSessionRoleOverride(Collections.singleton("space_dorm"));
-            Assert.assertTrue(canSelectDb(user, "test"));
-            // invalid pattern degrades to disabled (logged), never to an exception
-            ctx.setSessionRoleOverride(null);
-            Config.su_only_roles_pattern = "([bad";
-            Assert.assertTrue(canSelectDb(user, "test"));
-        } finally {
-            Config.su_only_roles_pattern = savedPattern;
-            connectContext.setThreadLocalInfo();
-        }
-    }
-
-    @Test
     public void testSuCommandContract() throws Exception {
         addUser("svc", true);
         addUser("bobby", true);
@@ -176,17 +140,19 @@ public class SuUserNarrowingTest extends TestWithFeService {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(ident("svc"));
         ctx.setThreadLocalInfo();
-        String savedUsers = Config.switch_user_users;
-        String savedCeiling = Config.switch_user_role_ceiling;
         try {
-            // gate: neither ADMIN nor listed -> refused; (d) the session stays the service account
+            // gate: neither ADMIN_PRIV nor PROXY_PRIV -> refused; (d) the session stays the service account
             Assert.assertThrows(AnalysisException.class, () ->
                     new SuUserCommand(new UserIdentity("bobby", "%"),
                             Collections.singletonList("r_bobby"), null).run(ctx, null));
             Assert.assertNull(ctx.getAuthenticatedIdentity());
             Assert.assertFalse(canSelectDb(ident("svc"), "test"));
 
-            Config.switch_user_users = ctx.getQualifiedUser();
+            // PROXY_PRIV is the native gate (ADMIN_PRIV implies it), and it is global-only
+            Assert.assertThrows(Exception.class,
+                    () -> grantPriv("GRANT PROXY_PRIV ON internal.test.* TO 'svc'@'%';"));
+            grantPriv("GRANT PROXY_PRIV ON *.*.* TO 'svc'@'%';");
+            Assert.assertTrue(Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.PROXY));
 
             // nonexistent target refused
             Assert.assertThrows(AnalysisException.class, () ->
@@ -216,14 +182,12 @@ public class SuUserNarrowingTest extends TestWithFeService {
             Assert.assertEquals("svc", ctx.getCurrentUserIdentity().getQualifiedUser());
             Assert.assertNull(ctx.getSessionRoleOverride());
 
-            // switcher ceiling: a role granted to the SERVICE, not the target
-            Config.switch_user_role_ceiling = "switcher";
-            new SuUserCommand(new UserIdentity("bobby", "%"),
-                    Collections.singletonList("r_svc_only"), null).run(ctx, null);
-            Assert.assertEquals(Collections.singleton("r_svc_only"), ctx.getSessionRoleOverride());
+            // the ceiling is the TARGET's grants: a role the service holds but the target does not is refused
+            Assert.assertThrows(AnalysisException.class, () ->
+                    new SuUserCommand(new UserIdentity("bobby", "%"),
+                            Collections.singletonList("r_svc_only"), null).run(ctx, null));
+            Assert.assertNull(ctx.getSessionRoleOverride());
         } finally {
-            Config.switch_user_users = savedUsers;
-            Config.switch_user_role_ceiling = savedCeiling;
             connectContext.setThreadLocalInfo();
         }
     }
@@ -248,7 +212,6 @@ public class SuUserNarrowingTest extends TestWithFeService {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(person);
         ctx.setThreadLocalInfo();
-        String savedPattern = Config.su_only_roles_pattern;
         try {
             // the person's own session
             Assert.assertTrue(canUseWorkloadGroup(person, "wg_person_lane"));
@@ -266,18 +229,9 @@ public class SuUserNarrowingTest extends TestWithFeService {
             // never wider than the person's own session
             Assert.assertFalse(canUseWorkloadGroup(person, "wg_nobody"));
 
-            // a DORMANT role's USAGE stays inert unless the switch requested it
-            Config.su_only_roles_pattern = "^space_wg_lane$";
-            Assert.assertFalse(canUseWorkloadGroup(person, "wg_via_role"));
-            Assert.assertTrue(canUseWorkloadGroup(person, "wg_person_lane"));
-            ctx.setSessionRoleOverride(Sets.newHashSet("space_wg", "space_wg_lane"));
-            Assert.assertTrue(canUseWorkloadGroup(person, "wg_via_role"));
-
             // the widening is scoped to the session's OWN identity: another identity's check is untouched
-            ctx.setSessionRoleOverride(Collections.singleton("space_wg"));
             Assert.assertFalse(canUseWorkloadGroup(ident("bystander_wg"), "wg_person_lane"));
         } finally {
-            Config.su_only_roles_pattern = savedPattern;
             ctx.setSessionRoleOverride(null);
             connectContext.setThreadLocalInfo();
         }
