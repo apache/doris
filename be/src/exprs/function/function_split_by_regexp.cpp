@@ -85,7 +85,7 @@ unsigned RegexpSplit::match(const char* subject, size_t subject_size, std::vecto
 }
 
 void RegexpSplit::init(re2::RE2* re2, int32_t max_splits) {
-    _max_splits = max_splits;
+    _max_splits = max_splits <= 0 ? -1 : max_splits;
     _re2 = re2;
     if (_re2) {
         _number_of_subpatterns = _re2->NumberOfCapturingGroups();
