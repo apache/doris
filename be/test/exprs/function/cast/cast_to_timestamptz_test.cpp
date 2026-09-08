@@ -57,7 +57,7 @@ TEST_F(CastTimeStampTzTest, from_string_strict_mode_to_timestamptz) {
     {
         auto block = ColumnHelper::create_block<DataTypeString>(
                 {"2024-06-20 12:12:12+08:00", "2024-06-20 12:12:12-08:00",
-                 "2024-06-20 12:12:12+00:00", "2024-06-20 12:12:12"});
+                 "2024-06-20 12:12:12+00:00", "2024-06-20 12:12:12", "2024-06-20 12:12:12+08:17"});
 
         block.insert(
                 ColumnWithTypeAndName {nullptr, std::make_shared<DataTypeTimeStampTz>(), "result"});
@@ -77,13 +77,15 @@ TEST_F(CastTimeStampTzTest, from_string_strict_mode_to_timestamptz) {
                   "2024-06-20 20:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(3)}.to_string(time_zone),
                   "2024-06-20 12:12:12.000000+08:00");
+        EXPECT_EQ(TimestampTzValue {col_res.get_element(4)}.to_string(time_zone),
+                  "2024-06-20 11:55:12.000000+08:00");
     }
     // error cast
 
     {
         auto block = ColumnHelper::create_block<DataTypeString>(
                 {"2024-06-20 12:12:12+08:00", "2024-06-20 12:12:12-08:00",
-                 "2024-06-20 12:12:12+00:00", "2024-06-20 25:12:12"});
+                 "2024-06-20 12:12:12+00:00", "2024-06-20 12:12:12-13:00"});
 
         block.insert(
                 ColumnWithTypeAndName {nullptr, std::make_shared<DataTypeTimeStampTz>(), "result"});

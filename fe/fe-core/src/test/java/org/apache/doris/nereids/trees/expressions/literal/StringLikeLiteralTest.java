@@ -229,6 +229,25 @@ public class StringLikeLiteralTest {
     }
 
     @Test
+    void testUncheckedCastToTimeStampTzValidatesExplicitOffset() {
+        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(true);
+
+            TimestampTzLiteral literal = (TimestampTzLiteral) new StringLiteral("2026-01-01 00:00:00 +08:17")
+                    .uncheckedCastTo(TimeStampTzType.of(6));
+            Assertions.assertEquals("2025-12-31 15:43:00.000000+00:00", literal.getStringValue());
+
+            StringLiteral invalidLowerBoundary = new StringLiteral("2026-01-01 00:00:00 -12:30");
+            Assertions.assertThrows(CastException.class,
+                    () -> invalidLowerBoundary.uncheckedCastTo(TimeStampTzType.of(6)));
+
+            StringLiteral invalidOffset = new StringLiteral("2026-01-01 00:00:00 -13:00");
+            Assertions.assertThrows(CastException.class,
+                    () -> invalidOffset.uncheckedCastTo(TimeStampTzType.of(6)));
+        }
+    }
+
+    @Test
     void testUncheckedCastToTimeStampTzUsesSessionTimeZoneWithoutOffset() {
         try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);

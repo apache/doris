@@ -21,7 +21,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
@@ -141,11 +140,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             if (timeStampTzType.getScale() < 0) {
                 timeStampTzType = TimeStampTzType.forTypeFromString(value);
             }
-            if (DateTimeChecker.hasTimeZone(value)) {
-                return new TimestampTzLiteral(timeStampTzType, value);
-            }
-            DateTimeV2Literal datetime = (DateTimeV2Literal) castToDateTime(DateTimeV2Type.MAX, strictCast);
-            return TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, datetime);
+            return castToDateTime(timeStampTzType, strictCast);
         } else if (targetType.isDateTimeV2Type()) {
             return castToDateTime(targetType, strictCast);
         } else if (targetType.isFloatType()) {
@@ -356,8 +351,10 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         if (tz.contains(":")) {
             int hourOffset = Integer.parseInt(tz.substring(1, tz.indexOf(":")));
             int minuteOffset = Integer.parseInt(tz.substring(tz.indexOf(":") + 1));
-            if (hourOffset > 14 || hourOffset == 14 && minuteOffset > 0) {
-                throw new CastException("Time zone offset couldn't be larger than 14:00");
+            int maxHourOffset = tz.startsWith("-") ? 12 : 14;
+            if (hourOffset > maxHourOffset || hourOffset == maxHourOffset && minuteOffset > 0) {
+                throw new CastException(String.format(
+                        "Time zone offset must be between -12:00 and +14:00: %s", tz));
             }
         }
         String format = String.format("%s-%s-%sT%s:%s:%s%s%s", year4, month, date, hour, minute, second, fraction, tz);
@@ -379,6 +376,10 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             } catch (AnalysisException e) {
                 throw new CastException(e.getMessage(), e);
             }
+        } else if (targetType.isTimeStampTzType()) {
+            TimeStampTzType timeStampTzType = (TimeStampTzType) targetType;
+            return tz.isEmpty() ? TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, format)
+                    : new TimestampTzLiteral(timeStampTzType, format);
         } else {
             try {
                 return new DateTimeV2Literal((DateTimeV2Type) targetType, format);
