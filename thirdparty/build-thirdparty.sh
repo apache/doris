@@ -1102,26 +1102,41 @@ build_paimon_cpp() {
         patch -p1 < "${TP_DIR}/patches/paimon-cpp-0.3.0-schema-pin.patch"
         touch doris-schema-pin.patched
     fi
+    local paimon_runtime_flags="" paimon_install_rpath='$ORIGIN'
+    if [[ "${KERNEL}" == "Linux" ]]; then
+        paimon_runtime_flags="$(bash "${TP_DIR}/paimon-cpp-runtime.sh" link-flags "${CXX:-c++}")"
+    elif [[ "${KERNEL}" == "Darwin" ]]; then
+        paimon_install_rpath='@loader_path'
+    fi
     # All non-toolchain dependencies are bundled below Doris thirdparty. Never resolve a
     # host Arrow package: v0.3.0 requires its own Arrow patches and symbol isolation.
+    # Explicitly disable glog's optional libunwind discovery. LDB and the host can provide
+    # different interfaces under the same libunwind SONAME; C++ exceptions use libgcc_s.
     "${CMAKE_CMD}" -S . -B doris-build -G "${GENERATOR}" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_C_COMPILER="${CC:-cc}" -DCMAKE_CXX_COMPILER="${CXX:-c++}" \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}/paimon-cpp" \
         -DCMAKE_INSTALL_LIBDIR=lib \
-        '-DCMAKE_INSTALL_RPATH=$ORIGIN' \
+        -DCMAKE_INSTALL_RPATH="${paimon_install_rpath}" \
+        -DCMAKE_CXX_STANDARD_LIBRARIES="${paimon_runtime_flags}" \
         -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \
         -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF \
         -DPAIMON_DEPENDENCY_SOURCE=BUNDLED \
         -DPAIMON_DEPENDENCY_USE_SHARED=OFF \
         -DPAIMON_BUILD_SHARED=ON -DPAIMON_BUILD_STATIC=OFF \
         -DPAIMON_BUILD_TESTS=OFF -DPAIMON_BUILD_BENCHMARKS=OFF \
+        -DPAIMON_USE_ASAN="${PAIMON_USE_ASAN:-OFF}" \
+        -DLIBUNWIND_LIBRARY:FILEPATH= \
         -DPAIMON_ENABLE_AVRO=ON -DPAIMON_ENABLE_ORC=OFF \
         -DPAIMON_ENABLE_S3=OFF -DPAIMON_ENABLE_JINDO=OFF \
         -DPAIMON_ENABLE_LUCENE=OFF -DPAIMON_ENABLE_LUMINA=OFF \
         -DPAIMON_ENABLE_TANTIVY=OFF
     "${CMAKE_CMD}" --build doris-build --parallel "${PARALLEL}"
     "${CMAKE_CMD}" --install doris-build
+    if [[ "${KERNEL}" == "Linux" ]]; then
+        bash "${TP_DIR}/paimon-cpp-runtime.sh" install "${CXX:-c++}" "${TP_INSTALL_DIR}/paimon-cpp/lib"
+        bash "${TP_DIR}/paimon-cpp-runtime.sh" check "${TP_INSTALL_DIR}/paimon-cpp/lib"
+    fi
     # Expose only Paimon headers, never its private Arrow headers, to Doris compilation.
     mkdir -p "${TP_INSTALL_DIR}/paimon-cpp/doris-include"
     cp -a "${TP_INSTALL_DIR}/paimon-cpp/include/paimon" \

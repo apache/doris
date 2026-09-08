@@ -24,7 +24,6 @@
 #ifdef USE_PAIMON_CPP
 #include <arrow/api.h>
 #include <arrow/c/bridge.h>
-#include <dlfcn.h>
 #include <paimon/commit_message.h>
 #include <paimon/file_store_write.h>
 #include <paimon/memory/memory_pool.h>
@@ -34,17 +33,20 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
-#include <mutex>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "core/allocator.h"
+#include "exec/sink/writer/paimon/doris_paimon_file_system.h"
+#include "exec/sink/writer/paimon/paimon_resource_context.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/parquet/arrow_memory_pool.h"
+#include "io/file_factory.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #endif
 
@@ -73,20 +75,6 @@ Status frame_paimon_cpp_commit(const std::string& data, int32_t version,
 #ifdef USE_PAIMON_CPP
 namespace {
 
-template <typename F>
-auto with_query(const std::shared_ptr<ResourceContext>& context, F&& f) -> decltype(f()) {
-    if (!pthread_context_ptr_init && bthread_self() == 0) {
-        SCOPED_ATTACH_TASK(context);
-        return f();
-    }
-    if (thread_context()->is_attach_task()) {
-        SCOPED_SWITCH_RESOURCE_CONTEXT(context);
-        return f();
-    }
-    SCOPED_ATTACH_TASK(context);
-    return f();
-}
-
 Status sdk_status(const paimon::Status& status) {
     if (status.ok()) {
         return Status::OK();
@@ -95,21 +83,6 @@ Status sdk_status(const paimon::Status& status) {
         return Status::MemoryLimitExceeded(status.ToString());
     }
     return Status::InternalError("Paimon native: {}", status.ToString());
-}
-
-template <typename F>
-Status invoke_sdk(F&& function) {
-    try {
-        return function();
-    } catch (const doris::Exception& e) {
-        return e.to_status();
-    } catch (const std::bad_alloc&) {
-        return Status::MemoryLimitExceeded("Paimon native allocation failed");
-    } catch (const std::exception& e) {
-        return Status::InternalError("Paimon native exception: {}", e.what());
-    } catch (...) {
-        return Status::InternalError("Paimon native unknown exception");
-    }
 }
 
 class QueryMemoryPool final : public paimon::MemoryPool {
@@ -129,8 +102,12 @@ public:
                 throw std::bad_alloc();
             }
         } while (!_used.compare_exchange_weak(used, used + charged));
+        void* ptr = nullptr;
+        Defer rollback {[&] {
+            if (!ptr) _used.fetch_sub(charged);
+        }};
         try {
-            void* ptr = with_query(_context, [&] {
+            ptr = with_paimon_resource_context(_context, [&] {
                 enable_thread_catch_bad_alloc++;
                 Defer restore {[&] { enable_thread_catch_bad_alloc--; }};
                 return _allocator.alloc(charged, std::max<uint64_t>(alignment, 64));
@@ -142,8 +119,17 @@ public:
             while (peak < used + charged && !_peak.compare_exchange_weak(peak, used + charged)) {
             }
             return ptr;
-        } catch (...) {
-            _used.fetch_sub(charged);
+        } catch (const doris::Exception& e) {
+            // Paimon's ArrowMemPoolAdaptor catches std::bad_alloc, not Doris exceptions.
+            // Keep allocation failure inside the SDK's Status-based error/cleanup path.
+            if (e.code() == ErrorCode::MEM_ALLOC_FAILED ||
+                e.code() == ErrorCode::MEM_LIMIT_EXCEEDED ||
+                e.code() == ErrorCode::BUFFER_ALLOCATION_FAILED ||
+                e.code() == ErrorCode::QUERY_MEMORY_EXCEEDED ||
+                e.code() == ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED ||
+                e.code() == ErrorCode::PROCESS_MEMORY_EXCEEDED) {
+                throw std::bad_alloc();
+            }
             throw;
         }
     }
@@ -161,7 +147,8 @@ public:
 
     void Free(void* ptr, uint64_t size) override {
         if (ptr != nullptr) {
-            with_query(_context, [&] { _allocator.free(ptr, std::max<uint64_t>(size, 1)); });
+            with_paimon_resource_context(
+                    _context, [&] { _allocator.free(ptr, std::max<uint64_t>(size, 1)); });
             _used.fetch_sub(std::max<uint64_t>(size, 1));
         }
     }
@@ -177,30 +164,28 @@ private:
 };
 
 // Conversion buffers can outlive Write() and be freed by an SDK worker thread.
-class QueryArrowPool final : public arrow::MemoryPool {
+class QueryArrowPool final : public ArrowMemoryPool<> {
 public:
     explicit QueryArrowPool(std::shared_ptr<ResourceContext> context)
             : _context(std::move(context)) {}
     arrow::Status Allocate(int64_t size, int64_t alignment, uint8_t** out) override {
-        return with_query(_context, [&] { return _delegate.Allocate(size, alignment, out); });
+        return with_paimon_resource_context(
+                _context, [&] { return ArrowMemoryPool<>::Allocate(size, alignment, out); });
     }
     arrow::Status Reallocate(int64_t old_size, int64_t new_size, int64_t alignment,
                              uint8_t** ptr) override {
-        return with_query(_context,
-                          [&] { return _delegate.Reallocate(old_size, new_size, alignment, ptr); });
+        return with_paimon_resource_context(_context, [&] {
+            return ArrowMemoryPool<>::Reallocate(old_size, new_size, alignment, ptr);
+        });
     }
     void Free(uint8_t* ptr, int64_t size, int64_t alignment) override {
-        with_query(_context, [&] { _delegate.Free(ptr, size, alignment); });
+        with_paimon_resource_context(_context,
+                                     [&] { ArrowMemoryPool<>::Free(ptr, size, alignment); });
     }
-    int64_t bytes_allocated() const override { return _delegate.bytes_allocated(); }
-    int64_t max_memory() const override { return _delegate.max_memory(); }
-    int64_t total_bytes_allocated() const override { return _delegate.total_bytes_allocated(); }
-    int64_t num_allocations() const override { return _delegate.num_allocations(); }
     std::string backend_name() const override { return "DorisPaimonConversion"; }
 
 private:
     std::shared_ptr<ResourceContext> _context;
-    ArrowMemoryPool<> _delegate;
 };
 
 struct ExportOwner {
@@ -215,31 +200,6 @@ struct ExportOwner {
         delete owner; // pool outlives all buffer destructors invoked by original callback
     }
 };
-
-Status load_plugins() {
-    // No dlclose: registered factories and vtables must remain valid for process lifetime.
-    static std::mutex mutex;
-    static void* handles[3] {};
-    std::lock_guard<std::mutex> lock(mutex);
-#ifdef __APPLE__
-    const char* names[] = {"libpaimon_local_file_system.dylib",
-                           "libpaimon_parquet_file_format.dylib",
-                           "libpaimon_avro_file_format.dylib"};
-#else
-    const char* names[] = {"libpaimon_local_file_system.so", "libpaimon_parquet_file_format.so",
-                           "libpaimon_avro_file_format.so"};
-#endif
-    for (size_t i = 0; i < 3; ++i) {
-        if (handles[i] == nullptr) {
-            handles[i] = dlopen(names[i], RTLD_NOW | RTLD_LOCAL);
-            if (handles[i] == nullptr) {
-                return Status::InternalError("Cannot load Paimon plugin {}: {}", names[i],
-                                             dlerror());
-            }
-        }
-    }
-    return Status::OK();
-}
 
 std::shared_ptr<arrow::DataType> arrow_type(const std::string& type) {
     if (type == "BOOLEAN") return arrow::boolean();
@@ -256,14 +216,19 @@ std::shared_ptr<arrow::DataType> arrow_type(const std::string& type) {
 
 } // namespace
 
+std::shared_ptr<paimon::MemoryPool> make_paimon_query_memory_pool(
+        std::shared_ptr<ResourceContext> context, uint64_t limit) {
+    return std::make_shared<QueryMemoryPool>(std::move(context), limit);
+}
+
 class CppPaimonWriteBackend::Impl {
 public:
     Status open(const TPaimonTableSink& sink, RuntimeState* state, RuntimeProfile* profile) {
-        if (!sink.__isset.cpp_descriptor || sink.cpp_descriptor.version != 1 ||
-            !sink.__isset.write_mode || sink.write_mode != TPaimonWriteMode::APPEND ||
-            !sink.__isset.commit_user || sink.commit_user.empty() ||
-            state->get_query_ctx() == nullptr || state->query_mem_tracker() == nullptr) {
-            return Status::InvalidArgument("Incomplete native Paimon v1 write description");
+        if (!sink.__isset.cpp_descriptor || !sink.__isset.write_mode ||
+            sink.write_mode != TPaimonWriteMode::APPEND || !sink.__isset.commit_user ||
+            sink.commit_user.empty() || state->get_query_ctx() == nullptr ||
+            state->query_mem_tracker() == nullptr) {
+            return Status::InvalidArgument("Incomplete native Paimon write description");
         }
         const auto& desc = sink.cpp_descriptor;
         if (desc.columns.empty() || !sink.__isset.column_names ||
@@ -271,29 +236,23 @@ public:
             return Status::InvalidArgument("Native Paimon column order is missing");
         }
         // Reject configuration mismatch rather than silently falling back after dispatch.
-        if (desc.root_path.empty() ||
-            (desc.root_path.front() != '/' && desc.root_path.compare(0, 7, "file://") != 0)) {
-            return Status::NotSupported("Native Paimon v1 only supports local POSIX storage");
+        if (!desc.__isset.storage || desc.root_path.empty() || desc.storage.root_path.empty() ||
+            (desc.storage.file_type != TFileType::FILE_LOCAL &&
+             desc.storage.file_type != TFileType::FILE_S3)) {
+            return Status::NotSupported("Missing or unsupported Doris Paimon storage descriptor");
         }
-        auto options = desc.options;
-        if (options["file.format"] != "parquet" || options["write-only"] != "true" ||
-            (options.count("bucket") && options["bucket"] != "-1")) {
-            return Status::NotSupported("Native Paimon v1 requires write-only Parquet append");
-        }
-        RETURN_IF_ERROR(load_plugins());
-        // The v1 wire audit is for 0.3.0's version 12 append messages without indexes.
-        // Do not silently accept a future SDK's changed serialization layout.
-        if (paimon::CommitMessage::CurrentVersion() != 12) {
-            return Status::NotSupported("Unvalidated Paimon native commit serializer version");
-        }
+        const auto& root_path = desc.root_path;
+        const auto& storage = desc.storage;
+        // FE selects supported write options and normalizes storage locations. The filesystem
+        // adapter owns logical-to-storage path mapping; the backend only consumes the descriptor.
         arrow::FieldVector fields;
         for (size_t i = 0; i < desc.columns.size(); ++i) {
             const auto& column = desc.columns[i];
             auto type = arrow_type(column.type);
-            if (!type || column.name != sink.column_names[i]) {
-                return Status::NotSupported("Unsupported native Paimon column {}", column.name);
+            if (!type) {
+                return Status::NotSupported("Unsupported native Paimon type {}", column.type);
             }
-            fields.push_back(arrow::field(column.name, type, column.nullable));
+            fields.push_back(arrow::field(sink.column_names[i], type, column.nullable));
         }
         _schema = arrow::schema(fields);
         auto context = state->get_query_ctx()->resource_ctx();
@@ -303,12 +262,26 @@ public:
             limit = std::min(limit, query_limit / std::max(1, state->task_num()));
         }
         if (limit <= 0) return Status::MemoryLimitExceeded("No Paimon native writer memory budget");
-        _pool = std::make_shared<QueryMemoryPool>(context, limit);
+        _pool = make_paimon_query_memory_pool(context, limit);
         _arrow_pool = std::make_shared<QueryArrowPool>(context);
+        COUNTER_SET(ADD_COUNTER(profile, "PaimonSdkPoolLimit", TUnit::BYTES), limit);
+        _sdk_pool_peak = ADD_COUNTER(profile, "PaimonSdkPoolPeak", TUnit::BYTES);
+        _conversion_peak = ADD_COUNTER(profile, "PaimonArrowConversionPeak", TUnit::BYTES);
+        profile->add_info_string("PaimonMemoryScope",
+                                 "SDK pool limit excludes conversion, IO and non-pool allocations");
+        io::FSPropertiesRef fs_properties(storage.file_type);
+        fs_properties.properties = &storage.properties;
+        io::FileDescription file_description {.path = storage.root_path};
+        auto fs = with_paimon_resource_context(
+                context, [&] { return FileFactory::create_fs(fs_properties, file_description); });
+        if (!fs.has_value()) return fs.error();
+        _filesystem = std::make_shared<DorisPaimonFileSystem>(std::move(fs.value()), root_path,
+                                                              storage.root_path, context);
+        auto options = desc.options;
         options["doris.expected-schema-id"] = std::to_string(desc.schema_id);
-        options["file-system"] = "local";
-        paimon::WriteContextBuilder builder(desc.root_path, sink.commit_user);
+        paimon::WriteContextBuilder builder(root_path, sink.commit_user);
         auto ctx = builder.SetOptions(options)
+                           .WithFileSystem(_filesystem)
                            .WithMemoryPool(_pool)
                            .WithWriteSchema(sink.column_names)
                            .Finish();
@@ -317,16 +290,13 @@ public:
         if (!writer.ok()) return sdk_status(writer.status());
         _sdk = std::move(writer).value();
         profile->add_info_string("PaimonWriteBackend", "CPP (experimental v1)");
-        _opened = true;
         return Status::OK();
     }
 
     Status write(RuntimeState* state, Block& block) {
-        if (!_opened || _failed || _prepared || _closed) {
-            return Status::InternalError("Paimon native writer is not writable");
-        }
-        if (state->is_cancelled()) return Status::Cancelled("Paimon native write cancelled");
         if (block.rows() == 0) return Status::OK();
+        DCHECK(_sdk);
+        if (state->is_cancelled()) return Status::Cancelled("Paimon native write cancelled");
         std::shared_ptr<arrow::RecordBatch> batch;
         RETURN_IF_ERROR(convert_to_arrow_batch(block, _schema, _arrow_pool.get(), &batch,
                                                state->timezone_obj()));
@@ -348,12 +318,10 @@ public:
     }
 
     Status prepare(std::vector<TPaimonCommitMessage>& messages) {
-        if (!_opened || _failed || _prepared || _closed) {
-            return Status::InternalError("Paimon native writer cannot prepare");
-        }
-        _prepared = true; // never retry a partially completed prepare
+        DCHECK(_sdk);
         auto commits = _sdk->PrepareCommit();
         if (!commits.ok()) return sdk_status(commits.status());
+        DBUG_EXECUTE_IF("CppPaimonWriteBackend.prepare.serialize_oom", { throw std::bad_alloc(); });
         std::vector<TPaimonCommitMessage> staged;
         // One message per frame avoids materializing another full serialized list.
         for (const auto& commit : commits.value()) {
@@ -369,47 +337,63 @@ public:
     }
 
     Status close() {
-        if (_closed) return Status::OK();
-        _closed = true;
-        Status result = Status::OK();
+        Status result;
         if (_sdk) {
-            result = invoke_sdk([&] { return sdk_status(_sdk->Close()); });
-            // v1 is restricted to write-only append (no compaction). Full recovery and
-            // partial-prepare file ownership remain explicit follow-up release gates.
-            _sdk.reset();
+            result = paimon_write_call([&] {
+                // Destroy the SDK even if Close throws; never retry the failed instance.
+                // SDK destruction must drain background users before releasing its pools.
+                auto sdk = std::move(_sdk);
+                auto status = sdk_status(sdk->Close());
+                sdk.reset();
+                DBUG_EXECUTE_IF("CppPaimonWriteBackend.close.inject_failure", {
+                    status = Status::InternalError("Injected Paimon native close failure");
+                });
+                return status;
+            });
         }
         _schema.reset();
+        if (_sdk_pool_peak && _pool) COUNTER_SET(_sdk_pool_peak, _pool->MaxMemoryUsage());
+        if (_conversion_peak && _arrow_pool)
+            COUNTER_SET(_conversion_peak, _arrow_pool->max_memory());
         _arrow_pool.reset();
         _pool.reset();
+        // Files remain owned until message handoff. Abort or filesystem destruction removes
+        // them, including when prepare, SDK close or RuntimeState message retention fails.
         return result;
     }
 
-    std::shared_ptr<QueryMemoryPool> _pool;
+    void on_commit_messages_transferred() {
+        DCHECK(!_sdk);
+        if (_filesystem) _filesystem->release_owned_files();
+        _filesystem.reset();
+    }
+
+    std::shared_ptr<paimon::MemoryPool> _pool;
     std::shared_ptr<QueryArrowPool> _arrow_pool;
     std::shared_ptr<arrow::Schema> _schema;
+    std::shared_ptr<DorisPaimonFileSystem> _filesystem;
     std::unique_ptr<paimon::FileStoreWrite> _sdk;
-    bool _opened = false;
-    bool _failed = false;
-    bool _prepared = false;
-    bool _closed = false;
+    RuntimeProfile::Counter* _sdk_pool_peak = nullptr;
+    RuntimeProfile::Counter* _conversion_peak = nullptr;
 };
 
 class CppPaimonWriteBackend::Writer final : public IPaimonWriter {
 public:
     explicit Writer(std::shared_ptr<Impl> impl) : _impl(std::move(impl)) {}
     Status write(RuntimeState* state, Block& block) override {
-        auto result = invoke_sdk([&] { return _impl->write(state, block); });
-        if (!result.ok()) _impl->_failed = true;
-        return result;
+        return paimon_write_call([&] { return _impl->write(state, block); });
     }
     Status prepare_commit(std::vector<TPaimonCommitMessage>& messages) override {
-        auto result = invoke_sdk([&] { return _impl->prepare(messages); });
-        if (!result.ok()) _impl->_failed = true;
-        return result;
+        return paimon_write_call([&] { return _impl->prepare(messages); });
     }
     Status abort() override {
-        _impl->_failed = true;
-        return invoke_sdk([&] { return _impl->close(); });
+        auto status = _impl->close();
+        if (_impl->_filesystem) {
+            auto cleanup = paimon_write_call(
+                    [&] { return sdk_status(_impl->_filesystem->cleanup_owned_files()); });
+            if (status.ok()) status = std::move(cleanup);
+        }
+        return status;
     }
 
 private:
@@ -425,16 +409,18 @@ CppPaimonWriteBackend::~CppPaimonWriteBackend() {
 }
 Status CppPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* state,
                                    RuntimeProfile* profile) {
-    return invoke_sdk([&] { return _impl->open(sink, state, profile); });
+    return paimon_write_call([&] { return _impl->open(sink, state, profile); });
 }
 Status CppPaimonWriteBackend::create_writer(std::unique_ptr<IPaimonWriter>* writer) {
-    if (!_impl->_opened || _impl->_closed)
-        return Status::InternalError("Native writer is not open");
+    DCHECK(_impl->_sdk);
     *writer = std::make_unique<Writer>(_impl);
     return Status::OK();
 }
 Status CppPaimonWriteBackend::close() {
-    return invoke_sdk([&] { return _impl->close(); });
+    return _impl->close();
+}
+void CppPaimonWriteBackend::on_commit_messages_transferred() {
+    _impl->on_commit_messages_transferred();
 }
 #else
 class CppPaimonWriteBackend::Impl {};
@@ -450,6 +436,7 @@ Status CppPaimonWriteBackend::create_writer(std::unique_ptr<IPaimonWriter>*) {
 Status CppPaimonWriteBackend::close() {
     return Status::OK();
 }
+void CppPaimonWriteBackend::on_commit_messages_transferred() {}
 #endif
 
 } // namespace doris

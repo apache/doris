@@ -21,15 +21,15 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonCppWriteSupport;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.datasource.paimon.PaimonWriteBinding;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.PaimonInsertCommandContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -63,6 +63,7 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
     private final DMLCommandType dmlCommandType;
     private List<Expr> outputExprs;
     private List<Column> cols;
+    private String backendSelectionReason = "JNI default";
 
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
             add(TFileFormatType.FORMAT_ORC);
@@ -96,7 +97,7 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         if (tDataSink != null && tDataSink.isSetPaimonTableSink()) {
             TPaimonTableSink sink = tDataSink.getPaimonTableSink();
             strBuilder.append(prefix).append("  backend: ").append(sink.getBackendType())
-                    .append(" (").append(sink.getBackendSelectionReason()).append(")\n");
+                    .append(" (").append(backendSelectionReason).append(")\n");
         }
         if (explainLevel == TExplainLevel.BRIEF) {
             return strBuilder.toString();
@@ -150,19 +151,20 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
 
         tSink.setColumnNames(outputColumnNames);
 
-        tSink.setBackendSelectionReason("JNI default");
+        backendSelectionReason = "JNI default";
         if (ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable().enablePaimonCppWriter) {
-            String reason = PaimonCppWriteSupport.unsupportedReason(
-                    binding.getTable(), outputColumnNames, tSink.getWriteMode());
-            if (reason == null) {
-                tSink.setCppDescriptor(PaimonCppWriteSupport.describe(binding.getTable()));
+            PaimonCppWriteSupport.Decision decision = PaimonCppWriteSupport.decide(
+                    binding.getTable(), outputColumnNames, tSink.getWriteMode(),
+                    targetTable.getCatalog().getCatalogProperty().getStoragePropertiesMap());
+            if (decision.isSupported()) {
+                tSink.setCppDescriptor(decision.getDescriptor());
                 tSink.setBackendType(TPaimonWriteBackendType.CPP);
                 tSink.unsetSerializedTable();
                 tSink.unsetHadoopConfig();
-                tSink.setBackendSelectionReason("experimental native append v1");
+                backendSelectionReason = "native append";
             } else {
-                tSink.setBackendSelectionReason("JNI fallback: " + reason);
+                backendSelectionReason = "JNI fallback: " + decision.getFallbackReason();
             }
         }
 

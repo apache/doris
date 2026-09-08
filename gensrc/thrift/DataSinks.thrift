@@ -628,24 +628,29 @@ struct TMaxComputeTableSink {
 
 enum TPaimonWriteBackendType {
     JNI = 0,
-    FFI = 1,
+    FFI = 1, // Reserved: the never-implemented Rust backend is rejected by BE.
     CPP = 2,
 }
 
-// Versioned native write description derived from the same FE-bound table as JNI.
-// v1 deliberately supports only unpartitioned, write-only append tables.
+// Target column types in TPaimonTableSink.column_names order.
 struct TPaimonCppColumn {
-    1: required string name
     2: required string type
     3: required bool nullable
 }
 
+// Doris storage access is separate from the Paimon table's logical location.
+struct TPaimonCppStorageDescriptor {
+    1: required Types.TFileType file_type
+    2: required string root_path // FE-normalized Doris location; decoded absolute path for FILE_LOCAL
+    3: required map<string, string> properties
+}
+
 struct TPaimonCppWriteDescriptor {
-    1: required i32 version
-    2: required string root_path
+    2: required string root_path // Paimon logical location; same as storage.root_path for FILE_LOCAL
     3: required i64 schema_id
     4: required list<TPaimonCppColumn> columns
     5: required map<string, string> options
+    6: optional TPaimonCppStorageDescriptor storage // populated for native writes
 }
 
 enum TPaimonWriteMode {
@@ -659,7 +664,7 @@ struct TPaimonCommitMessage {
 }
 
 struct TPaimonTableSink {
-    1: optional string serialized_table           // required at runtime; serialized Paimon Table object (base64)
+    1: optional string serialized_table           // JNI only; serialized Paimon Table object (base64)
     2: optional map<string, string> hadoop_config
     3: optional list<string> column_names
     4: optional TPaimonWriteBackendType backend_type
@@ -667,7 +672,6 @@ struct TPaimonTableSink {
     6: optional i64 transaction_id
     7: optional string commit_user
     8: optional TPaimonCppWriteDescriptor cpp_descriptor
-    9: optional string backend_selection_reason
 }
 
 struct TDataSink {

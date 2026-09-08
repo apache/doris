@@ -22,7 +22,7 @@
 #include <memory>
 #include <vector>
 
-#include "common/status.h"
+#include "common/exception.h"
 #include "core/block/block.h"
 
 namespace doris {
@@ -30,20 +30,38 @@ namespace doris {
 class RuntimeState;
 class RuntimeProfile;
 
+// Keep synchronous SDK calls and commit-message handoff inside the task's error path.
+// Resource owners must still clean up on failure; this cannot catch a throwing noexcept destructor.
+template <typename F>
+Status paimon_write_call(F&& call) {
+    try {
+        return call();
+    } catch (const doris::Exception& e) {
+        return e.to_status();
+    } catch (const std::bad_alloc&) {
+        return Status::MemoryLimitExceeded("Paimon write allocation failed");
+    } catch (const std::exception& e) {
+        return Status::InternalError("Paimon write exception: {}", e.what());
+    } catch (...) {
+        return Status::InternalError("Paimon write unknown exception");
+    }
+}
+
 enum class PaimonBackendType {
-    JNI, // Java via JNI (PaimonJniWriter)
-    FFI, // Rust via FFI (placeholder, not yet implemented)
-    CPP, // Paimon native SDK via Arrow C Data
+    JNI = 0, // Java via JNI (PaimonJniWriter)
+    CPP = 2, // Paimon native SDK via Arrow C Data; keep existing diagnostic IDs
     UNKNOWN,
 };
 
 /// Writer contract implemented by one SDK writer adapter. Each
 /// PaimonTableWriter owns one IPaimonWriter, which delegates to the
-/// underlying Paimon SDK (Java JNI or Rust FFI). Partition and bucket
+/// underlying Paimon SDK. Partition and bucket
 /// routing happens inside the selected SDK backend.
 ///
 /// Lifecycle: created by IPaimonWriteBackend::create_writer() after the
 /// backend is opened; used for the duration of one pipeline instance.
+/// The pipeline stops writing on error and closes the backend before destruction.
+/// Adapters do not independently track execution phases or retry failed SDK operations.
 class IPaimonWriter {
 public:
     virtual ~IPaimonWriter() = default;
@@ -60,11 +78,11 @@ public:
     virtual Status abort() = 0;
 };
 
-/// Backend boundary for creating writers via JNI (Java) or FFI (Rust).
+/// Backend boundary for creating JNI or native SDK writers.
 ///
 /// The backend owns the connection/session to the external runtime:
 /// - JNI: owns the JVM class reference, method IDs, and the Java writer object.
-/// - FFI: (future) owns the Rust FFI handle.
+/// - CPP: owns the native SDK writer and its memory/filesystem adapters.
 ///
 /// Each backend creates one or more IPaimonWriter adapters that share the
 /// same underlying connection. Snapshot commit is deliberately excluded from
@@ -89,6 +107,11 @@ public:
     /// prepared commit messages until this succeeds.
     virtual Status close() = 0;
 
+    /// Called only after successful close and retention of all messages in RuntimeState.
+    /// Native backends keep cleanup responsibility until this point. This is a local
+    /// handoff to the existing reporting/transaction path, NOT a durable FE commit ACK.
+    virtual void on_commit_messages_transferred() {}
+
     virtual PaimonBackendType type() const = 0;
 };
 
@@ -96,7 +119,7 @@ public:
 ///
 /// Backend selection is based on TPaimonTableSink.backend_type:
 /// - Default (unset or JNI): JniPaimonWriteBackend
-/// - FFI: FfiPaimonWriteBackend (placeholder for future Rust writer)
+/// - CPP: CppPaimonWriteBackend (explicit opt-in)
 class PaimonWriteBackendFactory {
 public:
     /// Create a backend instance based on the sink configuration.
