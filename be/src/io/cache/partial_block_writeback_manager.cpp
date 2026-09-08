@@ -28,6 +28,7 @@
 #include "cpp/sync_point.h"
 #include "io/cache/hole_fill_planner.h"
 #include "io/cache/inflight_write_buffer_index.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "util/countdown_latch.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
@@ -175,6 +176,7 @@ PartialBlockWritebackManager::PartialBlockWritebackManager(PartialBlockWriteback
           _max_pending_tasks(_options.max_pending_bytes / _options.block_size),
           _configured_worker_count(_options.worker_count) {
     DORIS_CHECK(_max_pending_tasks > 0);
+    read_ahead_bvars().hole_fill_pending_bytes << 0;
 }
 
 PartialBlockWritebackManager::~PartialBlockWritebackManager() {
@@ -363,6 +365,11 @@ PartialBlockWritebackManager::EnqueueResult PartialBlockWritebackManager::_enque
             DORIS_CHECK(inserted);
             static_cast<void>(entry);
         }
+        if (discarded_task != nullptr) {
+            read_ahead_bvars().hole_fill_dropped_blocks << 1;
+        } else {
+            read_ahead_bvars().hole_fill_pending_bytes << static_cast<int64_t>(_options.block_size);
+        }
     }
     _queue_cv.notify_one();
     return EnqueueResult::QUEUED;
@@ -384,6 +391,9 @@ void PartialBlockWritebackManager::shutdown() {
             const size_t erased = _tasks.erase(task->key);
             DORIS_CHECK(erased == 1);
         }
+        read_ahead_bvars().hole_fill_pending_bytes
+                << -static_cast<int64_t>(queued.size() * _options.block_size);
+        read_ahead_bvars().hole_fill_dropped_blocks << static_cast<int64_t>(queued.size());
     }
     queued.clear();
     _queue_cv.notify_all();
@@ -530,6 +540,7 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_runnab
             task->activate();
             _queue.erase(iterator);
             ++_active_hole_fill_slots_by_writer[task->key.write_manager];
+            read_ahead_bvars().hole_fill_active_blocks << 1;
             return task;
         }
         ++iterator;
@@ -544,10 +555,18 @@ void PartialBlockWritebackManager::_discard_queued_task_locked(Queue::iterator i
     const size_t erased = _tasks.erase(task->key);
     DORIS_CHECK(erased == 1);
     discarded_tasks->splice(discarded_tasks->end(), _queue, iterator);
+    read_ahead_bvars().hole_fill_pending_bytes << -static_cast<int64_t>(_options.block_size);
+    read_ahead_bvars().hole_fill_dropped_blocks << 1;
 }
 
 void PartialBlockWritebackManager::_process_task(const TaskPtr& task) {
-    Defer complete {[&]() { _complete_task(task); }};
+    bool write_submitted = false;
+    Defer complete {[&]() {
+        if (!write_submitted) {
+            read_ahead_bvars().hole_fill_dropped_blocks << 1;
+        }
+        _complete_task(task);
+    }};
     if (!task->key.write_manager->check_write_epoch(task->write_epoch)) {
         return;
     }
@@ -555,6 +574,7 @@ void PartialBlockWritebackManager::_process_task(const TaskPtr& task) {
     std::vector<FileRange> read_ranges;
     Status status = task->plan_hole_reads(_options.hole_fill_coalesce, &read_ranges);
     if (!status.ok()) {
+        read_ahead_bvars().hole_fill_failed_blocks << 1;
         LOG(WARNING) << "Plan partial block hole-fill reads failed, hash="
                      << task->key.cache_hash.to_string() << ", offset=" << task->key.block_offset
                      << ", status=" << status;
@@ -568,11 +588,19 @@ void PartialBlockWritebackManager::_process_task(const TaskPtr& task) {
     io_context.io_context.file_reader_stats = &file_reader_stats;
     for (const auto& range : read_ranges) {
         size_t bytes_read = 0;
-        status = task->source_reader->read_at(
-                range.offset,
-                Slice(task->buffer->data() + range.offset - task->key.block_offset, range.size),
-                &bytes_read, &io_context.io_context);
+        read_ahead_bvars().hole_fill_remote_requests << 1;
+        int64_t read_ns = 0;
+        {
+            SCOPED_RAW_TIMER(&read_ns);
+            status = task->source_reader->read_at(
+                    range.offset,
+                    Slice(task->buffer->data() + range.offset - task->key.block_offset, range.size),
+                    &bytes_read, &io_context.io_context);
+        }
+        read_ahead_bvars().hole_fill_remote_read_time_ns << read_ns;
+        read_ahead_bvars().hole_fill_remote_bytes << static_cast<int64_t>(bytes_read);
         if (!status.ok() || bytes_read != range.size) {
+            read_ahead_bvars().hole_fill_failed_blocks << 1;
             LOG(WARNING) << "Read partial block hole failed, hash="
                          << task->key.cache_hash.to_string()
                          << ", block_offset=" << task->key.block_offset
@@ -582,7 +610,7 @@ void PartialBlockWritebackManager::_process_task(const TaskPtr& task) {
         }
     }
 
-    static_cast<void>(
+    const auto result =
             task->key.write_manager->try_submit_owned_block(AsyncCacheWriteOwnedBlockRequest {
                     .cache_hash = task->key.cache_hash,
                     .file_offset = task->key.block_offset,
@@ -592,7 +620,11 @@ void PartialBlockWritebackManager::_process_task(const TaskPtr& task) {
                     .write_epoch = std::move(task->write_epoch),
                     .admission_mode = AsyncCacheWriteAdmissionMode::REQUIRE_SPARE_CAPACITY,
                     .inflight_index = task->inflight_index,
-            }));
+            });
+    write_submitted = result == AsyncCacheWriteBlockSubmitResult::SUBMITTED;
+    if (write_submitted) {
+        read_ahead_bvars().hole_fill_write_submitted_blocks << 1;
+    }
 }
 
 void PartialBlockWritebackManager::_complete_task(const TaskPtr& task) {
@@ -607,6 +639,8 @@ void PartialBlockWritebackManager::_complete_task(const TaskPtr& task) {
         if (--active_entry->second == 0) {
             _active_hole_fill_slots_by_writer.erase(active_entry);
         }
+        read_ahead_bvars().hole_fill_pending_bytes << -static_cast<int64_t>(_options.block_size);
+        read_ahead_bvars().hole_fill_active_blocks << -1;
     }
     _queue_cv.notify_one();
 }

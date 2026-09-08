@@ -32,6 +32,7 @@
 #include "io/cache/block_file_cache_test_common.h"
 #include "io/cache/partial_block_writeback_manager.h"
 #include "io/fs/path.h"
+#include "io/fs/read_ahead_metrics.h"
 
 namespace doris::io {
 namespace {
@@ -219,12 +220,20 @@ TEST_F(RangeCacheWritebackTest, RoutesCompleteAndPartialBlocks) {
     const FileRange range {.offset = 1024, .size = 2 * kBlockSize};
     const std::string range_data = content.substr(range.offset, range.size);
 
-    const auto result = writeback.submit_consumed_range(range, Slice(range_data), *epoch);
+    ReadAheadStatistics statistics;
+    const auto result =
+            writeback.submit_consumed_range(range, Slice(range_data), *epoch, &statistics);
 
     EXPECT_EQ(result.complete_block_count, 1);
     EXPECT_EQ(result.partial_fragment_count, 2);
     EXPECT_EQ(result.submitted_complete_block_count, 1);
     EXPECT_EQ(result.submitted_partial_fragment_count, 2);
+    EXPECT_EQ(statistics.complete_blocks_submitted.value(), 1);
+    EXPECT_EQ(statistics.complete_block_bytes.value(), kBlockSize);
+    EXPECT_EQ(statistics.partial_blocks_queued.value(), 2);
+    EXPECT_EQ(statistics.partial_fragment_bytes.value(), kBlockSize);
+    EXPECT_EQ(statistics.writeback_rejected_blocks.value(), 0);
+    EXPECT_GT(statistics.writeback_time.value(), 0);
     ASSERT_TRUE(wait_until([&]() { return partial_manager->pending_count() == 0; }));
     ASSERT_TRUE(wait_until([&]() { return cache->async_write_manager()->pending_count() == 0; }));
     for (size_t block_offset = 0; block_offset < content.size(); block_offset += kBlockSize) {
@@ -272,11 +281,14 @@ TEST_F(RangeCacheWritebackTest, RejectsEpochInvalidatedAfterForegroundReadStarts
     ASSERT_TRUE(epoch.has_value());
     cache->async_write_manager()->invalidate_pending_writes(hash);
 
+    ReadAheadStatistics statistics;
     const auto result = writeback.submit_consumed_range({.offset = 0, .size = content.size()},
-                                                        Slice(content), *epoch);
+                                                        Slice(content), *epoch, &statistics);
 
     EXPECT_EQ(result.complete_block_count, 1);
     EXPECT_EQ(result.submitted_complete_block_count, 0);
+    EXPECT_EQ(statistics.complete_blocks_submitted.value(), 0);
+    EXPECT_EQ(statistics.writeback_rejected_blocks.value(), 1);
     EXPECT_EQ(cache->async_write_manager()->pending_count(), 0);
     EXPECT_FALSE(cache_range_downloaded(cache.get(), hash, 0, content.size()));
 }

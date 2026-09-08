@@ -22,6 +22,8 @@
 #include <limits>
 #include <vector>
 
+#include "io/fs/read_ahead_metrics.h"
+
 namespace doris::io {
 namespace {
 
@@ -85,6 +87,21 @@ TEST(FileRangePlannerTest, CompletesBlockAfterCoalescingInputGap) {
 
     ASSERT_EQ(result.ranges.size(), 1);
     EXPECT_EQ(result.ranges[0], file_range(0, 1024));
+}
+
+TEST(FileRangePlannerTest, SeparatesCoalescingAndBlockFillBytes) {
+    ReadAheadStatistics statistics;
+    FileRangePlan result;
+    ASSERT_TRUE(FileRangePlanner::plan({file_range(0, 300), file_range(350, 250)}, 1024,
+                                       options(64, 2048, 2.0, 1024, 0.5), &result, &statistics)
+                        .ok());
+    EXPECT_EQ(statistics.input_pages.value(), 2);
+    EXPECT_EQ(statistics.input_bytes.value(), 550);
+    EXPECT_EQ(statistics.coalesced_ranges.value(), 1);
+    EXPECT_EQ(statistics.coalesced_bytes.value(), 600);
+    EXPECT_EQ(statistics.block_fill_bytes.value(), 424);
+    EXPECT_EQ(statistics.planned_ranges.value(), 1);
+    EXPECT_EQ(statistics.planned_bytes.value(), 1024);
 }
 
 TEST(FileRangePlannerTest, CompletedBlockConnectsSeparateBaseRanges) {

@@ -36,11 +36,13 @@
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "runtime/runtime_profile.h"
 #include "storage/cache/page_cache.h"
 #include "storage/olap_common.h"
 #include "storage/segment/encoding_info.h"
 #include "storage/segment/page_handle.h"
+#include "storage/segment/segment_read_ahead.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
 #include "util/concurrency_stats.h"
@@ -170,8 +172,31 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
         size_t bytes_read = 0;
-        RETURN_IF_ERROR(opts.file_reader->read_at(opts.page_pointer.offset, page_slice, &bytes_read,
-                                                  &opts.io_ctx));
+        auto read_page = [&]() -> Status {
+            auto* reader = opts.file_reader;
+            if (opts.type == DATA_PAGE && opts.stats->read_ahead_stats != nullptr) {
+                if (auto* read_ahead = dynamic_cast<SegmentReadAheadFileReader*>(reader)) {
+                    Status status;
+                    if (read_ahead->try_read_page(opts.page_pointer.offset, page_slice, &status) &&
+                        status.ok()) {
+                        bytes_read = page_size;
+                        return Status::OK();
+                    }
+                    reader = read_ahead->inner_reader().get();
+                }
+                // Count only data-page source reads in a read-ahead-enabled reader. This also
+                // covers admission rejection and retries using the original reader after decode
+                // failure; index/dictionary reads and Page Cache hits take their usual paths.
+                auto* statistics = opts.stats->read_ahead_stats.get();
+                COUNTER_UPDATE(&statistics->fallback_pages, 1);
+                COUNTER_UPDATE(&statistics->fallback_bytes, page_size);
+                SCOPED_TIMER(&statistics->fallback_time);
+                return reader->read_at(opts.page_pointer.offset, page_slice, &bytes_read,
+                                       &opts.io_ctx);
+            }
+            return reader->read_at(opts.page_pointer.offset, page_slice, &bytes_read, &opts.io_ctx);
+        };
+        RETURN_IF_ERROR(read_page());
         DCHECK_EQ(bytes_read, page_size);
         opts.stats->compressed_bytes_read += page_size;
     }

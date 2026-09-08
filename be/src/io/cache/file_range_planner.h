@@ -25,6 +25,8 @@
 
 namespace doris::io {
 
+struct ReadAheadStatistics;
+
 struct FileRangePlanOptions {
     /// Limits for the initial range coalescing pass.
     FileRangeCoalesceOptions coalesce_options;
@@ -63,7 +65,8 @@ public:
     /// within `max_range_bytes`. One input larger than that limit remains a standalone read. The
     /// physical EOF block uses its valid file bytes as the coverage denominator.
     static Status plan(const std::vector<FileRange>& input_ranges, size_t file_size,
-                       const FileRangePlanOptions& options, FileRangePlan* output_plan);
+                       const FileRangePlanOptions& options, FileRangePlan* output_plan,
+                       ReadAheadStatistics* statistics = nullptr);
 };
 
 } // namespace doris::io

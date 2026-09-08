@@ -39,8 +39,10 @@ class ThreadPool;
 
 namespace io {
 
+struct ReadAheadStatistics;
+
 enum class FileRangeReadRejectReason : uint8_t {
-    /// The complete batch was accepted. Individual handles may still fail during execution.
+    /// At least one executor task was accepted. Other handles may fail to submit or read.
     NONE,
     /// A reader, context, range, or aggregate byte count failed request validation.
     INVALID_REQUEST,
@@ -135,8 +137,12 @@ private:
 
 struct FileRangeReadStats {
     size_t bytes_read {0};
+    /// Full successful source reads, including a read whose buffer is subsequently cancelled.
+    size_t successful_source_bytes {0};
     FileCacheStatistics file_cache;
     FileReaderStats file_reader;
+    int64_t queue_wait_ns {0};
+    int64_t read_ns {0};
 };
 
 /// One scheduled range and its owned buffer. The byte reservation follows this handle's lifetime.
@@ -157,8 +163,9 @@ public:
 
     ~FileRangeRead();
 
-    /// Wait for a terminal state and return its status.
-    Status wait();
+    /// Wait for a terminal state and return its status. Optionally report whether the buffer was
+    /// already READY on entry, using the same lock as the wait.
+    Status wait(bool* ready_on_entry = nullptr);
     /// Request cancellation without interrupting an already running source read.
     void request_cancel();
     State state() const;
@@ -173,10 +180,12 @@ private:
     friend class FileRangeReadScheduler;
 
     FileRangeRead(FileRange range, std::shared_ptr<MemTrackerLimiter> tracker,
-                  FileRangeReadReservation reservation);
+                  FileRangeReadReservation reservation,
+                  std::shared_ptr<ReadAheadStatistics> statistics);
     static Status create(FileRange range, std::shared_ptr<MemTrackerLimiter> tracker,
                          FileRangeReadReservation reservation,
-                         std::shared_ptr<FileRangeRead>* output);
+                         std::shared_ptr<FileRangeRead>* output,
+                         std::shared_ptr<ReadAheadStatistics> statistics = nullptr);
 
     bool _mark_running();
     bool _is_cancel_requested() const;
@@ -189,6 +198,7 @@ private:
     char* _data {nullptr};
     const std::shared_ptr<MemTrackerLimiter> _tracker;
     FileRangeReadReservation _reservation;
+    const std::shared_ptr<ReadAheadStatistics> _statistics;
     mutable std::mutex _mutex;
     std::condition_variable _cv;
     State _state {State::QUEUED};
@@ -201,6 +211,7 @@ private:
 struct FileRangeReadIOContext {
     IOContext io_context;
     std::shared_ptr<TUniqueId> query_id;
+    std::shared_ptr<ReadAheadStatistics> statistics;
 
     /// Copy fields safe for asynchronous use, own query_id, and detach caller-owned statistics.
     static FileRangeReadIOContext from_caller(const IOContext& source);
@@ -252,6 +263,7 @@ private:
         std::shared_ptr<FileRangeRead> read;
         std::shared_ptr<FileRangeReadContext> context;
         FileRangeReadIOContext io_context;
+        int64_t submit_ns {0};
     };
 
     FileRangeReadScheduler(FileRangeReadSchedulerOptions options, ThreadPool* executor);

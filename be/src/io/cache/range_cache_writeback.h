@@ -60,15 +60,18 @@ public:
     /// Copy each block fragment into its owning asynchronous path. The range buffer only needs to
     /// remain valid for this call.
     RangeWritebackDispatchResult submit_consumed_range(const FileRange& range, Slice data,
-                                                       const AsyncCacheWriteEpoch& write_epoch);
+                                                       const AsyncCacheWriteEpoch& write_epoch,
+                                                       ReadAheadStatistics* statistics = nullptr);
 
 private:
     /// Copy a complete fragment directly into the asynchronous cache writer.
     bool _submit_complete_block(const FileCacheBlockFragment& fragment,
-                                const AsyncCacheWriteEpoch& write_epoch);
+                                const AsyncCacheWriteEpoch& write_epoch,
+                                ReadAheadStatistics* statistics);
     /// Copy a partial fragment into the background hole-fill manager.
     bool _submit_partial_block(const FileCacheBlockFragment& fragment,
-                               const AsyncCacheWriteEpoch& write_epoch);
+                               const AsyncCacheWriteEpoch& write_epoch,
+                               ReadAheadStatistics* statistics);
 
     const RangeCacheWritebackOptions _options;
 };

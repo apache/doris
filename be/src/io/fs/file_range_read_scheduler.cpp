@@ -25,10 +25,12 @@
 #include "common/logging.h"
 #include "core/allocator.h"
 #include "cpp/sync_point.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
+#include "util/time.h"
 
 namespace doris::io {
 
@@ -151,14 +153,19 @@ void FileRangeReadReservation::_reset() {
     }
     _context->_budget._release(_bytes);
     _global_budget->_release(_bytes);
+    read_ahead_bvars().resident_bytes << -static_cast<int64_t>(_bytes);
     _context.reset();
     _global_budget.reset();
     _bytes = 0;
 }
 
 FileRangeRead::FileRangeRead(FileRange range, std::shared_ptr<MemTrackerLimiter> tracker,
-                             FileRangeReadReservation reservation)
-        : _range(range), _tracker(std::move(tracker)), _reservation(std::move(reservation)) {
+                             FileRangeReadReservation reservation,
+                             std::shared_ptr<ReadAheadStatistics> statistics)
+        : _range(range),
+          _tracker(std::move(tracker)),
+          _reservation(std::move(reservation)),
+          _statistics(std::move(statistics)) {
     FileRangeReadAllocator allocator;
     _data = reinterpret_cast<char*>(allocator.alloc(_range.size));
 }
@@ -171,7 +178,8 @@ FileRangeRead::~FileRangeRead() {
 
 Status FileRangeRead::create(FileRange range, std::shared_ptr<MemTrackerLimiter> tracker,
                              FileRangeReadReservation reservation,
-                             std::shared_ptr<FileRangeRead>* output) {
+                             std::shared_ptr<FileRangeRead>* output,
+                             std::shared_ptr<ReadAheadStatistics> statistics) {
     DORIS_CHECK(range.size > 0);
     DORIS_CHECK(tracker != nullptr);
     DORIS_CHECK(output != nullptr);
@@ -184,7 +192,8 @@ Status FileRangeRead::create(FileRange range, std::shared_ptr<MemTrackerLimiter>
 
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
     try {
-        output->reset(new FileRangeRead(range, std::move(tracker), std::move(reservation)));
+        output->reset(new FileRangeRead(range, std::move(tracker), std::move(reservation),
+                                        std::move(statistics)));
     } catch (const Exception& exception) {
         return exception.to_status();
     } catch (const std::exception& exception) {
@@ -194,8 +203,11 @@ Status FileRangeRead::create(FileRange range, std::shared_ptr<MemTrackerLimiter>
     return Status::OK();
 }
 
-Status FileRangeRead::wait() {
+Status FileRangeRead::wait(bool* ready_on_entry) {
     std::unique_lock lock(_mutex);
+    if (ready_on_entry != nullptr) {
+        *ready_on_entry = _state == State::READY;
+    }
     _cv.wait(lock, [this]() { return is_terminal(_state); });
     return _status;
 }
@@ -297,6 +309,29 @@ void FileRangeRead::_publish_from_running(State state, Status status, FileRangeR
         _state = state;
         _status = std::move(status);
         _stats = std::move(stats);
+        // Publish accounting before waking a consumer that may immediately close its scanner.
+        if (_statistics != nullptr) {
+            auto& outcome = state == State::READY    ? _statistics->completed_ranges
+                            : state == State::FAILED ? _statistics->failed_ranges
+                                                     : _statistics->cancelled_ranges;
+            COUNTER_UPDATE(&outcome, 1);
+            COUNTER_UPDATE(&_statistics->queue_wait_time, _stats.queue_wait_ns);
+            COUNTER_UPDATE(&_statistics->read_time, _stats.read_ns);
+            COUNTER_UPDATE(&_statistics->source_bytes, static_cast<int64_t>(_stats.bytes_read));
+            COUNTER_UPDATE(&_statistics->successful_source_bytes,
+                           static_cast<int64_t>(_stats.successful_source_bytes));
+            COUNTER_UPDATE(&_statistics->remote_bytes, _stats.file_cache.bytes_read_from_remote);
+            COUNTER_UPDATE(&_statistics->local_bytes, _stats.file_cache.bytes_read_from_local);
+            COUNTER_UPDATE(&_statistics->remote_requests, _stats.file_cache.num_remote_io_total);
+        }
+        auto& metrics = read_ahead_bvars();
+        metrics.source_bytes << static_cast<int64_t>(_stats.bytes_read);
+        metrics.successful_source_bytes << static_cast<int64_t>(_stats.successful_source_bytes);
+        metrics.remote_bytes << _stats.file_cache.bytes_read_from_remote;
+        metrics.remote_requests << _stats.file_cache.num_remote_io_total;
+        if (state == State::FAILED) {
+            read_ahead_bvars().failed_ranges << 1;
+        }
     }
     _cv.notify_all();
 }
@@ -325,6 +360,7 @@ FileRangeReadScheduler::FileRangeReadScheduler(FileRangeReadSchedulerOptions opt
                                                         "FileRangeReadScheduler")),
           _executor(executor) {
     DORIS_CHECK(_executor != nullptr);
+    read_ahead_bvars().resident_bytes << 0;
 }
 
 FileRangeReadScheduler::~FileRangeReadScheduler() {
@@ -358,25 +394,37 @@ std::shared_ptr<FileRangeReadContext> FileRangeReadScheduler::create_context() c
 FileRangeReadSubmitResult FileRangeReadScheduler::try_submit(
         const std::vector<FileRange>& ranges, FileReaderSPtr reader,
         FileRangeReadIOContext io_context, const std::shared_ptr<FileRangeReadContext>& context) {
+    const auto reject = [&](FileRangeReadRejectReason reason, Status status = Status::OK()) {
+        read_ahead_bvars().rejected_batches << 1;
+        if (io_context.statistics != nullptr) {
+            COUNTER_UPDATE(&io_context.statistics->rejected_batches, 1);
+            if (reason == FileRangeReadRejectReason::QUERY_BYTE_LIMIT) {
+                COUNTER_UPDATE(&io_context.statistics->query_budget_rejected_batches, 1);
+            } else if (reason == FileRangeReadRejectReason::GLOBAL_BYTE_LIMIT) {
+                COUNTER_UPDATE(&io_context.statistics->be_budget_rejected_batches, 1);
+            }
+        }
+        return rejected(reason, std::move(status));
+    };
     size_t total_bytes = 0;
     Status validation_status = _validate_request(ranges, reader, context, &total_bytes);
     if (!validation_status.ok()) {
-        return rejected(FileRangeReadRejectReason::INVALID_REQUEST, std::move(validation_status));
+        return reject(FileRangeReadRejectReason::INVALID_REQUEST, std::move(validation_status));
     }
     if (!accepting()) {
-        return rejected(FileRangeReadRejectReason::SHUTTING_DOWN,
-                        Status::Cancelled("file range read scheduler is shutting down"));
+        return reject(FileRangeReadRejectReason::SHUTTING_DOWN,
+                      Status::Cancelled("file range read scheduler is shutting down"));
     }
     if (context->cancelled()) {
-        return rejected(FileRangeReadRejectReason::QUERY_CANCELLED,
-                        Status::Cancelled("query cancelled before file range submission"));
+        return reject(FileRangeReadRejectReason::QUERY_CANCELLED,
+                      Status::Cancelled("query cancelled before file range submission"));
     }
 
     std::vector<FileRangeReadReservation> reservations;
     reservations.reserve(ranges.size());
     const auto reserve_reason = _reserve_batch(context, ranges, total_bytes, &reservations);
     if (reserve_reason != FileRangeReadRejectReason::NONE) {
-        return rejected(reserve_reason);
+        return reject(reserve_reason);
     }
 
     std::vector<std::shared_ptr<FileRangeRead>> reads;
@@ -385,10 +433,11 @@ FileRangeReadSubmitResult FileRangeReadScheduler::try_submit(
     tasks.reserve(ranges.size());
     for (size_t index = 0; index < ranges.size(); ++index) {
         std::shared_ptr<FileRangeRead> read;
-        Status status = FileRangeRead::create(ranges[index], _mem_tracker,
-                                              std::move(reservations[index]), &read);
+        Status status =
+                FileRangeRead::create(ranges[index], _mem_tracker, std::move(reservations[index]),
+                                      &read, io_context.statistics);
         if (!status.ok()) {
-            return rejected(FileRangeReadRejectReason::ALLOCATION_FAILED, std::move(status));
+            return reject(FileRangeReadRejectReason::ALLOCATION_FAILED, std::move(status));
         }
         tasks.push_back(ReadTask {
                 .reader = reader, .read = read, .context = context, .io_context = io_context});
@@ -399,7 +448,7 @@ FileRangeReadSubmitResult FileRangeReadScheduler::try_submit(
     FileRangeReadRejectReason submit_reason = FileRangeReadRejectReason::NONE;
     Status submit_status = _submit_tasks(std::move(tasks), &submit_reason);
     if (!submit_status.ok()) {
-        return rejected(submit_reason, std::move(submit_status));
+        return reject(submit_reason, std::move(submit_status));
     }
     return {.reads = std::move(reads),
             .reject_reason = FileRangeReadRejectReason::NONE,
@@ -458,6 +507,7 @@ FileRangeReadRejectReason FileRangeReadScheduler::_reserve_batch(
 
     query_budget._reserve_unlocked(total_bytes);
     _global_budget->_reserve_unlocked(total_bytes);
+    read_ahead_bvars().resident_bytes << static_cast<int64_t>(total_bytes);
     for (const auto& range : ranges) {
         reservations->push_back(FileRangeReadReservation(context, _global_budget, range.size));
     }
@@ -479,17 +529,28 @@ Status FileRangeReadScheduler::_submit_tasks(std::vector<ReadTask> tasks,
     for (auto& task : tasks) {
         auto read = task.read;
         DORIS_CHECK(_inflight_reads.emplace(read).second);
+        read_ahead_bvars().inflight_ranges << 1;
+        task.submit_ns = MonotonicNanos();
         Status status = _executor->submit_func([this, task = std::move(task), read]() mutable {
             Defer task_finished {[this, read]() { _task_finished(read); }};
             _run_task(std::move(task));
         });
         if (status.ok()) {
             ++submitted_tasks;
+            if (read->_statistics != nullptr) {
+                COUNTER_UPDATE(&read->_statistics->submitted_ranges, 1);
+                COUNTER_UPDATE(&read->_statistics->submitted_bytes,
+                               static_cast<int64_t>(read->range().size));
+            }
             continue;
         }
         DORIS_CHECK(_inflight_reads.erase(read) == 1);
+        read_ahead_bvars().inflight_ranges << -1;
         if (first_failure.ok()) {
             first_failure = status;
+        }
+        if (read->_statistics != nullptr) {
+            COUNTER_UPDATE(&read->_statistics->submit_failed_ranges, 1);
         }
         read->_publish_submit_failure(std::move(status));
     }
@@ -505,6 +566,7 @@ Status FileRangeReadScheduler::_submit_tasks(std::vector<ReadTask> tasks,
 void FileRangeReadScheduler::_task_finished(const std::shared_ptr<FileRangeRead>& read) {
     std::lock_guard lock(_mutex);
     DORIS_CHECK(_inflight_reads.erase(read) == 1);
+    read_ahead_bvars().inflight_ranges << -1;
     if (_inflight_reads.empty()) {
         _tasks_cv.notify_all();
     }
@@ -512,10 +574,16 @@ void FileRangeReadScheduler::_task_finished(const std::shared_ptr<FileRangeRead>
 
 void FileRangeReadScheduler::_run_task(ReadTask task) const {
     if (!task.read->_mark_running()) {
+        // Count queued cancellation only for tasks accepted by the executor. A handle may be
+        // cancelled before submission, including a submission the executor later rejects.
+        if (task.read->_statistics != nullptr) {
+            COUNTER_UPDATE(&task.read->_statistics->cancelled_ranges, 1);
+        }
         return;
     }
 
     FileRangeReadStats stats;
+    stats.queue_wait_ns = MonotonicNanos() - task.submit_ns;
     if (task.context->cancelled() || !accepting()) {
         task.read->_publish_cancelled(std::move(stats));
         return;
@@ -523,6 +591,7 @@ void FileRangeReadScheduler::_run_task(ReadTask task) const {
     task.io_context.io_context.file_cache_stats = &stats.file_cache;
     task.io_context.io_context.file_reader_stats = &stats.file_reader;
     Status status;
+    const int64_t read_start_ns = MonotonicNanos();
     try {
         status = task.reader->read_at(task.read->range().offset,
                                       Slice(task.read->_data, task.read->range().size),
@@ -533,6 +602,10 @@ void FileRangeReadScheduler::_run_task(ReadTask task) const {
         status = Status::IOError("file range read threw an exception: {}", exception.what());
     } catch (...) {
         status = Status::IOError("file range read threw an unknown exception");
+    }
+    stats.read_ns = MonotonicNanos() - read_start_ns;
+    if (status.ok() && stats.bytes_read == task.read->range().size) {
+        stats.successful_source_bytes = stats.bytes_read;
     }
 
     if (task.context->cancelled() || task.read->_is_cancel_requested() || !accepting()) {
