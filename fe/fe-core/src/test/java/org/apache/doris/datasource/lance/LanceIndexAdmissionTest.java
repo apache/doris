@@ -483,6 +483,27 @@ public class LanceIndexAdmissionTest {
     }
 
     @Test
+    public void exposedNonPrimitiveNumericFailsClosed() throws Exception {
+        // Symmetric with the metric rule: an exposed but non-primitive numeric value is
+        // malformed data, not "no stable value": fail closed, never skip.
+        LanceIndexAdmissionSnapshot nonPrimitiveSubVectors = snapshot(
+                Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ",
+                        "{\"compression\":{\"num_sub_vectors\":{\"unexpected\":\"object\"}}}")),
+                Collections.singletonList(physicalIndex("idx", "VECTOR")));
+        assertInvalid(() -> admitCreate(nonPrimitiveSubVectors, annDef("idx", true, false), true),
+                "index 'idx' already exists with a different definition");
+
+        // A compression block that is present but not an object is malformed too.
+        LanceIndexAdmissionSnapshot nonObjectCompression = snapshot(
+                Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ",
+                        "{\"compression\":\"unexpected\"}")),
+                Collections.singletonList(physicalIndex("idx", "VECTOR")));
+        assertInvalid(() -> admitCreate(nonObjectCompression, annDef("idx", true, false), true),
+                "index 'idx' already exists with a different definition");
+        assertNothingPersisted();
+    }
+
+    @Test
     public void exposedMetricComparisonIsCaseInsensitive() throws Exception {
         LanceIndexAdmissionSnapshot snapshot = snapshot(
                 Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ",
