@@ -213,15 +213,16 @@ public class MTMVRefreshContextBatchTest {
         mappings.put("mv2", Collections.singletonMap(table, Collections.singleton("p2")));
         configureContext(mtmv, table, refreshSnapshot, mappings);
         MvccSnapshot pin = Mockito.mock(MvccSnapshot.class);
+        Map<MvccTableInfo, MvccSnapshot> pins =
+                Collections.singletonMap(new MvccTableInfo(table), pin);
         MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv, Collections.emptyMap(),
-                Collections.singletonMap(new MvccTableInfo(table), pin));
+                pins);
         Mockito.when(table.getPartitionSnapshots(Mockito.anySet(), Mockito.same(context), Mockito.any()))
                 .thenAnswer(invocation -> snapshots(invocation.getArgument(0)));
 
         PreparedPartitionSnapshots prepared = context.preparePartitionSnapshots(mappings.keySet());
 
-        Mockito.verify(mtmv).calculatePartitionMappings(Mockito.anyMap(),
-                Mockito.eq(Collections.singletonMap(new MvccTableInfo(table), pin)));
+        Mockito.verify(mtmv).calculatePartitionMappings(Mockito.anyMap(), Mockito.eq(pins));
         Mockito.verify(table).getPartitionSnapshots(Mockito.eq(new LinkedHashSet<>(Arrays.asList("p1", "p2"))),
                 Mockito.same(context),
                 Mockito.eq(Optional.of(pin)));

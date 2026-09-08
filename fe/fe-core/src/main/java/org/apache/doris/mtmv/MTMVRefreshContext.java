@@ -138,8 +138,9 @@ public class MTMVRefreshContext {
                     + (loaded == null ? "null" : loaded.size()));
         }
         cached.putAll(loaded);
-        missing.removeAll(loaded.keySet());
-        knownMissing.addAll(missing);
+        Set<String> stillMissing = new LinkedHashSet<>(missing);
+        stillMissing.removeAll(loaded.keySet());
+        knownMissing.addAll(stillMissing);
     }
 
     void recordPartitionSnapshotFailure(
