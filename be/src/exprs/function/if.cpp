@@ -545,6 +545,48 @@ public:
     }
 };
 
+#ifdef BE_TEST
+Status execute_function_if_for_null_then_else_test(FunctionContext* context, Block& block,
+                                                   const ColumnWithTypeAndName& arg_cond,
+                                                   const ColumnWithTypeAndName& arg_then,
+                                                   const ColumnWithTypeAndName& arg_else,
+                                                   uint32_t result, size_t input_rows_count,
+                                                   bool& handled) {
+    FunctionIf function;
+    return function.execute_for_null_then_else(context, block, arg_cond, arg_then, arg_else, result,
+                                               input_rows_count, handled);
+}
+
+Status execute_function_if_for_null_condition_test(FunctionContext* context, Block& block,
+                                                   const ColumnWithTypeAndName& arg_cond,
+                                                   const ColumnWithTypeAndName& arg_then,
+                                                   const ColumnWithTypeAndName& arg_else,
+                                                   uint32_t result, bool& handled) {
+    FunctionIf function;
+    return function.execute_for_null_condition(context, block, {0, 1, 2}, arg_cond, arg_then,
+                                               arg_else, result, handled);
+}
+
+Status execute_function_if_basic_type_test(PrimitiveType primitive_type, Block& block,
+                                           const ColumnUInt8* cond_col,
+                                           const ColumnWithTypeAndName& arg_then,
+                                           const ColumnWithTypeAndName& arg_else, uint32_t result,
+                                           Status& status) {
+    FunctionIf function;
+    Status ret = Status::OK();
+    auto call = [&](const auto& type) -> bool {
+        using DataType = std::decay_t<decltype(type)>;
+        ret = function.execute_basic_type<DataType::PType>(block, cond_col, arg_then, arg_else,
+                                                           result, status);
+        return true;
+    };
+    if (!dispatch_switch_scalar(primitive_type, call)) {
+        return Status::InternalError("Unsupported primitive type for function if");
+    }
+    return ret;
+}
+#endif
+
 void register_function_if(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIf>();
 }

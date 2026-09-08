@@ -178,6 +178,9 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
                 ),
                 new NullLiteral(DateTimeV2Type.of(6))
         );
+
+        // nullif(L, R) -> if(L = R, null, L)
+        assertRewriteAfterTypeCoercion("nullif(a, b)", "if(a = b, null, a)");
     }
 
 }
