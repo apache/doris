@@ -41,10 +41,10 @@ public class TimeDiff extends ScalarFunction
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TimeV2Type.WILDCARD)
-                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD),
-            FunctionSignature.ret(TimeV2Type.WILDCARD)
                     .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
-            FunctionSignature.ret(TimeV2Type.SYSTEM_DEFAULT).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));
+            FunctionSignature.ret(TimeV2Type.SYSTEM_DEFAULT).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
+            FunctionSignature.ret(TimeV2Type.WILDCARD)
+                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD));
 
     /**
      * constructor with 2 arguments.
