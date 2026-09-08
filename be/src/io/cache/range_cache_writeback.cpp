@@ -21,6 +21,7 @@
 
 #include "common/logging.h"
 #include "io/cache/partial_block_writeback_manager.h"
+#include "io/fs/read_ahead_metrics.h"
 
 namespace doris::io {
 
@@ -42,24 +43,27 @@ std::optional<AsyncCacheWriteEpoch> RangeCacheWriteback::capture_write_epoch() c
 }
 
 RangeWritebackDispatchResult RangeCacheWriteback::submit_consumed_range(
-        const FileRange& range, Slice data, const AsyncCacheWriteEpoch& write_epoch) {
+        const FileRange& range, Slice data, const AsyncCacheWriteEpoch& write_epoch,
+        ReadAheadStatistics* statistics) {
     DORIS_CHECK(write_epoch.key_token != nullptr);
+    SCOPED_TIMER(statistics != nullptr ? &statistics->writeback_time : nullptr);
     if (!_options.write_manager->accepting()) {
         return {};
     }
     RangeWritebackDispatcher dispatcher(
             _options.file_size, _options.block_size,
             [&](const FileCacheBlockFragment& fragment) {
-                return _submit_complete_block(fragment, write_epoch);
+                return _submit_complete_block(fragment, write_epoch, statistics);
             },
             [&](const FileCacheBlockFragment& fragment) {
-                return _submit_partial_block(fragment, write_epoch);
+                return _submit_partial_block(fragment, write_epoch, statistics);
             });
     return dispatcher.dispatch(range, data);
 }
 
 bool RangeCacheWriteback::_submit_complete_block(const FileCacheBlockFragment& fragment,
-                                                 const AsyncCacheWriteEpoch& write_epoch) {
+                                                 const AsyncCacheWriteEpoch& write_epoch,
+                                                 ReadAheadStatistics* statistics) {
     DORIS_CHECK(fragment.complete());
     const auto result = _options.write_manager->try_submit_block(AsyncCacheWriteBlockRequest {
             .cache_hash = _options.cache_hash,
@@ -70,12 +74,23 @@ bool RangeCacheWriteback::_submit_complete_block(const FileCacheBlockFragment& f
             .write_epoch = write_epoch,
             .inflight_index = _options.inflight_index,
     });
+    if (statistics != nullptr) {
+        if (result == AsyncCacheWriteBlockSubmitResult::SUBMITTED) {
+            COUNTER_UPDATE(&statistics->complete_blocks_submitted, 1);
+            COUNTER_UPDATE(&statistics->complete_block_bytes, fragment.data.size);
+        } else if (result == AsyncCacheWriteBlockSubmitResult::ALREADY_INFLIGHT) {
+            COUNTER_UPDATE(&statistics->writeback_deduplicated_blocks, 1);
+        } else {
+            COUNTER_UPDATE(&statistics->writeback_rejected_blocks, 1);
+        }
+    }
     return result == AsyncCacheWriteBlockSubmitResult::SUBMITTED ||
            result == AsyncCacheWriteBlockSubmitResult::ALREADY_INFLIGHT;
 }
 
 bool RangeCacheWriteback::_submit_partial_block(const FileCacheBlockFragment& fragment,
-                                                const AsyncCacheWriteEpoch& write_epoch) {
+                                                const AsyncCacheWriteEpoch& write_epoch,
+                                                ReadAheadStatistics* statistics) {
     DORIS_CHECK(!fragment.complete());
     const auto result = _options.partial_block_manager->try_submit(PartialBlockWritebackRequest {
             .write_manager = _options.write_manager,
@@ -90,6 +105,21 @@ bool RangeCacheWriteback::_submit_partial_block(const FileCacheBlockFragment& fr
             .write_epoch = write_epoch,
             .io_context = _options.io_context,
     });
+    if (statistics != nullptr) {
+        if (result == PartialBlockSubmitResult::QUEUED ||
+            result == PartialBlockSubmitResult::MERGED) {
+            auto* counter = result == PartialBlockSubmitResult::QUEUED
+                                    ? &statistics->partial_blocks_queued
+                                    : &statistics->partial_blocks_merged;
+            COUNTER_UPDATE(counter, 1);
+            COUNTER_UPDATE(&statistics->partial_fragment_bytes, fragment.data.size);
+        } else if (result == PartialBlockSubmitResult::ACTIVE_DEDUPLICATED ||
+                   result == PartialBlockSubmitResult::CACHE_WRITE_INFLIGHT) {
+            COUNTER_UPDATE(&statistics->writeback_deduplicated_blocks, 1);
+        } else {
+            COUNTER_UPDATE(&statistics->writeback_rejected_blocks, 1);
+        }
+    }
     return result == PartialBlockSubmitResult::QUEUED ||
            result == PartialBlockSubmitResult::MERGED ||
            result == PartialBlockSubmitResult::ACTIVE_DEDUPLICATED ||

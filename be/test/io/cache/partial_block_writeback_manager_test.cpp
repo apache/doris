@@ -38,6 +38,7 @@
 #include "io/cache/block_file_cache_test_common.h"
 #include "io/cache/inflight_write_buffer_index.h"
 #include "io/fs/path.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "util/defer_op.h"
 
 namespace doris::io {
@@ -545,6 +546,12 @@ TEST_F(PartialBlockWritebackManagerTest, ReplacesQueuedTaskAfterEpochInvalidatio
 }
 
 TEST_F(PartialBlockWritebackManagerTest, UsesReadWorkersConcurrentlyAndDeduplicatesActiveTask) {
+    auto& metrics = read_ahead_bvars();
+    const auto pending_before = metrics.hole_fill_pending_bytes.get_value();
+    const auto active_before = metrics.hole_fill_active_blocks.get_value();
+    const auto requests_before = metrics.hole_fill_remote_requests.get_value();
+    const auto bytes_before = metrics.hole_fill_remote_bytes.get_value();
+    const auto submitted_before = metrics.hole_fill_write_submitted_blocks.get_value();
     auto cache = create_cache("partial_block_concurrent", 8);
     auto* cache_writer = cache->async_write_manager();
     auto* index = cache->inflight_write_buffer_index();
@@ -564,6 +571,9 @@ TEST_F(PartialBlockWritebackManagerTest, UsesReadWorkersConcurrentlyAndDeduplica
     ASSERT_TRUE(reader->wait_for_entered(2));
     EXPECT_EQ(manager->active_count(), 2);
     EXPECT_EQ(reader->max_active_reads(), 2);
+    EXPECT_EQ(metrics.hole_fill_pending_bytes.get_value() - pending_before, 2 * kBlockSize);
+    EXPECT_EQ(metrics.hole_fill_active_blocks.get_value() - active_before, 2);
+    EXPECT_EQ(metrics.hole_fill_remote_requests.get_value() - requests_before, 2);
 
     EXPECT_EQ(manager->try_submit(
                       make_request(cache_writer, index, reader, first_hash, content, 1024, 512)),
@@ -579,6 +589,10 @@ TEST_F(PartialBlockWritebackManagerTest, UsesReadWorkersConcurrentlyAndDeduplica
     EXPECT_TRUE(cache_range_downloaded(cache.get(), first_hash));
     EXPECT_TRUE(cache_range_downloaded(cache.get(), second_hash));
     EXPECT_FALSE(cache_range_downloaded(cache.get(), rejected_hash));
+    EXPECT_EQ(metrics.hole_fill_pending_bytes.get_value(), pending_before);
+    EXPECT_EQ(metrics.hole_fill_active_blocks.get_value(), active_before);
+    EXPECT_EQ(metrics.hole_fill_remote_bytes.get_value() - bytes_before, 2 * (kBlockSize - 1024));
+    EXPECT_EQ(metrics.hole_fill_write_submitted_blocks.get_value() - submitted_before, 2);
 }
 
 TEST_F(PartialBlockWritebackManagerTest, ResizesWorkersWithoutInterruptingActiveReads) {
@@ -623,6 +637,10 @@ TEST_F(PartialBlockWritebackManagerTest, ResizesWorkersWithoutInterruptingActive
 }
 
 TEST_F(PartialBlockWritebackManagerTest, EvictsOldestQueuedTask) {
+    auto& metrics = read_ahead_bvars();
+    const auto failed_before = metrics.hole_fill_failed_blocks.get_value();
+    const auto pending_before = metrics.hole_fill_pending_bytes.get_value();
+    const auto dropped_before = metrics.hole_fill_dropped_blocks.get_value();
     auto cache = create_cache("partial_block_evict_oldest", 1);
     auto* cache_writer = cache->async_write_manager();
     auto* index = cache->inflight_write_buffer_index();
@@ -672,15 +690,25 @@ TEST_F(PartialBlockWritebackManagerTest, EvictsOldestQueuedTask) {
     EXPECT_EQ(manager->pending_count(), 2);
     EXPECT_EQ(manager->queued_count(), 2);
 
+    EXPECT_EQ(metrics.hole_fill_pending_bytes.get_value() - pending_before, 2 * kBlockSize);
+    EXPECT_EQ(metrics.hole_fill_dropped_blocks.get_value() - dropped_before, 1);
+    EXPECT_EQ(metrics.hole_fill_failed_blocks.get_value(), failed_before);
+
     cache_writer_gate.release();
     ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
     ASSERT_TRUE(wait_until([&]() { return cache_writer->pending_count() == 0; }));
     EXPECT_FALSE(cache_range_downloaded(cache.get(), first_hash));
     EXPECT_TRUE(cache_range_downloaded(cache.get(), second_hash));
     EXPECT_TRUE(cache_range_downloaded(cache.get(), third_hash));
+    EXPECT_EQ(metrics.hole_fill_pending_bytes.get_value(), pending_before);
 }
 
 TEST_F(PartialBlockWritebackManagerTest, DropsFailedAndShortReads) {
+    auto& metrics = read_ahead_bvars();
+    const auto failed_before = metrics.hole_fill_failed_blocks.get_value();
+    const auto read_time_before = metrics.hole_fill_remote_read_time_ns.get_value();
+    const auto dropped_before = metrics.hole_fill_dropped_blocks.get_value();
+    const auto submitted_before = metrics.hole_fill_write_submitted_blocks.get_value();
     auto cache = create_cache("partial_block_read_failures", 8);
     auto* cache_writer = cache->async_write_manager();
     auto* index = cache->inflight_write_buffer_index();
@@ -702,6 +730,10 @@ TEST_F(PartialBlockWritebackManagerTest, DropsFailedAndShortReads) {
     ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
     EXPECT_FALSE(cache_range_downloaded(cache.get(), failed_hash));
     EXPECT_FALSE(cache_range_downloaded(cache.get(), short_hash));
+    EXPECT_EQ(metrics.hole_fill_dropped_blocks.get_value() - dropped_before, 2);
+    EXPECT_EQ(metrics.hole_fill_failed_blocks.get_value() - failed_before, 2);
+    EXPECT_GT(metrics.hole_fill_remote_read_time_ns.get_value(), read_time_before);
+    EXPECT_EQ(metrics.hole_fill_write_submitted_blocks.get_value(), submitted_before);
 }
 
 TEST_F(PartialBlockWritebackManagerTest, ShutdownWaitsForActiveRemoteRead) {
