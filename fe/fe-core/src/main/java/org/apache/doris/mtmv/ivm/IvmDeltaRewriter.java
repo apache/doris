@@ -78,9 +78,11 @@ public class IvmDeltaRewriter {
         // not yet visible (an MV partition's committed version is ahead of its visible
         // version), that join misses the old rows and the delta is permanently lost. Fail
         // here; the fallback chain recomputes from the base tables without reading old MV
-        // state. Cloud mode is exempt: MV writes publish through the meta service and do not
-        // leave refresh txns in this committed-not-visible state.
+        // state. EXPLAIN REFRESH is exempt: it only produces a plan and neither executes it
+        // nor reads MV data. Cloud mode is exempt too: MV writes publish through the meta
+        // service and do not leave refresh txns in this committed-not-visible state.
         if (!Config.isCloudMode()
+                && !rewriteContext.isExplain()
                 && rewriteResult.isAggMv()
                 && hasUnpublishedCommittedMvData(rewriteContext.getMtmv())) {
             throw new IvmException(IvmFailureReason.MV_COMMIT_NOT_VISIBLE,

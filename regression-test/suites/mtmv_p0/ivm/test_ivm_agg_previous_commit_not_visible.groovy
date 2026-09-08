@@ -113,6 +113,12 @@ suite("test_ivm_agg_previous_commit_not_visible", "nonConcurrent") {
             SELECT k1, cnt, sum_v1 FROM ${mvName} ORDER BY k1
         """
 
+        // EXPLAIN REFRESH only produces a plan (no execution and no MV data read), so it
+        // must still succeed while the previous refresh txn is committed but not visible;
+        // this holds for INCREMENTAL and COMPLETE alike.
+        sql """EXPLAIN REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
+        sql """EXPLAIN REFRESH MATERIALIZED VIEW ${mvName} COMPLETE"""
+
         // Batch C commits and publishes normally (the debug point only matches the MV),
         // so the next incremental refresh has a real delta while the previous refresh
         // txn on the MV is still not visible. The aggregate delta would join stale old
