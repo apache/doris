@@ -124,10 +124,10 @@ public class MysqlResultSetEndPacketTest {
         new MysqlResultSetEndPacket(state).writeTo(serializer);
 
         ByteBuffer buffer = serializer.toByteBuffer();
-        Assert.assertEquals(0xFE, MysqlProto.readInt1(buffer));
-        Assert.assertEquals(0, MysqlProto.readVInt(buffer));
-        Assert.assertEquals(0, MysqlProto.readVInt(buffer));
-        Assert.assertEquals(MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS, MysqlProto.readInt2(buffer));
+        Assertions.assertEquals(0xFE, MysqlProto.readInt1(buffer));
+        Assertions.assertEquals(0, MysqlProto.readVInt(buffer));
+        Assertions.assertEquals(0, MysqlProto.readVInt(buffer));
+        Assertions.assertEquals(MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS, MysqlProto.readInt2(buffer));
     }
 
     @Test
@@ -139,6 +139,6 @@ public class MysqlResultSetEndPacketTest {
 
         ByteBuffer buffer = serializer.toByteBuffer();
         buffer.position(5);
-        Assert.assertEquals(3, MysqlProto.readInt2(buffer));
+        Assertions.assertEquals(3, MysqlProto.readInt2(buffer));
     }
 }

@@ -224,14 +224,14 @@ public class MysqlProtoTest {
         ConnectContext context = createContext();
         context.setEnv(env);
         context.setThreadLocalInfo();
-        Assert.assertTrue(MysqlProto.negotiate(context));
-        Assert.assertEquals(clientFlags, context.getCapability().getFlags());
-        Assert.assertEquals(clientFlags, channel.getSerializer().getCapability().getFlags());
+        Assertions.assertTrue(MysqlProto.negotiate(context));
+        Assertions.assertEquals(clientFlags, context.getCapability().getFlags());
+        Assertions.assertEquals(clientFlags, channel.getSerializer().getCapability().getFlags());
         Mockito.verify(channel, Mockito.never()).setClientDeprecatedEOF();
         MysqlSerializer serializer = channel.getSerializer();
         serializer.reset();
         new MysqlOkPacket(context.getState()).writeTo(serializer);
-        Assert.assertEquals(7, serializer.toByteBuffer().remaining());
+        Assertions.assertEquals(7, serializer.toByteBuffer().remaining());
     }
 
     @Test
