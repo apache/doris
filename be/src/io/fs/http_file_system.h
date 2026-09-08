@@ -22,7 +22,6 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "common/status.h"
 #include "io/fs/file_writer.h"

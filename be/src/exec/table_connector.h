@@ -22,7 +22,6 @@
 #include <stdint.h>
 
 #include <string>
-#include <vector>
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"

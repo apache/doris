@@ -21,7 +21,6 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "common/status.h"
 #include "core/block/column_numbers.h"

@@ -21,7 +21,6 @@
 
 #include <memory>
 #include <ostream>
-#include <vector>
 
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"

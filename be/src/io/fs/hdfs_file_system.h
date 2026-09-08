@@ -25,7 +25,6 @@
 #include <chrono> // IWYU pragma: keep
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"

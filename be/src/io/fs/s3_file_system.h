@@ -22,7 +22,6 @@
 #include <shared_mutex>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"

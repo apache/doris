@@ -23,7 +23,6 @@
 #include <map>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "common/status.h"
 #include "io/fs/path.h"
