@@ -48,7 +48,8 @@ public enum Privilege {
     CLUSTER_USAGE_PRIV("Cluster_usage_priv", 12, "Privilege for using cluster", "RESOURCE"),
     // 13 placeholder for stage
     STAGE_USAGE_PRIV("Stage_usage_priv", 13, "Privilege for using stage", "RESOURCE"),
-    SHOW_VIEW_PRIV("Show_view_priv", 14, "Privilege for show create view", "GLOBAL,CATALOG,DATABASE,TABLE");
+    SHOW_VIEW_PRIV("Show_view_priv", 14, "Privilege for show create view", "GLOBAL,CATALOG,DATABASE,TABLE"),
+    PROXY_PRIV("Proxy_priv", 15, "Privilege for switching the session to another user (SU)", "GLOBAL");
 
     public static final Map<Integer, Privilege> privileges;
 
@@ -73,6 +74,7 @@ public enum Privilege {
         privileges.put(12, CLUSTER_USAGE_PRIV);
         privileges.put(13, STAGE_USAGE_PRIV);
         privileges.put(14, SHOW_VIEW_PRIV);
+        privileges.put(15, PROXY_PRIV);
     }
 
 
@@ -86,6 +88,7 @@ public enum Privilege {
             CREATE_PRIV,
             DROP_PRIV,
             SHOW_VIEW_PRIV,
+            PROXY_PRIV,
     };
 
     // only GRANT_PRIV and USAGE_PRIV can grant on workloadGroup
@@ -98,6 +101,7 @@ public enum Privilege {
             CREATE_PRIV,
             DROP_PRIV,
             SHOW_VIEW_PRIV,
+            PROXY_PRIV,
     };
 
     public static final Privilege[] notBelongToTablePrivileges = {
@@ -116,6 +120,7 @@ public enum Privilege {
                     .put(USAGE_PRIV, "USAGE")
                     .put(CLUSTER_USAGE_PRIV, "USAGE")
                     .put(SHOW_VIEW_PRIV, "SHOW VIEW")
+                    .put(PROXY_PRIV, "PROXY")
                     .build();
 
     private String name;
