@@ -18,6 +18,7 @@
 #include "doris_txn.h"
 
 #include <bit>
+#include <cstring>
 
 namespace doris::cloud {
 
@@ -29,7 +30,9 @@ int get_txn_id_from_fdb_ts(std::string_view fdb_vts, int64_t* txn_id) {
     //           0000000000000000 0000
     //           ts               seq
     // byte addr 0 1 2 3 4 5 6 7  8 9
-    int64_t ver = *reinterpret_cast<const int64_t*>(fdb_vts.data());
+    // The input may be unaligned; copy bytes instead of aliasing them as int64_t.
+    int64_t ver;
+    std::memcpy(&ver, fdb_vts.data(), sizeof(ver));
 
     // TODO(gavin): implementation for big-endian or make it endian-independent
     static_assert(std::endian::native == std::endian::little); // Since c++20
@@ -42,7 +45,8 @@ int get_txn_id_from_fdb_ts(std::string_view fdb_vts, int64_t* txn_id) {
     };
     ver = to_little(ver);
 
-    int64_t seq = *reinterpret_cast<const int64_t*>(fdb_vts.data() + 2);
+    int64_t seq;
+    std::memcpy(&seq, fdb_vts.data() + 2, sizeof(seq));
     seq = to_little(seq);
     seq &= 0x000000000000ffff; // Strip off non-seq part
 

@@ -21,6 +21,9 @@
 #include <brpc/controller.h>
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cstring>
+
 #include "common/config.h"
 #include "common/util.h"
 #include "meta-service/meta_service.h"
@@ -96,5 +99,46 @@ TEST(TxnIdConvert, TxnIdTest) {
         ts = std::string("\x00\x00\x01\x82\xa5\xed\x17\x4f\x03\x00", 9);
         ret = get_txn_id_from_fdb_ts(ts, &txn_id);
         ASSERT_EQ(ret, 1);
+    }
+}
+
+TEST(TxnIdConvert, UnalignedVersionstamp) {
+    // Cover every alignment for both eight-byte reads, including odd addresses.
+    // The payload has high bits set in both version bytes and sequence bytes.
+    constexpr std::array<unsigned char, 10> versionstamp = {0x00, 0x1f, 0x82, 0xa5, 0xed,
+                                                            0x17, 0x3f, 0x80, 0x03, 0xff};
+    constexpr int64_t expected_txn_id = 0x7e0a97b45cfe03ff;
+    alignas(int64_t) std::array<char, 10 + alignof(int64_t) - 1> buffer {};
+    for (size_t offset = 0; offset < alignof(int64_t); ++offset) {
+        SCOPED_TRACE(offset);
+        std::memcpy(buffer.data() + offset, versionstamp.data(), versionstamp.size());
+        int64_t txn_id = -1;
+        ASSERT_EQ(doris::cloud::get_txn_id_from_fdb_ts(
+                          std::string_view(buffer.data() + offset, versionstamp.size()), &txn_id),
+                  0);
+        EXPECT_EQ(txn_id, expected_txn_id);
+    }
+}
+
+TEST(TxnIdConvert, SequenceValues) {
+    // Exercise all two-byte sequences at an odd address. In particular, 0x00ff
+    // must remain positive after decoding, and 0x0400 and above must fail.
+    alignas(int64_t) std::array<unsigned char, 11> buffer = {0,    0x00, 0x00, 0x01, 0x82, 0xa5,
+                                                             0xed, 0x17, 0x3f, 0,    0};
+    const std::string_view versionstamp(reinterpret_cast<const char*>(buffer.data() + 1), 10);
+    constexpr int64_t base_txn_id = 0x00060a97b45cfc00;
+    for (uint32_t seq = 0; seq <= 0xffff; ++seq) {
+        SCOPED_TRACE(seq);
+        buffer[9] = static_cast<unsigned char>(seq >> 8);
+        buffer[10] = static_cast<unsigned char>(seq);
+        int64_t txn_id = -1;
+        const int ret = doris::cloud::get_txn_id_from_fdb_ts(versionstamp, &txn_id);
+        if (seq < 1024) {
+            ASSERT_EQ(ret, 0);
+            EXPECT_EQ(txn_id, base_txn_id + seq);
+        } else {
+            ASSERT_EQ(ret, 2);
+            EXPECT_EQ(txn_id, -1);
+        }
     }
 }
