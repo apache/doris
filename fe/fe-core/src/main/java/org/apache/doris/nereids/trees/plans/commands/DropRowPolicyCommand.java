@@ -32,6 +32,8 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import org.apache.commons.lang3.StringUtils;
+
 /**
  * DropRowPolicyCommand
  **/
@@ -70,15 +72,20 @@ public class DropRowPolicyCommand extends DropCommand {
      * validate
      */
     public void validate(ConnectContext ctx) throws AnalysisException {
-        tableNameInfo.analyze(ctx.getNameSpaceContext());
-        if (user != null) {
-            user.analyze();
-        }
-        // check auth
+        // check auth first to prevent information leakage
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                     PrivPredicate.GRANT.getPrivs().toString());
+        }
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
+        if (user != null) {
+            user.analyze();
+        }
+        if (!ifExists && !StringUtils.isEmpty(roleName)) {
+            if (!Env.getCurrentEnv().getAuth().doesRoleExist(roleName)) {
+                throw new AnalysisException("role not exist: " + roleName);
+            }
         }
     }
 

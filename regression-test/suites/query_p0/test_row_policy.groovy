@@ -90,4 +90,11 @@ suite("test_row_policy") {
           """
           exception "system user"
     }
+
+    test {
+          sql """
+              DROP ROW POLICY policy_01 ON ${tableName} FOR ROLE non_exist_role
+          """
+          exception "non_exist_role"
+    }
 }
