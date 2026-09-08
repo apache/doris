@@ -182,8 +182,7 @@ TEST(SniiPostingInterleave, RoundTripWithPositionsContiguous) {
     ASSERT_TRUE(idx.lookup("aa_wide", &found, &wide_e, &fb, &pb).ok());
     ASSERT_TRUE(found);
     DecodedPosting dp;
-    ASSERT_TRUE(read_windowed_posting(idx, wide_e, fb, pb, /*want_positions=*/true, &dp)
-                        .ok());
+    ASSERT_TRUE(read_windowed_posting(idx, wide_e, fb, pb, /*want_positions=*/true, &dp).ok());
     ASSERT_EQ(dp.docids.size(), wide_docs.size());
     EXPECT_EQ(dp.docids, wide_docs);
     ASSERT_EQ(dp.positions.size(), wide_docs.size());

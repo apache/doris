@@ -125,7 +125,6 @@ void block_single_flight_leader_before_compute(void* opaque) noexcept {
     gate->release_leader.acquire();
 }
 
-
 void record_searcher_open(void* opaque) noexcept {
     static_cast<std::atomic<uint32_t>*>(opaque)->fetch_add(1, std::memory_order_relaxed);
 }
@@ -175,8 +174,6 @@ struct QueryExecutionContext {
     RuntimeState runtime_state;
     IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
 };
-
-
 
 void init_index_meta(TabletIndex* meta, int64_t index_id = kIndexId,
                      std::string parser = "english") {
@@ -234,7 +231,6 @@ void write_positional_segment() {
     assert_ok(file.finalize());
 }
 
-
 std::shared_ptr<inverted_index::CustomAnalyzerProvider> make_plain_provider() {
     inverted_index::Settings tokenizer_settings;
     tokenizer_settings.set("tokenize_on_chars", "[whitespace]");
@@ -243,8 +239,6 @@ std::shared_ptr<inverted_index::CustomAnalyzerProvider> make_plain_provider() {
     builder.add_token_filter_config("lowercase", {});
     return std::make_shared<inverted_index::CustomAnalyzerProvider>(builder.build());
 }
-
-
 
 Status write_scoring_segment(std::string_view index_path_prefix, bool corrupt_norms = false) {
     std::vector<doris::snii::writer::TermPostings> terms {
@@ -1052,7 +1046,6 @@ TEST_F(SniiIndexReaderCountFallback, CustomAnalyzerWithNoneParserRetainsAnalyzed
     EXPECT_EQ(second.stats.inverted_index_query_cache_insert, 0);
 }
 
-
 TEST_F(SniiIndexReaderCountFallback, CustomKeywordAnalyzerWithNoneParserNormalizesSingleTerm) {
     inverted_index::CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("keyword", {});
@@ -1136,10 +1129,6 @@ TEST_F(SniiIndexReaderCountFallback, PublicQueryWithCacheDisabledDoesNotLookupOr
     EXPECT_EQ(enabled_hit.stats.inverted_index_query_cache_miss, 0);
     EXPECT_EQ(enabled_hit.stats.inverted_index_query_cache_insert, 0);
 }
-
-
-
-
 
 // A plain-only pair is proven gram-free by the wordset pre-proof, so the plan
 // decision cache is legitimately never consulted (miss stays 0) -- but the plain

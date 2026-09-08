@@ -36,12 +36,10 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
-namespace {
+namespace {} // namespace
 
-} // namespace
-
-SniiIndexColumnWriter::SniiIndexColumnWriter(
-        IndexFileWriter* index_file_writer, const TabletIndex* index_meta, FieldType value_type)
+SniiIndexColumnWriter::SniiIndexColumnWriter(IndexFileWriter* index_file_writer,
+                                             const TabletIndex* index_meta, FieldType value_type)
         : _index_file_writer(index_file_writer),
           _index_meta(index_meta),
           _is_char(value_type == FieldType::OLAP_FIELD_TYPE_CHAR) {}
@@ -249,8 +247,8 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
                     reinterpret_cast<const uint8_t*>(value_ptr) + j * field_size);
             uint32_t max_position = position_base;
             uint32_t token_count = 0;
-            RETURN_IF_ERROR(_add_value_tokens(*value, _rid, position_base, &max_position,
-                                              &token_count));
+            RETURN_IF_ERROR(
+                    _add_value_tokens(*value, _rid, position_base, &max_position, &token_count));
             position_base = max_position + 1;
             row_token_count += token_count;
         }
@@ -365,7 +363,6 @@ Status SniiIndexColumnWriter::finish() {
     _term_buffer.reset();
     return Status::OK();
 }
-
 
 Status SniiIndexColumnWriter::_latch_analysis_failure(Status status) {
     DORIS_CHECK(!status.ok());

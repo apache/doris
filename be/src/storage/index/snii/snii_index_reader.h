@@ -114,10 +114,10 @@ private:
                   std::shared_ptr<roaring::Roaring>& bit_map,
                   InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
                   const InvertedIndexAnalyzerCtx* analyzer_ctx);
-    Status _parse_query_terms(
-            const IndexQueryContextPtr& context, std::string search_str,
-            InvertedIndexQueryType query_type, const InvertedIndexAnalyzerCtx* analyzer_ctx,
-            InvertedIndexQueryInfo* query_info);
+    Status _parse_query_terms(const IndexQueryContextPtr& context, std::string search_str,
+                              InvertedIndexQueryType query_type,
+                              const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                              InvertedIndexQueryInfo* query_info);
     Status _get_logical_reader(
             const IndexQueryContextPtr& context, InvertedIndexCacheHandle* searcher_cache_handle,
             std::unique_ptr<::doris::snii::reader::LogicalIndexReader>* uncached_reader,

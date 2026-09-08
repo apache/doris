@@ -272,8 +272,7 @@ Status accumulate_windowed_candidate_scores(const LogicalIndexReader& idx,
         positions.clear();
         RETURN_IF_ERROR(reader::decode_window_slices(item.meta, fetcher.get(item.dd_handle),
                                                      fetcher.get(item.prx_handle),
-                                                     /*want_positions=*/true, &docids,
-                                                     &positions));
+                                                     /*want_positions=*/true, &docids, &positions));
         tfs.reserve(positions.size());
         for (const auto& doc_positions : positions) {
             tfs.push_back(term_frequency(doc_positions));

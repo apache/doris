@@ -643,9 +643,9 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
         }
 
         reader::WindowAbsRange range;
-        RETURN_IF_ERROR(reader::windowed_window_range(
-                idx, p.entry, p.frq_base, p.prx_base, p.prelude, w,
-                /*want_positions=*/false, &range));
+        RETURN_IF_ERROR(reader::windowed_window_range(idx, p.entry, p.frq_base, p.prx_base,
+                                                      p.prelude, w,
+                                                      /*want_positions=*/false, &range));
         WindowWork f;
         f.ordinal = w;
         f.meta = meta;
@@ -664,8 +664,8 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
             RETURN_IF_ERROR(emit_dense_full_window_docids(f, candidates, *out, source));
             continue;
         }
-        RETURN_IF_ERROR(emit_decoded_window_docids(f, fetcher, candidates, *out, source, docs,
-                                                   positions));
+        RETURN_IF_ERROR(
+                emit_decoded_window_docids(f, fetcher, candidates, *out, source, docs, positions));
     }
     return Status::OK();
 }

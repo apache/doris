@@ -657,8 +657,8 @@ public:
         }
 
         MutableTermPostingSpan destination;
-        RETURN_IF_ERROR(out->grow_uninitialized(document_count, /*has_freqs=*/true,
-                                                position_count, &destination));
+        RETURN_IF_ERROR(out->grow_uninitialized(document_count, /*has_freqs=*/true, position_count,
+                                                &destination));
         size_t position_offset = 0;
         for (size_t output = 0; output < document_count; ++output) {
             normalize(&cursor_);

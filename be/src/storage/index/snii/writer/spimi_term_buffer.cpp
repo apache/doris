@@ -53,7 +53,6 @@ std::atomic<uint64_t> g_compact_chain_varint_decodes {0};
 
 } // namespace
 
-
 bool SpimiTermBuffer::OwnedVocabEq::operator()(uint32_t stored,
                                                std::string_view probe) const noexcept {
 #ifdef BE_TEST
@@ -862,9 +861,7 @@ uint64_t decode_chain_varint(CompactPostingPool::Cursor* c) {
 class SpimiTermBuffer::ArenaTermPostingSource final : public TermPostingSource {
 public:
     ArenaTermPostingSource(const CompactPostingPool* pool, const Term& term)
-            : shape_(term.shape),
-              remaining_docs_(term.ndocs),
-              remaining_tokens_(term.ntok) {
+            : shape_(term.shape), remaining_docs_(term.ndocs), remaining_tokens_(term.ntok) {
         if (term.head != kNoChain) {
             doc_cursor_.emplace(pool->cursor(term.head, term.w.cur));
         }

@@ -713,9 +713,9 @@ Status SniiPostingCursor::load_windowed_chunk() {
     format::WindowMeta meta;
     RETURN_IF_ERROR(workspace_->prelude.window(next_window_, &meta));
     reader::WindowAbsRange range;
-    RETURN_IF_ERROR(reader::windowed_window_range(
-            *index_, entry_, frq_base_, prx_base_, workspace_->prelude, next_window_,
-            /*want_positions=*/term_has_positions_, &range));
+    RETURN_IF_ERROR(reader::windowed_window_range(*index_, entry_, frq_base_, prx_base_,
+                                                  workspace_->prelude, next_window_,
+                                                  /*want_positions=*/term_has_positions_, &range));
 
     Slice dd_bytes;
     Slice prx_bytes;

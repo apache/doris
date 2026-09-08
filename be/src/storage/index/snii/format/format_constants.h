@@ -66,11 +66,11 @@ enum class SectionType : uint8_t {
 // ---- Logical index postings storage content configuration (fixed per logical
 // index, not per-term) ---- Determines whether to write positions.
 enum class IndexConfig : uint8_t {
-    kDocsOnly = 0,             // docid only: term/match filtering
-    kDocsPositions = 1,        // docid+positions: MATCH_PHRASE; BM25 tf = position count
+    kDocsOnly = 0,      // docid only: term/match filtering
+    kDocsPositions = 1, // docid+positions: MATCH_PHRASE; BM25 tf = position count
     // 2 曾是 kDocsPositionsScoring（CommonGrams 时代的打分 tier），已删除：打分能力由
     // norms region 是否存在决定（见 CoreMetadata::section_refs.norms），reader 拒绝值 2。
-    kPositionsOffsets = 3,     // reserved (highlight/RAG), not implemented in this release
+    kPositionsOffsets = 3, // reserved (highlight/RAG), not implemented in this release
 };
 
 // Postings capability tiers: only tier>=kT2 writes .prx.

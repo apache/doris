@@ -90,7 +90,6 @@ void ExpectPostingsEqual(const std::vector<TermPostings>& a, const std::vector<T
     }
 }
 
-
 } // namespace
 
 TEST(SniiSpimiTermBufferTest, InternHashUsesFastStringViewHash) {
@@ -112,7 +111,8 @@ TEST(SniiSpimiTermBufferTest, InternHashUsesFastStringViewHash) {
 
 TEST(SniiSpimiTermBufferTest, OrdinaryDocsOnlyMarkerTermRetainsFrequency) {
     // 落在内部命名空间（\x1f 开头）里的普通词项也只是普通词项：照常记录频次。
-    const std::string literal_marker_term = std::string("\x1f") + "SNII_TEST_MARKER\x1f" + "literal";
+    const std::string literal_marker_term =
+            std::string("\x1f") + "SNII_TEST_MARKER\x1f" + "literal";
     SpimiTermBuffer ordinary(/*has_positions=*/false);
     ordinary.add_token(literal_marker_term, /*docid=*/3, /*pos=*/0,
                        /*retain_positions=*/false);

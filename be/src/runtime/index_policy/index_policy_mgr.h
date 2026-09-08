@@ -51,6 +51,7 @@ public:
     AnalyzerProviderPtr get_analyzer_provider_by_name(
             const std::string& name,
             const std::map<std::string, std::string>& outer_char_filter_map = {});
+
 private:
     segment_v2::inverted_index::CustomAnalyzerConfigPtr build_analyzer_config_from_policy(
             const TIndexPolicy& index_policy_analyzer);

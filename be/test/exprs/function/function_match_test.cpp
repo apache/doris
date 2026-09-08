@@ -614,8 +614,7 @@ TEST(FunctionMatchTest, custom_analyzer_handling) {
     analyzer_ctx.analyzer_name = "custom_keyword_lowercase";
     analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
     analyzer_ctx.analyzer_provider = provider;
-    analyzer_ctx.analyzer =
-            provider->get_analyzer();
+    analyzer_ctx.analyzer = provider->get_analyzer();
 
     auto query_tokens = match_any.analyse_query_str_token(&analyzer_ctx, "TEST QUERY", "test_col");
     ASSERT_EQ(query_tokens.size(), 1);

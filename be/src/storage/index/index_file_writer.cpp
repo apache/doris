@@ -45,7 +45,6 @@
 
 namespace doris::segment_v2 {
 
-
 // Shared write-parameter resolution for one SNII index flush; `input->config`
 // must already be set. BOTH the build path (add_snii_index) and the T2.2
 // compaction-merge streamed session resolve through this single helper, so the
@@ -329,8 +328,9 @@ Status IndexFileWriter::add_snii_index_streamed(
                 "SNII index file writer is null for {}", _index_path_prefix);
     }
     if (write_norms && !doris::snii::format::has_positions(index_config)) {
-        return Status::InternalError("SNII streamed merge cannot write norms without positions for {}",
-                                     _index_path_prefix);
+        return Status::InternalError(
+                "SNII streamed merge cannot write norms without positions for {}",
+                _index_path_prefix);
     }
     if (_snii_file_writer == nullptr) {
         _snii_file_writer = std::make_unique<snii_doris::DorisSniiFileWriter>(_idx_v2_writer.get());
@@ -354,7 +354,7 @@ Status IndexFileWriter::add_snii_index_streamed(
                 std::min(kMaxStreamedDictResidentBytes, mem_reporter->cap_bytes() / 8);
     }
     RETURN_IF_ERROR(_snii_compound_writer->begin_streamed_index(std::move(input),
-                                                                 std::move(null_docids), session));
+                                                                std::move(null_docids), session));
     if (mem_reporter != nullptr) {
         _snii_memory_reporters.push_back(std::move(mem_reporter));
     }

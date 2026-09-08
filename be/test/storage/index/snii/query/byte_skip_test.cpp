@@ -382,8 +382,9 @@ TEST(SniiByteSkip, DocidPathReadsWholeFrqSpanAndScoringReadsMore) {
         ASSERT_TRUE(idx.lookup("aa_hi", &found, &entry, &fb, &pb).ok());
         ASSERT_TRUE(found);
         DecodedPosting full_posting;
-        ASSERT_TRUE(read_windowed_posting(idx, entry, fb, pb, /*want_positions=*/false, &full_posting)
-                            .ok());
+        ASSERT_TRUE(
+                read_windowed_posting(idx, entry, fb, pb, /*want_positions=*/false, &full_posting)
+                        .ok());
         EXPECT_EQ(full_posting.docids, c.term_oracle("aa_hi"));
     }
     const io::IoMetrics b = metered.metrics();

@@ -61,7 +61,6 @@ using query::internal::TermPlan;
 using reader::LogicalIndexReader;
 using internal::PhraseVerifyTimer;
 
-
 size_t position_span_size(std::pair<const uint32_t*, const uint32_t*> span) {
     if (span.first == span.second) {
         return 0;
@@ -100,17 +99,10 @@ bool should_use_monotonic_position_scan(std::pair<const uint32_t*, const uint32_
     return anchor_span.second[-1] <= std::numeric_limits<uint32_t>::max() - offset_delta;
 }
 
-
 bool entry_has_positions(const format::DictEntry& entry) {
     return entry.kind == format::DictEntryKind::kInline ? !entry.prx_bytes.empty()
                                                         : entry.prx_len != 0;
 }
-
-
-
-
-
-
 
 void append_resolved_phrase_clause(ResolvedQueryTerm term, uint32_t position_offset,
                                    internal::ResolvedPhrasePlan* plan) {
@@ -140,6 +132,5 @@ internal::ResolvedPhrasePlan build_resolved_phrase_plan(
     }
     return plan;
 }
-
 
 } // namespace doris::snii::query::phrase_impl

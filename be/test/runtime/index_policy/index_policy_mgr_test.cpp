@@ -31,10 +31,7 @@
 #include "util/defer_op.h"
 
 namespace doris {
-namespace {
-
-
-} // namespace
+namespace {} // namespace
 
 class IndexPolicyMgrTest : public testing::Test {
 protected:
@@ -188,13 +185,10 @@ TEST_F(IndexPolicyMgrTest, TestTokenFilterProcessing) {
     ASSERT_NE(emptyAnalyzer, nullptr);
 }
 
-
 TEST_F(IndexPolicyMgrTest, AnalyzerProviderPreservesPurposeInsensitiveNormalizers) {
     auto builtin = mgr.get_analyzer_provider_by_name("lowercase");
-    auto builtin_analyzer =
-            builtin->get_analyzer();
-    EXPECT_EQ(builtin->get_analyzer(),
-              builtin_analyzer);
+    auto builtin_analyzer = builtin->get_analyzer();
+    EXPECT_EQ(builtin->get_analyzer(), builtin_analyzer);
 
     TIndexPolicy normalizer;
     normalizer.id = 23;
@@ -204,15 +198,8 @@ TEST_F(IndexPolicyMgrTest, AnalyzerProviderPreservesPurposeInsensitiveNormalizer
     mgr.apply_policy_changes({normalizer}, {});
 
     auto configured = mgr.get_analyzer_provider_by_name("test_normalizer");
-    auto configured_analyzer =
-            configured->get_analyzer();
-    EXPECT_EQ(configured->get_analyzer(),
-              configured_analyzer);
+    auto configured_analyzer = configured->get_analyzer();
+    EXPECT_EQ(configured->get_analyzer(), configured_analyzer);
 }
-
-
-
-
-
 
 } // namespace doris

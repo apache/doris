@@ -1818,8 +1818,7 @@ TEST_F(IndexCompactionTest, snii_native_merge_validates_rowids_once_and_matches_
 // raw-builds from the column -- in the SAME compaction pass. The old behavior
 // AND-folded eligibility per column and fell back to raw for both.
 TEST_F(IndexCompactionTest, snii_native_merge_compacts_eligible_index_and_raw_builds_sibling) {
-    DEFER({
-    });
+    DEFER({});
 
     _build_snii_multi_index_tablet(/*second_supports_phrase=*/false);
     const std::vector<RowsetSharedPtr> rowsets = _build_snii_source_rowsets();

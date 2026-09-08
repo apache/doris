@@ -56,7 +56,6 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/slice.h"
 
-
 namespace {
 
 using doris::snii::ByteSink;

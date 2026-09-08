@@ -243,7 +243,8 @@ private:
             if (doc != window_begin && options_.has_prx &&
                 !emitter_fits_prx_window_shape(candidate_docs, candidate_positions,
                                                options_.prx_window_limits)) {
-                RETURN_IF_ERROR(emit_planned(run, make_plan(run, window_begin, doc - window_begin)));
+                RETURN_IF_ERROR(
+                        emit_planned(run, make_plan(run, window_begin, doc - window_begin)));
                 window_begin = doc;
             }
         }

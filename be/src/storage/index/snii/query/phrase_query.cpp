@@ -61,7 +61,6 @@ using query::internal::ResolvedQueryTerm;
 using query::internal::TermPlan;
 using reader::LogicalIndexReader;
 
-
 using namespace phrase_impl; // NOLINT(google-build-using-namespace): module-internal impl namespace
 
 namespace internal {
@@ -211,8 +210,6 @@ Status phrase_query_with_frequencies(const LogicalIndexReader& idx,
                              matches, options);
 }
 
-
-
 Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
                            std::vector<uint32_t>* const docids, int32_t max_expansions) {
     return phrase_prefix_query_impl(idx, terms, docids, max_expansions, nullptr, nullptr);
@@ -247,8 +244,7 @@ Status phrase_prefix_query_with_frequencies(const LogicalIndexReader& idx,
             .stats = profile == nullptr ? nullptr : &profile->prx_decode_stats,
             .query_stats = profile == nullptr ? nullptr : &profile->phrase_query_stats};
     return phrase_prefix_query_impl(idx, terms, nullptr, max_expansions,
-                                    profile == nullptr ? nullptr : &decode_context,
-                                    matches);
+                                    profile == nullptr ? nullptr : &decode_context, matches);
 }
 
 } // namespace doris::snii::query

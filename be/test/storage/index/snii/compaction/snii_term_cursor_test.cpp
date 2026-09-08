@@ -256,7 +256,7 @@ TEST(SniiTermCursorTest, CompactionOpenSkipsResidentQuerySections) {
 TEST(SniiTermCursorTest, DictScanMemoryIsReservedAndLimitErrorIsPreserved) {
     SourceFixture source;
     assert_ok(build_source({make_term("alpha", {{.docid = 0, .positions = {0}}})},
-                           /*doc_count=*/1, &source, 
+                           /*doc_count=*/1, &source,
                            /*target_dict_block_bytes=*/256,
                            reader::LogicalIndexOpenMode::kCompaction));
 
@@ -528,7 +528,7 @@ TEST(SniiTermMergeFrontierTest, CachedPrefixesPreserveRandomizedStringOrderingAn
             terms.push_back(make_term(vocabulary[ordinal], {{.docid = 0, .positions = {1}}}));
             expected[vocabulary[ordinal]].push_back(static_cast<uint32_t>(source));
         }
-        assert_ok(build_source(std::move(terms), 1, &fixtures[source], 
+        assert_ok(build_source(std::move(terms), 1, &fixtures[source],
                                /*target_dict_block_bytes=*/128));
         cursors.push_back(std::make_unique<SniiSegmentTermCursor>(&fixtures[source].index,
                                                                   static_cast<uint32_t>(source)));

@@ -36,7 +36,6 @@ namespace lucene::analysis {
 class Analyzer;
 }
 
-
 namespace doris::segment_v2 {
 
 class SniiIndexColumnWriter final : public IndexColumnWriter {

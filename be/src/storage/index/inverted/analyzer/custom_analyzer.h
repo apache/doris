@@ -83,9 +83,8 @@ public:
     explicit CustomAnalyzerProvider(ImmutableCustomAnalyzerConfigPtr config,
                                     std::map<std::string, std::string> outer_char_filter_map = {});
 
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
-        return _analyzer;
-    }
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override { return _analyzer; }
+
 private:
     ImmutableCustomAnalyzerConfigPtr _config;
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer;

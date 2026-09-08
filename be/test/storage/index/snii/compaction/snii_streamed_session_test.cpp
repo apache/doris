@@ -1136,8 +1136,8 @@ TEST(SniiStreamedWriterSessionTest, EncodedNormsAreLateBoundExactlyOnceBeforeFin
     input.write_norms = true;
     assert_ok(compound.begin_streamed_index(std::move(input), &session));
     ASSERT_NE(session, nullptr);
-    assert_ok(push_materialized(
-            session, make_term("alpha", {{.docid = 0, .positions = {0, 1}}, {.docid = 1, .positions = {0}}})));
+    assert_ok(push_materialized(session, make_term("alpha", {{.docid = 0, .positions = {0, 1}},
+                                                             {.docid = 1, .positions = {0}}})));
 
     EXPECT_TRUE(session->set_encoded_norms(writer::TrackedEncodedNorms({2}))
                         .is<ErrorCode::INVALID_ARGUMENT>());
@@ -1178,8 +1178,8 @@ TEST(SniiStreamedWriterSessionTest, SessionsWithoutNormsRejectLateBoundNorms) {
     MemoryFile file;
     SniiCompoundWriter compound(&file);
     SniiStreamedIndexSession* session = nullptr;
-    assert_ok(compound.begin_streamed_index(empty_input(107, "no_norms", /*doc_count=*/1),
-                                            &session));
+    assert_ok(
+            compound.begin_streamed_index(empty_input(107, "no_norms", /*doc_count=*/1), &session));
     ASSERT_NE(session, nullptr);
 
     EXPECT_TRUE(session->set_encoded_norms(writer::TrackedEncodedNorms({1}))
@@ -1325,9 +1325,12 @@ TEST(SniiStreamedWriterSessionTest, SourcePushMatchesMaterializedShapeMatrix) {
             .max_uncomp_bytes = 2048,
     };
     {
-        expect_match("empty-key", make_uniform_term("", 1), format::IndexConfig::kDocsPositions, default_limits);
-        expect_match("inline", make_uniform_term("inline", 1), format::IndexConfig::kDocsPositions, default_limits);
-        expect_match("slim", make_sparse_slim_term("slim"), format::IndexConfig::kDocsPositions, default_limits);
+        expect_match("empty-key", make_uniform_term("", 1), format::IndexConfig::kDocsPositions,
+                     default_limits);
+        expect_match("inline", make_uniform_term("inline", 1), format::IndexConfig::kDocsPositions,
+                     default_limits);
+        expect_match("slim", make_sparse_slim_term("slim"), format::IndexConfig::kDocsPositions,
+                     default_limits);
         expect_match("df-511", make_uniform_term("df-511", 511),
                      format::IndexConfig::kDocsPositions, default_limits);
         expect_match("df-512", make_uniform_term("df-512", 512),
@@ -1352,7 +1355,8 @@ TEST(SniiStreamedWriterSessionTest, SourcePushMatchesMaterializedShapeMatrix) {
     docs_with_stats.retain_positions = false;
     docs_with_stats.freqs.assign(docs_with_stats.docids.size(), 2);
     docs_with_stats.positions_flat.clear();
-    expect_match("docs-with-stats", std::move(docs_with_stats), format::IndexConfig::kDocsOnly, default_limits);
+    expect_match("docs-with-stats", std::move(docs_with_stats), format::IndexConfig::kDocsOnly,
+                 default_limits);
 }
 
 TEST(SniiStreamedWriterSessionTest, SourcePushMatchesMaterializedAcrossAdaptiveBoundary) {

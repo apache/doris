@@ -521,8 +521,8 @@ Status LogicalIndexWriter::process_term(StreamedTermPostings& tp, BlockState* st
     const uint64_t term_hash = format::bsbf_hash(tp.term);
     DictEntry entry;
     FreqStats stats;
-    StreamingTermEncoder encoder(this, &tp, term_has_prx, &st->transfer_buffer,
-                                 st->frq_base, st->prx_base);
+    StreamingTermEncoder encoder(this, &tp, term_has_prx, &st->transfer_buffer, st->frq_base,
+                                 st->prx_base);
     RETURN_IF_ERROR(encoder.encode(&entry, &stats));
 
     term_hashes_.push_back(term_hash);

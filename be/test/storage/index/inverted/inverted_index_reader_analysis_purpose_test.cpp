@@ -57,7 +57,6 @@ public:
     mutable uint32_t calls = 0;
 };
 
-
 class PartialFailureTokenStream final : public lucene::analysis::TokenStream {
 public:
     explicit PartialFailureTokenStream(std::shared_ptr<std::atomic<uint32_t>> emitted_tokens)
@@ -130,9 +129,6 @@ public:
     std::shared_ptr<std::atomic<uint32_t>> emitted_tokens =
             std::make_shared<std::atomic<uint32_t>>(0);
 };
-
-
-
 
 struct QueryExecutionContext {
     explicit QueryExecutionContext(bool scoring) {
@@ -249,7 +245,6 @@ protected:
                 std::make_shared<RecordingFailingAnalyzerProvider>(), expected_query_cache_lookups,
                 expected_searcher_cache_hits);
     }
-
 
     template <typename Reader>
     void expect_raw_query_bypasses_analyzer(const std::shared_ptr<Reader>& reader,
@@ -370,10 +365,6 @@ TEST(InvertedIndexRawQuerySemanticTest, CacheEnvelopeSeparatesSlashAndNulBoundar
     EXPECT_NE(nul_left.encode(), nul_right.encode());
 }
 
-
-
-
-
 // 结果缓存的键只有 (索引文件, 列, 查询类型, 原始查询字节)：命中发生在打开 segment 与
 // 任何分词之前，所以即使 analyzer provider 会失败，缓存命中也照常返回。
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, SniiRawCacheHitHappensBeforeSegmentOpenAndAnalysis) {
@@ -417,11 +408,14 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest, DisabledResultCacheDoesNotLookupC
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, SniiAsksProviderOnlyAfterSegmentAdmission) {
     preload_legacy_searcher_cache_entries();
     expect_provider_failure_after_segment_admission(
-            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false, /*expected_query_cache_lookups=*/1);
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false,
+            /*expected_query_cache_lookups=*/1);
     expect_provider_failure_after_segment_admission(
-            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history ~2", false, /*expected_query_cache_lookups=*/1);
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history ~2", false,
+            /*expected_query_cache_lookups=*/1);
     expect_provider_failure_after_segment_admission(
-            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "the hist", false, /*expected_query_cache_lookups=*/1);
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "the hist", false,
+            /*expected_query_cache_lookups=*/1);
     expect_provider_failure_after_segment_admission(
             _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", true);
 }
@@ -430,10 +424,10 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest, PartialAnalysisFailureDoesNotPubl
     preload_legacy_searcher_cache_entries();
     auto snii_provider = std::make_shared<RecordingPartialFailureAnalyzerProvider>();
     expect_analysis_failure_after_segment_admission(
-            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false, snii_provider, /*expected_query_cache_lookups=*/1);
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false,
+            snii_provider, /*expected_query_cache_lookups=*/1);
     EXPECT_EQ(snii_provider->emitted_tokens->load(std::memory_order_relaxed), 1);
 }
-
 
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, RegexpAndWildcardBypassAnalyzer) {
     for (const auto query_type :
