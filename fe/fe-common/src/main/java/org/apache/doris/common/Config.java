@@ -2886,22 +2886,6 @@ public class Config extends ConfigBase {
             options = {"default", "ranger-doris"})
     public static String access_controller_type = "default";
 
-    @ConfField(mutable = true, masterOnly = false, description =
-            "Comma-separated list of non-ADMIN qualified users allowed to execute SU "
-            + "(session-narrowed identity switch). Empty = ADMIN only. Per-FE; set on every FE.")
-    public static String switch_user_users = "";
-
-    @ConfField(mutable = true, masterOnly = false, description =
-            "Whose granted roles bound the SU role override: 'target' (default, the switched-to user's "
-            + "granted roles, pure narrowing) or 'switcher' (the switching account's granted roles).")
-    public static String switch_user_role_ceiling = "target";
-
-    @ConfField(mutable = true, masterOnly = false, description =
-            "Roles matching this regex are DORMANT in normal sessions (excluded from privilege checks and "
-            + "row-policy matching for the session's own identity) and activate only when explicitly requested "
-            + "via SU. Empty = disabled. Invalid regex = disabled (logged). Per-FE; set on every FE.")
-    public static String su_only_roles_pattern = "";
-
     /* https://forums.oracle.com/ords/apexds/post/je-log-checksumexception-2812
       when meeting disk damage or other reason described in the oracle forums
       and fe cannot start due to `com.sleepycat.je.log.ChecksumException`, we
