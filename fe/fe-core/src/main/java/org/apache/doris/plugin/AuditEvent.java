@@ -64,6 +64,10 @@ public class AuditEvent {
     public String clientIp = "";
     @AuditField(value = "User", colName = "user")
     public String user = "";
+    // the account that authenticated the connection: equal to `user` unless the session was
+    // switched (SU), in which case `user` is the effective identity and this is the switcher
+    @AuditField(value = "AuthenticatedUser", colName = "authenticated_user")
+    public String authenticatedUser = "";
     @AuditField(value = "FeIp", colName = "frontend_ip")
     public String feIp = "";
 
@@ -195,6 +199,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setUser(String user) {
             auditEvent.user = user;
+            return this;
+        }
+
+        public AuditEventBuilder setAuthenticatedUser(String authenticatedUser) {
+            auditEvent.authenticatedUser = authenticatedUser;
             return this;
         }
 

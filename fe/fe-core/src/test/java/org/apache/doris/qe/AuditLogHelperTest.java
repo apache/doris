@@ -110,4 +110,27 @@ public class AuditLogHelperTest {
 
         Assertions.assertEquals("hint_cluster", AuditLogHelper.getCloudClusterForAudit(ctx));
     }
+
+    @Test
+    public void testAuthenticatedUserFollowsTheSwitcher() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("alice", "%"));
+        // an ordinary session: the account that authenticated is the session user
+        Assert.assertEquals("alice", AuditLogHelper.authenticatedUser(ctx));
+
+        // a session-narrowed (SU) session: the effective identity is the target, the switcher stays
+        // the authenticated account -- the audit row names both
+        ctx.setAuthenticatedIdentity(ctx.getCurrentUserIdentity());
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("bob", "%"));
+        Assert.assertEquals("bob", ctx.getQualifiedUser());
+        Assert.assertEquals("alice", AuditLogHelper.authenticatedUser(ctx));
+
+        // reverting the switch restores the plain mapping
+        ctx.revertSessionNarrowing();
+        Assert.assertEquals("alice", ctx.getQualifiedUser());
+        Assert.assertEquals("alice", AuditLogHelper.authenticatedUser(ctx));
+
+        // never null, even before any identity is set
+        Assert.assertEquals("", AuditLogHelper.authenticatedUser(new ConnectContext()));
+    }
 }

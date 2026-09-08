@@ -146,6 +146,8 @@ public class InternalSchema {
                 ScalarType.createVarchar(128), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("user",
                 ScalarType.createVarchar(128), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("authenticated_user",
+                ScalarType.createVarchar(128), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("frontend_ip",
                 ScalarType.createVarchar(1024), ColumnNullableType.NULLABLE));
         // default ctl and db
