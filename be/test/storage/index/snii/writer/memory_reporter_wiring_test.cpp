@@ -232,7 +232,15 @@ TEST(SniiMemoryReporterWiring, SpimiSpillPathNetZero) {
     EXPECT_EQ(reporter.current_bytes(), 0);
 }
 
-TEST(SniiMemoryReporterWiring, SpimiSpillMaterializationIsAccountedThroughRunWrite) {
+void expect_bounded_spill_directory(const MemoryReporter& reporter) {
+    EXPECT_GT(reporter.postings_peak_bytes(), 0);
+    EXPECT_LE(reporter.postings_peak_bytes(), 256U << 10);
+    EXPECT_GT(reporter.postings_current_bytes(), 0);
+    EXPECT_LT(reporter.postings_current_bytes(), 64 * 1024);
+    EXPECT_GT(reporter.postings_written_bytes(), 0);
+}
+
+TEST(SniiMemoryReporterWiring, SpimiSpillAccountsBoundedBuffersWithoutMaterializingTheTerm) {
     int64_t mirrored_bytes = 0;
     int64_t peak_bytes = 0;
     MemoryReporter reporter(
@@ -261,14 +269,16 @@ TEST(SniiMemoryReporterWiring, SpimiSpillMaterializationIsAccountedThroughRunWri
 
     constexpr int64_t kPostingArrayBytes =
             static_cast<int64_t>(kDocumentsBeforeSpill + 1) * 3 * sizeof(uint32_t);
-    EXPECT_GE(peak_bytes - before_spill, 2 * kPostingArrayBytes);
+    EXPECT_LT(peak_bytes - before_spill, 2 * kPostingArrayBytes);
+    expect_bounded_spill_directory(reporter);
 
     size_t terms_seen = 0;
-    ASSERT_TRUE(buf.for_each_term_sorted([&terms_seen](StreamedTermPostings&& source) {
-                       RETURN_IF_ERROR(consume_streamed_term(std::move(source)));
-                       ++terms_seen;
-                       return Status::OK();
-                   }).ok());
+    const Status drained = buf.for_each_term_sorted([&terms_seen](StreamedTermPostings&& source) {
+        RETURN_IF_ERROR(consume_streamed_term(std::move(source)));
+        ++terms_seen;
+        return Status::OK();
+    });
+    ASSERT_TRUE(drained.ok()) << drained.to_string();
     EXPECT_EQ(terms_seen, 1U);
     EXPECT_EQ(reporter.current_bytes(), 0);
     EXPECT_EQ(mirrored_bytes, 0);

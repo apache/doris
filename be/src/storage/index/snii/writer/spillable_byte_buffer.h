@@ -214,6 +214,9 @@ public:
     }
 
     bool spilled() const { return spilled_; }
+    // A very large inline posting is streamed into the DICT section in chunks;
+    // force its existing prefix to disk before those chunks arrive.
+    Status spill() { return spilled_ ? Status::OK() : spill_to_disk(); }
 
 private:
     Status reserve_resident_capacity(size_t additional_capacity, bool* keep_resident) {

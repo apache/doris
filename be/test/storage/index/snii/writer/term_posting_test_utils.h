@@ -40,8 +40,9 @@ inline Status materialize_streamed_term(StreamedTermPostings&& streamed, TermPos
         RETURN_IF_ERROR(streamed.source->fill(window_docs, &buffer, &exhausted));
         output->docids.insert(output->docids.end(), buffer.docids().begin(), buffer.docids().end());
         output->freqs.insert(output->freqs.end(), buffer.freqs().begin(), buffer.freqs().end());
-        output->positions_flat.insert(output->positions_flat.end(), buffer.positions_flat().begin(),
-                                      buffer.positions_flat().end());
+        const size_t begin = output->positions_flat.size();
+        output->positions_flat.resize(begin + buffer.position_count());
+        RETURN_IF_ERROR(buffer.read_positions(0, std::span(output->positions_flat).subspan(begin)));
     }
     return Status::OK();
 }

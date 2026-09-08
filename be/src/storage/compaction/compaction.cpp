@@ -1105,7 +1105,8 @@ Status Compaction::do_inverted_index_compaction() {
         snii_merge_memory_reporter = std::make_shared<snii::writer::MemoryReporter>(
                 snii::writer::snii_build_consume_release(
                         snii::writer::BuildMemoryPopulation::kUnregistered),
-                spill_threshold, snii::writer::MemoryReporter::CapPolicy::kHardLimit);
+                spill_threshold, snii::writer::MemoryReporter::CapPolicy::kHardLimit,
+                static_cast<uint64_t>(config::snii_postings_workspace_bytes));
     }
     for (auto&& [column_uniq_id, index_metas] :
          collect_index_compaction_domain(*_cur_tablet_schema, ctx)) {

@@ -1388,10 +1388,17 @@ DEFINE_mInt32(snii_index_build_max_memory_limit_percent, "10");
 // ONLY the arena, so smaller triggers cut tiny runs for near-zero relief.
 // Default 64 MiB.
 DEFINE_mInt64(snii_forced_spill_min_arena_bytes, "67108864");
-// Max spill-run files one SNII writer accumulates before its runs are
-// merge-compacted into one (bounds the k-way merge fan-in and its open fds;
-// every run is held open for the whole merge). 0 = uncapped. Default 64.
+// Historical run-file cap: spill ranges now share one append-only spool, so
+// ingestion does not accumulate one physical file per run. This knob additionally
+// limits active inputs per final/intermediate merge group (minimum two). Workspace
+// and fd limits also constrain fan-in; 0 uses those bounds without an extra cap.
 DEFINE_mInt32(snii_spill_max_run_files_per_buffer, "64");
+// Hard budget shared by a logical writer's posting spill, merge, and encoding
+// buffers. Captured when an ingestion writer or compaction reporter is created.
+// High ZSTD levels may require a larger budget for the compression context.
+DEFINE_mInt64(snii_postings_workspace_bytes, "33554432");
+DEFINE_Validator(snii_postings_workspace_bytes,
+                 [](const int64_t value) -> bool { return value > 0; });
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 // The kuromoji (Japanese) analyzer

@@ -36,12 +36,10 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
-namespace {
+namespace {} // namespace
 
-} // namespace
-
-SniiIndexColumnWriter::SniiIndexColumnWriter(
-        IndexFileWriter* index_file_writer, const TabletIndex* index_meta, FieldType value_type)
+SniiIndexColumnWriter::SniiIndexColumnWriter(IndexFileWriter* index_file_writer,
+                                             const TabletIndex* index_meta, FieldType value_type)
         : _index_file_writer(index_file_writer),
           _index_meta(index_meta),
           _is_char(value_type == FieldType::OLAP_FIELD_TYPE_CHAR) {}
@@ -65,7 +63,8 @@ Status SniiIndexColumnWriter::init() {
     _memory_reporter = std::make_unique<::doris::snii::writer::MemoryReporter>(
             ::doris::snii::writer::snii_build_consume_release(
                     ::doris::snii::writer::BuildMemoryPopulation::kRegistered),
-            spill_threshold, ::doris::snii::writer::MemoryReporter::CapPolicy::kSpillThreshold);
+            spill_threshold, ::doris::snii::writer::MemoryReporter::CapPolicy::kSpillThreshold,
+            static_cast<uint64_t>(config::snii_postings_workspace_bytes));
     _term_buffer = std::make_unique<::doris::snii::writer::SpimiTermBuffer>(
             _has_positions, spill_threshold, _memory_reporter.get());
     // G09: join the PROCESS-WIDE build-RAM limiter. The per-writer spill threshold above
@@ -80,10 +79,9 @@ Status SniiIndexColumnWriter::init() {
     // G09 anti-storm knobs (see the config comments): the forced-spill floor
     // gates both the owner-side honor (a request is a pending no-op until the
     // reclaimable arena regrows past it) and the limiter's victim eligibility,
-    // and the run-file cap merge-compacts a writer's spill runs so the final
-    // k-way merge's fd fan-in stays bounded. Applied unconditionally -- the
-    // floor also protects test-seam requests, and the cap also bounds
-    // per-writer gate-2 runs when the global limiter is off.
+    // and the run-file knob additionally caps merge fan-in. Spill ranges share
+    // one append-only spool, avoiding repeated prefix rewrites. Both the workspace
+    // and fd limits still apply when this optional fan-in cap is disabled.
     _term_buffer->set_forced_spill_min_arena_bytes(
             static_cast<uint64_t>(std::max<int64_t>(config::snii_forced_spill_min_arena_bytes, 0)));
     _term_buffer->set_max_run_files(
@@ -249,8 +247,8 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
                     reinterpret_cast<const uint8_t*>(value_ptr) + j * field_size);
             uint32_t max_position = position_base;
             uint32_t token_count = 0;
-            RETURN_IF_ERROR(_add_value_tokens(*value, _rid, position_base, &max_position,
-                                              &token_count));
+            RETURN_IF_ERROR(
+                    _add_value_tokens(*value, _rid, position_base, &max_position, &token_count));
             position_base = max_position + 1;
             row_token_count += token_count;
         }
@@ -365,7 +363,6 @@ Status SniiIndexColumnWriter::finish() {
     _term_buffer.reset();
     return Status::OK();
 }
-
 
 Status SniiIndexColumnWriter::_latch_analysis_failure(Status status) {
     DORIS_CHECK(!status.ok());

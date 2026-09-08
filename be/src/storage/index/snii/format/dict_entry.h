@@ -96,9 +96,10 @@ Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, Ind
 
 // Same encoding with caller-owned body scratch. The scratch is cleared before
 // use while retaining capacity, allowing block builders to avoid one allocation
-// per dictionary entry. sink and body_scratch must be distinct objects.
+// per dictionary entry. sink and body_scratch must be distinct objects. A nonempty
+// external_inline_frq replaces an empty frq_bytes field during bounded replay.
 Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, IndexTier tier,
-                         ByteSink* sink, ByteSink* body_scratch);
+                         ByteSink* sink, ByteSink* body_scratch, Slice external_inline_frq = {});
 
 // Decodes one entry from the current position of src; term is reconstructed
 // from prev_term + suffix. Verifies the trailing CRC; out-of-range / CRC

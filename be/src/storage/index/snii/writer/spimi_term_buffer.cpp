@@ -22,8 +22,10 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <numeric>
@@ -33,9 +35,12 @@
 #include <utility>
 
 #include "common/exception.h"
+#include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/varint.h"
 #include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/writer/encoded_spill_run.h"
 #include "storage/index/snii/writer/global_memory_limiter.h"
+#include "storage/index/snii/writer/posting_external_sort.h"
 #include "storage/index/snii/writer/spill_run_codec.h"
 #include "storage/index/snii/writer/temp_dir.h"
 
@@ -52,7 +57,6 @@ std::atomic<uint64_t> g_compact_chain_varint_decodes {0};
 #endif
 
 } // namespace
-
 
 bool SpimiTermBuffer::OwnedVocabEq::operator()(uint32_t stored,
                                                std::string_view probe) const noexcept {
@@ -102,10 +106,6 @@ std::atomic<uint64_t> g_vocab_materializations {0};
 // consumers while SNII was over its memory share). Incremented under BE_TEST only
 // (per-token path shared by concurrent writers).
 std::atomic<uint64_t> g_global_forced_spills {0};
-
-// G09 run-file cap seam: merge-compactions of a buffer's run list (always-on:
-// at most one per cap-many spills, contention-free).
-std::atomic<uint64_t> g_run_compactions {0};
 
 // Test seam for complete-vocabulary rank rebuilds. The increment is compiled
 // out of production because ensure_string_rank() may run on the import path.
@@ -182,12 +182,6 @@ uint64_t global_forced_spills() {
 }
 void reset_global_forced_spills() {
     g_global_forced_spills.store(0, std::memory_order_relaxed);
-}
-uint64_t run_compactions() {
-    return g_run_compactions.load(std::memory_order_relaxed);
-}
-void reset_run_compactions() {
-    g_run_compactions.store(0, std::memory_order_relaxed);
 }
 uint64_t string_rank_rebuilds() {
 #ifdef BE_TEST
@@ -284,7 +278,10 @@ SpimiTermBuffer::SpimiTermBuffer(const std::vector<std::string>* vocab, bool has
           intern_(0, OwnedVocabHash {.vocab = &owned_vocab_}, OwnedVocabEq {&owned_vocab_}),
           has_positions_(has_positions),
           spill_threshold_bytes_(spill_threshold_bytes),
-          mem_reporter_(reporter) {
+          mem_reporter_(reporter),
+          run_path_reservation_(reporter == nullptr ? MemoryReporter::Reservation()
+                                                    : reporter->make_postings_reservation()),
+          run_ends_(reporter) {
     // Borrowed-vocab mode: only the 4 B/id slot-index array is sized to the
     // vocabulary; the Term pool (slots_) grows with the LIVE touched count, so an
     // all-but-empty vocabulary costs ~4 B/id instead of ~80 B/id.
@@ -309,7 +306,10 @@ SpimiTermBuffer::SpimiTermBuffer(bool has_positions, size_t spill_threshold_byte
           intern_(0, OwnedVocabHash {.vocab = &owned_vocab_}, OwnedVocabEq {&owned_vocab_}),
           has_positions_(has_positions),
           spill_threshold_bytes_(spill_threshold_bytes),
-          mem_reporter_(reporter) {
+          mem_reporter_(reporter),
+          run_path_reservation_(reporter == nullptr ? MemoryReporter::Reservation()
+                                                    : reporter->make_postings_reservation()),
+          run_ends_(reporter) {
     report_arena_delta();
 }
 
@@ -479,7 +479,7 @@ void SpimiTermBuffer::accumulate_without_spill_gate(uint32_t term_id, uint32_t d
     put_varint(&t, tagged);
     if (new_doc) {
         // Out-of-order docids are tolerated (zigzag delta is signed) and reordered at
-        // finalize; flag them so to_postings sorts. The delta base is the previous
+        // finalize; flag them for the bounded external sort. The delta base is the previous
         // distinct doc (cur_docid), which is 0 for the very first doc (started==false).
         const int64_t base = t.started ? static_cast<int64_t>(t.cur_docid) : 0;
         if (t.started && docid < t.cur_docid) {
@@ -728,125 +728,6 @@ uint32_t SpimiTermBuffer::append_owned_vocab_term(std::string&& term_str) {
 
 namespace {
 
-// Reorders a term's flat arrays into ascending-docid order, COALESCING any
-// same-docid groups so the result has exactly one entry per docid -- matching the
-// k-way-merge path's boundary-doc coalescing and the writer's strictly-ascending
-// precondition. Only invoked for the rare term that received out-of-order docids
-// (the common ascending path leaves t.sorted true and skips it).
-//
-// A docid may REVISIT (e.g. feed 5,1,5): the chain holds two separate doc-groups
-// for doc 5. A STABLE sort keeps equal-docid groups in arrival order, then the
-// coalesce pass sums their freqs and concatenates their positions in that same
-// (document/arrival) order -- so the merged positions stay consistent with the
-// merged freqs, exactly as the run-order merge would have produced.
-template <typename T>
-Status reserve_tracked_vector(std::vector<T>* values, size_t target,
-                              MemoryReporter* memory_reporter,
-                              MemoryReporter::Reservation* reservation) {
-    if (target <= values->capacity()) {
-        return Status::OK();
-    }
-    if (target > std::numeric_limits<uint64_t>::max() / sizeof(T)) {
-        return Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED, false>(
-                "spimi materialization: vector byte capacity overflow");
-    }
-    if (memory_reporter == nullptr) {
-        values->reserve(target);
-        return Status::OK();
-    }
-    MemoryReporter::Reservation replacement;
-    RETURN_IF_ERROR(reservation->prepare_replacement(static_cast<uint64_t>(target) * sizeof(T),
-                                                     &replacement));
-    values->reserve(target);
-    DCHECK_EQ(values->capacity(), target);
-    *reservation = std::move(replacement);
-    return Status::OK();
-}
-
-Status sort_by_docid(std::vector<uint32_t>* docids, std::vector<uint32_t>* freqs,
-                     std::vector<uint32_t>* positions_flat, bool has_positions,
-                     MemoryReporter* memory_reporter,
-                     MemoryReporter::Reservation* docids_reservation,
-                     MemoryReporter::Reservation* freqs_reservation,
-                     MemoryReporter::Reservation* positions_reservation) {
-    const size_t n = docids->size();
-    MemoryReporter::Reservation order_reservation = memory_reporter == nullptr
-                                                            ? MemoryReporter::Reservation()
-                                                            : memory_reporter->make_reservation();
-    MemoryReporter::Reservation pos_off_reservation = memory_reporter == nullptr
-                                                              ? MemoryReporter::Reservation()
-                                                              : memory_reporter->make_reservation();
-    MemoryReporter::Reservation sorted_docids_reservation =
-            memory_reporter == nullptr ? MemoryReporter::Reservation()
-                                       : memory_reporter->make_reservation();
-    MemoryReporter::Reservation sorted_freqs_reservation =
-            memory_reporter == nullptr ? MemoryReporter::Reservation()
-                                       : memory_reporter->make_reservation();
-    MemoryReporter::Reservation sorted_positions_reservation =
-            memory_reporter == nullptr ? MemoryReporter::Reservation()
-                                       : memory_reporter->make_reservation();
-    std::vector<size_t> order;
-    RETURN_IF_ERROR(reserve_tracked_vector(&order, n, memory_reporter, &order_reservation));
-    order.resize(n);
-    std::iota(order.begin(), order.end(), 0);
-    // The original index breaks equal-doc ties, preserving arrival order without
-    // stable_sort's implementation-owned allocation.
-    std::ranges::sort(order, [&](size_t a, size_t b) {
-        if ((*docids)[a] != (*docids)[b]) {
-            return (*docids)[a] < (*docids)[b];
-        }
-        return a < b;
-    });
-
-    std::vector<uint32_t> pos_off;
-    if (has_positions) {
-        RETURN_IF_ERROR(reserve_tracked_vector(&pos_off, n, memory_reporter, &pos_off_reservation));
-        pos_off.resize(n);
-        uint32_t running = 0;
-        for (size_t i = 0; i < n; ++i) {
-            pos_off[i] = running;
-            running += (*freqs)[i];
-        }
-    }
-    std::vector<uint32_t> nd, nf, np;
-    RETURN_IF_ERROR(reserve_tracked_vector(&nd, n, memory_reporter, &sorted_docids_reservation));
-    RETURN_IF_ERROR(reserve_tracked_vector(&nf, n, memory_reporter, &sorted_freqs_reservation));
-    if (has_positions) {
-        RETURN_IF_ERROR(reserve_tracked_vector(&np, positions_flat->size(), memory_reporter,
-                                               &sorted_positions_reservation));
-    }
-    for (size_t k : order) {
-        // Coalesce a revisited docid into the previous entry (it sorts adjacent now):
-        // sum freqs and append this group's positions right after the prior group's,
-        // so flat doc order stays partitioned by the merged freqs.
-        if (!nd.empty() && nd.back() == (*docids)[k]) {
-            if (has_positions) {
-                nf.back() += (*freqs)[k];
-            }
-        } else {
-            nd.push_back((*docids)[k]);
-            nf.push_back((*freqs)[k]);
-        }
-        if (has_positions) {
-            np.insert(np.end(), positions_flat->begin() + pos_off[k],
-                      positions_flat->begin() + pos_off[k] + (*freqs)[k]);
-        }
-    }
-    docids->swap(nd);
-    freqs->swap(nf);
-    std::swap(*docids_reservation, sorted_docids_reservation);
-    std::swap(*freqs_reservation, sorted_freqs_reservation);
-    if (has_positions) {
-        positions_flat->swap(np);
-        std::swap(*positions_reservation, sorted_positions_reservation);
-    }
-    return Status::OK();
-}
-
-} // namespace
-
-namespace {
-
 // Decodes one varint from a pool chain cursor. The chain was written by
 // encode_varint*, so the same LEB128 continuation-bit loop reconstructs it.
 uint64_t decode_chain_varint(CompactPostingPool::Cursor* c) {
@@ -856,15 +737,71 @@ uint64_t decode_chain_varint(CompactPostingPool::Cursor* c) {
     return c->read_varint();
 }
 
+Status write_sorted_chain(EncodedRunWriter* writer, CompactPostingPool::Cursor cursor, uint32_t end,
+                          const EncodedRunTerm& record) {
+    RETURN_IF_ERROR(writer->begin_term(record));
+    RETURN_IF_ERROR(writer->begin_fragment(record.document_groups, record.tokens));
+    while (true) {
+        const auto payload = cursor.next_payload_span(end);
+        if (payload.empty()) {
+            break;
+        }
+        RETURN_IF_ERROR(writer->append_payload(payload));
+    }
+    RETURN_IF_ERROR(writer->end_fragment());
+    return writer->end_term();
+}
+
+Status append_sorted_tokens(EncodedRunWriter* writer, SortedPostingTokens* sorted,
+                            bool positioned) {
+    bool first = true;
+    uint32_t previous = 0;
+    while (true) {
+        uint32_t doc = 0;
+        uint32_t position = 0;
+        bool end = false;
+        RETURN_IF_ERROR(sorted->next(&doc, &position, &end));
+        if (end) {
+            return Status::OK();
+        }
+        const bool new_document = first || doc != previous;
+        if (positioned || new_document) {
+            RETURN_IF_ERROR(writer->append_token(doc, position, new_document));
+        }
+        first = false;
+        previous = doc;
+    }
+}
+
+Status write_unsorted_chain(EncodedRunWriter* writer, CompactPostingPool::Cursor cursor,
+                            EncodedRunTerm record, MemoryReporter* reporter) {
+    SortedPostingTokens sorted(reporter);
+    int64_t document = 0;
+    for (uint64_t token = 0; token < record.tokens; ++token) {
+        const uint64_t tagged = decode_chain_varint(&cursor);
+        if ((tagged & 1U) != 0) {
+            document += zigzag_decode(decode_chain_varint(&cursor));
+        }
+        RETURN_IF_ERROR(
+                sorted.append(static_cast<uint32_t>(document), static_cast<uint32_t>(tagged >> 1)));
+    }
+    RETURN_IF_ERROR(sorted.finish());
+    record.document_groups = sorted.document_count();
+    record.tokens = record.has_positions ? sorted.token_count() : record.document_groups;
+    RETURN_IF_ERROR(writer->begin_term(record));
+    RETURN_IF_ERROR(writer->begin_fragment(record.document_groups, record.tokens));
+    RETURN_IF_ERROR(append_sorted_tokens(writer, &sorted, record.has_positions));
+    RETURN_IF_ERROR(writer->end_fragment());
+    return writer->end_term();
+}
+
 } // namespace
 
 // Decodes the compact tagged chain directly into caller-owned posting windows.
 class SpimiTermBuffer::ArenaTermPostingSource final : public TermPostingSource {
 public:
     ArenaTermPostingSource(const CompactPostingPool* pool, const Term& term)
-            : shape_(term.shape),
-              remaining_docs_(term.ndocs),
-              remaining_tokens_(term.ntok) {
+            : shape_(term.shape), remaining_docs_(term.ndocs), remaining_tokens_(term.ntok) {
         if (term.head != kNoChain) {
             doc_cursor_.emplace(pool->cursor(term.head, term.w.cur));
         }
@@ -897,12 +834,8 @@ public:
 private:
     Status fill_tagged(uint32_t count, TermPostingBuffer* out) {
         const bool has_positions = shape_ == PostingChainShape::kTaggedPositioned;
-        const bool terminal_fill = count == remaining_docs_;
-        const size_t position_count = has_positions && terminal_fill ? remaining_tokens_ : 0;
         MutableTermPostingSpan documents;
-        RETURN_IF_ERROR(
-                out->grow_uninitialized(count, /*has_freqs=*/true, position_count, &documents));
-        size_t position_index = 0;
+        RETURN_IF_ERROR(out->grow_uninitialized(count, /*has_freqs=*/true, 0, &documents));
         for (uint32_t i = 0; i < count; ++i) {
             uint64_t tagged = 0;
             if (pending_new_doc_) {
@@ -918,12 +851,7 @@ private:
             uint32_t frequency = 0;
             while (true) {
                 if (has_positions) {
-                    if (terminal_fill) {
-                        documents.positions_flat[position_index++] =
-                                static_cast<uint32_t>(tagged >> 1);
-                    } else {
-                        RETURN_IF_ERROR(out->append_position(static_cast<uint32_t>(tagged >> 1)));
-                    }
+                    RETURN_IF_ERROR(out->append_position(static_cast<uint32_t>(tagged >> 1)));
                 }
                 ++frequency;
                 --remaining_tokens_;
@@ -939,7 +867,6 @@ private:
             }
             documents.freqs[i] = frequency;
         }
-        DCHECK_EQ(position_index, documents.positions_flat.size());
         return Status::OK();
     }
 
@@ -951,50 +878,6 @@ private:
     uint64_t pending_tagged_ = 0;
     bool pending_new_doc_ = false;
 };
-
-Status SpimiTermBuffer::to_postings(std::string term, Term&& t,
-                                    TrackedTermPostings* tracked) const {
-    DCHECK(tracked != nullptr);
-    TermPostings& postings = tracked->postings;
-    DCHECK(postings.docids.empty());
-    DCHECK(postings.freqs.empty());
-    DCHECK(postings.positions_flat.empty());
-    postings.term = std::move(term);
-    postings.retain_positions = t.shape == PostingChainShape::kTaggedPositioned;
-    if (t.ntok == 0) {
-        return Status::OK();
-    }
-
-    RETURN_IF_ERROR(reserve_tracked_vector(&postings.docids, t.ndocs, mem_reporter_,
-                                           &tracked->docids_reservation));
-    RETURN_IF_ERROR(reserve_tracked_vector(&postings.freqs, t.ndocs, mem_reporter_,
-                                           &tracked->freqs_reservation));
-    if (t.shape == PostingChainShape::kTaggedPositioned) {
-        RETURN_IF_ERROR(reserve_tracked_vector(&postings.positions_flat, t.ntok, mem_reporter_,
-                                               &tracked->positions_reservation));
-    }
-
-    ArenaTermPostingSource source(&pool_, t);
-    TermPostingBuffer buffer(mem_reporter_);
-    bool exhausted = false;
-    while (!exhausted) {
-        buffer.clear_reuse();
-        RETURN_IF_ERROR(source.fill(format::kAdaptiveWindowDocs, &buffer, &exhausted));
-        postings.docids.insert(postings.docids.end(), buffer.docids().begin(),
-                               buffer.docids().end());
-        postings.freqs.insert(postings.freqs.end(), buffer.freqs().begin(), buffer.freqs().end());
-        postings.positions_flat.insert(postings.positions_flat.end(),
-                                       buffer.positions_flat().begin(),
-                                       buffer.positions_flat().end());
-    }
-    if (!t.sorted) {
-        RETURN_IF_ERROR(sort_by_docid(&postings.docids, &postings.freqs, &postings.positions_flat,
-                                      postings.retain_positions, mem_reporter_,
-                                      &tracked->docids_reservation, &tracked->freqs_reservation,
-                                      &tracked->positions_reservation));
-    }
-    return Status::OK();
-}
 
 void SpimiTermBuffer::ensure_string_rank() const {
     const std::vector<std::string>& v = vocab();
@@ -1081,34 +964,16 @@ Status SpimiTermBuffer::drain_sorted_streamed(const StreamedTermConsumer& fn) {
         --live_term_count_;
 
         std::string output_term(v[id]);
-        if (term.sorted) {
-            ArenaTermPostingSource source(&pool_, term);
-            StreamedTermPostings postings {
-                    .term = std::move(output_term),
-                    .retain_positions = term.shape == PostingChainShape::kTaggedPositioned,
-                    .source = &source};
-            callback_status = fn(std::move(postings));
-            if (callback_status.ok() && !source.exhausted()) {
-                callback_status = Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                        "spimi arena source: consumer returned before term exhaustion");
-            }
-        } else {
-            TrackedTermPostings materialized(mem_reporter_);
-            callback_status = to_postings(std::move(output_term), std::move(term), &materialized);
-            if (callback_status.ok()) {
-                SpanTermPostingSource source(materialized.postings.docids,
-                                             materialized.postings.freqs,
-                                             materialized.postings.positions_flat);
-                StreamedTermPostings postings {
-                        .term = std::move(materialized.postings.term),
-                        .retain_positions = materialized.postings.retain_positions,
-                        .source = &source};
-                callback_status = fn(std::move(postings));
-                if (callback_status.ok() && !source.exhausted()) {
-                    callback_status = Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                            "spimi span source: consumer returned before term exhaustion");
-                }
-            }
+        DORIS_CHECK(term.sorted);
+        ArenaTermPostingSource source(&pool_, term);
+        StreamedTermPostings postings {
+                .term = std::move(output_term),
+                .retain_positions = term.shape == PostingChainShape::kTaggedPositioned,
+                .source = &source};
+        callback_status = fn(std::move(postings));
+        if (callback_status.ok() && !source.exhausted()) {
+            callback_status = Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "spimi arena source: consumer returned before term exhaustion");
         }
         if (!callback_status.ok()) {
             break;
@@ -1127,9 +992,8 @@ Status SpimiTermBuffer::drain_sorted_streamed(const StreamedTermConsumer& fn) {
     return callback_status;
 }
 
-Status SpimiTermBuffer::drain_to_writer(RunWriter* w) {
+Status SpimiTermBuffer::drain_to_writer(EncodedRunWriter* w) {
     Status st = Status::OK();
-    const std::vector<std::string>& v = vocab();
     // Spill writes by term-id (no string IO). Iterate touched ids in vocab-string
     // order so each run is sorted; the k-way merge re-orders runs by the same key.
     for (uint32_t id : sorted_ids()) {
@@ -1138,15 +1002,19 @@ Status SpimiTermBuffer::drain_to_writer(RunWriter* w) {
         Term term = slots_[enc - 1];
         release_term(id);
         if (st.ok()) {
-            TrackedTermPostings materialized(mem_reporter_);
-            st = to_postings(v[id], std::move(term), &materialized);
-            if (st.ok()) {
-                st = w->write_term(id, materialized.postings);
-            }
+            const EncodedRunTerm record {
+                    .term_id = id,
+                    .has_positions = term.shape == PostingChainShape::kTaggedPositioned,
+                    .document_groups = term.ndocs,
+                    .tokens = term.ntok,
+            };
+            auto cursor = pool_.cursor(term.head, term.w.cur);
+            st = term.sorted ? write_sorted_chain(w, cursor, term.w.cur, record)
+                             : write_unsorted_chain(w, cursor, record, mem_reporter_);
         }
     }
     touched_ids_.clear();
-    pool_.reset(); // all chains decoded into the run; free the arena for the refill
+    pool_.reset(); // all chains copied into the run; free the arena for the refill
     // The spill returns the arena to 0; slot_of_ keeps its capacity (survives
     // the spill). Report the arena-drop negative now so the gate-2 spill is balanced
     // immediately, not deferred to the next token.
@@ -1154,46 +1022,20 @@ Status SpimiTermBuffer::drain_to_writer(RunWriter* w) {
     return st;
 }
 
-Status SpimiTermBuffer::compact_runs() {
-    if (run_paths_.size() < 2) {
-        return Status::OK();
-    }
-    // The compaction heap can encounter any id held by an earlier run, so it
-    // requires a complete rank for the current vocabulary. New append-only ids
-    // can shift existing lexicographic ranks, hence the explicit refresh here.
-    ensure_string_rank();
-    const std::string out_path = make_run_path(resolve_temp_dir());
-    Status s =
-            writer::compact_runs(run_paths_, string_rank_, has_positions_, out_path, mem_reporter_);
-    if (!s.ok()) {
-        std::remove(out_path.c_str()); // drop the partial output; inputs intact
-        return s;
-    }
-    // The compacted run REPLACES its inputs at the FRONT of the run order:
-    // it holds exactly runs [0..n) merged in run order, and any later run only
-    // covers strictly-later docids, so per-term run-order concatenation (the
-    // k-way merge invariant) is preserved.
-    for (const std::string& p : run_paths_) {
-        std::remove(p.c_str());
-    }
-    run_paths_.clear();
-    run_paths_.push_back(out_path);
-    g_run_compactions.fetch_add(1, std::memory_order_relaxed);
-    return Status::OK();
-}
-
 Status SpimiTermBuffer::spill_to_run() {
-    // G09 run-file cap: a buffer must never accumulate unbounded run files --
-    // the final k-way merge (re)opens ALL of them simultaneously and holds
-    // the fds for its whole duration, so unbounded runs across ~100
-    // concurrent writers exhausted the BE nofile rlimit ('Too many open
-    // files' at run reopen). At the cap, merge-compact the existing runs into
-    // one before cutting the new run: the merge fan-in (and its fd count) is
-    // bounded by cap + 1 per buffer.
-    if (max_run_files_ != 0 && run_paths_.size() >= max_run_files_) {
-        RETURN_IF_ERROR(compact_runs());
+    // Spools retain earlier sealed runs without rewriting an ever-growing
+    // prefix. Only the final contiguous merge passes copy their payload again.
+    auto path_scratch = mem_reporter_ == nullptr ? MemoryReporter::Reservation()
+                                                 : mem_reporter_->make_postings_reservation();
+    if (mem_reporter_ != nullptr) {
+        RETURN_IF_ERROR(path_scratch.set_bytes(3 * PATH_MAX));
     }
-    const std::string dir = resolve_temp_dir();
+    const std::string dir = run_spool_path_.empty()
+                                    ? resolve_temp_dir()
+                                    : run_spool_path_.substr(0, run_spool_path_.rfind('/'));
+    if (dir.size() + 64 >= PATH_MAX) {
+        return Status::Error<ErrorCode::IO_ERROR, false>("spimi: temporary path is too long");
+    }
     // Best-effort space pre-check: fail with a clear, early error rather than a
     // mid-write IoError that leaves a half-written run. Best-effort only (TOCTOU; on
     // tmpfs this reports RAM). The ARENA -- not full resident_bytes(), which since
@@ -1208,14 +1050,29 @@ Status SpimiTermBuffer::spill_to_run() {
                 std::to_string(arena) + " B (~" + std::to_string(avail) +
                 " B free); set SNII_TEMP_DIR/TMPDIR to a larger disk");
     }
-    const std::string path = make_run_path(dir);
-    RunWriter w(mem_reporter_);
-    RETURN_IF_ERROR(w.open(path));
-    run_paths_.push_back(path); // tracked for cleanup even if a later step fails
-    RETURN_IF_ERROR(drain_to_writer(&w));
-    // The drain emptied touched_ids_ and released every live slot while retaining
-    // capacity for the next fill.
-    return w.close();
+    if (run_spool_path_.empty()) {
+        run_spool_path_ = make_run_path(dir);
+        if (mem_reporter_ != nullptr) {
+            RETURN_IF_ERROR(run_path_reservation_.set_bytes(run_spool_path_.capacity() + 1));
+        }
+    }
+    uint64_t end = 0;
+    {
+        EncodedRunWriter writer(mem_reporter_);
+        RETURN_IF_ERROR(writer.open(run_spool_path_, /*append=*/true));
+        RETURN_IF_ERROR(drain_to_writer(&writer));
+        RETURN_IF_ERROR(writer.close());
+        end = writer.file_offset();
+    }
+    // Publish the range only after its complete header/payload/seal is closed.
+    // Both the fixed directory buffer and its spill cache share the same budget.
+    std::array<uint8_t, 12> record {};
+    std::memcpy(record.data(), &end, sizeof(end));
+    const uint32_t checksum = crc32c(Slice(record.data(), sizeof(end)));
+    std::memcpy(record.data() + sizeof(end), &checksum, sizeof(checksum));
+    RETURN_IF_ERROR(run_ends_.append(record));
+    ++run_count_;
+    return Status::OK();
 }
 
 Status SpimiTermBuffer::prepare_run_merge() {
@@ -1252,9 +1109,13 @@ void SpimiTermBuffer::finish_run_merge() {
 
 Status SpimiTermBuffer::merge_runs_streamed(const StreamedTermConsumer& fn) {
     RETURN_IF_ERROR(prepare_run_merge());
-    Status status =
-            merge_run_sources(run_paths_, vocab(), string_rank_, has_positions_, fn, mem_reporter_);
+    Status status = merge_spooled_run_sources(run_spool_path_, &run_ends_, run_count_, vocab(),
+                                              string_rank_, has_positions_, fn, mem_reporter_,
+                                              max_run_files_);
     finish_run_merge();
+    if (status.ok()) {
+        cleanup_runs();
+    }
     return status;
 }
 
@@ -1267,7 +1128,17 @@ Status SpimiTermBuffer::for_each_term_sorted(const StreamedTermConsumer& fn) {
                 "spimi: already drained (single-drain contract)");
     }
     drained_ = true;
-    if (run_paths_.empty() && spill_status_.ok()) {
+    // The compatibility API permits revisiting document ids within one arena.
+    // Its stable external sort shares the bounded run path with ordinary spill.
+    if (run_count_ == 0 && spill_status_.ok()) {
+        for (uint32_t id : touched_ids_) {
+            if (!slots_[slot_of_[id] - 1].sorted) {
+                spill_status_ = spill_to_run();
+                break;
+            }
+        }
+    }
+    if (run_count_ == 0 && spill_status_.ok()) {
         return drain_sorted_streamed(fn);
     }
     return merge_runs_streamed(fn);
@@ -1290,9 +1161,10 @@ std::vector<TermPostings> SpimiTermBuffer::finalize_sorted() {
                                        buffer.docids().end());
             materialized.freqs.insert(materialized.freqs.end(), buffer.freqs().begin(),
                                       buffer.freqs().end());
-            materialized.positions_flat.insert(materialized.positions_flat.end(),
-                                               buffer.positions_flat().begin(),
-                                               buffer.positions_flat().end());
+            const size_t position_begin = materialized.positions_flat.size();
+            materialized.positions_flat.resize(position_begin + buffer.position_count());
+            RETURN_IF_ERROR(buffer.read_positions(
+                    0, std::span(materialized.positions_flat).subspan(position_begin)));
         }
         out.push_back(std::move(materialized));
         return Status::OK();
@@ -1305,10 +1177,13 @@ std::vector<TermPostings> SpimiTermBuffer::finalize_sorted() {
 }
 
 void SpimiTermBuffer::cleanup_runs() {
-    for (const std::string& p : run_paths_) {
-        std::remove(p.c_str());
+    if (!run_spool_path_.empty()) {
+        std::remove(run_spool_path_.c_str());
     }
-    run_paths_.clear();
+    run_ends_.release();
+    std::string().swap(run_spool_path_);
+    run_path_reservation_.reset();
+    run_count_ = 0;
 }
 
 } // namespace doris::snii::writer

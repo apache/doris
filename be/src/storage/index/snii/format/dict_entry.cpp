@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <atomic>
 
+#include "common/check.h"
 #include "storage/index/snii/common/slice.h"
 
 namespace doris::snii::format {
@@ -116,9 +117,10 @@ void write_pod_ref(const DictEntry& e, IndexTier tier, ByteSink* sink) {
     sink->put_varint64(e.prx_len);
 }
 
-void write_inline(const DictEntry& e, IndexTier tier, ByteSink* sink) {
-    sink->put_varint64(static_cast<uint64_t>(e.frq_bytes.size()));
-    sink->put_bytes(Slice(e.frq_bytes));
+void write_inline(const DictEntry& e, IndexTier tier, ByteSink* sink, Slice external_frq) {
+    const Slice frq = external_frq.empty() ? Slice(e.frq_bytes) : external_frq;
+    sink->put_varint64(static_cast<uint64_t>(frq.size()));
+    sink->put_bytes(frq);
     // INLINE bytes are covered by the dict block crc32c: omit the redundant
     // per-region crc.
     write_region_meta(e, /*store_crc=*/false, sink);
@@ -129,12 +131,13 @@ void write_inline(const DictEntry& e, IndexTier tier, ByteSink* sink) {
     sink->put_bytes(Slice(e.prx_bytes));
 }
 
-void write_body(const DictEntry& e, std::string_view prev, IndexTier tier, ByteSink* sink) {
+void write_body(const DictEntry& e, std::string_view prev, IndexTier tier, ByteSink* sink,
+                Slice external_inline_frq) {
     write_term_key(e, prev, sink);
     sink->put_u8(pack_flags(e));
     sink->put_varint32(e.df);
     if (e.kind == DictEntryKind::kInline) {
-        write_inline(e, tier, sink);
+        write_inline(e, tier, sink, external_inline_frq);
     } else {
         write_pod_ref(e, tier, sink);
     }
@@ -247,7 +250,7 @@ Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, Ind
 }
 
 Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, IndexTier tier,
-                         ByteSink* sink, ByteSink* body_scratch) {
+                         ByteSink* sink, ByteSink* body_scratch, Slice external_inline_frq) {
     if (sink == nullptr || body_scratch == nullptr || sink == body_scratch) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "dict_entry: sink and body_scratch must be non-null and distinct");
@@ -259,7 +262,9 @@ Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, Ind
     // CRC is not repeated at the entry level, to keep slim/inline low-frequency
     // terms maximally compact (spec §DICT block/§dict entry).
     body_scratch->clear();
-    write_body(entry, prev_term, tier, body_scratch);
+    DORIS_CHECK(external_inline_frq.empty() ||
+                (entry.kind == DictEntryKind::kInline && entry.frq_bytes.empty()));
+    write_body(entry, prev_term, tier, body_scratch, external_inline_frq);
     sink->put_varint64(static_cast<uint64_t>(body_scratch->size()));
     sink->put_bytes(body_scratch->view());
     return Status::OK();

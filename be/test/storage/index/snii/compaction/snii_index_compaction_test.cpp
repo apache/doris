@@ -689,7 +689,11 @@ TEST(SniiIndexCompactionTest, NormsMergeReclaimsResidentDictBeforeLargePlainTerm
     ASSERT_NE(validated, nullptr);
 
     constexpr size_t kReadAhead = SniiPlainT2MergePlan::kMinReadAheadBudgetPerSource;
-    constexpr size_t kHardCap = 256U << 10;
+    // The postings budget now includes the compressor's real workspace. Keep
+    // the original 32 KiB DICT limit to exercise reclaim, while allowing the
+    // bounded encoder and its ZSTD context to coexist with source read-ahead.
+    constexpr size_t kHardCap = 1U << 20;
+    constexpr size_t kDictCap = 32U << 10;
     auto reporter = std::make_shared<MemoryReporter>(nullptr, kHardCap);
     compaction::SniiCompactionEligibility eligibility {.destination_writes_norms = true};
     std::unique_ptr<SniiPlainT2MergePlan> plan;
@@ -702,7 +706,7 @@ TEST(SniiIndexCompactionTest, NormsMergeReclaimsResidentDictBeforeLargePlainTerm
     SniiIndexInput input = make_input(/*doc_count=*/1, {}, {});
     input.config = plan->destination_index_config();
     input.target_dict_block_bytes = 1;
-    input.dict_resident_cap_bytes = kHardCap / 8;
+    input.dict_resident_cap_bytes = kDictCap;
     input.mem_reporter = reporter.get();
     input.write_norms = true;
     SniiStreamedIndexSession* session = nullptr;

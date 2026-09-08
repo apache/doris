@@ -931,7 +931,8 @@ TEST(SniiStreamedWriterSessionTest, TerminalDrainReleasesLookupStateWithoutUnder
             ASSERT_EQ(terms.run_count_for_test(), 0);
         }
         const uint64_t before_drain = terms.resident_bytes_for_test();
-        ASSERT_EQ(reporter.current_bytes(), static_cast<int64_t>(before_drain));
+        ASSERT_EQ(reporter.current_bytes(),
+                  static_cast<int64_t>(before_drain + reporter.postings_current_bytes()));
         ASSERT_GT(before_drain, kReporterCap);
 
         bool saw_first_term = false;
@@ -1002,11 +1003,32 @@ TEST(SniiStreamedWriterSessionTest, ReusesTransferCapacityAcrossAdjacentTerms) {
                                                            {{.docid = 0, .positions = {1}},
                                                             {.docid = 2, .positions = {3}}})));
         }
-        const uint64_t reservations_after_warmup = positive_reservations;
-        assert_ok(push_materialized(session,
-                                    make_term("term_112", {{.docid = 0, .positions = {1}},
-                                                           {.docid = 2, .positions = {3}}})));
-        EXPECT_EQ(positive_reservations, reservations_after_warmup);
+        // Encoder scratch is now reserved too. Observe only source fills so
+        // this assertion continues to measure reuse of the transfer lanes.
+        class ObservedSource : public writer::TermPostingSource {
+        public:
+            ObservedSource(writer::TermPostingSource* source, const uint64_t* reservations)
+                    : source_(source), reservations_(reservations) {}
+            Status fill(uint32_t target_docs, writer::TermPostingBuffer* buffer,
+                        bool* exhausted) override {
+                const uint64_t before = *reservations_;
+                Status status = source_->fill(target_docs, buffer, exhausted);
+                fill_reservations += *reservations_ - before;
+                return status;
+            }
+            uint64_t fill_reservations = 0;
+
+        private:
+            writer::TermPostingSource* source_;
+            const uint64_t* reservations_;
+        };
+        auto term = make_term("term_112",
+                              {{.docid = 0, .positions = {1}}, {.docid = 2, .positions = {3}}});
+        writer::SpanTermPostingSource source(term.docids, term.freqs, term.positions_flat);
+        ObservedSource observed(&source, &positive_reservations);
+        assert_ok(session->push_term(
+                {.term = term.term, .retain_positions = true, .source = &observed}));
+        EXPECT_EQ(observed.fill_reservations, 0);
 
         assert_ok(session->finish());
         assert_ok(compound.finish());
@@ -1136,8 +1158,8 @@ TEST(SniiStreamedWriterSessionTest, EncodedNormsAreLateBoundExactlyOnceBeforeFin
     input.write_norms = true;
     assert_ok(compound.begin_streamed_index(std::move(input), &session));
     ASSERT_NE(session, nullptr);
-    assert_ok(push_materialized(
-            session, make_term("alpha", {{.docid = 0, .positions = {0, 1}}, {.docid = 1, .positions = {0}}})));
+    assert_ok(push_materialized(session, make_term("alpha", {{.docid = 0, .positions = {0, 1}},
+                                                             {.docid = 1, .positions = {0}}})));
 
     EXPECT_TRUE(session->set_encoded_norms(writer::TrackedEncodedNorms({2}))
                         .is<ErrorCode::INVALID_ARGUMENT>());
@@ -1178,8 +1200,8 @@ TEST(SniiStreamedWriterSessionTest, SessionsWithoutNormsRejectLateBoundNorms) {
     MemoryFile file;
     SniiCompoundWriter compound(&file);
     SniiStreamedIndexSession* session = nullptr;
-    assert_ok(compound.begin_streamed_index(empty_input(107, "no_norms", /*doc_count=*/1),
-                                            &session));
+    assert_ok(
+            compound.begin_streamed_index(empty_input(107, "no_norms", /*doc_count=*/1), &session));
     ASSERT_NE(session, nullptr);
 
     EXPECT_TRUE(session->set_encoded_norms(writer::TrackedEncodedNorms({1}))
@@ -1325,9 +1347,12 @@ TEST(SniiStreamedWriterSessionTest, SourcePushMatchesMaterializedShapeMatrix) {
             .max_uncomp_bytes = 2048,
     };
     {
-        expect_match("empty-key", make_uniform_term("", 1), format::IndexConfig::kDocsPositions, default_limits);
-        expect_match("inline", make_uniform_term("inline", 1), format::IndexConfig::kDocsPositions, default_limits);
-        expect_match("slim", make_sparse_slim_term("slim"), format::IndexConfig::kDocsPositions, default_limits);
+        expect_match("empty-key", make_uniform_term("", 1), format::IndexConfig::kDocsPositions,
+                     default_limits);
+        expect_match("inline", make_uniform_term("inline", 1), format::IndexConfig::kDocsPositions,
+                     default_limits);
+        expect_match("slim", make_sparse_slim_term("slim"), format::IndexConfig::kDocsPositions,
+                     default_limits);
         expect_match("df-511", make_uniform_term("df-511", 511),
                      format::IndexConfig::kDocsPositions, default_limits);
         expect_match("df-512", make_uniform_term("df-512", 512),
@@ -1352,7 +1377,8 @@ TEST(SniiStreamedWriterSessionTest, SourcePushMatchesMaterializedShapeMatrix) {
     docs_with_stats.retain_positions = false;
     docs_with_stats.freqs.assign(docs_with_stats.docids.size(), 2);
     docs_with_stats.positions_flat.clear();
-    expect_match("docs-with-stats", std::move(docs_with_stats), format::IndexConfig::kDocsOnly, default_limits);
+    expect_match("docs-with-stats", std::move(docs_with_stats), format::IndexConfig::kDocsOnly,
+                 default_limits);
 }
 
 TEST(SniiStreamedWriterSessionTest, SourcePushMatchesMaterializedAcrossAdaptiveBoundary) {

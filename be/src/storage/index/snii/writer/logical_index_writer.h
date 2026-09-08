@@ -346,6 +346,8 @@ private:
     // Serializes the current open block, streams its bytes into the dict scratch
     // file, and records a compact directory entry (no block bytes retained).
     Status flush_block(format::DictBlockBuilder* block, std::string first_term);
+    Status flush_streamed_block(BlockState* state);
+    Status build_streamed_dictionary(BlockState* state, PostingByteBuffer* plain);
 
     uint64_t index_id_;
     std::string index_suffix_;

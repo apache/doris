@@ -124,21 +124,32 @@ Status reserve_write_buffer_for_append(std::vector<uint8_t>* buffer, size_t targ
 // RunWriter
 // ---------------------------------------------------------------------------
 
-RunWriter::RunWriter(MemoryReporter* memory_reporter)
+RunWriter::RunWriter(MemoryReporter* memory_reporter, size_t buffer_limit)
         : memory_reporter_(memory_reporter),
-          buffer_reservation_(memory_reporter == nullptr ? MemoryReporter::Reservation()
-                                                         : memory_reporter->make_reservation()) {}
+          buffer_reservation_(memory_reporter == nullptr
+                                      ? MemoryReporter::Reservation()
+                                      : memory_reporter->make_postings_reservation()),
+          buffer_limit_(buffer_limit) {
+    DORIS_CHECK(buffer_limit != 0 && buffer_limit <= kWriteFlushBytes);
+}
 
 RunWriter::~RunWriter() {
     if (fd_ >= 0) ::close(fd_);
 }
 
-Status RunWriter::open(const std::string& path) {
-    fd_ = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+Status RunWriter::open(const std::string& path, bool append) {
+    fd_ = ::open(path.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC | (append ? O_APPEND : O_TRUNC),
+                 0600);
     if (fd_ < 0) {
         return Status::Error<ErrorCode::IO_ERROR, false>("run open(" + path +
                                                          "): " + std::strerror(errno));
     }
+    const off_t offset = ::lseek(fd_, 0, SEEK_END);
+    if (offset < 0) {
+        return Status::Error<ErrorCode::IO_ERROR, false>("run seek failed: {}",
+                                                         std::strerror(errno));
+    }
+    file_bytes_ = static_cast<uint64_t>(offset);
     buf_.clear();
     return Status::OK();
 }
@@ -146,16 +157,20 @@ Status RunWriter::open(const std::string& path) {
 Status RunWriter::flush() {
     if (buf_.empty()) return Status::OK();
     RETURN_IF_ERROR(write_all(fd_, buf_.data(), buf_.size()));
+    file_bytes_ += buf_.size();
+    if (memory_reporter_ != nullptr) {
+        memory_reporter_->record_postings_io(0, buf_.size());
+    }
     buf_.clear();
     return Status::OK();
 }
 
 Status RunWriter::append_bytes(const uint8_t* data, size_t size) {
     while (size != 0) {
-        if (buf_.size() == kWriteFlushBytes) {
+        if (buf_.size() == buffer_limit_) {
             RETURN_IF_ERROR(flush());
         }
-        const size_t count = std::min(size, kWriteFlushBytes - buf_.size());
+        const size_t count = std::min(size, buffer_limit_ - buf_.size());
         const size_t target = buf_.size() + count;
         RETURN_IF_ERROR(reserve_write_buffer_for_append(&buf_, target, memory_reporter_,
                                                         &buffer_reservation_));
@@ -537,371 +552,5 @@ Status RunReader::advance() {
 // ---------------------------------------------------------------------------
 // K-way merge
 // ---------------------------------------------------------------------------
-
-namespace {
-
-// Min-heap entry: orders by the run's current term-id's PRECOMPUTED integer
-// string-rank (rank[term_id] == its lexicographic rank over the dense vocabulary),
-// tie-broken by run index so equal terms are gathered run-order (keeping
-// concatenated docids ascending). The rank is a lexicographic bijection on a dense
-// vocab, so ordering by the dense 4 B rank array reproduces the exact dictionary
-// order a vocab-string compare would -- with an integer compare and zero random
-// vocab string access in the inner loop.
-struct HeapItem {
-    uint32_t term_id;
-    size_t run;
-};
-struct HeapGreater {
-    const std::vector<uint32_t>* rank;
-    bool operator()(const HeapItem& a, const HeapItem& b) const {
-        const uint32_t ra = (*rank)[a.term_id];
-        const uint32_t rb = (*rank)[b.term_id];
-        if (ra != rb) {
-            return ra > rb;
-        }                     // smaller rank first (lexicographic min-heap)
-        return a.run > b.run; // same term across runs: run-order tie-break
-    }
-};
-
-// Appends src's postings onto dst (run order). Later runs only cover docids
-// >= dst's last, so docids stay ascending. COALESCE the boundary doc: if a spill
-// fell BETWEEN two tokens of the same doc, that doc ends one run and begins the
-// next with the SAME docid -- merge them (sum freqs, splice positions) so the
-// merged term has exactly one entry per docid (matching the in-memory build).
-//
-// Positions are FLAT: doc order, partitioned by freqs. Because both dst and src
-// already store doc-ordered flat positions, the common (no-boundary-overlap) case
-// is a single bulk append. The boundary-overlap case must INSERT src's first
-// doc's positions right after dst's last doc's positions so flat order stays
-// consistent with the merged (coalesced) freqs.
-void concat(TermPostings* dst, const TermPostings& src, RunPostingShape shape) {
-    if (src.docids.empty()) return;
-    const bool has_positions = shape == RunPostingShape::kPositioned;
-    DCHECK(posting_shape(src) == shape);
-    size_t start = 0;
-    size_t src_pos_start = 0; // flat offset of src positions to append after splice
-    if (!dst->docids.empty() && dst->docids.back() == src.docids.front()) {
-        const uint32_t head_fc = src.freqs.front();
-        if (has_positions && head_fc != 0) {
-            // Splice src's first-doc positions in right after dst's last-doc positions.
-            // dst's last doc owns dst->freqs.back() entries at the tail of positions_flat
-            // BEFORE we bump that freq, so insert at end() (last doc is the tail run).
-            auto& flat = dst->positions_flat;
-            flat.insert(flat.end(), src.positions_flat.begin(),
-                        src.positions_flat.begin() + head_fc);
-        }
-        dst->freqs.back() += head_fc;
-        src_pos_start = head_fc;
-        start = 1; // boundary doc folded in; append the rest
-    }
-    dst->docids.insert(dst->docids.end(), src.docids.begin() + start, src.docids.end());
-    dst->freqs.insert(dst->freqs.end(), src.freqs.begin() + start, src.freqs.end());
-    if (has_positions) {
-        dst->positions_flat.insert(dst->positions_flat.end(),
-                                   src.positions_flat.begin() + src_pos_start,
-                                   src.positions_flat.end());
-    }
-}
-
-class RunTermPostingSource final : public TermPostingSource {
-public:
-    RunTermPostingSource(std::vector<std::unique_ptr<RunReader>>* readers,
-                         const std::vector<size_t>* matching, RunPostingShape shape)
-            : readers_(readers), matching_(matching), shape_(shape) {}
-
-    Status fill(uint32_t target_docs, TermPostingBuffer* out, bool* exhausted) override {
-        if (out == nullptr || exhausted == nullptr || target_docs == 0 || !out->empty()) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                    "run posting source: invalid fill arguments");
-        }
-
-        Cursor planned = cursor_;
-        size_t document_count = 0;
-        size_t position_count = 0;
-        while (document_count < target_docs) {
-            normalize(&planned);
-            if (planned.run == matching_->size()) {
-                break;
-            }
-            const uint32_t docid = current_docid(planned);
-            uint64_t frequency = 0;
-            do {
-                const TermPostings& postings = current_postings(planned);
-                frequency += postings.freqs[planned.doc];
-                if (frequency > std::numeric_limits<uint32_t>::max()) {
-                    return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                            "run: coalesced frequency exceeds uint32");
-                }
-                advance(&planned);
-                normalize(&planned);
-                if (planned.run == matching_->size()) {
-                    break;
-                }
-                const uint32_t next_docid = current_docid(planned);
-                if (next_docid < docid) {
-                    return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                            "run: docids overlap across spill runs");
-                }
-                if (next_docid != docid) {
-                    break;
-                }
-            } while (true);
-            if (shape_ == RunPostingShape::kPositioned) {
-                if (frequency > std::numeric_limits<size_t>::max() - position_count) {
-                    return Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED, false>(
-                            "run posting source: position window exceeds size_t");
-                }
-                position_count += static_cast<size_t>(frequency);
-            }
-            ++document_count;
-        }
-
-        MutableTermPostingSpan destination;
-        RETURN_IF_ERROR(out->grow_uninitialized(document_count, /*has_freqs=*/true,
-                                                position_count, &destination));
-        size_t position_offset = 0;
-        for (size_t output = 0; output < document_count; ++output) {
-            normalize(&cursor_);
-            DCHECK_LT(cursor_.run, matching_->size());
-            const uint32_t docid = current_docid(cursor_);
-            uint64_t frequency = 0;
-            do {
-                const TermPostings& postings = current_postings(cursor_);
-                const uint32_t run_frequency = postings.freqs[cursor_.doc];
-                if (shape_ == RunPostingShape::kPositioned) {
-                    RunReader* reader = (*readers_)[(*matching_)[cursor_.run]].get();
-                    RETURN_IF_ERROR(reader->stream_positions(
-                            destination.positions_flat.data() + position_offset, run_frequency));
-                    position_offset += run_frequency;
-                }
-                frequency += run_frequency;
-                advance(&cursor_);
-                normalize(&cursor_);
-                if (cursor_.run == matching_->size() || current_docid(cursor_) != docid) {
-                    break;
-                }
-            } while (true);
-            destination.docids[output] = docid;
-            destination.freqs[output] = static_cast<uint32_t>(frequency);
-        }
-        DCHECK_EQ(position_offset, destination.positions_flat.size());
-        normalize(&cursor_);
-        *exhausted = cursor_.run == matching_->size();
-        return Status::OK();
-    }
-
-    bool exhausted() {
-        normalize(&cursor_);
-        return cursor_.run == matching_->size();
-    }
-
-private:
-    struct Cursor {
-        size_t run = 0;
-        size_t doc = 0;
-    };
-
-    const TermPostings& current_postings(const Cursor& cursor) const {
-        return (*readers_)[(*matching_)[cursor.run]]->current();
-    }
-
-    uint32_t current_docid(const Cursor& cursor) const {
-        return current_postings(cursor).docids[cursor.doc];
-    }
-
-    void normalize(Cursor* cursor) const {
-        while (cursor->run < matching_->size() &&
-               cursor->doc == current_postings(*cursor).docids.size()) {
-            ++cursor->run;
-            cursor->doc = 0;
-        }
-    }
-
-    static void advance(Cursor* cursor) { ++cursor->doc; }
-
-    std::vector<std::unique_ptr<RunReader>>* readers_;
-    const std::vector<size_t>* matching_;
-    RunPostingShape shape_;
-    Cursor cursor_;
-};
-
-} // namespace
-
-Status merge_run_sources(const std::vector<std::string>& run_paths,
-                         const std::vector<std::string>& vocab,
-                         const std::vector<uint32_t>& string_rank, bool has_positions,
-                         const StreamedTermConsumer& fn, MemoryReporter* memory_reporter) {
-    if (string_rank.size() != vocab.size()) {
-        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
-                "merge_run_sources: string_rank/vocab size mismatch");
-    }
-    std::vector<std::unique_ptr<RunReader>> readers;
-    readers.reserve(run_paths.size());
-    std::priority_queue<HeapItem, std::vector<HeapItem>, HeapGreater> heap(
-            HeapGreater {&string_rank});
-    for (size_t i = 0; i < run_paths.size(); ++i) {
-        auto reader = std::make_unique<RunReader>(memory_reporter);
-        RETURN_IF_ERROR(reader->open(run_paths[i], has_positions));
-        if (!reader->exhausted()) {
-            if (reader->current_id() >= vocab.size()) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                        "run term_id out of vocab range");
-            }
-            heap.push({reader->current_id(), i});
-        }
-        readers.push_back(std::move(reader));
-    }
-
-    std::vector<size_t> matching;
-    while (!heap.empty()) {
-        const uint32_t id = heap.top().term_id;
-        matching.clear();
-        while (!heap.empty() && heap.top().term_id == id) {
-            matching.push_back(heap.top().run);
-            heap.pop();
-        }
-        DCHECK(!matching.empty());
-        const RunPostingShape shape = posting_shape(readers[matching.front()]->current());
-        for (size_t run : matching) {
-            if (posting_shape(readers[run]->current()) != shape) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                        "run: posting shape differs across matching terms");
-            }
-        }
-
-        RunTermPostingSource source(&readers, &matching, shape);
-        StreamedTermPostings postings {.term = std::string(vocab[id]),
-                                       .retain_positions = shape == RunPostingShape::kPositioned,
-                                       .source = &source};
-        RETURN_IF_ERROR(fn(std::move(postings)));
-        if (!source.exhausted()) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                    "run posting source: consumer returned before term exhaustion");
-        }
-
-        for (size_t run : matching) {
-            RunReader* reader = readers[run].get();
-            RETURN_IF_ERROR(reader->advance());
-            if (!reader->exhausted()) {
-                if (reader->current_id() >= vocab.size()) {
-                    return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                            "run term_id out of vocab range");
-                }
-                heap.push({reader->current_id(), run});
-            }
-        }
-    }
-    return Status::OK();
-}
-
-Status compact_runs(const std::vector<std::string>& run_paths,
-                    const std::vector<uint32_t>& string_rank, bool has_positions,
-                    const std::string& out_path, MemoryReporter* memory_reporter) {
-    // Same heap machinery as merge_run_sources, but the output is a RUN (records keyed
-    // by term-id, ordered by string rank -- the exact invariant every run file
-    // carries), not a resolved term stream: no vocab strings are needed, and
-    // positions are always materialized because the run codec serializes
-    // positions_flat directly.
-    std::vector<std::unique_ptr<RunReader>> readers;
-    readers.reserve(run_paths.size());
-    std::priority_queue<HeapItem, std::vector<HeapItem>, HeapGreater> heap(
-            HeapGreater {&string_rank});
-    for (size_t i = 0; i < run_paths.size(); ++i) {
-        auto r = std::make_unique<RunReader>(memory_reporter);
-        RETURN_IF_ERROR(r->open(run_paths[i], has_positions));
-        if (!r->exhausted()) {
-            if (r->current_id() >= string_rank.size()) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                        "run term_id out of rank range");
-            }
-            heap.push({r->current_id(), i});
-        }
-        readers.push_back(std::move(r));
-    }
-
-    RunWriter w(memory_reporter);
-    RETURN_IF_ERROR(w.open(out_path));
-    std::vector<size_t> matching; // run indices contributing the current term
-    while (!heap.empty()) {
-        const uint32_t id = heap.top().term_id;
-        MemoryReporter::Reservation merged_docids_reservation =
-                memory_reporter == nullptr ? MemoryReporter::Reservation()
-                                           : memory_reporter->make_reservation();
-        MemoryReporter::Reservation merged_freqs_reservation =
-                memory_reporter == nullptr ? MemoryReporter::Reservation()
-                                           : memory_reporter->make_reservation();
-        MemoryReporter::Reservation merged_positions_reservation =
-                memory_reporter == nullptr ? MemoryReporter::Reservation()
-                                           : memory_reporter->make_reservation();
-        TermPostings merged;
-        matching.clear();
-        uint64_t total_docs = 0;
-        uint64_t total_pos = 0;
-        while (!heap.empty() && heap.top().term_id == id) {
-            const size_t ri = heap.top().run;
-            heap.pop();
-            const RunReader* r = readers[ri].get();
-            const uint64_t run_docs = r->current().docids.size();
-            const uint64_t run_positions = r->current_pos_count();
-            if (run_docs > std::numeric_limits<uint64_t>::max() - total_docs ||
-                run_positions > std::numeric_limits<uint64_t>::max() - total_pos) {
-                return Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED, false>(
-                        "run compaction: merged posting size overflows uint64");
-            }
-            total_docs += run_docs;
-            total_pos += run_positions;
-            matching.push_back(ri);
-        }
-        DCHECK(!matching.empty());
-        const RunPostingShape shape = posting_shape(readers[matching.front()]->current());
-        for (size_t ri : matching) {
-            if (posting_shape(readers[ri]->current()) != shape) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                        "run: posting shape differs across matching terms");
-            }
-        }
-        const bool term_has_positions = shape == RunPostingShape::kPositioned;
-        merged.retain_positions = term_has_positions;
-        if (total_docs > std::numeric_limits<size_t>::max() ||
-            total_pos > std::numeric_limits<size_t>::max()) {
-            return Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED, false>(
-                    "run compaction: merged posting exceeds addressable memory");
-        }
-        RETURN_IF_ERROR(reserve_vector_for_size(&merged.docids, static_cast<size_t>(total_docs),
-                                                memory_reporter, &merged_docids_reservation));
-        RETURN_IF_ERROR(reserve_vector_for_size(&merged.freqs, static_cast<size_t>(total_docs),
-                                                memory_reporter, &merged_freqs_reservation));
-        if (term_has_positions) {
-            RETURN_IF_ERROR(reserve_vector_for_size(&merged.positions_flat,
-                                                    static_cast<size_t>(total_pos), memory_reporter,
-                                                    &merged_positions_reservation));
-        }
-        // concat (WITH boundary-doc coalescing) is deliberately the SAME
-        // append the final merge applies: coalescing the seam between two
-        // adjacent input runs here yields exactly what the final merge would
-        // have produced from the uncompacted pair, so compaction is invisible
-        // in the emitted term stream.
-        for (size_t ri : matching) {
-            RunReader* r = readers[ri].get();
-            if (term_has_positions) {
-                RETURN_IF_ERROR(r->materialize_positions());
-            }
-            concat(&merged, r->current(), shape);
-        }
-        RETURN_IF_ERROR(w.write_term(id, merged));
-        for (size_t ri : matching) {
-            RunReader* r = readers[ri].get();
-            RETURN_IF_ERROR(r->advance());
-            if (!r->exhausted()) {
-                if (r->current_id() >= string_rank.size()) {
-                    return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                            "run term_id out of rank range");
-                }
-                heap.push({r->current_id(), ri});
-            }
-        }
-    }
-    return w.close();
-}
 
 } // namespace doris::snii::writer

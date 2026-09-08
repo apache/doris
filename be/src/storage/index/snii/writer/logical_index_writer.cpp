@@ -18,11 +18,15 @@
 #include "storage/index/snii/writer/logical_index_writer.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdlib>
 #include <memory>
 #include <span>
 #include <utility>
+
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
 
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/crc32c.h"
@@ -35,6 +39,7 @@
 #include "storage/index/snii/format/norms_pod.h"
 #include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/format/prx_pod.h"
+#include "storage/index/snii/writer/posting_prx_encoder.h"
 #include "storage/index/snii/writer/posting_window_emitter.h"
 
 namespace doris::snii::writer {
@@ -67,6 +72,30 @@ constexpr int kRawFrqRegion = 0;
 // .prx auto level) caller-tunable.
 
 using format::FrqRegionMeta;
+
+Status compress_inline_dictionary_bytes(PostingByteBuffer* plain, int level,
+                                        PostingByteBuffer* output) {
+    if (plain->spilled()) {
+        return compress_posting_bytes(plain, level, output);
+    }
+    // Ordinary dictionary blocks keep the existing one-shot ZSTD bytes. Their
+    // complete input is already resident and bounded; admit output and context
+    // before entering the existing compressor.
+    const size_t context_bytes =
+            ZSTD_estimateCCtxSize_usingCParams(ZSTD_getCParams(level, plain->size(), 0));
+    if (ZSTD_isError(context_bytes)) {
+        return Status::InternalError("dictionary zstd: {}", ZSTD_getErrorName(context_bytes));
+    }
+    auto scratch = plain->reporter() == nullptr ? MemoryReporter::Reservation()
+                                                : plain->reporter()->make_postings_reservation();
+    if (plain->reporter() != nullptr) {
+        RETURN_IF_ERROR(scratch.set_bytes(context_bytes + ZSTD_compressBound(plain->size())));
+    }
+    std::vector<uint8_t> compressed;
+    const auto bytes = plain->resident_bytes();
+    RETURN_IF_ERROR(zstd_compress(Slice(bytes.data(), bytes.size()), level, &compressed));
+    return output->append(compressed);
+}
 
 // Single-pass term-level freq statistics: total_freq (running sum), reused by
 // validate_term (has_prx position-count budget) and stats_.sum_total_term_freq.
@@ -110,6 +139,12 @@ public:
               buffer_(buffer),
               frq_base_(frq_base),
               prx_base_(prx_base),
+              offset_reservation_(writer->memory_reporter_ == nullptr
+                                          ? MemoryReporter::Reservation()
+                                          : writer->memory_reporter_->make_postings_reservation()),
+              entry_scratch_(writer->memory_reporter_ == nullptr
+                                     ? MemoryReporter::Reservation()
+                                     : writer->memory_reporter_->make_postings_reservation()),
               emitter_(WindowEmitterOptions {
                       .posting_out = writer->posting_out_,
                       .posting_region_offset = writer->posting_off0_,
@@ -124,11 +159,16 @@ public:
         DCHECK(buffer_->empty());
     }
 
+    std::unique_ptr<PostingPrxEncoder> take_inline_prx() { return std::move(inline_prx_); }
+
     ~StreamingTermEncoder() {
         buffer_->clear_reuse_and_release_excess(format::kAdaptiveWindowDfThreshold);
     }
 
     Status encode(DictEntry* entry, FreqStats* stats) {
+        if (writer_->memory_reporter_ != nullptr) {
+            RETURN_IF_ERROR(entry_scratch_.set_bytes(8192));
+        }
         if (postings_->source == nullptr) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "logical_index: streamed term has a null posting source");
@@ -189,10 +229,26 @@ private:
         return validate_and_accumulate();
     }
 
+    Status resize_position_offsets(size_t count) {
+        if (count > position_offsets_.capacity()) {
+            MemoryReporter::Reservation replacement;
+            if (writer_->memory_reporter_ != nullptr) {
+                RETURN_IF_ERROR(offset_reservation_.prepare_replacement(count * sizeof(uint32_t),
+                                                                        &replacement));
+            }
+            position_offsets_.reserve(count);
+            if (writer_->memory_reporter_ != nullptr) {
+                offset_reservation_ = std::move(replacement);
+            }
+        }
+        position_offsets_.resize(count);
+        return Status::OK();
+    }
+
     Status validate_and_accumulate() {
         const auto docids = buffer_->docids();
         const auto freqs = buffer_->freqs();
-        const auto positions = buffer_->positions_flat();
+        const uint64_t position_count = buffer_->position_count();
         if (postings_->retain_positions && freqs.size() != docids.size()) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "logical_index: positioned source must provide one freq per docid");
@@ -201,13 +257,12 @@ private:
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "logical_index: docs-only source freqs must be empty or parallel");
         }
-        if (postings_->retain_positions &&
-            positions.size() > std::numeric_limits<uint32_t>::max()) {
+        if (postings_->retain_positions && position_count > std::numeric_limits<uint32_t>::max()) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "logical_index: one source fill exceeds uint32 position offsets");
         }
         if (postings_->retain_positions) {
-            position_offsets_.resize(freqs.size() + 1);
+            RETURN_IF_ERROR(resize_position_offsets(freqs.size() + 1));
         }
         // One fused pass serves both the positions-count validation and the
         // frequency statistics below. fill() has already capped the buffer at
@@ -223,12 +278,12 @@ private:
             }
         }
         if (postings_->retain_positions) {
-            if (fill_freq_sum != positions.size()) {
+            if (fill_freq_sum != position_count) {
                 return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                         "logical_index: source positions count must equal sum(freqs)");
             }
         } else {
-            if (!positions.empty()) {
+            if (position_count != 0) {
                 return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                         "logical_index: docs-only source must not provide positions");
             }
@@ -275,18 +330,24 @@ private:
             return finish_windowed(entry);
         }
 
-        std::vector<uint8_t> prx_window;
         if (term_has_prx_) {
-            ByteSink sink;
+            inline_prx_ = std::make_unique<PostingPrxEncoder>(writer_->memory_reporter_);
+            PostingPositionView positions {
+                    .flat = buffer_->positions_spooled() ? std::span<const uint32_t> {}
+                                                         : buffer_->positions_flat(),
+                    .buffer = buffer_->positions_spooled() ? buffer_ : nullptr,
+                    .offset = 0,
+                    .count = buffer_->position_count(),
+            };
             format::PrxWindowBuildOutcome outcome = format::PrxWindowBuildOutcome::kBuilt;
-            RETURN_IF_ERROR(format::try_build_prx_window_flat(
-                    buffer_->positions_flat(), buffer_->freqs(), -writer_->prx_zstd_level_,
-                    writer_->prx_window_limits_, &sink, &outcome));
+            RETURN_IF_ERROR(inline_prx_->build(positions, buffer_->freqs(),
+                                               -writer_->prx_zstd_level_,
+                                               writer_->prx_window_limits_, &outcome));
             if (outcome == format::PrxWindowBuildOutcome::kNeedsSplit) {
+                inline_prx_.reset();
                 RETURN_IF_ERROR(encode_windowed_buffer(format::kFrqBaseUnit));
                 return finish_windowed(entry);
             }
-            prx_window = sink.take();
         }
 
         ByteSink frq_sink;
@@ -299,14 +360,14 @@ private:
         if (frq_window.size() <= format::kDefaultInlineThreshold) {
             entry->kind = DictEntryKind::kInline;
             entry->frq_bytes = std::move(frq_window);
-            if (term_has_prx_) entry->prx_bytes = std::move(prx_window);
             return Status::OK();
         }
 
         entry->kind = DictEntryKind::kPodRef;
         if (term_has_prx_) {
             const uint64_t prx_off = writer_->posting_size();
-            RETURN_IF_ERROR(writer_->posting_out_->append(Slice(prx_window)));
+            RETURN_IF_ERROR(inline_prx_->stream_into(writer_->posting_out_));
+            inline_prx_.reset();
             entry->prx_off_delta = prx_off - prx_base_;
             entry->prx_len = writer_->posting_size() - prx_off;
         }
@@ -327,16 +388,19 @@ private:
                             ? std::span<const uint32_t>(position_offsets_).subspan(begin, count + 1)
                             : std::span<const uint32_t> {};
             const auto positions =
-                    term_has_prx_ ? buffer_->positions_flat().subspan(
-                                            offsets.front(),
-                                            static_cast<size_t>(offsets.back() - offsets.front()))
-                                  : std::span<const uint32_t> {};
+                    term_has_prx_ && !buffer_->positions_spooled()
+                            ? buffer_->positions_flat().subspan(
+                                      offsets.front(),
+                                      static_cast<size_t>(offsets.back() - offsets.front()))
+                            : std::span<const uint32_t> {};
             RETURN_IF_ERROR(emitter_.emit_window(PostingRunView {
                     .docids = buffer_->docids().subspan(begin, count),
                     .freqs = buffer_->freqs().empty() ? std::span<const uint32_t> {}
                                                       : buffer_->freqs().subspan(begin, count),
                     .position_offsets = offsets,
                     .positions_flat = positions,
+                    .position_buffer =
+                            term_has_prx_ && buffer_->positions_spooled() ? buffer_ : nullptr,
             }));
         }
         return Status::OK();
@@ -356,8 +420,11 @@ private:
     TermPostingBuffer* buffer_ = nullptr;
     uint64_t frq_base_ = 0;
     uint64_t prx_base_ = 0;
+    MemoryReporter::Reservation offset_reservation_;
+    MemoryReporter::Reservation entry_scratch_;
     WindowEmitter emitter_;
     std::vector<uint32_t> position_offsets_;
+    std::unique_ptr<PostingPrxEncoder> inline_prx_;
     FreqStats stats_;
     std::optional<uint32_t> last_docid_;
     uint32_t total_docs_ = 0;
@@ -493,14 +560,137 @@ Status LogicalIndexWriter::flush_block(DictBlockBuilder* block, std::string firs
 
 // Running state for the in-flight DICT block while terms stream past.
 struct LogicalIndexWriter::BlockState {
-    explicit BlockState(MemoryReporter* memory_reporter) : transfer_buffer(memory_reporter) {}
+    explicit BlockState(MemoryReporter* memory_reporter)
+            : metadata(memory_reporter == nullptr ? MemoryReporter::Reservation()
+                                                  : memory_reporter->make_postings_reservation()),
+              inline_bytes(memory_reporter),
+              inline_lengths(memory_reporter),
+              transfer_buffer(memory_reporter) {}
 
     std::unique_ptr<DictBlockBuilder> block;
+    MemoryReporter::Reservation metadata;
+    // One pair of bounded streams covers both inline DD and PRX, including
+    // small payloads that would otherwise accumulate inside DictEntry.
+    PostingByteBuffer inline_bytes;
+    PostingByteBuffer inline_lengths;
     std::string block_first_term;
     uint64_t frq_base = 0;
     uint64_t prx_base = 0;
     TermPostingBuffer transfer_buffer;
 };
+
+namespace {
+
+Status read_inline_fields(PostingByteCursor* lengths, PostingByteCursor* payloads,
+                          std::span<uint8_t> storage, Slice* frq, uint64_t* prx_length) {
+    uint64_t frq_length = 0;
+    RETURN_IF_ERROR(lengths->read_varint(&frq_length));
+    RETURN_IF_ERROR(lengths->read_varint(prx_length));
+    if (frq_length > storage.size() || frq_length > payloads->remaining() ||
+        *prx_length > payloads->remaining() - frq_length) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dictionary inline posting length exceeds staged bytes or DD limit");
+    }
+    RETURN_IF_ERROR(payloads->read(storage.first(frq_length)));
+    *frq = Slice(storage.data(), frq_length);
+    return Status::OK();
+}
+
+Status append_inline_prx(PostingByteCursor* payloads, uint64_t length,
+                         const std::function<Status(Slice)>& append) {
+    while (length != 0) {
+        std::span<const uint8_t> bytes;
+        RETURN_IF_ERROR(payloads->next_span(&bytes, length));
+        RETURN_IF_ERROR(append(Slice(bytes.data(), bytes.size())));
+        length -= bytes.size();
+    }
+    return Status::OK();
+}
+
+} // namespace
+
+Status LogicalIndexWriter::build_streamed_dictionary(BlockState* state, PostingByteBuffer* plain) {
+    // Keys, entry metadata and dictionary anchors are dictionary workspace,
+    // separate from the posting budget. Inline posting bytes and their replay
+    // cursors remain charged to the posting budget throughout serialization.
+    auto scratch = memory_reporter_ == nullptr ? MemoryReporter::Reservation()
+                                               : memory_reporter_->make_reservation();
+    if (memory_reporter_ != nullptr) {
+        RETURN_IF_ERROR(scratch.set_bytes(
+                4 * (state->block->estimated_bytes() - state->inline_bytes.size()) +
+                state->block->n_entries() * sizeof(uint32_t)));
+    }
+    PostingByteCursor lengths(&state->inline_lengths);
+    PostingByteCursor payloads(&state->inline_bytes);
+    std::array<uint8_t, format::kDefaultInlineThreshold> inline_frq {};
+    auto posting_scratch = memory_reporter_ == nullptr
+                                   ? MemoryReporter::Reservation()
+                                   : memory_reporter_->make_postings_reservation();
+    if (memory_reporter_ != nullptr) {
+        // One fixed DD field plus its copies in the entry/body encoder scratch.
+        RETURN_IF_ERROR(posting_scratch.set_bytes(4 * inline_frq.size()));
+    }
+    RETURN_IF_ERROR(lengths.reset());
+    RETURN_IF_ERROR(payloads.reset());
+    uint64_t remaining_payload = 0;
+    RETURN_IF_ERROR(state->block->finish_streamed_sequential(
+            [&](Slice* frq, uint64_t* length) {
+                RETURN_IF_ERROR(read_inline_fields(&lengths, &payloads, inline_frq, frq, length));
+                remaining_payload = *length;
+                return Status::OK();
+            },
+            [&](uint32_t, const std::function<Status(Slice)>& append) {
+                return append_inline_prx(&payloads, remaining_payload, append);
+            },
+            [&](Slice bytes) {
+                return plain->append({bytes.data(), bytes.size()});
+            }));
+    if (lengths.remaining() != 0 || payloads.remaining() != 0) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dictionary inline posting streams have trailing bytes");
+    }
+    return Status::OK();
+}
+
+Status LogicalIndexWriter::flush_streamed_block(BlockState* state) {
+    if (state->inline_bytes.size() == 0) {
+        RETURN_IF_ERROR(flush_block(state->block.get(), state->block_first_term));
+        return state->inline_lengths.clear_reuse();
+    }
+    PostingByteBuffer plain(memory_reporter_);
+    PostingByteBuffer compressed(memory_reporter_);
+    RETURN_IF_ERROR(build_streamed_dictionary(state, &plain));
+    RETURN_IF_ERROR(state->inline_bytes.clear_reuse());
+    RETURN_IF_ERROR(state->inline_lengths.clear_reuse());
+    BlockRecord record;
+    record.rel_offset = dict_buf_.size();
+    record.n_entries = state->block->n_entries();
+    record.first_term = state->block_first_term;
+    RETURN_IF_ERROR(plain.checksum(&record.checksum));
+    RETURN_IF_ERROR(compress_inline_dictionary_bytes(&plain, dict_block_zstd_level_, &compressed));
+    PostingByteBuffer* selected = &plain;
+    if (compressed.size() < plain.size()) {
+        selected = &compressed;
+        record.flags = format::block_ref_flags::kZstd;
+        record.uncomp_len = plain.size();
+    }
+    record.length = selected->size();
+    // Keep the existing finite dictionary-output cache for ordinary blocks.
+    // A streamed large block must not move its inline payload back into that
+    // cache after leaving the posting workspace.
+    if (plain.spilled() || compressed.spilled()) {
+        RETURN_IF_ERROR(dict_buf_.spill());
+    }
+    PostingByteCursor cursor(selected);
+    RETURN_IF_ERROR(cursor.reset());
+    while (cursor.remaining() != 0) {
+        std::span<const uint8_t> bytes;
+        RETURN_IF_ERROR(cursor.next_span(&bytes));
+        RETURN_IF_ERROR(dict_buf_.append(Slice(bytes.data(), bytes.size())));
+    }
+    blocks_.push_back(std::move(record));
+    return Status::OK();
+}
 
 // Out-of-line so unique_ptr<BlockState> sees the complete type (see header).
 LogicalIndexWriter::~LogicalIndexWriter() = default;
@@ -509,6 +699,9 @@ Status LogicalIndexWriter::process_term(StreamedTermPostings& tp, BlockState* st
     const bool term_has_prx = has_prx_ && tp.retain_positions;
 
     if (!st->block) {
+        if (memory_reporter_ != nullptr) {
+            RETURN_IF_ERROR(st->metadata.set_bytes(sizeof(BlockState)));
+        }
         const uint64_t base = posting_size();
         st->frq_base = base;
         st->prx_base = base;
@@ -521,16 +714,26 @@ Status LogicalIndexWriter::process_term(StreamedTermPostings& tp, BlockState* st
     const uint64_t term_hash = format::bsbf_hash(tp.term);
     DictEntry entry;
     FreqStats stats;
-    StreamingTermEncoder encoder(this, &tp, term_has_prx, &st->transfer_buffer,
-                                 st->frq_base, st->prx_base);
+    StreamingTermEncoder encoder(this, &tp, term_has_prx, &st->transfer_buffer, st->frq_base,
+                                 st->prx_base);
     RETURN_IF_ERROR(encoder.encode(&entry, &stats));
 
     term_hashes_.push_back(term_hash);
     ++term_count_;
     stats_.sum_total_term_freq += stats.total_freq;
-    st->block->add_entry(std::move(entry));
+    auto inline_prx = encoder.take_inline_prx();
+    const uint64_t external_length = inline_prx == nullptr ? 0 : inline_prx->size();
+    const uint64_t external_frq_length = entry.frq_bytes.size();
+    RETURN_IF_ERROR(st->inline_bytes.append(entry.frq_bytes));
+    std::vector<uint8_t>().swap(entry.frq_bytes);
+    if (inline_prx != nullptr) {
+        RETURN_IF_ERROR(inline_prx->copy_to(&st->inline_bytes));
+    }
+    RETURN_IF_ERROR(st->inline_lengths.append_varint(external_frq_length));
+    RETURN_IF_ERROR(st->inline_lengths.append_varint(external_length));
+    st->block->add_entry(std::move(entry), external_length, external_frq_length);
     if (st->block->estimated_bytes() >= target_dict_block_bytes_) {
-        RETURN_IF_ERROR(flush_block(st->block.get(), st->block_first_term));
+        RETURN_IF_ERROR(flush_streamed_block(st));
         st->block.reset();
     }
     return Status::OK();
@@ -549,7 +752,9 @@ Status LogicalIndexWriter::build_blocks() {
             RETURN_IF_ERROR(process_term(streamed, &st));
         }
     }
-    if (st.block) RETURN_IF_ERROR(flush_block(st.block.get(), st.block_first_term));
+    if (st.block) {
+        RETURN_IF_ERROR(flush_streamed_block(&st));
+    }
     return Status::OK();
 }
 
@@ -785,7 +990,7 @@ Status LogicalIndexWriter::finish_streamed() {
     // finalize_build() then seals the dict buffer and materializes the
     // stats/norms/null-bitmap/BSBF sections.
     if (stream_state_->block) {
-        RETURN_IF_ERROR(flush_block(stream_state_->block.get(), stream_state_->block_first_term));
+        RETURN_IF_ERROR(flush_streamed_block(stream_state_.get()));
     }
     stream_state_.reset();
     RETURN_IF_ERROR(finalize_build());

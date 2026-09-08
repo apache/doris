@@ -83,7 +83,7 @@ uint64_t elapsed_ns(PrxClock::time_point start) {
 
 // Auto-compression threshold: use raw when payload is smaller than this (zstd
 // gain is negligible and metadata overhead is relatively large).
-inline constexpr size_t kPrxPodAutoZstdMinBytes = 512;
+
 // Default zstd level in auto mode.
 inline constexpr int kPrxPodDefaultZstdLevel = 3;
 // Anti-DoS cap on position count decoded from a single window before
@@ -443,10 +443,7 @@ size_t zstd_frame_size(size_t plain_size, size_t compressed_size) {
            sizeof(uint32_t);
 }
 
-struct AutoPrxCodecChoice {
-    PrxCodec codec = PrxCodec::kPfor;
-    bool readable = false;
-};
+} // namespace
 
 // Select the smallest complete reader-safe frame among the candidates already
 // materialized by the zstd/fallback path. Preserve the existing codec on equal
@@ -479,6 +476,8 @@ AutoPrxCodecChoice select_auto_prx_codec(size_t pfor_payload_size, size_t plain_
     }
     return choice;
 }
+
+namespace {
 
 void write_zstd_compressed(Slice plain, Slice compressed, ByteSink* sink) {
     // Single-copy framing (see write_pfor): assemble [codec][uncomp_len][comp_len]
@@ -535,13 +534,13 @@ Status build_prx_window_auto_from_flat(std::span<const uint32_t> positions_flat,
         *outcome = PrxWindowBuildOutcome::kNeedsSplit;
         return Status::OK();
     }
-    if (plain_readable && (plain_size >= kPrxPodAutoZstdMinBytes || !pfor_readable)) {
+    if (plain_readable && (plain_size >= kPrxAutoZstdMinBytes || !pfor_readable)) {
         ByteSink plain;
         encode_payload_from_deltas(freqs, deltas, &plain);
         DCHECK_EQ(plain.size(), plain_size);
         std::vector<uint8_t> compressed;
-        const bool has_compressed = plain_size >= kPrxPodAutoZstdMinBytes;
-        if (plain_size >= kPrxPodAutoZstdMinBytes) {
+        const bool has_compressed = plain_size >= kPrxAutoZstdMinBytes;
+        if (plain_size >= kPrxAutoZstdMinBytes) {
             testing::note_prx_raw_build();
             RETURN_IF_ERROR(zstd_compress(plain.view(), zstd_level, &compressed));
         }
@@ -1008,9 +1007,13 @@ Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_o
 
 // Decision: given level and plain length, determine whether to compress.
 bool prx_pod_should_compress(int level, size_t plain_len) {
-    if (level == 0) return false;                // force raw
-    if (level > 0) return true;                  // force zstd
-    return plain_len >= kPrxPodAutoZstdMinBytes; // auto
+    if (level == 0) {
+        return false; // force raw
+    }
+    if (level > 0) {
+        return true; // force zstd
+    }
+    return plain_len >= kPrxAutoZstdMinBytes; // auto
 }
 
 // Write a raw window: codec=raw, uncomp_len, crc(header+payload), payload.
@@ -1408,7 +1411,7 @@ uint8_t select_auto_prx_codec_for_test(size_t pfor_payload_size, size_t plain_pa
                                        size_t compressed_payload_size, uint32_t max_uncomp_bytes) {
     const AutoPrxCodecChoice choice =
             select_auto_prx_codec(pfor_payload_size, plain_payload_size, compressed_payload_size,
-                                  plain_payload_size >= kPrxPodAutoZstdMinBytes, max_uncomp_bytes);
+                                  plain_payload_size >= kPrxAutoZstdMinBytes, max_uncomp_bytes);
     DCHECK(choice.readable);
     return static_cast<uint8_t>(choice.codec);
 }
