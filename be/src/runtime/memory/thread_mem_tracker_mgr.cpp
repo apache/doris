@@ -54,6 +54,23 @@ ReservedMemoryToken ThreadMemTrackerMgr::take_reserved_memory() {
     return token;
 }
 
+ReservedMemoryToken ThreadMemTrackerMgr::take_reserved_memory(int64_t max_bytes) {
+    CHECK(init());
+    DCHECK_GE(max_bytes, 0);
+    if (_reserved_mem == 0 || max_bytes == 0) {
+        return {};
+    }
+    if (_untracked_mem != 0) {
+        GlobalMemoryArbitrator::shrink_process_reserved(_untracked_mem);
+        _limiter_tracker->shrink_reserved(_untracked_mem);
+        _untracked_mem = 0;
+    }
+    const int64_t bytes = std::min(max_bytes, _reserved_mem);
+    ReservedMemoryToken token(_limiter_tracker_sptr, _wg_wptr, bytes, 0);
+    _reserved_mem -= bytes;
+    return token;
+}
+
 void ThreadMemTrackerMgr::adopt_reserved_memory(ReservedMemoryToken&& token) {
     CHECK(init());
     if (token._bytes == 0 && token._untracked_bytes == 0) {

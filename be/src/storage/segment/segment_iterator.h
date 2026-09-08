@@ -130,6 +130,7 @@ private:
 
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
+    [[nodiscard]] Status _get_row_ranges_by_point_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
     [[nodiscard]] Status _lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
                                          rowid_t* rowid);

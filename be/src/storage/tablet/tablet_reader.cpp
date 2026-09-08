@@ -174,10 +174,13 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.is_lower_keys_included = &_is_lower_keys_included;
     _reader_context.upper_bound_keys = &_keys_param.end_keys;
     _reader_context.is_upper_keys_included = &_is_upper_keys_included;
+    _reader_context.point_keys = read_params.point_keys;
     _reader_context.delete_handler = &_delete_handler;
     _reader_context.stats = &_stats;
     _reader_context.use_page_cache = read_params.use_page_cache;
     _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
+    _reader_context.is_seq_map_candidate_scan = read_params.is_seq_map_candidate_scan;
+    _reader_context.seq_map_candidate_work_limit = read_params.seq_map_candidate_work_limit;
     _reader_context.merged_rows = &_merged_rows;
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
@@ -268,6 +271,8 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                 "column_count={}, schema.num_columns={}",
                 scan_key_size, _tablet_schema->num_columns());
     }
+    auto key_schema =
+            RowCursor::create_shared_schema(_tablet_schema, cast_set<uint32_t>(scan_key_size));
 
     for (size_t i = 0; i < start_key_size; ++i) {
         if (read_params.start_key[i].size() != scan_key_size) {
@@ -276,7 +281,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.start_key[i].size(), scan_key_size);
         }
 
-        Status res = _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i]);
+        Status res = _keys_param.start_keys[i].init(key_schema, read_params.start_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -293,7 +298,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.end_key[i].size(), scan_key_size);
         }
 
-        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i]);
+        Status res = _keys_param.end_keys[i].init(key_schema, read_params.end_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;

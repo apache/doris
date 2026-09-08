@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <memory>
 #include <set>
 #include <string>
@@ -38,6 +39,7 @@
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/row_cursor.h"
+#include "storage/segment/lazy_init_segment_iterator.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
@@ -101,6 +103,7 @@ TabletSchemaSPtr make_tablet_schema() {
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->append_column(*create_int_key(0, false));
     tablet_schema->append_column(*create_int_key(1, false));
+    tablet_schema->_num_short_key_columns = 2;
     tablet_schema->set_storage_page_size(4096);
     return tablet_schema;
 }
@@ -121,6 +124,11 @@ std::shared_ptr<AndBlockColumnPredicate> make_commit_tso_gt_predicate(int32_t co
                     column_id, COMMIT_TSO_COL, Field::create_field<TYPE_BIGINT>(value)));
     predicates->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
     return predicates;
+}
+
+std::shared_ptr<ColumnPredicate> make_int_eq_predicate(int32_t column_id, int32_t value) {
+    return std::make_shared<ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>>(column_id, "",
+                                                                                  int_field(value));
 }
 
 // Read schema covers all tablet columns in order, so ordinal == tablet cid.
@@ -363,6 +371,177 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionVal
     EXPECT_TRUE(iter->empty());
     EXPECT_EQ(1, _stats.total_segment_number);
     EXPECT_EQ(1, _stats.filtered_segment_number);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, PointSeekRebuildsPrefixSeekSchema) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+
+    SegmentIterator iter(segment, read_schema);
+    auto status = iter.init(read_options);
+    ASSERT_TRUE(status.ok()) << status;
+
+    RowCursor prefix_key;
+    std::vector<Field> prefix_fields {int_field(100)};
+    ASSERT_TRUE(prefix_key.init_scan_key(_tablet_schema, std::move(prefix_fields)).ok());
+    StorageReadOptions::KeyRange prefix_range(&prefix_key, true, &prefix_key, true);
+    ASSERT_TRUE(iter._prepare_seek(prefix_range).ok());
+    ASSERT_EQ(1, iter._seek_schema->num_read_columns());
+    ASSERT_EQ(1, iter._seek_block.size());
+
+    RowCursor point_key;
+    std::vector<Field> point_fields {int_field(100), int_field(0)};
+    ASSERT_TRUE(point_key.init_scan_key(_tablet_schema, std::move(point_fields)).ok());
+    StorageReadOptions::KeyRange point_range(&point_key, true, &point_key, true);
+    ASSERT_TRUE(iter._prepare_seek(point_range).ok());
+
+    EXPECT_EQ(2, iter._seek_schema->num_read_columns());
+    EXPECT_EQ(2, iter._seek_block.size());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, PointKeysBuildExactMonotonicRanges) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    auto key_schema = RowCursor::create_shared_schema(_tablet_schema, 2);
+    auto point_keys = std::make_shared<PointKeySet>(key_schema);
+    for (const auto& [first, second] :
+         std::vector<std::pair<int32_t, int32_t>> {{10, 0}, {4095, 0}, {5000, 0}, {5000, 1000}}) {
+        std::vector<Field> fields {int_field(first), int_field(second)};
+        RowCursor key;
+        ASSERT_TRUE(key.init(key_schema, std::move(fields)).ok());
+        point_keys->keys.emplace_back(std::move(key));
+    }
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.point_keys = point_keys;
+
+    ASSERT_TRUE(segment->load_index(&_stats, &read_options.io_ctx).ok());
+    SegmentIterator iter(segment, read_schema);
+    auto status = iter.init(read_options);
+    ASSERT_TRUE(status.ok()) << status;
+    iter._row_bitmap.addRange(0, segment->num_rows());
+
+    status = iter._get_row_ranges_by_point_keys();
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(3, iter._row_bitmap.cardinality());
+    EXPECT_TRUE(iter._row_bitmap.contains(10));
+    EXPECT_TRUE(iter._row_bitmap.contains(4095));
+    EXPECT_TRUE(iter._row_bitmap.contains(5000));
+    EXPECT_EQ(kNumRows - 3, _stats.rows_key_range_filtered);
+    EXPECT_GT(_stats.seq_map_point_range_build_ns, 0);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, PointKeyRangeBuildHonorsCancellation) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    auto key_schema = RowCursor::create_shared_schema(_tablet_schema, 2);
+    auto point_keys = std::make_shared<PointKeySet>(key_schema);
+    RowCursor point_key;
+    std::vector<Field> fields {int_field(10), int_field(0)};
+    ASSERT_TRUE(point_key.init(key_schema, std::move(fields)).ok());
+    point_keys->keys.emplace_back(std::move(point_key));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.point_keys = point_keys;
+    read_options.runtime_state = &_runtime_state;
+
+    ASSERT_TRUE(segment->load_index(&_stats, &read_options.io_ctx).ok());
+    SegmentIterator iter(segment, read_schema);
+    auto status = iter.init(read_options);
+    ASSERT_TRUE(status.ok()) << status;
+    iter._row_bitmap.addRange(0, segment->num_rows());
+    _runtime_state.cancel(Status::Cancelled("point key range build cancelled"));
+
+    status = iter._get_row_ranges_by_point_keys();
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status;
+    EXPECT_EQ(segment->num_rows(), iter._row_bitmap.cardinality());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, CandidateWorkLimitStopsBeforeAnotherBatch) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    SeqMapCandidateScanWorkLimit work_limit {
+            .remaining_segment_read_calls = 1,
+            .remaining_read_calls = 1,
+            .remaining_rows = 1,
+            .remaining_bytes = std::numeric_limits<int64_t>::max(),
+    };
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.block_row_max = 128;
+    read_options.is_seq_map_candidate_scan = true;
+    read_options.seq_map_candidate_work_limit = &work_limit;
+    auto predicate = make_int_eq_predicate(0, 0);
+    read_options.column_predicates.push_back(predicate);
+    auto block_predicates = AndBlockColumnPredicate::create_shared();
+    block_predicates->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
+    read_options.col_id_to_predicates.emplace(0, std::move(block_predicates));
+
+    ASSERT_TRUE(segment->load_index(&_stats, &read_options.io_ctx).ok());
+    SegmentIterator iter(segment, read_schema);
+    auto status = iter.init(read_options);
+    ASSERT_TRUE(status.ok()) << status;
+
+    Block block = read_schema->create_read_block();
+    status = iter.next_batch(&block);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(1, block.rows());
+    EXPECT_EQ(0, work_limit.remaining_segment_read_calls);
+    EXPECT_GT(_stats.raw_rows_read, block.rows());
+    EXPECT_LE(_stats.raw_rows_read, read_options.block_row_max);
+    EXPECT_LT(_stats.raw_rows_read, kNumRows);
+    EXPECT_EQ(0, work_limit.remaining_rows);
+    EXPECT_TRUE(work_limit.exceeded);
+
+    block.clear_column_data();
+    status = iter.next_batch(&block);
+    EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
+    EXPECT_TRUE(work_limit.exceeded);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, CandidateWorkLimitStopsBeforeLazyInit) {
+    auto read_schema = make_read_schema(_tablet_schema);
+    SeqMapCandidateScanWorkLimit work_limit {
+            .remaining_segment_read_calls = 0,
+            .remaining_read_calls = 1,
+            .remaining_rows = 1,
+            .remaining_bytes = std::numeric_limits<int64_t>::max(),
+    };
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.seq_map_candidate_work_limit = &work_limit;
+
+    LazyInitSegmentIterator iter(nullptr, RowsetSegmentRef {.pos = 0, .id = 0}, false, read_schema,
+                                 read_options);
+    auto status = iter.init(read_options);
+    ASSERT_TRUE(status.ok()) << status;
+
+    Block block = read_schema->create_read_block();
+    status = iter.next_batch(&block);
+    EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
+    EXPECT_TRUE(work_limit.exceeded);
+    EXPECT_EQ(0, _stats.raw_rows_read);
 }
 
 } // namespace doris::segment_v2

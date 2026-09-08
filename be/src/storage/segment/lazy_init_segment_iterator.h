@@ -44,6 +44,10 @@ public:
             RETURN_IF_ERROR(init(_read_options));
             DCHECK(_inner_iterator != nullptr);
         }
+        if (auto* work_limit = _read_options.seq_map_candidate_work_limit;
+            work_limit != nullptr && work_limit->exceeded) {
+            return Status::Error<ErrorCode::END_OF_FILE>("");
+        }
 
         return _inner_iterator->next_batch(block);
     }

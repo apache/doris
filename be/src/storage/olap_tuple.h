@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <utility>
 #include <vector>
 
 #include "core/field.h"
@@ -53,6 +54,8 @@ public:
 
     const Field& get_field(size_t i) const { return _fields[i]; }
     Field& get_field(size_t i) { return _fields[i]; }
+
+    std::vector<Field> release_fields() && { return std::move(_fields); }
 
 private:
     std::vector<Field> _fields;

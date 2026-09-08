@@ -364,6 +364,50 @@ TEST_F(ThreadMemTrackerMgrTest, TransfersReservationBetweenAsyncTasks) {
     EXPECT_EQ(GlobalMemoryArbitrator::process_reserved_memory(), 0);
 }
 
+TEST_F(ThreadMemTrackerMgrTest, TakesPartOfCurrentReservation) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "UT-PartialReservationTransfer");
+    auto resource_context = ResourceContext::create_shared();
+    resource_context->memory_context()->set_mem_tracker(tracker);
+    constexpr int64_t reservation = 8 * 1024 * 1024;
+    constexpr int64_t transferred = 3 * 1024 * 1024;
+    constexpr int64_t consumed = 512 * 1024;
+    WorkloadGroupInfo wg_info {
+            .id = 1, .memory_limit = reservation * 2, .memory_high_watermark = 100};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+    resource_context->set_workload_group(wg);
+    ThreadContext context;
+    context.attach_task(resource_context);
+
+    ASSERT_TRUE(context.thread_mem_tracker_mgr->try_reserve(reservation).ok());
+    EXPECT_EQ(tracker->consumption(), reservation);
+    EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), reservation);
+    context.thread_mem_tracker_mgr->consume(consumed);
+    EXPECT_EQ(context.thread_mem_tracker_mgr->untracked_mem(), consumed);
+    {
+        auto token = context.thread_mem_tracker_mgr->take_reserved_memory(transferred);
+        EXPECT_EQ(token.bytes(), transferred);
+        EXPECT_EQ(context.thread_mem_tracker_mgr->untracked_mem(), 0);
+        EXPECT_EQ(context.thread_mem_tracker_mgr->reserved_mem(),
+                  reservation - consumed - transferred);
+        EXPECT_EQ(tracker->consumption(), reservation);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), reservation);
+        EXPECT_EQ(GlobalMemoryArbitrator::process_reserved_memory(), reservation - consumed);
+    }
+    EXPECT_EQ(context.thread_mem_tracker_mgr->reserved_mem(), reservation - consumed - transferred);
+    EXPECT_EQ(tracker->consumption(), reservation - transferred);
+    EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), reservation - transferred);
+    EXPECT_EQ(GlobalMemoryArbitrator::process_reserved_memory(),
+              reservation - consumed - transferred);
+
+    context.thread_mem_tracker_mgr->consume(-consumed);
+    context.thread_mem_tracker_mgr->shrink_reserved();
+    EXPECT_EQ(tracker->consumption(), 0);
+    EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+    context.detach_task();
+    EXPECT_EQ(GlobalMemoryArbitrator::process_reserved_memory(), 0);
+}
+
 TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
     std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
     std::shared_ptr<MemTrackerLimiter> t = MemTrackerLimiter::create_shared(

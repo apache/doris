@@ -137,6 +137,8 @@ public:
     void shrink_reserved();
 
     ReservedMemoryToken take_reserved_memory();
+    // Detach at most max_bytes while leaving the rest available to the current thread.
+    ReservedMemoryToken take_reserved_memory(int64_t max_bytes);
     void adopt_reserved_memory(ReservedMemoryToken&& token);
 
     MemTrackerLimiter* limiter_mem_tracker() {

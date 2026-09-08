@@ -42,10 +42,11 @@ RowCursor::~RowCursor() = default;
 RowCursor::RowCursor(RowCursor&&) noexcept = default;
 RowCursor& RowCursor::operator=(RowCursor&&) noexcept = default;
 
-void RowCursor::_init_schema(TabletSchemaSPtr schema, uint32_t column_count) {
+ReadSchemaSPtr RowCursor::create_shared_schema(const TabletSchemaSPtr& schema,
+                                               uint32_t column_count) {
     std::vector<TabletColumnPtr> columns(schema->columns().begin(),
                                          schema->columns().begin() + column_count);
-    _schema.reset(new ReadSchema(std::move(columns)));
+    return std::make_shared<ReadSchema>(std::move(columns));
 }
 
 Status RowCursor::init(TabletSchemaSPtr schema, const OlapTuple& tuple) {
@@ -56,8 +57,24 @@ Status RowCursor::init(TabletSchemaSPtr schema, const OlapTuple& tuple) {
                 "column_count={}, schema.num_columns={}",
                 key_size, schema->num_columns());
     }
-    _init_schema(schema, cast_set<uint32_t>(key_size));
+    _schema = create_shared_schema(schema, cast_set<uint32_t>(key_size));
     return _from_tuple(tuple);
+}
+
+Status RowCursor::init(ReadSchemaSPtr schema, const OlapTuple& tuple) {
+    _schema = std::move(schema);
+    return _from_tuple(tuple);
+}
+
+Status RowCursor::init(ReadSchemaSPtr schema, std::vector<Field>&& fields) {
+    if (fields.size() != schema->num_read_columns()) {
+        return Status::Error<INVALID_ARGUMENT>(
+                "column count does not match. fields_size={}, schema_column_count={}",
+                fields.size(), schema->num_read_columns());
+    }
+    _schema = std::move(schema);
+    _fields = std::move(fields);
+    return Status::OK();
 }
 
 Status RowCursor::init_scan_key(TabletSchemaSPtr schema, std::vector<Field> fields) {
@@ -68,9 +85,7 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema, std::vector<Field> fiel
                 "column_count={}, schema.num_columns={}",
                 key_size, schema->num_columns());
     }
-    _init_schema(schema, cast_set<uint32_t>(key_size));
-    _fields = std::move(fields);
-    return Status::OK();
+    return init(create_shared_schema(schema, cast_set<uint32_t>(key_size)), std::move(fields));
 }
 
 Status RowCursor::_from_tuple(const OlapTuple& tuple) {
@@ -88,7 +103,7 @@ Status RowCursor::_from_tuple(const OlapTuple& tuple) {
 
 RowCursor RowCursor::clone() const {
     RowCursor result;
-    result._schema = std::make_unique<ReadSchema>(*_schema);
+    result._schema = _schema;
     result._fields = _fields;
     return result;
 }
