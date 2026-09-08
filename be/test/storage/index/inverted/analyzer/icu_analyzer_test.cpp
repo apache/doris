@@ -18,14 +18,23 @@
 #include "storage/index/inverted/analyzer/icu/icu_analyzer.h"
 
 #include <gtest/gtest.h>
+#include <unicode/locid.h>
+#include <unicode/utypes.h>
 
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "util/defer_op.h"
+
 using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
+
+class LowercaseICUTokenizer : public inverted_index::ICUTokenizer {
+public:
+    LowercaseICUTokenizer() { lowercase = true; }
+};
 
 class ICUTokenizerTest : public ::testing::Test {
 protected:
@@ -599,6 +608,32 @@ TEST_F(ICUTokenizerTest, TestICUAnalyzerCreateComponentsWithLowercase) {
     }
 
     delete token_stream;
+}
+
+TEST_F(ICUTokenizerTest, TestICUTokenizerLowercaseUsesRootLocale) {
+    UErrorCode status = U_ZERO_ERROR;
+    const icu::Locale saved_default = icu::Locale::getDefault();
+    icu::Locale::setDefault(icu::Locale("tr", "TR"), status);
+    ASSERT_TRUE(U_SUCCESS(status));
+    Defer restore_default {[&]() {
+        UErrorCode restore_status = U_ZERO_ERROR;
+        icu::Locale::setDefault(saved_default, restore_status);
+    }};
+
+    std::string text = "I KIZILAY";
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(text.data(), text.size(), false);
+    LowercaseICUTokenizer tokenizer;
+    tokenizer.initialize("./be/dict/icu");
+    tokenizer.set_reader(reader);
+    tokenizer.reset();
+
+    std::vector<std::string> tokens;
+    Token token;
+    while (tokenizer.next(&token)) {
+        tokens.emplace_back(token.termBuffer<char>(), token.termLength<char>());
+    }
+    EXPECT_EQ(tokens, (std::vector<std::string> {"i", "kizilay"}));
 }
 
 TEST_F(ICUTokenizerTest, TestICUAnalyzerTokenStreamThrowsException) {
