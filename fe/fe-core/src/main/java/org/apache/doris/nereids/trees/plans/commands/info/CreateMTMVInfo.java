@@ -186,9 +186,10 @@ public class CreateMTMVInfo extends CreateTableInfo {
                 this.sessionVariables = effectiveSessionVariables;
             }
             this.partitionDesc = generatePartitionDesc(ctx);
-            if (distribution == null) {
-                throw new AnalysisException("Create async materialized view should contain distribution desc");
-            }
+            // An omitted DISTRIBUTED BY is resolved below: an IVM (INCREMENTAL) MV auto-generates a HASH
+            // distribution on its hidden row-id column, and any other MTMV falls back to RANDOM. Requiring
+            // an explicit distribution here would break both cases (e.g. CREATE ... REFRESH INCREMENTAL
+            // without DISTRIBUTED BY must still auto-generate the row-id distribution).
         }
         validateRefreshStrategyForCreate();
         validateIvmOnlyProperties();
