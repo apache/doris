@@ -417,8 +417,8 @@ TFileScanRangeParams make_phrase_search_params(
         std::optional<std::string> filter = std::nullopt) {
     auto scan_params = make_full_text_search_params(std::move(query_text), top_k, offset,
                                                     coverage_mode, std::move(filter));
-    auto& full_text = scan_params.lance_scan_params.external_search_request.search_query
-                              .full_text_search;
+    auto& full_text =
+            scan_params.lance_scan_params.external_search_request.search_query.full_text_search;
     full_text.__set_query_type(TFtsQueryType::PHRASE);
     full_text.__isset.match_operator = false;
     full_text.__isset.max_fuzzy_distance = false;
@@ -555,9 +555,8 @@ TEST(LanceTableReaderFullTextSearchTest, ValidatesQuerySpecificParameters) {
     EXPECT_EQ("1", *phrase_profile.get_info_string("LanceFtsPhraseSlop"));
 
     RuntimeProfile fuzzy_profile("lance_fts_fuzzy_request");
-    auto fuzzy_params = make_full_text_search_params(
-            "lance", 4, 0, TFtsCoverageMode::STRICT, std::nullopt,
-            TFtsMatchOperator::OR, 1);
+    auto fuzzy_params = make_full_text_search_params("lance", 4, 0, TFtsCoverageMode::STRICT,
+                                                     std::nullopt, TFtsMatchOperator::OR, 1);
     LanceTableReader fuzzy_reader;
     const auto fuzzy_status =
             init_reader(&fuzzy_reader, columns, &state, &fuzzy_profile, &fuzzy_params);
@@ -681,17 +680,15 @@ TEST(LanceTableReaderFullTextSearchTest, SupportsMatchAndPhraseQueries) {
 
     RuntimeProfile match_and_profile("lance_fts_match_and");
     auto match_and_params = make_full_text_search_params(
-            "lance storage", 10, 0, TFtsCoverageMode::STRICT, std::nullopt,
-            TFtsMatchOperator::AND);
+            "lance storage", 10, 0, TFtsCoverageMode::STRICT, std::nullopt, TFtsMatchOperator::AND);
     LanceTableReader match_and_reader;
-    ASSERT_TRUE(init_reader(&match_and_reader, columns, &state, &match_and_profile,
-                            &match_and_params)
-                        .ok());
+    ASSERT_TRUE(
+            init_reader(&match_and_reader, columns, &state, &match_and_profile, &match_and_params)
+                    .ok());
     ASSERT_TRUE(prepare_range(&match_and_reader, range).ok());
     Block match_and_block;
     add_output_columns(&match_and_block, columns);
-    const auto match_and_rows =
-            read_full_text_search_rows(&match_and_reader, &match_and_block);
+    const auto match_and_rows = read_full_text_search_rows(&match_and_reader, &match_and_block);
     ASSERT_EQ(1U, match_and_rows.size());
     EXPECT_EQ(7, match_and_rows[0].first);
     EXPECT_TRUE(match_and_reader.close().ok());

@@ -186,9 +186,8 @@ Status LanceTableReader::init(TableReadOptions&& options) {
                 _scanner_profile->add_info_string(
                         "LanceFtsMatchOperator",
                         full_text.match_operator == TFtsMatchOperator::AND ? "AND" : "OR");
-                _scanner_profile->add_info_string(
-                        "LanceFtsMaxFuzzyDistance",
-                        std::to_string(full_text.max_fuzzy_distance));
+                _scanner_profile->add_info_string("LanceFtsMaxFuzzyDistance",
+                                                  std::to_string(full_text.max_fuzzy_distance));
             } else {
                 _scanner_profile->add_info_string("LanceFtsQueryType", "PHRASE");
                 _scanner_profile->add_info_string("LanceFtsPhraseSlop",
@@ -575,9 +574,8 @@ Status LanceTableReader::_validate_external_search_request() const {
             return Status::InvalidArgument(
                     "Lance full-text search global_statistics must not be empty when set");
         }
-        if (!full_text.__isset.query_type ||
-            (full_text.query_type != TFtsQueryType::MATCH &&
-             full_text.query_type != TFtsQueryType::PHRASE)) {
+        if (!full_text.__isset.query_type || (full_text.query_type != TFtsQueryType::MATCH &&
+                                              full_text.query_type != TFtsQueryType::PHRASE)) {
             return Status::InvalidArgument(
                     "Lance full-text search requires MATCH or PHRASE query_type");
         }
@@ -715,8 +713,8 @@ Status LanceTableReader::_prepare_fts_query_context() {
     } else {
         DORIS_CHECK(full_text.query_type == TFtsQueryType::PHRASE);
         _fts_query_context = lance_dataset_prepare_fts_phrase_query(
-                _dataset, full_text.column.c_str(), full_text.query.c_str(),
-                full_text.phrase_slop, coverage_mode);
+                _dataset, full_text.column.c_str(), full_text.query.c_str(), full_text.phrase_slop,
+                coverage_mode);
     }
     if (_fts_query_context == nullptr) {
         return lance_error("prepare Lance FTS query context");
