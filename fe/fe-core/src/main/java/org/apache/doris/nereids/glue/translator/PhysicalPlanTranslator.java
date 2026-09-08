@@ -1457,8 +1457,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         PlanNode planNode = inputFragment.getPlanRoot();
-        // the three nodes don't support conjuncts, need create a SelectNode to filter data
-        if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode) {
+        // These nodes don't support conjuncts, so a SelectNode must filter the data:
+        // - Exchange/Sort/Union cannot carry conjuncts at all;
+        // - a fused GroupJoin (GROUP JOIN) node also cannot: it materializes the final
+        //   aggregate result per group, but unlike AggregationNode its BE operator never
+        //   evaluates conjuncts as a HAVING predicate. Folding a post-aggregation filter
+        //   (HAVING) into the node used to drop the predicate silently and returned groups
+        //   that should have been filtered out.
+        if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode
+                || planNode instanceof GroupJoinNode) {
             SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), planNode);
             selectNode.setNereidsId(filter.getId());
             context.getNereidsIdToPlanNodeIdMap().put(filter.getId(), selectNode.getId());
