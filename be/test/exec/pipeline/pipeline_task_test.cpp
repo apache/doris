@@ -1992,4 +1992,62 @@ TEST_F(PipelineTaskTest, TEST_TERMINATE_RACE_FIX) {
     config::enable_debug_points = false;
 }
 
+TEST_F(PipelineTaskTest, TEST_SET_RUNNING_MUTUAL_EXCLUSION) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    {
+        OperatorPtr source_op;
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+
+    // set_running(true) is the scheduler's double-execute gate (and RevokableTask's mutual
+    // exclusion with its underlying task): at most one caller may observe "was not running"
+    // until the matching set_running(false). The former compare_exchange_weak implementation
+    // could fail spuriously on LL/SC architectures and report acquisition without setting
+    // the flag, admitting two concurrent holders.
+    std::atomic<int> holders {0};
+    std::atomic<int64_t> acquired {0};
+    std::atomic<bool> violation {false};
+    constexpr int kThreads = 8;
+    constexpr int kItersPerThread = 200000;
+    std::vector<std::thread> threads;
+    threads.reserve(kThreads);
+    for (int t = 0; t < kThreads; ++t) {
+        threads.emplace_back([&]() {
+            for (int i = 0; i < kItersPerThread; ++i) {
+                if (!task->set_running(true)) {
+                    if (holders.fetch_add(1) != 0) {
+                        violation = true;
+                    }
+                    acquired.fetch_add(1, std::memory_order_relaxed);
+                    holders.fetch_sub(1);
+                    task->set_running(false);
+                }
+            }
+        });
+    }
+    for (auto& th : threads) {
+        th.join();
+    }
+    EXPECT_FALSE(violation.load()) << "two threads acquired the running gate concurrently";
+    EXPECT_GT(acquired.load(), 0);
+    EXPECT_FALSE(task->is_running());
+}
+
 } // namespace doris
