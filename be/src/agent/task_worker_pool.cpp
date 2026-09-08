@@ -42,6 +42,7 @@
 #include <string>
 #include <thread>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -2523,7 +2524,7 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
 
 void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
                                               const TAgentTaskRequest& req) {
-    if (!config::enable_cloud_make_rs_visible_on_be) {
+    if (!config::enable_cloud_make_rs_visible_on_be && !config::enable_compaction_rw_separation) {
         return;
     }
     LOG(INFO) << "begin to make cloud tmp rs visible, txn_id="
@@ -2537,6 +2538,33 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
     int64_t version_update_time_ms = make_visible_req.__isset.version_update_time_ms
                                              ? make_visible_req.version_update_time_ms
                                              : 0;
+    std::string load_cluster_id =
+            make_visible_req.__isset.load_cluster_id ? make_visible_req.load_cluster_id : "";
+    if (config::enable_compaction_rw_separation && !load_cluster_id.empty() &&
+        make_visible_req.__isset.last_active_tablet_ids) {
+        const bool has_aligned_epochs = make_visible_req.__isset.last_active_epochs &&
+                                        make_visible_req.last_active_epochs.size() ==
+                                                make_visible_req.last_active_tablet_ids.size();
+        for (size_t i = 0; i < make_visible_req.last_active_tablet_ids.size(); ++i) {
+            auto tablet_result = tablet_mgr.get_tablet(
+                    make_visible_req.last_active_tablet_ids[i], /* warmup_data */ false,
+                    /* sync_delete_bitmap */ false, /* sync_stats */ nullptr,
+                    /* force_use_only_cached */ true, /* cache_on_miss */ false);
+            if (!tablet_result.has_value()) {
+                continue;
+            }
+            auto cloud_tablet = tablet_result.value();
+            if (has_aligned_epochs) {
+                cloud_tablet->update_last_active_cluster_info(
+                        load_cluster_id, version_update_time_ms,
+                        make_visible_req.last_active_epochs[i]);
+            } else {
+                // An old sender cannot prove ordering. Force the next scheduler pass to pull the
+                // authoritative owner instead of applying a wall-clock based hint.
+                cloud_tablet->last_sync_time_s = 0;
+            }
+        }
+    }
 
     // Process each tablet involved in this transaction on this BE
     for (int64_t tablet_id : make_visible_req.tablet_ids) {
@@ -2549,6 +2577,10 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
             continue;
         }
         auto cloud_tablet = tablet_result.value();
+
+        if (!config::enable_cloud_make_rs_visible_on_be) {
+            continue;
+        }
 
         int64_t partition_id = cloud_tablet->partition_id();
         auto version_iter = make_visible_req.partition_version_map.find(partition_id);

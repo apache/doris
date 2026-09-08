@@ -238,6 +238,9 @@ message ClusterPB {
     repeated string cluster_names = 12; // clusters in virtual cluster
     optional ClusterPolicy cluster_policy = 13; // virtual cluster policy
     map<string, string> properties = 14; // clsuter additional properties
+    // Timestamp in seconds of the latest cluster status transition. Unlike mtime, this is not
+    // changed by cluster metadata updates such as rename, endpoint, or properties changes.
+    optional int64 cluster_status_mtime = 15;
 }
 
 message NodeInfoPB {
@@ -541,10 +544,23 @@ message TxnInfoPB {
     // This is used for lazy commit to reduce contention during transaction commit.
     // The delete bitmap locks will be extended and removed during lazy commit phase.
     optional bool defer_deleting_pending_delete_bitmaps = 21;
-    // The cluster_id of the compute cluster that performed the load
-    // Set by FE during begin_txn, used by commit_txn for compaction read-write separation
+    // The cluster_id of the compute cluster that performed the load. FE may provide an initial
+    // routing hint; the first actual rowset writer makes it authoritative.
     optional string load_cluster_id = 22;
     optional int64 commit_tso = 23;
+    // Bounded, best-effort owner-update result used to reconstruct an idempotent commit response.
+    // Omitted tablets still converge through authoritative tablet metadata synchronization.
+    repeated int64 last_active_tablet_ids = 24 [packed = true];
+    optional int64 last_active_time_ms = 25;
+    // Positionally aligned with last_active_tablet_ids.
+    repeated int64 last_active_epochs = 26 [packed = true];
+    // Bounded durable work list for lazy commit notifications. Replaced by the aligned result
+    // fields when visible; owner metadata is still updated for candidates omitted by the bound.
+    repeated int64 last_active_candidate_tablet_ids = 27 [packed = true];
+    // Meta-service-owned evidence that load_cluster_id was resolved from the actual rowset writer.
+    // begin_txn clears any caller-supplied value; prepare_rowset/commit_rowset set it after durable
+    // InstanceInfoPB validation.
+    optional bool load_cluster_id_bound_by_writer = 28;
 }
 
 enum IndexObjectTypePB {
@@ -780,6 +796,23 @@ message TabletCompactionJobPB {
     optional int64 segment_size_input_rowsets = 28;
     optional int64 index_size_output_rowsets = 29;
     optional int64 segment_size_output_rowsets = 30;
+    // Owner token observed by BE when this compaction was selected. New clients set fields 31-33
+    // together; requests from old clients omit them and retain the legacy compaction-count-only
+    // check. Fields 34-35 form an optional availability snapshot, field 37 is its generic metadata
+    // generation, and field 36 is valid only with the core token.
+    optional string observed_last_active_cluster_id = 31;
+    optional int64 observed_last_active_epoch = 32;
+    optional string requester_cluster_id = 33;
+    // Snapshot of the foreign owner's availability decision. The timestamp uses milliseconds,
+    // matching TabletStatsPB.last_active_cluster_status_mtime_ms.
+    optional ClusterStatus observed_owner_cluster_status = 34;
+    optional int64 observed_owner_cluster_status_mtime_ms = 35;
+    // Preserve emergency compaction when the tablet approaches the version-count limit.
+    optional bool force_compaction_by_version_count = 36;
+    // Generic cluster metadata generation observed with the availability snapshot. It detects an
+    // intervening metadata update even when the owner status returns to its previous value. Unit:
+    // milliseconds.
+    optional int64 observed_owner_cluster_mtime_ms = 37;
 }
 
 message TabletSchemaChangeJobPB {
@@ -983,9 +1016,13 @@ message TabletStatsPB {
     // NORMAL means available, other states (SUSPENDED/MANUAL_SHUTDOWN) or UNKNOWN means unavailable
     optional ClusterStatus last_active_cluster_status = 18;
     // Timestamp for timeout judgment
-    // - Normal case: dynamically filled with ClusterPB.mtime (not persisted)
+    // - Normal case: dynamically filled from ClusterPB.cluster_status_mtime, converting seconds
+    //   to milliseconds (not persisted)
     // - Deleted case: persisted when first detected as deleted, reused thereafter
     optional int64 last_active_cluster_status_mtime_ms = 19;
+    // Monotonic owner generation. It advances on every logical load mutation, even when the
+    // owning cluster id does not change.
+    optional int64 last_active_epoch = 20;
 }
 
 message ObjectFilePB {
@@ -1115,6 +1152,11 @@ message CommitTxnResponse {
     // The lazy commit has only completed its first phase. FE must not notify BE to make
     // temporary rowsets visible until BE observes the final metadata from meta-service.
     optional bool is_lazy_commit_incomplete = 9;
+    // Bounded, best-effort subset of tablets whose last active cluster was updated by this commit.
+    // Callers must still perform authoritative tablet metadata synchronization before compaction.
+    repeated int64 last_active_tablet_ids = 10 [packed = true];
+    // Positionally aligned with last_active_tablet_ids.
+    repeated int64 last_active_epochs = 11 [packed = true];
 }
 
 message AbortTxnRequest {
@@ -1421,6 +1463,9 @@ message CreateRowsetRequest {
     optional int64 txn_id = 4;
     optional string tablet_job_id = 5;
     optional string request_ip = 6;
+    // Actual compute cluster writing a load rowset. Meta-service binds the owning transaction to
+    // the first writer and rejects later writers from a different cluster.
+    optional string load_cluster_id = 7;
 }
 
 message CreateRowsetResponse {

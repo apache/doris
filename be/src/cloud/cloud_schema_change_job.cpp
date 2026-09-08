@@ -30,6 +30,7 @@
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "common/status.h"
 #include "service/backend_options.h"
 #include "storage/delete/delete_handler.h"
@@ -569,6 +570,11 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                              stats.num_rows(), stats.data_size());
+        if (config::enable_compaction_rw_separation) {
+            _new_tablet->set_last_active_cluster_info(stats.last_active_cluster_id(),
+                                                      stats.last_active_time_ms(),
+                                                      stats.last_active_epoch());
+        }
         RETURN_IF_ERROR(_new_tablet->set_tablet_state(TABLET_RUNNING));
     }
     return Status::OK();

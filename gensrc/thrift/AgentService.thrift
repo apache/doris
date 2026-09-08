@@ -598,6 +598,10 @@ struct TMakeCloudTmpRsVisibleRequest {
     2: required list<Types.TTabletId> tablet_ids // tablets on this BE involved in the transaction
     3: required map<Types.TPartitionId, Types.TVersion> partition_version_map
     4: optional i64 version_update_time_ms
+    5: optional string load_cluster_id
+    6: optional list<Types.TTabletId> last_active_tablet_ids
+    // Aligned with last_active_tablet_ids. Missing means the sender cannot provide epochs.
+    7: optional list<i64> last_active_epochs
 }
 
 struct TAgentTaskRequest {

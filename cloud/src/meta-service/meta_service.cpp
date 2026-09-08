@@ -2482,6 +2482,236 @@ static bool check_transaction_status(TxnStatusPB expect_status, Transaction* txn
     return true;
 }
 
+static bool resolve_load_writer_cluster(Transaction* txn, const std::string& instance_id,
+                                        const CreateRowsetRequest& request,
+                                        std::string* load_cluster_id, MetaServiceCode& code,
+                                        std::string& msg) {
+    load_cluster_id->clear();
+    bool found_compute_cluster = false;
+    std::string registered_cluster_id;
+
+    std::string instance_val;
+    TxnErrorCode err = txn->get(instance_key({instance_id}), &instance_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format(
+                "failed to read instance when resolving load writer, instance_id={}, err={}",
+                instance_id, err);
+        return false;
+    }
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(instance_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("failed to parse instance when resolving load writer, instance_id={}",
+                          instance_id);
+        return false;
+    }
+    for (const auto& cluster : instance.clusters()) {
+        if (cluster.type() != ClusterPB::COMPUTE) {
+            continue;
+        }
+        for (const auto& node : cluster.nodes()) {
+            if (node.cloud_unique_id() != request.cloud_unique_id()) {
+                continue;
+            }
+            if (!found_compute_cluster) {
+                registered_cluster_id = cluster.cluster_id();
+                found_compute_cluster = true;
+            } else if (cluster.cluster_id() != registered_cluster_id) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format(
+                        "cloud unique id resolves to multiple compute clusters in durable "
+                        "metadata, cloud_unique_id={}",
+                        request.cloud_unique_id());
+                return false;
+            }
+            break;
+        }
+    }
+    if (!found_compute_cluster) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("load writer is not registered in durable metadata, cloud_unique_id={}",
+                          request.cloud_unique_id());
+        return false;
+    }
+
+    const std::string& requested_cluster_id = request.load_cluster_id();
+    if (registered_cluster_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("registered compute node has no cluster id, cloud_unique_id={}",
+                          request.cloud_unique_id());
+        return false;
+    }
+    if (!requested_cluster_id.empty() && requested_cluster_id != registered_cluster_id) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format(
+                "load cluster does not match registered writer, requested={}, registered={}",
+                requested_cluster_id, registered_cluster_id);
+        return false;
+    }
+    *load_cluster_id = std::move(registered_cluster_id);
+    return true;
+}
+
+static bool is_same_load_rowset_retry(Transaction* txn, const std::string& instance_id,
+                                      const CreateRowsetRequest& request, bool* is_retry,
+                                      MetaServiceCode& code, std::string& msg) {
+    *is_retry = false;
+    const auto& rowset = request.rowset_meta();
+    const std::string tmp_key =
+            meta_rowset_tmp_key({instance_id, rowset.txn_id(), rowset.tablet_id()});
+    std::string value;
+    TxnErrorCode err = txn->get(tmp_key, &value);
+    if (err == TxnErrorCode::TXN_OK) {
+        RowsetMetaCloudPB existing;
+        if (!existing.ParseFromString(value)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("malformed rowset while validating writer retry, key={}",
+                              hex(tmp_key));
+            return false;
+        }
+        *is_retry = existing.txn_id() == rowset.txn_id() &&
+                    existing.tablet_id() == rowset.tablet_id() &&
+                    existing.rowset_id_v2() == rowset.rowset_id_v2();
+        return true;
+    }
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to read rowset while validating writer retry, err={}", err);
+        return false;
+    }
+    const std::string recycle_key =
+            recycle_rowset_key({instance_id, rowset.tablet_id(), rowset.rowset_id_v2()});
+    err = txn->get(recycle_key, &value);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return true;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to read prepared rowset while validating writer retry, err={}",
+                          err);
+        return false;
+    }
+    RecycleRowsetPB existing;
+    if (!existing.ParseFromString(value)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("malformed prepared rowset while validating writer retry, key={}",
+                          hex(recycle_key));
+        return false;
+    }
+    *is_retry = existing.type() == RecycleRowsetPB::PREPARE && existing.has_rowset_meta() &&
+                existing.rowset_meta().txn_id() == rowset.txn_id() &&
+                existing.rowset_meta().tablet_id() == rowset.tablet_id() &&
+                existing.rowset_meta().rowset_id_v2() == rowset.rowset_id_v2();
+    return true;
+}
+
+static bool validate_bound_load_writer_cluster(Transaction* txn, const std::string& instance_id,
+                                               int64_t owner_txn_id,
+                                               const CreateRowsetRequest& request,
+                                               const TxnInfoPB& txn_info, MetaServiceCode& code,
+                                               std::string& msg) {
+    // A persisted rowset identity is the idempotency boundary. It remains safe to return the
+    // original success after any node move (and even when another BE retries on behalf of the
+    // writer), because this path cannot add data or change the transaction owner.
+    bool is_retry = false;
+    if (!is_same_load_rowset_retry(txn, instance_id, request, &is_retry, code, msg)) {
+        return false;
+    }
+    if (is_retry) {
+        return true;
+    }
+
+    // Every new rowset resolves the actual caller from durable InstanceInfoPB in this same
+    // transaction. This prevents either a stale node cache or a stale/self-reported cluster id
+    // from extending a transaction after the writer has moved to another cluster.
+    std::string load_cluster_id;
+    if (!resolve_load_writer_cluster(txn, instance_id, request, &load_cluster_id, code, msg)) {
+        return false;
+    }
+    if (txn_info.load_cluster_id() != load_cluster_id) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format(
+                "load transaction is already bound to another cluster, txn_id={}, "
+                "bound_cluster={}, writer_cluster={}",
+                owner_txn_id, txn_info.load_cluster_id(), load_cluster_id);
+        return false;
+    }
+    return true;
+}
+
+static bool bind_load_writer_cluster(Transaction* txn, const std::string& instance_id,
+                                     int64_t rowset_txn_id, const CreateRowsetRequest& request,
+                                     bool* binding_changed, MetaServiceCode& code,
+                                     std::string& msg) {
+    *binding_changed = false;
+    std::string index_val;
+    TxnErrorCode err = txn->get(txn_index_key({instance_id, rowset_txn_id}), &index_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get txn index when binding load writer, txn_id={}, err={}",
+                          rowset_txn_id, err);
+        return false;
+    }
+    TxnIndexPB index_pb;
+    if (!index_pb.ParseFromString(index_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("failed to parse txn index when binding load writer, txn_id={}",
+                          rowset_txn_id);
+        return false;
+    }
+    if (!index_pb.has_tablet_index() || !index_pb.tablet_index().has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("txn index has no db id when binding load writer, txn_id={}",
+                          rowset_txn_id);
+        return false;
+    }
+
+    int64_t owner_txn_id = index_pb.has_parent_txn_id() ? index_pb.parent_txn_id() : rowset_txn_id;
+    const std::string info_key =
+            txn_info_key({instance_id, index_pb.tablet_index().db_id(), owner_txn_id});
+    std::string info_val;
+    err = txn->get(info_key, &info_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get txn when binding load writer, txn_id={}, err={}",
+                          owner_txn_id, err);
+        return false;
+    }
+    TxnInfoPB txn_info;
+    if (!txn_info.ParseFromString(info_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("failed to parse txn when binding load writer, txn_id={}", owner_txn_id);
+        return false;
+    }
+    if (txn_info.load_cluster_id_bound_by_writer()) {
+        return validate_bound_load_writer_cluster(txn, instance_id, owner_txn_id, request, txn_info,
+                                                  code, msg);
+    }
+    if (txn_info.status() != TxnStatusPB::TXN_STATUS_PREPARED) {
+        LOG(WARNING) << "skip binding an unbound load writer after rowset-write phase, txn_id="
+                     << owner_txn_id << " status=" << txn_info.status()
+                     << " requested_cluster=" << request.load_cluster_id();
+        return true;
+    }
+
+    std::string load_cluster_id;
+    if (!resolve_load_writer_cluster(txn, instance_id, request, &load_cluster_id, code, msg)) {
+        return false;
+    }
+    txn_info.set_load_cluster_id(load_cluster_id);
+    txn_info.set_load_cluster_id_bound_by_writer(true);
+    if (!txn_info.SerializeToString(&info_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = fmt::format("failed to serialize txn when binding load writer, txn_id={}",
+                          owner_txn_id);
+        return false;
+    }
+    txn->put(info_key, info_val);
+    *binding_changed = true;
+    return true;
+}
+
 /**
  * 1. Check and confirm tmp rowset kv does not exist
  * 2. Construct recycle rowset kv which contains object path
@@ -2521,6 +2751,13 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
+        return;
+    }
+
+    bool load_writer_binding_changed = false;
+    if (rowset_meta.has_load_id() &&
+        !bind_load_writer_cluster(txn.get(), instance_id, rowset_meta.txn_id(), *request,
+                                  &load_writer_binding_changed, code, msg)) {
         return;
     }
 
@@ -2596,6 +2833,15 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
         if (existed_rowset_meta->has_variant_type_in_schema()) {
             fill_schema_from_dict(code, msg, instance_id, txn.get(), existed_rowset_meta);
             if (code != MetaServiceCode::OK) return;
+        }
+        if (load_writer_binding_changed &&
+            existed_rowset_meta->rowset_id_v2() == rowset_meta.rowset_id_v2()) {
+            err = txn->commit();
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::COMMIT>(err);
+                msg = fmt::format("failed to bind writer on prepare rowset retry, err={}", err);
+                return;
+            }
         }
         code = MetaServiceCode::ALREADY_EXISTED;
         msg = "rowset already exists";
@@ -2727,6 +2973,13 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         return;
     }
 
+    bool load_writer_binding_changed = false;
+    if (rowset_meta.has_load_id() &&
+        !bind_load_writer_cluster(txn.get(), instance_id, rowset_meta.txn_id(), *request,
+                                  &load_writer_binding_changed, code, msg)) {
+        return;
+    }
+
     bool is_versioned_read = is_version_read_enabled(instance_id);
     auto recycle_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
 
@@ -2786,6 +3039,14 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         }
         if (existed_rowset_meta->rowset_id_v2() == rowset_meta.rowset_id_v2()) {
             // Same request, return OK
+            if (load_writer_binding_changed) {
+                err = txn->commit();
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::COMMIT>(err);
+                    msg = fmt::format("failed to bind writer on commit rowset retry, err={}", err);
+                    return;
+                }
+            }
             response->set_allocated_existed_rowset_meta(nullptr);
             return;
         }
@@ -3352,6 +3613,14 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                 LOG(WARNING) << msg;
                 return;
             }
+
+            TabletStatsPB load_stats;
+            internal_get_load_tablet_stats(code, msg, reader, txn.get(), instance_id, idx,
+                                           load_stats);
+            if (code != MetaServiceCode::OK) {
+                return;
+            }
+            copy_last_active_cluster_info(load_stats, tablet_stat);
         }
         VLOG_DEBUG << "tablet_id=" << tablet_id << " stats=" << proto_to_json(tablet_stat);
 

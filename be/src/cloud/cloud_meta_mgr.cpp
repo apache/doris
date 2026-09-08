@@ -44,10 +44,12 @@
 #include <type_traits>
 #include <vector>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_ms_backpressure_handler.h"
 #include "cloud/cloud_ms_rpc_rate_limiters.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "cloud/delete_bitmap_file_reader.h"
@@ -1019,9 +1021,10 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                             stats.num_rows(), stats.data_size());
 
             // Sync last active cluster info for compaction read-write separation
-            if (config::enable_compaction_rw_separation && stats.has_last_active_cluster_id()) {
+            if (config::enable_compaction_rw_separation) {
                 tablet->set_last_active_cluster_info(stats.last_active_cluster_id(),
-                                                     stats.last_active_time_ms());
+                                                     stats.last_active_time_ms(),
+                                                     stats.last_active_epoch());
             }
         }
         return Status::OK();
@@ -1536,6 +1539,23 @@ Status CloudMetaMgr::_read_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t 
     return result;
 }
 
+static Status set_load_cluster_id_for_load_rowset(CreateRowsetRequest* request,
+                                                  const std::string& job_id) {
+    if (!job_id.empty()) {
+        return Status::OK();
+    }
+    const auto load_cluster_id =
+            static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
+                    ->current_cluster_id();
+    if (load_cluster_id.empty() && config::enable_compaction_rw_separation) {
+        return Status::InternalError("load cluster id is not initialized");
+    }
+    if (!load_cluster_id.empty()) {
+        request->set_load_cluster_id(load_cluster_id);
+    }
+    return Status::OK();
+}
+
 Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                                     int64_t table_id, RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
@@ -1549,9 +1569,12 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_txn_id(rs_meta.txn_id());
     req.set_tablet_job_id(job_id);
+    RETURN_IF_ERROR(set_load_cluster_id_for_load_rowset(&req, job_id));
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::prepare_rowset.before_rpc", Status::OK(),
+                                      &req);
 
     Status st =
             retry_rpc(MetaServiceRPC::PREPARE_ROWSET, req, &resp, &MetaService_Stub::prepare_rowset,
@@ -1586,9 +1609,11 @@ Status CloudMetaMgr::do_commit_rowset(RowsetMeta& rs_meta, const std::string& jo
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_txn_id(rs_meta.txn_id());
     req.set_tablet_job_id(job_id);
+    RETURN_IF_ERROR(set_load_cluster_id_for_load_rowset(&req, job_id));
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_rowset.before_rpc", Status::OK(), &req);
     Status st =
             retry_rpc(MetaServiceRPC::COMMIT_ROWSET, req, &resp, &MetaService_Stub::commit_rowset,
                       {
@@ -1759,6 +1784,45 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
     }
 }
 
+void consume_commit_owner_updates(CloudTabletMgr& tablet_mgr, const CommitTxnResponse& res) {
+    if (!config::enable_compaction_rw_separation ||
+        (res.is_lazy_commit() && res.is_lazy_commit_incomplete()) || !res.has_txn_info() ||
+        !res.txn_info().has_load_cluster_id() || res.txn_info().load_cluster_id().empty() ||
+        res.last_active_tablet_ids().empty()) {
+        return;
+    }
+
+    const bool has_aligned_epochs =
+            res.last_active_epochs_size() == res.last_active_tablet_ids_size() &&
+            res.last_active_epochs_size() > 0;
+    for (int i = 0; i < res.last_active_tablet_ids_size(); ++i) {
+        auto tablet_result =
+                tablet_mgr.get_tablet(res.last_active_tablet_ids(i), /* warmup_data */ false,
+                                      /* sync_delete_bitmap */ false, /* sync_stats */ nullptr,
+                                      /* force_use_only_cached */ true, /* cache_on_miss */ false);
+        if (!tablet_result.has_value()) {
+            continue;
+        }
+        auto tablet = tablet_result.value();
+        if (has_aligned_epochs) {
+            tablet->update_last_active_cluster_info(res.txn_info().load_cluster_id(),
+                                                    res.version_update_time_ms(),
+                                                    res.last_active_epochs(i));
+        } else {
+            tablet->last_sync_time_s = 0;
+        }
+    }
+}
+
+void consume_commit_owner_updates_after_commit(CloudTabletMgr& tablet_mgr,
+                                               const Status& commit_status, bool is_2pc,
+                                               const CommitTxnResponse& response) {
+    if (commit_status.ok() ||
+        (is_2pc && response.status().code() == MetaServiceCode::TXN_ALREADY_VISIBLE)) {
+        consume_commit_owner_updates(tablet_mgr, response);
+    }
+}
+
 Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     VLOG_DEBUG << "commit txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label << ", is_2pc: " << is_2pc;
@@ -1778,6 +1842,9 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
                                 .host_limiters = host_level_ms_rpc_rate_limiters_,
                                 .backpressure_handler = ms_backpressure_handler_,
                         });
+
+    consume_commit_owner_updates_after_commit(
+            ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_mgr(), st, is_2pc, res);
 
     if (st.ok()) {
         VLOG_DEBUG << "commit txn succeeded, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
@@ -2719,7 +2786,7 @@ Status CloudMetaMgr::update_packed_file_info(const std::string& packed_file_path
 }
 
 Status CloudMetaMgr::get_cluster_status(
-        std::unordered_map<std::string, std::pair<int32_t, int64_t>>* result,
+        std::unordered_map<std::string, std::tuple<int32_t, int64_t, int64_t, bool>>* result,
         std::string* my_cluster_id) {
     GetClusterStatusRequest req;
     GetClusterStatusResponse resp;
@@ -2732,23 +2799,45 @@ Status CloudMetaMgr::get_cluster_status(
         return s;
     }
 
-    result->clear();
-    for (const auto& detail : resp.details()) {
+    return decode_cluster_status_response(resp, result, my_cluster_id);
+}
+
+Status decode_cluster_status_response(
+        const GetClusterStatusResponse& response,
+        std::unordered_map<std::string, std::tuple<int32_t, int64_t, int64_t, bool>>* result,
+        std::string* my_cluster_id) {
+    if (my_cluster_id != nullptr &&
+        (!response.has_requester_cluster_id() || response.requester_cluster_id().empty())) {
+        return Status::InternalError(
+                "cluster status response is missing the requester cluster identity");
+    }
+
+    std::unordered_map<std::string, std::tuple<int32_t, int64_t, int64_t, bool>> decoded;
+    for (const auto& detail : response.details()) {
         for (const auto& cluster : detail.clusters()) {
-            // Store cluster status and mtime (mtime is in seconds from MS, convert to ms).
-            // If mtime is not set, use current time as a conservative default
-            // to avoid immediate takeover due to elapsed being huge.
-            int64_t mtime_ms = cluster.has_mtime() ? cluster.mtime() * 1000 : UnixMillis();
-            (*result)[cluster.cluster_id()] = {static_cast<int32_t>(cluster.cluster_status()),
-                                               mtime_ms};
+            const auto [status_mtime_ms, cluster_mtime_ms, status_mtime_trusted] =
+                    get_cluster_status_mtime(cluster);
+            decoded[cluster.cluster_id()] = {static_cast<int32_t>(cluster.cluster_status()),
+                                             status_mtime_ms, cluster_mtime_ms,
+                                             status_mtime_trusted};
         }
     }
 
-    if (my_cluster_id && resp.has_requester_cluster_id()) {
-        *my_cluster_id = resp.requester_cluster_id();
+    *result = std::move(decoded);
+    if (my_cluster_id != nullptr) {
+        *my_cluster_id = response.requester_cluster_id();
     }
-
     return Status::OK();
+}
+
+std::tuple<int64_t, int64_t, bool> get_cluster_status_mtime(const ClusterPB& cluster) {
+    const int64_t cluster_mtime_ms = cluster.has_mtime() ? cluster.mtime() * 1000 : 0;
+    if (!cluster.has_cluster_status_mtime()) {
+        return {0, cluster_mtime_ms, false};
+    }
+    const int64_t status_mtime_ms = cluster.cluster_status_mtime() * 1000;
+    const bool trusted = !cluster.has_mtime() || cluster.mtime() <= cluster.cluster_status_mtime();
+    return {status_mtime_ms, cluster_mtime_ms, trusted};
 }
 
 } // namespace doris::cloud

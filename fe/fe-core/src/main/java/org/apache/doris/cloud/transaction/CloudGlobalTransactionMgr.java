@@ -100,6 +100,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -125,6 +126,7 @@ import org.apache.doris.transaction.TransactionNotFoundException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TransactionUtil;
 import org.apache.doris.transaction.TxnCommitAttachment;
@@ -248,6 +250,33 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // do nothing in cloud mode
     }
 
+    private String getLoadClusterId(TxnCoordinator coordinator, String label) {
+        try {
+            if (coordinator.sourceType == TxnSourceType.BE) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(coordinator.id);
+                if (backend != null && !Strings.isNullOrEmpty(backend.getCloudClusterId())) {
+                    return backend.getCloudClusterId();
+                }
+                LOG.warn("missing load cluster for BE coordinator, backend_id: {}, label: {}",
+                        coordinator.id, label);
+                return "";
+            }
+
+            ConnectContext ctx = ConnectContext.get();
+            if (ctx != null) {
+                String clusterId = ctx.getComputeGroup().getId();
+                if (!Strings.isNullOrEmpty(clusterId)) {
+                    return clusterId;
+                }
+            }
+            LOG.warn("missing load cluster for non-BE coordinator, label: {}", label);
+        } catch (Exception e) {
+            LOG.warn("failed to resolve load cluster, coordinator_type: {}, coordinator_id: {}, label: {}",
+                    coordinator.sourceType, coordinator.id, label, e);
+        }
+        return "";
+    }
+
     @Override
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TxnCoordinator coordinator,
             LoadJobSourceType sourceType, long timeoutSecond)
@@ -310,19 +339,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             txnInfoBuilder.setTimeoutMs(timeoutSecond * 1000);
             txnInfoBuilder.setPrecommitTimeoutMs(Config.stream_load_default_precommit_timeout_second * 1000);
 
-            // Set load_cluster_id for compaction read-write separation.
-            // commit_txn uses this to update last_active_cluster_id on tablet stats.
             if (Config.isCloudMode()) {
-                try {
-                    ConnectContext ctx = ConnectContext.get();
-                    if (ctx != null) {
-                        String clusterId = ctx.getComputeGroup().getId();
-                        if (clusterId != null && !clusterId.isEmpty()) {
-                            txnInfoBuilder.setLoadClusterId(clusterId);
-                        }
-                    }
-                } catch (Exception e) {
-                    LOG.warn("Failed to get compute group id for load_cluster_id, label: {}", label, e);
+                String loadClusterId = getLoadClusterId(coordinator, label);
+                if (!loadClusterId.isEmpty()) {
+                    txnInfoBuilder.setLoadClusterId(loadClusterId);
                 }
             }
 
@@ -522,9 +542,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // ========================================
         // notify BEs to make temporary rowsets visible
         // ========================================
-        if (tabletCommitInfos != null) {
-            notifyBesMakeTmpRsVisible(commitTxnResponse, tabletCommitInfos);
-        }
+        notifyBesMakeTmpRsVisible(commitTxnResponse, tabletCommitInfos);
 
         // ========================================
         // update some table stats
@@ -887,8 +905,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException("commitTxn() failed, errMsg:" + e.getMessage());
         }
 
-        if (is2PC && (commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE
-                || commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_ABORTED)) {
+        if (is2PC && commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE) {
+            // A previous 2PC attempt may have committed successfully and lost its response. Replay
+            // the durable owner update before preserving the existing duplicate-call error.
+            notifyBesMakeTmpRsVisible(commitTxnResponse, tabletCommitInfos);
+            throw new UserException(commitTxnResponse.getStatus().getMsg());
+        }
+        if (is2PC && commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_ABORTED) {
             throw new UserException(commitTxnResponse.getStatus().getMsg());
         }
         if (commitTxnResponse.getStatus().getCode() != MetaServiceCode.OK
@@ -1646,7 +1669,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         lockContext, partitionToSubTxnIds);
             }
             commitTransactionWithSubTxns(db.getId(), tableList, transactionId, subTransactionStates, mowTableList,
-                    backendToPartitionInfos, commitTSO);
+                    backendToPartitionInfos, commitTSO, tabletCommitInfos);
             // clear signature after commit succeeds
             clearTxnLastSignature(db.getId(), transactionId);
         } catch (Exception e) {
@@ -1684,7 +1707,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void commitTransactionWithSubTxns(long dbId, List<Table> tableList, long transactionId,
             List<SubTransactionState> subTransactionStates, List<OlapTable> mowTableList,
-            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos, long commitTSO)
+            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos, long commitTSO,
+            List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
         if (!mowTableList.isEmpty()) {
             List<Long> mowTableIds = mowTableList.stream().map(Table::getId).collect(Collectors.toList());
@@ -1722,7 +1746,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         final CommitTxnRequest commitTxnRequest = builder.build();
-        executeCommitTxnRequest(commitTxnRequest, transactionId, false, null, null, new ArrayList<>(tabletIds));
+        executeCommitTxnRequest(commitTxnRequest, transactionId, false, null, tabletCommitInfos,
+                new ArrayList<>(tabletIds));
     }
 
     private List<Table> getTablesNeedCommitLock(List<Table> tableList) {
@@ -2883,8 +2908,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     commitTxnResponse.getTxnInfo().getTxnId());
             return;
         }
-        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()
-                || !Config.enable_notify_be_after_load_txn_commit) {
+        boolean hasLastActiveClusterUpdate = commitTxnResponse.getTxnInfo().hasLoadClusterId()
+                && !commitTxnResponse.getTxnInfo().getLoadClusterId().isEmpty()
+                && commitTxnResponse.getLastActiveTabletIdsCount() > 0;
+        boolean notifyRowsetVisibility = Config.enable_notify_be_after_load_txn_commit
+                && tabletCommitInfos != null && !tabletCommitInfos.isEmpty();
+        if (!notifyRowsetVisibility && !hasLastActiveClusterUpdate) {
             return;
         }
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
@@ -2895,12 +2924,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         try {
             // Convert TabletCommitInfo to TTabletCommitInfo
-            List<TTabletCommitInfo> tTabletCommitInfos = Lists.newArrayList();
-            for (TabletCommitInfo commitInfo : tabletCommitInfos) {
-                TTabletCommitInfo tCommitInfo = new TTabletCommitInfo();
-                tCommitInfo.setTabletId(commitInfo.getTabletId());
-                tCommitInfo.setBackendId(commitInfo.getBackendId());
-                tTabletCommitInfos.add(tCommitInfo);
+            List<TTabletCommitInfo> tTabletCommitInfos = Collections.emptyList();
+            if (notifyRowsetVisibility) {
+                tTabletCommitInfos = Lists.newArrayList();
+                for (TabletCommitInfo commitInfo : tabletCommitInfos) {
+                    TTabletCommitInfo tCommitInfo = new TTabletCommitInfo();
+                    tCommitInfo.setTabletId(commitInfo.getTabletId());
+                    tCommitInfo.setBackendId(commitInfo.getBackendId());
+                    tTabletCommitInfos.add(tCommitInfo);
+                }
             }
 
             // Build partition version map from commit response
@@ -2913,10 +2945,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
 
             long updateVersionVisibleTime = commitTxnResponse.getVersionUpdateTimeMs();
+            String loadClusterId = commitTxnResponse.getTxnInfo().hasLoadClusterId()
+                    ? commitTxnResponse.getTxnInfo().getLoadClusterId() : "";
+            List<Long> lastActiveTabletIds = commitTxnResponse.getLastActiveTabletIdsList();
+            List<Long> lastActiveEpochs = commitTxnResponse.getLastActiveEpochsList();
+            if (!lastActiveEpochs.isEmpty() && lastActiveEpochs.size() != lastActiveTabletIds.size()) {
+                LOG.warn("ignore mismatched last active epochs and invalidate owner cache, txn_id: {}, "
+                                + "tablet_count: {}, epoch_count: {}",
+                        txnId, lastActiveTabletIds.size(), lastActiveEpochs.size());
+                lastActiveEpochs = Collections.emptyList();
+            }
 
-            // Send tasks to notify BEs
             sendMakeCloudTmpRsVisibleTasks(txnId, tTabletCommitInfos,
-                    partitionVersionMap, updateVersionVisibleTime);
+                    partitionVersionMap, updateVersionVisibleTime, loadClusterId,
+                    lastActiveTabletIds, lastActiveEpochs);
         } catch (Throwable t) {
             // According to normal logic, no exceptions will be thrown,
             // but in order to avoid bugs affecting the original logic, all exceptions are caught
@@ -2935,48 +2977,78 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
      * @param commitInfos tablet commit infos containing backend and tablet mapping
      * @param partitionVersionMap partition id to version mapping
      * @param updateVersionVisibleTime visible time for the version
+     * @param loadClusterId cluster that performed the load
+     * @param lastActiveTabletIds tablets whose owner changed in this commit
+     * @param lastActiveEpochs epochs aligned with {@code lastActiveTabletIds}; empty for an old meta-service
      */
     public void sendMakeCloudTmpRsVisibleTasks(long txnId,
                                                List<TTabletCommitInfo> commitInfos,
                                                Map<Long, Long> partitionVersionMap,
-                                               long updateVersionVisibleTime) {
-        if (commitInfos == null || commitInfos.isEmpty()) {
-            LOG.info("no commit infos to send make cloud tmp rs visible tasks, txn_id: {}", txnId);
-            return;
-        }
-
-        // Group tablet_ids by backend_id
+                                               long updateVersionVisibleTime,
+                                               String loadClusterId,
+                                               List<Long> lastActiveTabletIds,
+                                               List<Long> lastActiveEpochs) {
+        List<TTabletCommitInfo> visibilityCommitInfos = commitInfos == null
+                ? Collections.emptyList() : commitInfos;
+        List<Long> ownerTabletIds = lastActiveTabletIds == null
+                ? Collections.emptyList() : lastActiveTabletIds;
+        List<Long> ownerEpochs = lastActiveEpochs == null
+                ? Collections.emptyList() : lastActiveEpochs;
         Map<Long, List<Long>> beToTabletIds = Maps.newHashMap();
-        for (TTabletCommitInfo commitInfo : commitInfos) {
+        Set<Long> ownerBackendIds = Sets.newHashSet();
+        for (TTabletCommitInfo commitInfo : visibilityCommitInfos) {
             long backendId = commitInfo.getBackendId();
             long tabletId = commitInfo.getTabletId();
             beToTabletIds.computeIfAbsent(backendId, k -> Lists.newArrayList()).add(tabletId);
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("send make cloud tmp rs visible tasks, txn_id: {}, backend_count: {}, total_tablets: {}",
-                    txnId, beToTabletIds.size(), commitInfos.size());
+        if (!loadClusterId.isEmpty() && !ownerTabletIds.isEmpty()) {
+            try {
+                for (Backend backend : getAliveBackendsByClusterId(loadClusterId)) {
+                    ownerBackendIds.add(backend.getId());
+                    beToTabletIds.computeIfAbsent(backend.getId(), ignored -> Lists.newArrayList());
+                }
+            } catch (AnalysisException e) {
+                // Owner propagation is best effort and must not suppress the independent rowset
+                // visibility notification to writer backends.
+                LOG.warn("failed to resolve owner refresh backends, txn_id: {}, load_cluster_id: {}",
+                        txnId, loadClusterId, e);
+            }
         }
 
-        // Create agent tasks for each BE
+        if (beToTabletIds.isEmpty()) {
+            LOG.info("no backend to notify after cloud commit, txn_id: {}", txnId);
+            return;
+        }
+
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Map.Entry<Long, List<Long>> entry : beToTabletIds.entrySet()) {
             long backendId = entry.getKey();
             List<Long> tabletIds = entry.getValue();
+            boolean refreshOwner = ownerBackendIds.contains(backendId);
 
             MakeCloudTmpRsVisibleTask task = new MakeCloudTmpRsVisibleTask(
-                    backendId, txnId, tabletIds, partitionVersionMap, updateVersionVisibleTime);
+                    backendId, txnId, tabletIds, partitionVersionMap, updateVersionVisibleTime,
+                    refreshOwner ? loadClusterId : "",
+                    refreshOwner ? ownerTabletIds : Collections.emptyList(),
+                    refreshOwner ? ownerEpochs : Collections.emptyList());
             batchTask.addTask(task);
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("add make cloud tmp rs visible task, txn_id: {}, backend_id: {}, tablet_count: {}",
-                        txnId, backendId, tabletIds.size());
-            }
         }
 
-        // Submit tasks
+        submitMakeCloudTmpRsVisibleTasks(batchTask);
+        LOG.info("sent post-commit tasks, txn_id: {}, backend_count: {}, visibility_tablets: {}, "
+                        + "owner_tablets: {}",
+                txnId, beToTabletIds.size(), visibilityCommitInfos.size(), ownerTabletIds.size());
+    }
+
+    protected List<Backend> getAliveBackendsByClusterId(String clusterId) throws AnalysisException {
+        return Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().stream()
+                .filter(Backend::isAlive)
+                .filter(backend -> clusterId.equals(backend.getCloudClusterId()))
+                .collect(Collectors.toList());
+    }
+
+    protected void submitMakeCloudTmpRsVisibleTasks(AgentBatchTask batchTask) {
         AgentTaskExecutor.submit(batchTask);
-        LOG.info("sent make cloud tmp rs visible tasks, txn_id: {}, backend_count: {}, total_tablets: {}",
-                txnId, beToTabletIds.size(), commitInfos.size());
     }
 }

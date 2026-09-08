@@ -18,6 +18,7 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <limits>
@@ -53,6 +54,36 @@ using namespace std::chrono;
 namespace doris::cloud {
 
 static constexpr std::string_view kMetaSyncPointDummyKey = "__meta_service_sync_point_dummy_key__";
+
+static void set_txn_owner_result(TxnInfoPB* txn_info, int64_t last_active_time_ms,
+                                 const std::map<int64_t, int64_t>& owner_result) {
+    txn_info->clear_last_active_tablet_ids();
+    txn_info->clear_last_active_epochs();
+    txn_info->clear_last_active_candidate_tablet_ids();
+    if (owner_result.empty()) {
+        txn_info->clear_last_active_time_ms();
+        return;
+    }
+    txn_info->set_last_active_time_ms(last_active_time_ms);
+    for (const auto& [tablet_id, epoch] : owner_result) {
+        if (!try_append_txn_owner_result(txn_info, tablet_id, epoch)) {
+            break;
+        }
+    }
+}
+
+static void fill_commit_txn_owner_result(const TxnInfoPB& txn_info, CommitTxnResponse* response) {
+    DCHECK_EQ(txn_info.last_active_tablet_ids_size(), txn_info.last_active_epochs_size());
+    response->clear_last_active_tablet_ids();
+    response->clear_last_active_epochs();
+    if (txn_info.has_last_active_time_ms()) {
+        response->set_version_update_time_ms(txn_info.last_active_time_ms());
+    }
+    for (int i = 0; i < txn_info.last_active_tablet_ids_size(); ++i) {
+        response->add_last_active_tablet_ids(txn_info.last_active_tablet_ids(i));
+        response->add_last_active_epochs(txn_info.last_active_epochs(i));
+    }
+}
 
 static bool validate_table_stream_updates(const CommitTxnRequest* request, MetaServiceCode& code,
                                           std::string& msg) {
@@ -392,6 +423,10 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
     }
 
     auto& txn_info = const_cast<TxnInfoPB&>(request->txn_info());
+    // This bit is meta-service-owned evidence that prepare_rowset/commit_rowset resolved the
+    // actual writer from durable InstanceInfoPB. A BeginTxn caller may provide a routing hint in
+    // load_cluster_id, but it must not be able to make that hint authoritative.
+    txn_info.clear_load_cluster_id_bound_by_writer();
     std::string label = txn_info.has_label() ? txn_info.label() : "";
     int64_t db_id = txn_info.has_db_id() ? txn_info.db_id() : -1;
 
@@ -1474,11 +1509,21 @@ void scan_tmp_rowset(
     return;
 }
 
+void set_tablet_last_active_cluster(TabletStatsPB* stats, const std::string& cluster_id,
+                                    int64_t last_active_time_ms, int64_t last_active_epoch) {
+    stats->set_last_active_cluster_id(cluster_id);
+    stats->set_last_active_time_ms(last_active_time_ms);
+    stats->set_last_active_epoch(last_active_epoch);
+    stats->clear_last_active_cluster_status();
+    stats->clear_last_active_cluster_status_mtime_ms();
+}
+
 // Update the last active cluster info for a tablet
 void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
-                                       const std::string& cluster_id,
+                                       const std::string& cluster_id, int64_t last_active_time_ms,
                                        std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
-                                       std::string& msg) {
+                                       std::string& msg, int64_t* last_active_epoch) {
+    DCHECK(last_active_epoch != nullptr);
     if (cluster_id.empty()) {
         return;
     }
@@ -1488,11 +1533,8 @@ void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
     std::string val;
     TxnErrorCode err = txn->get(key, &val);
     if (err != TxnErrorCode::TXN_OK) {
-        // If tablet stats not found, skip (will be created later)
-        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            return;
-        }
-        code = cast_as<ErrCategory::READ>(err);
+        code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                      : cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get tablet stats for cluster update, err={} tablet_id={}", err,
                           std::get<4>(info));
         return;
@@ -1505,12 +1547,18 @@ void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
         return;
     }
 
-    stats_pb.set_last_active_cluster_id(cluster_id);
-    stats_pb.set_last_active_time_ms(::time(nullptr) * 1000);
-    // Clear the mtime when updating cluster to allow dynamic filling on next get_rowset
-    stats_pb.clear_last_active_cluster_status_mtime_ms();
+    // The aggregate stats key is the rolling-upgrade authority. Include an epoch observed from
+    // the versioned load document so a materialized clone or historical aggregate without an
+    // epoch cannot move the generation backwards.
+    *last_active_epoch = std::max(stats_pb.last_active_epoch(), *last_active_epoch) + 1;
+    set_tablet_last_active_cluster(&stats_pb, cluster_id, last_active_time_ms, *last_active_epoch);
 
-    stats_pb.SerializeToString(&val);
+    if (!stats_pb.SerializeToString(&val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = fmt::format("failed to serialize tablet stats for cluster update, tablet_id={}",
+                          std::get<4>(info));
+        return;
+    }
     txn->put(key, val);
     LOG(INFO) << "update last_active_cluster, key=" << hex(key) << " cluster_id=" << cluster_id
               << " tablet_id=" << std::get<4>(info);
@@ -1891,6 +1939,7 @@ void MetaServiceImpl::commit_txn_immediately(
                 msg = ss.str();
                 LOG(INFO) << msg;
                 response->mutable_txn_info()->CopyFrom(txn_info);
+                fill_commit_txn_owner_result(txn_info, response);
                 return;
             }
             code = MetaServiceCode::OK;
@@ -1898,6 +1947,7 @@ void MetaServiceImpl::commit_txn_immediately(
             msg = ss.str();
             LOG(INFO) << msg;
             response->mutable_txn_info()->CopyFrom(txn_info);
+            fill_commit_txn_owner_result(txn_info, response);
             return;
         }
 
@@ -2064,6 +2114,7 @@ void MetaServiceImpl::commit_txn_immediately(
             stats.num_segs += i.num_segments();
             stats.index_size += i.index_disk_size();
             stats.segment_size += i.data_disk_size();
+            stats.has_data_change |= rowset_has_data_change(i);
 
             commit_txn_log.mutable_tablet_to_partition_map()->insert({tablet_id, partition_id});
             commit_txn_log.mutable_partition_version_map()->insert({partition_id, new_version});
@@ -2256,10 +2307,11 @@ void MetaServiceImpl::commit_txn_immediately(
         // Use load_cluster_id stored in TxnInfoPB by prepare_rowset (called by BE),
         // because commit_txn is called by FE whose cloud_unique_id resolves to SQL server cluster.
         std::string requester_cluster_id;
-        if (txn_info.has_load_cluster_id()) {
+        if (txn_info.load_cluster_id_bound_by_writer() && txn_info.has_load_cluster_id()) {
             requester_cluster_id = txn_info.load_cluster_id();
         }
 
+        std::map<int64_t, int64_t> owner_result;
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
             DCHECK(tablet_ids.count(tablet_id));
@@ -2269,17 +2321,29 @@ void MetaServiceImpl::commit_txn_immediately(
             update_tablet_stats(info, stats, txn, code, msg);
             if (code != MetaServiceCode::OK) return;
 
-            // Update last active cluster if load has data
-            if (!requester_cluster_id.empty() && stats.num_segs > 0) {
-                update_tablet_last_active_cluster(info, requester_cluster_id, txn, code, msg);
+            TabletStatsPB versioned_stats;
+            if (is_versioned_write) {
+                versioned_stats = existing_versioned_stats[tablet_id];
+                merge_tablet_stats(versioned_stats, stats);
+            }
+
+            // A delete-predicate-only rowset is also a logical data mutation.
+            if (!requester_cluster_id.empty() && stats.has_data_change) {
+                int64_t last_active_epoch = versioned_stats.last_active_epoch();
+                update_tablet_last_active_cluster(info, requester_cluster_id,
+                                                  version_update_time_ms, txn, code, msg,
+                                                  &last_active_epoch);
                 if (code != MetaServiceCode::OK) return;
+                if (is_versioned_write) {
+                    set_tablet_last_active_cluster(&versioned_stats, requester_cluster_id,
+                                                   version_update_time_ms, last_active_epoch);
+                }
+                owner_result.emplace(tablet_id, last_active_epoch);
             }
 
             if (is_versioned_write) {
-                TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
-                merge_tablet_stats(stats_pb, stats);
                 std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
-                if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
+                if (!versioned::document_put(txn.get(), stats_key, std::move(versioned_stats))) {
                     code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                     msg = "failed to serialize versioned tablet stats";
                     LOG(WARNING) << msg << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
@@ -2289,6 +2353,14 @@ void MetaServiceImpl::commit_txn_immediately(
                           << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
             }
         }
+        set_txn_owner_result(&txn_info, version_update_time_ms, owner_result);
+        info_val.clear();
+        if (!txn_info.SerializeToString(&info_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize owner result, txn_id={}", txn_id);
+            return;
+        }
+        txn->put(info_key, info_val);
         // Remove tmp rowset meta
         for (auto& [k, _] : tmp_rowsets_meta) {
             txn->remove(k);
@@ -2400,6 +2472,7 @@ void MetaServiceImpl::commit_txn_immediately(
             }
         }
         response->mutable_txn_info()->CopyFrom(txn_info);
+        fill_commit_txn_owner_result(txn_info, response);
         TEST_SYNC_POINT_CALLBACK("commit_txn_immediately::finish", &code);
         break;
     } while (true);
@@ -2723,6 +2796,7 @@ void MetaServiceImpl::commit_txn_eventually(
                 msg = ss.str();
                 LOG(INFO) << msg;
                 response->mutable_txn_info()->CopyFrom(txn_info);
+                fill_commit_txn_owner_result(txn_info, response);
                 return;
             }
             code = MetaServiceCode::OK;
@@ -2730,6 +2804,7 @@ void MetaServiceImpl::commit_txn_eventually(
             msg = ss.str();
             LOG(INFO) << msg;
             response->mutable_txn_info()->CopyFrom(txn_info);
+            fill_commit_txn_owner_result(txn_info, response);
             return;
         }
 
@@ -2765,6 +2840,25 @@ void MetaServiceImpl::commit_txn_eventually(
 
         txn_info.set_versioned_write(is_versioned_write);
         txn_info.set_versioned_read(is_versioned_read);
+        int64_t version_update_time_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        txn_info.set_last_active_time_ms(version_update_time_ms);
+        txn_info.clear_last_active_tablet_ids();
+        txn_info.clear_last_active_epochs();
+        txn_info.clear_last_active_candidate_tablet_ids();
+        if (txn_info.load_cluster_id_bound_by_writer() && !txn_info.load_cluster_id().empty()) {
+            std::set<int64_t> candidate_tablet_ids;
+            for (const auto& [_, rowset] : tmp_rowsets_meta) {
+                if (rowset_has_data_change(rowset)) {
+                    candidate_tablet_ids.insert(rowset.tablet_id());
+                }
+            }
+            for (int64_t tablet_id : candidate_tablet_ids) {
+                if (!try_append_txn_owner_candidate(&txn_info, tablet_id)) {
+                    break;
+                }
+            }
+        }
 
         LOG(INFO) << "after update txn_id= " << txn_id
                   << " txn_info=" << txn_info.ShortDebugString();
@@ -2795,8 +2889,6 @@ void MetaServiceImpl::commit_txn_eventually(
         }
 
         // save versions for partition
-        int64_t version_update_time_ms =
-                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         response->set_version_update_time_ms(version_update_time_ms);
         for (auto& [partition_id, version] : versions) {
             std::string ver_val;
@@ -2981,6 +3073,23 @@ void MetaServiceImpl::commit_txn_eventually(
                          << " msg=" << ret.second;
         } else {
             response->set_is_lazy_commit_incomplete(false);
+            std::unique_ptr<Transaction> result_txn;
+            err = txn_kv_->create_txn(&result_txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::CREATE>(err);
+                msg = fmt::format("failed to create txn for lazy owner result, txn_id={}, err={}",
+                                  txn_id, err);
+                return;
+            }
+            std::string result_val;
+            err = result_txn->get(info_key, &result_val);
+            if (err != TxnErrorCode::TXN_OK || !txn_info.ParseFromString(result_val)) {
+                code = err == TxnErrorCode::TXN_OK ? MetaServiceCode::PROTOBUF_PARSE_ERR
+                                                   : cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to read lazy owner result, txn_id={}, err={}", txn_id,
+                                  err);
+                return;
+            }
         }
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
@@ -2993,6 +3102,7 @@ void MetaServiceImpl::commit_txn_eventually(
             stats.num_segs += i.num_segments();
             stats.index_size += i.index_disk_size();
             stats.segment_size += i.data_disk_size();
+            stats.has_data_change |= rowset_has_data_change(i);
         }
 
         // calculate table stats from tablets stats
@@ -3013,9 +3123,10 @@ void MetaServiceImpl::commit_txn_eventually(
             }
         }
 
-        // txn set visible for fe callback
-        txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+        // txn is visible after a successful lazy task; on an incomplete response the durable
+        // TXN_STATUS_COMMITTED value is returned unchanged.
         response->mutable_txn_info()->CopyFrom(txn_info);
+        fill_commit_txn_owner_result(txn_info, response);
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::finish", &code, &txn_id);
         break;
     } while (true);
@@ -3140,6 +3251,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             msg = ss.str();
             LOG(INFO) << msg;
             response->mutable_txn_info()->CopyFrom(txn_info);
+            fill_commit_txn_owner_result(txn_info, response);
             return;
         }
 
@@ -3282,6 +3394,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                 stats.num_segs += i.num_segments();
                 stats.index_size += i.index_disk_size();
                 stats.segment_size += i.data_disk_size();
+                stats.has_data_change |= rowset_has_data_change(i);
 
                 rowsets.emplace_back(std::make_tuple(tablet_id, i.end_version()), std::move(i));
                 commit_txn_log.mutable_tablet_to_partition_map()->insert({tablet_id, partition_id});
@@ -3472,10 +3585,11 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         // Get cluster_id for updating last active cluster.
         // Use load_cluster_id stored in TxnInfoPB by prepare_rowset (called by BE).
         std::string requester_cluster_id_ev;
-        if (txn_info.has_load_cluster_id()) {
+        if (txn_info.load_cluster_id_bound_by_writer() && txn_info.has_load_cluster_id()) {
             requester_cluster_id_ev = txn_info.load_cluster_id();
         }
 
+        std::map<int64_t, int64_t> owner_result;
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
             DCHECK(tablet_ids.count(tablet_id));
@@ -3485,17 +3599,28 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             update_tablet_stats(info, stats, txn, code, msg);
             if (code != MetaServiceCode::OK) return;
 
-            // Update last active cluster if load has data
-            if (!requester_cluster_id_ev.empty() && stats.num_segs > 0) {
-                update_tablet_last_active_cluster(info, requester_cluster_id_ev, txn, code, msg);
+            TabletStatsPB versioned_stats;
+            if (is_versioned_write) {
+                versioned_stats = existing_versioned_stats[tablet_id];
+                merge_tablet_stats(versioned_stats, stats);
+            }
+
+            if (!requester_cluster_id_ev.empty() && stats.has_data_change) {
+                int64_t last_active_epoch = versioned_stats.last_active_epoch();
+                update_tablet_last_active_cluster(info, requester_cluster_id_ev,
+                                                  version_update_time_ms, txn, code, msg,
+                                                  &last_active_epoch);
                 if (code != MetaServiceCode::OK) return;
+                if (is_versioned_write) {
+                    set_tablet_last_active_cluster(&versioned_stats, requester_cluster_id_ev,
+                                                   version_update_time_ms, last_active_epoch);
+                }
+                owner_result.emplace(tablet_id, last_active_epoch);
             }
 
             if (is_versioned_write) {
-                TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
-                merge_tablet_stats(stats_pb, stats);
                 std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
-                if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
+                if (!versioned::document_put(txn.get(), stats_key, std::move(versioned_stats))) {
                     code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                     msg = "failed to serialize versioned tablet stats";
                     LOG(WARNING) << msg << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
@@ -3505,6 +3630,14 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                           << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
             }
         }
+        set_txn_owner_result(&txn_info, version_update_time_ms, owner_result);
+        info_val.clear();
+        if (!txn_info.SerializeToString(&info_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize owner result, txn_id={}", txn_id);
+            return;
+        }
+        txn->put(info_key, info_val);
         // Remove tmp rowset meta
         for (auto& [_, tmp_rowsets_meta] : sub_txn_to_tmp_rowsets_meta) {
             for (auto& [k, _] : tmp_rowsets_meta) {
@@ -3604,6 +3737,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         }
 
         response->mutable_txn_info()->CopyFrom(txn_info);
+        fill_commit_txn_owner_result(txn_info, response);
         TEST_SYNC_POINT_CALLBACK("commit_txn_with_sub_txn::finish", &code);
         break;
     } while (true);

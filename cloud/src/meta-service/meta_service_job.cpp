@@ -211,6 +211,158 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
             return;
         }
     }
+    if (compaction.type() != TabletCompactionJobPB::STOP_TOKEN) {
+        const bool has_owner_token = compaction.has_observed_last_active_cluster_id();
+        const bool has_owner_epoch = compaction.has_observed_last_active_epoch();
+        const bool has_requester_cluster = compaction.has_requester_cluster_id();
+        const int owner_token_fields = static_cast<int>(has_owner_token) +
+                                       static_cast<int>(has_owner_epoch) +
+                                       static_cast<int>(has_requester_cluster);
+        const bool has_owner_status = compaction.has_observed_owner_cluster_status();
+        const bool has_owner_status_mtime = compaction.has_observed_owner_cluster_status_mtime_ms();
+        const bool has_owner_mtime = compaction.has_observed_owner_cluster_mtime_ms();
+        if ((owner_token_fields != 0 && owner_token_fields != 3) ||
+            (has_owner_status != has_owner_status_mtime) ||
+            (has_owner_mtime && !has_owner_status) ||
+            (owner_token_fields == 0 && (has_owner_status || has_owner_mtime ||
+                                         compaction.has_force_compaction_by_version_count()))) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "invalid compaction owner authorization token";
+            return;
+        }
+        if (owner_token_fields != 0) {
+            if (is_versioned_read) {
+                CloneChainReader reader(instance_id, resource_mgr);
+                TabletStatsPB load_stats;
+                TabletIndexPB tablet_idx;
+                tablet_idx.set_table_id(table_id);
+                tablet_idx.set_index_id(index_id);
+                tablet_idx.set_partition_id(partition_id);
+                tablet_idx.set_tablet_id(tablet_id);
+                internal_get_load_tablet_stats(code, msg, reader, txn.get(), instance_id,
+                                               tablet_idx, load_stats);
+                if (code != MetaServiceCode::OK) {
+                    return;
+                }
+                copy_last_active_cluster_info(load_stats, stats);
+            }
+            const std::string& effective_owner = stats.last_active_cluster_id();
+            int64_t effective_epoch = stats.last_active_epoch();
+            if (compaction.observed_last_active_cluster_id() != effective_owner ||
+                compaction.observed_last_active_epoch() != effective_epoch) {
+                code = MetaServiceCode::STALE_TABLET_CACHE;
+                msg = fmt::format(
+                        "tablet owner changed before compaction, observed_owner={}, "
+                        "observed_epoch={}, current_owner={}, current_epoch={}",
+                        compaction.observed_last_active_cluster_id(),
+                        compaction.observed_last_active_epoch(), effective_owner, effective_epoch);
+                return;
+            }
+
+            // Bind the claimed requester to the node registered in the same metadata generation as
+            // the owner status. This prevents a stale or forged requester id from bypassing the gate.
+            std::string instance_val;
+            TxnErrorCode err = txn->get(instance_key({instance_id}), &instance_val);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format(
+                        "failed to read instance when validating compaction owner, instance_id={}, "
+                        "err={}",
+                        instance_id, err);
+                return;
+            }
+            InstanceInfoPB instance;
+            if (!instance.ParseFromString(instance_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format(
+                        "failed to parse instance when validating compaction owner, instance_id={}",
+                        instance_id);
+                return;
+            }
+            if (instance.status() == InstanceInfoPB::DELETED) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format("instance is deleted, instance_id={}", instance_id);
+                return;
+            }
+
+            const ClusterPB* requester_cluster = nullptr;
+            for (const auto& cluster : instance.clusters()) {
+                if (cluster.type() != ClusterPB::COMPUTE) {
+                    continue;
+                }
+                for (const auto& node : cluster.nodes()) {
+                    if (node.cloud_unique_id() != request->cloud_unique_id()) {
+                        continue;
+                    }
+                    if (requester_cluster != nullptr) {
+                        code = MetaServiceCode::INVALID_ARGUMENT;
+                        msg = fmt::format(
+                                "requesting node belongs to multiple compute clusters, "
+                                "cloud_unique_id={}",
+                                request->cloud_unique_id());
+                        return;
+                    }
+                    requester_cluster = &cluster;
+                    break;
+                }
+            }
+            if (requester_cluster == nullptr) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format("requesting compute node is not registered, cloud_unique_id={}",
+                                  request->cloud_unique_id());
+                return;
+            }
+            if (requester_cluster->cluster_id() != compaction.requester_cluster_id()) {
+                code = MetaServiceCode::STALE_TABLET_CACHE;
+                msg = fmt::format(
+                        "requester cluster changed before compaction, claimed_requester={}, "
+                        "current_requester={}",
+                        compaction.requester_cluster_id(), requester_cluster->cluster_id());
+                return;
+            }
+            if (compaction.requester_cluster_id() != effective_owner && !effective_owner.empty()) {
+                const ClusterPB* owner_cluster = nullptr;
+                for (const auto& cluster : instance.clusters()) {
+                    if (cluster.cluster_id() == effective_owner) {
+                        owner_cluster = &cluster;
+                        break;
+                    }
+                }
+                if (owner_cluster != nullptr && !compaction.force_compaction_by_version_count()) {
+                    if (!has_owner_status) {
+                        code = MetaServiceCode::INVALID_ARGUMENT;
+                        msg = "foreign-owner compaction requires owner status and status mtime";
+                        return;
+                    }
+                    const int64_t current_status_mtime_ms =
+                            owner_cluster->cluster_status_mtime() * 1000;
+                    const int64_t current_cluster_mtime_ms = owner_cluster->mtime() * 1000;
+                    if (compaction.observed_owner_cluster_status() !=
+                                owner_cluster->cluster_status() ||
+                        compaction.observed_owner_cluster_status_mtime_ms() !=
+                                current_status_mtime_ms ||
+                        (has_owner_mtime && compaction.observed_owner_cluster_mtime_ms() !=
+                                                    current_cluster_mtime_ms) ||
+                        owner_cluster->cluster_status() == ClusterStatus::NORMAL) {
+                        code = MetaServiceCode::STALE_TABLET_CACHE;
+                        msg = fmt::format(
+                                "tablet owner availability changed before compaction, owner={}, "
+                                "requester={}, observed_status={}, observed_status_mtime_ms={}, "
+                                "current_status={}, current_status_mtime_ms={}, "
+                                "observed_cluster_mtime_ms={}, current_cluster_mtime_ms={}",
+                                effective_owner, compaction.requester_cluster_id(),
+                                ClusterStatus_Name(compaction.observed_owner_cluster_status()),
+                                compaction.observed_owner_cluster_status_mtime_ms(),
+                                ClusterStatus_Name(owner_cluster->cluster_status()),
+                                current_status_mtime_ms,
+                                has_owner_mtime ? compaction.observed_owner_cluster_mtime_ms() : -1,
+                                current_cluster_mtime_ms);
+                        return;
+                    }
+                }
+            }
+        }
+    }
     // STOP_TOKEN is a lock marker used by schema change to block concurrent compactions during
     // delete bitmap recalculation on MOW tables. It does not perform actual compaction, so the
     // stale tablet cache check (which guards against compacting on outdated rowset metadata) is
@@ -594,6 +746,7 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
     bool need_commit = false;
     DORIS_CLOUD_DEFER {
         if (!need_commit) return;
+        TEST_SYNC_POINT_CALLBACK("start_tablet_job::before_commit");
         TxnErrorCode err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::COMMIT>(err);
@@ -1126,7 +1279,9 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     CloneChainReader meta_reader(instance_id, resource_mgr);
     TabletStats detached_stats;
     if (is_versioned_read) {
-        // The compact stats = tablet stats, the load stats = detached stats
+        // Compact stats own compaction counters and base values. Load stats own detached values
+        // and the last-active cluster metadata; read the effective load view so the aggregate
+        // remains the rolling-upgrade authority after compaction.
         TxnErrorCode err = meta_reader.get_tablet_compact_stats(
                 txn.get(), tablet_id, stats, nullptr, config::snapshot_get_tablet_stats);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1137,16 +1292,15 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             return;
         }
         TabletStatsPB load_stats;
-        err = meta_reader.get_tablet_load_stats(txn.get(), tablet_id, &load_stats, nullptr,
-                                                config::snapshot_get_tablet_stats);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get tablet load stats, tablet_id={}, err={}", tablet_id,
-                              err);
-            LOG(WARNING) << msg;
+        internal_get_load_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
+                                       request->job().idx(), load_stats, false);
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << "failed to get effective load tablet stats, tablet_id=" << tablet_id
+                         << " code=" << code << " msg=" << msg;
             return;
         }
         detach_tablet_stats(load_stats, detached_stats);
+        copy_last_active_cluster_info(load_stats, *stats);
     } else {
         // ATTN: The condition that snapshot read can be used to get tablet stats is: all other transactions that put tablet stats
         //  can make read write conflicts with this transaction on other keys. Currently, if all meta-service nodes are running
@@ -1190,14 +1344,18 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     txn->put(stats_key, stats_val);
 
     if (is_versioned_write) {
+        TabletStatsPB compact_stats(*stats);
+        TabletStatsPB no_owner;
+        copy_last_active_cluster_info(no_owner, compact_stats);
+        std::string compact_stats_val = compact_stats.SerializeAsString();
         std::string compact_stats_key =
                 versioned::tablet_compact_stats_key({instance_id, tablet_id});
         LOG_INFO("put versioned tablet compact stats key")
                 .tag("compact_stats_key", hex(compact_stats_key))
                 .tag("tablet_id", tablet_id)
-                .tag("value_size", stats_val.size())
+                .tag("value_size", compact_stats_val.size())
                 .tag("instance_id", instance_id);
-        versioned_put(txn.get(), compact_stats_key, stats_val);
+        versioned_put(txn.get(), compact_stats_key, compact_stats_val);
     }
 
     merge_tablet_stats(*stats, detached_stats); // this is to check
@@ -1581,6 +1739,23 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             }
         }
     }
+    TabletIndexPB old_tablet_idx = request->job().idx();
+    if (!old_tablet_idx.has_table_id() || !old_tablet_idx.has_index_id() ||
+        !old_tablet_idx.has_partition_id()) {
+        if (!is_versioned_read) {
+            get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, old_tablet_idx);
+            if (code != MetaServiceCode::OK) return;
+        } else {
+            TxnErrorCode err = reader.get_tablet_index(txn.get(), tablet_id, &old_tablet_idx);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                              : cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get old tablet index, tablet_id={}, err={}", tablet_id,
+                                  err);
+                return;
+            }
+        }
+    }
     int64_t new_table_id = new_tablet_idx.table_id();
     int64_t new_index_id = new_tablet_idx.index_id();
     int64_t new_partition_id = new_tablet_idx.partition_id();
@@ -1890,6 +2065,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     //==========================================================================
     auto stats = response->mutable_stats();
     TabletStats detached_stats;
+    TabletStatsPB load_stats;
     if (is_versioned_read) {
         TxnErrorCode err = reader.get_tablet_compact_stats(txn.get(), new_tablet_id, stats, nullptr,
                                                            config::snapshot_get_tablet_stats);
@@ -1901,17 +2077,15 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             return;
         }
 
-        TabletStatsPB load_stats;
-        err = reader.get_tablet_load_stats(txn.get(), new_tablet_id, &load_stats, nullptr,
-                                           config::snapshot_get_tablet_stats);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get tablet load stats, tablet_id={}, err={}",
-                              new_tablet_id, err);
-            LOG(WARNING) << msg;
+        internal_get_load_tablet_stats(code, msg, reader, txn.get(), instance_id, new_tablet_idx,
+                                       load_stats, false);
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << "failed to get effective load tablet stats, tablet_id=" << new_tablet_id
+                         << " code=" << code << " msg=" << msg;
             return;
         }
         detach_tablet_stats(load_stats, detached_stats);
+        copy_last_active_cluster_info(load_stats, *stats);
     } else {
         // ATTN: The condition that snapshot read can be used to get tablet stats is: all other transactions that put tablet stats
         //  can make read write conflicts with this transaction on other keys. Currently, if all meta-service nodes are running
@@ -1926,24 +2100,61 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                     .tag("msg", msg);
             return;
         }
+        merge_tablet_stats(load_stats, detached_stats);
+        copy_last_active_cluster_info(*stats, load_stats);
     }
     schema_change_update_tablet_stats(schema_change, stats, num_remove_rows, size_remove_rowsets,
                                       num_remove_rowsets, num_remove_segments,
                                       index_size_remove_rowsets, segment_size_remove_rowsets);
+
     auto stats_key = stats_tablet_key(
             {instance_id, new_table_id, new_index_id, new_partition_id, new_tablet_id});
+    if (!has_valid_last_active_cluster(*stats)) {
+        TabletStatsPB old_tablet_stats;
+        if (is_versioned_read) {
+            internal_get_load_tablet_stats(code, msg, reader, txn.get(), instance_id,
+                                           old_tablet_idx, old_tablet_stats, false);
+        } else {
+            internal_get_tablet_stats(code, msg, txn.get(), instance_id, old_tablet_idx,
+                                      old_tablet_stats, false);
+        }
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << "failed to get old tablet owner for schema change, tablet_id="
+                         << tablet_id << " code=" << code << " msg=" << msg;
+            return;
+        }
+        copy_last_active_cluster_info(old_tablet_stats, *stats);
+    }
+
+    copy_last_active_cluster_info(*stats, load_stats);
+
     auto stats_val = stats->SerializeAsString();
     txn->put(stats_key, stats_val);
 
     if (is_versioned_write) {
+        TabletStatsPB compact_stats(*stats);
+        compact_stats.clear_last_active_cluster_id();
+        compact_stats.clear_last_active_time_ms();
+        compact_stats.clear_last_active_epoch();
+        compact_stats.clear_last_active_cluster_status();
+        compact_stats.clear_last_active_cluster_status_mtime_ms();
+        std::string compact_stats_val = compact_stats.SerializeAsString();
         std::string compact_stats_key =
                 versioned::tablet_compact_stats_key({instance_id, new_tablet_id});
-        versioned_put(txn.get(), compact_stats_key, stats_val);
+        versioned_put(txn.get(), compact_stats_key, compact_stats_val);
+
+        std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, new_tablet_id});
+        if (!versioned::document_put(txn.get(), load_stats_key, std::move(load_stats))) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize schema change load stats, tablet_id={}",
+                              new_tablet_id);
+            return;
+        }
 
         LOG_INFO("put versioned tablet compact stats key")
                 .tag("tablet_id", tablet_id)
                 .tag("new_tablet_id", new_tablet_id)
-                .tag("compact_value_size", stats_val.size())
+                .tag("compact_value_size", compact_stats_val.size())
                 .tag("compact_stats_key", hex(compact_stats_key))
                 .tag("instance_id", instance_id);
     }

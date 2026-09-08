@@ -46,6 +46,51 @@ int main(int argc, char** argv) {
     return RUN_ALL_TESTS();
 }
 
+TEST(MetaReaderTest, MergeTabletStatsKeepsOwnerInLoadDocument) {
+    TabletStatsPB load_stats;
+    load_stats.set_num_rows(2);
+    load_stats.set_data_size(20);
+    TabletStatsPB compact_stats;
+    compact_stats.set_num_rows(3);
+    compact_stats.set_data_size(30);
+    compact_stats.set_last_active_cluster_id("stale-compact-owner");
+    compact_stats.set_last_active_time_ms(10);
+    compact_stats.set_last_active_epoch(4);
+    compact_stats.set_last_active_cluster_status(ClusterStatus::SUSPENDED);
+    compact_stats.set_last_active_cluster_status_mtime_ms(11);
+
+    TabletStatsPB merged;
+    MetaReader::merge_tablet_stats(load_stats, compact_stats, &merged);
+    EXPECT_EQ(merged.num_rows(), 5);
+    EXPECT_EQ(merged.data_size(), 50);
+    EXPECT_FALSE(merged.has_last_active_cluster_id());
+    EXPECT_FALSE(merged.has_last_active_time_ms());
+    EXPECT_FALSE(merged.has_last_active_epoch());
+    EXPECT_FALSE(merged.has_last_active_cluster_status());
+    EXPECT_FALSE(merged.has_last_active_cluster_status_mtime_ms());
+
+    load_stats.set_last_active_epoch(5);
+    MetaReader::merge_tablet_stats(load_stats, compact_stats, &merged);
+    EXPECT_FALSE(merged.has_last_active_cluster_id());
+    EXPECT_FALSE(merged.has_last_active_time_ms());
+    EXPECT_EQ(merged.last_active_epoch(), 5);
+    EXPECT_FALSE(merged.has_last_active_cluster_status());
+    EXPECT_FALSE(merged.has_last_active_cluster_status_mtime_ms());
+
+    load_stats.set_last_active_cluster_id("load-owner");
+    load_stats.set_last_active_time_ms(20);
+    load_stats.set_last_active_cluster_status(ClusterStatus::NORMAL);
+    load_stats.set_last_active_cluster_status_mtime_ms(21);
+    MetaReader::merge_tablet_stats(load_stats, compact_stats, &merged);
+    EXPECT_EQ(merged.num_rows(), 5);
+    EXPECT_EQ(merged.data_size(), 50);
+    EXPECT_EQ(merged.last_active_cluster_id(), "load-owner");
+    EXPECT_EQ(merged.last_active_time_ms(), 20);
+    EXPECT_EQ(merged.last_active_epoch(), 5);
+    EXPECT_EQ(merged.last_active_cluster_status(), ClusterStatus::NORMAL);
+    EXPECT_EQ(merged.last_active_cluster_status_mtime_ms(), 21);
+}
+
 // Convert a string to a hex-escaped string.
 // A non-displayed character is represented as \xHH where HH is the hexadecimal value of the character.
 // A displayed character is represented as itself.

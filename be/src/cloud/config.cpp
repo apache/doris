@@ -151,6 +151,7 @@ DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
 // Compaction read-write separation: only the "last active" cluster (the one that most recently
 // performed load) is allowed to compact a tablet
 DEFINE_mBool(enable_compaction_rw_separation, "true");
+DEFINE_mInt64(compaction_rw_separation_owner_cache_ttl_s, "60");
 // Timeout in ms for takeover when last active cluster becomes unavailable (default 5 min)
 DEFINE_mInt64(compaction_cluster_takeover_timeout_ms, "300000");
 // Interval in seconds to refresh cluster status cache (default 1 min)

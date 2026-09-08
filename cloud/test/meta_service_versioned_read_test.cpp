@@ -30,6 +30,7 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <unordered_map>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -37,6 +38,8 @@
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-service/meta_service_tablet_stats.h"
+#include "meta-store/clone_chain_reader.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
@@ -1065,6 +1068,382 @@ TEST(MetaServiceVersionedReadTest, GetRowsetMetas) {
     }
 
     LOG(INFO) << "GetRowsetMetas test completed successfully";
+}
+
+static void create_and_commit_rowset_with_cluster(MetaServiceProxy* service, int64_t db_id,
+                                                  int64_t table_id, int64_t partition_id,
+                                                  int64_t tablet_id, const std::string& cluster_id,
+                                                  const std::string& instance_id) {
+    brpc::Controller cntl;
+    BeginTxnRequest begin_req;
+    BeginTxnResponse begin_res;
+    begin_req.set_cloud_unique_id("test_cloud_unique_id");
+    auto* txn_info = begin_req.mutable_txn_info();
+    txn_info->set_db_id(db_id);
+    txn_info->set_label("get_rowset_last_active_cluster");
+    txn_info->add_table_ids(table_id);
+    txn_info->set_timeout_ms(36000);
+    txn_info->set_load_cluster_id(cluster_id);
+    service->begin_txn(&cntl, &begin_req, &begin_res, nullptr);
+    ASSERT_EQ(begin_res.status().code(), MetaServiceCode::OK) << begin_res.status().msg();
+
+    // These rowsets predate the load-id test fixture, so model the durable result of writer
+    // binding explicitly instead of treating the begin-txn routing hint as authoritative.
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const std::string key = txn_info_key({instance_id, db_id, begin_res.txn_id()});
+        std::string value;
+        ASSERT_EQ(txn->get(key, &value), TxnErrorCode::TXN_OK);
+        TxnInfoPB durable_txn_info;
+        ASSERT_TRUE(durable_txn_info.ParseFromString(value));
+        durable_txn_info.set_load_cluster_id_bound_by_writer(true);
+        txn->put(key, durable_txn_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto rowset = create_rowset(begin_res.txn_id(), tablet_id, partition_id, 2, 100);
+    CreateRowsetResponse rowset_res;
+    prepare_rowset(service, rowset, rowset_res);
+    ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK) << rowset_res.status().msg();
+    commit_rowset(service, rowset, rowset_res);
+    ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK) << rowset_res.status().msg();
+
+    CommitTxnRequest commit_req;
+    CommitTxnResponse commit_res;
+    commit_req.set_cloud_unique_id("test_cloud_unique_id");
+    commit_req.set_db_id(db_id);
+    commit_req.set_txn_id(begin_res.txn_id());
+    service->commit_txn(&cntl, &commit_req, &commit_res, nullptr);
+    ASSERT_EQ(commit_res.status().code(), MetaServiceCode::OK) << commit_res.status().msg();
+}
+
+static GetRowsetResponse get_rowsets(MetaServiceProxy* service, int64_t db_id, int64_t table_id,
+                                     int64_t index_id, int64_t partition_id, int64_t tablet_id) {
+    brpc::Controller cntl;
+    GetRowsetRequest req;
+    GetRowsetResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    auto* idx = req.mutable_idx();
+    idx->set_db_id(db_id);
+    idx->set_table_id(table_id);
+    idx->set_index_id(index_id);
+    idx->set_partition_id(partition_id);
+    idx->set_tablet_id(tablet_id);
+    req.set_start_version(0);
+    req.set_end_version(-1);
+    req.set_base_compaction_cnt(0);
+    req.set_cumulative_compaction_cnt(0);
+    req.set_cumulative_point(2);
+    service->get_rowset(&cntl, &req, &res, nullptr);
+    return res;
+}
+
+static void clear_versioned_last_active_cluster(MetaServiceProxy* service,
+                                                const std::string& instance_id, int64_t tablet_id) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+    Versionstamp versionstamp;
+    std::string value;
+    ASSERT_EQ(versioned_get(txn.get(), key, &versionstamp, &value), TxnErrorCode::TXN_OK);
+    TabletStatsPB load_stats;
+    ASSERT_TRUE(load_stats.ParseFromString(value));
+    load_stats.clear_last_active_cluster_id();
+    load_stats.clear_last_active_time_ms();
+    load_stats.clear_last_active_epoch();
+    load_stats.clear_last_active_cluster_status();
+    load_stats.clear_last_active_cluster_status_mtime_ms();
+    versioned_put(txn.get(), key, load_stats.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+static void expect_last_active_cluster(const GetRowsetResponse& response,
+                                       const std::string& cluster_id) {
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK) << response.status().msg();
+    ASSERT_TRUE(response.stats().has_last_active_cluster_id());
+    EXPECT_EQ(response.stats().last_active_cluster_id(), cluster_id);
+    EXPECT_TRUE(response.stats().has_last_active_time_ms());
+    EXPECT_TRUE(response.stats().has_last_active_epoch());
+}
+
+// GoogleTest assertions inflate this linear rolling-upgrade matrix's complexity metric.
+TEST(MetaServiceVersionedReadTest, // NOLINT(readability-function-cognitive-complexity)
+     GetRowsetReturnsLastActiveCluster) {
+    auto service = get_meta_service(false);
+    std::string instance_id = "get_rowset_last_active_cluster_instance";
+    std::string cluster_id = "write_cluster_id";
+    constexpr int64_t db_id = 1;
+    constexpr int64_t table_id = 2;
+    constexpr int64_t index_id = 3;
+    constexpr int64_t partition_id = 4;
+    constexpr int64_t tablet_id = 5;
+
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(service.get(), instance_id);
+    create_tablet(service.get(), table_id, index_id, partition_id, tablet_id);
+    create_and_commit_rowset_with_cluster(service.get(), db_id, table_id, partition_id, tablet_id,
+                                          cluster_id, instance_id);
+
+    auto response = get_rowsets(service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+    expect_last_active_cluster(response, cluster_id);
+
+    clear_versioned_last_active_cluster(service.get(), instance_id, tablet_id);
+    response = get_rowsets(service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+    // Missing owner fields in the versioned load document must fall back to the aggregate owner.
+    expect_last_active_cluster(response, cluster_id);
+
+    {
+        // During a rolling upgrade an old meta-service writer may advance only the aggregate
+        // owner. It is canonical even if the versioned load document still has a complete owner.
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string load_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+        Versionstamp versionstamp;
+        std::string load_value;
+        ASSERT_EQ(versioned_get(txn.get(), load_key, &versionstamp, &load_value),
+                  TxnErrorCode::TXN_OK);
+        TabletStatsPB load_stats;
+        ASSERT_TRUE(load_stats.ParseFromString(load_value));
+        load_stats.set_last_active_cluster_id("stale-versioned-owner");
+        load_stats.set_last_active_time_ms(10);
+        load_stats.set_last_active_epoch(10);
+        versioned_put(txn.get(), load_key, load_stats.SerializeAsString());
+
+        std::string aggregate_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string aggregate_value;
+        ASSERT_EQ(txn->get(aggregate_key, &aggregate_value), TxnErrorCode::TXN_OK);
+        TabletStatsPB aggregate_stats;
+        ASSERT_TRUE(aggregate_stats.ParseFromString(aggregate_value));
+        aggregate_stats.set_last_active_cluster_id("aggregate-owner");
+        aggregate_stats.set_last_active_time_ms(20);
+        // Simulate an old meta-service aggregate write. It owns the identity but cannot write the
+        // epoch added by the new meta-service.
+        aggregate_stats.clear_last_active_epoch();
+        txn->put(aggregate_key, aggregate_stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    response = get_rowsets(service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+    expect_last_active_cluster(response, "aggregate-owner");
+    EXPECT_EQ(response.stats().last_active_time_ms(), 20);
+    EXPECT_EQ(response.stats().last_active_epoch(), 10);
+
+    {
+        // An existing aggregate record is canonical even when its owner is empty. It must clear
+        // a stale owner from the versioned load document in both single and batch reads.
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string aggregate_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string aggregate_value;
+        ASSERT_EQ(txn->get(aggregate_key, &aggregate_value), TxnErrorCode::TXN_OK);
+        TabletStatsPB aggregate_stats;
+        ASSERT_TRUE(aggregate_stats.ParseFromString(aggregate_value));
+        aggregate_stats.clear_last_active_cluster_id();
+        aggregate_stats.clear_last_active_time_ms();
+        aggregate_stats.clear_last_active_epoch();
+        txn->put(aggregate_key, aggregate_stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    response = get_rowsets(service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+    EXPECT_FALSE(response.stats().has_last_active_cluster_id());
+    EXPECT_FALSE(response.stats().has_last_active_time_ms());
+    ASSERT_TRUE(response.stats().has_last_active_epoch());
+    EXPECT_EQ(response.stats().last_active_epoch(), 10);
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        CloneChainReader reader(instance_id, service->txn_kv().get(),
+                                service->resource_mgr().get());
+        TabletIndexPB idx;
+        idx.set_table_id(table_id);
+        idx.set_index_id(index_id);
+        idx.set_partition_id(partition_id);
+        idx.set_tablet_id(tablet_id);
+        TabletStatsPB effective_stats;
+        MetaServiceCode code = MetaServiceCode::OK;
+        std::string msg;
+        internal_get_load_tablet_stats(code, msg, reader, txn.get(), instance_id, idx,
+                                       effective_stats);
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        EXPECT_FALSE(effective_stats.has_last_active_cluster_id());
+        EXPECT_FALSE(effective_stats.has_last_active_time_ms());
+        ASSERT_TRUE(effective_stats.has_last_active_epoch());
+        EXPECT_EQ(effective_stats.last_active_epoch(), 10);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        CloneChainReader reader(instance_id, service->txn_kv().get(),
+                                service->resource_mgr().get());
+        TabletIndexPB idx;
+        idx.set_table_id(table_id);
+        idx.set_index_id(index_id);
+        idx.set_partition_id(partition_id);
+        idx.set_tablet_id(tablet_id);
+        std::unordered_map<int64_t, TabletIndexPB> indexes {{tablet_id, idx}};
+        std::unordered_map<int64_t, TabletStatsPB> batch_stats;
+        MetaServiceCode code = MetaServiceCode::OK;
+        std::string msg;
+        internal_get_load_tablet_stats_batch(code, msg, reader, txn.get(), instance_id, indexes,
+                                             &batch_stats);
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        ASSERT_TRUE(batch_stats.contains(tablet_id));
+        EXPECT_FALSE(batch_stats.at(tablet_id).has_last_active_cluster_id());
+        EXPECT_FALSE(batch_stats.at(tablet_id).has_last_active_time_ms());
+        ASSERT_TRUE(batch_stats.at(tablet_id).has_last_active_epoch());
+        EXPECT_EQ(batch_stats.at(tablet_id).last_active_epoch(), 10);
+    }
+
+    {
+        // The next new-meta-service writer advances from the preserved versioned generation even
+        // though the canonical aggregate record was written without an epoch.
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        StatsTabletKeyInfo info {instance_id, table_id, index_id, partition_id, tablet_id};
+        MetaServiceCode code = MetaServiceCode::OK;
+        std::string msg;
+        int64_t last_active_epoch = 10;
+        update_tablet_last_active_cluster(info, "next-owner", 30, txn, code, msg,
+                                          &last_active_epoch);
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        EXPECT_EQ(last_active_epoch, 11);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    response = get_rowsets(service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+    expect_last_active_cluster(response, "next-owner");
+    EXPECT_EQ(response.stats().last_active_epoch(), 11);
+
+    {
+        // Restore an owner-free aggregate for the compact-document leakage case below.
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const std::string aggregate_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string aggregate_value;
+        ASSERT_EQ(txn->get(aggregate_key, &aggregate_value), TxnErrorCode::TXN_OK);
+        TabletStatsPB aggregate_stats;
+        ASSERT_TRUE(aggregate_stats.ParseFromString(aggregate_value));
+        aggregate_stats.clear_last_active_cluster_id();
+        aggregate_stats.clear_last_active_time_ms();
+        aggregate_stats.clear_last_active_epoch();
+        txn->put(aggregate_key, aggregate_stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    clear_versioned_last_active_cluster(service.get(), instance_id, tablet_id);
+    {
+        // A compact document may contain an owner written by an older implementation. Owner
+        // fields belong exclusively to the effective load document and must not leak.
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const std::string compact_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        Versionstamp versionstamp;
+        std::string compact_value;
+        ASSERT_EQ(versioned_get(txn.get(), compact_key, &versionstamp, &compact_value),
+                  TxnErrorCode::TXN_OK);
+        TabletStatsPB compact_stats;
+        ASSERT_TRUE(compact_stats.ParseFromString(compact_value));
+        compact_stats.set_last_active_cluster_id("stale-compact-owner");
+        compact_stats.set_last_active_time_ms(30);
+        compact_stats.set_last_active_epoch(12);
+        versioned_put(txn.get(), compact_key, compact_stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    response = get_rowsets(service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK) << response.status().msg();
+    EXPECT_FALSE(response.stats().has_last_active_cluster_id());
+    EXPECT_FALSE(response.stats().has_last_active_time_ms());
+    EXPECT_FALSE(response.stats().has_last_active_epoch());
+}
+
+// GoogleTest assertions inflate this linear repair-layout test's complexity metric.
+TEST(MetaServiceVersionedReadTest, // NOLINT(readability-function-cognitive-complexity)
+     FixVersionedTabletStatsPreservesOwnerLayout) {
+    auto service = get_meta_service(false);
+    const std::string instance_id = "fix_versioned_tablet_stats_owner_layout";
+    constexpr int64_t db_id = 21;
+    constexpr int64_t table_id = 22;
+    constexpr int64_t index_id = 23;
+    constexpr int64_t partition_id = 24;
+    constexpr int64_t tablet_id = 25;
+
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(service.get(), instance_id);
+    create_tablet(service.get(), table_id, index_id, partition_id, tablet_id);
+    create_and_commit_rowset_with_cluster(service.get(), db_id, table_id, partition_id, tablet_id,
+                                          "initial-owner", instance_id);
+
+    const std::string aggregate_key =
+            stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    const std::string compact_key = versioned::tablet_compact_stats_key({instance_id, tablet_id});
+    const std::string load_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    std::string value;
+    ASSERT_EQ(txn->get(aggregate_key, &value), TxnErrorCode::TXN_OK);
+    TabletStatsPB aggregate_stats;
+    ASSERT_TRUE(aggregate_stats.ParseFromString(value));
+    aggregate_stats.set_last_active_cluster_id("canonical-owner");
+    aggregate_stats.set_last_active_time_ms(1234);
+    aggregate_stats.set_last_active_epoch(17);
+    txn->put(aggregate_key, aggregate_stats.SerializeAsString());
+
+    TabletStatsPB load_stats;
+    ASSERT_EQ(versioned::document_get(txn.get(), load_key, &load_stats, nullptr),
+              TxnErrorCode::TXN_OK);
+    load_stats.set_last_active_cluster_id("stale-load-owner");
+    load_stats.set_last_active_time_ms(1);
+    load_stats.set_last_active_epoch(1);
+    ASSERT_TRUE(versioned::document_put(txn.get(), load_key, std::move(load_stats)));
+
+    TabletStatsPB compact_stats;
+    ASSERT_EQ(versioned::document_get(txn.get(), compact_key, &compact_stats, nullptr),
+              TxnErrorCode::TXN_OK);
+    compact_stats.set_last_active_cluster_id("stale-compact-owner");
+    compact_stats.set_last_active_time_ms(2);
+    compact_stats.set_last_active_epoch(2);
+    ASSERT_TRUE(versioned::document_put(txn.get(), compact_key, std::move(compact_stats)));
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    TabletIndexPB idx;
+    idx.set_table_id(table_id);
+    idx.set_index_id(index_id);
+    idx.set_partition_id(partition_id);
+    idx.set_tablet_id(tablet_id);
+    auto [code, msg] = fix_versioned_tablet_stats_internal(
+            service->txn_kv().get(), instance_id, idx, true, true, service->resource_mgr().get());
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+
+    ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(aggregate_key, &value), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(aggregate_stats.ParseFromString(value));
+    EXPECT_EQ(aggregate_stats.last_active_cluster_id(), "canonical-owner");
+    EXPECT_EQ(aggregate_stats.last_active_time_ms(), 1234);
+    EXPECT_EQ(aggregate_stats.last_active_epoch(), 17);
+
+    ASSERT_EQ(versioned::document_get(txn.get(), compact_key, &compact_stats, nullptr),
+              TxnErrorCode::TXN_OK);
+    EXPECT_FALSE(compact_stats.has_last_active_cluster_id());
+    EXPECT_FALSE(compact_stats.has_last_active_time_ms());
+    EXPECT_FALSE(compact_stats.has_last_active_epoch());
+
+    ASSERT_EQ(versioned::document_get(txn.get(), load_key, &load_stats, nullptr),
+              TxnErrorCode::TXN_OK);
+    EXPECT_EQ(load_stats.last_active_cluster_id(), "canonical-owner");
+    EXPECT_EQ(load_stats.last_active_time_ms(), 1234);
+    EXPECT_EQ(load_stats.last_active_epoch(), 17);
+    EXPECT_EQ(load_stats.data_size(), 0);
+    EXPECT_EQ(load_stats.num_rows(), 0);
+    EXPECT_EQ(load_stats.num_rowsets(), 0);
+    EXPECT_EQ(load_stats.num_segments(), 0);
+    EXPECT_EQ(load_stats.index_size(), 0);
+    EXPECT_EQ(load_stats.segment_size(), 0);
 }
 
 TEST(MetaServiceVersionedReadTest, UpdateTablet) {
