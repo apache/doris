@@ -3386,6 +3386,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (!aggFunctionsSingleSide(agg, join)) {
             return null;
         }
+        // The fused GroupJoin operator evaluates aggregates over the probe/build rows of the
+        // join children, so every group-by key and aggregate argument must be a column that one
+        // of the join children directly produces. When Nereids hoists shared argument
+        // expressions (e.g. the implicit type-coercion casts reused by several two-arg
+        // aggregates like COVAR_SAMP/CORR) into a Project between the aggregate and the join,
+        // the aggregate reads that Project's freshly computed slots, which do not exist on
+        // either join child. Fusing through such a Project would translate those argument
+        // slots to null and abort fragment serialization with an NPE in GroupJoinNode.toThrift,
+        // so keep this shape on the regular AggregationNode + HashJoinNode path.
+        Set<Slot> joinChildrenOutputs = Sets.newHashSet();
+        joinChildrenOutputs.addAll(join.left().getOutputSet());
+        joinChildrenOutputs.addAll(join.right().getOutputSet());
+        if (!joinChildrenOutputs.containsAll(agg.getInputSlots())) {
+            return null;
+        }
         // The fused GroupJoin operator requires at least one aggregate function: the BE
         // group-join node validates `aggregate_functions` non-empty and the probe operator
         // materializes aggregate values into the output tuple. An aggregate with only
@@ -3481,6 +3496,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Preconditions.checkState(join.getOtherJoinConjuncts().isEmpty(),
                 "GroupJoin fusion requires the join to have no residual conjuncts, got: %s",
                 join.getOtherJoinConjuncts());
+
+        // maybeTranslateToGroupJoin also only lets aggregates whose inputs are all directly
+        // produced by the join children reach this point. Enforce it here as well: aggregate
+        // arguments that reference slots computed by an intermediate Project between the
+        // aggregate and the join (e.g. hoisted type-coercion casts of binary aggregates) do
+        // not exist on the join children, and translating them would abort fragment
+        // serialization with an NPE in GroupJoinNode.toThrift.
+        Set<Slot> joinChildrenOutputs = Sets.newHashSet();
+        joinChildrenOutputs.addAll(join.left().getOutputSet());
+        joinChildrenOutputs.addAll(join.right().getOutputSet());
+        Preconditions.checkState(joinChildrenOutputs.containsAll(aggregate.getInputSlots()),
+                "GroupJoin fusion requires all aggregate inputs to be join-child outputs, got: %s",
+                aggregate.getInputSlots());
 
         // Visit children right-to-left (right = build, left = probe)
         PlanFragment rightFragment = join.child(1).accept(this, context);
