@@ -132,6 +132,21 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
         Expression newChild = oppositeOperator.getConstructor(Expression.class, Expression.class)
                 .newInstance(right, leftLiteral);
 
+        // Eagerly fold the new constant so overflow / domain errors abort the rewrite
+        // here instead of leaking to runtime. For example, rewriting
+        //   date_sub(i, 1) <= '9999-12-31'  ==>  i <= days_add('9999-12-31', 1)
+        // overflows DATE max and must fall back to the original comparison (#61761).
+        // FoldConstantRule.evaluate swallows exceptions in non-debug mode and returns
+        // the expression unchanged, so a non-Literal result signals a failed fold.
+        if (right instanceof Literal) {
+            Expression folded = FoldConstantRule.evaluate(newChild, context);
+            if (!(folded instanceof Literal)) {
+                throw new RuntimeException(String.format(
+                        "Rearranged constant %s cannot be safely folded; keeping original comparison", newChild));
+            }
+            newChild = folded;
+        }
+
         if (left instanceof Divide && leftLiteral.compareTo(new IntegerLiteral(0)) < 0) {
             // Multiplying by a negative number will change the operator.
             return Arrays.asList(newChild, leftExpr);
