@@ -20,6 +20,7 @@ package org.apache.doris.persist.meta;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.io.CountingDataOutputStream;
+import org.apache.doris.common.util.DebugPointUtil;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -109,6 +110,17 @@ public class MetaWriter {
             // 1. write header first
             checksum.setRef(
                     writer.doWork("header", () -> env.saveHeader(dos, replayedJournalId, checksum.getRef())));
+            if (Env.isCheckpointThread() && DebugPointUtil.isEnable("MetaWriter.write.checkpoint_pause")) {
+                LOG.info("MetaWriter checkpoint paused after header");
+                while (DebugPointUtil.isEnable("MetaWriter.write.checkpoint_pause")) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("Interrupted while pausing checkpoint writer", e);
+                    }
+                }
+            }
             // 2. write other modules
             for (MetaPersistMethod m : PersistMetaModules.MODULES_IN_ORDER) {
                 checksum.setRef(writer.doWork(m.name, () -> {

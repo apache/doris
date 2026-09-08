@@ -30,6 +30,7 @@ import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.httpv2.entity.ResponseBody;
@@ -174,6 +175,12 @@ public class Checkpoint extends MasterDaemon {
             env = Env.getCurrentEnv();
             createStaticFieldForCkpt();
             File checkpointImage = new File(checkpointImageFilePath);
+            if (DebugPointUtil.isEnable("Checkpoint.doCheckpoint.before_validate")) {
+                LOG.info("Checkpoint paused before validating image.{}", replayedJournalId);
+                while (DebugPointUtil.isEnable("Checkpoint.doCheckpoint.before_validate")) {
+                    Thread.sleep(100);
+                }
+            }
             env.loadImage(checkpointImage, replayedJournalId);
             // A process stop during validation must leave only image.ckpt, which startup ignores.
             File imageFile = storage.getImageFile(replayedJournalId);
