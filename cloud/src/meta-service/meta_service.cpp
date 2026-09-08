@@ -595,8 +595,15 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     stats_pb.mutable_idx()->set_tablet_id(tablet_id);
     stats_pb.set_base_compaction_cnt(0);
     stats_pb.set_cumulative_compaction_cnt(0);
-    // set cumulative point to 2 to not compact rowset [0-1]
-    stats_pb.set_cumulative_point(2);
+    bool in_restore_mode = request->has_in_restore_mode() && request->in_restore_mode();
+    if (in_restore_mode) {
+        // no rowset [0-1] in restore mode
+        stats_pb.set_num_rowsets(0);
+        stats_pb.set_cumulative_point(-1);
+    } else {
+        // set cumulative point to 2 to not compact rowset [0-1]
+        stats_pb.set_cumulative_point(2);
+    }
     stats_val = stats_pb.SerializeAsString();
     DCHECK(!stats_val.empty());
     txn->put(stats_key, stats_val);
