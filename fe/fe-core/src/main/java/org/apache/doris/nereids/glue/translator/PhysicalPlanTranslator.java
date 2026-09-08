@@ -3357,6 +3357,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (join.isBroadCastJoin()) {
             return null;
         }
+        // The fused GroupJoin operator matches rows purely by the equi-join key: it keeps
+        // per-key row counts and per-side aggregation states and has no per-pair filtering
+        // stage. A residual non-equi ON conjunct (e.g. l.v < r.v) can therefore not be
+        // evaluated by the fused operator — translating it here silently dropped the
+        // conjunct, over-expanded the join match set and corrupted the aggregates (the
+        // fused result matched the equi-key-only join). Keep such joins on the regular
+        // HashJoinNode + AggregationNode path, which evaluates other join conjuncts per
+        // matched pair.
+        if (!join.getOtherJoinConjuncts().isEmpty()) {
+            return null;
+        }
 
         Aggregate<?> agg = (Aggregate<?>) aggregate;
 
@@ -3455,6 +3466,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PhysicalHashJoin<PhysicalPlan, PhysicalPlan> physicalJoin
                 = (PhysicalHashJoin<PhysicalPlan, PhysicalPlan>) join;
+
+        // maybeTranslateToGroupJoin only lets joins without residual conjuncts reach this
+        // point. Enforce it here as well: the fused operator has no per-pair filtering, so
+        // a residual conjunct that slipped through would be silently dropped and produce
+        // wrong aggregation results (the failure mode this guard exists for).
+        Preconditions.checkState(join.getOtherJoinConjuncts().isEmpty(),
+                "GroupJoin fusion requires the join to have no residual conjuncts, got: %s",
+                join.getOtherJoinConjuncts());
 
         // Visit children right-to-left (right = build, left = probe)
         PlanFragment rightFragment = join.child(1).accept(this, context);
