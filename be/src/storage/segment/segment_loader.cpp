@@ -21,6 +21,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_meta.h"
@@ -99,6 +100,7 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
                                     bool need_load_pk_index_and_bf,
                                     OlapReaderStatistics* index_load_stats,
                                     const io::IOContext* io_ctx) {
+    TEST_SYNC_POINT_CALLBACK("SegmentLoader::load_segments", rowset.get());
     if (cache_handle->is_inited()) {
         return Status::OK();
     }
