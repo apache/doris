@@ -1163,6 +1163,8 @@ DECLARE_mInt32(in_memory_file_size);
 
 // Max size of parquet page header in bytes
 DECLARE_mInt32(parquet_header_max_size_mb);
+// Max size of parquet file metadata in bytes
+DECLARE_mInt64(parquet_metadata_size_limit);
 // Max buffer size for parquet row group
 DECLARE_mInt32(parquet_rowgroup_max_buffer_mb);
 // Max buffer size for parquet chunk column
