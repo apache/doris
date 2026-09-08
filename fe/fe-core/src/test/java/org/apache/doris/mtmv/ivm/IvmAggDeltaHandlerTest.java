@@ -22,7 +22,10 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -59,6 +62,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
@@ -732,6 +736,106 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertTrue(getApplyProject(result).getProjects().stream()
                 .anyMatch(expr -> expr.toSql().contains("assert_true")),
                 "MIN/MAX with expression args should still have assert_true guards");
+    }
+
+    @Test
+    void testGroupedAggWithSameNamedGroupKeysKeepsDistinctDeltaSlots() {
+        // GROUP BY l.id, r.id over a join of two tables that both expose "id": the
+        // same-named group keys must keep their identity through the delta rewrite,
+        // otherwise both keys collapse onto one slot and a (10, 20) group becomes
+        // (20, 20).
+        LogicalOlapScan leftScan = buildScanForTable(1L, "l");
+        LogicalOlapScan rightScan = buildScanForTable(2L, "r");
+        Slot leftId = leftScan.getOutput().get(0);
+        Slot rightId = rightScan.getOutput().get(0);
+        Assertions.assertEquals(leftId.getName(), rightId.getName(),
+                "test setup expects same-named key columns on both base tables");
+        Assertions.assertNotEquals(leftId.getExprId(), rightId.getExprId());
+
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
+                JoinType.INNER_JOIN, ImmutableList.of(new EqualTo(leftId, rightId)),
+                leftScan, rightScan, JoinReorderContext.EMPTY);
+        Alias countAlias = new Alias(new Count(), "cnt");
+        LogicalAggregate<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> agg = new LogicalAggregate<>(
+                ImmutableList.of(leftId, rightId),
+                ImmutableList.of(leftId, rightId, countAlias),
+                true, Optional.empty(), join);
+
+        AggRewriteResult result = rewriteAgg(agg);
+        List<Slot> aggGroupKeys = result.bundle.rewriteResult.getAggMeta().getGroupKeySlots();
+        Assertions.assertEquals(2, aggGroupKeys.size());
+        Assertions.assertEquals(leftId.getName(), aggGroupKeys.get(0).getName());
+        Assertions.assertEquals(leftId.getName(), aggGroupKeys.get(1).getName());
+
+        // Apply project must emit each group key from its own delta-side slot (the apply
+        // project output order follows the aggregate outputs, keys first).
+        List<Expression> applyKeyExprs = getApplyProject(result).getProjects().stream()
+                .filter(projection -> leftId.getName().equals(projection.getName()))
+                .map(projection -> projection instanceof Alias ? ((Alias) projection).child() : projection)
+                .collect(Collectors.toList());
+        Assertions.assertEquals(2, applyKeyExprs.size(), "expected two same-named group key outputs");
+        Assertions.assertInstanceOf(Slot.class, applyKeyExprs.get(0));
+        Assertions.assertInstanceOf(Slot.class, applyKeyExprs.get(1));
+        Assertions.assertNotEquals(((Slot) applyKeyExprs.get(0)).getExprId(),
+                ((Slot) applyKeyExprs.get(1)).getExprId(),
+                "same-named group keys must resolve to distinct delta slots");
+
+        // The apply keys must be exactly the delta group key slots in aggMeta order. The
+        // delta top project output is laid out as [row_id, group keys..., other outputs]
+        // (the row-id hash relies on the same layout), so group key i sits at index 1 + i.
+        LogicalProject<?> deltaTop = getDeltaTopProject(result);
+        Assertions.assertEquals(((Slot) applyKeyExprs.get(0)).getExprId(),
+                deltaTop.getOutput().get(1).getExprId());
+        Assertions.assertEquals(((Slot) applyKeyExprs.get(1)).getExprId(),
+                deltaTop.getOutput().get(2).getExprId());
+    }
+
+    @Test
+    void testGroupedAggFullKeysWithSameNamedGroupKeysKeepsDistinctDeltaSlots() {
+        // With ivm_use_full_keys the MV key is row_id + group by keys; the same-named
+        // l.id / r.id identity keys must each resolve to their own delta slot in the
+        // apply-join identity conjuncts, not both to the last same-named slot.
+        LogicalOlapScan leftScan = buildScanForTable(1L, "l");
+        LogicalOlapScan rightScan = buildScanForTable(2L, "r");
+        Slot leftId = leftScan.getOutput().get(0);
+        Slot rightId = rightScan.getOutput().get(0);
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> joinInput = new LogicalJoin<>(
+                JoinType.INNER_JOIN, ImmutableList.of(new EqualTo(leftId, rightId)),
+                leftScan, rightScan, JoinReorderContext.EMPTY);
+        Alias countAlias = new Alias(new Count(), "cnt");
+        LogicalAggregate<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> agg = new LogicalAggregate<>(
+                ImmutableList.of(leftId, rightId),
+                ImmutableList.of(leftId, rightId, countAlias),
+                true, Optional.empty(), joinInput);
+
+        AggRewriteResult result = rewriteAggWithIdentityKeys(agg,
+                ImmutableList.of(leftId, rightId));
+        LogicalJoin<?, ?> join = getJoin(result);
+
+        LogicalProject<?> deltaTop = getDeltaTopProject(result);
+        List<Slot> deltaKeySlots = ImmutableList.of(deltaTop.getOutput().get(1),
+                deltaTop.getOutput().get(2));
+
+        // Identity conjuncts are the NullSafeEquals that are not the row-id conjunct;
+        // each same-named identity key must be joined against its own delta key slot.
+        List<Expression> identityConjuncts = join.getHashJoinConjuncts().stream()
+                .filter(condition -> condition instanceof NullSafeEqual)
+                .filter(condition -> !condition.toSql().contains(Column.IVM_ROW_ID_COL))
+                .collect(Collectors.toList());
+        Assertions.assertEquals(2, identityConjuncts.size(),
+                "expected one identity conjunct per group key, but got: " + identityConjuncts);
+        Set<ExprId> deltaSides = identityConjuncts.stream()
+                .map(conjunct -> {
+                    NullSafeEqual equal = (NullSafeEqual) conjunct;
+                    Expression right = equal.right();
+                    return right instanceof Slot ? ((Slot) right).getExprId()
+                            : ((Slot) equal.left()).getExprId();
+                })
+                .collect(Collectors.toSet());
+        Assertions.assertEquals(2, deltaSides.size(),
+                "same-named identity keys must map to distinct delta key slots");
+        Assertions.assertTrue(deltaSides.contains(deltaKeySlots.get(0).getExprId()));
+        Assertions.assertTrue(deltaSides.contains(deltaKeySlots.get(1).getExprId()));
     }
 
     private static final class AggRewriteResult {
