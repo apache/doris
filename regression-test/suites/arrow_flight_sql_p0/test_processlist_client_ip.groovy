@@ -34,8 +34,16 @@ suite("test_processlist_client_ip", "arrow_flight_sql") {
             "SHOW PROCESSLIST still reports the placeholder host for the Flight session: ${host}")
 
     // information_schema.processlist is what monitoring actually queries, and it is served from a
-    // different code path (the BE schema scanner). It must show the same address.
-    def fromSchemaTable = sql """SELECT Host FROM information_schema.processlist WHERE Id = ${connectionId}"""
-    assertEquals(1, fromSchemaTable.size())
-    assertEquals(host, "${fromSchemaTable[0][0]}")
+    // different code path (the BE schema scanner). It must show the same address. Ask over the
+    // MySQL protocol, so that the address is read by a session other than the Flight one.
+    //
+    // The scanner asks every registered frontend for its session list, and a frontend registered
+    // under more than one of its host's addresses answers once per registration, so a session can
+    // come back as several identical rows. Compare the set of addresses instead of the row count:
+    // every row for this session must report the address the Flight session reported above.
+    def hosts = jdbc_sql """SELECT DISTINCT Host FROM information_schema.processlist WHERE Id = ${connectionId}"""
+    assertEquals(1, hosts.size(),
+            "information_schema.processlist does not report a single host for Flight session "
+                    + "${connectionId}: ${hosts}")
+    assertEquals(host, "${hosts[0][0]}")
 }
