@@ -55,13 +55,16 @@ suite("load") {
 
     // Load data twice to create overlapping rowsets with duplicate keys,
     // which triggers the MOR (Merge-On-Read) unique key merge semantics.
-    // Also load DUP tables twice for read_mor_as_dup result comparison.
+    // Also load independent MOR-as-DUP and DUP tables twice for comparison.
     for (int loadRound = 1; loadRound <= 2; loadRound++) {
         tables.each { table, rows ->
             if (loadRound == 1) {
                 // drop and recreate MOR table on first round
                 sql "DROP TABLE IF EXISTS ${table}"
                 sql new File("""${context.file.parent}/ddl/${table}.sql""").text
+                // keep the MOR-as-DUP fixture independent of the shared MOR tables
+                sql "DROP TABLE IF EXISTS ${table}_mor_as_dup"
+                sql new File("${context.file.parent}/ddl/${table}_mor_as_dup.sql").text
                 // drop and recreate DUP table on first round
                 sql "DROP TABLE IF EXISTS ${table}_dup"
                 sql new File("""${context.file.parent}/ddl/${table}_dup.sql""").text
@@ -71,6 +74,12 @@ suite("load") {
             def morSql = new File("""${context.file.parent}/ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
             morSql = morSql.replaceAll("\\\$\\{loadLabel\\}", morLabel) + s3WithProperties
             loadAndWait(morLabel, morSql)
+
+            // reuse the same import SQL for the MOR-as-DUP table
+            def morAsDupLabel = table + "_mor_as_dup_round${loadRound}_" + uniqueID
+            def morAsDupSql = morSql.replace("LOAD LABEL ${morLabel}", "LOAD LABEL ${morAsDupLabel}")
+                    .replace("INTO TABLE ${table}", "INTO TABLE ${table}_mor_as_dup")
+            loadAndWait(morAsDupLabel, morAsDupSql)
 
             // load DUP table
             def dupLabel = table + "_dup_round${loadRound}_" + uniqueID
@@ -93,5 +102,6 @@ suite("load") {
         logger.info("DUP table ${table}_dup row count after double load: ${dupRowCount[0][0]}, expected: ${rows * 2}")
         assertTrue(dupRowCount[0][0] == rows * 2, "DUP table ${table}_dup row count ${dupRowCount[0][0]} != expected ${rows * 2}")
         sql """ ANALYZE TABLE ${table}_dup WITH SYNC """
+        sql "ANALYZE TABLE ${table}_mor_as_dup WITH SYNC"
     }
 }
