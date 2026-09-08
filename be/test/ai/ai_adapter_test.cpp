@@ -381,14 +381,81 @@ TEST(AI_ADAPTER_TEST, openai_adatper_responses_request) {
     ASSERT_STREQ(input[1]["content"].GetString(), inputs[0].c_str());
 }
 
-TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response) {
+TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response_skips_empty_reasoning) {
     OpenAIAdapter adapter;
-    std::string resp = R"({"output":[{"content":[{"text":"openai response result"}]}]})";
+    std::string resp = R"({
+        "id": "resp_123", 
+        "object": "response",
+        "status": "completed",
+        "output": [
+            {
+                "id": "rs_123",
+                "type": "reasoning",
+                "content": [],
+                "summary": []
+            },
+            {
+                "id": "msg_123",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "openai response result",
+                        "annotations": []
+                    }
+                ]
+            }
+        ]
+    })";
     std::vector<std::string> results;
     Status st = adapter.parse_response(resp, results);
-    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(st.ok()) << st.to_string();
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0], "openai response result");
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response_skips_reasoning_text) {
+    OpenAIAdapter adapter;
+    std::string resp = R"({
+        "id": "resp_456",
+        "object": "response",
+        "status": "completed",
+        "output": [
+            {
+                "id": "rs_456",
+                "type": "reasoning",
+                "status": "completed",
+                "content": [
+                    {
+                        "type": "reasoning_text",
+                        "text": "The model reasoning must not become a batch result."
+                    }
+                ],
+                "summary": []
+            },
+            {
+                "id": "msg_456",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "[\"translation one\",\"translation two\"]",
+                        "annotations": []
+                    }
+                ]
+            }
+        ]
+    })";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(results.size(), 2);
+    EXPECT_EQ(results[0], "translation one");
+    EXPECT_EQ(results[1], "translation two");
 }
 
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_keeps_mask_literals) {

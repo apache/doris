@@ -24,6 +24,7 @@
 #include <cctype>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -822,12 +823,18 @@ public:
             /*{
               "output": [
                 {
+                  "id": "rs_123",
+                  "type": "reasoning",
+                  "content": [],
+                  "summary": []
+                },
+                {
                   "id": "msg_123",
                   "type": "message",
                   "role": "assistant",
                   "content": [
                     {
-                      "type": "text",
+                      "type": "output_text",
                       "text": "result text here"   <- result
                     }
                   ]
@@ -838,15 +845,50 @@ public:
             results.reserve(output.Size());
 
             for (rapidjson::SizeType i = 0; i < output.Size(); i++) {
-                if (!output[i].HasMember("content") || !output[i]["content"].IsArray() ||
-                    output[i]["content"].Empty() || !output[i]["content"][0].HasMember("text") ||
-                    !output[i]["content"][0]["text"].IsString()) {
+                const auto& item = output[i];
+                if (!item.IsObject() || !item.HasMember("type") || !item["type"].IsString()) {
                     return Status::InternalError("Invalid output format in {} response: {}",
                                                  _config.provider_type, response_body);
                 }
 
-                RETURN_IF_ERROR(append_parsed_text_result(
-                        output[i]["content"][0]["text"].GetString(), results));
+                // Responses output is heterogeneous. Reasoning and tool items are not final text.
+                if (std::string_view(item["type"].GetString(), item["type"].GetStringLength()) !=
+                    "message") {
+                    continue;
+                }
+
+                if (!item.HasMember("content") || !item["content"].IsArray()) {
+                    return Status::InternalError("Invalid output format in {} response: {}",
+                                                 _config.provider_type, response_body);
+                }
+
+                const auto& content = item["content"];
+                bool has_output_text = false;
+                for (rapidjson::SizeType j = 0; j < content.Size(); j++) {
+                    const auto& part = content[j];
+                    if (!part.IsObject() || !part.HasMember("type") || !part["type"].IsString()) {
+                        return Status::InternalError("Invalid output format in {} response: {}",
+                                                     _config.provider_type, response_body);
+                    }
+
+                    if (std::string_view(part["type"].GetString(),
+                                         part["type"].GetStringLength()) != "output_text") {
+                        continue;
+                    }
+
+                    if (!part.HasMember("text") || !part["text"].IsString()) {
+                        return Status::InternalError("Invalid output format in {} response: {}",
+                                                     _config.provider_type, response_body);
+                    }
+
+                    has_output_text = true;
+                    RETURN_IF_ERROR(append_parsed_text_result(part["text"].GetString(), results));
+                }
+
+                if (!has_output_text) {
+                    return Status::InternalError("Invalid output format in {} response: {}",
+                                                 _config.provider_type, response_body);
+                }
             }
         } else if (doc.HasMember("choices") && doc["choices"].IsArray()) {
             /// for completions endpoint
