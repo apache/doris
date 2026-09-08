@@ -243,6 +243,8 @@ private:
     RuntimeState* _state = nullptr;
 
     const std::vector<TExpr> _texprs;
+    TExternalTableSinkHashPartitionInfo _external_table_sink_hash_partition_info;
+    bool _has_external_table_sink_hash_partition_info = false;
     TMergePartitionInfo _merge_partition_info;
     bool _has_merge_partition_info = false;
 

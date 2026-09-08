@@ -161,6 +161,32 @@ public interface ConnectorWritePlanProvider {
     }
 
     /**
+     * Returns the table-write distribution required by the connector, or {@code null} to use the
+     * generic capability-based distribution rules.
+     */
+    default ConnectorWriteDistribution getWriteDistribution(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        return null;
+    }
+
+    /** Returns the physical row-change representation used by this connector. */
+    default ConnectorRowChangeStyle getRowChangeStyle() {
+        return ConnectorRowChangeStyle.NONE;
+    }
+
+    /** Returns the target primary-key columns used to shape changelog DELETE and MERGE plans. */
+    default List<String> getRowLevelPrimaryKeyColumns(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        return Collections.emptyList();
+    }
+
+    /** Performs connector-specific validation before a row-level DML plan is synthesized. */
+    default void validateRowLevelDml(ConnectorSession session, ConnectorTableHandle tableHandle,
+            ConnectorRowLevelDmlRequest request) {
+        // Default: no additional validation.
+    }
+
+    /**
      * Declares the connector's <b>synthetic write columns</b> for the target — request-scoped hidden
      * columns the engine injects into {@code PluginDrivenExternalTable.getFullSchema()} while a write/DML
      * over this table is in flight, in an engine-neutral form. The engine appends these (converted via

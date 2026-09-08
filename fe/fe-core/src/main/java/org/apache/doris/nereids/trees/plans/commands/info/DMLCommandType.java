@@ -33,6 +33,8 @@ public enum DMLCommandType {
     UPDATE,
     // for DELETE
     DELETE,
+    // for MERGE INTO
+    MERGE,
     // for all other load jobs, including Stream Load, Broker Load, S3 Load
     // Routine Load etc.
     LOAD

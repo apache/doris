@@ -211,7 +211,8 @@ public class PaimonConnectorMetadataReadAuthTest {
         Map<String, String> spec = new LinkedHashMap<>();
         spec.put("region", "cn");
         ops.partitions = Collections.singletonList(
-                new Partition(spec, 1L, 1L, /*fileCount*/ 1, 1L, /*done*/ true));
+                new Partition(spec, 1L, 1L, /*fileCount*/ 1, 1L,
+                        /*totalBuckets*/ 1, /*done*/ true));
         RecordingConnectorContext ctx = new RecordingConnectorContext();
 
         PaimonTableHandle handle = new PaimonTableHandle(

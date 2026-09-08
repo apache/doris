@@ -92,7 +92,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
     private static Partition partition(String regionValue) {
         Map<String, String> spec = new LinkedHashMap<>();
         spec.put("region", regionValue);
-        return new Partition(spec, 1L, 1L, 1, 1L, true);
+        return new Partition(spec, 1L, 1L, 1, 1L, 1, true);
     }
 
     private static long loadCount(RecordingPaimonCatalogOps ops) {

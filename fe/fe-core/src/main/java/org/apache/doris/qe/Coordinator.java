@@ -2841,7 +2841,7 @@ public class Coordinator implements CoordInterface {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
             }
             if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
-                    || params.isSetMcCommitDatas()) {
+                    || params.isSetMcCommitDatas() || params.isSetPaimonCommitMessages()) {
                 Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(reportTxnId);
                 if (params.isSetHivePartitionUpdates()) {
                     CommitDataSerializer.feed(txn, params.getHivePartitionUpdates());
@@ -2851,6 +2851,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetMcCommitDatas()) {
                     CommitDataSerializer.feed(txn, params.getMcCommitDatas());
+                }
+                if (params.isSetPaimonCommitMessages()) {
+                    CommitDataSerializer.feed(txn, params.getPaimonCommitMessages());
                 }
             }
 
