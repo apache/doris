@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -74,6 +75,7 @@ import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.proto.Data;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -108,11 +110,6 @@ import java.util.UUID;
  * Process one connection, the life cycle is the same as connection
  */
 public abstract class ConnectProcessor {
-    public enum ConnectType {
-        MYSQL,
-        ARROW_FLIGHT_SQL
-    }
-
     private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
     protected final ConnectContext ctx;
     protected StmtExecutor executor;
@@ -280,7 +277,15 @@ public abstract class ConnectProcessor {
         ctx.setSqlHash(sqlHash);
 
         SessionVariable sessionVariable = ctx.getSessionVariable();
-        boolean wantToParseSqlFromSqlCache = CacheAnalyzer.canUseSqlCache(sessionVariable);
+        // The sql cache keeps the result rows in MySQL wire format and replays them through a
+        // MysqlChannel (StmtExecutor.sendCachedValues -> sendFields), which only exists on a MySQL
+        // connection. An Arrow Flight SQL connection has no channel and needs Arrow batches built by
+        // the BE, and the cached rows would be wrong for it anyway (object types such as HLL /
+        // BITMAP / QUANTILE_STATE were serialized as NULL under return_object_data_as_binary=false).
+        // So a non-MySQL connection must always re-execute the query instead of replaying the cache.
+        // The cache is never populated by such a connection either, see StmtExecutor.handleQueryStmt.
+        boolean wantToParseSqlFromSqlCache = connectType.equals(ConnectType.MYSQL)
+                && CacheAnalyzer.canUseSqlCache(sessionVariable);
         List<StatementBase> stmts = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
@@ -893,7 +898,10 @@ public abstract class ConnectProcessor {
             case DECIMAL_LITERAL: return DecimalLiteralUtils.create(node.decimal_literal.value);
             case STRING_LITERAL: return new StringLiteral(node.string_literal.value);
             case JSON_LITERAL: return new JsonLiteral(node.json_literal.value);
-            case DATE_LITERAL: return DateLiteralUtils.createDateLiteral(node.date_literal.value, null);
+            case DATE_LITERAL:
+                Type literalType = Type.fromThrift(node.type);
+                return DateLiteralUtils.createLiteral(node.date_literal.value,
+                        literalType.isTimeStampNs() ? literalType : null);
             case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
             default: throw new AnalysisException("Wrong type from thrift;");

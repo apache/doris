@@ -41,6 +41,7 @@
 #include "exprs/aggregate/aggregate_function_rpc.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_sort.h"
+#include "exprs/aggregate/aggregate_function_state_combine.h"
 #include "exprs/aggregate/aggregate_function_state_merge.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
 #include "exprs/vexpr.h"
@@ -174,46 +175,81 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = AggregateRpcUdaf::create(_fn, argument_types, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::AGG_STATE) {
-        if (argument_types.size() != 1) {
-            return Status::InternalError("Agg state Function must input 1 argument but get {}",
-                                         argument_types.size());
-        }
-        if (argument_types[0]->is_nullable()) {
-            return Status::InternalError("Agg state function input type must be not nullable");
-        }
-        if (argument_types[0]->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
-            return Status::InternalError(
-                    "Agg state function input type must be agg_state but get {}",
-                    argument_types[0]->get_family_name());
-        }
-
-        std::string type_function_name =
-                assert_cast<const DataTypeAggState*>(argument_types[0].get())->get_function_name();
-        if (type_function_name + AGG_UNION_SUFFIX == _fn.name.function_name) {
+        if (match_suffix(_fn.name.function_name, AGG_COMBINE_SUFFIX)) {
             if (_data_type->is_nullable()) {
                 return Status::InternalError(
-                        "Union function return type must be not nullable, real={}",
+                        "Combine function return type must be not nullable, real={}",
                         _data_type->get_name());
             }
             if (_data_type->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
-                        "Union function return type must be AGG_STATE, real={}",
+                        "Combine function return type must be AGG_STATE, real={}",
                         _data_type->get_name());
             }
-            _function = get_agg_state_function<AggregateStateUnion>(argument_types, _data_type);
-        } else if (type_function_name + AGG_MERGE_SUFFIX == _fn.name.function_name) {
-            auto type = assert_cast<const DataTypeAggState*>(argument_types[0].get())
-                                ->get_nested_function()
-                                ->get_return_type();
-            if (!type->equals(*_data_type)) {
-                return Status::InternalError("{}'s expect return type is {}, but input {}",
-                                             argument_types[0]->get_name(), type->get_name(),
+            const auto* state_type = assert_cast<const DataTypeAggState*>(_data_type.get());
+            if (state_type->get_function_name() + AGG_COMBINE_SUFFIX != _fn.name.function_name) {
+                return Status::InternalError("{} not match return type {}", _fn.name.function_name,
                                              _data_type->get_name());
             }
-            _function = get_agg_state_function<AggregateStateMerge>(argument_types, _data_type);
+            const auto& expected_argument_types = state_type->get_sub_types();
+            if (argument_types.size() != expected_argument_types.size()) {
+                return Status::InternalError("Combine function {} expects {} arguments but gets {}",
+                                             _fn.name.function_name, expected_argument_types.size(),
+                                             argument_types.size());
+            }
+            for (size_t i = 0; i < argument_types.size(); ++i) {
+                if (!argument_types[i]->equals(*expected_argument_types[i])) {
+                    return Status::InternalError(
+                            "Combine function {} argument {} expects {}, but gets {}",
+                            _fn.name.function_name, i, expected_argument_types[i]->get_name(),
+                            argument_types[i]->get_name());
+                }
+            }
+            _function = AggregateStateCombine::create(state_type->get_nested_function(),
+                                                      argument_types, _data_type);
         } else {
-            return Status::InternalError("{} not match function {}", argument_types[0]->get_name(),
-                                         _fn.name.function_name);
+            if (argument_types.size() != 1) {
+                return Status::InternalError("Agg state Function must input 1 argument but get {}",
+                                             argument_types.size());
+            }
+            if (argument_types[0]->is_nullable()) {
+                return Status::InternalError("Agg state function input type must be not nullable");
+            }
+            if (argument_types[0]->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+                return Status::InternalError(
+                        "Agg state function input type must be agg_state but get {}",
+                        argument_types[0]->get_family_name());
+            }
+
+            std::string type_function_name =
+                    assert_cast<const DataTypeAggState*>(argument_types[0].get())
+                            ->get_function_name();
+            if (type_function_name + AGG_UNION_SUFFIX == _fn.name.function_name) {
+                if (_data_type->is_nullable()) {
+                    return Status::InternalError(
+                            "Union function return type must be not nullable, real={}",
+                            _data_type->get_name());
+                }
+                if (_data_type->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+                    return Status::InternalError(
+                            "Union function return type must be AGG_STATE, real={}",
+                            _data_type->get_name());
+                }
+                _function = get_agg_state_function<AggregateStateUnion>(argument_types, _data_type);
+            } else if (type_function_name + AGG_MERGE_SUFFIX == _fn.name.function_name) {
+                auto type = assert_cast<const DataTypeAggState*>(argument_types[0].get())
+                                    ->get_nested_function()
+                                    ->get_return_type();
+                if (!type->equals(*_data_type)) {
+                    return Status::InternalError("{}'s expect return type is {}, but input {}",
+                                                 argument_types[0]->get_name(), type->get_name(),
+                                                 _data_type->get_name());
+                }
+                _function = get_agg_state_function<AggregateStateMerge>(argument_types, _data_type);
+            } else {
+                return Status::InternalError("{} not match function {}",
+                                             argument_types[0]->get_name(), _fn.name.function_name);
+            }
         }
     } else {
         const bool is_foreach =

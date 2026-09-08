@@ -123,7 +123,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.HttpStreamParams;
@@ -138,16 +137,15 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
-import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
-import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.ColStatsData;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.InvalidateStatsTarget;
-import org.apache.doris.statistics.StatisticsCacheKey;
-import org.apache.doris.statistics.TableStatsMeta;
-import org.apache.doris.statistics.UpdatePartitionStatsTarget;
+import org.apache.doris.statistics.analysis.AnalysisManager;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
+import org.apache.doris.statistics.cache.InvalidateStatsTarget;
+import org.apache.doris.statistics.cache.StatisticsCacheKey;
+import org.apache.doris.statistics.cache.UpdatePartitionStatsTarget;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.query.QueryStats;
+import org.apache.doris.statistics.repository.ColStatsData;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
@@ -1158,7 +1156,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         logForwardRequest(params);
         ConnectContext context = createForwardContext(params, requester);
-        ConnectProcessor processor = createForwardProcessor(context);
+        // createForwardContext() always builds a MySQL proxy context: the master replays the
+        // forwarded statement over a ProxyMysqlChannel and hands the packets back to the
+        // origin FE, whatever protocol the client is speaking there.
+        ConnectProcessor processor = new MysqlConnectProcessor(context);
         Runnable clearCallback = registerProxyQuery(params, context);
         try {
             return executeForward(params, context, processor);
@@ -1268,16 +1269,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             context.setCloudCluster(params.getCloudCluster());
         }
         return context;
-    }
-
-    private ConnectProcessor createForwardProcessor(ConnectContext context) throws TException {
-        if (context.getConnectType().equals(ConnectType.MYSQL)) {
-            return new MysqlConnectProcessor(context);
-        }
-        if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
-            return new FlightSqlConnectProcessor(context);
-        }
-        throw new TException("unknown ConnectType: " + context.getConnectType());
     }
 
     private Runnable registerProxyQuery(TMasterOpRequest params, ConnectContext context) {
@@ -5648,7 +5639,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TShowUserResult showUser(TShowUserRequest request) {
-        List<List<String>> userInfo = Env.getCurrentEnv().getAuth().getAllUserInfo();
+        UserIdentity currentUser = null;
+        if (request.isSetCurrentUserIdent()) {
+            currentUser = UserIdentity.fromThrift(request.current_user_ident);
+        }
+        List<List<String>> userInfo = Env.getCurrentEnv().getAuth().getAllUserInfo(currentUser);
         TShowUserResult result = new TShowUserResult();
         result.setUserinfoList(userInfo);
         return result;

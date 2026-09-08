@@ -472,18 +472,6 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
-# Normalize compile-bench before dependency selection. The mode is a BE build,
-# even when --compile-bench is the only command-line target.
-if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
-    BUILD_BE=1
-    BUILD_FE=0
-    BUILD_CLOUD=0
-    BUILD_HIVE_UDF=0
-    BUILD_BE_JAVA_EXTENSIONS=0
-    BUILD_BE_CDC_CLIENT=0
-    OUTPUT_BE_BINARY=0
-fi
-
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
     clean_gensrc
     clean_be
@@ -498,75 +486,15 @@ else
     LAST_THIRDPARTY_LIB='hadoop_hdfs_3_4/native/libhdfs.a'
 fi
 
-# The final-library sentinel only proves that some third-party build completed. It cannot
-# distinguish an older prebuilt whose Arrow/Paimon closure predates the selected sources.
-# shellcheck source=thirdparty/arrow-paimon-vars.sh
-. "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
-NEED_ARROW_PAIMON_THIRDPARTY=false
-if [[ "${BUILD_BE}" -eq 1 || "${BUILD_META_TOOL}" == "ON" ||
-    "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" == "ON" ||
-    "${BUILD_INDEX_TOOL}" == "ON" ]]; then
-    NEED_ARROW_PAIMON_THIRDPARTY=true
-fi
-
-if [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]]; then
-    DEFAULT_ARROW_PAIMON_HOME="${DORIS_THIRDPARTY}/installed/${ARROW_INSTALL_SUBDIR}"
-    SELECTED_ARROW_HOME="${ARROW_HOME:-${DEFAULT_ARROW_PAIMON_HOME}}"
-    SELECTED_PAIMON_HOME="${PAIMON_HOME:-${SELECTED_ARROW_HOME}}"
-    if [[ "${SELECTED_ARROW_HOME}" != "${DEFAULT_ARROW_PAIMON_HOME}" ||
-        "${SELECTED_PAIMON_HOME}" != "${DEFAULT_ARROW_PAIMON_HOME}" ]]; then
-        echo "build.sh only supports the Arrow/Paimon stack selected from DORIS_THIRDPARTY." >&2
-        echo "Expected ARROW_HOME=${DEFAULT_ARROW_PAIMON_HOME} and PAIMON_HOME=${DEFAULT_ARROW_PAIMON_HOME}." >&2
-        echo "Unset ARROW_HOME and PAIMON_HOME, or point DORIS_THIRDPARTY at the matching thirdparty tree." >&2
-        exit 1
-    fi
-    export ARROW_HOME="${DEFAULT_ARROW_PAIMON_HOME}"
-    export PAIMON_HOME="${DEFAULT_ARROW_PAIMON_HOME}"
-fi
-
-rebuild_thirdparty_libraries() {
-    local remove_installed="$1"
-    shift
-    local build_script="${DORIS_THIRDPARTY}/build-thirdparty.sh"
-    local build_args=(-j "${PARALLEL}")
-    local selected_thirdparty_root
-    local checkout_thirdparty_root
-
-    if [[ ! -f "${build_script}" ]]; then
-        echo "Cannot rebuild thirdparty libraries: ${build_script} is missing." >&2
-        echo "DORIS_THIRDPARTY=${DORIS_THIRDPARTY} is an install-only or incomplete prefix. Use a matching compilation image/prebuilt, or unset DORIS_THIRDPARTY to rebuild with this checkout's thirdparty tree." >&2
-        exit 1
-    fi
-    selected_thirdparty_root="$(cd "${DORIS_THIRDPARTY}" && pwd -P)"
-    checkout_thirdparty_root="$(cd "${DORIS_HOME}/thirdparty" && pwd -P)"
-    if [[ "${selected_thirdparty_root}" != "${checkout_thirdparty_root}" ]]; then
-        echo "Cannot rebuild thirdparty libraries with an external source tree: ${selected_thirdparty_root}." >&2
-        echo "Unset DORIS_THIRDPARTY to rebuild with this checkout's thirdparty tree, then use the resulting version-matched installation." >&2
-        exit 1
-    fi
-    build_script="${checkout_thirdparty_root}/build-thirdparty.sh"
-    if [[ "${remove_installed}" == "true" ]]; then
-        # Some libraries, such as lz4, fail when an earlier installation remains.
-        rm -rf "${DORIS_THIRDPARTY}/installed"
-    fi
-    if [[ "${CLEAN}" -eq 1 ]]; then
-        build_args+=(--clean)
-    fi
-    bash "${build_script}" "${build_args[@]}" "$@"
-    if ! shared_arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
-        echo "Rebuilt Arrow/Paimon artifacts do not match this checkout's selected inputs." >&2
-        exit 1
-    fi
-}
-
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
-    rebuild_thirdparty_libraries true
-elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]]; then
-    select_arrow_paimon_rebuild_packages "${DORIS_THIRDPARTY}/installed"
-    if [[ "${#ARROW_PAIMON_REBUILD_PACKAGES[@]}" -gt 0 ]]; then
-        echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
-        rebuild_thirdparty_libraries false "${ARROW_PAIMON_REBUILD_PACKAGES[@]}"
+    # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
+    rm -rf "${DORIS_THIRDPARTY}/installed"
+
+    if [[ "${CLEAN}" -eq 0 ]]; then
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+    else
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
     fi
 fi
 
@@ -605,6 +533,21 @@ update_submodule() {
         curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
     fi
 }
+
+if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
+    clean_gensrc
+    clean_be
+    clean_fe
+    exit 0
+fi
+
+if [[ "${BUILD_BE}" -eq 1 || "${COMPILE_BENCH}" -eq 1 ]]; then
+    MECAB_IPADIC_DIR="${DORIS_THIRDPARTY}/installed/share/mecab-ipadic-2.7.0-20250920"
+    if [[ ! -d "${MECAB_IPADIC_DIR}" ]]; then
+        echo "Staging mecab-ipadic (kuromoji dictionary source) into thirdparty ..."
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" mecab_ipadic
+    fi
+fi
 
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
@@ -757,6 +700,16 @@ for ((i = 0; i < ${#CLOUD_EXTRA_FEATURE_KEYS[@]}; i++)); do
 done
 
 if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
+    # BE compile benchmark mode: measure a cold, cache-free BE C++ build.
+    # Everything that is not the BE C++ build would only add noise, so force
+    # a BE-only build regardless of the other options.
+    BUILD_BE=1
+    BUILD_FE=0
+    BUILD_CLOUD=0
+    BUILD_HIVE_UDF=0
+    BUILD_BE_JAVA_EXTENSIONS=0
+    BUILD_BE_CDC_CLIENT=0
+    OUTPUT_BE_BINARY=0
     # shellcheck source=build-support/compile-bench/bench-lib.sh
     . "${DORIS_HOME}/build-support/compile-bench/bench-lib.sh"
     compile_bench_init "${DORIS_HOME}"

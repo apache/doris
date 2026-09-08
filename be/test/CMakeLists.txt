@@ -161,6 +161,12 @@ if (TARGET phdr_cache_test_dso)
     add_dependencies(doris_be_test phdr_cache_test_dso)
 endif()
 
+# run-be-ut.sh resets DORIS_HOME to the test binary dir before launching the
+# tests, so the real-IPADIC dictionary test can't find the repo dictionary via
+# DORIS_HOME.
+target_compile_definitions(doris_be_test PRIVATE
+    KUROMOJI_SOURCE_DICT_DIR="${BASE_DIR}/dict/kuromoji")
+
 if (APPLE)
     target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
         -Wl,-force_load,$<TARGET_FILE:vector_search_test>)

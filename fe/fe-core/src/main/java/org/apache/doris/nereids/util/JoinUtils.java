@@ -122,6 +122,12 @@ public class JoinUtils {
             if (equal.containsVolatileExpression()) {
                 return false;
             }
+            if (TypeCoercionUtils.isTimeStampNsAndDateTimeV2Pair(
+                    equal.left().getDataType(), equal.right().getDataType())) {
+                // Scalar comparison has an exact mixed-type kernel, but the two types have
+                // different physical encodings and therefore cannot share a hash key.
+                return false;
+            }
 
             Set<ExprId> equalLeftExprIds = equal.left().getInputSlotExprIds();
             if (equalLeftExprIds.isEmpty()) {

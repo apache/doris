@@ -162,3 +162,5 @@ gensrc/proto/cloud.proto                                     @luwei16 @gavinchou
 gensrc/proto/file_cache.proto                                @liaoxin01 @gavinchou
 gensrc/proto/olap_file.proto                                 @yiguolei @liaoxin01 @gavinchou
 gensrc/proto/segment_v2.proto                                @yiguolei @liaoxin01 @gavinchou @eldenmoon @csun5285 @airborne12
+.github/workflows/                                           @hello-stephen @morningman @yiguolei
+thirdparty/                                                  @yiguolei @morningman

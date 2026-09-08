@@ -116,7 +116,7 @@ public class UnionCombinator extends AggregateFunction
         // checks are still meaningful. After a subquery or stored-column boundary, the nested
         // function is rebuilt with mocked slots from AggStateType; replaying value-expression
         // checks there would reject valid states whose constants are already serialized.
-        if (getArgument(0) instanceof StateCombinator) {
+        if (getArgument(0) instanceof StateCombinator || getArgument(0) instanceof CombineCombinator) {
             nested.checkLegalityBeforeTypeCoercion();
         }
     }

@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TAccessPathType;
 import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TDescriptorTable;
@@ -242,6 +243,30 @@ public class DescriptorToThriftConverterTest {
 
         Assertions.assertEquals(2, result.getTupleDescriptors().size());
         Assertions.assertEquals(3, result.getSlotDescriptors().size());
+    }
+
+    @Test
+    public void testTimestampNsDescriptorRequiresCompatibleExecutionVersion() {
+        DescriptorTable descTable = new DescriptorTable();
+        TupleDescriptor tuple = descTable.createTupleDescriptor();
+        SlotDescriptor slot = descTable.addSlotDescriptor(tuple);
+        slot.setType(Type.TIMESTAMP_NS);
+
+        int originalBeExecVersion = Config.be_exec_version;
+        try {
+            Config.be_exec_version = Config.TIMESTAMP_NS_MIN_BE_EXEC_VERSION - 1;
+            IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
+                    () -> DescriptorToThriftConverter.toThrift(descTable));
+            Assertions.assertTrue(exception.getMessage().contains("TIMESTAMP_NS requires"));
+            Assertions.assertTrue(exception.getMessage().contains("execution version 14"));
+
+            Config.be_exec_version = Config.TIMESTAMP_NS_MIN_BE_EXEC_VERSION;
+            TDescriptorTable result = DescriptorToThriftConverter.toThrift(descTable);
+            Assertions.assertEquals(Type.TIMESTAMP_NS.toThrift(),
+                    result.getSlotDescriptors().get(0).getSlotType());
+        } finally {
+            Config.be_exec_version = originalBeExecVersion;
+        }
     }
 
     @Test

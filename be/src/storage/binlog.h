@@ -181,6 +181,11 @@ public:
         _seg_id_to_lsn_ids.erase(seg_id);
     }
 
+    bool contains_segment(int64_t seg_id) const {
+        std::lock_guard<std::mutex> l(_mutex);
+        return _seg_id_to_lsn_ids.count(seg_id) > 0;
+    }
+
     ConstAllocatedLsnVectorSharedPtr get_segment_allocated_lsns(int64_t seg_id) const {
         std::lock_guard<std::mutex> l(_mutex);
         auto it = _seg_id_to_lsn_ids.find(seg_id);

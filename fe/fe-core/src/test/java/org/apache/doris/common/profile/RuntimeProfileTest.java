@@ -28,8 +28,8 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -59,21 +59,21 @@ public class RuntimeProfileTest {
         long time1 = profile.getChildList().get(1).first.getCounterTotalTime().getValue();
         long time2 = profile.getChildList().get(2).first.getCounterTotalTime().getValue();
 
-        Assert.assertEquals(3, time0);
-        Assert.assertEquals(2, time1);
-        Assert.assertEquals(1, time2);
+        Assertions.assertEquals(3, time0);
+        Assertions.assertEquals(2, time1);
+        Assertions.assertEquals(1, time2);
     }
 
     @Test
     public void testInfoStrings() {
         RuntimeProfile profile = new RuntimeProfile("profileName");
 
-        Assert.assertEquals("", profile.getInfoString("key"));
+        Assertions.assertEquals("", profile.getInfoString("key"));
         // normal add and get
         profile.addInfoString("key", "value");
         String value = profile.getInfoString("key");
-        Assert.assertNotNull(value);
-        Assert.assertEquals(value, "value");
+        Assertions.assertNotNull(value);
+        Assertions.assertEquals(value, "value");
         // from thrift to profile and first update
         TRuntimeProfileTree tprofileTree = new TRuntimeProfileTree();
         TRuntimeProfileNode tnode = new TRuntimeProfileNode();
@@ -86,17 +86,17 @@ public class RuntimeProfileTest {
         tnode.info_strings_display_order.add("key3");
 
         profile.update(tprofileTree);
-        Assert.assertEquals(profile.getInfoString("key"), "value2");
-        Assert.assertEquals(profile.getInfoString("key3"), "value3");
+        Assertions.assertEquals(profile.getInfoString("key"), "value2");
+        Assertions.assertEquals(profile.getInfoString("key3"), "value3");
         // second update
         tnode.info_strings.put("key", "value4");
 
         profile.update(tprofileTree);
-        Assert.assertEquals(profile.getInfoString("key"), "value4");
+        Assertions.assertEquals(profile.getInfoString("key"), "value4");
 
         SafeStringBuilder builder = new SafeStringBuilder();
         profile.prettyPrint(builder, "");
-        Assert.assertEquals(builder.toString(),
+        Assertions.assertEquals(builder.toString(),
                 "profileName:\n   - key: value4\n   - key3: value3\n");
     }
 
@@ -104,10 +104,10 @@ public class RuntimeProfileTest {
     public void testCounter() {
         RuntimeProfile profile = new RuntimeProfile("test counter");
         profile.addCounter("key", TUnit.UNIT, "");
-        Assert.assertNotNull(profile.getCounterMap().get("key"));
-        Assert.assertNull(profile.getCounterMap().get("key2"));
+        Assertions.assertNotNull(profile.getCounterMap().get("key"));
+        Assertions.assertNull(profile.getCounterMap().get("key2"));
         profile.getCounterMap().get("key").setValue(TUnit.TIME_NS, 1);
-        Assert.assertEquals(profile.getCounterMap().get("key").getValue(), 1);
+        Assertions.assertEquals(profile.getCounterMap().get("key").getValue(), 1);
     }
 
     @Test

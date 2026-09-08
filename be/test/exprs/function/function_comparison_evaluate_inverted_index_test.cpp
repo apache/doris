@@ -17,9 +17,11 @@
 
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "exprs/function/functions_comparison.h"
 #include "gtest/gtest.h"
 #include "storage/index/index_iterator.h"
@@ -120,6 +122,55 @@ TEST(FunctionComparisonTest, evaluate_inverted_index_with_null_param) {
 
     ASSERT_EQ(bitmap_result.get_data_bitmap(), nullptr)
             << "bitmap_result should not be set when param is NULL";
+}
+
+TEST(FunctionComparisonTest, TimestampNsComparesExactlyWithOutOfRangeDateTimeV2) {
+    DateV2Value<DateTimeV2ValueType> timestamp_datetime;
+    ASSERT_TRUE(timestamp_datetime.check_range_and_set_time(2024, 2, 29, 12, 34, 56, 123456));
+    TimeStampNsValue timestamp;
+    ASSERT_TRUE(timestamp.from_datetime(timestamp_datetime, 789));
+    TimeStampNsValue timestamp_at_microsecond;
+    ASSERT_TRUE(timestamp_at_microsecond.from_datetime(timestamp_datetime));
+
+    DateV2Value<DateTimeV2ValueType> old_datetime;
+    ASSERT_TRUE(old_datetime.check_range_and_set_time(1600, 1, 1, 0, 0, 0, 0));
+    DateV2Value<DateTimeV2ValueType> later_datetime;
+    ASSERT_TRUE(later_datetime.check_range_and_set_time(2024, 2, 29, 12, 34, 56, 123457));
+
+    auto timestamp_column = ColumnTimeStampNs::create();
+    timestamp_column->insert_value(timestamp);
+    timestamp_column->insert_value(timestamp);
+    timestamp_column->insert_value(timestamp);
+    timestamp_column->insert_value(timestamp_at_microsecond);
+    auto datetime_column = ColumnDateTimeV2::create();
+    datetime_column->insert_value(
+            binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(old_datetime));
+    datetime_column->insert_value(
+            binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(timestamp_datetime));
+    datetime_column->insert_value(
+            binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(later_datetime));
+    datetime_column->insert_value(
+            binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(timestamp_datetime));
+
+    Block block;
+    block.insert({std::move(timestamp_column), std::make_shared<DataTypeTimeStampNs>(), "ts"});
+    block.insert({std::move(datetime_column), std::make_shared<DataTypeDateTimeV2>(6), "dt"});
+    block.insert({nullptr, std::make_shared<DataTypeUInt8>(), "result"});
+
+    FunctionComparison<GreaterOp, NameGreater> greater;
+    ASSERT_TRUE(greater.execute_impl(nullptr, block, {0, 1}, 2, 4).ok());
+    const auto& result = assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column);
+    EXPECT_EQ(result.get_data(), (ColumnUInt8::Container {1, 1, 0, 0}));
+
+    FunctionComparison<LessOp, NameLess> less;
+    ASSERT_TRUE(less.execute_impl(nullptr, block, {1, 0}, 2, 4).ok());
+    const auto& reversed_result = assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column);
+    EXPECT_EQ(reversed_result.get_data(), (ColumnUInt8::Container {1, 1, 0, 0}));
+
+    FunctionComparison<EqualsOp, NameEquals> equals;
+    ASSERT_TRUE(equals.execute_impl(nullptr, block, {0, 1}, 2, 4).ok());
+    const auto& equals_result = assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column);
+    EXPECT_EQ(equals_result.get_data(), (ColumnUInt8::Container {0, 0, 0, 1}));
 }
 
 } // namespace doris

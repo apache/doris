@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
@@ -659,6 +660,10 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         }
 
         private void validateAggFunnction(AggregateFunction aggregateFunction) {
+            if (aggregateFunction instanceof CombineCombinator) {
+                throw new AnalysisException("Synchronous materialized view does not support aggregate "
+                        + "combine function: " + aggregateFunction.getName());
+            }
             // if aggregate function use a value column of agg table,
             // the value columns' agg type must be consistent with aggregate function
             // we do it in two steps:

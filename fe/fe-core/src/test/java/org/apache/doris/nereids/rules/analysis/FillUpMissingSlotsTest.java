@@ -32,11 +32,13 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -49,7 +51,10 @@ import org.apache.doris.nereids.util.TestHelper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements MemoPatternMatchSupported {
 
@@ -163,6 +168,24 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(a1, new TinyIntLiteral((byte) 0)))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(sumA2.toSlot()))));
+    }
+
+    @Test
+    public void testCombineCombinatorBindsArgumentsInAggregateInputScope() {
+        String sql = "SELECT pk, sum(a1 + 1) AS a1 FROM t1 GROUP BY pk "
+                + "HAVING avg_combine(a1) IS NOT NULL "
+                + "ORDER BY avg_combine(a1) IS NULL";
+        Plan plan = PlanChecker.from(connectContext).analyze(sql).getPlan();
+        List<CombineCombinator> combineFunctions = plan.<Plan>collectToList(node -> true).stream()
+                .flatMap(node -> node.getExpressions().stream())
+                .flatMap(expression -> expression.<CombineCombinator>collectToList(
+                        CombineCombinator.class::isInstance).stream())
+                .collect(ImmutableList.toImmutableList());
+        Assertions.assertFalse(combineFunctions.isEmpty());
+        for (CombineCombinator combineFunction : combineFunctions) {
+            Assertions.assertInstanceOf(SlotReference.class, combineFunction.child(0));
+            Assertions.assertEquals(new ExprId(1), ((SlotReference) combineFunction.child(0)).getExprId());
+        }
     }
 
     @Test

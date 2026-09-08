@@ -40,7 +40,7 @@ public class ConstantExpressTest extends TestWithFeService {
     private void testConstantExpressResult(String sql, String result) throws Exception {
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         System.out.println(explainString);
-        Assertions.assertTrue(explainString.contains("constant exprs: \n         " + result));
+        Assertions.assertTrue(explainString.contains("constant exprs: \n         " + result), explainString);
     }
 
     @Test
@@ -72,6 +72,10 @@ public class ConstantExpressTest extends TestWithFeService {
         testConstantExpressResult(
                 "select datediff('2018-08-08','1970-01-01');",
                 "17751");
+
+        testConstantExpressResult(
+                "select hour_ceil('1970-01-01 01:00:10', 1, '1970-01-01 00:00:30');",
+                "'1970-01-01 01:00:30'");
 
         testConstantExpressResult(
                 "select date_add('2018-08-08', 1);",

@@ -19,6 +19,7 @@
 import argparse
 import base64
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 import secrets
@@ -26,6 +27,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+
+OTLP_RETRYABLE_HTTP_STATUS_CODES = frozenset((429, 502, 503, 504))
 
 
 def read_text(path, max_chars, tail=False, optional=False):
@@ -448,7 +452,9 @@ def build_ingestion_payload(args, input_text, output_text, events):
             ),
         }
     else:
-        turn_body["statusMessage"] = json_attr(turn_payload)
+        turn_body["statusMessage"] = truncate_text(
+            json_attr(turn_payload), args.max_json_chars
+        )
 
     batch.append(ingestion_event("generation-create", iso_from_ns(now + 1_000_000), turn_body))
 
@@ -924,7 +930,7 @@ def build_subagent_session_payload(args, session_path, session_events):
                 "name": "codex.subagent.review",
                 "startTime": first_timestamp,
                 "endTime": root_end,
-                "input": {"session_file": session_path, "thread_id": thread_id},
+                "input": {"prompt": trace_input},
                 "output": {"final_message": trace_output},
                 "environment": args.environment,
                 "metadata": trace_metadata,
@@ -1024,10 +1030,17 @@ def compact_context_event(event, max_chars):
     return compact
 
 
-def shrink_event_for_payload(event, max_payload_bytes):
+def shrink_event_for_payload(
+    event, max_payload_bytes, payload_bytes=None, minimize=False
+):
     shrunk = json.loads(json.dumps(event, ensure_ascii=False))
     body = shrunk.get("body") if isinstance(shrunk.get("body"), dict) else {}
     event_name = body.get("name")
+
+    def measured_payload_bytes(candidate):
+        if payload_bytes is not None:
+            return payload_bytes(candidate)
+        return json_payload_bytes({"batch": [candidate]})
 
     def candidate_with_limits(max_chars, max_context_events=None):
         candidate = json.loads(json.dumps(shrunk, ensure_ascii=False))
@@ -1076,47 +1089,74 @@ def shrink_event_for_payload(event, max_payload_bytes):
         metadata = candidate_body.get("metadata")
         if metadata not in (None, ""):
             candidate_body["metadata"] = truncate_json(metadata, max_chars)
+        status_message = candidate_body.get("statusMessage")
+        if status_message not in (None, ""):
+            candidate_body["statusMessage"] = truncate_text(
+                str(status_message), max_chars
+            )
         return candidate
+
+    if minimize:
+        # This policy floor keeps adaptive 413 retries above the fixed OTLP
+        # envelope while removing every field that the exporter can shrink.
+        candidate = candidate_with_limits(10, 0)
+        if measured_payload_bytes(candidate) < measured_payload_bytes(event):
+            return candidate
+        return event
+
+    def maximize_candidate(max_chars, max_context_events=None):
+        best = candidate_with_limits(max_chars, max_context_events)
+        lower = max_chars + 1
+        upper = max_payload_bytes
+        while lower <= upper:
+            middle = (lower + upper) // 2
+            candidate = candidate_with_limits(middle, max_context_events)
+            if measured_payload_bytes(candidate) <= max_payload_bytes:
+                best = candidate
+                lower = middle + 1
+            else:
+                upper = middle - 1
+        return best
 
     for max_chars in (2_000, 1_000, 500, 200, 80):
         candidate = candidate_with_limits(max_chars)
 
-        if json_payload_bytes({"batch": [candidate]}) <= max_payload_bytes:
-            return candidate
+        if measured_payload_bytes(candidate) <= max_payload_bytes:
+            return maximize_candidate(max_chars)
 
     for max_context_events in (50, 20, 10, 5, 2, 1, 0):
         for max_chars in (80, 40, 20, 10):
             candidate = candidate_with_limits(max_chars, max_context_events)
-            if json_payload_bytes({"batch": [candidate]}) <= max_payload_bytes:
-                return candidate
+            if measured_payload_bytes(candidate) <= max_payload_bytes:
+                return maximize_candidate(max_chars, max_context_events)
 
     raise RuntimeError(
         "Litefuse ingestion event is too large after truncation: "
-        f"{json_payload_bytes({'batch': [event]})} bytes > {max_payload_bytes} bytes; "
+        f"{measured_payload_bytes(event)} bytes > {max_payload_bytes} bytes; "
         f"type={event.get('type')}, name={event_name}"
     )
 
 
-def chunk_payload(payload, max_payload_bytes):
+def chunk_payload(payload, max_payload_bytes, shrink_oversized=True):
     batch = payload.get("batch") or []
     chunks = []
     current = []
-    current_bytes = json_payload_bytes({"batch": current})
+    empty_payload_bytes = json_payload_bytes({"batch": []})
+    current_bytes = empty_payload_bytes
 
     for event in batch:
-        event_payload = {"batch": [event]}
-        event_bytes = json_payload_bytes(event_payload)
-        if event_bytes > max_payload_bytes:
+        event_json_bytes = len(compact_json_bytes(event))
+        event_payload_bytes = empty_payload_bytes + event_json_bytes
+        if event_payload_bytes > max_payload_bytes and shrink_oversized:
             event = shrink_event_for_payload(event, max_payload_bytes)
-            event_payload = {"batch": [event]}
-            event_bytes = json_payload_bytes(event_payload)
+            event_json_bytes = len(compact_json_bytes(event))
+            event_payload_bytes = empty_payload_bytes + event_json_bytes
 
-        candidate = {"batch": current + [event]}
-        candidate_bytes = json_payload_bytes(candidate)
+        candidate_bytes = current_bytes + event_json_bytes + (1 if current else 0)
         if current and candidate_bytes > max_payload_bytes:
             chunks.append(({"batch": current}, current_bytes))
             current = [event]
-            current_bytes = event_bytes
+            current_bytes = event_payload_bytes
         else:
             current.append(event)
             current_bytes = candidate_bytes
@@ -1124,6 +1164,280 @@ def chunk_payload(payload, max_payload_bytes):
     if current:
         chunks.append(({"batch": current}, current_bytes))
     return chunks
+
+
+def otel_id(value, byte_count):
+    expected_length = byte_count * 2
+    normalized = str(value or "").lower()
+    if len(normalized) == expected_length and all(
+        char in "0123456789abcdef" for char in normalized
+    ):
+        return normalized
+    return hashlib.blake2b(normalized.encode(), digest_size=byte_count).hexdigest()
+
+
+def unix_nanos(timestamp):
+    parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError(f"OpenTelemetry timestamp has no timezone: {timestamp}")
+    delta = parsed.astimezone(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)
+    seconds = delta.days * 86_400 + delta.seconds
+    return str(seconds * 1_000_000_000 + delta.microseconds * 1_000)
+
+
+def otel_any_value(value):
+    if isinstance(value, bool):
+        return {"boolValue": value}
+    if isinstance(value, int):
+        return {"intValue": str(value)}
+    if isinstance(value, float):
+        return {"doubleValue": value}
+    if isinstance(value, str):
+        return {"stringValue": value}
+    if isinstance(value, list) and all(
+        isinstance(item, (bool, int, float, str)) for item in value
+    ):
+        return {"arrayValue": {"values": [otel_any_value(item) for item in value]}}
+    return {"stringValue": json_attr(value)}
+
+
+def otel_attributes(values):
+    return [
+        {"key": key, "value": otel_any_value(value)}
+        for key, value in values.items()
+        if value is not None
+    ]
+
+
+def serialized_otel_value(value):
+    if isinstance(value, str):
+        return value
+    return json_attr(value)
+
+
+def metadata_otel_attributes(prefix, metadata):
+    if not isinstance(metadata, dict):
+        return {prefix: serialized_otel_value(metadata)} if metadata is not None else {}
+    return {
+        f"{prefix}.{key}": (
+            value if isinstance(value, (str, int)) else serialized_otel_value(value)
+        )
+        for key, value in metadata.items()
+        if value is not None
+    }
+
+
+def trace_body_from_payload(payload):
+    for event in payload.get("batch") or []:
+        if event.get("type") == "trace-create" and isinstance(event.get("body"), dict):
+            return event["body"]
+    raise RuntimeError("Litefuse payload is missing its trace-create context event")
+
+
+def legacy_event_to_otel_span(event, trace_body):
+    event_type = event.get("type")
+    if event_type not in ("span-create", "generation-create"):
+        raise RuntimeError(f"Unsupported trace event for OTLP conversion: {event_type}")
+    body = event.get("body") if isinstance(event.get("body"), dict) else {}
+    trace_id = otel_id(body.get("traceId"), 16)
+    span_id = otel_id(body.get("id"), 8)
+    parent_id = body.get("parentObservationId")
+    start_time = body.get("startTime") or event.get("timestamp")
+    end_time = body.get("endTime") or start_time
+
+    attributes = {
+        "langfuse.trace.name": trace_body.get("name"),
+        "session.id": trace_body.get("sessionId"),
+        "langfuse.trace.tags": trace_body.get("tags"),
+        "langfuse.environment": body.get("environment")
+        or trace_body.get("environment"),
+        "langfuse.observation.type": (
+            "generation" if event_type == "generation-create" else "span"
+        ),
+        "langfuse.observation.input": (
+            serialized_otel_value(body["input"])
+            if body.get("input") is not None
+            else None
+        ),
+        "langfuse.observation.output": (
+            serialized_otel_value(body["output"])
+            if body.get("output") is not None
+            else None
+        ),
+        "langfuse.observation.level": body.get("level"),
+        "langfuse.observation.status_message": body.get("statusMessage"),
+    }
+    attributes.update(
+        metadata_otel_attributes(
+            "langfuse.trace.metadata", trace_body.get("metadata") or {}
+        )
+    )
+    attributes.update(
+        metadata_otel_attributes(
+            "langfuse.observation.metadata", body.get("metadata") or {}
+        )
+    )
+    if event_type == "generation-create":
+        attributes["langfuse.observation.model.name"] = body.get("model")
+        if body.get("usageDetails") is not None:
+            attributes["langfuse.observation.usage_details"] = serialized_otel_value(
+                body["usageDetails"]
+            )
+    if not parent_id:
+        attributes["langfuse.internal.is_app_root"] = True
+
+    span = {
+        "traceId": trace_id,
+        "spanId": span_id,
+        "name": body.get("name") or "codex.unknown",
+        "kind": 1,
+        "startTimeUnixNano": unix_nanos(start_time),
+        "endTimeUnixNano": unix_nanos(end_time),
+        "attributes": otel_attributes(attributes),
+        "status": {
+            # statusMessage is already carried by the explicit Langfuse attribute.
+            # Do not duplicate a potentially large failure payload here.
+            "code": 2 if body.get("level") == "ERROR" else 1,
+        },
+        "flags": 1,
+    }
+    if parent_id:
+        span["parentSpanId"] = otel_id(parent_id, 8)
+    return span
+
+
+def otlp_payload(trace_body, events):
+    spans = [legacy_event_to_otel_span(event, trace_body) for event in events]
+    return {
+        "resourceSpans": [
+            {
+                "resource": {
+                    "attributes": otel_attributes(
+                        {
+                            "service.name": "doris-code-review",
+                            "langfuse.environment": trace_body.get("environment"),
+                        }
+                    )
+                },
+                "scopeSpans": [
+                    {
+                        "scope": {"name": "doris-litefuse-exporter", "version": "2"},
+                        "spans": spans,
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def otlp_span_count(payload):
+    return sum(
+        len(scope_spans.get("spans") or [])
+        for resource_spans in payload.get("resourceSpans") or []
+        for scope_spans in resource_spans.get("scopeSpans") or []
+    )
+
+
+def otlp_chunks(payload, max_payload_bytes, trace_body=None):
+    trace_body = trace_body or trace_body_from_payload(payload)
+    events = [
+        event
+        for event in payload.get("batch") or []
+        if event.get("type") in ("span-create", "generation-create")
+    ]
+    chunks = []
+
+    def add_chunk(candidate_events):
+        candidate_payload = otlp_payload(trace_body, candidate_events)
+        request_size = json_payload_bytes(candidate_payload)
+        if request_size <= max_payload_bytes:
+            chunks.append(
+                (
+                    {"batch": candidate_events},
+                    candidate_payload,
+                    request_size,
+                )
+            )
+            return
+        if len(candidate_events) > 1:
+            middle = len(candidate_events) // 2
+            add_chunk(candidate_events[:middle])
+            add_chunk(candidate_events[middle:])
+            return
+
+        event = candidate_events[0]
+        shrunk_event = shrink_event_for_payload(
+            event,
+            max_payload_bytes,
+            payload_bytes=lambda candidate: json_payload_bytes(
+                otlp_payload(trace_body, [candidate])
+            ),
+        )
+        shrunk_payload = otlp_payload(trace_body, [shrunk_event])
+        chunks.append(
+            (
+                {"batch": [shrunk_event]},
+                shrunk_payload,
+                json_payload_bytes(shrunk_payload),
+            )
+        )
+
+    if not events:
+        raise RuntimeError("Litefuse payload contains no spans for OTLP ingestion")
+    prechunk_limit = max(1_000, max_payload_bytes // 2)
+    # Bound multi-event OTLP encodes without truncating an individual event before
+    # add_chunk measures its encoded span against the full request limit.
+    for legacy_chunk, _legacy_size in chunk_payload(
+        {"batch": events}, prechunk_limit, shrink_oversized=False
+    ):
+        add_chunk(legacy_chunk["batch"])
+    return chunks
+
+
+def split_otlp_chunk(chunk, max_payload_bytes, trace_body):
+    events = chunk.get("batch") or []
+    if len(events) < 2:
+        raise RuntimeError("Cannot split an OTLP chunk with fewer than two spans")
+    middle = len(events) // 2
+    return otlp_chunks(
+        {"batch": events[:middle]}, max_payload_bytes, trace_body
+    ) + otlp_chunks(
+        {"batch": events[middle:]}, max_payload_bytes, trace_body
+    )
+
+
+def shrink_singleton_otlp_retry(
+    chunk, rejected_size, trace_body, attempt_count, retry_attempts
+):
+    event = (chunk.get("batch") or [])[0]
+    # Preserve a near-limit payload on the first rejection. If the server rejects
+    # it again, bisect the remaining reducible envelope instead of retrying one
+    # byte at a time. The last allowed retry uses the floor so a viable minimal
+    # span is attempted before the budget is exhausted.
+    if attempt_count == 1 and retry_attempts > 1:
+        return otlp_chunks(chunk, rejected_size - 1, trace_body)
+
+    def encoded_size(candidate):
+        return json_payload_bytes(otlp_payload(trace_body, [candidate]))
+
+    floor_event = shrink_event_for_payload(
+        event,
+        rejected_size,
+        payload_bytes=encoded_size,
+        minimize=True,
+    )
+    floor_size = encoded_size(floor_event)
+    if floor_size >= rejected_size:
+        raise RuntimeError(
+            "Litefuse OTLP singleton cannot be reduced below the rejected size: "
+            f"{rejected_size} bytes; name={(event.get('body') or {}).get('name')}"
+        )
+    next_limit = (
+        floor_size
+        if attempt_count == retry_attempts
+        else floor_size + (rejected_size - floor_size) // 2
+    )
+    return otlp_chunks(chunk, next_limit, trace_body)
 
 
 def post_payload_once(endpoint, public_key, secret_key, payload, timeout_seconds):
@@ -1134,44 +1448,34 @@ def post_payload_once(endpoint, public_key, secret_key, payload, timeout_seconds
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Basic {auth}",
+            "x-langfuse-ingestion-version": "4",
+            "x-langfuse-sdk-name": "doris-code-review",
+            "x-langfuse-sdk-version": "2",
         },
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
         body = response.read().decode()
         detail = json.loads(body) if body else {}
-        errors = detail.get("errors") if isinstance(detail, dict) else None
-        if errors:
-            raise RuntimeError(f"Litefuse ingestion returned errors: {json_attr(errors)}")
+        partial_success = (
+            detail.get("partialSuccess") or detail.get("partial_success") or {}
+            if isinstance(detail, dict)
+            else {}
+        )
+        rejected_spans = int(
+            partial_success.get("rejectedSpans")
+            or partial_success.get("rejected_spans")
+            or 0
+        )
+        if rejected_spans:
+            raise RuntimeError(
+                "Litefuse OTLP ingestion partially rejected "
+                f"{rejected_spans} spans: {json_attr(partial_success)}"
+            )
         return {
             "status": response.status,
-            "success_count": len(detail.get("successes") or [])
-            if isinstance(detail, dict)
-            else 0,
+            "success_count": otlp_span_count(payload),
         }
-
-
-def retry_payload_chunks_after_413(payload, request_size, max_payload_bytes):
-    batch = payload.get("batch") or []
-    if not batch:
-        raise RuntimeError(
-            "Litefuse ingestion returned 413 for an empty payload chunk"
-        )
-
-    next_limit = max(1_000, min(max_payload_bytes - 1, request_size // 2))
-    if len(batch) == 1:
-        event = shrink_event_for_payload(batch[0], next_limit)
-        return [({"batch": [event]}, json_payload_bytes({"batch": [event]}))]
-
-    return chunk_payload(payload, next_limit)
-
-
-def retry_payload_chunks_after_transport_error(payload, request_size, max_payload_bytes):
-    batch = payload.get("batch") or []
-    if len(batch) <= 1:
-        return [(payload, request_size)]
-    next_limit = max(1_000, min(max_payload_bytes - 1, request_size // 2))
-    return chunk_payload(payload, next_limit)
 
 
 def post_payload(
@@ -1189,38 +1493,88 @@ def post_payload(
     request_sizes = []
     payload_too_large_retry_count = 0
     transport_retry_count = 0
-    chunks = chunk_payload(payload, max_payload_bytes)
+    http_retry_count = 0
+    post_attempt_count = 0
+    singleton_413_attempts = {}
+    singleton_413_sources = {}
+    trace_body = trace_body_from_payload(payload)
+    chunks = otlp_chunks(payload, max_payload_bytes, trace_body)
     while chunks:
-        chunk, request_size = chunks.pop(0)
+        chunk, otlp_chunk, request_size = chunks.pop(0)
+        post_attempt_count += 1
         try:
             status = post_payload_once(
-                endpoint, public_key, secret_key, chunk, timeout_seconds
+                endpoint, public_key, secret_key, otlp_chunk, timeout_seconds
             )
         except urllib.error.HTTPError as exc:
+            if exc.code in OTLP_RETRYABLE_HTTP_STATUS_CODES:
+                http_retry_count += 1
+                if http_retry_count <= retry_attempts:
+                    time.sleep(retry_sleep_seconds)
+                    chunks.insert(0, (chunk, otlp_chunk, request_size))
+                    continue
+                error_body = exc.read().decode("utf-8", errors="replace")
+                raise RuntimeError(
+                    "Litefuse OTLP ingestion failed after HTTP retries: "
+                    f"HTTP {exc.code}: {truncate_text(error_body, 4_000)}"
+                ) from exc
             if exc.code != 413:
-                raise
+                error_body = exc.read().decode("utf-8", errors="replace")
+                raise RuntimeError(
+                    "Litefuse OTLP ingestion returned "
+                    f"HTTP {exc.code}: {truncate_text(error_body, 4_000)}"
+                ) from exc
             payload_too_large_retry_count += 1
-            chunks = (
-                retry_payload_chunks_after_413(
-                    chunk, request_size, max_payload_bytes
-                )
-                + chunks
+            chunk_events = chunk.get("batch") or []
+            if len(chunk_events) > 1:
+                chunks = split_otlp_chunk(
+                    chunk, max_payload_bytes, trace_body
+                ) + chunks
+                continue
+            event = chunk_events[0]
+            body = event.get("body") if isinstance(event.get("body"), dict) else {}
+            event_key = (
+                event.get("type"),
+                str(body.get("traceId") or ""),
+                str(body.get("id") or ""),
             )
+            singleton_413_sources.setdefault(event_key, chunk)
+            singleton_413_attempts[event_key] = (
+                singleton_413_attempts.get(event_key, 0) + 1
+            )
+            attempt_count = singleton_413_attempts[event_key]
+            if attempt_count > retry_attempts:
+                raise RuntimeError(
+                    "Litefuse OTLP singleton remained too large after "
+                    f"{retry_attempts} retries: {request_size} bytes; "
+                    f"observation_id={body.get('id')}"
+                ) from exc
+            chunks = shrink_singleton_otlp_retry(
+                singleton_413_sources[event_key],
+                request_size,
+                trace_body,
+                attempt_count,
+                retry_attempts,
+            ) + chunks
             continue
         except (TimeoutError, urllib.error.URLError) as exc:
             transport_retry_count += 1
             if transport_retry_count > retry_attempts:
                 raise RuntimeError(
-                    "Litefuse ingestion failed after transport retries: "
+                    "Litefuse OTLP ingestion failed after transport retries: "
                     f"{type(exc).__name__}: {exc}"
                 ) from exc
             time.sleep(retry_sleep_seconds)
-            chunks = (
-                retry_payload_chunks_after_transport_error(
-                    chunk, request_size, max_payload_bytes
+            chunk_events = chunk.get("batch") or []
+            if len(chunk_events) > 1:
+                chunks = split_otlp_chunk(
+                    chunk, max_payload_bytes, trace_body
+                ) + chunks
+            else:
+                chunks.insert(
+                    0,
+                    (chunk, otlp_chunk, request_size),
                 )
-                + chunks
-            )
             continue
         statuses.append(status["status"])
         success_count += int(status.get("success_count") or 0)
@@ -1228,48 +1582,83 @@ def post_payload(
     return {
         "statuses": statuses,
         "request_count": len(statuses),
+        "post_attempt_count": post_attempt_count,
         "request_sizes": request_sizes,
         "max_request_size": max(request_sizes) if request_sizes else 0,
         "payload_too_large_retries": payload_too_large_retry_count,
         "transport_retries": transport_retry_count,
+        "http_retries": http_retry_count,
         "success_count": success_count,
     }
 
 
-def fetch_trace(base_url, public_key, secret_key, trace_id):
+def verification_request_timeout(deadline):
+    if deadline is None:
+        return 30
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("Litefuse verification deadline exhausted")
+    return min(30, remaining)
+
+
+def fetch_trace(base_url, public_key, secret_key, trace_id, *, deadline=None):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
     request = urllib.request.Request(
         f"{base_url.rstrip('/')}/api/public/traces/{trace_id}",
         headers={"Authorization": f"Basic {auth}"},
         method="GET",
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(
+        request, timeout=verification_request_timeout(deadline)
+    ) as response:
         return json.loads(response.read().decode())
 
 
-def fetch_observations_v2(base_url, public_key, secret_key, trace_id):
+def fetch_observations_v2(
+    base_url, public_key, secret_key, trace_id, max_pages=10, *,
+    deadline=None, start_time=None, end_time=None,
+):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
     now = datetime.now(timezone.utc)
-    params = urllib.parse.urlencode(
-        {
-            "traceId": trace_id,
-            "fromStartTime": (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
-            "toStartTime": (now + timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
-            "fields": "core,basic,io,trace_context,model,usage",
-            "limit": "100",
-        }
+    query = {
+        "traceId": trace_id,
+        "fromStartTime": start_time or (
+            now - timedelta(hours=1)
+        ).isoformat().replace("+00:00", "Z"),
+        "toStartTime": end_time or (
+            now + timedelta(minutes=5)
+        ).isoformat().replace("+00:00", "Z"),
+        "fields": "core,basic,io,trace_context,model,usage",
+        "limit": "1000",
+    }
+    rows = []
+    cursor = ""
+    for _ in range(max_pages):
+        if cursor:
+            query["cursor"] = cursor
+        params = urllib.parse.urlencode(query)
+        request = urllib.request.Request(
+            f"{base_url.rstrip('/')}/api/public/v2/observations?{params}",
+            headers={"Authorization": f"Basic {auth}"},
+            method="GET",
+        )
+        with urllib.request.urlopen(
+            request, timeout=verification_request_timeout(deadline)
+        ) as response:
+            payload = json.loads(response.read().decode())
+        rows.extend(observation_rows_from_v2(payload))
+        meta = payload.get("meta") if isinstance(payload, dict) else {}
+        cursor = meta.get("cursor") if isinstance(meta, dict) else ""
+        if not cursor:
+            return {**payload, "data": rows}
+    raise RuntimeError(
+        "Litefuse v2 observations remained paginated after "
+        f"{max_pages} pages for trace {trace_id}"
     )
-    request = urllib.request.Request(
-        f"{base_url.rstrip('/')}/api/public/v2/observations?{params}",
-        headers={"Authorization": f"Basic {auth}"},
-        method="GET",
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.loads(response.read().decode())
 
 
 def fetch_observations_legacy(
-    base_url, public_key, secret_key, trace_id, max_pages=10
+    base_url, public_key, secret_key, trace_id, max_pages=10, *, deadline=None
 ):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
     limit = 100
@@ -1284,7 +1673,9 @@ def fetch_observations_legacy(
             headers={"Authorization": f"Basic {auth}"},
             method="GET",
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(
+            request, timeout=verification_request_timeout(deadline)
+        ) as response:
             payload = json.loads(response.read().decode())
         last_payload = payload if isinstance(payload, dict) else {}
         page_rows = observation_rows_from_v2(last_payload)
@@ -1341,158 +1732,248 @@ def context_events_readback_ok(input_object):
     return event_count == 0 and events_value in (None, "", {})
 
 
-def verify_trace(args, public_key, secret_key, trace_id):
-    last_diagnostic = {}
-    for _ in range(args.verify_attempts):
-        legacy_trace_error = ""
+def trace_verification_target(result, payload, *, subagent=False):
+    observations = [
+        event["body"]
+        for event in payload["batch"]
+        if event["type"] in ("span-create", "generation-create")
+    ]
+    start_times = [
+        datetime.fromisoformat(body["startTime"].replace("Z", "+00:00"))
+        for body in observations
+    ]
+    # Subagent sessions retain their original timestamps, including sessions
+    # older than the v2 reader's default one-hour window.
+    target = {
+        "result": result,
+        "subagent": subagent,
+        "start_time": (min(start_times) - timedelta(seconds=1)).isoformat(),
+        "end_time": (max(start_times) + timedelta(seconds=1)).isoformat(),
+    }
+    if subagent:
+        target["expected_io"] = {
+            otel_id(body["id"], 8): [
+                field for field in ("input", "output") if body.get(field) is not None
+            ]
+            for body in observations
+        }
+    return target
+
+
+def observation_has_expected_io(observation, target):
+    if not target["subagent"]:
+        return bool(observation.get("input") and observation.get("output"))
+    # Empty objects, lists and strings are legitimate session event payloads.
+    # Only require fields actually sent by the exporter (None is not exported).
+    fields = target["expected_io"].get(str(observation.get("id")), ())
+    return all(observation.get(field) is not None for field in fields)
+
+
+def inspect_trace(args, public_key, secret_key, target, deadline):
+    result = target["result"]
+    trace_id = result["trace_id"]
+    subagent = target["subagent"]
+    root_name = "codex.subagent.review" if subagent else "codex.review"
+    required_observation_count = max(
+        1 if subagent else args.min_observations, result["observation_count"]
+    )
+    legacy_trace_error = ""
+    try:
+        legacy_detail = fetch_trace(
+            args.base_url, public_key, secret_key, trace_id, deadline=deadline
+        )
+    except Exception as exc:
+        legacy_detail = {}
+        legacy_trace_error = type(exc).__name__
+    try:
+        observations_payload = fetch_observations_legacy(
+            args.base_url, public_key, secret_key, trace_id,
+            max_pages=max(10, required_observation_count // 100 + 1),
+            deadline=deadline,
+        )
+        observations = observation_rows_from_v2(observations_payload)
+        read_source = "legacy_observations"
+    except Exception as exc:
         try:
-            legacy_detail = fetch_trace(args.base_url, public_key, secret_key, trace_id)
-        except Exception as exc:
-            legacy_detail = {}
-            legacy_trace_error = type(exc).__name__
-        try:
-            observations_payload = fetch_observations_legacy(
-                args.base_url, public_key, secret_key, trace_id
+            observations_payload = fetch_observations_v2(
+                args.base_url, public_key, secret_key, trace_id,
+                max_pages=max(10, required_observation_count // 1000 + 1),
+                deadline=deadline,
+                start_time=target.get("start_time"),
+                end_time=target.get("end_time"),
             )
             observations = observation_rows_from_v2(observations_payload)
-            read_source = "legacy_observations"
-        except Exception as exc:
-            try:
-                observations_payload = fetch_observations_v2(
-                    args.base_url, public_key, secret_key, trace_id
-                )
-                observations = observation_rows_from_v2(observations_payload)
-                read_source = "v2_observations"
-            except Exception:
-                observations = legacy_detail.get("observations") or []
-                read_source = f"legacy_trace_fallback:{type(exc).__name__}"
-        observations_missing_io = [
-            observation
-            for observation in observations
-            if not (observation.get("input") and observation.get("output"))
-        ]
-        step_observations = [
-            observation
-            for observation in observations
-            if observation.get("name") not in ("codex.review", "codex.turn")
-        ]
-        agent_message_observations = [
-            observation
-            for observation in observations
-            if observation.get("name") == "codex.agent_message"
-        ]
-        agent_message_input_objects = [
-            observation_io_object(observation, "input")
-            for observation in agent_message_observations
-        ]
-        agent_message_input_keys = sorted(
-            {
-                key
-                for input_object in agent_message_input_objects
-                for key in input_object.keys()
-            }
-        )
-        agent_message_all_have_context_window = all(
-            bool(input_object.get("context_window"))
+            read_source = "v2_observations"
+        except Exception:
+            observations = legacy_detail.get("observations") or []
+            read_source = f"legacy_trace_fallback:{type(exc).__name__}"
+    observations_missing_io = [
+        observation
+        for observation in observations
+        if not observation_has_expected_io(observation, target)
+    ]
+    observation_ids = [
+        str(observation.get("id"))
+        for observation in observations
+        if observation.get("id")
+    ]
+    unique_observation_count = len(set(observation_ids))
+    observations_missing_id_count = len(observations) - len(observation_ids)
+    duplicate_observation_count = len(observation_ids) - unique_observation_count
+    step_observations = [
+        observation
+        for observation in observations
+        if observation.get("name") not in (root_name, "codex.turn")
+    ]
+    agent_message_observations = [
+        observation
+        for observation in observations
+        if observation.get("name") == "codex.agent_message"
+    ]
+    agent_message_input_objects = [
+        observation_io_object(observation, "input")
+        for observation in agent_message_observations
+    ]
+    agent_message_input_keys = sorted(
+        {
+            key
             for input_object in agent_message_input_objects
-        )
-        agent_message_all_have_context_events = all(
-            context_events_readback_ok(input_object)
-            for input_object in agent_message_input_objects
-        )
-        agent_message_with_previous_count = sum(
-            1
-            for input_object in agent_message_input_objects
-            if bool(input_object.get("previous_agent_message"))
-        )
-        agent_message_with_turn_input_count = sum(
-            1
-            for input_object in agent_message_input_objects
-            if bool(input_object.get("turn_input"))
-        )
-        agent_message_context_event_counts = [
-            (input_object.get("context_window") or {}).get("event_count", 0)
-            for input_object in agent_message_input_objects[:20]
-            if isinstance(input_object.get("context_window"), dict)
-        ]
-        agent_message_event_type_samples = [
-            context_event_types(
-                input_object.get("events_since_previous_agent_message")
-            )[:8]
-            for input_object in agent_message_input_objects[:5]
-        ]
-        agent_message_structure_ok = (
-            agent_message_all_have_context_window
-            and agent_message_all_have_context_events
-            and agent_message_with_turn_input_count == 1
-            and (
-                agent_message_with_previous_count
-                == max(len(agent_message_observations) - 1, 0)
-            )
-        )
-        root_observation = next(
-            (observation for observation in observations if observation.get("name") == "codex.review"),
-            {},
-        )
-        trace_input = legacy_detail.get("input") or root_observation.get("input")
-        trace_output = legacy_detail.get("output") or root_observation.get("output")
-        last_diagnostic = {
-            "read_source": read_source,
-            "legacy_trace_input": bool(legacy_detail.get("input")),
-            "legacy_trace_output": bool(legacy_detail.get("output")),
-            "legacy_trace_error": legacy_trace_error,
-            "trace_input": bool(trace_input),
-            "trace_output": bool(trace_output),
-            "observation_count": len(observations),
-            "step_observation_count": len(step_observations),
-            "agent_message_count": len(agent_message_observations),
-            "agent_message_input_keys": agent_message_input_keys,
-            "agent_message_all_have_context_window": agent_message_all_have_context_window,
-            "agent_message_all_have_context_events": agent_message_all_have_context_events,
-            "agent_message_with_previous_count": agent_message_with_previous_count,
-            "agent_message_with_turn_input_count": agent_message_with_turn_input_count,
-            "agent_message_context_event_counts": agent_message_context_event_counts,
-            "agent_message_event_type_samples": agent_message_event_type_samples,
-            "observations_missing_io": [
-                observation.get("name") for observation in observations_missing_io[:20]
-            ],
-            "observation_names": [observation.get("name") for observation in observations[:20]],
+            for key in input_object.keys()
         }
-        ok = all(
-            [
-                trace_input,
-                trace_output,
-                len(observations) >= args.min_observations,
-                len(step_observations) >= args.min_step_observations,
-                not observations_missing_io,
-                not agent_message_observations or agent_message_structure_ok,
-            ]
+    )
+    agent_message_all_have_context_window = all(
+        bool(input_object.get("context_window"))
+        for input_object in agent_message_input_objects
+    )
+    agent_message_all_have_context_events = all(
+        context_events_readback_ok(input_object)
+        for input_object in agent_message_input_objects
+    )
+    agent_message_with_previous_count = sum(
+        1
+        for input_object in agent_message_input_objects
+        if bool(input_object.get("previous_agent_message"))
+    )
+    agent_message_with_turn_input_count = sum(
+        1
+        for input_object in agent_message_input_objects
+        if bool(input_object.get("turn_input"))
+    )
+    agent_message_context_event_counts = [
+        (input_object.get("context_window") or {}).get("event_count", 0)
+        for input_object in agent_message_input_objects[:20]
+        if isinstance(input_object.get("context_window"), dict)
+    ]
+    agent_message_event_type_samples = [
+        context_event_types(
+            input_object.get("events_since_previous_agent_message")
+        )[:8]
+        for input_object in agent_message_input_objects[:5]
+    ]
+    agent_message_structure_ok = (
+        agent_message_all_have_context_window
+        and agent_message_all_have_context_events
+        and agent_message_with_turn_input_count == 1
+        and (
+            agent_message_with_previous_count
+            == max(len(agent_message_observations) - 1, 0)
         )
-        if ok:
-            return {
-                "trace_input": True,
-                "trace_output": True,
-                "read_source": read_source,
-                "observation_count": len(observations),
-                "step_observation_count": len(step_observations),
-                "agent_message_count": len(agent_message_observations),
-                "agent_message_input_keys": agent_message_input_keys,
-                "agent_message_all_have_context_window": agent_message_all_have_context_window,
-                "agent_message_all_have_context_events": agent_message_all_have_context_events,
-                "agent_message_with_previous_count": agent_message_with_previous_count,
-                "agent_message_with_turn_input_count": agent_message_with_turn_input_count,
-                "agent_message_context_event_counts": agent_message_context_event_counts,
-                "agent_message_event_type_samples": agent_message_event_type_samples,
-                "observations_missing_io": [],
-                "observation_names": [
-                    observation.get("name") for observation in observations[:20]
-                ],
-            }
-        time.sleep(args.verify_sleep_seconds)
+    )
+    root_observation = next(
+        (
+            observation for observation in observations
+            if observation.get("name") == root_name
+        ),
+        {},
+    )
+    trace_input = legacy_detail.get("input") or root_observation.get("input")
+    trace_output = legacy_detail.get("output") or root_observation.get("output")
+    expected_ids = set(target.get("expected_io", {}))
+    missing_expected_ids = sorted(expected_ids - set(observation_ids))
+    last_diagnostic = {
+        "read_source": read_source,
+        "root_observation": bool(root_observation),
+        "missing_expected_observation_count": len(missing_expected_ids),
+        "missing_expected_observation_ids": missing_expected_ids[:20],
+        "legacy_trace_input": bool(legacy_detail.get("input")),
+        "legacy_trace_output": bool(legacy_detail.get("output")),
+        "legacy_trace_error": legacy_trace_error,
+        "trace_input": bool(trace_input),
+        "trace_output": bool(trace_output),
+        "observation_count": len(observations),
+        "required_observation_count": required_observation_count,
+        "unique_observation_count": unique_observation_count,
+        "observations_missing_id_count": observations_missing_id_count,
+        "duplicate_observation_count": duplicate_observation_count,
+        "step_observation_count": len(step_observations),
+        "agent_message_count": len(agent_message_observations),
+        "agent_message_input_keys": agent_message_input_keys,
+        "agent_message_all_have_context_window": agent_message_all_have_context_window,
+        "agent_message_all_have_context_events": agent_message_all_have_context_events,
+        "agent_message_with_previous_count": agent_message_with_previous_count,
+        "agent_message_with_turn_input_count": agent_message_with_turn_input_count,
+        "agent_message_context_event_counts": agent_message_context_event_counts,
+        "agent_message_event_type_samples": agent_message_event_type_samples,
+        "observations_missing_io": [
+            observation.get("name") for observation in observations_missing_io[:20]
+        ],
+        "observation_names": [
+            observation.get("name") for observation in observations[:20]
+        ],
+    }
+    ok = all(
+        [
+            root_observation,
+            not missing_expected_ids,
+            trace_input,
+            trace_output,
+            unique_observation_count >= required_observation_count,
+            observations_missing_id_count == 0,
+            duplicate_observation_count == 0,
+            len(step_observations) >= (0 if subagent else args.min_step_observations),
+            not observations_missing_io,
+            not agent_message_observations or agent_message_structure_ok,
+        ]
+    )
+    return ok, last_diagnostic
+
+
+def verify_traces(args, public_key, secret_key, targets):
+    # All exported traces share polling rounds and one elapsed-time budget.
+    # Never restart the wait budget for each subagent.
+    deadline = time.monotonic() + args.verify_timeout_seconds
+    pending = list(targets)
+    for target in pending:
+        target["result"]["verification_diagnostic"] = {"read_source": "not_polled"}
+    for attempt in range(args.verify_attempts):
+        for target in pending:
+            if time.monotonic() >= deadline:
+                break
+            ok, diagnostic = inspect_trace(
+                args, public_key, secret_key, target, deadline
+            )
+            result = target["result"]
+            result["verification_diagnostic"] = diagnostic
+            if ok:
+                result["verified"] = diagnostic
+                del result["verification_diagnostic"]
+        pending = [
+            target for target in pending
+            if "verification_diagnostic" in target["result"]
+        ]
+        if not pending:
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or attempt + 1 == args.verify_attempts:
+            break
+        time.sleep(min(args.verify_sleep_seconds, remaining))
+    diagnostics = {
+        target["result"]["trace_id"]: target["result"]["verification_diagnostic"]
+        for target in pending
+    }
     raise RuntimeError(
-        "Litefuse trace "
-        f"{trace_id} did not expose multi-step I/O in time; "
-        f"last_diagnostic={json.dumps(last_diagnostic, sort_keys=True)}"
+        "Litefuse traces did not expose complete I/O in time; "
+        f"pending_traces={json.dumps(diagnostics, sort_keys=True)}"
     )
 
 
@@ -1529,6 +2010,10 @@ def parse_args():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verify-attempts", type=int, default=24)
     parser.add_argument("--verify-sleep-seconds", type=int, default=5)
+    parser.add_argument(
+        "--verify-timeout-seconds", type=int, default=120,
+        help="Shared elapsed-time budget for reading back all exported traces",
+    )
     parser.add_argument("--min-observations", type=int, default=3)
     parser.add_argument("--min-step-observations", type=int, default=1)
     return parser.parse_args()
@@ -1536,7 +2021,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    endpoint = args.endpoint or f"{args.base_url.rstrip('/')}/api/public/ingestion"
+    endpoint = args.endpoint or f"{args.base_url.rstrip('/')}/api/public/otel/v1/traces"
     if args.max_context_json_chars <= 0:
         args.max_context_json_chars = args.max_json_chars
 
@@ -1570,16 +2055,18 @@ def main():
     if args.dry_run:
         result["batch_count"] = len(payload["batch"])
         result["event_types"] = [event["type"] for event in payload["batch"][:10]]
-        chunks = chunk_payload(payload, args.max_payload_bytes)
+        chunks = otlp_chunks(payload, args.max_payload_bytes)
         result["request_count"] = len(chunks)
-        result["request_sizes"] = [request_size for _, request_size in chunks]
+        result["request_sizes"] = [request_size for _, _, request_size in chunks]
         result["max_request_size"] = (
             max(result["request_sizes"]) if result["request_sizes"] else 0
         )
         result["subagent_traces"] = []
         for subagent_payload in subagent_payloads:
-            chunks = chunk_payload(subagent_payload["payload"], args.max_payload_bytes)
-            request_sizes = [request_size for _chunk, request_size in chunks]
+            chunks = otlp_chunks(
+                subagent_payload["payload"], args.max_payload_bytes
+            )
+            request_sizes = [request_size for _chunk, _otel, request_size in chunks]
             result["subagent_traces"].append(
                 {
                     "trace_id": subagent_payload["trace_id"],
@@ -1634,8 +2121,17 @@ def main():
         )
 
     if args.verify:
+        targets = [trace_verification_target(result, payload)]
+        targets.extend(
+            trace_verification_target(
+                subagent_result, subagent_payload["payload"], subagent=True
+            )
+            for subagent_result, subagent_payload in zip(
+                result["subagent_traces"], subagent_payloads
+            )
+        )
         try:
-            result["verified"] = verify_trace(args, public_key, secret_key, trace_id)
+            verify_traces(args, public_key, secret_key, targets)
         except Exception as exc:
             result["verification_error"] = str(exc)
             print(json.dumps(result, sort_keys=True))

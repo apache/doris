@@ -28,9 +28,9 @@ import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.JavaConstantBinaryObjectInspector;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 
@@ -43,7 +43,7 @@ public class BitmapUDFTest {
     private BinaryObjectInspector inputOI0 = new JavaConstantBinaryObjectInspector(new byte[0]);
     private BinaryObjectInspector inputOI1 = new JavaConstantBinaryObjectInspector(new byte[0]);
 
-    @Before
+    @BeforeEach
     public void initData() throws IOException {
         BitmapValue bitmapValue0 = new BitmapValue();
         BitmapValue bitmapValue1 = new BitmapValue();
@@ -68,8 +68,8 @@ public class BitmapUDFTest {
         Object evaluate = bitmapAndUDF.evaluate(args);
         BitmapValue resultBitmap = BitmapValueUtil.deserializeToBitmap((byte[]) evaluate);
 
-        Assert.assertEquals(1, resultBitmap.cardinality());
-        Assert.assertEquals("{2}", resultBitmap.toString());
+        Assertions.assertEquals(1, resultBitmap.cardinality());
+        Assertions.assertEquals("{2}", resultBitmap.toString());
     }
 
     @Test
@@ -82,8 +82,8 @@ public class BitmapUDFTest {
         Object evaluate = bitmapOrUDF.evaluate(args);
         BitmapValue resultBitmap = BitmapValueUtil.deserializeToBitmap((byte[]) evaluate);
 
-        Assert.assertEquals(4, resultBitmap.cardinality());
-        Assert.assertEquals("{1,2,3,4}", resultBitmap.toString());
+        Assertions.assertEquals(4, resultBitmap.cardinality());
+        Assertions.assertEquals("{1,2,3,4}", resultBitmap.toString());
     }
 
     @Test
@@ -95,8 +95,8 @@ public class BitmapUDFTest {
         Object evaluate = bitmapXorUDF.evaluate(args);
         BitmapValue resultBitmap = BitmapValueUtil.deserializeToBitmap((byte[]) evaluate);
 
-        Assert.assertEquals(3, resultBitmap.cardinality());
-        Assert.assertEquals("{1,3,4}", resultBitmap.toString());
+        Assertions.assertEquals(3, resultBitmap.cardinality());
+        Assertions.assertEquals("{1,3,4}", resultBitmap.toString());
     }
 
     @Test
@@ -104,10 +104,10 @@ public class BitmapUDFTest {
         BitmapCountUDF bitmapCountUDF = new BitmapCountUDF();
         bitmapCountUDF.initialize(new ObjectInspector[] { inputOI0 });
         Object evaluate = bitmapCountUDF.evaluate(new GenericUDF.DeferredObject[] { new GenericUDF.DeferredJavaObject(bitmapValue0Bytes) });
-        Assert.assertEquals(2L, evaluate);
+        Assertions.assertEquals(2L, evaluate);
 
         bitmapCountUDF.initialize(new ObjectInspector[] { inputOI1 });
         Object evaluate1 = bitmapCountUDF.evaluate(new GenericUDF.DeferredObject[] { new GenericUDF.DeferredJavaObject(bitmapValue1Bytes) });
-        Assert.assertEquals(3L, evaluate1);
+        Assertions.assertEquals(3L, evaluate1);
     }
 }

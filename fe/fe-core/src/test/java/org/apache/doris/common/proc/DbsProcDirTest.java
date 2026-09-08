@@ -28,10 +28,10 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
@@ -50,13 +50,13 @@ public class DbsProcDirTest {
     //  | - db1
     //  | - db2
 
-    @Before
+    @BeforeEach
     public void setUp() {
         db1 = new Database(10000L, "db1");
         db2 = new Database(10001L, "db2");
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         env = null;
     }
@@ -66,43 +66,45 @@ public class DbsProcDirTest {
         DbsProcDir dir;
 
         dir = new DbsProcDir(env, catalog);
-        Assert.assertFalse(dir.register("db1", new BaseProcDir()));
+        Assertions.assertFalse(dir.register("db1", new BaseProcDir()));
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testLookupNormal() throws AnalysisException {
-        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
-        Mockito.when(catalog.getDbNullable("db1")).thenReturn(db1);
-        Mockito.when(catalog.getDbNullable("db2")).thenReturn(db2);
-        Mockito.when(catalog.getDbNullable("db3")).thenReturn(null);
-        Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(null);
-        Mockito.when(catalog.getDbNullable(db1.getId())).thenReturn(db1);
-        Mockito.when(catalog.getDbNullable(db2.getId())).thenReturn(db2);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable("db1")).thenReturn(db1);
+            Mockito.when(catalog.getDbNullable("db2")).thenReturn(db2);
+            Mockito.when(catalog.getDbNullable("db3")).thenReturn(null);
+            Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(null);
+            Mockito.when(catalog.getDbNullable(db1.getId())).thenReturn(db1);
+            Mockito.when(catalog.getDbNullable(db2.getId())).thenReturn(db2);
 
-        DbsProcDir dir;
-        ProcNodeInterface node;
+            DbsProcDir dir;
+            ProcNodeInterface node;
 
-        dir = new DbsProcDir(env, catalog);
-        try {
-            node = dir.lookup(String.valueOf(db1.getId()));
-            Assert.assertNotNull(node);
-            Assert.assertTrue(node instanceof TablesProcDir);
-        } catch (AnalysisException e) {
-            Assert.fail();
-        }
+            dir = new DbsProcDir(env, catalog);
+            try {
+                node = dir.lookup(String.valueOf(db1.getId()));
+                Assertions.assertNotNull(node);
+                Assertions.assertTrue(node instanceof TablesProcDir);
+            } catch (AnalysisException e) {
+                Assertions.fail();
+            }
 
-        dir = new DbsProcDir(env, catalog);
-        try {
-            node = dir.lookup(String.valueOf(db2.getId()));
-            Assert.assertNotNull(node);
-            Assert.assertTrue(node instanceof TablesProcDir);
-        } catch (AnalysisException e) {
-            Assert.fail();
-        }
+            dir = new DbsProcDir(env, catalog);
+            try {
+                node = dir.lookup(String.valueOf(db2.getId()));
+                Assertions.assertNotNull(node);
+                Assertions.assertTrue(node instanceof TablesProcDir);
+            } catch (AnalysisException e) {
+                Assertions.fail();
+            }
 
-        dir = new DbsProcDir(env, catalog);
-        node = dir.lookup("10002");
-        Assert.assertNull(node);
+            dir = new DbsProcDir(env, catalog);
+            node = dir.lookup("10002");
+            Assertions.assertNull(node);
+        });
     }
 
     @Test
@@ -144,10 +146,10 @@ public class DbsProcDirTest {
 
         dir = new DbsProcDir(env, catalog);
         result = dir.fetchResult();
-        Assert.assertNotNull(result);
-        Assert.assertTrue(result instanceof BaseProcResult);
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result instanceof BaseProcResult);
 
-        Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
+        Assertions.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
                 "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "RunningTransactionNum", "TransactionQuota",
                 "LastUpdateTime"), result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
@@ -155,7 +157,7 @@ public class DbsProcDirTest {
                 FeConstants.null_string, "0", "1073741824", "10", String.valueOf(Config.max_running_txn_num_per_db), FeConstants.null_string));
         rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "0.000 ", "8388608.000 TB",
                 FeConstants.null_string, "0", "1073741824", "20", String.valueOf(Config.max_running_txn_num_per_db), FeConstants.null_string));
-        Assert.assertEquals(rows, result.getRows());
+        Assertions.assertEquals(rows, result.getRows());
     }
 
     @Test
@@ -175,12 +177,12 @@ public class DbsProcDirTest {
 
         dir = new DbsProcDir(env, catalog);
         result = dir.fetchResult();
-        Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
+        Assertions.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
                 "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "RunningTransactionNum", "TransactionQuota",
                 "LastUpdateTime"),
                 result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
-        Assert.assertEquals(rows, result.getRows());
+        Assertions.assertEquals(rows, result.getRows());
     }
 
     @Test
@@ -196,10 +198,10 @@ public class DbsProcDirTest {
         DbsProcDir dbsProcDir = new DbsProcDir(env, ctlg);
         ProcResult procResult = dbsProcDir.fetchResult();
         List<List<String>> rows = procResult.getRows();
-        Assert.assertEquals(1, rows.size());
+        Assertions.assertEquals(1, rows.size());
         List<String> strings = rows.get(0);
-        Assert.assertEquals("3", strings.get(0));  // id
-        Assert.assertEquals("db1", strings.get(1)); // name
-        Assert.assertEquals("-1", strings.get(2)); // tableNum
+        Assertions.assertEquals("3", strings.get(0));  // id
+        Assertions.assertEquals("db1", strings.get(1)); // name
+        Assertions.assertEquals("-1", strings.get(2)); // tableNum
     }
 }

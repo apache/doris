@@ -96,6 +96,21 @@ public class ConfigBase {
         }
     }
 
+    static class PartitionInvertedIndexStorageFormatRolloutConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            confVal = confVal.trim();
+            if (!"true".equalsIgnoreCase(confVal) && !"false".equalsIgnoreCase(confVal)) {
+                throw new IllegalArgumentException("value must be true or false");
+            }
+            boolean enabled = Boolean.parseBoolean(confVal);
+            if (!enabled && field.getBoolean(null)) {
+                throw new IllegalStateException("can only be enabled and cannot be disabled");
+            }
+            setConfigField(field, confVal);
+        }
+    }
+
     private static String confFile;
     private static String customConfFile;
     public static Class<? extends ConfigBase> confClass;

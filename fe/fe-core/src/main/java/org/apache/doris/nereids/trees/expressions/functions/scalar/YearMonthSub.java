@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -43,6 +44,8 @@ public class YearMonthSub extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.WILDCARD)
                     .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(TimeStampNsType.INSTANCE)
+                    .args(TimeStampNsType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(TimeStampTzType.WILDCARD)
                     .args(TimeStampTzType.WILDCARD, VarcharType.SYSTEM_DEFAULT)
     );

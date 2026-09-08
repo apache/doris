@@ -362,7 +362,7 @@ public class Config extends ConfigBase {
     @ConfField(description = "Path to the FE TLS private key.")
     public static String tls_private_key_path = "";
 
-    @ConfField(description = "Password for the FE TLS private key.")
+    @ConfField(sensitive = true, description = "Password for the FE TLS private key.")
     public static String tls_private_key_password = "";
 
     @ConfField(description = "Path to the FE TLS CA certificate.")
@@ -393,7 +393,7 @@ public class Config extends ConfigBase {
     public static String key_store_path =  EnvUtils.getDorisHome()
             + "/conf/ssl/doris_ssl_certificate.keystore";
 
-    @ConfField(description = "The key store password of FE https service")
+    @ConfField(sensitive = true, description = "The key store password of FE https service")
     public static String key_store_password = "";
 
     @ConfField(description = "The key store type of FE https service")
@@ -976,6 +976,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int tablet_further_repair_max_times = 5;
+
+    /**
+     * row binlog replica missing marker timeout.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long tablet_binlog_missing_timeout_second = 20 * 60;
+
+    /**
+     * row binlog replica missing marker max times.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int tablet_binlog_missing_max_times = 5;
 
     /**
      * if tablet loaded txn failed recently, it will get higher priority to repair.
@@ -1999,8 +2011,10 @@ public class Config extends ConfigBase {
     /**
      * Max data version of backends serialize block.
      */
+    public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
+
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 13;
+    public static int max_be_exec_version = TIMESTAMP_NS_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
@@ -2368,13 +2382,13 @@ public class Config extends ConfigBase {
     /**
      * Password for default CA certificate file.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(sensitive = true, mutable = false, masterOnly = false)
     public static String mysql_ssl_default_ca_certificate_password = "doris";
 
     /**
      * Password for default CA certificate file.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(sensitive = true, mutable = false, masterOnly = false)
     public static String mysql_ssl_default_server_certificate_password = "doris";
 
     /**
@@ -2636,6 +2650,17 @@ public class Config extends ConfigBase {
     @ConfField(description = "Maximum number of connections for the Arrow Flight Server per FE.")
     public static int arrow_flight_max_connections = 4096;
 
+    @ConfField(mutable = true, description = "Arrow Flight SQL only. A query that scans an external table in "
+            + "batch mode keeps its FE coordinator alive after GetFlightInfo, so the BE can keep fetching splits "
+            + "while the client pulls the results (DoGet); that coordinator is normally released when the "
+            + "session runs its next query or is closed. Most Flight clients never close a session, so the "
+            + "coordinator, and with it the query's workload group queue slot and its active_queries entry, "
+            + "would otherwise stay held until wait_timeout. If the session stays idle for longer than this "
+            + "many seconds after the query started, the coordinator is released anyway. The bound is never "
+            + "shorter than the query's own execution timeout, and the session itself is not killed "
+            + "(wait_timeout still governs that). 0 disables the bound.")
+    public static int arrow_flight_deferred_query_idle_timeout_second = 3600;
+
     @ConfField(mutable = true, masterOnly = true, description = "In auto bucketing, the number of buckets is "
             + "estimated based on the partition size. For storage "
             + "and computing integration, a partition size of 5GB " + "is estimated as one bucket, but for cloud, a "
@@ -2755,7 +2780,8 @@ public class Config extends ConfigBase {
             + "BE in partition rebalance mode. If it is less than " + "this value, it will be diagnosed as balanced.")
     public static double diagnose_balance_max_tablet_num_ratio = 1.1;
 
-    @ConfField(masterOnly = true, description = "Set root user initial 2-staged SHA-1 encrypted password, default as "
+    @ConfField(sensitive = true, masterOnly = true, description = "Set root user initial 2-staged SHA-1 "
+            + "encrypted password, default as "
             + "'', means no root password. Subsequent `set password` operations for "
             + "root user will overwrite the initial root password. Example: If you "
             + "want to configure a plaintext password `root@123`.You can execute "
@@ -2896,6 +2922,12 @@ public class Config extends ConfigBase {
             callback = InvertedIndexStorageFormatValidator.RuntimeConfigHandler.class,
             description = "Default storage format of inverted index, the default value is V3.")
     public static String inverted_index_storage_format = "V3";
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = PartitionInvertedIndexStorageFormatRolloutConfHandler.class, description = "Whether to "
+            + "enable partition inverted-index storage format rollout, the "
+            + "default value is false.")
+    public static boolean enable_partition_inverted_index_storage_format_rollout = false;
 
     @ConfField(mutable = true, masterOnly = true, description = "Enable the 'delete predicate' for DELETE statements. "
             + "If enabled, it will enhance the performance of " + "DELETE statements, but partial column updates after "
@@ -3317,8 +3349,20 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_warm_up_timeout_second = 86400 * 30; // 30 days
 
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true,
+            callback = PositiveCloudWarmUpSchedulerIntervalConfHandler.class)
     public static int cloud_warm_up_job_scheduler_interval_millisecond = 1000; // 1 seconds
+
+    public static class PositiveCloudWarmUpSchedulerIntervalConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsedValue = Integer.parseInt(value.trim());
+            if (parsedValue <= 0) {
+                throw new ConfigException(field.getName() + " must be greater than 0");
+            }
+            field.setInt(null, parsedValue);
+        }
+    }
 
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
