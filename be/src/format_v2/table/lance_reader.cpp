@@ -30,6 +30,7 @@
 #include <memory>
 #include <unordered_set>
 
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
 #include "core/column/column_nullable.h"
@@ -802,6 +803,7 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
     if (lance_scanner_set_batch_size(scanner, static_cast<int64_t>(batch_size)) != 0) {
         return lance_error("set Lance scanner batch size");
     }
+    RETURN_IF_ERROR(_configure_scan_options(scanner));
 
     const auto& lance_params = range.table_format_params.lance_params;
     switch (_search_kind) {
@@ -817,6 +819,32 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
     }
     _scanner = scanner_guard.release();
     _scanner_batch_size = batch_size;
+    return Status::OK();
+}
+
+Status LanceTableReader::_configure_scan_options(LanceScanner* scanner) const {
+    DORIS_CHECK(scanner != nullptr);
+    // Doris runs multiple scanners concurrently. Limit each scanner's read-ahead;
+    // the I/O budget does not cap its total memory usage.
+    const auto io_buffer_size = static_cast<uint64_t>(config::lance_io_buffer_size_bytes);
+    const auto batch_readahead = static_cast<size_t>(config::lance_batch_readahead);
+    const auto fragment_readahead = static_cast<size_t>(config::lance_fragment_readahead);
+    constexpr bool scan_in_order = false;
+
+    if (lance_scanner_set_io_buffer_size(scanner, io_buffer_size) != 0) {
+        return lance_error("set Lance scanner I/O buffer size");
+    }
+    if (lance_scanner_set_batch_readahead(scanner, batch_readahead) != 0) {
+        return lance_error("set Lance scanner batch readahead");
+    }
+    if (lance_scanner_set_fragment_readahead(scanner, fragment_readahead) != 0) {
+        return lance_error("set Lance scanner fragment readahead");
+    }
+    // Storage order is not required; query ordering is enforced by Sort/TopN operators.
+    if (lance_scanner_set_scan_in_order(scanner, scan_in_order) != 0) {
+        return lance_error("set Lance scanner scan order");
+    }
+
     return Status::OK();
 }
 

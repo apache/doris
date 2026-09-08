@@ -118,6 +118,7 @@ suite("test_lance_runtime_filter_pushdown", "p0,external") {
         """
 
         sql "SET topn_lazy_materialization_threshold = 1024"
+        sql "SET enable_lance_lazy_materialization = true"
         explain {
             sql "verbose ${twoPhaseQuery}"
             contains "VMaterializeNode"
@@ -139,6 +140,7 @@ suite("test_lance_runtime_filter_pushdown", "p0,external") {
         """
 
         sql "SET topn_lazy_materialization_threshold = -1"
+        sql "SET enable_lance_lazy_materialization = false"
         sql "SET disable_join_reorder = true"
         explain {
             sql "verbose ${explicitJoinQuery}"

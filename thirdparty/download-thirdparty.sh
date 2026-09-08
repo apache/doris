@@ -729,6 +729,12 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
                 -p1 <"${TP_PATCH_DIR}/lance-c-0.1.9-pr-74.patch"
             touch "${PATCHED_MARK}"
         fi
+        # Also update source trees that already have PR #73 and PR #74 applied.
+        if [[ ! -f "${PATCHED_MARK}_pr_75_pr_78" ]]; then
+            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+                -p1 <"${TP_PATCH_DIR}/lance-c-0.1.9-pr-75-pr-78.patch"
+            touch "${PATCHED_MARK}_pr_75_pr_78"
+        fi
         cd -
     fi
     echo "Finished patching ${LANCE_C_SOURCE}"

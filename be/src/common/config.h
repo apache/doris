@@ -1257,6 +1257,13 @@ DECLARE_String(lance_data_cache_path);
 DECLARE_Int64(lance_data_cache_disk_capacity_bytes);
 DECLARE_Int64(lance_data_cache_read_block_size_bytes);
 
+// I/O buffering budget per Lance scanner, applied when a new scanner is created.
+DECLARE_mInt64(lance_io_buffer_size_bytes);
+
+// Read-ahead limits per Lance scanner, applied when a new scanner is created.
+DECLARE_mInt32(lance_batch_readahead);
+DECLARE_mInt32(lance_fragment_readahead);
+
 // block file cache
 DECLARE_Bool(enable_file_cache);
 DECLARE_mBool(enable_file_cache_write_from_s3_file_writer);
