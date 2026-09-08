@@ -168,6 +168,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.GroupJoinFusionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.RowStoreFetchChecker;
 import org.apache.doris.nereids.util.Utils;
@@ -3352,133 +3353,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         PhysicalHashJoin<?, ?> join = (PhysicalHashJoin<?, ?>) child;
 
-        // Only INNER_JOIN for V1
-        if (join.getJoinType() != JoinType.INNER_JOIN && !join.getJoinType().isCrossJoin()) {
-            return null;
-        }
-        // Not mark join
-        if (join.isMarkJoin()) {
-            return null;
-        }
-        // Not broadcast join
-        if (join.isBroadCastJoin()) {
-            return null;
-        }
-        // The fused GroupJoin operator matches rows purely by the equi-join key: it keeps
-        // per-key row counts and per-side aggregation states and has no per-pair filtering
-        // stage. A residual non-equi ON conjunct (e.g. l.v < r.v) can therefore not be
-        // evaluated by the fused operator — translating it here silently dropped the
-        // conjunct, over-expanded the join match set and corrupted the aggregates (the
-        // fused result matched the equi-key-only join). Keep such joins on the regular
-        // HashJoinNode + AggregationNode path, which evaluates other join conjuncts per
-        // matched pair.
-        if (!join.getOtherJoinConjuncts().isEmpty()) {
-            return null;
-        }
-
-        Aggregate<?> agg = (Aggregate<?>) aggregate;
-
-        // Group-by keys must be equivalent to hash-join keys
-        if (!isGroupKeyEquivalentToJoinKey(agg, join)) {
-            return null;
-        }
-        // Aggregate functions must not reference columns from both sides
-        if (!aggFunctionsSingleSide(agg, join)) {
-            return null;
-        }
-        // The fused GroupJoin operator evaluates aggregates over the probe/build rows of the
-        // join children, so every group-by key and aggregate argument must be a column that one
-        // of the join children directly produces. When Nereids hoists shared argument
-        // expressions (e.g. the implicit type-coercion casts reused by several two-arg
-        // aggregates like COVAR_SAMP/CORR) into a Project between the aggregate and the join,
-        // the aggregate reads that Project's freshly computed slots, which do not exist on
-        // either join child. Fusing through such a Project would translate those argument
-        // slots to null and abort fragment serialization with an NPE in GroupJoinNode.toThrift,
-        // so keep this shape on the regular AggregationNode + HashJoinNode path.
-        Set<Slot> joinChildrenOutputs = Sets.newHashSet();
-        joinChildrenOutputs.addAll(join.left().getOutputSet());
-        joinChildrenOutputs.addAll(join.right().getOutputSet());
-        if (!joinChildrenOutputs.containsAll(agg.getInputSlots())) {
-            return null;
-        }
-        // The fused GroupJoin operator requires at least one aggregate function: the BE
-        // group-join node validates `aggregate_functions` non-empty and the probe operator
-        // materializes aggregate values into the output tuple. An aggregate with only
-        // GROUP BY keys and no functions (e.g. SELECT DISTINCT over an INNER join) must
-        // stay on the regular AggregationNode + HashJoinNode path.
-        boolean hasAggregateFunction = agg.getOutputExpressions().stream()
-                .anyMatch(expr -> expr.containsType(AggregateExpression.class));
-        if (!hasAggregateFunction) {
+        // Full fusion eligibility (join shape + aggregate constraints) is decided by
+        // GroupJoinFusionUtils.alignedConjunctsForGroupJoin, the single source of truth shared
+        // with the AlignGroupJoinConjunctOrder post-processor that pre-aligns the child join's
+        // conjunct order with the group-by keys. The translator emits the join's conjuncts as
+        // they are, so fusion additionally requires the conjuncts to be listed in exactly the
+        // group-by order: the processor guarantees this for every eligible shape, and anything
+        // that is not aligned stays on the regular HashJoinNode + AggregationNode path.
+        List<Expression> alignedConjuncts = GroupJoinFusionUtils.alignedConjunctsForGroupJoin(
+                (Aggregate<?>) aggregate, join);
+        if (alignedConjuncts == null
+                || !GroupJoinFusionUtils.sameConjunctOrder(
+                        alignedConjuncts, join.getHashJoinConjuncts())) {
             return null;
         }
 
         // All checks passed — generate GroupJoinNode
-        return translateToGroupJoinNode(agg, join, context);
-    }
-
-    /** Check group-by expressions match equi-join keys. */
-    private boolean isGroupKeyEquivalentToJoinKey(
-            Aggregate<?> aggregate, PhysicalHashJoin<?, ?> join) {
-        List<Expression> groupByExprs = aggregate.getGroupByExpressions();
-        List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
-        if (groupByExprs.isEmpty() || hashJoinConjuncts.isEmpty()
-                || groupByExprs.size() != hashJoinConjuncts.size()) {
-            return false;
-        }
-        Set<Slot> groupBySlots = groupByExprs.stream()
-                .flatMap(e -> e.getInputSlots().stream())
-                .collect(Collectors.toSet());
-        Set<Slot> joinLeftSlots = new HashSet<>();
-        Set<Slot> joinRightSlots = new HashSet<>();
-        Set<Slot> leftOutput = join.left().getOutputSet();
-        Set<Slot> rightOutput = join.right().getOutputSet();
-        for (Expression conjunct : hashJoinConjuncts) {
-            if (!(conjunct instanceof EqualPredicate)) {
-                return false;
-            }
-            EqualPredicate eq = (EqualPredicate) conjunct;
-            Set<Slot> leftSide = eq.left().getInputSlots();
-            Set<Slot> rightSide = eq.right().getInputSlots();
-            if (leftOutput.containsAll(leftSide) && rightOutput.containsAll(rightSide)) {
-                joinLeftSlots.addAll(leftSide);
-                joinRightSlots.addAll(rightSide);
-            } else if (leftOutput.containsAll(rightSide) && rightOutput.containsAll(leftSide)) {
-                joinLeftSlots.addAll(rightSide);
-                joinRightSlots.addAll(leftSide);
-            } else {
-                return false;
-            }
-        }
-        return groupBySlots.equals(joinLeftSlots) || groupBySlots.equals(joinRightSlots);
-    }
-
-    /** Check no aggregate function references columns from both join sides. */
-    private boolean aggFunctionsSingleSide(
-            Aggregate<?> aggregate, PhysicalHashJoin<?, ?> join) {
-        Set<Slot> leftOutput = join.left().getOutputSet();
-        Set<Slot> rightOutput = join.right().getOutputSet();
-        for (NamedExpression outputExpr : aggregate.getOutputExpressions()) {
-            List<AggregateExpression> aggExprs = outputExpr
-                    .collect(AggregateExpression.class::isInstance).stream()
-                    .map(AggregateExpression.class::cast)
-                    .collect(Collectors.toList());
-            for (AggregateExpression aggExpr : aggExprs) {
-                Set<Slot> inputSlots = aggExpr.getInputSlots();
-                boolean hasLeft = false;
-                boolean hasRight = false;
-                for (Slot slot : inputSlots) {
-                    if (leftOutput.contains(slot)) {
-                        hasLeft = true;
-                    } else if (rightOutput.contains(slot)) {
-                        hasRight = true;
-                    }
-                }
-                if (hasLeft && hasRight) {
-                    return false;
-                }
-            }
-        }
-        return true;
+        return translateToGroupJoinNode((Aggregate<?>) aggregate, join, context);
     }
 
     /** Translate Aggregate(HashJoin) pattern into a GroupJoinNode fragment. */
