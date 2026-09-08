@@ -35,7 +35,7 @@ suite("test_compound_reader_fault_injection", "nonConcurrent") {
           DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
           PROPERTIES (
           "replication_allocation" = "tag.location.default: 1",
-          "inverted_index_storage_format" = "V1"
+          "inverted_index_storage_format" = "V2"
         );
       """
 

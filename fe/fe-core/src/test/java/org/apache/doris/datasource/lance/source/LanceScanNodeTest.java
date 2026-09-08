@@ -30,6 +30,7 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
@@ -92,6 +93,31 @@ public class LanceScanNodeTest {
         Assert.assertEquals(2, splits.size());
         assertSplit(splits.get(0), 7, 1000, 100);
         assertSplit(splits.get(1), 11, 1000, 100);
+    }
+
+    @Test
+    public void testCountSplitsPinVersionAndKeepFallbackRangesDisjoint() throws Exception {
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                new Schema(Collections.emptyList()),
+                Arrays.asList(
+                        new LanceFragmentInfo(7, 6000, 6001),
+                        new LanceFragmentInfo(11, 5000, 5001),
+                        new LanceFragmentInfo(13, 4000, 4001)),
+                Collections.emptyMap());
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.parallelExecInstanceNum = 1;
+        LanceScanNode node = newNode(sessionVariable);
+        setMetadata(node, metadata);
+        node.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        node.setPushDownCountSlotIds(Collections.emptyList());
+
+        List<Split> splits = node.getSplits(2);
+
+        Assert.assertEquals(2, splits.size());
+        assertCountRange(node, splits.get(0), Arrays.asList(7L, 13L), 10_000);
+        assertCountRange(node, splits.get(1), Collections.singletonList(11L), 5_000);
     }
 
     @Test
@@ -320,11 +346,15 @@ public class LanceScanNodeTest {
     }
 
     private static LanceScanNode newNode() {
+        return newNode(new SessionVariable());
+    }
+
+    private static LanceScanNode newNode(SessionVariable sessionVariable) {
         return new LanceScanNode(
                 new PlanNodeId(0),
                 new TupleDescriptor(new TupleId(0)),
                 false,
-                new SessionVariable(),
+                sessionVariable,
                 ScanContext.EMPTY);
     }
 
@@ -358,6 +388,20 @@ public class LanceScanNodeTest {
         Assert.assertEquals(Collections.singletonList(segmentUuid), lanceSplit.getIndexSegmentUuids());
         Assert.assertEquals(targetRows, lanceSplit.getTargetSplitSize().longValue());
         Assert.assertEquals(weight, lanceSplit.getSplitWeight().getRawValue());
+    }
+
+    private static void assertCountRange(
+            LanceScanNode node, Split split, List<Long> fragmentIds, long rowCount) {
+        LanceSplit lanceSplit = (LanceSplit) split;
+        Assert.assertEquals(fragmentIds, lanceSplit.getFragmentIds());
+        Assert.assertEquals(rowCount, lanceSplit.getTableLevelRowCount());
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        node.setScanParams(range, split);
+        Assert.assertEquals(42L, range.getTableFormatParams().getLanceParams().getVersion());
+        Assert.assertEquals(fragmentIds,
+                range.getTableFormatParams().getLanceParams().getFragmentIds());
+        Assert.assertEquals(rowCount, range.getTableFormatParams().getTableLevelRowCount());
     }
 
     private static Schema vectorSchema() {

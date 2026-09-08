@@ -17,11 +17,15 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.StreamLoadHandler;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -59,6 +63,17 @@ public class LoadActionTest {
         Thread.interrupted();
         org.apache.doris.qe.ConnectContext.remove();
         Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 1000;
+    }
+
+    @Test
+    public void testInheritLoadSelectionContextKeepsAdminWhenSourceIdentityIsNull() throws Exception {
+        ConnectContext source = new ConnectContext();
+        ConnectContext target = new ConnectContext();
+        target.setCurrentUserIdentity(UserIdentity.ADMIN);
+
+        invokeInheritLoadSelectionContext(source, target);
+
+        Assertions.assertSame(UserIdentity.ADMIN, target.getCurrentUserIdentity());
     }
 
     @Test
@@ -378,6 +393,29 @@ public class LoadActionTest {
     }
 
     @Test
+    public void testSelectCloudRedirectBackendIgnoresLoadSelection() throws Exception {
+        LoadAction loadAction = new LoadAction();
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getHeader("host")).thenReturn("fe-host:8030");
+        Mockito.when(request.getHeader(LoadAction.HEADER_REDIRECT_POLICY))
+                .thenReturn("random-be");
+        Backend backend = mockBackend("be-host", 8040, null);
+
+        try (MockedStatic<StreamLoadHandler> mockedStreamLoad = Mockito.mockStatic(StreamLoadHandler.class);
+                MockedStatic<BackendSelectionManager> mockedSelection =
+                        Mockito.mockStatic(BackendSelectionManager.class)) {
+            mockedStreamLoad.when(() -> StreamLoadHandler.selectBackend("cg1")).thenReturn(backend);
+
+            TNetworkAddress addr = invokeSelectCloudRedirectBackend(loadAction, request, "cg1", false, -1L, null);
+
+            Assertions.assertEquals("be-host", addr.getHostname());
+            Assertions.assertEquals(8040, addr.getPort());
+            mockedStreamLoad.verify(() -> StreamLoadHandler.selectBackend("cg1"));
+            mockedSelection.verifyNoInteractions();
+        }
+    }
+
+    @Test
     public void testSplitHostAndPortParsesIpv4() throws Exception {
         LoadAction loadAction = new LoadAction();
         org.apache.doris.common.Pair<String, Integer> result = invokeSplitHostAndPort(loadAction, "10.0.0.1:8040");
@@ -442,6 +480,13 @@ public class LoadActionTest {
         return method.invoke(loadAction, request, response, redirectAddr, isStreamLoad, dbName, tableName, label);
     }
 
+    private void invokeInheritLoadSelectionContext(ConnectContext source, ConnectContext target) throws Exception {
+        Method method = LoadAction.class.getDeclaredMethod(
+                "inheritLoadSelectionContext", ConnectContext.class, ConnectContext.class);
+        method.setAccessible(true);
+        method.invoke(null, source, target);
+    }
+
     private Object invokeCreateRedirectResponse(LoadAction loadAction, HttpServletRequest request,
             HttpServletResponse response, RedirectView redirectView, boolean isStreamLoad, String dbName,
             String tableName, String label) throws Exception {
@@ -482,6 +527,15 @@ public class LoadActionTest {
         Method method = LoadAction.class.getDeclaredMethod("getCloudClusterName", HttpServletRequest.class);
         method.setAccessible(true);
         return (String) method.invoke(loadAction, request);
+    }
+
+    private TNetworkAddress invokeSelectCloudRedirectBackend(LoadAction loadAction, HttpServletRequest request,
+            String clusterName, boolean groupCommit, long tableId, Backend preSelectedBackend) throws Exception {
+        Method method = LoadAction.class.getDeclaredMethod("selectCloudRedirectBackend",
+                String.class, HttpServletRequest.class, boolean.class, long.class, Backend.class);
+        method.setAccessible(true);
+        return (TNetworkAddress) method.invoke(loadAction, clusterName, request, groupCommit, tableId,
+                preSelectedBackend);
     }
 
     private TNetworkAddress invokeSelectEndpointByRedirectPolicy(LoadAction loadAction, HttpServletRequest request,

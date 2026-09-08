@@ -76,6 +76,11 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
                 db.getRemoteName(), remoteName);
     }
 
+    public List<LancePhysicalIndexEntry> loadIndexEntries() throws AnalysisException {
+        return ((LanceExternalCatalog) catalog).loadTableIndexEntries(
+                db.getRemoteName(), remoteName);
+    }
+
     private LanceTableMetadata loadMetadata(Optional<TableSnapshot> tableSnapshot) {
         return ((LanceExternalCatalog) catalog).loadTableMetadata(
                 db.getRemoteName(), remoteName, tableSnapshot);

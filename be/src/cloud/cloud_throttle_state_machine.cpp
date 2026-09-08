@@ -83,23 +83,26 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_upgrade(
         // Apply floor
         new_limit = std::max(new_limit, floor_qps);
 
-        // Only apply if it's actually limiting
-        if (new_limit < snapshot.current_qps || old_limit > 0) {
-            RpcThrottleAction action {
-                    .type = RpcThrottleAction::Type::SET_LIMIT,
-                    .rpc_type = snapshot.rpc_type,
-                    .table_id = snapshot.table_id,
-                    .qps_limit = new_limit,
-            };
-            actions.push_back(action);
-            record.changes[key] = {old_limit, new_limit};
-            _current_limits[key] = new_limit;
-
-            LOG(INFO) << "[ms-throttle] upgrade: rpc=" << load_related_rpc_name(snapshot.rpc_type)
-                      << ", table_id=" << snapshot.table_id
-                      << ", current_qps=" << snapshot.current_qps << ", old_limit=" << old_limit
-                      << ", new_limit=" << new_limit;
+        // An upgrade must make the effective limit stricter. For a table without an
+        // existing limit, its current QPS is the baseline.
+        const double baseline = old_limit > 0 ? old_limit : snapshot.current_qps;
+        if (new_limit >= baseline) {
+            continue;
         }
+
+        RpcThrottleAction action {
+                .type = RpcThrottleAction::Type::SET_LIMIT,
+                .rpc_type = snapshot.rpc_type,
+                .table_id = snapshot.table_id,
+                .qps_limit = new_limit,
+        };
+        actions.push_back(action);
+        record.changes[key] = {old_limit, new_limit};
+        _current_limits[key] = new_limit;
+
+        LOG(INFO) << "[ms-throttle] upgrade: rpc=" << load_related_rpc_name(snapshot.rpc_type)
+                  << ", table_id=" << snapshot.table_id << ", current_qps=" << snapshot.current_qps
+                  << ", old_limit=" << old_limit << ", new_limit=" << new_limit;
     }
 
     if (!record.changes.empty()) {
@@ -137,6 +140,7 @@ std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_downgrade() {
                     .rpc_type = rpc_type,
                     .table_id = table_id,
                     .qps_limit = old_limit,
+                    .reset_reservation = true,
             };
 
             actions.push_back(action);
@@ -189,6 +193,14 @@ RpcThrottleParams RpcThrottleStateMachine::get_params() const {
 
 // ============== RpcThrottleCoordinator ==============
 
+static void advance_tick_counter(int64_t& counter, int64_t ticks, int64_t stop_at) {
+    DCHECK_GE(ticks, 0);
+    if (counter < 0 || counter >= stop_at) {
+        return;
+    }
+    counter += std::min(ticks, stop_at - counter);
+}
+
 RpcThrottleCoordinator::RpcThrottleCoordinator(ThrottleCoordinatorParams params) : _params(params) {
     LOG(INFO) << "[ms-throttle] coordinator initialized: upgrade_cooldown_ticks="
               << params.upgrade_cooldown_ticks
@@ -221,22 +233,29 @@ bool RpcThrottleCoordinator::report_ms_busy() {
                   << ", cooldown=" << _params.upgrade_cooldown_ticks;
         return true; // Should trigger upgrade
     }
+
+    if (!_has_pending_upgrades) {
+        _ticks_since_last_ms_busy = -1;
+    }
     return false; // Cooling down
 }
 
-bool RpcThrottleCoordinator::tick(int ticks) {
+bool RpcThrottleCoordinator::tick(int64_t ticks) {
     std::lock_guard lock(_mtx);
 
-    // Increment tick counters
-    if (_ticks_since_last_ms_busy >= 0) {
-        _ticks_since_last_ms_busy += ticks;
-    }
-    if (_ticks_since_last_upgrade >= 0) {
-        _ticks_since_last_upgrade += ticks;
+    // The upgrade counter is needed even without pending history to preserve cooldown.
+    // Stop at the threshold because larger values do not change the decision.
+    advance_tick_counter(_ticks_since_last_upgrade, ticks, _params.upgrade_cooldown_ticks);
+
+    if (!_has_pending_upgrades) {
+        _ticks_since_last_ms_busy = -1;
+        return false;
     }
 
+    advance_tick_counter(_ticks_since_last_ms_busy, ticks, _params.downgrade_after_ticks);
+
     // Check if downgrade should be triggered
-    if (_has_pending_upgrades && _ticks_since_last_ms_busy >= _params.downgrade_after_ticks) {
+    if (_ticks_since_last_ms_busy >= _params.downgrade_after_ticks) {
         // Reset for next downgrade cycle
         auto actual_ticks = _ticks_since_last_ms_busy;
         _ticks_since_last_ms_busy = 0;
@@ -252,14 +271,17 @@ bool RpcThrottleCoordinator::tick(int ticks) {
 void RpcThrottleCoordinator::set_has_pending_upgrades(bool has) {
     std::lock_guard lock(_mtx);
     _has_pending_upgrades = has;
+    if (!has) {
+        _ticks_since_last_ms_busy = -1;
+    }
 }
 
-int RpcThrottleCoordinator::ticks_since_last_ms_busy() const {
+int64_t RpcThrottleCoordinator::ticks_since_last_ms_busy() const {
     std::lock_guard lock(_mtx);
     return _ticks_since_last_ms_busy;
 }
 
-int RpcThrottleCoordinator::ticks_since_last_upgrade() const {
+int64_t RpcThrottleCoordinator::ticks_since_last_upgrade() const {
     std::lock_guard lock(_mtx);
     return _ticks_since_last_upgrade;
 }

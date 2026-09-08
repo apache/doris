@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
@@ -61,7 +62,20 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
     }
 
     private boolean scanMatchShortCircuitCondition(LogicalOlapScan olapScan) {
-        if (!ConnectContext.get().getSessionVariable().isEnableShortCircuitQuery()) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (!connectContext.getSessionVariable().isEnableShortCircuitQuery()) {
+            return false;
+        }
+        // The short circuit produces no Arrow result at either end. PointQueryExecutor is not a
+        // Coordinator, and Coordinator/NereidsCoordinator are the only places that register a
+        // FlightSqlEndpointsLocation, so GetFlightInfo found none and failed the query with
+        // "no FlightSqlEndpointsLocations"; the BE side cannot be pointed at either, since the lookup rpc
+        // serializes with VMysqlResultWriter into PTabletKeyLookupResponse.row_batch and never creates the
+        // ArrowFlightResultBlockBuffer that fetch_arrow_flight_schema looks up. Keep Arrow Flight SQL on
+        // the normal execution path. This has to be decided here at plan time rather than when picking the
+        // executor: OlapScanNode.computeTabletInfo and several rewrite and property rules read
+        // StatementContext.isShortCircuitQuery() while building the plan. See #67368.
+        if (connectContext.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
             return false;
         }
         OlapTable olapTable = olapScan.getTable();
