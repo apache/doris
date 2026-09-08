@@ -20,8 +20,10 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <optional>
 #include <random>
 
 #include "common/bvars.h"
@@ -44,6 +46,26 @@
 using namespace std::chrono;
 
 namespace doris::cloud {
+
+bool try_append_txn_owner_candidate(TxnInfoPB* txn_info, int64_t tablet_id) {
+    txn_info->add_last_active_candidate_tablet_ids(tablet_id);
+    if (txn_info->ByteSizeLong() <= kTxnInfoOwnerMetadataSoftLimit) {
+        return true;
+    }
+    txn_info->mutable_last_active_candidate_tablet_ids()->RemoveLast();
+    return false;
+}
+
+bool try_append_txn_owner_result(TxnInfoPB* txn_info, int64_t tablet_id, int64_t epoch) {
+    txn_info->add_last_active_tablet_ids(tablet_id);
+    txn_info->add_last_active_epochs(epoch);
+    if (txn_info->ByteSizeLong() <= kTxnInfoOwnerMetadataSoftLimit) {
+        return true;
+    }
+    txn_info->mutable_last_active_tablet_ids()->RemoveLast();
+    txn_info->mutable_last_active_epochs()->RemoveLast();
+    return false;
+}
 
 void get_txn_db_id(TxnKv* txn_kv, const std::string& instance_id, int64_t txn_id,
                    MetaServiceCode& code, std::string& msg, int64_t* db_id, KVStats* stats);
@@ -213,7 +235,8 @@ void convert_tmp_rowsets(
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         std::map<int64_t, TabletIndexPB>& tablet_ids, bool is_versioned_write,
         bool is_versioned_read, Versionstamp versionstamp, ResourceManager* resource_mgr,
-        bool defer_deleting_pending_delete_bitmaps, int64_t commit_tso) {
+        bool defer_deleting_pending_delete_bitmaps, int64_t commit_tso,
+        const std::string& load_cluster_id, int64_t last_active_time_ms) {
     std::stringstream ss;
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -414,6 +437,7 @@ void convert_tmp_rowsets(
         stats.num_segs += tmp_rowset_pb.num_segments();
         stats.index_size += tmp_rowset_pb.index_disk_size();
         stats.segment_size += tmp_rowset_pb.data_disk_size();
+        stats.has_data_change |= rowset_has_data_change(tmp_rowset_pb);
 
         if (is_versioned_write) {
             // If this is a versioned write, we need to put the rowset with versionstamp
@@ -467,9 +491,24 @@ void convert_tmp_rowsets(
         update_tablet_stats(info, stats, txn, code, msg);
         if (code != MetaServiceCode::OK) return;
 
+        bool update_owner = !load_cluster_id.empty() && stats.has_data_change;
+        int64_t last_active_epoch =
+                is_versioned_write ? existing_versioned_stats[tablet_id].last_active_epoch() : 0;
+        if (update_owner) {
+            update_tablet_last_active_cluster(info, load_cluster_id, last_active_time_ms, txn, code,
+                                              msg, &last_active_epoch);
+            if (code != MetaServiceCode::OK) {
+                return;
+            }
+        }
+
         if (is_versioned_write) {
             TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
             merge_tablet_stats(stats_pb, stats);
+            if (update_owner) {
+                set_tablet_last_active_cluster(&stats_pb, load_cluster_id, last_active_time_ms,
+                                               last_active_epoch);
+            }
             std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
 
             // put with specified versionstamp
@@ -506,11 +545,13 @@ void convert_tmp_rowsets(
 
 void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, int64_t txn_id,
                                 std::shared_ptr<TxnKv> txn_kv, MetaServiceCode& code,
-                                std::string& msg, bool defer_deleting_pending_delete_bitmaps) {
+                                std::string& msg, bool defer_deleting_pending_delete_bitmaps,
+                                ResourceManager* resource_mgr) {
     // 1. visible txn info
     // 2. remove running key and put recycle txn key
 
     std::stringstream ss;
+    TEST_SYNC_POINT_CALLBACK("TxnLazyCommitTask::make_committed_txn_visible::before_create_txn");
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -547,6 +588,136 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
            (txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE));
 
     if (txn_info.status() == TxnStatusPB::TXN_STATUS_COMMITTED) {
+        std::vector<int64_t> candidate_tablet_ids(
+                txn_info.last_active_candidate_tablet_ids().begin(),
+                txn_info.last_active_candidate_tablet_ids().end());
+        std::ranges::sort(candidate_tablet_ids);
+        txn_info.clear_last_active_candidate_tablet_ids();
+        if (!candidate_tablet_ids.empty()) {
+            std::unordered_map<int64_t, TabletIndexPB> tablet_indexes;
+            if (txn_info.versioned_read()) {
+                CloneChainReader meta_reader(instance_id, txn_kv.get(), resource_mgr);
+                err = meta_reader.get_tablet_indexes(txn.get(), candidate_tablet_ids,
+                                                     &tablet_indexes);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format(
+                            "failed to get versioned tablet indexes for lazy owner result, "
+                            "txn_id={}, err={}",
+                            txn_id, err);
+                    return;
+                }
+            } else {
+                // A non-versioned instance has no versioned tablet-index documents. Read the
+                // single-version exact keys in bounded batches while retaining the same final
+                // transaction and its conflict ranges.
+                for (size_t begin = 0; begin < candidate_tablet_ids.size();
+                     begin += config::max_tablet_index_num_per_batch) {
+                    const size_t end = std::min(begin + config::max_tablet_index_num_per_batch,
+                                                candidate_tablet_ids.size());
+                    std::vector<std::string> index_keys;
+                    index_keys.reserve(end - begin);
+                    for (size_t i = begin; i < end; ++i) {
+                        index_keys.push_back(
+                                meta_tablet_idx_key({instance_id, candidate_tablet_ids[i]}));
+                    }
+                    std::vector<std::optional<std::string>> index_values;
+                    err = txn->batch_get(&index_values, index_keys);
+                    if (err != TxnErrorCode::TXN_OK) {
+                        code = cast_as<ErrCategory::READ>(err);
+                        msg = fmt::format(
+                                "failed to read tablet indexes for lazy owner result, txn_id={}, "
+                                "err={}",
+                                txn_id, err);
+                        return;
+                    }
+                    DCHECK_EQ(index_values.size(), end - begin);
+                    for (size_t i = begin; i < end; ++i) {
+                        if (!index_values[i - begin].has_value()) {
+                            continue;
+                        }
+                        TabletIndexPB index;
+                        if (!index.ParseFromString(*index_values[i - begin])) {
+                            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                            msg = fmt::format(
+                                    "malformed tablet index for lazy owner result, txn_id={}, "
+                                    "tablet_id={}",
+                                    txn_id, candidate_tablet_ids[i]);
+                            return;
+                        }
+                        tablet_indexes.emplace(candidate_tablet_ids[i], std::move(index));
+                    }
+                }
+            }
+            if (tablet_indexes.size() != candidate_tablet_ids.size()) {
+                code = MetaServiceCode::TABLET_NOT_FOUND;
+                msg = fmt::format(
+                        "failed to get all tablet indexes for lazy owner result, txn_id={}, "
+                        "expected={}, actual={}",
+                        txn_id, candidate_tablet_ids.size(), tablet_indexes.size());
+                return;
+            }
+            txn_info.clear_last_active_tablet_ids();
+            txn_info.clear_last_active_epochs();
+            bool owner_result_at_capacity = false;
+            for (size_t begin = 0; begin < candidate_tablet_ids.size();
+                 begin += config::max_tablet_index_num_per_batch) {
+                size_t end = std::min(begin + config::max_tablet_index_num_per_batch,
+                                      candidate_tablet_ids.size());
+                std::vector<std::string> stats_keys;
+                stats_keys.reserve(end - begin);
+                for (size_t i = begin; i < end; ++i) {
+                    int64_t tablet_id = candidate_tablet_ids[i];
+                    const auto& idx = tablet_indexes.at(tablet_id);
+                    stats_keys.push_back(
+                            stats_tablet_key({instance_id, idx.table_id(), idx.index_id(),
+                                              idx.partition_id(), tablet_id}));
+                }
+                std::vector<std::optional<std::string>> stats_values;
+                err = txn->batch_get(&stats_values, stats_keys);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format(
+                            "failed to read aggregate owners for lazy result, txn_id={}, err={}",
+                            txn_id, err);
+                    return;
+                }
+                DCHECK_EQ(stats_values.size(), end - begin);
+                for (size_t i = begin; i < end; ++i) {
+                    if (!stats_values[i - begin].has_value()) {
+                        code = MetaServiceCode::TABLET_NOT_FOUND;
+                        msg = fmt::format(
+                                "aggregate tablet stats missing for lazy result, txn_id={}, "
+                                "tablet_id={}",
+                                txn_id, candidate_tablet_ids[i]);
+                        return;
+                    }
+                    TabletStatsPB stats;
+                    if (!stats.ParseFromString(*stats_values[i - begin])) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        msg = fmt::format(
+                                "malformed aggregate owner for lazy result, txn_id={}, "
+                                "tablet_id={}",
+                                txn_id, candidate_tablet_ids[i]);
+                        return;
+                    }
+                    // A newer load may supersede this owner after its partition conversion. That
+                    // must not strand an already COMMITTED txn; omit the stale notification. The
+                    // timestamp binds the returned epoch to this transaction's durable result,
+                    // including when a later load comes from the same cluster.
+                    if (!has_valid_last_active_cluster(stats) ||
+                        stats.last_active_cluster_id() != txn_info.load_cluster_id() ||
+                        stats.last_active_time_ms() != txn_info.last_active_time_ms()) {
+                        continue;
+                    }
+                    if (!owner_result_at_capacity &&
+                        !try_append_txn_owner_result(&txn_info, candidate_tablet_ids[i],
+                                                     stats.last_active_epoch())) {
+                        owner_result_at_capacity = true;
+                    }
+                }
+            }
+        }
         txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
 
         if (!txn_info.SerializeToString(&info_val)) {
@@ -729,6 +900,8 @@ void TxnLazyCommitTask::commit() {
                 std::shuffle(partition_ids.begin(), partition_ids.end(), rng);
             }
 
+            const std::string load_cluster_id =
+                    txn_info.load_cluster_id_bound_by_writer() ? txn_info.load_cluster_id() : "";
             if (config::enable_cloud_parallel_txn_lazy_commit) {
                 SyncExecutor<std::pair<MetaServiceCode, std::string>> executor(
                         txn_lazy_committer_->parallel_commit_pool(),
@@ -738,7 +911,8 @@ void TxnLazyCommitTask::commit() {
                         return commit_partition(
                                 db_id, partition_id, partition_to_tmp_rowset_metas.at(partition_id),
                                 is_versioned_read, is_versioned_write,
-                                defer_deleting_pending_delete_bitmaps, txn_info.commit_tso());
+                                defer_deleting_pending_delete_bitmaps, txn_info.commit_tso(),
+                                load_cluster_id, txn_info.last_active_time_ms());
                     });
                 }
                 bool finished = false;
@@ -760,7 +934,8 @@ void TxnLazyCommitTask::commit() {
                     std::tie(code_, msg_) = commit_partition(
                             db_id, partition_id, partition_to_tmp_rowset_metas[partition_id],
                             is_versioned_read, is_versioned_write,
-                            defer_deleting_pending_delete_bitmaps, txn_info.commit_tso());
+                            defer_deleting_pending_delete_bitmaps, txn_info.commit_tso(),
+                            load_cluster_id, txn_info.last_active_time_ms());
                     if (code_ != MetaServiceCode::OK) break;
                 }
             }
@@ -770,7 +945,8 @@ void TxnLazyCommitTask::commit() {
                 break;
             }
             make_committed_txn_visible(instance_id_, db_id, txn_id_, txn_kv_, code_, msg_,
-                                       defer_deleting_pending_delete_bitmaps);
+                                       defer_deleting_pending_delete_bitmaps,
+                                       txn_lazy_committer_->resource_manager().get());
         } while (false);
     } while (code_ == MetaServiceCode::KV_TXN_CONFLICT &&
              retry_times++ < config::txn_store_retry_times);
@@ -780,7 +956,7 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::commit_partition(
         int64_t db_id, int64_t partition_id,
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowset_metas,
         bool is_versioned_read, bool is_versioned_write, bool defer_deleting_pending_delete_bitmaps,
-        int64_t commit_tso) {
+        int64_t commit_tso, const std::string& load_cluster_id, int64_t last_active_time_ms) {
     std::stringstream ss;
     CloneChainReader meta_reader(instance_id_, txn_kv_.get(),
                                  txn_lazy_committer_->resource_manager().get());
@@ -854,7 +1030,8 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::commit_partition(
                             sub_partition_tmp_rowset_metas, tablet_ids, is_versioned_write,
                             is_versioned_read, versionstamp,
                             txn_lazy_committer_->resource_manager().get(),
-                            defer_deleting_pending_delete_bitmaps, commit_tso);
+                            defer_deleting_pending_delete_bitmaps, commit_tso, load_cluster_id,
+                            last_active_time_ms);
         if (code != MetaServiceCode::OK) {
             return {code, msg};
         }

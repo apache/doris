@@ -21,6 +21,7 @@
 #include <bthread/mutex.h>
 #include <gen_cpp/cloud.pb.h>
 
+#include <cstddef>
 #include <memory>
 
 #include "common/simple_thread_pool.h"
@@ -29,6 +30,13 @@
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
+
+// Keep durable best-effort owner notifications below the FoundationDB value limit while leaving
+// headroom for protobuf envelope changes and transaction lifecycle fields.
+inline constexpr size_t kTxnInfoOwnerMetadataSoftLimit = 90'000;
+
+bool try_append_txn_owner_candidate(TxnInfoPB* txn_info, int64_t tablet_id);
+bool try_append_txn_owner_result(TxnInfoPB* txn_info, int64_t tablet_id, int64_t epoch);
 
 class TxnLazyCommitter;
 
@@ -53,8 +61,9 @@ private:
     std::pair<MetaServiceCode, std::string> commit_partition(
             int64_t db_id, int64_t partition_id,
             const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowset_metas,
-            bool is_versioned_write, bool is_versioned_read,
-            bool defer_deleting_pending_delete_bitmaps, int64_t commit_tso);
+            bool is_versioned_read, bool is_versioned_write,
+            bool defer_deleting_pending_delete_bitmaps, int64_t commit_tso,
+            const std::string& load_cluster_id, int64_t last_active_time_ms);
 
     std::string instance_id_;
     int64_t txn_id_;

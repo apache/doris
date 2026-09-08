@@ -19,6 +19,8 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <algorithm>
+#include <limits>
 #include <mutex>
 #include <regex>
 #include <sstream>
@@ -610,6 +612,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
     // create compute cluster, set it status normal as default value
     if (cluster.cluster.type() == ClusterPB::COMPUTE) {
         to_add_cluster->set_cluster_status(ClusterStatus::NORMAL);
+        to_add_cluster->set_cluster_status_mtime(time);
     }
     to_add_cluster->set_ctime(time);
     to_add_cluster->set_mtime(time);
@@ -899,17 +902,31 @@ std::string ResourceManager::update_cluster(
     if (!msg.empty()) {
         return msg;
     }
-    ClusterPB now = clusters[idx];
     auto now_time = std::chrono::system_clock::now();
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
-    now.set_mtime(time);
+    TEST_SYNC_POINT_CALLBACK("handle_set_cluster_status::cluster_status_mtime", &time);
+    if (original.has_mtime()) {
+        CHECK_GE(original.mtime(), 0);
+        CHECK_LT(original.mtime(), std::numeric_limits<int64_t>::max());
+        time = std::max(time, static_cast<uint64_t>(original.mtime()) + 1);
+    }
+    if (original.cluster_status() != clusters[idx].cluster_status()) {
+        if (original.has_cluster_status_mtime()) {
+            CHECK_GE(original.cluster_status_mtime(), 0);
+            CHECK_LT(original.cluster_status_mtime(), std::numeric_limits<int64_t>::max());
+            time = std::max(time, static_cast<uint64_t>(original.cluster_status_mtime()) + 1);
+        }
+        CHECK_LE(time, static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
+        clusters[idx].set_cluster_status_mtime(time);
+    }
+    clusters[idx].set_mtime(time);
     auto cluster_json_for_log = [](ClusterPB cluster) {
         mask_cluster_cloud_unique_ids(cluster);
         return proto_to_json(cluster);
     };
     LOG(INFO) << "before update cluster original: " << cluster_json_for_log(original)
-              << " after update now: " << cluster_json_for_log(now);
+              << " after update now: " << cluster_json_for_log(clusters[idx]);
 
     InstanceKeyInfo key_info {instance_id};
     std::string key;
