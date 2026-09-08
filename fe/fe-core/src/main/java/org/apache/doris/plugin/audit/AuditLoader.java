@@ -155,6 +155,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         // cs info
         appendField(logBuffer, event.clientIp);
         appendField(logBuffer, event.user);
+        appendField(logBuffer, event.authenticatedUser);
         appendField(logBuffer, event.feIp);
 
         // default ctl and db
