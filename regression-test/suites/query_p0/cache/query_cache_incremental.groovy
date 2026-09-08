@@ -20,14 +20,17 @@
 // delta rowsets since the cached version and merging them with the cached
 // partial aggregation blocks. Every query below is checked against the same
 // query with the cache disabled, so results stay verified even where
-// incremental merge falls back to a full recompute (e.g. cloud mode). On
-// local storage the suite additionally proves through the BE metrics that
-// the incremental path really fires: the early stale queries must increase
-// query_cache_stale_hit_total, and the two designed fallback phases (a
-// delete predicate in the delta, a merge-on-write backfill that rewrites
-// history) must increase query_cache_incremental_fallback_total. The final
-// phase covers a long-dormant entry whose first reuse faces a large,
-// many-rowset delta that goes through the parallel scanner builder.
+// incremental merge falls back to a full recompute (e.g. when the delta was
+// merged away by a compaction). The suite additionally proves through the BE
+// metrics that the incremental path really fires: the early stale queries
+// must increase query_cache_stale_hit_total, and the two designed fallback
+// phases (a delete predicate in the delta, a merge-on-write backfill that
+// rewrites history) must increase query_cache_incremental_fallback_total.
+// The final phase covers a long-dormant entry whose first reuse faces a
+// large, many-rowset delta that goes through the parallel scanner builder.
+// This holds in cloud mode too: the decision first brings the tablet view up
+// to the queried version (usually a no-op, the scan would sync anyway) and
+// then takes the same incremental path as local storage.
 suite("query_cache_incremental") {
     def querySql = """
         SELECT
@@ -72,16 +75,38 @@ suite("query_cache_incremental") {
         return total
     }
 
-    // Besides result consistency, prove on local storage that the stale entry
-    // was really merged incrementally (Mode::INCREMENTAL), not recomputed:
-    // only the incremental path increases query_cache_stale_hit_total, and no
+    // Besides result consistency, prove that the stale entry was really
+    // merged incrementally (Mode::INCREMENTAL), not recomputed: only the
+    // incremental path increases query_cache_stale_hit_total, and no
     // concurrent suite touches it because the session switch defaults to off.
-    // Cloud mode always falls back by design, so it only checks consistency.
-    // Residual caveat (here and in checkIncrementalFallback): a
-    // memory-pressure prune evicting the entry inside the tiny fill-to-assert
-    // window surfaces as a plain MISS and would fail the assertion; accepted
-    // as rare, and a rerun re-establishes the counters from fresh deltas.
+    // Compaction is kept out of the way in every mode: every table here sets
+    // disable_auto_compaction, so no background compaction can merge the delta
+    // away mid-window and turn the expected incremental hit into a fallback
+    // (this matters most on cloud, where compaction is driven externally).
+    //
+    // The stale_hit assertion runs on non-cloud only. Summed across BEs it is a
+    // deterministic INCREMENTAL signal solely when the fill and the reuse land
+    // on the same BE, which holds on the single-BE local cluster but not on
+    // multi-BE cloud. Two cloud channels flip it with no product-correctness
+    // meaning: a transient meta-service hiccup during the decision's view sync
+    // turns the expected stale hit into a full-recompute fallback (stale_hit
+    // stays flat, the fallback counter moves instead), and because the entry is
+    // BE-local a query routed to a BE that does not hold it recomputes in full
+    // there. A retry repairs neither: a fallback re-bases nothing, and a
+    // no-entry BE fills at the current version so its later runs are exact hits,
+    // never the stale hit. Cloud still exercises the whole incremental flow
+    // through checkConsistency (end-to-end result correctness on a real cloud
+    // cluster); that the cloud decision truly reaches Mode::INCREMENTAL is
+    // proven deterministically by the BE unit tests (QueryCacheCloudIncremental
+    // Test), which drive the cloud sync-then-capture path without cluster
+    // routing in play. A local memory-pressure prune evicting the entry inside
+    // the tiny fill-to-assert window is the one accepted residual (rare; a rerun
+    // re-establishes the counters).
     def checkStaleIncremental = { String sqlText ->
+        // On cloud the metric endpoints are not even sampled: a slow or briefly
+        // unreachable BE metrics port would hang or throw in sumBeMetric before
+        // a merely gated assertion, re-introducing the very topology-dependent
+        // flakiness this gate exists to remove (and the samples would go unused).
         if (isCloudMode()) {
             checkConsistency(sqlText)
             return
@@ -93,8 +118,17 @@ suite("query_cache_incremental") {
                 "expected a stale incremental cache hit, but query_cache_stale_hit_total stayed at ${before}")
     }
 
-    // Prove that a designed fallback phase really took the fallback path.
+    // Prove that a designed fallback phase really took the fallback path. Like the
+    // stale_hit assertion, the metric check is restricted to non-cloud: the entry
+    // is BE-local, so on a multi-BE cloud cluster the query can route to a BE that
+    // does not hold the stale entry, take a plain MISS (which is not a fallback,
+    // so the counter does not move), and spuriously fail. Cloud still verifies the
+    // fallback phase's result correctness through checkConsistency; that the cloud
+    // fallback classification itself fires is proven deterministically by the BE
+    // unit tests (QueryCacheCloudIncrementalTest.mow_history_rewrite_falls_back,
+    // fallback_on_sync_failure, and the delete-predicate/version-gap cases).
     def checkIncrementalFallback = { String sqlText ->
+        // Cloud skips the sampling too, for the same reason as above.
         if (isCloudMode()) {
             checkConsistency(sqlText)
             return
@@ -131,7 +165,8 @@ suite("query_cache_incremental") {
         DISTRIBUTED BY HASH(user_id) BUCKETS 3
         PROPERTIES
         (
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true"
         )
     """
 
@@ -168,13 +203,15 @@ suite("query_cache_incremental") {
             ('2026-01-13',${100 + i},'/inc',${10 * i})
         """
         if (i == 1) {
-            // The hot partition holds just two data rowsets here, far from
-            // both the merge-count threshold and any compaction, so on local
-            // storage this stale query must take the incremental path.
+            // The hot partition holds just two data rowsets here, well below
+            // the merge-count threshold, and auto-compaction is disabled on the
+            // table, so this stale query must take the incremental path on both
+            // deployment modes.
             checkStaleIncremental(querySql)
         } else {
-            // Later rounds may legitimately recompute in full (merge-count
-            // threshold, background compaction), so assert correctness only.
+            // Later rounds may legitimately recompute in full (the merge-count
+            // threshold forces one every query_cache_max_incremental_merge_count
+            // merges), so assert correctness only.
             checkConsistency(querySql)
         }
     }
@@ -215,7 +252,8 @@ suite("query_cache_incremental") {
         PROPERTIES
         (
             "replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "true"
+            "enable_unique_key_merge_on_write" = "true",
+            "disable_auto_compaction" = "true"
         )
     """
     def uniqueQuerySql = """
@@ -249,9 +287,11 @@ suite("query_cache_incremental") {
     // entry.
     sql "INSERT INTO test_query_cache_incremental_mow VALUES ('2026-01-01',1,100)"
     checkIncrementalFallback(uniqueQuerySql)
-    // After the re-base, pure appends take the incremental path again (not
-    // asserted through the metric: by now enough rowsets piled up that a
-    // background compaction could legitimately force a full recompute).
+    // After the re-base, pure appends take the incremental path again. Left as
+    // a correctness-only check (not metric-asserted): the earlier rounds already
+    // pin the incremental path through the metric on non-cloud, so repeating a
+    // stale_hit assertion here would add nothing while carrying the same cloud
+    // caveats that already make checkStaleIncremental result-only there.
     sql "INSERT INTO test_query_cache_incremental_mow VALUES ('2026-01-06',200,7)"
     checkConsistency(uniqueQuerySql)
     order_qt_mow_final "${uniqueQuerySql}"
@@ -285,7 +325,8 @@ suite("query_cache_incremental") {
         DISTRIBUTED BY HASH(user_id) BUCKETS 1
         PROPERTIES
         (
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true"
         )
     """
     def dormantQuerySql = """
@@ -312,10 +353,11 @@ suite("query_cache_incremental") {
         sql "INSERT INTO test_query_cache_incremental_dormant VALUES ${values}"
     }
     // The first query after the idle stretch must still take the incremental
-    // path on local storage and agree with the uncached result. The loads
-    // landed moments ago, so a boundary-crossing base compaction inside this
-    // window is as unlikely as in the first-round assertions above (an
-    // in-window cumulative compaction keeps the capture, and therefore the
-    // assertion, intact).
+    // path on both deployment modes and agree with the uncached result.
+    // Auto-compaction is disabled on the table, so the 30-rowset delta stays
+    // intact and no boundary-crossing compaction can turn this into a fallback.
+    // checkStaleIncremental asserts the stale_hit metric on non-cloud (where it
+    // is deterministic) and verifies result consistency on cloud, so no
+    // cluster-routing or transient-sync flake reaches this assertion.
     checkStaleIncremental(dormantQuerySql)
 }
