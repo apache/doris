@@ -159,7 +159,8 @@ Status SniiIndexColumnWriter::init() {
     _memory_reporter = std::make_unique<::doris::snii::writer::MemoryReporter>(
             ::doris::snii::writer::snii_build_consume_release(
                     ::doris::snii::writer::BuildMemoryPopulation::kRegistered),
-            spill_threshold, ::doris::snii::writer::MemoryReporter::CapPolicy::kSpillThreshold);
+            spill_threshold, ::doris::snii::writer::MemoryReporter::CapPolicy::kSpillThreshold,
+            static_cast<uint64_t>(config::snii_postings_workspace_bytes));
     _term_buffer = std::make_unique<::doris::snii::writer::SpimiTermBuffer>(
             _has_positions, spill_threshold, _memory_reporter.get());
     // G09: join the PROCESS-WIDE build-RAM limiter. The per-writer spill threshold above
@@ -174,10 +175,9 @@ Status SniiIndexColumnWriter::init() {
     // G09 anti-storm knobs (see the config comments): the forced-spill floor
     // gates both the owner-side honor (a request is a pending no-op until the
     // reclaimable arena regrows past it) and the limiter's victim eligibility,
-    // and the run-file cap merge-compacts a writer's spill runs so the final
-    // k-way merge's fd fan-in stays bounded. Applied unconditionally -- the
-    // floor also protects test-seam requests, and the cap also bounds
-    // per-writer gate-2 runs when the global limiter is off.
+    // and the run-file knob additionally caps merge fan-in. Spill ranges share
+    // one append-only spool, avoiding repeated prefix rewrites. Both the workspace
+    // and fd limits still apply when this optional fan-in cap is disabled.
     _term_buffer->set_forced_spill_min_arena_bytes(
             static_cast<uint64_t>(std::max<int64_t>(config::snii_forced_spill_min_arena_bytes, 0)));
     _term_buffer->set_max_run_files(
