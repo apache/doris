@@ -154,7 +154,8 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------PhysicalOlapScan[t_gbykey_10_dstkey_10_1000_id]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalOlapScan[t_gbykey_10_dstkey_10_1000_id]
 
 -- !agg_distinct_with_gby_key_with_other_func --
 PhysicalResultSink
@@ -356,8 +357,11 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------hashAgg[GLOBAL]
-----------hashAgg[GLOBAL]
-------------PhysicalOlapScan[t_gbykey_10_dstkey_10_1000_id]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalOlapScan[t_gbykey_10_dstkey_10_1000_id]
 
 -- !agg_distinct_satisfy_dst_key --
 PhysicalResultSink
@@ -368,7 +372,8 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------PhysicalOlapScan[t_gbykey_10_dstkey_10_1000_id]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalOlapScan[t_gbykey_10_dstkey_10_1000_id]
 
 -- !agg_distinct_with_gby_key_with_other_func --
 PhysicalResultSink
@@ -389,8 +394,10 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------hashAgg[DISTINCT_GLOBAL]
-----------hashAgg[GLOBAL]
-------------PhysicalOlapScan[t_gbykey_10_dstkey_10_1000_id]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------PhysicalOlapScan[t_gbykey_10_dstkey_10_1000_id]
 
 -- !agg_distinct_without_gby_key --
 PhysicalResultSink
@@ -542,7 +549,8 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------PhysicalOlapScan[t_gbykey_2_dstkey_10_30_id]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalOlapScan[t_gbykey_2_dstkey_10_30_id]
 
 -- !agg_distinct_with_gby_key_with_other_func_low_ndv --
 PhysicalResultSink
@@ -680,8 +688,12 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------hashAgg[GLOBAL]
-----------hashAgg[GLOBAL]
-------------PhysicalOlapScan[t_gbykey_2_dstkey_10_30_id]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[LOCAL]
+--------------------PhysicalOlapScan[t_gbykey_2_dstkey_10_30_id]
 
 -- !agg_distinct_satisfy_dst_key_low_ndv --
 PhysicalResultSink
@@ -692,7 +704,9 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------PhysicalOlapScan[t_gbykey_2_dstkey_10_30_id]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[LOCAL]
+--------------------PhysicalOlapScan[t_gbykey_2_dstkey_10_30_id]
 
 -- !agg_distinct_with_gby_key_with_other_func_low_ndv --
 PhysicalResultSink
@@ -713,8 +727,12 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------hashAgg[DISTINCT_GLOBAL]
-----------hashAgg[GLOBAL]
-------------PhysicalOlapScan[t_gbykey_2_dstkey_10_30_id]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[DISTINCT_LOCAL]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[LOCAL]
+--------------------PhysicalOlapScan[t_gbykey_2_dstkey_10_30_id]
 
 -- !agg_distinct_without_gby_key_low_ndv --
 PhysicalResultSink
@@ -842,9 +860,10 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[GLOBAL]
-------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((lineitem_left.l_orderkey = orders_left.o_orderkey)) otherCondition=()
---------------PhysicalOlapScan[lineitem_left]
---------------PhysicalOlapScan[orders_left]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((lineitem_left.l_orderkey = orders_left.o_orderkey)) otherCondition=()
+----------------PhysicalOlapScan[lineitem_left]
+----------------PhysicalOlapScan[orders_left]
 
 -- !agg_recieve_hash_request --
 2024-01-02	1	2024-01-02	1

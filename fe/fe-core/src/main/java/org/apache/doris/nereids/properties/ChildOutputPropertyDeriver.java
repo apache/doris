@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
-import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -197,11 +196,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 // the output is NOT hash-distributed (256-bucket internal hash is
                 // not shuffle-compatible). Advertise ANY to prevent parent operators
                 // from incorrectly skipping exchanges.
-                if (agg.getAggPhase().isGlobal()
-                        && agg.getAggMode() == AggMode.INPUT_TO_RESULT
-                        && AggregateUtils.isBucketedHashAggEnabled(
-                            agg.getGroupByExpressions().size())
-                        && isShuffleCompatible(childOutputProperty.getDistributionSpec())) {
+                if (isBucketedFusionRequest(childOutputProperty.getDistributionSpec())
+                        && AggregateUtils.isFullyFinalizedOnePhaseAgg(agg)
+                        && AggregateUtils.isBucketedHashAggEnabled(agg.getGroupByExpressions().size())) {
                     return PhysicalProperties.ANY;
                 }
                 return new PhysicalProperties(childOutputProperty.getDistributionSpec());
@@ -210,18 +207,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         }
     }
 
-    /**
-     * Returns true if the child's distribution is a shuffle-compatible hash that the
-     * bucketed fusion pattern produces (ShuffleType.REQUIRE).  EXECUTION_BUCKETED is
-     * used by CTE dedup and colocate-join patterns — those should NOT be treated as
-     * bucketed-fusion output because their hash functions ARE shuffle-compatible.
-     */
-    private static boolean isShuffleCompatible(DistributionSpec distSpec) {
-        if (!(distSpec instanceof DistributionSpecHash)) {
-            return false;
-        }
-        DistributionSpecHash hashSpec = (DistributionSpecHash) distSpec;
-        return hashSpec.getShuffleType() == ShuffleType.REQUIRE;
+    /** Whether the memo property represents the exchange that bucketed translation may remove. */
+    private static boolean isBucketedFusionRequest(DistributionSpec distSpec) {
+        return distSpec instanceof DistributionSpecHash
+                && ((DistributionSpecHash) distSpec).getShuffleType() == ShuffleType.REQUIRE;
     }
 
     @Override

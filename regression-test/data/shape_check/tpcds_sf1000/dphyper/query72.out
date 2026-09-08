@@ -51,4 +51,3 @@ PhysicalResultSink
 ------------------------PhysicalOlapScan[promotion]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[catalog_returns]
-
