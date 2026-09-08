@@ -153,13 +153,13 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
 
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
        pick_input_rowsets_notready_keeps_latest_versions) {
-    auto base_rowset = create_rowset(Version(0, 1), 1, false, kGiB);
+    auto base_rowset = create_rowset(Version(0, 1), 1, false, 1024 * 1024 * 1024);
     ASSERT_NE(nullptr, base_rowset);
     ASSERT_TRUE(_tablet_meta->add_rs_meta(base_rowset->rowset_meta()).ok());
 
     std::vector<RowsetSharedPtr> candidate_rowsets;
     for (int64_t version = 2; version <= 20; ++version) {
-        auto rowset = create_rowset(Version(version, version), 1, true, kMiB);
+        auto rowset = create_rowset(Version(version, version), 1, true, 1024 * 1024);
         ASSERT_NE(nullptr, rowset);
         ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset->rowset_meta()).ok());
         candidate_rowsets.push_back(rowset);
@@ -167,7 +167,7 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
 
     CloudTablet tablet(_engine, _tablet_meta);
     ASSERT_TRUE(tablet.set_tablet_state(TABLET_NOTREADY).ok());
-    tablet._base_size = kGiB;
+    tablet._base_size = 1024L * 1024 * 1024;
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};

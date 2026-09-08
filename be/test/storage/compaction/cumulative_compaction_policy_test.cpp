@@ -481,14 +481,14 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_notready_keep
 
     RowsetMetaSharedPtr base_rowset(new RowsetMeta());
     init_rs_meta(base_rowset, 0, 1);
-    base_rowset->set_total_disk_size(kGiB);
+    base_rowset->set_total_disk_size(1024L * 1024 * 1024);
     base_rowset->set_segments_overlap(NONOVERLAPPING);
     rs_metas.push_back(base_rowset);
 
     for (int64_t version = 2; version <= 20; ++version) {
         RowsetMetaSharedPtr rowset(new RowsetMeta());
         init_rs_meta(rowset, version, version);
-        rowset->set_total_disk_size(kMiB);
+        rowset->set_total_disk_size(1 * 1024 * 1024);
         rowset->set_num_segments(1);
         rowset->set_segments_overlap(OVERLAPPING);
         rs_metas.push_back(rowset);
