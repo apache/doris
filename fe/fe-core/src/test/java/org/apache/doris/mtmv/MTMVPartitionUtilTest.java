@@ -225,8 +225,8 @@ public class MTMVPartitionUtilTest {
         Assertions.assertTrue(name.length() <= 50);
         // repeated generation must produce the identical name (no time-based suffix)
         for (int i = 0; i < 10; i++) {
-            Assertions.assertEquals("partition name must be deterministic", name,
-                    MTMVPartitionUtil.generatePartitionName(tzDesc));
+            Assertions.assertEquals(name, MTMVPartitionUtil.generatePartitionName(tzDesc),
+                    "partition name must be deterministic");
         }
         // two different descs must not collide
         PartitionKeyDesc tzDesc2 = PartitionKeyDesc.createFixed(
