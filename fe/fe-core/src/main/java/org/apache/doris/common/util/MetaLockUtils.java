@@ -132,8 +132,9 @@ public class MetaLockUtils {
                 tableList.get(i).commitLock();
             } catch (Exception e) {
                 for (int j = i - 1; j >= 0; j--) {
-                    tableList.get(i).commitUnlock();
+                    tableList.get(j).commitUnlock();
                 }
+                throw e;
             }
         }
     }
