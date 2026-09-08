@@ -2395,6 +2395,13 @@ public class Env {
         MetaReader.read(curFile, this);
     }
 
+    // Load the unpublished checkpoint directly, without selecting the latest published image.
+    public void loadImage(File imageFile, long imageVersion) throws IOException, DdlException {
+        getClusterIdFromStorage(new Storage(imageFile.getParent()));
+        replayedJournalId.set(imageVersion);
+        MetaReader.read(imageFile, this);
+    }
+
     public long loadHeader(DataInputStream dis, MetaHeader metaHeader, long checksum) throws IOException, DdlException {
         switch (metaHeader.getMetaFormat()) {
             case COR1:
@@ -2768,21 +2775,12 @@ public class Env {
     }
 
     // Only called by checkpoint thread
-    // return the latest image file's absolute path
-    public String saveImage() throws IOException {
+    // Return the unpublished image's absolute path. Checkpoint publishes it after validation.
+    public String saveCheckpointImage() throws IOException {
         // Write image.ckpt
-        Storage storage = new Storage(this.imageDir);
-        File curFile = storage.getImageFile(replayedJournalId.get());
         File ckpt = new File(this.imageDir, Storage.IMAGE_NEW);
         saveImage(ckpt, replayedJournalId.get());
-
-        // Move image.ckpt to image.dataVersion
-        LOG.info("Move " + ckpt.getAbsolutePath() + " to " + curFile.getAbsolutePath());
-        if (!ckpt.renameTo(curFile)) {
-            curFile.delete();
-            throw new IOException();
-        }
-        return curFile.getAbsolutePath();
+        return ckpt.getAbsolutePath();
     }
 
     public void saveImage(File curFile, long replayedJournalId) throws IOException {

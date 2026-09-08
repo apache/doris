@@ -67,8 +67,6 @@ import java.util.List;
 public class MetaWriter {
     private static final Logger LOG = LogManager.getLogger(MetaWriter.class);
 
-    public static MetaWriter writer = new MetaWriter();
-
     private interface Delegate {
         long doWork(String name, WriteMethod method) throws IOException;
     }
@@ -94,7 +92,8 @@ public class MetaWriter {
     }
 
     public static void write(File imageFile, Env env) throws IOException {
-        // save image does not need any lock. because only checkpoint thread will call this method.
+        // Checkpoint and /dump can write different images concurrently. Keep their indices isolated.
+        MetaWriter writer = new MetaWriter();
         LOG.info("start to save image to {}. is ckpt: {}",
                 imageFile.getAbsolutePath(), Env.isCheckpointThread());
         final Reference<Long> checksum = new Reference<>(0L);
