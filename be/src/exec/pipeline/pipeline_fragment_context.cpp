@@ -209,13 +209,16 @@ bool PipelineFragmentContext::notify_close() {
 // cancellation bidirectional and allow every task closed with the query error to repeat the whole
 // fragment's timeout diagnostics and dependency-unblocking work.
 void PipelineFragmentContext::cancel(const Status reason) {
+    if (notify_close()) {
+        return;
+    }
+    if (!_cancel_status.update(reason)) {
+        return;
+    }
     LOG_INFO("PipelineFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
             .tag("reason", reason.to_string());
-    if (notify_close()) {
-        return;
-    }
     // Timeout is a special error code, we need print current stack to debug timeout issue.
     if (reason.is<ErrorCode::TIMEOUT>()) {
         auto dbg_str = fmt::format("PipelineFragmentContext is cancelled due to timeout:\n{}",
