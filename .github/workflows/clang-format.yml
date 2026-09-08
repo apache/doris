@@ -31,6 +31,9 @@ jobs:
   clang-format:
     name: "Clang Formatter"
     runs-on: ubuntu-latest
+    concurrency:
+      group: code-formatter-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
     if: github.event_name == 'pull_request'
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
