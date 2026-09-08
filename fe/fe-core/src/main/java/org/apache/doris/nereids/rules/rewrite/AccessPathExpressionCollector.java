@@ -74,6 +74,7 @@ import com.google.common.collect.Multimap;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -148,7 +149,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             return null;
         }
         if (dataType instanceof NestedColumnPrunable) {
-            context.accessPathBuilder.addPrefix(slotReference.getName().toLowerCase());
+            context.accessPathBuilder.addPrefix(slotReference.getName().toLowerCase(Locale.ROOT));
             ImmutableList<String> path = Utils.fastToImmutableList(context.accessPathBuilder.accessPath);
             int slotId = slotReference.getExprId().asInt();
             slotToAccessPaths.put(slotId, new CollectAccessPathResult(path, context.bottomFilter, context.type));
@@ -359,7 +360,8 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                         return continueCollectAccessPath(first, context);
                     }
                 }
-                context.accessPathBuilder.addPrefix(((Literal) fieldName).getStringValue().toLowerCase());
+                context.accessPathBuilder.addPrefix(
+                        ((Literal) fieldName).getStringValue().toLowerCase(Locale.ROOT));
                 return continueCollectAccessPath(first, context);
             }
             return visit(elementAt, context);

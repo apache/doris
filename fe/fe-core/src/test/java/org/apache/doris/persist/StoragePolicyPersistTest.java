@@ -19,8 +19,8 @@ package org.apache.doris.persist;
 
 import org.apache.doris.policy.StoragePolicy;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -48,11 +48,11 @@ public class StoragePolicyPersistTest {
             DataInputStream dis = new DataInputStream(new FileInputStream(file));
             StoragePolicy storagePolicy1 = (StoragePolicy) StoragePolicy.read(dis);
             dis.close();
-            Assert.assertEquals(cooldownTime, storagePolicy1.getCooldownTimestampMs());
-            Assert.assertTrue(storagePolicy1.getLock() != null);
+            Assertions.assertEquals(cooldownTime, storagePolicy1.getCooldownTimestampMs());
+            Assertions.assertTrue(storagePolicy1.getLock() != null);
 
             StoragePolicy clonePolicy = storagePolicy1.clone();
-            Assert.assertEquals(cooldownTime, clonePolicy.getCooldownTimestampMs());
+            Assertions.assertEquals(cooldownTime, clonePolicy.getCooldownTimestampMs());
         } finally {
             file.delete();
         }

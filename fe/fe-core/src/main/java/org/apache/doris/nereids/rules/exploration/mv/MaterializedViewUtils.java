@@ -530,9 +530,9 @@ public class MaterializedViewUtils {
      * the function would be considered as deterministic function and will not return
      * in the result expression result
      */
-    public static List<Expression> extractNondeterministicFunction(Plan plan) {
+    public static List<Expression> extractMvNondeterministicFunction(Plan plan) {
         List<Expression> nondeterministicFunctions = new ArrayList<>();
-        plan.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
+        plan.accept(NondeterministicFunctionCollector.MV_INSTANCE, nondeterministicFunctions);
         return nondeterministicFunctions;
     }
 

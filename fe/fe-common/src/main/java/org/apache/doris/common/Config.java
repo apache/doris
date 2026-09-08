@@ -362,7 +362,7 @@ public class Config extends ConfigBase {
     @ConfField(description = "Path to the FE TLS private key.")
     public static String tls_private_key_path = "";
 
-    @ConfField(description = "Password for the FE TLS private key.")
+    @ConfField(sensitive = true, description = "Password for the FE TLS private key.")
     public static String tls_private_key_password = "";
 
     @ConfField(description = "Path to the FE TLS CA certificate.")
@@ -393,7 +393,7 @@ public class Config extends ConfigBase {
     public static String key_store_path =  EnvUtils.getDorisHome()
             + "/conf/ssl/doris_ssl_certificate.keystore";
 
-    @ConfField(description = "The key store password of FE https service")
+    @ConfField(sensitive = true, description = "The key store password of FE https service")
     public static String key_store_password = "";
 
     @ConfField(description = "The key store type of FE https service")
@@ -2376,13 +2376,13 @@ public class Config extends ConfigBase {
     /**
      * Password for default CA certificate file.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(sensitive = true, mutable = false, masterOnly = false)
     public static String mysql_ssl_default_ca_certificate_password = "doris";
 
     /**
      * Password for default CA certificate file.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(sensitive = true, mutable = false, masterOnly = false)
     public static String mysql_ssl_default_server_certificate_password = "doris";
 
     /**
@@ -2644,6 +2644,17 @@ public class Config extends ConfigBase {
     @ConfField(description = "Maximum number of connections for the Arrow Flight Server per FE.")
     public static int arrow_flight_max_connections = 4096;
 
+    @ConfField(mutable = true, description = "Arrow Flight SQL only. A query that scans an external table in "
+            + "batch mode keeps its FE coordinator alive after GetFlightInfo, so the BE can keep fetching splits "
+            + "while the client pulls the results (DoGet); that coordinator is normally released when the "
+            + "session runs its next query or is closed. Most Flight clients never close a session, so the "
+            + "coordinator, and with it the query's workload group queue slot and its active_queries entry, "
+            + "would otherwise stay held until wait_timeout. If the session stays idle for longer than this "
+            + "many seconds after the query started, the coordinator is released anyway. The bound is never "
+            + "shorter than the query's own execution timeout, and the session itself is not killed "
+            + "(wait_timeout still governs that). 0 disables the bound.")
+    public static int arrow_flight_deferred_query_idle_timeout_second = 3600;
+
     @ConfField(mutable = true, masterOnly = true, description = "In auto bucketing, the number of buckets is "
             + "estimated based on the partition size. For storage "
             + "and computing integration, a partition size of 5GB " + "is estimated as one bucket, but for cloud, a "
@@ -2763,7 +2774,8 @@ public class Config extends ConfigBase {
             + "BE in partition rebalance mode. If it is less than " + "this value, it will be diagnosed as balanced.")
     public static double diagnose_balance_max_tablet_num_ratio = 1.1;
 
-    @ConfField(masterOnly = true, description = "Set root user initial 2-staged SHA-1 encrypted password, default as "
+    @ConfField(sensitive = true, masterOnly = true, description = "Set root user initial 2-staged SHA-1 "
+            + "encrypted password, default as "
             + "'', means no root password. Subsequent `set password` operations for "
             + "root user will overwrite the initial root password. Example: If you "
             + "want to configure a plaintext password `root@123`.You can execute "

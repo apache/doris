@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -253,7 +254,17 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             return false;
         }
         DatabaseIf<?> database = catalog.getDbNullable(qualifiedName.get(1));
-        return database != null && database.isTableExist(qualifiedName.get(2));
+        if (database == null) {
+            return false;
+        }
+        // A temporary table lives in a per-session namespace and is stored under
+        // <sessionId>#TEMP#<name>, which is also the name InternalCatalog will create it with.
+        // Probing the bare name would instead match a normal table (or another session's temp
+        // table) of the same name, none of which is the table this statement would create.
+        String tableName = createTableInfo.isTemp()
+                ? Util.generateTempTableInnerName(qualifiedName.get(2))
+                : qualifiedName.get(2);
+        return database.isTableExist(tableName);
     }
 
     private String getAutoRangePartitionNameOrNull() {

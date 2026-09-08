@@ -26,10 +26,10 @@ import org.apache.doris.mysql.authenticate.password.ClearPasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -48,7 +48,7 @@ public class LdapAuthenticatorTest {
     private LdapAuthenticator ldapAuthenticator = new LdapAuthenticator();
     private AuthenticateRequest request = new AuthenticateRequest(USER_NAME, new ClearPassword("123"), IP);
 
-    @Before
+    @BeforeEach
     public void setUp() {
         mockedEnvStatic = Mockito.mockStatic(Env.class);
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
@@ -56,7 +56,7 @@ public class LdapAuthenticatorTest {
         Mockito.when(auth.getLdapManager()).thenReturn(ldapManager);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
     }
@@ -90,9 +90,9 @@ public class LdapAuthenticatorTest {
         setCheckPassword(true);
         setGetUserInDoris(true);
         AuthenticateResponse response = ldapAuthenticator.authenticate(request);
-        Assert.assertTrue(response.isSuccess());
-        Assert.assertFalse(response.isTemp());
-        Assert.assertEquals("'user'@'192.168.1.1'", response.getUserIdentity().toString());
+        Assertions.assertTrue(response.isSuccess());
+        Assertions.assertFalse(response.isTemp());
+        Assertions.assertEquals("'user'@'192.168.1.1'", response.getUserIdentity().toString());
     }
 
     @Test
@@ -100,7 +100,7 @@ public class LdapAuthenticatorTest {
         setCheckPassword(false);
         setGetUserInDoris(true);
         AuthenticateResponse response = ldapAuthenticator.authenticate(request);
-        Assert.assertFalse(response.isSuccess());
+        Assertions.assertFalse(response.isSuccess());
     }
 
     @Test
@@ -108,7 +108,7 @@ public class LdapAuthenticatorTest {
         setCheckPasswordException();
         setGetUserInDoris(true);
         AuthenticateResponse response = ldapAuthenticator.authenticate(request);
-        Assert.assertFalse(response.isSuccess());
+        Assertions.assertFalse(response.isSuccess());
     }
 
     @Test
@@ -116,23 +116,23 @@ public class LdapAuthenticatorTest {
         setCheckPassword(true);
         setGetUserInDoris(false);
         AuthenticateResponse response = ldapAuthenticator.authenticate(request);
-        Assert.assertTrue(response.isSuccess());
-        Assert.assertTrue(response.isTemp());
-        Assert.assertEquals("'user'@'192.168.1.1'", response.getUserIdentity().toString());
+        Assertions.assertTrue(response.isSuccess());
+        Assertions.assertTrue(response.isTemp());
+        Assertions.assertEquals("'user'@'192.168.1.1'", response.getUserIdentity().toString());
     }
 
     @Test
     public void testCanDeal() {
         setLdapUserExist(true);
-        Assert.assertFalse(ldapAuthenticator.canDeal(Auth.ROOT_USER));
-        Assert.assertFalse(ldapAuthenticator.canDeal(Auth.ADMIN_USER));
-        Assert.assertTrue(ldapAuthenticator.canDeal("ss"));
+        Assertions.assertFalse(ldapAuthenticator.canDeal(Auth.ROOT_USER));
+        Assertions.assertFalse(ldapAuthenticator.canDeal(Auth.ADMIN_USER));
+        Assertions.assertTrue(ldapAuthenticator.canDeal("ss"));
         setLdapUserExist(false);
-        Assert.assertFalse(ldapAuthenticator.canDeal("ss"));
+        Assertions.assertFalse(ldapAuthenticator.canDeal("ss"));
     }
 
     @Test
     public void testGetPasswordResolver() {
-        Assert.assertTrue(ldapAuthenticator.getPasswordResolver() instanceof ClearPasswordResolver);
+        Assertions.assertTrue(ldapAuthenticator.getPasswordResolver() instanceof ClearPasswordResolver);
     }
 }

@@ -5,8 +5,6 @@
 #pragma once
 
 #include <fmt/format.h>
-#include <gen_cpp/Status_types.h> // for TStatus
-#include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 
 #include <cstdint>
@@ -28,57 +26,59 @@ namespace doris {
 class Status;
 
 class PStatus;
+class TStatus;
 
 namespace ErrorCode {
 
-// E thrift_error_name, print_stacktrace
-#define APPLY_FOR_THRIFT_ERROR_CODES(TStatusError)        \
-    TStatusError(PUBLISH_TIMEOUT, false);                 \
-    TStatusError(MEM_ALLOC_FAILED, true);                 \
-    TStatusError(BUFFER_ALLOCATION_FAILED, true);         \
-    TStatusError(INVALID_ARGUMENT, false);                \
-    TStatusError(INVALID_JSON_PATH, false);               \
-    TStatusError(MINIMUM_RESERVATION_UNAVAILABLE, true);  \
-    TStatusError(CORRUPTION, true);                       \
-    TStatusError(IO_ERROR, true);                         \
-    TStatusError(NOT_FOUND, true);                        \
-    TStatusError(ALREADY_EXIST, true);                    \
-    TStatusError(DIRECTORY_NOT_EMPTY, true);              \
-    TStatusError(NOT_IMPLEMENTED_ERROR, false);           \
-    TStatusError(END_OF_FILE, false);                     \
-    TStatusError(INTERNAL_ERROR, true);                   \
-    TStatusError(RUNTIME_ERROR, true);                    \
-    TStatusError(JNI_ERROR, true);                        \
-    TStatusError(CANCELLED, false);                       \
-    TStatusError(ANALYSIS_ERROR, false);                  \
-    TStatusError(MEM_LIMIT_EXCEEDED, false);              \
-    TStatusError(THRIFT_RPC_ERROR, true);                 \
-    TStatusError(TIMEOUT, true);                          \
-    TStatusError(LIMIT_REACH, false);                     \
-    TStatusError(TOO_MANY_TASKS, true);                   \
-    TStatusError(UNINITIALIZED, false);                   \
-    TStatusError(INCOMPLETE, false);                      \
-    TStatusError(OLAP_ERR_VERSION_ALREADY_MERGED, false); \
-    TStatusError(ABORTED, false);                         \
-    TStatusError(DATA_QUALITY_ERROR, false);              \
-    TStatusError(LABEL_ALREADY_EXISTS, true);             \
-    TStatusError(NOT_AUTHORIZED, true);                   \
-    TStatusError(BINLOG_DISABLE, false);                  \
-    TStatusError(BINLOG_TOO_OLD_COMMIT_SEQ, false);       \
-    TStatusError(BINLOG_TOO_NEW_COMMIT_SEQ, false);       \
-    TStatusError(BINLOG_NOT_FOUND_DB, false);             \
-    TStatusError(BINLOG_NOT_FOUND_TABLE, false);          \
-    TStatusError(NETWORK_ERROR, false);                   \
-    TStatusError(ILLEGAL_STATE, false);                   \
-    TStatusError(SNAPSHOT_NOT_EXIST, true);               \
-    TStatusError(HTTP_ERROR, true);                       \
-    TStatusError(TABLET_MISSING, true);                   \
-    TStatusError(NOT_MASTER, true);                       \
-    TStatusError(OBTAIN_LOCK_FAILED, false);              \
-    TStatusError(SNAPSHOT_EXPIRED, false);                \
-    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);        \
-    TStatusError(SC_COMPACTION_CONFLICT, false);          \
-    TStatusError(FINISHED, false);
+// E thrift_error_name, thrift_error_code (must match Status.thrift; the pairing
+// is enforced by static_asserts in status.cpp), print_stacktrace
+#define APPLY_FOR_THRIFT_ERROR_CODES(TStatusError)            \
+    TStatusError(PUBLISH_TIMEOUT, 14, false);                 \
+    TStatusError(MEM_ALLOC_FAILED, 11, true);                 \
+    TStatusError(BUFFER_ALLOCATION_FAILED, 12, true);         \
+    TStatusError(INVALID_ARGUMENT, 33, false);                \
+    TStatusError(INVALID_JSON_PATH, 47, false);               \
+    TStatusError(MINIMUM_RESERVATION_UNAVAILABLE, 13, true);  \
+    TStatusError(CORRUPTION, 32, true);                       \
+    TStatusError(IO_ERROR, 34, true);                         \
+    TStatusError(NOT_FOUND, 31, true);                        \
+    TStatusError(ALREADY_EXIST, 35, true);                    \
+    TStatusError(DIRECTORY_NOT_EMPTY, 40, true);              \
+    TStatusError(NOT_IMPLEMENTED_ERROR, 3, false);            \
+    TStatusError(END_OF_FILE, 30, false);                     \
+    TStatusError(INTERNAL_ERROR, 6, true);                    \
+    TStatusError(RUNTIME_ERROR, 4, true);                     \
+    TStatusError(JNI_ERROR, 48, true);                        \
+    TStatusError(CANCELLED, 1, false);                        \
+    TStatusError(ANALYSIS_ERROR, 2, false);                   \
+    TStatusError(MEM_LIMIT_EXCEEDED, 5, false);               \
+    TStatusError(THRIFT_RPC_ERROR, 7, true);                  \
+    TStatusError(TIMEOUT, 8, true);                           \
+    TStatusError(LIMIT_REACH, 9, false);                      \
+    TStatusError(TOO_MANY_TASKS, 16, true);                   \
+    TStatusError(UNINITIALIZED, 42, false);                   \
+    TStatusError(INCOMPLETE, 44, false);                      \
+    TStatusError(OLAP_ERR_VERSION_ALREADY_MERGED, 45, false); \
+    TStatusError(ABORTED, 39, false);                         \
+    TStatusError(DATA_QUALITY_ERROR, 46, false);              \
+    TStatusError(LABEL_ALREADY_EXISTS, 15, true);             \
+    TStatusError(NOT_AUTHORIZED, 38, true);                   \
+    TStatusError(BINLOG_DISABLE, 60, false);                  \
+    TStatusError(BINLOG_TOO_OLD_COMMIT_SEQ, 61, false);       \
+    TStatusError(BINLOG_TOO_NEW_COMMIT_SEQ, 62, false);       \
+    TStatusError(BINLOG_NOT_FOUND_DB, 63, false);             \
+    TStatusError(BINLOG_NOT_FOUND_TABLE, 64, false);          \
+    TStatusError(NETWORK_ERROR, 36, false);                   \
+    TStatusError(ILLEGAL_STATE, 37, false);                   \
+    TStatusError(SNAPSHOT_NOT_EXIST, 70, true);               \
+    TStatusError(HTTP_ERROR, 71, true);                       \
+    TStatusError(TABLET_MISSING, 72, true);                   \
+    TStatusError(NOT_MASTER, 73, true);                       \
+    TStatusError(OBTAIN_LOCK_FAILED, 74, false);              \
+    TStatusError(SNAPSHOT_EXPIRED, 75, false);                \
+    TStatusError(DELETE_BITMAP_LOCK_ERROR, 100, false);       \
+    TStatusError(SC_COMPACTION_CONFLICT, 101, false);         \
+    TStatusError(FINISHED, 76, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
     E(OK, 0, false);                                         \
@@ -308,7 +308,7 @@ namespace ErrorCode {
 APPLY_FOR_OLAP_ERROR_CODES(M)
 #undef M
 
-#define MM(name, ENABLESTACKTRACE) constexpr int name = TStatusCode::name;
+#define MM(name, value, ENABLESTACKTRACE) constexpr int name = (value);
 APPLY_FOR_THRIFT_ERROR_CODES(MM)
 #undef MM
 
@@ -328,10 +328,10 @@ public:
         for (auto& error_state : error_states) {
             error_state.error_code = 0;
         }
-#define M(NAME, ENABLESTACKTRACE)                                  \
-    error_states[TStatusCode::NAME].stacktrace = ENABLESTACKTRACE; \
-    error_states[TStatusCode::NAME].description = #NAME;           \
-    error_states[TStatusCode::NAME].error_code = TStatusCode::NAME;
+#define M(NAME, VALUE, ENABLESTACKTRACE)              \
+    error_states[NAME].stacktrace = ENABLESTACKTRACE; \
+    error_states[NAME].description = #NAME;           \
+    error_states[NAME].error_code = NAME;
         APPLY_FOR_THRIFT_ERROR_CODES(M)
 #undef M
 // In status.h, if error code > 0, then it means it will be used in TStatusCode and will
@@ -408,19 +408,13 @@ public:
         return *this;
     }
 
+    // Defined in status.cpp (explicitly instantiated for stacktrace = true/false)
+    // so this header does not need the thrift/protobuf generated headers.
     template <bool stacktrace = true>
-    Status static create(const TStatus& status) {
-        return Error<stacktrace>(
-                status.status_code,
-                "TStatus: " + (status.error_msgs.empty() ? "" : status.error_msgs[0]));
-    }
+    Status static create(const TStatus& status);
 
     template <bool stacktrace = true>
-    Status static create(const PStatus& pstatus) {
-        return Error<stacktrace>(
-                pstatus.status_code(),
-                "PStatus: " + (pstatus.error_msgs_size() == 0 ? "" : pstatus.error_msgs(0)));
-    }
+    Status static create(const PStatus& pstatus);
 
     template <int code, bool stacktrace = true, typename... Args>
     Status static Error(std::string_view msg, Args&&... args) {
@@ -580,10 +574,7 @@ private:
     };
     std::unique_ptr<ErrMsg> _err_msg;
 
-    std::string code_as_string() const {
-        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
-                               : fmt::format("E{}", (int16_t)_code);
-    }
+    std::string code_as_string() const;
 };
 
 // There are many thread using status to indicate the cancel state, one thread may update it and

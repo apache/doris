@@ -45,6 +45,21 @@ namespace doris {
 struct uint24_t;
 
 namespace segment_v2 {
+namespace {
+
+// Only FLOAT and DOUBLE can come out reversed: any value of any other type moves both bounds.
+bool is_reversed(const Field& min_value, const Field& max_value, FieldType field_type) {
+    if (FieldType::OLAP_FIELD_TYPE_FLOAT == field_type) {
+        return min_value.get<TYPE_FLOAT>() > max_value.get<TYPE_FLOAT>();
+    }
+    if (FieldType::OLAP_FIELD_TYPE_DOUBLE == field_type) {
+        return min_value.get<TYPE_DOUBLE>() > max_value.get<TYPE_DOUBLE>();
+    }
+    return false;
+}
+
+} // namespace
+
 Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_type,
                            ZoneMap& zone_map_info) {
     zone_map_info.has_null = zone_map.has_null();
@@ -65,6 +80,19 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
     auto field_type = data_type->get_storage_field_type();
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
+        if (!zone_map_info.pass_all) {
+            parse_bound(zone_map.min(), zone_map_info.min_value);
+            parse_bound(zone_map.max(), zone_map_info.max_value);
+        }
+
+        // NaN and infinity only set the flags below, never min/max, so a page holding nothing
+        // else leaves both at the values add_values() starts from: min = DBL_MAX and
+        // max = -DBL_MAX, neither of which is a value in the page.
+        if (!zone_map_info.pass_all &&
+            is_reversed(zone_map_info.min_value, zone_map_info.max_value, field_type)) {
+            zone_map_info.pass_all = true;
+        }
+
         if (zone_map.has_negative_inf()) {
             if (FieldType::OLAP_FIELD_TYPE_FLOAT == field_type) {
                 static auto constexpr float_neg_inf = -std::numeric_limits<float>::infinity();
@@ -74,10 +102,6 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
                 zone_map_info.min_value = Field::create_field<TYPE_DOUBLE>(double_neg_inf);
             } else {
                 return Status::InternalError("invalid zone map with negative Infinity");
-            }
-        } else {
-            if (!zone_map_info.pass_all) {
-                parse_bound(zone_map.min(), zone_map_info.min_value);
             }
         }
 
@@ -100,10 +124,6 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
                 zone_map_info.max_value = Field::create_field<TYPE_DOUBLE>(double_pos_inf);
             } else {
                 return Status::InternalError("invalid zone map with positive Infinity");
-            }
-        } else {
-            if (!zone_map_info.pass_all) {
-                parse_bound(zone_map.max(), zone_map_info.max_value);
             }
         }
     }

@@ -17,8 +17,8 @@
 
 package org.apache.doris.tso;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -34,15 +34,15 @@ public class TSOTimestampTest {
     public void testConstructor() {
         // Test default constructor
         TSOTimestamp timestamp = new TSOTimestamp();
-        Assert.assertEquals(0L, timestamp.getPhysicalTimestamp());
-        Assert.assertEquals(0L, timestamp.getLogicalCounter());
+        Assertions.assertEquals(0L, timestamp.getPhysicalTimestamp());
+        Assertions.assertEquals(0L, timestamp.getLogicalCounter());
 
         // Test constructor with parameters
         long physicalTime = 1625097600000L;
         long logicalCounter = 123L;
         timestamp = new TSOTimestamp(physicalTime, logicalCounter);
-        Assert.assertEquals(physicalTime, timestamp.getPhysicalTimestamp());
-        Assert.assertEquals(logicalCounter, timestamp.getLogicalCounter());
+        Assertions.assertEquals(physicalTime, timestamp.getPhysicalTimestamp());
+        Assertions.assertEquals(logicalCounter, timestamp.getLogicalCounter());
     }
 
     @Test
@@ -54,8 +54,8 @@ public class TSOTimestampTest {
         long composed = timestamp.composeTimestamp();
 
         // Verify extraction works correctly
-        Assert.assertEquals(physicalTime, TSOTimestamp.extractPhysicalTime(composed));
-        Assert.assertEquals(logicalCounter, TSOTimestamp.extractLogicalCounter(composed));
+        Assertions.assertEquals(physicalTime, TSOTimestamp.extractPhysicalTime(composed));
+        Assertions.assertEquals(logicalCounter, TSOTimestamp.extractLogicalCounter(composed));
     }
 
     @Test
@@ -68,8 +68,8 @@ public class TSOTimestampTest {
         long composed = timestamp.composeTimestamp();
 
         // Values should be masked to fit in their respective bit widths
-        Assert.assertEquals(largePhysicalTime & ((1L << 46) - 1), TSOTimestamp.extractPhysicalTime(composed));
-        Assert.assertEquals(largeLogicalCounter & ((1L << 18) - 1), TSOTimestamp.extractLogicalCounter(composed));
+        Assertions.assertEquals(largePhysicalTime & ((1L << 46) - 1), TSOTimestamp.extractPhysicalTime(composed));
+        Assertions.assertEquals(largeLogicalCounter & ((1L << 18) - 1), TSOTimestamp.extractLogicalCounter(composed));
     }
 
     @Test
@@ -82,30 +82,38 @@ public class TSOTimestampTest {
         timestamp.setPhysicalTimestamp(physicalTime);
         timestamp.setLogicalCounter(logicalCounter);
 
-        Assert.assertEquals(physicalTime, timestamp.getPhysicalTimestamp());
-        Assert.assertEquals(logicalCounter, timestamp.getLogicalCounter());
+        Assertions.assertEquals(physicalTime, timestamp.getPhysicalTimestamp());
+        Assertions.assertEquals(logicalCounter, timestamp.getLogicalCounter());
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testConstructorRejectNegativePhysicalTimestamp() {
-        new TSOTimestamp(-1L, 0L);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            new TSOTimestamp(-1L, 0L);
+        });
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testConstructorRejectNegativeLogicalCounter() {
-        new TSOTimestamp(0L, -1L);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            new TSOTimestamp(0L, -1L);
+        });
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testSetterRejectNegativePhysicalTimestamp() {
-        TSOTimestamp timestamp = new TSOTimestamp();
-        timestamp.setPhysicalTimestamp(-1L);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            TSOTimestamp timestamp = new TSOTimestamp();
+            timestamp.setPhysicalTimestamp(-1L);
+        });
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testSetterRejectNegativeLogicalCounter() {
-        TSOTimestamp timestamp = new TSOTimestamp();
-        timestamp.setLogicalCounter(-1L);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            TSOTimestamp timestamp = new TSOTimestamp();
+            timestamp.setLogicalCounter(-1L);
+        });
     }
 
     @Test
@@ -115,8 +123,8 @@ public class TSOTimestampTest {
         long tso = TSOTimestamp.composeTimestamp(physicalTime, logicalCounter);
 
         TSOTimestamp decomposed = TSOTimestamp.decompose(tso);
-        Assert.assertEquals(TSOTimestamp.extractPhysicalTime(tso), decomposed.getPhysicalTimestamp());
-        Assert.assertEquals(TSOTimestamp.extractLogicalCounter(tso), decomposed.getLogicalCounter());
+        Assertions.assertEquals(TSOTimestamp.extractPhysicalTime(tso), decomposed.getPhysicalTimestamp());
+        Assertions.assertEquals(TSOTimestamp.extractLogicalCounter(tso), decomposed.getLogicalCounter());
     }
 
     @Test
@@ -131,9 +139,9 @@ public class TSOTimestampTest {
         DataInputStream dis = new DataInputStream(bis);
         TSOTimestamp restored = TSOTimestamp.read(dis);
 
-        Assert.assertEquals(timestamp, restored);
-        Assert.assertEquals(timestamp.hashCode(), restored.hashCode());
-        Assert.assertEquals(0, timestamp.compareTo(restored));
+        Assertions.assertEquals(timestamp, restored);
+        Assertions.assertEquals(timestamp.hashCode(), restored.hashCode());
+        Assertions.assertEquals(0, timestamp.compareTo(restored));
     }
 
     @Test
@@ -141,14 +149,14 @@ public class TSOTimestampTest {
         TSOTimestamp a = new TSOTimestamp(100L, 2L);
         TSOTimestamp b = new TSOTimestamp(100L, 3L);
         TSOTimestamp c = new TSOTimestamp(101L, 0L);
-        Assert.assertTrue(a.compareTo(b) < 0);
-        Assert.assertTrue(b.compareTo(c) < 0);
-        Assert.assertTrue(a.compareTo(c) < 0);
+        Assertions.assertTrue(a.compareTo(b) < 0);
+        Assertions.assertTrue(b.compareTo(c) < 0);
+        Assertions.assertTrue(a.compareTo(c) < 0);
     }
 
     @Test
     public void testMaxLogicalCounter() {
         // Test the maximum logical counter value
-        Assert.assertEquals((1L << 18) - 1, TSOTimestamp.MAX_LOGICAL_COUNTER);
+        Assertions.assertEquals((1L << 18) - 1, TSOTimestamp.MAX_LOGICAL_COUNTER);
     }
 }

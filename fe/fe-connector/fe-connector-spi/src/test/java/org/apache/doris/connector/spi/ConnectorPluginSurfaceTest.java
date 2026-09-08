@@ -40,10 +40,12 @@ import java.util.TreeSet;
  * Freezes the CONNECTOR plugin API surface, so that changing it cannot happen without also deciding the
  * version consequence.
  *
- * <p><b>Why this exists.</b> Every method here has a default body or is implemented by eight shipped connectors, so the compiler forces nothing on a plugin author and nothing fails when a method quietly appears, disappears, or changes shape. The plugin API version in
+ * <p><b>Why this exists.</b> Every method here has a default body or is implemented by eight shipped connectors,
+ * and public capability enum constants are referenced directly by plugin bytecode. The compiler forces nothing
+ * on a plugin author and nothing fails when either surface quietly changes. The plugin API version in
  * {@code <connector.plugin.api.version>} is the contract that says which FE a given plugin may load into,
- * and the rule attached to it is blunt: <em>any</em> change to the surface below — adding a type or a method
- * just as much as removing or re-signing one — is a MAJOR change. No unit test can prove somebody actually
+ * and the rule attached to it is blunt: <em>any</em> change to the surface below — adding a type, method, or
+ * enum constant just as much as removing or re-signing one — is a MAJOR change. No unit test can prove somebody
  * bumped the property (a test sees only the current state, never the delta), so this is a speed bump, not a
  * gate: it makes the change visible in review, in the same commit, with the reason spelled out in the
  * failure message.
@@ -73,9 +75,9 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Write binding gained execution-capability methods in this surface revision. A plugin built against
-        // major 5 must be refused rather than run against a contract it did not compile against.
-        Assertions.assertEquals("6.0", version.getProperty("api.version"));
+        // Storage predicate pruning added a public ConnectorCapability constant. Major 7 lets an older FE
+        // reject a plugin using it before resolving the missing enum field.
+        Assertions.assertEquals("7.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -91,6 +93,10 @@ public class ConnectorPluginSurfaceTest {
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
             org.apache.doris.extension.spi.PluginContext.class);
+
+    /** Public enum constants linked directly by connector plugin bytecode. */
+    private static final List<Class<? extends Enum<?>>> FROZEN_ENUM_TYPES =
+            Arrays.asList(ConnectorCapability.class);
 
     @Test
     public void pluginApiSurfaceMatchesRecordedBaseline() throws IOException {
@@ -119,6 +125,11 @@ public class ConnectorPluginSurfaceTest {
      */
     private static TreeSet<String> renderSurface() {
         TreeSet<String> rendered = new TreeSet<>();
+        for (Class<? extends Enum<?>> frozen : FROZEN_ENUM_TYPES) {
+            for (Enum<?> constant : frozen.getEnumConstants()) {
+                rendered.add(frozen.getName() + "#enum:" + constant.name());
+            }
+        }
         for (Class<?> frozen : FROZEN_TYPES) {
             for (Method m : frozen.getMethods()) {
                 if (m.isSynthetic() || m.getDeclaringClass() == Object.class) {

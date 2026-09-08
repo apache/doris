@@ -22,10 +22,10 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlProto;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.slf4j.Logger;
@@ -42,7 +42,7 @@ public class ConnectSchedulerTest {
     private MysqlChannel channel = Mockito.mock(MysqlChannel.class);
     private MockedStatic<MysqlProto> mockedMysqlProto;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         succSubmit = new AtomicLong(0);
         mockedMysqlProto = Mockito.mockStatic(MysqlProto.class);
@@ -50,7 +50,7 @@ public class ConnectSchedulerTest {
         mockedMysqlProto.when(() -> MysqlProto.negotiate(Mockito.nullable(ConnectContext.class))).thenReturn(true);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedMysqlProto != null) {
             mockedMysqlProto.close();
@@ -68,8 +68,8 @@ public class ConnectSchedulerTest {
                 context.setEnv(AccessTestUtil.fetchAdminCatalog());
             }
             context.setCurrentUserIdentity(UserIdentity.ROOT);
-            Assert.assertTrue(scheduler.submit(context));
-            Assert.assertEquals(i, context.getConnectionId());
+            Assertions.assertTrue(scheduler.submit(context));
+            Assertions.assertEquals(i, context.getConnectionId());
         }
     }
 
@@ -80,24 +80,24 @@ public class ConnectSchedulerTest {
         ConnectContext context = new ConnectContext();
         context.setEnv(AccessTestUtil.fetchAdminCatalog());
         context.setCurrentUserIdentity(UserIdentity.ROOT);
-        Assert.assertTrue(scheduler.submit(context));
-        Assert.assertEquals(0, context.getConnectionId());
+        Assertions.assertTrue(scheduler.submit(context));
+        Assertions.assertEquals(0, context.getConnectionId());
 
         Thread.sleep(1000);
-        Assert.assertNull(scheduler.getContext(0));
+        Assertions.assertNull(scheduler.getContext(0));
     }
 
     @Test
     public void testSubmitFail() throws InterruptedException {
         ConnectScheduler scheduler = new ConnectScheduler(10);
-        Assert.assertFalse(scheduler.submit(null));
+        Assertions.assertFalse(scheduler.submit(null));
     }
 
     @Test
     public void testSubmitTooMany() throws InterruptedException {
         ConnectScheduler scheduler = new ConnectScheduler(0);
         ConnectContext context = new ConnectContext();
-        Assert.assertTrue(scheduler.submit(context));
+        Assertions.assertTrue(scheduler.submit(context));
     }
 
     @Test
@@ -112,8 +112,8 @@ public class ConnectSchedulerTest {
 
         connectPoolMgr.timeoutChecker(System.currentTimeMillis());
 
-        Assert.assertEquals(1, throwingContext.checkCount.get());
-        Assert.assertEquals(1, countingContext.checkCount.get());
+        Assertions.assertEquals(1, throwingContext.checkCount.get());
+        Assertions.assertEquals(1, countingContext.checkCount.get());
     }
 
     private static class ThrowingConnectContext extends ConnectContext {

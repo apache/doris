@@ -17,9 +17,9 @@
 
 package org.apache.doris.common;
 
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.nio.file.Files;
@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.Map;
 
 public class ConfigTest {
-    @BeforeClass
+    @BeforeAll
     public static void setUp() throws Exception {
         Config config = new Config();
         // create an empty config file to initialize Config
@@ -46,10 +46,10 @@ public class ConfigTest {
             Config.fe_meta_auth_token = "super-secret-token";
 
             Map<String, String> dumped = ConfigBase.dump();
-            Assert.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, dumped.get("fe_meta_auth_token"));
+            Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, dumped.get("fe_meta_auth_token"));
 
             String value = configInfoValue("fe_meta_auth_token");
-            Assert.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, value);
+            Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, value);
         } finally {
             Config.fe_meta_auth_token = old;
         }
@@ -63,8 +63,8 @@ public class ConfigTest {
         try {
             Config.auth_token = "super-secret-auth-token";
 
-            Assert.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, ConfigBase.dump().get("auth_token"));
-            Assert.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, configInfoValue("auth_token"));
+            Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, ConfigBase.dump().get("auth_token"));
+            Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, configInfoValue("auth_token"));
         } finally {
             Config.auth_token = old;
         }
@@ -77,8 +77,8 @@ public class ConfigTest {
         try {
             Config.fe_meta_auth_token = "";
 
-            Assert.assertEquals("", ConfigBase.dump().get("fe_meta_auth_token"));
-            Assert.assertEquals("", configInfoValue("fe_meta_auth_token"));
+            Assertions.assertEquals("", ConfigBase.dump().get("fe_meta_auth_token"));
+            Assertions.assertEquals("", configInfoValue("fe_meta_auth_token"));
         } finally {
             Config.fe_meta_auth_token = old;
         }
@@ -97,7 +97,7 @@ public class ConfigTest {
     public void testSetEmptyArray() throws ConfigException {
         ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "a,b,c");
         ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "");
-        Assert.assertEquals("array length should be 0", 0, Config.mysql_compat_var_whitelist.length);
+        Assertions.assertEquals(0, Config.mysql_compat_var_whitelist.length, "array length should be 0");
     }
 
     @Test
@@ -107,8 +107,7 @@ public class ConfigTest {
             if (confField == null) {
                 continue;
             }
-            Assert.assertFalse("Chinese description found in config: " + field.getName(),
-                    confField.description().matches(".*[\\u4e00-\\u9fff].*"));
+            Assertions.assertFalse(confField.description().matches(".*[\\u4e00-\\u9fff].*"), "Chinese description found in config: " + field.getName());
         }
     }
 
@@ -126,9 +125,8 @@ public class ConfigTest {
                 "force_sqlserver_jdbc_encrypt_false",
         };
         for (String key : opsOnlyConfigs) {
-            ConfigException e = Assert.assertThrows(key + " should not be runtime-mutable",
-                    ConfigException.class, () -> ConfigBase.setMutableConfig(key, "x"));
-            Assert.assertTrue(e.getMessage().contains("is not mutable"));
+            ConfigException e = Assertions.assertThrows(ConfigException.class, () -> ConfigBase.setMutableConfig(key, "x"), key + " should not be runtime-mutable");
+            Assertions.assertTrue(e.getMessage().contains("is not mutable"));
         }
     }
 
@@ -137,16 +135,16 @@ public class ConfigTest {
         String originFormat = Config.inverted_index_storage_format;
         try {
             ConfigBase.setMutableConfig("inverted_index_storage_format", "V2");
-            ConfigException dynamicException = Assert.assertThrows(ConfigException.class,
+            ConfigException dynamicException = Assertions.assertThrows(ConfigException.class,
                     () -> ConfigBase.setMutableConfig("inverted_index_storage_format", " V1 "));
-            Assert.assertTrue(dynamicException.getMessage().contains("Inverted index V1 is deprecated"));
-            Assert.assertEquals("V2", Config.inverted_index_storage_format);
+            Assertions.assertTrue(dynamicException.getMessage().contains("Inverted index V1 is deprecated"));
+            Assertions.assertEquals("V2", Config.inverted_index_storage_format);
 
             Config.inverted_index_storage_format = "V2";
-            ConfigException startupException = Assert.assertThrows(ConfigException.class,
+            ConfigException startupException = Assertions.assertThrows(ConfigException.class,
                     () -> InvertedIndexStorageFormatValidator.rejectStartupV1(" V1 "));
-            Assert.assertTrue(startupException.getMessage().contains("inverted_index_storage_format=V1"));
-            Assert.assertEquals("V2", Config.inverted_index_storage_format);
+            Assertions.assertTrue(startupException.getMessage().contains("inverted_index_storage_format=V1"));
+            Assertions.assertEquals("V2", Config.inverted_index_storage_format);
         } finally {
             Config.inverted_index_storage_format = originFormat;
         }
@@ -157,10 +155,10 @@ public class ConfigTest {
         long original = Config.web_sql_max_result_bytes;
         try {
             ConfigBase.setMutableConfig("web_sql_max_result_bytes", "32");
-            Assert.assertEquals(32, Config.web_sql_max_result_bytes);
-            Assert.assertThrows(ConfigException.class,
+            Assertions.assertEquals(32, Config.web_sql_max_result_bytes);
+            Assertions.assertThrows(ConfigException.class,
                     () -> ConfigBase.setMutableConfig("web_sql_max_result_bytes", "0"));
-            Assert.assertThrows(ConfigException.class,
+            Assertions.assertThrows(ConfigException.class,
                     () -> ConfigBase.setMutableConfig("web_sql_max_result_bytes", "104857601"));
         } finally {
             Config.web_sql_max_result_bytes = original;
@@ -176,15 +174,15 @@ public class ConfigTest {
             Config.validateWebSqlConfig();
 
             Config.web_sql_session_idle_timeout_seconds = 0;
-            Assert.assertThrows(ConfigException.class, Config::validateWebSqlConfig);
+            Assertions.assertThrows(ConfigException.class, Config::validateWebSqlConfig);
             Config.web_sql_session_idle_timeout_seconds = originalIdleTimeout;
 
             Config.web_sql_max_sessions = 0;
-            Assert.assertThrows(ConfigException.class, Config::validateWebSqlConfig);
+            Assertions.assertThrows(ConfigException.class, Config::validateWebSqlConfig);
             Config.web_sql_max_sessions = originalMaxSessions;
 
             Config.web_sql_max_result_bytes = Config.WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND + 1;
-            Assert.assertThrows(ConfigException.class, Config::validateWebSqlConfig);
+            Assertions.assertThrows(ConfigException.class, Config::validateWebSqlConfig);
         } finally {
             Config.web_sql_session_idle_timeout_seconds = originalIdleTimeout;
             Config.web_sql_max_sessions = originalMaxSessions;

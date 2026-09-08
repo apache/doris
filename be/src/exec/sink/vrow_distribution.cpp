@@ -19,6 +19,7 @@
 
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/Status_types.h>
 #include <glog/logging.h>
 
 #include <cstdint>
