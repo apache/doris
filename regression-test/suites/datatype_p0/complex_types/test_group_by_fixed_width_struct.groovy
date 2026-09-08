@@ -23,7 +23,8 @@ suite("test_group_by_fixed_width_struct") {
             id INT,
             grp INT,
             st_tiny STRUCT<v:TINYINT>,
-            st_int STRUCT<v:INT>
+            st_int STRUCT<v:INT>,
+            st_fixed STRUCT<a:INT,b:BIGINT> NOT NULL
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -32,11 +33,11 @@ suite("test_group_by_fixed_width_struct") {
 
     sql """
         INSERT INTO test_group_by_fixed_width_struct VALUES
-            (1, 1, NAMED_STRUCT('v', 1), NAMED_STRUCT('v', 10)),
-            (2, 1, NAMED_STRUCT('v', 1), NAMED_STRUCT('v', 10)),
-            (3, 1, NAMED_STRUCT('v', 2), NAMED_STRUCT('v', 20)),
-            (4, 2, NAMED_STRUCT('v', 1), NAMED_STRUCT('v', 10)),
-            (5, 2, NAMED_STRUCT('v', 1), NAMED_STRUCT('v', 10))
+            (1, 1, NAMED_STRUCT('v', 1), NAMED_STRUCT('v', 10), NAMED_STRUCT('a', 1, 'b', 10)),
+            (2, 1, NAMED_STRUCT('v', 1), NAMED_STRUCT('v', 10), NAMED_STRUCT('a', 1, 'b', 10)),
+            (3, 1, NAMED_STRUCT('v', 2), NAMED_STRUCT('v', 20), NAMED_STRUCT('a', 2, 'b', 20)),
+            (4, 2, NAMED_STRUCT('v', 1), NAMED_STRUCT('v', 10), NAMED_STRUCT('a', NULL, 'b', 30)),
+            (5, 2, NAMED_STRUCT('v', 1), NAMED_STRUCT('v', 10), NAMED_STRUCT('a', NULL, 'b', 30))
     """
 
     order_qt_group_by_tiny_struct """
@@ -51,6 +52,20 @@ suite("test_group_by_fixed_width_struct") {
         FROM test_group_by_fixed_width_struct
         GROUP BY grp, st_int
         ORDER BY grp, st_int
+    """
+
+    order_qt_group_by_fixed_struct """
+        SELECT grp, st_fixed, COUNT(*)
+        FROM test_group_by_fixed_width_struct
+        GROUP BY grp, st_fixed
+        ORDER BY grp, st_fixed
+    """
+
+    order_qt_distinct_fixed_struct """
+        SELECT grp, SIZE(array_agg(DISTINCT st_fixed))
+        FROM test_group_by_fixed_width_struct
+        GROUP BY grp
+        ORDER BY grp
     """
 
     order_qt_array_agg_distinct_struct """

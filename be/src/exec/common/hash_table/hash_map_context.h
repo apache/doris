@@ -1028,14 +1028,15 @@ struct MethodKeysFixed : public MethodBase<TData> {
     void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
-        CHECK(key_columns.size() <= BITSIZE);
+        const auto flattened_key_columns = flatten_fixed_key_columns(key_columns);
+        CHECK(flattened_key_columns.size() <= BITSIZE);
         ColumnRawPtrs actual_columns;
         ColumnRawPtrs null_maps;
-        actual_columns.reserve(key_columns.size());
-        null_maps.reserve(key_columns.size());
+        actual_columns.reserve(flattened_key_columns.size());
+        null_maps.reserve(flattened_key_columns.size());
         bool has_nullable_key = false;
 
-        for (const auto& col : key_columns) {
+        for (const auto* col : flattened_key_columns) {
             if (const auto* nullable_col = check_and_get_column<ColumnNullable>(col)) {
                 actual_columns.push_back(&nullable_col->get_nested_column());
                 null_maps.push_back(&nullable_col->get_null_map_column());
@@ -1069,16 +1070,28 @@ struct MethodKeysFixed : public MethodBase<TData> {
         if (num_rows == 0) {
             return;
         }
-        size_t pos = std::ranges::any_of(key_columns,
+        std::vector<IColumn*> flattened_key_columns;
+        for (const auto& column : key_columns) {
+            auto* struct_column = check_and_get_column<ColumnStruct>(column.get());
+            if (struct_column) {
+                for (size_t i = 0; i < struct_column->tuple_size(); ++i) {
+                    flattened_key_columns.push_back(&struct_column->get_column(i));
+                }
+            } else {
+                flattened_key_columns.push_back(column.get());
+            }
+        }
+
+        size_t pos = std::ranges::any_of(flattened_key_columns,
                                          [](const auto& col) { return col->is_nullable(); });
 
-        for (size_t i = 0; i < key_columns.size(); ++i) {
+        for (size_t i = 0; i < flattened_key_columns.size(); ++i) {
             size_t size = key_sizes[i];
             char* data = nullptr;
-            key_columns[i]->resize(num_rows);
+            flattened_key_columns[i]->resize(num_rows);
             // If we have a nullable column, get its nested column and its null map.
-            if (is_column_nullable(*key_columns[i])) {
-                auto& nullable_col = assert_cast<ColumnNullable&>(*key_columns[i]);
+            if (is_column_nullable(*flattened_key_columns[i])) {
+                auto& nullable_col = assert_cast<ColumnNullable&>(*flattened_key_columns[i]);
 
                 // nullable_col is obtained via key_columns and is itself a mutable element. However, when accessed
                 // through get_raw_data().data, it yields a const char*, necessitating the use of const_cast.
@@ -1093,7 +1106,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
             } else {
                 // key_columns is a mutable element. However, when accessed through get_raw_data().data,
                 // it yields a const char*, necessitating the use of const_cast.
-                data = const_cast<char*>(key_columns[i]->get_raw_data().data);
+                data = const_cast<char*>(flattened_key_columns[i]->get_raw_data().data);
             }
 
             auto goo = [&]<typename Fixed, bool aligned>(Fixed zero) {

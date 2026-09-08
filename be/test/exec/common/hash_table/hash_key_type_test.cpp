@@ -24,22 +24,40 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "exec/common/columns_hashing.h"
 
 namespace doris {
 
-TEST(HashKeyTypeTest, FixedWidthStructUsesSerializedKey) {
+TEST(HashKeyTypeTest, FixedWidthStructUsesFixedKey) {
     const auto group_key = make_nullable(std::make_shared<DataTypeInt32>());
 
-    for (const auto& field_type : DataTypes {make_nullable(std::make_shared<DataTypeInt8>()),
-                                             make_nullable(std::make_shared<DataTypeInt32>())}) {
+    for (const auto& [field_type, expected] : std::vector<std::pair<DataTypePtr, HashKeyType>> {
+                 {make_nullable(std::make_shared<DataTypeInt8>()), HashKeyType::fixed64},
+                 {make_nullable(std::make_shared<DataTypeInt32>()), HashKeyType::fixed72}}) {
         SCOPED_TRACE(field_type->get_name());
-        const auto struct_type =
-                make_nullable(std::make_shared<DataTypeStruct>(DataTypes {field_type}));
+        const auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {field_type});
 
         ASSERT_TRUE(struct_type->have_maximum_size_of_value());
-        EXPECT_EQ(HashKeyType::serialized, get_hash_key_type({group_key, struct_type}));
-        EXPECT_EQ(HashKeyType::serialized, get_hash_key_type_fixed({group_key, struct_type}));
+        EXPECT_EQ(expected, get_hash_key_type({group_key, struct_type}));
+        EXPECT_EQ(expected, get_hash_key_type_fixed({group_key, struct_type}));
     }
+}
+
+TEST(HashKeyTypeTest, NullableStructUsesSerializedKey) {
+    const auto group_key = std::make_shared<DataTypeInt32>();
+    const auto struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(std::make_shared<DataTypeInt32>())}));
+
+    EXPECT_EQ(HashKeyType::serialized, get_hash_key_type({group_key, struct_type}));
+}
+
+TEST(HashKeyTypeTest, NestedStructUsesSerializedKey) {
+    const auto group_key = std::make_shared<DataTypeInt32>();
+    const auto nested_struct = std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(std::make_shared<DataTypeInt32>())});
+    const auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {nested_struct});
+
+    EXPECT_EQ(HashKeyType::serialized, get_hash_key_type({group_key, struct_type}));
 }
 
 TEST(HashKeyTypeTest, SingleStructUsesSerializedKey) {

@@ -27,6 +27,8 @@
 #include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/string_ref.h"
 #include "exec/common/columns_hashing_impl.h"
 #include "exec/common/hash_table/ph_hash_map.h"
@@ -37,9 +39,56 @@ namespace doris {
 
 using Sizes = std::vector<size_t>;
 
+inline bool is_flattenable_fixed_struct(const DataTypePtr& data_type) {
+    if (data_type->is_nullable() || data_type->get_primitive_type() != PrimitiveType::TYPE_STRUCT) {
+        return false;
+    }
+    const auto& struct_type = assert_cast<const DataTypeStruct&>(*data_type);
+    return std::all_of(struct_type.get_elements().begin(), struct_type.get_elements().end(),
+                       [](const auto& element) {
+                           return !is_complex_type(element->get_primitive_type()) &&
+                                  element->have_maximum_size_of_value();
+                       });
+}
+
+inline DataTypes flatten_fixed_key_data_types(const std::vector<DataTypePtr>& data_types) {
+    DataTypes flattened;
+    for (const auto& data_type : data_types) {
+        if (data_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT) {
+            if (!is_flattenable_fixed_struct(data_type)) {
+                return {};
+            }
+            const auto& struct_type = assert_cast<const DataTypeStruct&>(*data_type);
+            flattened.insert(flattened.end(), struct_type.get_elements().begin(),
+                             struct_type.get_elements().end());
+        } else if (!data_type->have_maximum_size_of_value() ||
+                   is_complex_type(data_type->get_primitive_type())) {
+            return {};
+        } else {
+            flattened.push_back(data_type);
+        }
+    }
+    return flattened;
+}
+
+inline ColumnRawPtrs flatten_fixed_key_columns(const ColumnRawPtrs& key_columns) {
+    ColumnRawPtrs flattened;
+    for (const auto* column : key_columns) {
+        if (const auto* struct_column = check_and_get_column<ColumnStruct>(column)) {
+            for (size_t i = 0; i < struct_column->tuple_size(); ++i) {
+                flattened.push_back(&struct_column->get_column(i));
+            }
+        } else {
+            flattened.push_back(column);
+        }
+    }
+    return flattened;
+}
+
 inline Sizes get_key_sizes(const std::vector<DataTypePtr>& data_types) {
     Sizes key_sizes;
-    for (const auto& data_type : data_types) {
+    const auto flattened = flatten_fixed_key_data_types(data_types);
+    for (const auto& data_type : flattened) {
         key_sizes.emplace_back(data_type->get_size_of_value_in_memory() - data_type->is_nullable());
     }
     return key_sizes;

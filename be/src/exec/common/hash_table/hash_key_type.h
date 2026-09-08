@@ -18,6 +18,7 @@
 #pragma once
 
 #include "core/types.h"
+#include "exec/common/columns_hashing.h"
 #include "exec/common/hash_table/hash_map_context.h"
 #include "exprs/aggregate/aggregate_function.h"
 
@@ -83,14 +84,15 @@ inline HashKeyType get_hash_key_type_fixed(const std::vector<DataTypePtr>& data_
         return HashKeyType::serialized;
     }
 
+    const auto flattened = flatten_fixed_key_data_types(data_types);
+    if (flattened.empty() || flattened.size() >= BITSIZE) {
+        return HashKeyType::serialized;
+    }
+
     bool has_null = false;
     size_t key_byte_size = 0;
 
-    for (const auto& data_type : data_types) {
-        if (is_complex_type(data_type->get_primitive_type()) ||
-            !data_type->have_maximum_size_of_value()) {
-            return HashKeyType::serialized;
-        }
+    for (const auto& data_type : flattened) {
         key_byte_size += data_type->get_size_of_value_in_memory();
         if (data_type->is_nullable()) {
             has_null = true;
