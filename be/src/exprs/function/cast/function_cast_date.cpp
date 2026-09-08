@@ -19,6 +19,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "exprs/function/cast/cast_to_date.h"
 
 namespace doris::CastWrapper {
@@ -30,7 +31,8 @@ WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr&
     auto make_datelike_wrapper = [&](const auto& types) -> bool {
         using Types = std::decay_t<decltype(types)>;
         using FromDataType = typename Types::LeftType;
-        if constexpr (CastUtil::IsPureDigitType<FromDataType> || IsDatelikeTypes<FromDataType> ||
+        if constexpr (std::is_same_v<FromDataType, DataTypeTimeStampNs> ||
+                      CastUtil::IsPureDigitType<FromDataType> || IsDatelikeTypes<FromDataType> ||
                       IsStringType<FromDataType> ||
                       std::is_same_v<FromDataType, DataTypeTimeStampTz>) {
             if (context->enable_strict_mode()) {

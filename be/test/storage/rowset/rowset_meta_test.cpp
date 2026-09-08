@@ -33,6 +33,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "storage/olap_common.h"
 #include "storage/olap_meta.h"
+#include "storage/tablet/tablet_schema.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -107,6 +108,86 @@ TEST_F(RowsetMetaTest, TestInit) {
     RowsetMeta rowset_meta_3;
     rowset_meta_3.init(value);
     do_check(rowset_meta_3);
+}
+
+TEST_F(RowsetMetaTest, TopLevelInvertedIndexFormatOverridesEmbeddedSchemaFormat) {
+    RowsetMetaPB rowset_meta_pb;
+    rowset_meta_pb.set_rowset_id(0);
+    rowset_meta_pb.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+    rowset_meta_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    rowset_meta_pb.mutable_tablet_schema()->set_schema_version(7);
+    rowset_meta_pb.mutable_tablet_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    RowsetMeta rowset_meta;
+    ASSERT_TRUE(rowset_meta.init_from_pb(rowset_meta_pb));
+    ASSERT_TRUE(rowset_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, rowset_meta.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    RowsetMetaPB serialized;
+    rowset_meta.to_rowset_pb(&serialized);
+    ASSERT_TRUE(serialized.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, serialized.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              serialized.tablet_schema().inverted_index_storage_format());
+}
+
+TEST_F(RowsetMetaTest, TopLevelInvertedIndexFormatStaysAlignedWhenSchemaChanges) {
+    RowsetMetaPB rowset_meta_pb;
+    rowset_meta_pb.set_rowset_id(0);
+    rowset_meta_pb.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+    rowset_meta_pb.mutable_tablet_schema()->set_schema_version(7);
+    rowset_meta_pb.mutable_tablet_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    RowsetMeta rowset_meta;
+    ASSERT_TRUE(rowset_meta.init_from_pb(rowset_meta_pb));
+    rowset_meta.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+
+    TabletSchemaPB replacement_schema;
+    replacement_schema.set_schema_version(8);
+    replacement_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    rowset_meta.set_tablet_schema(replacement_schema);
+
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+    RowsetMetaPB serialized;
+    rowset_meta.to_rowset_pb(&serialized);
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, serialized.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              serialized.tablet_schema().inverted_index_storage_format());
+}
+
+TEST_F(RowsetMetaTest, LegacyEmbeddedSchemaInvertedIndexFormatIsFallback) {
+    RowsetMetaPB rowset_meta_pb;
+    rowset_meta_pb.set_rowset_id(0);
+    rowset_meta_pb.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+    rowset_meta_pb.mutable_tablet_schema()->set_schema_version(7);
+    rowset_meta_pb.mutable_tablet_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    RowsetMeta rowset_meta;
+    ASSERT_TRUE(rowset_meta.init_from_pb(rowset_meta_pb));
+    EXPECT_FALSE(rowset_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    RowsetMetaPB top_level_format_pb;
+    top_level_format_pb.set_rowset_id(0);
+    top_level_format_pb.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+    top_level_format_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    top_level_format_pb.mutable_tablet_schema()->set_schema_version(8);
+    ASSERT_TRUE(rowset_meta.init_from_pb(top_level_format_pb));
+    EXPECT_TRUE(rowset_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    ASSERT_TRUE(rowset_meta.init_from_pb(rowset_meta_pb));
+    EXPECT_FALSE(rowset_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
 }
 
 TEST_F(RowsetMetaTest, TestInitWithInvalidData) {

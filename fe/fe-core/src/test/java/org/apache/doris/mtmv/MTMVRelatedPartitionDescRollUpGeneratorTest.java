@@ -33,8 +33,8 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -79,9 +79,9 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             PartitionKeyDesc expectDesc202002 = PartitionKeyDesc.createFixed(
                     Lists.newArrayList(new PartitionValue("2020-02-01")),
                     Lists.newArrayList(new PartitionValue("2020-03-01")));
-            Assert.assertEquals(2, res.size());
-            Assert.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc202001));
-            Assert.assertEquals(Sets.newHashSet("name3"), res.get(expectDesc202002));
+            Assertions.assertEquals(2, res.size());
+            Assertions.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc202001));
+            Assertions.assertEquals(Sets.newHashSet("name3"), res.get(expectDesc202002));
         }
     }
 
@@ -106,9 +106,9 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
 
             PartitionKeyDesc expectDesc202001 = generateInDesc("2020-01-01", "2020-01-02");
             PartitionKeyDesc expectDesc202002 = generateInDesc("2020-02-01");
-            Assert.assertEquals(2, res.size());
-            Assert.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc202001));
-            Assert.assertEquals(Sets.newHashSet("name3"), res.get(expectDesc202002));
+            Assertions.assertEquals(2, res.size());
+            Assertions.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc202001));
+            Assertions.assertEquals(Sets.newHashSet("name3"), res.get(expectDesc202002));
         }
     }
 
@@ -119,6 +119,52 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             partitionValues.add(partitionValue);
         }
         return PartitionKeyDesc.createIn(partitionValues);
+    }
+
+    @Test
+    public void testRollUpRangeTimestampNs() throws AnalysisException {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("hour")), true);
+        try (MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class)) {
+            mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getPartitionColumnType(
+                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class)))
+                    .thenReturn(ScalarType.createTimeStampNsType());
+            Mockito.when(mtmvPartitionInfo.getExpr()).thenReturn(expr);
+            Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
+
+            MTMVRelatedPartitionDescRollUpGenerator generator = new MTMVRelatedPartitionDescRollUpGenerator();
+            Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = Maps.newHashMap();
+            relatedPartitionDescs.put(PartitionKeyDesc.createFixed(
+                            Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000000")),
+                            Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000001"))),
+                    Sets.newHashSet("one-nanosecond"));
+            relatedPartitionDescs.put(PartitionKeyDesc.createFixed(
+                            Lists.newArrayList(new PartitionValue("1677-09-21 00:12:43.145224192")),
+                            Lists.newArrayList(new PartitionValue("1677-09-21 00:12:43.145224193"))),
+                    Sets.newHashSet("minimum"));
+            relatedPartitionDescs.put(PartitionKeyDesc.createFixed(
+                            Lists.newArrayList(new PartitionValue("2262-04-11 23:47:16.854775807")),
+                            Lists.newArrayList(PartitionValue.MAX_VALUE)),
+                    Sets.newHashSet("maximum"));
+
+            Map<PartitionKeyDesc, Set<String>> result = generator.rollUpRange(relatedPartitionDescs,
+                    mtmvPartitionInfo, null);
+
+            PartitionKeyDesc expectedOneNanosecond = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000000")),
+                    Lists.newArrayList(new PartitionValue("2024-01-01 01:00:00.000000000")));
+            PartitionKeyDesc expectedMinimum = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("1677-09-21 00:12:43.145224192")),
+                    Lists.newArrayList(new PartitionValue("1677-09-21 01:00:00.000000000")));
+            PartitionKeyDesc expectedMaximum = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2262-04-11 23:00:00.000000000")),
+                    Lists.newArrayList(PartitionValue.MAX_VALUE));
+
+            Assertions.assertEquals(3, result.size());
+            Assertions.assertEquals(Sets.newHashSet("one-nanosecond"), result.get(expectedOneNanosecond));
+            Assertions.assertEquals(Sets.newHashSet("minimum"), result.get(expectedMinimum));
+            Assertions.assertEquals(Sets.newHashSet("maximum"), result.get(expectedMaximum));
+        }
     }
 
     @Test
@@ -162,8 +208,8 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             PartitionKeyDesc expectDesc = PartitionKeyDesc.createFixed(
                     Lists.newArrayList(new PartitionValue("2024-01-15 00:00:00+00:00")),
                     Lists.newArrayList(new PartitionValue("2024-01-16 00:00:00+00:00")));
-            Assert.assertEquals(1, res.size());
-            Assert.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc));
+            Assertions.assertEquals(1, res.size());
+            Assertions.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc));
 
             // Verify that the rolled-up PartitionKeyDesc produces correct UTC partition keys
             // regardless of session timezone (America/New_York = UTC-5).
@@ -180,10 +226,8 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             // Both should be stored as midnight UTC, not shifted to session-local time.
             String lowKeyStr = lowKey.getKeys().get(0).getStringValue();
             String upperKeyStr = upperKey.getKeys().get(0).getStringValue();
-            Assert.assertTrue("Lower bound should be 2024-01-15 midnight UTC, but was: " + lowKeyStr,
-                    lowKeyStr.startsWith("2024-01-15 00:00:00"));
-            Assert.assertTrue("Upper bound should be 2024-01-16 midnight UTC, but was: " + upperKeyStr,
-                    upperKeyStr.startsWith("2024-01-16 00:00:00"));
+            Assertions.assertTrue(lowKeyStr.startsWith("2024-01-15 00:00:00"), "Lower bound should be 2024-01-15 midnight UTC, but was: " + lowKeyStr);
+            Assertions.assertTrue(upperKeyStr.startsWith("2024-01-16 00:00:00"), "Upper bound should be 2024-01-16 midnight UTC, but was: " + upperKeyStr);
         } finally {
             ConnectContext.remove();
         }

@@ -77,17 +77,21 @@ void close_task(PipelineTask* task, Status exec_status, PipelineFragmentContext*
     // task finished.
     SCOPED_ATTACH_TASK(task->runtime_state());
     if (!exec_status.ok()) {
-        ctx->cancel(exec_status);
+        // Always enter cancellation through QueryContext. The status passed while closing a task
+        // may be the query's existing cancellation status rather than a new task failure; the
+        // QueryContext first-error-wins guard makes that case a no-op and prevents repeated
+        // fragment-local cancellation work.
+        ctx->get_query_ctx()->cancel(exec_status);
         LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
                                     print_id(ctx->get_query_id()), exec_status.to_string());
     }
     Status status = task->close(exec_status);
     if (!status.ok()) {
-        ctx->cancel(status);
+        ctx->get_query_ctx()->cancel(status);
     }
     status = task->finalize();
     if (!status.ok()) {
-        ctx->cancel(status);
+        ctx->get_query_ctx()->cancel(status);
     }
 }
 

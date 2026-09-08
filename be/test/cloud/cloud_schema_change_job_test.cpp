@@ -153,9 +153,10 @@ public:
 
 protected:
     RowsetSharedPtr create_rowset(TabletSchemaSPtr schema, int64_t tablet_id, int64_t start,
-                                  int64_t end) {
+                                  int64_t end, int64_t rowset_id = 540081) const {
         RowsetMetaPB pb;
         json2pb::JsonToProtoMessage(_json_rowset_meta, &pb);
+        pb.set_rowset_id(rowset_id);
         pb.set_tablet_id(tablet_id);
         pb.set_start_version(start);
         pb.set_end_version(end);
@@ -172,6 +173,66 @@ protected:
     CloudStorageEngine _engine;
     std::shared_ptr<CloudClusterInfo> _cluster_info;
 };
+
+// GTest assertion macros inflate cognitive complexity for this linear scenario.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(CloudSchemaChangeJobTest, DeleteBitmapTmpTabletDoesNotInheritStaleRowsets) {
+    constexpr int64_t new_tablet_id = 60002;
+
+    TabletMetaSharedPtr new_meta(new TabletMeta(
+            1, 2, new_tablet_id, new_tablet_id + 100, 4, 5, TTabletSchema(), 6, {{7, 8}},
+            UniqueId(11, 12), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F, -1, true));
+    auto placeholder = create_rowset(new_meta->tablet_schema(), new_tablet_id, 0, 1, 6000201);
+    auto compacted = create_rowset(new_meta->tablet_schema(), new_tablet_id, 2, 3, 6000202);
+    auto sc_output_2 = create_rowset(new_meta->tablet_schema(), new_tablet_id, 2, 2, 6000203);
+    auto sc_output_3 = create_rowset(new_meta->tablet_schema(), new_tablet_id, 3, 3, 6000204);
+    auto sc_output_4 = create_rowset(new_meta->tablet_schema(), new_tablet_id, 4, 4, 6000205);
+    ASSERT_NE(placeholder, nullptr);
+    ASSERT_NE(compacted, nullptr);
+    ASSERT_NE(sc_output_2, nullptr);
+    ASSERT_NE(sc_output_3, nullptr);
+    ASSERT_NE(sc_output_4, nullptr);
+
+    ASSERT_TRUE(new_meta->add_rs_meta(placeholder->rowset_meta()).ok());
+    ASSERT_TRUE(new_meta->add_rs_meta(compacted->rowset_meta()).ok());
+    new_meta->modify_rs_metas({}, {compacted->rowset_meta()});
+    ASSERT_EQ(new_meta->all_stale_rs_metas().size(), 1);
+
+    auto new_tablet = std::make_shared<CloudTablet>(_engine, new_meta);
+    auto* sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+    sp->set_call_back("CloudMetaMgr::prepare_tablet_job", [](auto&& outcome) {
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::OK();
+        auto* resp = try_any_cast<cloud::StartTabletJobResponse*>(outcome[1]);
+        resp->mutable_status()->set_code(cloud::MetaServiceCode::OK);
+    });
+
+    Status captured_status = Status::InternalError("temporary tablet was not inspected");
+    RowsetIdUnorderedSet captured_rowset_ids;
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [&](auto&& outcome) {
+        auto* tablet = try_any_cast<CloudTablet*>(outcome[0]);
+        std::shared_lock rlock(tablet->get_header_lock());
+        captured_status = tablet->get_all_rs_id_unlocked(4, &captured_rowset_ids);
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::InternalError("stop after inspecting temporary tablet");
+    });
+
+    CloudSchemaChangeJob sc_job(_engine, "test_tmp_tablet_stale_rowsets", 9999999999);
+    sc_job._new_tablet = new_tablet;
+    sc_job._output_rowsets = {sc_output_2, sc_output_3, sc_output_4};
+    auto status = sc_job._process_delete_bitmap(4, 5, 12345, "");
+    ASSERT_TRUE(_engine.unregister_compaction_stop_token(new_tablet, false).ok());
+
+    ASSERT_FALSE(status.ok());
+    ASSERT_NE(status.to_string().find("stop after inspecting temporary tablet"), std::string::npos);
+    ASSERT_TRUE(captured_status.ok()) << captured_status.to_string();
+    ASSERT_EQ(captured_rowset_ids.size(), 3);
+    ASSERT_EQ(new_meta->all_stale_rs_metas().size(), 1);
+}
 
 TEST_F(CloudSchemaChangeJobTest, FillVersionHolesBeforeNewTabletRunning) {
     int64_t base_tablet_id = 40001;

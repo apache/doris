@@ -96,6 +96,8 @@ public:
 
     RecyclerThreadPoolGroup& thread_pool_group() { return _thread_pool_group; }
 
+    const std::shared_ptr<SnapshotManager>& snapshot_manager() const { return snapshot_manager_; }
+
 private:
     void recycle_callback();
 

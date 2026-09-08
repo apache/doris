@@ -312,6 +312,11 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(t.getMessage())) {
             return;
         }
+        setErrorState();
+        recordLoadJob(ctx.getCurrentUserIdentity());
+    }
+
+    protected void setErrorState() {
         String firstErrorMsgPart = "";
         String urlPart = "";
         if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
@@ -323,7 +328,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         }
         String finalErrorMsg = InsertUtils.getFinalErrorMsg(errMsg, firstErrorMsgPart, urlPart);
         ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
-        recordLoadJob(ctx.getCurrentUserIdentity());
     }
 
     private void recordLoadJob(UserIdentity userIdentity) {

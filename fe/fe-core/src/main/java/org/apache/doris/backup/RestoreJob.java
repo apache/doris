@@ -1498,7 +1498,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     storageMedium = localTbl.getPartitionInfo().getDataProperty(restorePart.getId()).getStorageMedium();
                 }
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                        restoredIdx.getId(), indexMeta.getSchemaHash(), storageMedium);
+                        restoredIdx.getId(), indexMeta.getSchemaHash(), storageMedium,
+                        indexMeta.isRowBinlogIndex());
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -1778,7 +1779,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 int schemaHash = localTbl.getSchemaHashByIndexId(restoreIdx.getId());
                 for (Tablet restoreTablet : restoreIdx.getTablets()) {
                     TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                            restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
+                            restoreIdx.getId(), schemaHash, TStorageMedium.HDD, restoreIdx.isRowBinlog());
                     Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                     for (Replica restoreReplica : restoreTablet.getReplicas()) {
                         Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -1810,7 +1811,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         int schemaHash = olapRestoreTbl.getSchemaHashByIndexId(restoreIdx.getId());
                         for (Tablet restoreTablet : restoreIdx.getTablets()) {
                             TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
-                                    restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
+                                    restoreIdx.getId(), schemaHash, TStorageMedium.HDD, restoreIdx.isRowBinlog());
                             Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                             for (Replica restoreReplica : restoreTablet.getReplicas()) {
                                 Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);

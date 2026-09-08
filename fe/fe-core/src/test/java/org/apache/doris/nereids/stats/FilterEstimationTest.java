@@ -46,10 +46,10 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.ColumnStatisticBuilder;
-import org.apache.doris.statistics.Statistics;
-import org.apache.doris.statistics.StatisticsBuilder;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatisticBuilder;
+import org.apache.doris.statistics.model.Statistics;
+import org.apache.doris.statistics.model.StatisticsBuilder;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.math3.util.Precision;
@@ -1462,6 +1462,34 @@ class FilterEstimationTest {
         VarcharLiteral year2021 = new VarcharLiteral("2021-12-01");
         Statistics filter2021 = new FilterEstimation().estimate(new GreaterThan(a, year2021), baseStats);
         Assertions.assertEquals(4.24, filter2021.getRowCount(), 0.01);
+    }
+
+    @Test
+    public void testStringRangeColToTimeStampNsLiteral() {
+        SlotReference timestamp = new SlotReference("timestamp", new VarcharType(30));
+        ColumnStatistic timestampStats = new ColumnStatisticBuilder(100)
+                .setNdv(100)
+                .setAvgSizeByte(30)
+                .setNumNulls(0)
+                .setMaxExpr(new StringLiteral(
+                        "2020-2-01 00:00:00.000000002").toLegacyLiteral())
+                .setMaxValue(new VarcharLiteral(
+                        "2020-2-01 00:00:00.000000002").getDouble())
+                .setMinExpr(new StringLiteral(
+                        "2020-1-01 00:00:00.000000001").toLegacyLiteral())
+                .setMinValue(new VarcharLiteral(
+                        "2020-1-01 00:00:00.000000001").getDouble())
+                .build();
+        Statistics baseStats = new StatisticsBuilder()
+                .setRowCount(100)
+                .putColumnStatistics(timestamp, timestampStats)
+                .build();
+
+        VarcharLiteral october = new VarcharLiteral("2020-10-01 00:00:00.000000003");
+        Statistics result = new FilterEstimation().estimate(
+                new LessThan(timestamp, october), baseStats);
+
+        Assertions.assertEquals(100, result.getRowCount());
     }
 
     @Test

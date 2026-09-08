@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterStreamCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterUserCommand;
@@ -986,6 +987,10 @@ public interface CommandVisitor<R, C> {
     }
 
     default R visitDropStreamCommand(DropStreamCommand command, C context) {
+        return visitCommand(command, context);
+    }
+
+    default R visitAlterStreamCommand(AlterStreamCommand command, C context) {
         return visitCommand(command, context);
     }
 

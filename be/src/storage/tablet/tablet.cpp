@@ -2058,6 +2058,7 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     context.tablet_id = tablet_id();
     context.partition_id = partition_id();
     context.tablet_schema_hash = schema_hash();
+    context.inverted_index_storage_format = tablet_meta()->inverted_index_storage_format();
     context.rowset_type = tablet_meta()->preferred_rowset_type();
     // Alpha Rowset will be removed in the future, so that if the tablet's default rowset type is
     // alpha rowset, then set the newly created rowset to storage engine's default rowset.

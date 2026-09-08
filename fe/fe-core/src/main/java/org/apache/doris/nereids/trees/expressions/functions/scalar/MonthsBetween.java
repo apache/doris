@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -40,6 +41,10 @@ public class MonthsBetween extends ScalarFunction
         implements TernaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(DoubleType.INSTANCE).args(TimeStampNsType.INSTANCE,
+                    TimeStampNsType.INSTANCE, BooleanType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(TimeStampNsType.INSTANCE,
+                    TimeStampNsType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE,
                     BooleanType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));

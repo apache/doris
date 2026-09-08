@@ -196,11 +196,12 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     @Override
     public void close() throws Exception {
         ctx.setCommand(MysqlCommand.COM_SLEEP);
-        // Executors whose results are pulled from the BE keep their coordinator alive past
-        // GetFlightInfo (registered as deferred executors on the ConnectContext) so the BE can
-        // still fetch external-table splits during DoGet. Do NOT finalize those here; they are
-        // finalized when the next query starts or the connection is torn down. Executors that are
-        // not deferred (local results, or a query that already failed) are finalized now. See #62259.
+        // An external-table scan in batch mode keeps its coordinator alive past GetFlightInfo
+        // (registered as a deferred executor on the ConnectContext) so the BE can still fetch its
+        // splits during DoGet. Do NOT finalize those here; they are finalized when the next query
+        // starts, when the connection is torn down, or by the idle reaper in
+        // ConnectContext.checkTimeout. Every other executor (local results, results the BE buffers
+        // on its own, or a query that already failed) is finalized now. See #62259 and #67503.
         for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
             if (!asynExecutor.isDeferredForArrowFlight()) {
                 asynExecutor.finalizeQuery();

@@ -70,7 +70,7 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
@@ -641,7 +641,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 if (!(foldedExpressionWithLiteral instanceof DateLiteral)) {
                     return ImmutableList.of();
                 }
-                if (((DateLiteral) foldedExpressionWithLiteral).getDouble() == queryUsedLiteral.getDouble()) {
+                if (foldedExpressionWithLiteral.equals(queryUsedLiteral)) {
                     // after date_trunc simplify if equals to original expression, expr could be rewritten by mv
                     replacedExpression = ExpressionUtils.replace(expressionShuttledToRewrite,
                             targetToTargetReplacementMappingQueryBased,

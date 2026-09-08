@@ -43,6 +43,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -113,12 +114,14 @@ public class RangerHiveAccessController extends RangerAccessController {
 
     private RangerAccessRequestImpl createRequest(UserIdentity currentUser, HiveAccessType accessType) {
         RangerAccessRequestImpl request = createRequest(currentUser);
-        if (accessType == HiveAccessType.USE) {
-            request.setAccessType(RangerPolicyEngine.ANY_ACCESS);
-        } else {
-            request.setAccessType(accessType.name().toLowerCase());
-        }
+        request.setAccessType(toRangerAccessType(accessType));
         return request;
+    }
+
+    static String toRangerAccessType(HiveAccessType accessType) {
+        return accessType == HiveAccessType.USE
+                ? RangerPolicyEngine.ANY_ACCESS
+                : accessType.name().toLowerCase(Locale.ROOT);
     }
 
     @Override
@@ -135,6 +138,11 @@ public class RangerHiveAccessController extends RangerAccessController {
         request.setAccessTime(new Date());
 
         return request;
+    }
+
+    @Override
+    protected String getSelectAccessType() {
+        return toRangerAccessType(HiveAccessType.SELECT);
     }
 
     private void checkPrivileges(UserIdentity currentUser, HiveAccessType accessType,
