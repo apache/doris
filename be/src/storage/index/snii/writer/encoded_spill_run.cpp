@@ -66,6 +66,11 @@ public:
         if (offset > file_size || length > file_size - offset) {
             return bad_run("section exceeds file size");
         }
+        // Advancing to the next term keeps the same forward range. Preserve
+        // unread bytes instead of rereading a full block for each small term.
+        if (fd == fd_ && offset == offset_ && offset + length == end_) {
+            return Status::OK();
+        }
         fd_ = fd;
         offset_ = offset;
         end_ = offset + length;
