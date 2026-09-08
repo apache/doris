@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "core/uint128.h"
 #include "core/value/variant/variant_field.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exec/common/sip_hash.h"
@@ -256,77 +257,261 @@ ObjectEntry object_entry_at(VariantRef object, uint32_t index, StringRef previou
     return {.key = key, .value = child};
 }
 
-bool scalar_equals(const NormalizedValue& left, const NormalizedValue& right) {
+int compare_ordered(auto left, auto right) {
+    if (left < right) {
+        return -1;
+    }
+    if (left > right) {
+        return 1;
+    }
+    return 0;
+}
+
+bool is_numeric(CanonicalKind kind) {
+    return kind == CanonicalKind::EXACT_INTEGER || kind == CanonicalKind::DECIMAL ||
+           kind == CanonicalKind::FLOATING;
+}
+
+struct ExactNumber {
+    unsigned __int128 magnitude;
+    uint8_t scale;
+    bool negative;
+};
+
+ExactNumber exact_number(const NormalizedValue& value) {
+    DCHECK(value.kind == CanonicalKind::EXACT_INTEGER || value.kind == CanonicalKind::DECIMAL);
+    return {.magnitude = variant_unsigned_magnitude(value.integer),
+            .scale = static_cast<uint8_t>(value.kind == CanonicalKind::DECIMAL ? value.scale : 0),
+            .negative = value.integer < 0};
+}
+
+UInt256 unsigned_256(unsigned __int128 value) {
+    return {value};
+}
+
+UInt256 power_of_five(uint8_t exponent) {
+    UInt256 result = 1;
+    for (uint8_t index = 0; index < exponent; ++index) {
+        result *= 5;
+    }
+    return result;
+}
+
+UInt256 power_of_ten(uint8_t exponent) {
+    UInt256 result = 1;
+    for (uint8_t index = 0; index < exponent; ++index) {
+        result *= 10;
+    }
+    return result;
+}
+
+uint16_t bit_width(UInt256 value) {
+    uint16_t width = 0;
+    while (value != 0) {
+        value >>= 1;
+        ++width;
+    }
+    return width;
+}
+
+int compare_exact_magnitudes(const ExactNumber& left, const ExactNumber& right) {
+    UInt256 scaled_left = unsigned_256(left.magnitude);
+    UInt256 scaled_right = unsigned_256(right.magnitude);
+    if (left.scale < right.scale) {
+        scaled_left *= power_of_ten(right.scale - left.scale);
+    } else if (right.scale < left.scale) {
+        scaled_right *= power_of_ten(left.scale - right.scale);
+    }
+    return compare_ordered(scaled_left, scaled_right);
+}
+
+struct FloatingNumber {
+    uint64_t significand;
+    int16_t binary_exponent;
+    bool negative;
+    bool infinity;
+    bool nan;
+};
+
+FloatingNumber floating_number(uint64_t bits) {
+    constexpr uint64_t FRACTION_MASK = (uint64_t {1} << 52) - 1;
+    constexpr uint16_t EXPONENT_MASK = (uint16_t {1} << 11) - 1;
+    const auto exponent = static_cast<uint16_t>((bits >> 52) & EXPONENT_MASK);
+    const uint64_t fraction = bits & FRACTION_MASK;
+    if (exponent == EXPONENT_MASK) {
+        return {.significand = 0,
+                .binary_exponent = 0,
+                .negative = (bits >> 63) != 0,
+                .infinity = fraction == 0,
+                .nan = fraction != 0};
+    }
+    if (exponent == 0) {
+        return {.significand = fraction,
+                .binary_exponent = -1074,
+                .negative = (bits >> 63) != 0,
+                .infinity = false,
+                .nan = false};
+    }
+    return {.significand = (uint64_t {1} << 52) | fraction,
+            .binary_exponent = static_cast<int16_t>(static_cast<int16_t>(exponent) - 1023 - 52),
+            .negative = (bits >> 63) != 0,
+            .infinity = false,
+            .nan = false};
+}
+
+int compare_floating_exact_magnitudes(const FloatingNumber& floating, const ExactNumber& exact) {
+    DCHECK(!floating.nan && !floating.infinity);
+    DCHECK_NE(floating.significand, 0);
+    DCHECK(exact.magnitude != 0);
+    UInt256 floating_scaled = UInt256(floating.significand) * power_of_five(exact.scale);
+    UInt256 exact_scaled = unsigned_256(exact.magnitude);
+    const int16_t binary_shift = floating.binary_exponent + exact.scale;
+    if (binary_shift >= 0) {
+        const uint16_t floating_width = bit_width(floating_scaled);
+        if (floating_width + binary_shift > bit_width(exact_scaled)) {
+            return 1;
+        }
+        floating_scaled <<= binary_shift;
+    } else {
+        const uint16_t exact_width = bit_width(exact_scaled);
+        const auto shift = static_cast<uint16_t>(-binary_shift);
+        if (exact_width + shift > bit_width(floating_scaled)) {
+            return -1;
+        }
+        exact_scaled <<= shift;
+    }
+    return compare_ordered(floating_scaled, exact_scaled);
+}
+
+int compare_numeric(const NormalizedValue& left, const NormalizedValue& right) {
+    if (left.kind != CanonicalKind::FLOATING && right.kind != CanonicalKind::FLOATING) {
+        const ExactNumber exact_left = exact_number(left);
+        const ExactNumber exact_right = exact_number(right);
+        if (exact_left.negative != exact_right.negative) {
+            return exact_left.negative ? -1 : 1;
+        }
+        int result = compare_exact_magnitudes(exact_left, exact_right);
+        return exact_left.negative ? -result : result;
+    }
+    if (left.kind == CanonicalKind::FLOATING && right.kind == CanonicalKind::FLOATING) {
+        const FloatingNumber floating_left = floating_number(left.floating_bits);
+        const FloatingNumber floating_right = floating_number(right.floating_bits);
+        if (floating_left.nan || floating_right.nan) {
+            return compare_ordered(floating_left.nan, floating_right.nan);
+        }
+        const auto value_left = std::bit_cast<double>(left.floating_bits);
+        const auto value_right = std::bit_cast<double>(right.floating_bits);
+        return compare_ordered(value_left, value_right);
+    }
+
+    const bool floating_on_left = left.kind == CanonicalKind::FLOATING;
+    const FloatingNumber floating =
+            floating_number((floating_on_left ? left : right).floating_bits);
+    const ExactNumber exact = exact_number(floating_on_left ? right : left);
+    int result;
+    if (floating.nan) {
+        result = 1;
+    } else if (floating.infinity) {
+        result = floating.negative ? -1 : 1;
+    } else if (exact.magnitude == 0) {
+        result = floating.negative ? -1 : 1;
+    } else if (floating.negative != exact.negative) {
+        result = floating.negative ? -1 : 1;
+    } else {
+        result = compare_floating_exact_magnitudes(floating, exact);
+        if (floating.negative) {
+            result = -result;
+        }
+    }
+    return floating_on_left ? result : -result;
+}
+
+int scalar_compare(const NormalizedValue& left, const NormalizedValue& right) {
+    if (is_numeric(left.kind) && is_numeric(right.kind)) {
+        const int numeric_result = compare_numeric(left, right);
+        if (numeric_result != 0) {
+            return numeric_result;
+        }
+        return compare_ordered(left.kind, right.kind);
+    }
+    if (left.kind != right.kind) {
+        return compare_ordered(left.kind, right.kind);
+    }
     switch (left.kind) {
     case CanonicalKind::NULL_VALUE:
-        return true;
+        return 0;
     case CanonicalKind::BOOL:
-        return left.boolean == right.boolean;
+        return compare_ordered(left.boolean, right.boolean);
     case CanonicalKind::EXACT_INTEGER:
     case CanonicalKind::DATE:
     case CanonicalKind::TIMESTAMP_TZ:
     case CanonicalKind::TIMESTAMP_NTZ:
     case CanonicalKind::TIME:
-        return left.integer == right.integer;
+        return compare_ordered(left.integer, right.integer);
     case CanonicalKind::DECIMAL:
-        return left.integer == right.integer && left.scale == right.scale;
+        DCHECK(false) << "Decimal should use numeric comparison";
+        return 0;
     case CanonicalKind::FLOATING:
-        return left.floating_bits == right.floating_bits;
+        DCHECK(false) << "Floating point should use numeric comparison";
+        return 0;
     case CanonicalKind::STRING:
     case CanonicalKind::BINARY:
-        return left.bytes == right.bytes;
+        return compare_ordered(left.bytes, right.bytes);
     case CanonicalKind::UUID:
-        return left.uuid == right.uuid;
+        return compare_ordered(left.uuid, right.uuid);
     case CanonicalKind::OBJECT:
     case CanonicalKind::ARRAY:
         break;
     }
-    DCHECK(false) << "Container reached scalar equality";
-    return false;
+    DCHECK(false) << "Container reached scalar comparison";
+    return 0;
 }
 
-bool equals_node(VariantRef left, VariantRef right, uint32_t depth) {
+int compare_node(VariantRef left, VariantRef right, uint32_t depth) {
     require_depth(depth);
     require_exact_value(left);
     require_exact_value(right);
     const NormalizedValue normalized_left = normalize_value(left);
     const NormalizedValue normalized_right = normalize_value(right);
     if (normalized_left.kind != normalized_right.kind) {
-        return false;
+        if (!is_numeric(normalized_left.kind) || !is_numeric(normalized_right.kind)) {
+            return compare_ordered(normalized_left.kind, normalized_right.kind);
+        }
     }
     if (normalized_left.kind == CanonicalKind::ARRAY) {
-        const uint32_t count = left.num_elements();
-        if (count != right.num_elements()) {
-            return false;
-        }
-        for (uint32_t index = 0; index < count; ++index) {
-            if (!equals_node(left.array_at(index), right.array_at(index), depth + 1)) {
-                return false;
+        const uint32_t left_count = left.num_elements();
+        const uint32_t right_count = right.num_elements();
+        for (uint32_t index = 0; index < std::min(left_count, right_count); ++index) {
+            const int result = compare_node(left.array_at(index), right.array_at(index), depth + 1);
+            if (result != 0) {
+                return result;
             }
         }
-        return true;
+        return compare_ordered(left_count, right_count);
     }
     if (normalized_left.kind == CanonicalKind::OBJECT) {
-        const uint32_t count = left.num_elements();
-        if (count != right.num_elements()) {
-            return false;
-        }
+        const uint32_t left_count = left.num_elements();
+        const uint32_t right_count = right.num_elements();
         StringRef previous_left;
         StringRef previous_right;
-        for (uint32_t index = 0; index < count; ++index) {
+        for (uint32_t index = 0; index < std::min(left_count, right_count); ++index) {
             const ObjectEntry left_entry = object_entry_at(left, index, previous_left, index != 0);
             const ObjectEntry right_entry =
                     object_entry_at(right, index, previous_right, index != 0);
-            if (left_entry.key != right_entry.key ||
-                !equals_node(left_entry.value, right_entry.value, depth + 1)) {
-                return false;
+            const int key_result = compare_ordered(left_entry.key, right_entry.key);
+            if (key_result != 0) {
+                return key_result;
+            }
+            const int value_result = compare_node(left_entry.value, right_entry.value, depth + 1);
+            if (value_result != 0) {
+                return value_result;
             }
             previous_left = left_entry.key;
             previous_right = right_entry.key;
         }
-        return true;
+        return compare_ordered(left_count, right_count);
     }
-    return scalar_equals(normalized_left, normalized_right);
+    return scalar_compare(normalized_left, normalized_right);
 }
 
 template <typename Sink>
@@ -1004,7 +1189,11 @@ void VariantCrc32cHashSink::update(const char* data, size_t size) {
 }
 
 bool canonical_equals(VariantRef left, VariantRef right) {
-    return equals_node(left, right, 0);
+    return canonical_compare(left, right) == 0;
+}
+
+int canonical_compare(VariantRef left, VariantRef right) {
+    return compare_node(left, right, 0);
 }
 
 template <typename Sink>
@@ -1018,10 +1207,13 @@ template void canonical_hash<VariantCrc32HashSink>(VariantRef value, VariantCrc3
 template void canonical_hash<VariantCrc32cHashSink>(VariantRef value, VariantCrc32cHashSink& sink);
 
 bool canonical_equals(const VariantScalarRef& left, const VariantScalarRef& right) {
+    return canonical_compare(left, right) == 0;
+}
+
+int canonical_compare(const VariantScalarRef& left, const VariantScalarRef& right) {
     const NormalizedValue normalized_left = VariantScalarAdapter::normalize(left);
     const NormalizedValue normalized_right = VariantScalarAdapter::normalize(right);
-    return normalized_left.kind == normalized_right.kind &&
-           scalar_equals(normalized_left, normalized_right);
+    return scalar_compare(normalized_left, normalized_right);
 }
 
 template <typename Sink>

@@ -198,6 +198,8 @@ public:
     // including insert, clear, COW mutation, or future row transformations, may invalidate it.
     VariantRef get_value_ref(size_t row) const;
 
+    int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const override;
+
     Field operator[](size_t row) const override;
     void get(size_t row, Field& result) const override;
     void insert(const Field& field) override;
@@ -246,6 +248,8 @@ public:
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          Permutation& result) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override;
 
 private:

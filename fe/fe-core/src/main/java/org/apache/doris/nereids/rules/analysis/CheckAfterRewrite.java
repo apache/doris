@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
@@ -164,14 +165,14 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         } else if (plan instanceof LogicalSort) {
             LogicalSort<?> sort = (LogicalSort<?>) plan;
             for (OrderKey orderKey : sort.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isObjectOrVariantType()) {
+                if (orderKey.getExpr().getDataType().isObjectType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
         } else if (plan instanceof LogicalTopN) {
             LogicalTopN<?> topN = (LogicalTopN<?>) plan;
             for (OrderKey orderKey : topN.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isObjectOrVariantType()) {
+                if (orderKey.getExpr().getDataType().isObjectType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
@@ -182,7 +183,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 }
                 WindowExpression windowExpression = (WindowExpression) ((Alias) a).child();
                 if (windowExpression.getOrderKeys().stream().anyMatch((
-                        orderKey -> orderKey.getDataType().isObjectOrVariantType()))) {
+                        orderKey -> orderKey.getDataType().isObjectType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
                 if (windowExpression.getPartitionKeys().stream().anyMatch((
@@ -193,7 +194,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         } else if (plan instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
             for (Expression conjunct : join.getHashJoinConjuncts()) {
-                if (containsVariantTypeOutsideCast(conjunct)) {
+                if (!Config.enable_variant_v2 && containsVariantTypeOutsideCast(conjunct)) {
                     throw new AnalysisException("variant type could not in join equal conditions: "
                             + conjunct.toSql());
                 } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
@@ -202,7 +203,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 }
             }
             for (Expression conjunct : join.getMarkJoinConjuncts()) {
-                if (containsVariantTypeOutsideCast(conjunct)) {
+                if (!Config.enable_variant_v2 && containsVariantTypeOutsideCast(conjunct)) {
                     throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
                 } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
                     throw new AnalysisException(

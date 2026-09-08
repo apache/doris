@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -1446,6 +1447,12 @@ public class TypeCoercionUtils {
 
         boolean leftIsVariant = left.getDataType().isVariantType();
         boolean rightIsVariant = right.getDataType().isVariantType();
+        // V2 equality is shared by scalar predicates and canonical hash join keys. Keep
+        // ordering and mixed Variant/scalar comparisons on their existing coercion paths.
+        if (Config.enable_variant_v2 && leftIsVariant && rightIsVariant
+                && comparisonPredicate instanceof EqualPredicate) {
+            return comparisonPredicate;
+        }
         boolean isDirectVariantSubpathScalarComparison = leftIsVariant != rightIsVariant
                 && ((leftIsVariant && left instanceof ElementAt)
                         || (rightIsVariant && right instanceof ElementAt));

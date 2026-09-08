@@ -20,31 +20,41 @@ suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
 
-    test {
-        sql """
-            SELECT v
+    setFeConfigTemporary([enable_variant_v2: true]) {
+        qt_variant_order """
+            SELECT id
             FROM (
-                SELECT CAST('2' AS VARIANT) AS v
+                SELECT 1 AS id, parse_to_variant('2') AS v
                 UNION ALL
-                SELECT CAST('1' AS VARIANT) AS v
+                SELECT 2 AS id, parse_to_variant('1') AS v
+                UNION ALL
+                SELECT 3 AS id, parse_to_variant('1.5') AS v
             ) t
-            ORDER BY v
+            ORDER BY v, id
         """
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column"
-    }
-
-    test {
-        sql """
-            SELECT v
+        qt_variant_topn """
+            SELECT id
             FROM (
-                SELECT CAST('2' AS VARIANT) AS v
+                SELECT 1 AS id, parse_to_variant('2') AS v
                 UNION ALL
-                SELECT CAST('1' AS VARIANT) AS v
+                SELECT 2 AS id, parse_to_variant('1') AS v
+                UNION ALL
+                SELECT 3 AS id, parse_to_variant('1.5') AS v
             ) t
-            ORDER BY v
-            LIMIT 1
+            ORDER BY v DESC, id
+            LIMIT 2
         """
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column"
+        qt_variant_window """
+            SELECT id, row_number() OVER (ORDER BY v, id)
+            FROM (
+                SELECT 1 AS id, parse_to_variant('2') AS v
+                UNION ALL
+                SELECT 2 AS id, parse_to_variant('1') AS v
+                UNION ALL
+                SELECT 3 AS id, parse_to_variant('1.5') AS v
+            ) t
+            ORDER BY id
+        """
     }
 
     test {
@@ -57,9 +67,11 @@ suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
         exception "CAST to a concrete type first"
     }
 
-    test {
-        sql "SELECT CAST('2' AS VARIANT) <=> CAST('1' AS VARIANT)"
-        exception "CAST to a concrete type first"
+    setFeConfigTemporary([enable_variant_v2: false]) {
+        test {
+            sql "SELECT CAST('2' AS VARIANT) <=> CAST('1' AS VARIANT)"
+            exception "CAST to a concrete type first"
+        }
     }
 
     order_qt_explicit_cast_order """

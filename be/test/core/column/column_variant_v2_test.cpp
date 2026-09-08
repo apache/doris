@@ -64,6 +64,7 @@
 #include "exec/common/hash_table/string_hash_map.h"
 #include "exec/common/sip_hash.h"
 #include "exec/sort/hybrid_sorter.h"
+#include "exec/sort/sort_block.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "runtime/memory/mem_tracker.h"
@@ -3148,16 +3149,18 @@ TEST(ColumnVariantV2Test, ETCrossCheckTemporalClassMatrix) {
                                    ntz_representations[2], 0);
 }
 
-TEST(ColumnVariantV2Test, TypedPhysicalAndOrderingInterfacesStayUnsupported) {
-    constexpr std::array<int32_t, 1> VALUES {1};
-    constexpr std::array<uint8_t, 1> NULLS {0};
+TEST(ColumnVariantV2Test, TypedPhysicalInterfacesStayUnsupportedAndOrderingWorks) {
+    constexpr std::array<int32_t, 3> VALUES {2, 1, 3};
+    constexpr std::array<uint8_t, 3> NULLS {0, 0, 0};
     auto typed = typed_int32(VALUES, NULLS);
     expect_not_implemented([&] { static_cast<void>(typed->get_data_at(0)); },
                            "intentionally unsupported");
     HybridSorter sorter;
     IColumn::Permutation result;
-    expect_not_implemented([&] { typed->get_permutation(false, 0, 0, sorter, result); },
-                           "intentionally unsupported");
+    typed->get_permutation(false, 0, 0, sorter, result);
+    EXPECT_EQ(std::vector(result.begin(), result.end()), (std::vector<size_t> {1, 0, 2}));
+    typed->get_permutation(true, 2, 0, sorter, result);
+    EXPECT_EQ(std::vector(result.begin(), result.begin() + 2), (std::vector<size_t> {2, 0}));
     expect_not_implemented([&] { typed->replace_column_data(*typed, 0); },
                            "intentionally unsupported");
     EXPECT_TRUE(typed->is_typed());
@@ -3185,19 +3188,54 @@ TEST(ColumnVariantV2Test, ReplaceNullPayloadsWithCanonicalDefault) {
     EXPECT_EQ(json_at(*typed, 2), "{}");
 }
 
-TEST(ColumnVariantV2Test, EncodedPhysicalAndOrderingInterfacesStayUnsupported) {
+TEST(ColumnVariantV2Test, EncodedPhysicalInterfacesStayUnsupportedAndOrderingWorks) {
     auto column = ColumnVariantV2::create();
-    auto source = ColumnVariantV2::create();
-    insert_encoded_field(*source, encode_json("1"));
+    insert_encoded_field(*column, encode_json(R"("text")"));
+    insert_encoded_field(*column, encode_json("2"));
+    insert_encoded_field(*column, encode_json("1.5"));
+    insert_encoded_field(*column, encode_json("true"));
 
     expect_not_implemented([&] { static_cast<void>(column->get_data_at(0)); },
                            "intentionally unsupported");
     HybridSorter sorter;
     IColumn::Permutation result;
-    expect_not_implemented([&] { column->get_permutation(false, 0, 0, sorter, result); },
+    column->get_permutation(false, 0, 0, sorter, result);
+    EXPECT_EQ(std::vector(result.begin(), result.end()), (std::vector<size_t> {3, 2, 1, 0}));
+    expect_not_implemented([&] { column->replace_column_data(*column, 0); },
                            "intentionally unsupported");
-    expect_not_implemented([&] { column->replace_column_data(*source, 0); },
-                           "intentionally unsupported");
+}
+
+TEST(ColumnVariantV2Test, NullableMultiKeyOrderingWorks) {
+    auto variant = ColumnVariantV2::create();
+    insert_encoded_field(*variant, encode_json("2"));
+    insert_encoded_field(*variant, encode_json("1"));
+    insert_encoded_field(*variant, encode_json("1"));
+    auto nullable = ColumnNullable::create(std::move(variant), ColumnUInt8::create(3, 0));
+
+    auto tie = ColumnInt32::create();
+    tie->insert_value(0);
+    tie->insert_value(2);
+    tie->insert_value(1);
+    auto ids = ColumnInt32::create();
+    ids->insert_value(1);
+    ids->insert_value(2);
+    ids->insert_value(3);
+
+    Block source;
+    source.insert({std::move(nullable), make_nullable(std::make_shared<DataTypeVariantV2>()), "v"});
+    source.insert({std::move(tie), std::make_shared<DataTypeInt32>(), "tie"});
+    source.insert({std::move(ids), std::make_shared<DataTypeInt32>(), "id"});
+    SortDescription description;
+    description.emplace_back(0, 1, 1);
+    description.emplace_back(1, 1, 1);
+    Block sorted = source.clone_empty();
+    HybridSorter sorter;
+    sort_block(source, sorted, description, sorter);
+
+    const auto& sorted_ids = assert_cast<const ColumnInt32&>(*sorted.get_by_position(2).column);
+    EXPECT_EQ(sorted_ids.get_data()[0], 3);
+    EXPECT_EQ(sorted_ids.get_data()[1], 2);
+    EXPECT_EQ(sorted_ids.get_data()[2], 1);
 }
 
 } // namespace doris

@@ -44,6 +44,7 @@
 #include "core/value/variant/variant_canonical.h"
 #include "core/value/variant/variant_field.h"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "exec/sort/sort_block.h"
 
 namespace doris {
 namespace {
@@ -1037,6 +1038,24 @@ VariantRef ColumnVariantV2::get_value_ref(size_t row) const {
     return {.metadata = {.data = metadata.data, .size = metadata.size}, .value = value};
 }
 
+int ColumnVariantV2::compare_at(size_t n, size_t m, const IColumn& rhs,
+                                int /*nan_direction_hint*/) const {
+    const auto& right = assert_cast<const ColumnVariantV2&>(rhs);
+    DCHECK_LT(n, size());
+    DCHECK_LT(m, right.size());
+    int result = 0;
+    visit_variant_v2_values(
+            *this, n, n + 1, {}, [](size_t) { DCHECK(false); },
+            [&](size_t, VariantRef left_value) {
+                visit_variant_v2_values(
+                        right, m, m + 1, {}, [](size_t) { DCHECK(false); },
+                        [&](size_t, VariantRef right_value) {
+                            result = canonical_compare(left_value, right_value);
+                        });
+            });
+    return result;
+}
+
 Field ColumnVariantV2::operator[](size_t row) const {
     Field result;
     get(row, result);
@@ -1896,8 +1915,28 @@ void ColumnVariantV2::resize(size_t new_size) {
     }
 }
 
-void ColumnVariantV2::get_permutation(bool, size_t, int, HybridSorter&, Permutation&) const {
-    throw_unsupported("get_permutation");
+void ColumnVariantV2::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                                      HybridSorter& sorter, Permutation& result) const {
+    const size_t row_count = size();
+    result.resize(row_count);
+    for (size_t row = 0; row < row_count; ++row) {
+        result[row] = row;
+    }
+
+    const auto less = [&](size_t left, size_t right) {
+        const int comparison = compare_at(left, right, *this, nan_direction_hint);
+        return reverse ? comparison > 0 : comparison < 0;
+    };
+    if (limit != 0 && limit < row_count) {
+        std::partial_sort(result.begin(), result.begin() + limit, result.end(), less);
+    } else {
+        sorter.sort(result.begin(), result.end(), less);
+    }
+}
+
+void ColumnVariantV2::sort_column(const ColumnSorter* sorter, EqualFlags& flags, Permutation& perms,
+                                  EqualRange& range, bool last_column) const {
+    sorter->sort_column(*this, flags, perms, range, last_column);
 }
 
 void ColumnVariantV2::replace_column_data(const IColumn&, size_t, size_t) {
