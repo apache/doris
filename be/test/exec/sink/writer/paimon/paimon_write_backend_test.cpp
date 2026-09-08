@@ -77,6 +77,12 @@ TEST(CppPaimonWriteBackendTest, FailedOpenCanBeClosedRepeatedly) {
 }
 #endif
 
+TEST(JniPaimonWriteBackendTest, CloseWithoutOpenIsRepeatable) {
+    JniPaimonWriteBackend backend;
+    EXPECT_TRUE(backend.close().ok());
+    EXPECT_TRUE(backend.close().ok());
+}
+
 TEST(JniPaimonWriteBackendTest, OpenAbiAndWriteModes) {
     EXPECT_STREQ(
             "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"

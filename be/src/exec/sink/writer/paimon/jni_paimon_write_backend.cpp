@@ -217,7 +217,6 @@ Status JniPaimonWriteBackend::close() {
         _memory_manager.reset();
         _arrow_schema.reset();
         _spill_session.reset();
-        _opened = false;
         return Status::OK();
     }
 
@@ -237,7 +236,6 @@ Status JniPaimonWriteBackend::close() {
             _spill_session.reset();
         }
         _arrow_schema.reset();
-        _opened = false;
         return env_status;
     }
 
@@ -273,7 +271,6 @@ Status JniPaimonWriteBackend::close() {
         retain_resources_after_failed_close(std::move(_memory_manager), std::move(_spill_session));
     }
     _arrow_schema.reset();
-    _opened = false;
     return close_status;
 }
 
@@ -289,24 +286,21 @@ Status JniPaimonWriteBackend::_check_jni_exception(JNIEnv* env, const std::strin
 
 static Status _get_paimon_arrow_schema(JNIEnv* env, jobject writer, jmethodID get_schema_id,
                                        std::shared_ptr<arrow::Schema>* schema) {
-    auto schema_bytes = static_cast<jbyteArray>(env->CallObjectMethod(writer, get_schema_id));
-    RETURN_IF_ERROR(Jni::Env::GetJniExceptionMsg(
-            env, false, "JNI exception in PaimonJniWriter.getArrowSchema: "));
-    if (schema_bytes == nullptr) {
+    Jni::LocalArray schema_bytes;
+    RETURN_IF_ERROR(Jni::FunctionCall<Jni::ObjectMethod>::instance(env, writer, get_schema_id)
+                            .call(&schema_bytes));
+    if (schema_bytes.uninitialized()) {
         return Status::InternalError("PaimonJniWriter.getArrowSchema returned null");
     }
 
-    const jsize size = env->GetArrayLength(schema_bytes);
+    jsize size = 0;
+    RETURN_IF_ERROR(schema_bytes.get_length(env, &size));
     if (size <= 0) {
-        env->DeleteLocalRef(schema_bytes);
         return Status::InternalError("PaimonJniWriter.getArrowSchema returned empty data");
     }
     std::string serialized_schema(static_cast<size_t>(size), '\0');
-    env->GetByteArrayRegion(schema_bytes, 0, size,
-                            reinterpret_cast<jbyte*>(serialized_schema.data()));
-    env->DeleteLocalRef(schema_bytes);
-    RETURN_IF_ERROR(Jni::Env::GetJniExceptionMsg(
-            env, false, "JNI exception while reading Paimon Arrow schema: "));
+    RETURN_IF_ERROR(schema_bytes.get_byte_elements(
+            env, 0, size, reinterpret_cast<jbyte*>(serialized_schema.data())));
 
     auto input = std::make_shared<arrow::io::BufferReader>(
             arrow::Buffer::FromString(std::move(serialized_schema)));
@@ -424,7 +418,6 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
         st = _get_paimon_arrow_schema(env, _jni_writer_obj, get_arrow_schema_id, &_arrow_schema);
     }
     if (st.ok()) {
-        _opened = true;
         _refresh_memory_profile();
         LOG(INFO) << "Paimon JNI writer memory limit: "
                   << PrettyPrinter::print_bytes(_memory_manager->memory_limit())
@@ -433,11 +426,9 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     return st;
 }
 
-// Writer creation stays non-const because the backend interface also supports future stateful FFI
-// implementations.
 Status JniPaimonWriteBackend::create_writer( // NOLINT(readability-make-member-function-const)
         std::unique_ptr<IPaimonWriter>* writer) {
-    DORIS_CHECK(_opened);
+    DORIS_CHECK(_jni_writer_obj != nullptr);
     DORIS_CHECK(_arrow_schema != nullptr);
     *writer = std::make_unique<JniPaimonWriter>(_jni_writer_obj, _write_id, _prepare_commit_id,
                                                 _abort_id, _arrow_schema);
@@ -507,47 +498,36 @@ Status JniPaimonWriter::prepare_commit(std::vector<TPaimonCommitMessage>& messag
     // Call PaimonJniWriter.prepareCommit() which returns byte[][] —
     // each element is a DPCM-framed serialized CommitMessage chunk produced
     // by PaimonCommitCodec.encode().
-    jobject j_payloads_obj = env->CallObjectMethod(_jni_writer_obj, _prepare_commit_id);
-    Status st = Jni::Env::GetJniExceptionMsg(env, false, "JNI exception in prepareCommit: ");
-    if (!st.ok()) {
-        return st;
-    }
-
-    if (j_payloads_obj == nullptr) {
+    Jni::LocalArray payloads;
+    RETURN_IF_ERROR(
+            Jni::FunctionCall<Jni::ObjectMethod>::instance(env, _jni_writer_obj, _prepare_commit_id)
+                    .call(&payloads));
+    if (payloads.uninitialized()) {
         return Status::InternalError("PaimonJniWriter.prepareCommit returned null");
     }
 
-    // Unpack the byte[][] into TPaimonCommitMessage structs for FE transport.
-    auto* j_payloads = static_cast<jobjectArray>(j_payloads_obj);
-    jsize num_payloads = env->GetArrayLength(j_payloads);
+    // Local wrappers release both array levels on every exit, including C++ allocation failure.
+    jsize num_payloads = 0;
+    RETURN_IF_ERROR(payloads.get_length(env, &num_payloads));
 
     for (jsize i = 0; i < num_payloads; ++i) {
-        auto j_bytes = static_cast<jbyteArray>(env->GetObjectArrayElement(j_payloads, i));
-        if (j_bytes == nullptr) {
-            env->DeleteLocalRef(j_payloads);
+        Jni::LocalArray bytes;
+        RETURN_IF_ERROR(payloads.get_object_array_element(env, i, &bytes));
+        if (bytes.uninitialized()) {
             return Status::InternalError("PaimonJniWriter.prepareCommit returned a null payload");
         }
-        jsize len = env->GetArrayLength(j_bytes);
+        jsize len = 0;
+        RETURN_IF_ERROR(bytes.get_length(env, &len));
         if (len == 0) {
-            env->DeleteLocalRef(j_bytes);
-            env->DeleteLocalRef(j_payloads);
             return Status::InternalError("PaimonJniWriter.prepareCommit returned an empty payload");
         }
         TPaimonCommitMessage msg;
         msg.payload.resize(static_cast<size_t>(len));
-        env->GetByteArrayRegion(j_bytes, 0, len, reinterpret_cast<jbyte*>(msg.payload.data()));
-        Status copy_status = Jni::Env::GetJniExceptionMsg(
-                env, false, "JNI exception while reading Paimon commit payload: ");
-        if (!copy_status.ok()) {
-            env->DeleteLocalRef(j_bytes);
-            env->DeleteLocalRef(j_payloads);
-            return copy_status;
-        }
+        RETURN_IF_ERROR(
+                bytes.get_byte_elements(env, 0, len, reinterpret_cast<jbyte*>(msg.payload.data())));
         msg.__isset.payload = true;
         messages.emplace_back(std::move(msg));
-        env->DeleteLocalRef(j_bytes);
     }
-    env->DeleteLocalRef(j_payloads);
     return Status::OK();
 }
 
