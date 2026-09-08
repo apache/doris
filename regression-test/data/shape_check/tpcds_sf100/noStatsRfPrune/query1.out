@@ -23,12 +23,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = ctr1.ctr_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->ctr_store_sk
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=()
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF2
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF2 RF3
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[customer]
 ------------------PhysicalProject
 --------------------filter((store.s_state = 'SD'))
-----------------------PhysicalOlapScan[store]
+----------------------PhysicalOlapScan[store] apply RFs: RF4
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------hashAgg[LOCAL]

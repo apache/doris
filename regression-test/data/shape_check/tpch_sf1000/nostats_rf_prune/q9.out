@@ -14,14 +14,14 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF2 p_partkey->l_partkey
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
+----------------------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF1 o_orderkey->l_orderkey
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[lineitem] apply RFs: RF2
+--------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF2 RF3 RF4
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[orders]
 --------------------------PhysicalProject
 ----------------------------filter((part.p_name like '%green%'))
-------------------------------PhysicalOlapScan[part]
+------------------------------PhysicalOlapScan[part] apply RFs: RF5
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[partsupp]
 ------------------PhysicalProject
