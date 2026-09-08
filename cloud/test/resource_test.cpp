@@ -492,9 +492,108 @@ TEST(ResourceTest, AddDropCluster) {
     ASSERT_EQ(info.clusters_size(), 1);
     ASSERT_EQ(info.clusters(0).cluster_name(), "compute_cluster");
     ASSERT_EQ(info.clusters(0).cluster_id(), "compute_id");
+    ASSERT_TRUE(info.clusters(0).has_cluster_status_mtime());
+    EXPECT_EQ(info.clusters(0).cluster_status_mtime(), info.clusters(0).ctime());
 
     sp->disable_processing();
     sp->clear_all_call_backs();
+}
+
+// GoogleTest assertions inflate this linear status-transition matrix's complexity metric.
+TEST(ResourceTest, // NOLINT(readability-function-cognitive-complexity)
+     SetClusterStatusPersistsStatusMtime) {
+    auto meta_service = get_meta_service();
+    auto* sp = SyncPoint::get_instance();
+    constexpr uint64_t expected_status_mtime = 1'234'567;
+    sp->set_call_back("handle_set_cluster_status::cluster_status_mtime", [&](auto&& args) {
+        *try_any_cast<uint64_t*>(args[0]) = expected_status_mtime;
+    });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    };
+
+    for (int i = 0; i < 2; ++i) {
+        const std::string instance_id = "set_cluster_status_mtime_instance_" + std::to_string(i);
+        const std::string cluster_id = "set_cluster_status_mtime_cluster_" + std::to_string(i);
+        InstanceInfoPB instance;
+        instance.set_instance_id(instance_id);
+        instance.set_status(InstanceInfoPB::NORMAL);
+        auto* cluster = instance.add_clusters();
+        cluster->set_type(ClusterPB::COMPUTE);
+        cluster->set_cluster_id(cluster_id);
+        cluster->set_cluster_name(cluster_id);
+        cluster->set_cluster_status(ClusterStatus::NORMAL);
+        if (i == 1) {
+            cluster->set_cluster_status_mtime(1);
+        }
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key({instance_id}), instance.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        brpc::Controller cntl;
+        AlterClusterRequest req;
+        req.set_instance_id(instance_id);
+        req.set_op(AlterClusterRequest::SET_CLUSTER_STATUS);
+        req.mutable_cluster()->set_cluster_id(cluster_id);
+        req.mutable_cluster()->set_cluster_status(ClusterStatus::SUSPENDED);
+        AlterClusterResponse res;
+        meta_service->alter_cluster(&cntl, &req, &res, brpc::DoNothing());
+        ASSERT_FALSE(cntl.Failed());
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        InstanceInfoPB persisted;
+        get_instance_info(meta_service.get(), &persisted, instance_id);
+        ASSERT_EQ(persisted.clusters_size(), 1);
+        EXPECT_EQ(persisted.clusters(0).cluster_status(), ClusterStatus::SUSPENDED);
+        ASSERT_TRUE(persisted.clusters(0).has_cluster_status_mtime());
+        EXPECT_EQ(persisted.clusters(0).cluster_status_mtime(), expected_status_mtime);
+        EXPECT_EQ(persisted.clusters(0).mtime(), expected_status_mtime);
+
+        AlterClusterRequest rename_req;
+        rename_req.set_instance_id(instance_id);
+        rename_req.set_op(AlterClusterRequest::RENAME_CLUSTER);
+        rename_req.mutable_cluster()->set_cluster_id(cluster_id);
+        rename_req.mutable_cluster()->set_cluster_name(cluster_id + "_renamed");
+        AlterClusterResponse rename_res;
+        brpc::Controller rename_cntl;
+        meta_service->alter_cluster(&rename_cntl, &rename_req, &rename_res, brpc::DoNothing());
+        ASSERT_FALSE(rename_cntl.Failed());
+        ASSERT_EQ(rename_res.status().code(), MetaServiceCode::OK) << rename_res.status().msg();
+
+        get_instance_info(meta_service.get(), &persisted, instance_id);
+        ASSERT_EQ(persisted.clusters_size(), 1);
+        EXPECT_EQ(persisted.clusters(0).cluster_name(), cluster_id + "_renamed");
+        EXPECT_EQ(persisted.clusters(0).cluster_status_mtime(), expected_status_mtime);
+        EXPECT_EQ(persisted.clusters(0).mtime(), expected_status_mtime + 1);
+
+        auto transition_status = [&](ClusterStatus status, int64_t expected_mtime) {
+            AlterClusterRequest status_req;
+            status_req.set_instance_id(instance_id);
+            status_req.set_op(AlterClusterRequest::SET_CLUSTER_STATUS);
+            status_req.mutable_cluster()->set_cluster_id(cluster_id);
+            status_req.mutable_cluster()->set_cluster_status(status);
+            AlterClusterResponse status_res;
+            brpc::Controller status_cntl;
+            meta_service->alter_cluster(&status_cntl, &status_req, &status_res, brpc::DoNothing());
+            ASSERT_FALSE(status_cntl.Failed());
+            ASSERT_EQ(status_res.status().code(), MetaServiceCode::OK) << status_res.status().msg();
+            get_instance_info(meta_service.get(), &persisted, instance_id);
+            ASSERT_EQ(persisted.clusters_size(), 1);
+            EXPECT_EQ(persisted.clusters(0).cluster_status(), status);
+            EXPECT_EQ(persisted.clusters(0).cluster_status_mtime(), expected_mtime);
+            EXPECT_EQ(persisted.clusters(0).mtime(), expected_mtime);
+        };
+
+        // Even when the clock source repeats, every metadata update advances generic mtime, and
+        // each status transition uses that same monotonic value as its status generation.
+        transition_status(ClusterStatus::TO_RESUME, expected_status_mtime + 2);
+        transition_status(ClusterStatus::NORMAL, expected_status_mtime + 3);
+        transition_status(ClusterStatus::SUSPENDED, expected_status_mtime + 4);
+    }
 }
 
 TEST(ResourceTest, InitScanRetry) {

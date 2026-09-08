@@ -22,22 +22,39 @@
 #include <string_view>
 
 #include "cloud/cloud_base_compaction.h"
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_cumulative_compaction.h"
+#include "cloud/config.h"
 #include "cpp/sync_point.h"
 #include "json2pb/json_to_pb.h"
+#include "runtime/exec_env.h"
 #include "storage/rowset/beta_rowset.h"
 
 namespace doris {
 
 class CloudIndexChangeCompactionTest : public testing::Test {
 public:
-    void SetUp() {
+    void SetUp() override {
+        _old_rw_separation = config::enable_compaction_rw_separation;
+        config::enable_compaction_rw_separation = false;
+        _old_cluster_info = ExecEnv::GetInstance()->cluster_info();
+        _cluster_info = std::make_unique<CloudClusterInfo>();
+        ExecEnv::GetInstance()->set_cluster_info(_cluster_info.get());
         _engine = std::make_unique<CloudStorageEngine>(EngineOptions {});
-        auto sp = SyncPoint::get_instance();
+        auto* sp = SyncPoint::get_instance();
+        sp->clear_all_call_backs();
         sp->enable_processing();
     }
 
-    void TearDown() {}
+    void TearDown() override {
+        auto* sp = SyncPoint::get_instance();
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+        _engine.reset();
+        ExecEnv::GetInstance()->set_cluster_info(_old_cluster_info);
+        _cluster_info.reset();
+        config::enable_compaction_rw_separation = _old_rw_separation;
+    }
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
         std::string json_rowset_meta = R"({
@@ -165,6 +182,9 @@ public:
     }
 
 public:
+    bool _old_rw_separation {false};
+    ClusterInfo* _old_cluster_info {nullptr};
+    std::unique_ptr<CloudClusterInfo> _cluster_info;
     std::unique_ptr<CloudStorageEngine> _engine;
 };
 
@@ -522,6 +542,43 @@ TEST_F(CloudIndexChangeCompactionTest, basic_compaction_test) {
     ASSERT_TRUE(in_predicates[0].column_name() == "col1");
     ASSERT_TRUE(in_predicates[0].is_not_in() == true);
     ASSERT_TRUE(in_predicates[0].values().size() == 2);
+}
+
+TEST_F(CloudIndexChangeCompactionTest, prepare_rechecks_compaction_owner) {
+    config::enable_compaction_rw_separation = true;
+    _cluster_info->set_my_cluster_id("cluster_a");
+
+    CloudTabletSPtr tablet =
+            create_tablet_for_index_compaction_gate(InvertedIndexStorageFormatPB::V2);
+    std::vector<TOlapTableIndex> index_list;
+    std::vector<TColumn> columns;
+    auto* sync_point = SyncPoint::get_instance();
+    tablet->set_last_active_cluster_info("cluster_a", 100, 1);
+    _cluster_info->set_cluster_status("cluster_b", cloud::ClusterStatus::NORMAL, 100);
+    bool sync_called = false;
+    sync_point->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [&](auto&& outcome) {
+        sync_called = true;
+        tablet->set_last_active_cluster_info("cluster_b", 200, 2);
+        auto* result = try_any_cast_ret<Status>(outcome);
+        result->second = true;
+        result->first = Status::OK();
+    });
+
+    CloudIndexChangeCompaction foreign_owner_compaction(*_engine, tablet, 2, index_list, columns);
+    EXPECT_TRUE(foreign_owner_compaction.prepare_compact()
+                        .is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>());
+    EXPECT_TRUE(sync_called);
+    EXPECT_TRUE(foreign_owner_compaction._input_rowsets.empty());
+
+    sync_point->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [](auto&& outcome) {
+        auto* result = try_any_cast_ret<Status>(outcome);
+        result->second = true;
+        result->first = Status::OK();
+    });
+    tablet->set_last_active_cluster_info("cluster_a", 300, 3);
+    CloudIndexChangeCompaction local_owner_compaction(*_engine, tablet, 2, index_list, columns);
+    EXPECT_TRUE(local_owner_compaction.prepare_compact().ok());
+    EXPECT_EQ(local_owner_compaction._input_rowsets.size(), 1);
 }
 
 TEST_F(CloudIndexChangeCompactionTest, snii_drop_index_enables_native_index_compaction) {

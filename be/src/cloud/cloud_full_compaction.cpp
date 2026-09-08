@@ -21,6 +21,7 @@
 
 #include <boost/container_hash/hash.hpp>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
@@ -28,6 +29,7 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "cpp/sync_point.h"
+#include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "storage/compaction/compaction.h"
 #include "storage/rowset/beta_rowset.h"
@@ -63,6 +65,12 @@ Status CloudFullCompaction::prepare_compact() {
     // always sync latest rowset for full compaction
     st = cloud_tablet()->sync_rowsets();
     RETURN_IF_ERROR(st);
+    if (config::enable_compaction_rw_separation &&
+        static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
+                ->should_skip_compaction(cloud_tablet())) {
+        return Status::Error<BE_NO_SUITABLE_VERSION>(
+                "tablet is owned by another active compute group");
+    }
 
     st = pick_rowsets_to_compact();
     RETURN_IF_ERROR(st);
@@ -100,6 +108,11 @@ Status CloudFullCompaction::request_global_lock() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::FULL);
     compaction_job->set_base_compaction_cnt(_base_compaction_cnt);
     compaction_job->set_cumulative_compaction_cnt(_cumulative_compaction_cnt);
+    if (!static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
+                 ->prepare_compaction_job(cloud_tablet(), compaction_job)) {
+        return Status::Error<BE_NO_SUITABLE_VERSION>(
+                "tablet is not authorized for compaction by this compute group");
+    }
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     _expiration = now + config::compaction_timeout_seconds;
