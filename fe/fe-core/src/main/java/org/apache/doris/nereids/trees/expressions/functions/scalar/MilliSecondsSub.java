@@ -39,9 +39,11 @@ import java.util.List;
 public class MilliSecondsSub extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
         PropagateNullable, DateAddSubMonotonic {
 
-    private static final List<FunctionSignature> SIGNATURES = ImmutableList
-            .of(FunctionSignature.ret(DateTimeV2Type.MAX).args(DateTimeV2Type.MAX, BigIntType.INSTANCE),
-                FunctionSignature.ret(TimeStampTzType.MAX).args(TimeStampTzType.MAX, BigIntType.INSTANCE)
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD)
+                    .args(DateTimeV2Type.WILDCARD, BigIntType.INSTANCE),
+            FunctionSignature.ret(TimeStampTzType.WILDCARD)
+                    .args(TimeStampTzType.WILDCARD, BigIntType.INSTANCE)
     );
 
     public MilliSecondsSub(Expression arg0, Expression arg1) {
