@@ -1421,6 +1421,37 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void getScanNodePropertiesForSysHandleCarriesVendedAzureSas() {
+        // The BE Java $all_manifests reader receives the canonical Azure binding through the same
+        // location.* carrier as native data ranges. The serialized Iceberg task itself may still
+        // contain HadoopFileIO; the BE resolver uses these values to rebuild ADLSFileIO.
+        FakeIcebergTable table = fakeTable("t1");
+        table.setIo(new PropsOnlyFileIO(Collections.singletonMap(
+                "adls.sas-token.account.dfs.core.windows.net", "sv=2024-01-01&sig=temporary")));
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.vendedBeProps = new HashMap<>();
+        context.vendedBeProps.put("provider", "azure");
+        context.vendedBeProps.put("AZURE_AUTH_TYPE", "SAS");
+        context.vendedBeProps.put("AZURE_ENDPOINT", "https://account.blob.core.windows.net");
+        context.vendedBeProps.put("AZURE_ACCOUNT_NAME", "account");
+        context.vendedBeProps.put("AZURE_SAS_TOKEN", "sv=2024-01-01&sig=temporary");
+        context.vendedBeProps.put("AZURE_SAS_EXPIRY_MS", "4102444800000");
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(restVendedFlagOn()), opsReturning(table), context);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "all_manifests", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals("azure", props.get("location.provider"));
+        Assertions.assertEquals("SAS", props.get("location.AZURE_AUTH_TYPE"));
+        Assertions.assertEquals("https://account.blob.core.windows.net", props.get("location.AZURE_ENDPOINT"));
+        Assertions.assertEquals("account", props.get("location.AZURE_ACCOUNT_NAME"));
+        Assertions.assertEquals("sv=2024-01-01&sig=temporary", props.get("location.AZURE_SAS_TOKEN"));
+        Assertions.assertEquals("4102444800000", props.get("location.AZURE_SAS_EXPIRY_MS"));
+    }
+
+    @Test
     public void planSystemTableScanProjectsRequestedColumnsExcludingReadableMetrics() {
         // WHY (regression — External Regression build 1000131, test_iceberg_system_table_projection): a
         // $data_files/$files sys scan MUST be projected to only the requested columns. Without the

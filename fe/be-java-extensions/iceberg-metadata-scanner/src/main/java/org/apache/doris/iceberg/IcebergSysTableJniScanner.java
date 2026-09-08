@@ -59,11 +59,8 @@ public class IcebergSysTableJniScanner extends JniScanner {
         String serializedSplitParams = params.get("serialized_split");
         Preconditions.checkArgument(serializedSplitParams != null && !serializedSplitParams.isEmpty(),
                 "serialized_split should not be empty");
-        // FileScanTask serialization resolves the table FileIO implementation. Resolve it while the
-        // extension classloader is the thread context loader so Azure ADLSFileIO is visible.
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            this.scanTask = deserializeWithClassLoader(serializedSplitParams, classLoader);
-        }
+        // Deserialize under the extension classloader so FileIO implementations embedded by the
+        // planner remain visible, then bind Azure all-manifests tasks to their vended credential.
         String requiredFieldsParam = params.get("required_fields");
         Preconditions.checkArgument(requiredFieldsParam != null && !requiredFieldsParam.isEmpty(),
                 "required_fields should not be empty");
@@ -74,6 +71,11 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
                 .collect(Collectors
                         .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
+        FileScanTask deserializedTask;
+        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+            deserializedTask = deserializeWithClassLoader(serializedSplitParams, classLoader);
+            this.scanTask = IcebergSysTableFileIOResolver.resolve(deserializedTask, hadoopOptionParams);
+        }
         this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
         String requiredTypesParam = params.get("required_types");
         Preconditions.checkArgument(requiredTypesParam != null && !requiredTypesParam.isEmpty(),
