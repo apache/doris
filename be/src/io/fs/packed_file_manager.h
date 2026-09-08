@@ -189,6 +189,10 @@ private:
         std::string packed_file_path;
         std::unique_ptr<FileWriter> writer;
         std::unordered_map<std::string, PackedSliceHandlePtr> slice_locations;
+        // Every slice appended to this packed file. `slice_locations` is keyed by path, so
+        // writing one path twice into the same packed file only leaves the last handle
+        // there, while the upload result still has to reach both.
+        std::vector<PackedSliceHandlePtr> appended_slices;
         int64_t current_offset = 0;
         int64_t total_size = 0;
         int64_t create_time;

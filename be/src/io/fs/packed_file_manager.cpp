@@ -391,6 +391,7 @@ Status PackedFileManager::append_small_file(const std::string& path, const Slice
 
     auto slice_handle = std::make_shared<PackedSliceHandle>(std::move(location));
     active_state->slice_locations[path] = slice_handle;
+    active_state->appended_slices.push_back(slice_handle);
     active_state->current_offset += data.get_size();
     active_state->total_size += data.get_size();
 
@@ -532,7 +533,9 @@ Status PackedFileManager::get_packed_slice_location(const std::string& path,
 
 void PackedFileManager::mark_slices_upload_result(const PackedFileContext& packed_file,
                                                   PackedSliceUploadState state) {
-    for (const auto& [_, handle] : packed_file.slice_locations) {
+    // Not slice_locations: a path written twice into this packed file is only in there once,
+    // and the writer of the shadowed slice is waiting for the result too
+    for (const auto& handle : packed_file.appended_slices) {
         handle->set_upload_result(state, packed_file.total_size);
     }
 }
