@@ -18,10 +18,10 @@
 package org.apache.doris.task;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,7 +40,7 @@ public class PriorityMasterTaskExecutorTest {
 
     private PriorityMasterTaskExecutor<TestMasterTask> executor;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         Comparator<TestMasterTask> comparator = Comparator.comparing(TestMasterTask::getPriority)
                 .thenComparingLong(TestMasterTask::getSignature);
@@ -49,7 +49,7 @@ public class PriorityMasterTaskExecutorTest {
         executor.start();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (executor != null) {
             executor.close();
@@ -62,10 +62,10 @@ public class PriorityMasterTaskExecutorTest {
         MasterTask errorTask = new ErrorMasterTask();
         try {
             executor.submit(errorTask);
-            Assert.fail();
+            Assertions.fail();
         } catch (Exception e) {
-            Assert.assertTrue(e instanceof RejectedExecutionException);
-            Assert.assertTrue(("Task must be an instance of [" + TestMasterTask.class.getName() + "]").equals(e.getMessage()));
+            Assertions.assertTrue(e instanceof RejectedExecutionException);
+            Assertions.assertTrue(("Task must be an instance of [" + TestMasterTask.class.getName() + "]").equals(e.getMessage()));
         }
 
 
@@ -73,12 +73,12 @@ public class PriorityMasterTaskExecutorTest {
         CountDownLatch finishLatch = new CountDownLatch(5);
         // submit task
         MasterTask task1 = new TestMasterTask(1L, 0, startLatch, finishLatch);
-        Assert.assertTrue(executor.submit(task1));
-        Assert.assertEquals(1, executor.getTaskNum());
+        Assertions.assertTrue(executor.submit(task1));
+        Assertions.assertEquals(1, executor.getTaskNum());
 
         // submit same running task error
-        Assert.assertFalse(executor.submit(task1));
-        Assert.assertEquals(1, executor.getTaskNum());
+        Assertions.assertFalse(executor.submit(task1));
+        Assertions.assertEquals(1, executor.getTaskNum());
 
         // submit some task with priority
         MasterTask task5 = new TestMasterTask(5L, 1, startLatch, finishLatch);
@@ -101,17 +101,17 @@ public class PriorityMasterTaskExecutorTest {
             finishLatch.await();
         } catch (InterruptedException interruptedException) {
             interruptedException.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
 
         // compare priority value first, the lower the higher priority
         // then compare signature value, the lower the higher priority
-        Assert.assertTrue(runningOrderList.size() == 5);
-        Assert.assertTrue(runningOrderList.get(0) == task1);
-        Assert.assertTrue(runningOrderList.get(1) == task3);
-        Assert.assertTrue(runningOrderList.get(2) == task4);
-        Assert.assertTrue(runningOrderList.get(3) == task2);
-        Assert.assertTrue(runningOrderList.get(4) == task5);
+        Assertions.assertTrue(runningOrderList.size() == 5);
+        Assertions.assertTrue(runningOrderList.get(0) == task1);
+        Assertions.assertTrue(runningOrderList.get(1) == task3);
+        Assertions.assertTrue(runningOrderList.get(2) == task4);
+        Assertions.assertTrue(runningOrderList.get(3) == task2);
+        Assertions.assertTrue(runningOrderList.get(4) == task5);
     }
 
     private class ErrorMasterTask extends MasterTask {

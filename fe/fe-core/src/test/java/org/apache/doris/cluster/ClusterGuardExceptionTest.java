@@ -17,24 +17,24 @@
 
 package org.apache.doris.cluster;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class ClusterGuardExceptionTest {
 
     @Test
     public void testMessageConstructor() {
         ClusterGuardException ex = new ClusterGuardException("policy violated");
-        Assert.assertEquals("policy violated", ex.getMessage());
-        Assert.assertNull(ex.getCause());
+        Assertions.assertEquals("policy violated", ex.getMessage());
+        Assertions.assertNull(ex.getCause());
     }
 
     @Test
     public void testMessageAndCauseConstructor() {
         RuntimeException cause = new RuntimeException("root cause");
         ClusterGuardException ex = new ClusterGuardException("wrapped", cause);
-        Assert.assertEquals("wrapped", ex.getMessage());
-        Assert.assertSame(cause, ex.getCause());
+        Assertions.assertEquals("wrapped", ex.getMessage());
+        Assertions.assertSame(cause, ex.getCause());
     }
 
     @Test
@@ -42,7 +42,7 @@ public class ClusterGuardExceptionTest {
         // ClusterGuardException must be a checked exception (extends Exception, not RuntimeException).
         // Cast to Object first so the compiler does not reject the instanceof check as always-false.
         Object ex = new ClusterGuardException("test");
-        Assert.assertTrue(ex instanceof Exception);
-        Assert.assertFalse(ex instanceof RuntimeException);
+        Assertions.assertTrue(ex instanceof Exception);
+        Assertions.assertFalse(ex instanceof RuntimeException);
     }
 }

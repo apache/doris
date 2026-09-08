@@ -117,6 +117,8 @@ void with_variant_typed_scalar(const Column& column, size_t row, uint8_t scale,
     } else if constexpr (Type == TYPE_DATETIMEV2) {
         const int64_t value = variant_timestamp_micros(column.get_data()[row], row, "DATETIMEV2");
         callback(VariantScalarRef::timestamp_micros(value, false));
+    } else if constexpr (Type == TYPE_TIMESTAMP_NS) {
+        callback(VariantScalarRef::timestamp_nanos(column.get_data()[row].epoch_nanos(), false));
     } else if constexpr (Type == TYPE_TIMESTAMPTZ) {
         const int64_t value = variant_timestamp_micros(column.get_data()[row], row, "TIMESTAMPTZ");
         callback(VariantScalarRef::timestamp_micros(value, true));

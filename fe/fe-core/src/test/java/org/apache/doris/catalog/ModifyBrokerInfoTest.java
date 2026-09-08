@@ -20,8 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -52,10 +52,10 @@ public class ModifyBrokerInfoTest {
 
         BrokerMgr.ModifyBrokerInfo modifyBrokerInfo2 = BrokerMgr.ModifyBrokerInfo.read(in);
 
-        Assert.assertEquals(modifyBrokerInfo1.brokerName, modifyBrokerInfo2.brokerName);
-        Assert.assertEquals(modifyBrokerInfo1.brokerAddresses.get(0).host,
+        Assertions.assertEquals(modifyBrokerInfo1.brokerName, modifyBrokerInfo2.brokerName);
+        Assertions.assertEquals(modifyBrokerInfo1.brokerAddresses.get(0).host,
                 modifyBrokerInfo2.brokerAddresses.get(0).host);
-        Assert.assertEquals(modifyBrokerInfo1.brokerAddresses.get(0).port,
+        Assertions.assertEquals(modifyBrokerInfo1.brokerAddresses.get(0).port,
                 modifyBrokerInfo2.brokerAddresses.get(0).port);
 
         // 3. delete files

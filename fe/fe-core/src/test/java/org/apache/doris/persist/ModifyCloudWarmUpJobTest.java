@@ -24,9 +24,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -89,28 +89,28 @@ public class ModifyCloudWarmUpJobTest {
         CloudWarmUpJob warmUpJob2 = GsonUtils.GSON.fromJson(readJson,
                 CloudWarmUpJob.class);
 
-        Assert.assertEquals(jobId, warmUpJob2.getJobId());
-        Assert.assertEquals(jobState, warmUpJob2.getJobState());
-        Assert.assertEquals(createTimeMs, warmUpJob2.getCreateTimeMs());
-        Assert.assertEquals(errMsg, warmUpJob2.getErrMsg());
-        Assert.assertEquals(finishedTimesMs, warmUpJob2.getFinishedTimeMs());
-        Assert.assertEquals(clusterName, warmUpJob2.getDstClusterName());
-        Assert.assertEquals(lastBatchId, warmUpJob2.getLastBatchId());
+        Assertions.assertEquals(jobId, warmUpJob2.getJobId());
+        Assertions.assertEquals(jobState, warmUpJob2.getJobState());
+        Assertions.assertEquals(createTimeMs, warmUpJob2.getCreateTimeMs());
+        Assertions.assertEquals(errMsg, warmUpJob2.getErrMsg());
+        Assertions.assertEquals(finishedTimesMs, warmUpJob2.getFinishedTimeMs());
+        Assertions.assertEquals(clusterName, warmUpJob2.getDstClusterName());
+        Assertions.assertEquals(lastBatchId, warmUpJob2.getLastBatchId());
         Map<Long, List<List<Long>>> beToTabletIdBatches2 = warmUpJob2.getBeToTabletIdBatches();
-        Assert.assertEquals(1, beToTabletIdBatches2.size());
-        Assert.assertNotNull(beToTabletIdBatches2.get(999L));
-        Assert.assertEquals(1, beToTabletIdBatches2.get(999L).size());
-        Assert.assertEquals(1, beToTabletIdBatches2.get(999L).get(0).size());
-        Assert.assertEquals(123L, (long) beToTabletIdBatches2.get(999L).get(0).get(0));
+        Assertions.assertEquals(1, beToTabletIdBatches2.size());
+        Assertions.assertNotNull(beToTabletIdBatches2.get(999L));
+        Assertions.assertEquals(1, beToTabletIdBatches2.get(999L).size());
+        Assertions.assertEquals(1, beToTabletIdBatches2.get(999L).get(0).size());
+        Assertions.assertEquals(123L, (long) beToTabletIdBatches2.get(999L).get(0).get(0));
         Map<Long, String> beToThriftAddress2 = warmUpJob2.getBeToThriftAddress();
-        Assert.assertEquals(1, beToThriftAddress2.size());
-        Assert.assertNotNull(beToThriftAddress2.get(998L));
-        Assert.assertEquals("address", beToThriftAddress2.get(998L));
-        Assert.assertEquals(jobType, warmUpJob2.getJobType());
+        Assertions.assertEquals(1, beToThriftAddress2.size());
+        Assertions.assertNotNull(beToThriftAddress2.get(998L));
+        Assertions.assertEquals("address", beToThriftAddress2.get(998L));
+        Assertions.assertEquals(jobType, warmUpJob2.getJobType());
 
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         File file = new File(fileName);
         file.delete();

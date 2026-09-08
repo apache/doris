@@ -17,16 +17,16 @@
 
 package org.apache.doris.common.util;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 
 public class SafeStringBuilderTest {
     private SafeStringBuilder builder;
     private final int testMaxCapacity = 100;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         builder = new SafeStringBuilder(testMaxCapacity);
     }
@@ -34,28 +34,28 @@ public class SafeStringBuilderTest {
     @Test
     public void testDefaultConstructor() {
         SafeStringBuilder defaultBuilder = new SafeStringBuilder();
-        Assert.assertEquals(Integer.MAX_VALUE - 16, defaultBuilder.getMaxCapacity());
+        Assertions.assertEquals(Integer.MAX_VALUE - 16, defaultBuilder.getMaxCapacity());
     }
 
     @Test
     public void testConstructorWithSmallCapacity() {
         SafeStringBuilder smallBuilder = new SafeStringBuilder(10);
-        Assert.assertEquals(0, smallBuilder.getMaxCapacity());
+        Assertions.assertEquals(0, smallBuilder.getMaxCapacity());
     }
 
     @Test
     public void testAppendStringWithinCapacity() {
         String testString = "Hello";
         builder.append(testString);
-        Assert.assertEquals(testString, builder.toString());
-        Assert.assertFalse(builder.isTruncated());
+        Assertions.assertEquals(testString, builder.toString());
+        Assertions.assertFalse(builder.isTruncated());
     }
 
     @Test
     public void testMultipleAppendsWithinCapacity() {
         builder.append("Hello").append(" ").append("World");
-        Assert.assertEquals("Hello World", builder.toString());
-        Assert.assertFalse(builder.isTruncated());
+        Assertions.assertEquals("Hello World", builder.toString());
+        Assertions.assertFalse(builder.isTruncated());
     }
 
     @Test
@@ -67,9 +67,9 @@ public class SafeStringBuilderTest {
         builder.append(exceedString);
 
         // Should be truncated to exactly max capacity
-        Assert.assertEquals(testMaxCapacity - 16, builder.length());
-        Assert.assertTrue(builder.isTruncated());
-        Assert.assertTrue(builder.toString().endsWith("...[TRUNCATED]"));
+        Assertions.assertEquals(testMaxCapacity - 16, builder.length());
+        Assertions.assertTrue(builder.isTruncated());
+        Assertions.assertTrue(builder.toString().endsWith("...[TRUNCATED]"));
     }
 
     @Test
@@ -81,47 +81,47 @@ public class SafeStringBuilderTest {
             }
         };
         builder.append(testObj);
-        Assert.assertEquals("TestObject", builder.toString());
+        Assertions.assertEquals("TestObject", builder.toString());
     }
 
     @Test
     public void testLength() {
-        Assert.assertEquals(0, builder.length());
+        Assertions.assertEquals(0, builder.length());
         builder.append("123");
-        Assert.assertEquals(3, builder.length());
+        Assertions.assertEquals(3, builder.length());
     }
 
     @Test
     public void testToStringNotTruncated() {
         builder.append("Normal string");
-        Assert.assertEquals("Normal string", builder.toString());
+        Assertions.assertEquals("Normal string", builder.toString());
     }
 
     @Test
     public void testToStringTruncated() {
         // Force truncation
         builder.append(repeat('X', testMaxCapacity - 5));
-        Assert.assertTrue(builder.toString().endsWith("...[TRUNCATED]"));
+        Assertions.assertTrue(builder.toString().endsWith("...[TRUNCATED]"));
     }
 
     @Test
     public void testAppendAfterTruncation() {
         // First append that causes truncation
         builder.append(repeat('X', testMaxCapacity + 1));
-        Assert.assertTrue(builder.isTruncated());
+        Assertions.assertTrue(builder.isTruncated());
 
         // Subsequent append should be ignored
         builder.append("This should not appear");
-        Assert.assertTrue(builder.toString().endsWith("...[TRUNCATED]"));
-        Assert.assertFalse(builder.toString().contains("This should not appear"));
+        Assertions.assertTrue(builder.toString().endsWith("...[TRUNCATED]"));
+        Assertions.assertFalse(builder.toString().contains("This should not appear"));
     }
 
     @Test
     public void testExactCapacity() {
         String exactString = repeat('X', testMaxCapacity - 16);
         builder.append(exactString);
-        Assert.assertEquals(exactString, builder.toString());
-        Assert.assertFalse(builder.isTruncated());
+        Assertions.assertEquals(exactString, builder.toString());
+        Assertions.assertFalse(builder.isTruncated());
     }
 
     private String repeat(char c, int count) {

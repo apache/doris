@@ -17,10 +17,10 @@
 
 package org.apache.doris.cluster;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -57,14 +57,14 @@ public class ClusterGuardFactoryTest {
 
     private Field instanceField;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         instanceField = ClusterGuardFactory.class.getDeclaredField("instance");
         instanceField.setAccessible(true);
         instanceField.set(null, null); // reset singleton
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         instanceField.set(null, null); // clean up after each test
     }
@@ -82,7 +82,7 @@ public class ClusterGuardFactoryTest {
     public void testNoSentinelNoImpl_returnsNoOp() {
         ClassLoader cl = new SentinelClassLoader(false, false);
         ClusterGuard guard = ClusterGuardFactory.loadGuard(cl);
-        Assert.assertSame(NoOpClusterGuard.INSTANCE, guard);
+        Assertions.assertSame(NoOpClusterGuard.INSTANCE, guard);
     }
 
     /**
@@ -97,10 +97,8 @@ public class ClusterGuardFactoryTest {
     public void testNoSentinelWithImpl_returnsImpl() {
         ClassLoader cl = new SentinelClassLoader(false, true);
         ClusterGuard guard = ClusterGuardFactory.loadGuard(cl);
-        Assert.assertTrue(
-                "Expected a StubClusterGuard instance, got: " + guard.getClass(),
-                guard instanceof StubClusterGuard);
-        Assert.assertNotSame(NoOpClusterGuard.INSTANCE, guard);
+        Assertions.assertTrue(guard instanceof StubClusterGuard, "Expected a StubClusterGuard instance, got: " + guard.getClass());
+        Assertions.assertNotSame(NoOpClusterGuard.INSTANCE, guard);
     }
 
     /**
@@ -115,10 +113,8 @@ public class ClusterGuardFactoryTest {
     public void testSentinelPresentWithImpl_returnsImpl() {
         ClassLoader cl = new SentinelClassLoader(true, true);
         ClusterGuard guard = ClusterGuardFactory.loadGuard(cl);
-        Assert.assertTrue(
-                "Expected a StubClusterGuard instance, got: " + guard.getClass(),
-                guard instanceof StubClusterGuard);
-        Assert.assertNotSame(NoOpClusterGuard.INSTANCE, guard);
+        Assertions.assertTrue(guard instanceof StubClusterGuard, "Expected a StubClusterGuard instance, got: " + guard.getClass());
+        Assertions.assertNotSame(NoOpClusterGuard.INSTANCE, guard);
     }
 
     /**
@@ -131,11 +127,9 @@ public class ClusterGuardFactoryTest {
         ClassLoader cl = new SentinelClassLoader(true, false);
         try {
             ClusterGuardFactory.loadGuard(cl);
-            Assert.fail("Expected RuntimeException when sentinel is present but no impl found");
+            Assertions.fail("Expected RuntimeException when sentinel is present but no impl found");
         } catch (RuntimeException e) {
-            Assert.assertTrue(
-                    "Error message should mention ClusterGuard",
-                    e.getMessage().contains("ClusterGuard"));
+            Assertions.assertTrue(e.getMessage().contains("ClusterGuard"), "Error message should mention ClusterGuard");
         }
     }
 
@@ -146,14 +140,14 @@ public class ClusterGuardFactoryTest {
     @Test
     public void testGetGuardReturnsNonNull() {
         ClusterGuard guard = ClusterGuardFactory.getGuard();
-        Assert.assertNotNull(guard);
+        Assertions.assertNotNull(guard);
     }
 
     @Test
     public void testGetGuardReturnsSameInstance() {
         ClusterGuard first = ClusterGuardFactory.getGuard();
         ClusterGuard second = ClusterGuardFactory.getGuard();
-        Assert.assertSame(first, second);
+        Assertions.assertSame(first, second);
     }
 
     @Test
@@ -161,7 +155,7 @@ public class ClusterGuardFactoryTest {
         // In the test classpath there is no META-INF/services/org.apache.doris.cluster.ClusterGuard
         // and no sentinel file, so the factory must fall back to NoOpClusterGuard.
         ClusterGuard guard = ClusterGuardFactory.getGuard();
-        Assert.assertSame(NoOpClusterGuard.INSTANCE, guard);
+        Assertions.assertSame(NoOpClusterGuard.INSTANCE, guard);
     }
 
     // -----------------------------------------------------------------------
@@ -185,7 +179,7 @@ public class ClusterGuardFactoryTest {
     @Test
     public void testNoOpGuardInfoIsEmptyJson() {
         ClusterGuard guard = ClusterGuardFactory.getGuard();
-        Assert.assertEquals("{}", guard.getGuardInfo());
+        Assertions.assertEquals("{}", guard.getGuardInfo());
     }
 
     // -----------------------------------------------------------------------
@@ -198,8 +192,8 @@ public class ClusterGuardFactoryTest {
         instanceField.set(null, custom);
 
         ClusterGuard guard = ClusterGuardFactory.getGuard();
-        Assert.assertSame(custom, guard);
-        Assert.assertEquals("custom-info", guard.getGuardInfo());
+        Assertions.assertSame(custom, guard);
+        Assertions.assertEquals("custom-info", guard.getGuardInfo());
     }
 
     @Test
@@ -221,9 +215,9 @@ public class ClusterGuardFactoryTest {
 
         try {
             guard.checkNodeLimit(4);
-            Assert.fail("Expected ClusterGuardException");
+            Assertions.fail("Expected ClusterGuardException");
         } catch (ClusterGuardException e) {
-            Assert.assertTrue(e.getMessage().contains("Node limit exceeded"));
+            Assertions.assertTrue(e.getMessage().contains("Node limit exceeded"));
         }
     }
 
@@ -239,9 +233,9 @@ public class ClusterGuardFactoryTest {
 
         try {
             ClusterGuardFactory.getGuard().onStartup("/doris/home");
-            Assert.fail("Expected ClusterGuardException");
+            Assertions.fail("Expected ClusterGuardException");
         } catch (ClusterGuardException e) {
-            Assert.assertEquals("startup failed", e.getMessage());
+            Assertions.assertEquals("startup failed", e.getMessage());
         }
     }
 

@@ -183,6 +183,11 @@ static bool is_projected_iceberg_rowid(const format::ColumnDefinition& column) {
     return column.name == BeConsts::ICEBERG_ROWID_COL;
 }
 
+static bool is_projected_iceberg_metadata(const format::ColumnDefinition& column) {
+    return iequal(column.name, BeConsts::ICEBERG_FILE_PATH_COL) ||
+           iequal(column.name, BeConsts::ICEBERG_ROW_POSITION_COL);
+}
+
 static int iceberg_hex_value(char value) {
     if (value >= '0' && value <= '9') {
         return value - '0';
@@ -1102,6 +1107,16 @@ Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
         case format::TableVirtualColumnType::ICEBERG_ROWID:
             RETURN_IF_ERROR(_materialize_iceberg_rowid(table_block, column_idx));
             break;
+        case format::TableVirtualColumnType::ICEBERG_FILE_PATH:
+            RETURN_IF_ERROR(_materialize_iceberg_file_path(table_block, column_idx));
+            break;
+        case format::TableVirtualColumnType::ICEBERG_ROW_POSITION:
+            RETURN_IF_ERROR(_materialize_iceberg_row_position(table_block, column_idx));
+            break;
+        case format::TableVirtualColumnType::PAIMON_FILE_PATH:
+        case format::TableVirtualColumnType::PAIMON_ROW_POSITION:
+            DORIS_CHECK(false);
+            break;
         case format::TableVirtualColumnType::INVALID:
             break;
         }
@@ -1112,7 +1127,7 @@ Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
 Status IcebergTableReader::customize_file_scan_request(format::FileScanRequest* file_request) {
     RETURN_IF_ERROR(TableReader::customize_file_scan_request(file_request));
     if ((_row_lineage_columns.first_row_id >= 0 && _need_row_lineage_row_id()) ||
-        _need_iceberg_rowid()) {
+        _need_iceberg_rowid() || _need_iceberg_metadata()) {
         RETURN_IF_ERROR(_append_row_position_output_column(file_request));
     }
     RETURN_IF_ERROR(_append_equality_delete_predicates(file_request));
@@ -1466,8 +1481,8 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
 Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRequest* request) {
     DORIS_CHECK(request != nullptr);
     for (const auto& filter : _equality_delete_filters) {
-        auto delete_predicate =
-                std::make_shared<EqualityDeletePredicate>(filter.delete_block, filter.field_ids);
+        auto delete_predicate = std::make_shared<EqualityDeletePredicate>(
+                filter.delete_block, filter.field_ids, filter.hash_index);
         DCHECK_EQ(filter.field_ids.size(), filter.key_types.size());
         bool has_missing_key = false;
         for (size_t idx = 0; idx < filter.field_ids.size(); ++idx) {
@@ -1777,6 +1792,7 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     }
     RETURN_IF_ERROR(reader->close());
     result->delete_block = mutable_delete_block.to_block();
+    result->hash_index = EqualityDeletePredicate::build_hash_index(result->delete_block);
     return Status::OK();
 }
 
@@ -1793,11 +1809,13 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
         cache_key << ':' << field_id;
     }
     Status read_status = Status::OK();
+    bool cache_hit = false;
     // Include the ordered equality ids in the key because the same physical delete file can be
-    // projected with different key layouts. The cached block and its key metadata are immutable
-    // after construction and therefore safe to copy into each split-local predicate.
+    // projected with different key layouts. The cached block, key metadata, and contiguous index
+    // are immutable after construction and therefore safe to share across split-local predicates.
     auto* cached_filter = _split_cache->get<EqualityDeleteFilter>(
-            cache_key.str(), [&]() -> EqualityDeleteFilter* {
+            cache_key.str(),
+            [&]() -> EqualityDeleteFilter* {
                 auto result = std::make_unique<EqualityDeleteFilter>();
                 read_status = _load_equality_delete_file(delete_file, scan_params, delete_io_ctx,
                                                          result.get());
@@ -1805,9 +1823,17 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
                     return nullptr;
                 }
                 return result.release();
-            });
+            },
+            &cache_hit);
     RETURN_IF_ERROR(read_status);
     DORIS_CHECK(cached_filter != nullptr);
+    COUNTER_UPDATE(cache_hit ? _profile.equality_delete_index_cache_hit_count
+                             : _profile.equality_delete_index_cache_miss_count,
+                   1);
+    if (!cache_hit) {
+        COUNTER_UPDATE(_profile.equality_delete_hash_index_memory,
+                       static_cast<int64_t>(cached_filter->hash_index->memory_usage()));
+    }
     _equality_delete_filters.push_back(*cached_filter);
     return Status::OK();
 }
@@ -1887,6 +1913,54 @@ Status IcebergTableReader::_materialize_iceberg_rowid(Block* table_block, size_t
     return Status::OK();
 }
 
+Status IcebergTableReader::_materialize_iceberg_file_path(Block* table_block, size_t column_idx) {
+    DORIS_CHECK(_row_position_block_position < _data_reader.block_template.columns());
+    const auto& row_position_column = assert_cast<const ColumnInt64&>(
+            *_data_reader.block_template.get_by_position(_row_position_block_position).column);
+    DORIS_CHECK(row_position_column.size() == table_block->rows());
+
+    auto column = table_block->get_by_position(column_idx).type->create_column();
+    auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
+    auto* string_column = nullable_column != nullptr
+                                  ? check_and_get_column<ColumnString>(
+                                            nullable_column->get_nested_column_ptr().get())
+                                  : check_and_get_column<ColumnString>(column.get());
+    DORIS_CHECK(string_column != nullptr);
+
+    const auto file_path = _data_file_path();
+    string_column->insert_data(file_path.data(), file_path.size());
+    if (nullable_column != nullptr) {
+        nullable_column->get_null_map_data().resize_fill(1, 0);
+    }
+    table_block->replace_by_position(
+            column_idx, ColumnConst::create(std::move(column), row_position_column.size()));
+    return Status::OK();
+}
+
+Status IcebergTableReader::_materialize_iceberg_row_position(Block* table_block,
+                                                             size_t column_idx) {
+    DORIS_CHECK(_row_position_block_position < _data_reader.block_template.columns());
+    const auto& row_position_column = assert_cast<const ColumnInt64&>(
+            *_data_reader.block_template.get_by_position(_row_position_block_position).column);
+    DORIS_CHECK(row_position_column.size() == table_block->rows());
+
+    auto column = table_block->get_by_position(column_idx).type->create_column();
+    auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
+    auto* int_column = nullable_column != nullptr
+                               ? check_and_get_column<ColumnInt64>(
+                                         nullable_column->get_nested_column_ptr().get())
+                               : check_and_get_column<ColumnInt64>(column.get());
+    DORIS_CHECK(int_column != nullptr);
+
+    int_column->get_data().assign(row_position_column.get_data().begin(),
+                                  row_position_column.get_data().end());
+    if (nullable_column != nullptr) {
+        nullable_column->get_null_map_data().resize_fill(row_position_column.size(), 0);
+    }
+    table_block->replace_by_position(column_idx, std::move(column));
+    return Status::OK();
+}
+
 Status IcebergTableReader::_materialize_row_lineage_last_updated_sequence_number(
         Block* table_block, size_t column_idx) {
     if (_row_lineage_columns.last_updated_sequence_number < 0) {
@@ -1929,6 +2003,19 @@ bool IcebergTableReader::_need_iceberg_rowid() const {
         }
     }
     return std::ranges::any_of(_projected_columns, is_projected_iceberg_rowid);
+}
+
+bool IcebergTableReader::_need_iceberg_metadata() const {
+    if (_data_reader.column_mapper != nullptr) {
+        for (const auto& mapping : _data_reader.column_mapper->mappings()) {
+            if (mapping.virtual_column_type == format::TableVirtualColumnType::ICEBERG_FILE_PATH ||
+                mapping.virtual_column_type ==
+                        format::TableVirtualColumnType::ICEBERG_ROW_POSITION) {
+                return true;
+            }
+        }
+    }
+    return std::ranges::any_of(_projected_columns, is_projected_iceberg_metadata);
 }
 
 } // namespace doris::format::iceberg

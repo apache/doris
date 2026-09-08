@@ -31,9 +31,9 @@ import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -46,7 +46,7 @@ public class ExportMgrTest {
 
     private AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
 
-    @Before
+    @BeforeEach
     public void setUp() {
         MockedAuth.mockedAccess(accessManager);
     }
@@ -72,22 +72,22 @@ public class ExportMgrTest {
             exportMgr.unprotectAddJob(job3);
 
             List<List<String>> r1 = exportMgr.getExportJobInfosByIdOrState(-1, 3, "", true, null, null, -1);
-            Assert.assertEquals(r1.size(), 1);
+            Assertions.assertEquals(r1.size(), 1);
 
             List<List<String>> r2 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "", false, null, null, -1);
-            Assert.assertEquals(r2.size(), 3);
+            Assertions.assertEquals(r2.size(), 3);
 
             List<List<String>> r3 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "aabbcc", false, null, null, -1);
-            Assert.assertEquals(r3.size(), 1);
+            Assertions.assertEquals(r3.size(), 1);
 
             List<List<String>> r4 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "%bb%", true, null, null, -1);
-            Assert.assertEquals(r4.size(), 3);
+            Assertions.assertEquals(r4.size(), 3);
 
             List<List<String>> r5 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "aabb%", true, null, null, -1);
-            Assert.assertEquals(r5.size(), 2);
+            Assertions.assertEquals(r5.size(), 2);
 
             List<List<String>> r6 = exportMgr.getExportJobInfosByIdOrState(-1, 0, "%dd", true, null, null, -1);
-            Assert.assertEquals(r6.size(), 1);
+            Assertions.assertEquals(r6.size(), 1);
         }
     }
 
@@ -108,8 +108,8 @@ public class ExportMgrTest {
 
         // Assertions: Check the number of jobs remaining
         List<ExportJob> remainingJobs = exportMgr.getJobs();
-        Assert.assertTrue(remainingJobs.size() <= Config.history_job_keep_max_second);
-        Assert.assertEquals(7, remainingJobs.size()); // Expecting 8 jobs to remain
+        Assertions.assertTrue(remainingJobs.size() <= Config.history_job_keep_max_second);
+        Assertions.assertEquals(7, remainingJobs.size()); // Expecting 8 jobs to remain
 
 
         for (int i = 11; i <= 1010; i++) {
@@ -124,13 +124,13 @@ public class ExportMgrTest {
         exportMgr.removeOldExportJobs();
         // Assertions: Check the number of jobs remaining
         remainingJobs = exportMgr.getJobs();
-        Assert.assertTrue(remainingJobs.size() <= Config.history_job_keep_max_second);
-        Assert.assertEquals(1000, remainingJobs.size()); // Expecting 1000 jobs to remain
+        Assertions.assertTrue(remainingJobs.size() <= Config.history_job_keep_max_second);
+        Assertions.assertEquals(1000, remainingJobs.size()); // Expecting 1000 jobs to remain
 
         // check the created time
         remainingJobs.sort(Comparator.comparingLong(entry -> entry.getCreateTimeMs()));
         for (int i = 0; i < remainingJobs.size(); ++i) {
-            Assert.assertEquals(1010 - i, remainingJobs.get(i).getId());
+            Assertions.assertEquals(1010 - i, remainingJobs.get(i).getId());
         }
     }
 

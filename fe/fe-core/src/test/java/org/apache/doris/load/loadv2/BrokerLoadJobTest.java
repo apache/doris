@@ -55,9 +55,9 @@ import org.apache.doris.transaction.TxnStateCallbackFactory;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -70,7 +70,7 @@ import java.util.Set;
 
 public class BrokerLoadJobTest {
 
-    @BeforeClass
+    @BeforeAll
     public static void start() {
         MetricRepo.init();
     }
@@ -101,8 +101,8 @@ public class BrokerLoadJobTest {
             Mockito.doReturn(Optional.of(table)).when(database).getTable(1L);
             Mockito.when(table.getName()).thenReturn(tableName);
 
-            Assert.assertEquals(1, brokerLoadJob.getTableNamesForShow().size());
-            Assert.assertTrue(brokerLoadJob.getTableNamesForShow().contains(tableName));
+            Assertions.assertEquals(1, brokerLoadJob.getTableNamesForShow().size());
+            Assertions.assertTrue(brokerLoadJob.getTableNamesForShow().contains(tableName));
         }
     }
 
@@ -119,7 +119,7 @@ public class BrokerLoadJobTest {
             brokerLoadJob.unprotectedExecuteJob();
 
             Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
-            Assert.assertEquals(1, idToTasks.size());
+            Assertions.assertEquals(1, idToTasks.size());
         }
     }
 
@@ -133,9 +133,9 @@ public class BrokerLoadJobTest {
             String serialized = GsonUtils.GSON.toJson(job);
             BrokerLoadJob restored = GsonUtils.GSON.fromJson(serialized, BrokerLoadJob.class);
 
-            Assert.assertEquals("key_a", restored.getLoadBackendSelectionHint().getPreferredKey());
-            Assert.assertEquals(mode, restored.getLoadBackendSelectionHint().getMode());
-            Assert.assertEquals("persisted", restored.getLoadBackendSelectionHint().getReason());
+            Assertions.assertEquals("key_a", restored.getLoadBackendSelectionHint().getPreferredKey());
+            Assertions.assertEquals(mode, restored.getLoadBackendSelectionHint().getMode());
+            Assertions.assertEquals("persisted", restored.getLoadBackendSelectionHint().getReason());
         }
 
         BrokerLoadJob job = new BrokerLoadJob();
@@ -144,7 +144,7 @@ public class BrokerLoadJobTest {
         String serialized = GsonUtils.GSON.toJson(job);
         BrokerLoadJob unknownMode = GsonUtils.GSON.fromJson(
                 serialized.replace("\"m\":\"PREFER\"", "\"m\":\"FUTURE\""), BrokerLoadJob.class);
-        Assert.assertEquals(BackendSelection.Mode.DEFAULT, unknownMode.getLoadBackendSelectionHint().getMode());
+        Assertions.assertEquals(BackendSelection.Mode.DEFAULT, unknownMode.getLoadBackendSelectionHint().getMode());
     }
 
     @Test
@@ -173,7 +173,7 @@ public class BrokerLoadJobTest {
 
             job.setComputeGroup();
 
-            Assert.assertSame(hint, context.getLoadBackendSelectionDecision());
+            Assertions.assertSame(hint, context.getLoadBackendSelectionDecision());
         } finally {
             ConnectContext.remove();
         }
@@ -187,7 +187,7 @@ public class BrokerLoadJobTest {
         brokerLoadJob.onTaskFinished(attachment);
 
         Set<Long> finishedTaskIds = Deencapsulation.getField(brokerLoadJob, "finishedTaskIds");
-        Assert.assertEquals(0, finishedTaskIds.size());
+        Assertions.assertEquals(0, finishedTaskIds.size());
     }
 
     @Test
@@ -203,7 +203,7 @@ public class BrokerLoadJobTest {
 
         brokerLoadJob.onTaskFinished(attachment);
         Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
-        Assert.assertEquals(0, idToTasks.size());
+        Assertions.assertEquals(0, idToTasks.size());
     }
 
     @Test
@@ -302,10 +302,10 @@ public class BrokerLoadJobTest {
 
             brokerLoadJob.onTaskFinished(attachment);
             Set<Long> finishedTaskIds = Deencapsulation.getField(brokerLoadJob, "finishedTaskIds");
-            Assert.assertEquals(1, finishedTaskIds.size());
-            Assert.assertEquals(true, finishedTaskIds.contains(taskId));
+            Assertions.assertEquals(1, finishedTaskIds.size());
+            Assertions.assertEquals(true, finishedTaskIds.contains(taskId));
             Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
-            Assert.assertEquals(3, idToTasks.size());
+            Assertions.assertEquals(3, idToTasks.size());
         }
     }
 
@@ -328,12 +328,12 @@ public class BrokerLoadJobTest {
 
         brokerLoadJob.onTaskFinished(attachment);
         Set<Long> finishedTaskIds = Deencapsulation.getField(brokerLoadJob, "finishedTaskIds");
-        Assert.assertEquals(1, finishedTaskIds.size());
+        Assertions.assertEquals(1, finishedTaskIds.size());
         EtlStatus loadingStatus = Deencapsulation.getField(brokerLoadJob, "loadingStatus");
-        Assert.assertEquals("10", loadingStatus.getCounters().get(BrokerLoadJob.DPP_NORMAL_ALL));
-        Assert.assertEquals("1", loadingStatus.getCounters().get(BrokerLoadJob.DPP_ABNORMAL_ALL));
+        Assertions.assertEquals("10", loadingStatus.getCounters().get(BrokerLoadJob.DPP_NORMAL_ALL));
+        Assertions.assertEquals("1", loadingStatus.getCounters().get(BrokerLoadJob.DPP_ABNORMAL_ALL));
         int progress = Deencapsulation.getField(brokerLoadJob, "progress");
-        Assert.assertEquals(50, progress);
+        Assertions.assertEquals(50, progress);
     }
 
     @Test
@@ -371,13 +371,13 @@ public class BrokerLoadJobTest {
             brokerLoadJob.onTaskFinished(attachment1);
             brokerLoadJob.onTaskFinished(attachment2);
             Set<Long> finishedTaskIds = Deencapsulation.getField(brokerLoadJob, "finishedTaskIds");
-            Assert.assertEquals(2, finishedTaskIds.size());
+            Assertions.assertEquals(2, finishedTaskIds.size());
             EtlStatus loadingStatus = Deencapsulation.getField(brokerLoadJob, "loadingStatus");
-            Assert.assertEquals("30", loadingStatus.getCounters().get(BrokerLoadJob.DPP_NORMAL_ALL));
-            Assert.assertEquals("3", loadingStatus.getCounters().get(BrokerLoadJob.DPP_ABNORMAL_ALL));
+            Assertions.assertEquals("30", loadingStatus.getCounters().get(BrokerLoadJob.DPP_NORMAL_ALL));
+            Assertions.assertEquals("3", loadingStatus.getCounters().get(BrokerLoadJob.DPP_ABNORMAL_ALL));
             int progress = Deencapsulation.getField(brokerLoadJob, "progress");
-            Assert.assertEquals(99, progress);
-            Assert.assertEquals(JobState.CANCELLED, Deencapsulation.getField(brokerLoadJob, "state"));
+            Assertions.assertEquals(99, progress);
+            Assertions.assertEquals(JobState.CANCELLED, Deencapsulation.getField(brokerLoadJob, "state"));
         }
     }
 
@@ -415,12 +415,12 @@ public class BrokerLoadJobTest {
 
             brokerLoadJob.onTaskFinished(attachment1);
             Set<Long> finishedTaskIds = Deencapsulation.getField(brokerLoadJob, "finishedTaskIds");
-            Assert.assertEquals(1, finishedTaskIds.size());
+            Assertions.assertEquals(1, finishedTaskIds.size());
             EtlStatus loadingStatus = Deencapsulation.getField(brokerLoadJob, "loadingStatus");
-            Assert.assertEquals("10", loadingStatus.getCounters().get(BrokerLoadJob.DPP_NORMAL_ALL));
-            Assert.assertEquals("0", loadingStatus.getCounters().get(BrokerLoadJob.DPP_ABNORMAL_ALL));
+            Assertions.assertEquals("10", loadingStatus.getCounters().get(BrokerLoadJob.DPP_NORMAL_ALL));
+            Assertions.assertEquals("0", loadingStatus.getCounters().get(BrokerLoadJob.DPP_ABNORMAL_ALL));
             int progress = Deencapsulation.getField(brokerLoadJob, "progress");
-            Assert.assertEquals(99, progress);
+            Assertions.assertEquals(99, progress);
         }
     }
 
@@ -439,9 +439,9 @@ public class BrokerLoadJobTest {
         Mockito.when(attachment.getJobState()).thenReturn(JobState.CANCELLED);
 
         brokerLoadJob.replayTxnAttachment(txnState);
-        Assert.assertEquals(99, (int) Deencapsulation.getField(brokerLoadJob, "progress"));
-        Assert.assertEquals(1, brokerLoadJob.getFinishTimestamp());
-        Assert.assertEquals(JobState.CANCELLED, brokerLoadJob.getState());
+        Assertions.assertEquals(99, (int) Deencapsulation.getField(brokerLoadJob, "progress"));
+        Assertions.assertEquals(1, brokerLoadJob.getFinishTimestamp());
+        Assertions.assertEquals(JobState.CANCELLED, brokerLoadJob.getState());
     }
 
 
@@ -460,9 +460,9 @@ public class BrokerLoadJobTest {
         Mockito.when(attachment.getJobState()).thenReturn(JobState.LOADING);
 
         brokerLoadJob.replayTxnAttachment(txnState);
-        Assert.assertEquals(99, (int) Deencapsulation.getField(brokerLoadJob, "progress"));
-        Assert.assertEquals(1, brokerLoadJob.getFinishTimestamp());
-        Assert.assertEquals(JobState.LOADING, brokerLoadJob.getState());
+        Assertions.assertEquals(99, (int) Deencapsulation.getField(brokerLoadJob, "progress"));
+        Assertions.assertEquals(1, brokerLoadJob.getFinishTimestamp());
+        Assertions.assertEquals(JobState.LOADING, brokerLoadJob.getState());
     }
 
     @Test
@@ -478,7 +478,7 @@ public class BrokerLoadJobTest {
             brokerLoadJob.beginTxn();
         }
 
-        Assert.assertEquals(12345L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
+        Assertions.assertEquals(12345L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
         Mockito.verifyNoInteractions(transactionMgr);
     }
 
@@ -510,7 +510,7 @@ public class BrokerLoadJobTest {
             brokerLoadJob.beginTxn();
         }
 
-        Assert.assertEquals(777L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
+        Assertions.assertEquals(777L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
     }
 
     @Test
@@ -547,8 +547,8 @@ public class BrokerLoadJobTest {
             brokerLoadJob.beginTxn();
         }
 
-        Assert.assertEquals(888L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
-        Assert.assertEquals(JobState.FINISHED, brokerLoadJob.getState());
+        Assertions.assertEquals(888L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
+        Assertions.assertEquals(JobState.FINISHED, brokerLoadJob.getState());
         Mockito.verify(callbackFactory).removeCallback(1001L);
         Mockito.verify(editLog).logEndLoadJob(Mockito.any(LoadJobFinalOperation.class));
     }
@@ -576,13 +576,13 @@ public class BrokerLoadJobTest {
 
             try {
                 brokerLoadJob.beginTxn();
-                Assert.fail("expected LabelAlreadyUsedException");
+                Assertions.fail("expected LabelAlreadyUsedException");
             } catch (LabelAlreadyUsedException expected) {
                 // expected
             }
         }
 
-        Assert.assertEquals(0L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
+        Assertions.assertEquals(0L, (long) Deencapsulation.getField(brokerLoadJob, "transactionId"));
     }
 
     @Test
@@ -651,11 +651,11 @@ public class BrokerLoadJobTest {
 
             brokerLoadJob.onTaskFinished(attachment);
 
-            Assert.assertEquals(JobState.CANCELLED, brokerLoadJob.getState());
+            Assertions.assertEquals(JobState.CANCELLED, brokerLoadJob.getState());
             FailMsg failMsg = Deencapsulation.getField(brokerLoadJob, "failMsg");
-            Assert.assertTrue(failMsg.getMsg().contains("exceed limit usage"));
+            Assertions.assertTrue(failMsg.getMsg().contains("exceed limit usage"));
             Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
-            Assert.assertEquals(0, idToTasks.size());
+            Assertions.assertEquals(0, idToTasks.size());
         }
     }
 }

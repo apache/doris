@@ -494,7 +494,7 @@ struct SeqCase {
 
 // The FE allows sequence columns of isFixedPointType() || isDateType()
 // (PropertyAnalyzer::analyzeSequenceType and the sequence_col mapping share
-// the check): the five integer types plus all five date types. BOOL is NOT
+// the check): the five integer types plus all six date types. BOOL is NOT
 // seq-eligible. DATE and DATETIME remain here for legacy TabletSchemas even
 // though newly created tables use their v2 counterparts.
 std::vector<SeqCase> seq_cases() {
@@ -540,6 +540,8 @@ std::vector<SeqCase> seq_cases() {
                  fill_raw<uint64_t>(c, 2, datetimev2_bits(2024, 6, 15, 12, 30, 45));
              },
              "01fa19ec7ad00000"},
+            {"timestamp_ns", FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, 8,
+             [](MutableColumns& c) { fill_raw<int64_t>(c, 2, 5); }, "8000000000000005"},
     };
 }
 
@@ -1068,6 +1070,63 @@ TEST_F(RowKeyEncoderTest, SeqSuffix) {
         EXPECT_EQ(to_hex(normal), "02" + tc.value_hex);
         EXPECT_EQ(to_hex(null_suffix), "01" + std::string(tc.length * 2, '0'));
         EXPECT_LT(null_suffix, normal);
+    }
+}
+
+// TIMESTAMP_NS is a signed epoch-nanosecond Int64. Verify that every table
+// model uses its monotonic Int64 key coding for full and short keys, and that
+// the MOW primary-key view uses exactly the same bytes.
+TEST_F(RowKeyEncoderTest, TimestampNsKeyEncodingAllTableModels) {
+    struct SchemaCase {
+        const char* name;
+        KeysType keys_type;
+        bool mow;
+    };
+    constexpr std::array<SchemaCase, 4> kSchemaCases = {{
+            {"duplicate_keys", DUP_KEYS, false},
+            {"aggregate_keys", AGG_KEYS, false},
+            {"unique_keys_merge_on_read", UNIQUE_KEYS, false},
+            {"unique_keys_merge_on_write", UNIQUE_KEYS, true},
+    }};
+    constexpr std::array<int64_t, 5> kValues = {std::numeric_limits<int64_t>::min(), -1, 0, 1,
+                                                std::numeric_limits<int64_t>::max()};
+    constexpr std::array<std::string_view, 5> kExpectedKeys = {
+            "020000000000000000", "027fffffffffffffff", "028000000000000000", "028000000000000001",
+            "02ffffffffffffffff"};
+
+    for (const auto& schema_case : kSchemaCases) {
+        SCOPED_TRACE(schema_case.name);
+        auto schema = std::make_shared<TabletSchema>();
+        auto key_column = make_key_column(0, FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS,
+                                          sizeof(int64_t), sizeof(int64_t));
+        key_column->_is_nullable = false;
+        schema->append_column(*key_column);
+        schema->_keys_type = schema_case.keys_type;
+        schema->_num_short_key_columns = 1;
+        build(schema, kValues.size(), [&](MutableColumns& columns) {
+            for (const auto value : kValues) {
+                fill_raw<int64_t>(columns, 0, value);
+            }
+        });
+
+        RowKeyEncoder encoder(*schema, schema_case.mow);
+        std::vector<IOlapColumnDataAccessor*> key_columns {acc(0)};
+        std::string previous_key;
+        for (size_t row = 0; row < kValues.size(); ++row) {
+            const std::string full_key = encoder.full_encode(key_columns, row);
+            const std::string short_key = encoder.encode_short_keys(key_columns, row);
+            EXPECT_EQ(to_hex(full_key), kExpectedKeys[row]);
+            EXPECT_EQ(short_key, full_key);
+            if (schema_case.mow) {
+                EXPECT_EQ(encoder.full_encode_primary_keys(key_columns, row), full_key);
+            } else {
+                EXPECT_TRUE(encoder.full_encode_primary_keys({}, row).empty());
+            }
+            if (row > 0) {
+                EXPECT_LT(previous_key, full_key);
+            }
+            previous_key = full_key;
+        }
     }
 }
 

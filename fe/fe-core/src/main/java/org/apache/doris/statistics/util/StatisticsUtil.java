@@ -261,8 +261,9 @@ public class StatisticsUtil {
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
-                return DateLiteralUtils.createDateLiteral(columnValue, type);
+                return DateLiteralUtils.createLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
             case STRING:
@@ -313,6 +314,7 @@ public class StatisticsUtil {
                     return literal.getDouble();
 
                 case DATETIMEV2:
+                case TIMESTAMP_NS:
                 case DATETIME:
                     DateTimeLiteral dateTimeLiteral = new DateTimeLiteral(columnValue);
                     return dateTimeLiteral.getDouble();
