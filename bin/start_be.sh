@@ -293,6 +293,12 @@ export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
 # log ${DORIS_CLASSPATH}
 
+if [[ "${MACHINE_OS}" == "Linux" ]]; then
+    # Doris Linux binaries use glibc. Keep RocksDB JNI on the same libc instead of relying
+    # on its runtime ldd heuristic, which can misdetect the environment as musl.
+    export ROCKSDB_MUSL_LIBC=false
+fi
+
 export LD_LIBRARY_PATH="${DORIS_HOME}/lib/hadoop_hdfs/native:${LD_LIBRARY_PATH}"
 
 # set odbc conf path

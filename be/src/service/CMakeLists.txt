@@ -53,6 +53,16 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
         ${DORIS_LINK_LIBS}
     )
 
+    if (OS_LINUX)
+        # doris_be exports symbols for libraries loaded with dlopen. Keep all
+        # symbols involving Doris' private RocksDB ABI local, otherwise a
+        # RocksDB JNI library may bind to the incompatible implementation.
+        target_link_options(doris_be PRIVATE
+            "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/doris_be_private_symbols.map")
+        set_property(TARGET doris_be APPEND PROPERTY LINK_DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/doris_be_private_symbols.map)
+    endif()
+
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
     install(TARGETS doris_be DESTINATION ${OUTPUT_DIR}/lib/)
 
