@@ -1299,7 +1299,7 @@ size_t MutableBlock::allocated_bytes() const {
     return res;
 }
 
-void MutableBlock::clear_column_data() noexcept {
+void MutableBlock::clear_column_data() {
     SCOPED_SKIP_MEMORY_CHECK();
     for (auto& col : _columns) {
         if (col) {
