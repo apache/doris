@@ -954,6 +954,14 @@ void PackedFileManager::cleanup_expired_data() {
         std::lock_guard<std::mutex> global_lock(_global_index_mutex);
         auto it = _global_slice_locations.begin();
         while (it != _global_slice_locations.end()) {
+            // A writer or a packed file context still holds this slice, so whoever holds it
+            // may still read the entry back. Age says nothing about that: a load can run for
+            // much longer than the retention time. Only entries the index alone holds are
+            // stale, and the reference is dropped for us when the last owner goes away.
+            if (it->second.use_count() > 1) {
+                ++it;
+                continue;
+            }
             const auto create_time = it->second->create_time();
             if (create_time > 0 &&
                 current_time - create_time > config::uploaded_file_retention_seconds) {

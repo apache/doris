@@ -726,7 +726,43 @@ TEST_F(PackedFileManagerTest, CleanupExpiredDataRemovesOldEntries) {
     EXPECT_TRUE(manager->uploaded_packed_files_for_test().empty());
 }
 
-TEST_F(PackedFileManagerTest, WaitUploadDoneSurvivesRecycledIndexAndContext) {
+TEST_F(PackedFileManagerTest, CleanupKeepsIndexEntryWhileSliceIsStillHeld) {
+    config::uploaded_file_retention_seconds = -1;
+    std::string payload = "abc";
+    Slice slice(payload);
+    auto info = default_append_info();
+    PackedSliceHandlePtr handle;
+    ASSERT_TRUE(append_small_file("long_load", slice, info, &handle).ok());
+    ASSERT_NE(handle, nullptr);
+
+    // Drop the packed file context, so `handle` is the only holder besides the index. It
+    // stands in for the writer that produced the slice: a load can run for far longer than
+    // the retention time, and the location must still be there when it reads the file back.
+    manager->current_packed_files_for_test()[_resource_id]->slice_locations.clear();
+
+    manager->cleanup_expired_data();
+    EXPECT_EQ(manager->global_slice_locations_for_test().count("long_load"), 1);
+
+    PackedSliceLocation location;
+    EXPECT_TRUE(manager->get_packed_slice_location("long_load", &location).ok());
+    EXPECT_EQ(location.size, payload.size());
+}
+
+TEST_F(PackedFileManagerTest, CleanupRemovesIndexEntryOnceNothingHoldsTheSlice) {
+    config::uploaded_file_retention_seconds = -1;
+    std::string payload = "abc";
+    Slice slice(payload);
+    auto info = default_append_info();
+    ASSERT_TRUE(append_small_file("short_load", slice, info).ok());
+    // Drop the packed file context, so the index holds the only remaining reference, the
+    // way it does once the writer is gone and the packed file has been recycled
+    manager->current_packed_files_for_test()[_resource_id]->slice_locations.clear();
+
+    manager->cleanup_expired_data();
+    EXPECT_EQ(manager->global_slice_locations_for_test().count("short_load"), 0);
+}
+
+TEST_F(PackedFileManagerTest, WaitUploadDoneSurvivesRecycledContext) {
     std::string payload = "abc";
     Slice slice(payload);
     auto info = default_append_info();
@@ -746,16 +782,44 @@ TEST_F(PackedFileManagerTest, WaitUploadDoneSurvivesRecycledIndexAndContext) {
     EXPECT_EQ(handle->upload_state(), PackedSliceUploadState::UPLOADED);
     EXPECT_EQ(handle->location().packed_file_size, uploading->total_size);
 
-    // A load that runs far longer than the retention time: both the index entry and the
-    // packed file context are recycled while the writer is still open. A negative
-    // retention expires everything, including entries created in this very second.
+    // A load that runs far longer than the retention time: the packed file context is
+    // recycled while the writer that produced the slice is still open. A negative retention
+    // expires everything, including entries created in this very second.
     config::uploaded_file_retention_seconds = -1;
     manager->uploaded_packed_files_for_test().begin()->second->upload_time = 1;
+    uploading.reset(); // the test's own reference, so recycling really drops the context
     manager->cleanup_expired_data();
-    ASSERT_TRUE(manager->global_slice_locations_for_test().empty());
     ASSERT_TRUE(manager->uploaded_packed_files_for_test().empty());
+    // `handle` stands in for the still open writer, so the index entry is not stale
+    EXPECT_EQ(manager->global_slice_locations_for_test().count("long_load"), 1);
 
     EXPECT_TRUE(manager->wait_upload_done(handle).ok());
+}
+
+// The handle carries the upload result on its own, so it does not need the index either
+TEST_F(PackedFileManagerTest, WaitUploadDoneSurvivesRemovedIndexEntry) {
+    std::string payload = "abc";
+    Slice slice(payload);
+    auto info = default_append_info();
+    PackedSliceHandlePtr handle;
+    ASSERT_TRUE(append_small_file("long_load", slice, info, &handle).ok());
+    ASSERT_TRUE(manager->mark_current_packed_file_for_upload(_resource_id).ok());
+
+    auto uploading = manager->uploading_packed_files_for_test().begin()->second;
+    auto* writer = dynamic_cast<MockFileWriter*>(uploading->writer.get());
+    ASSERT_NE(writer, nullptr);
+    uploading->state = PackedFileManager::PackedFileState::UPLOADING;
+    ASSERT_TRUE(writer->close(true).ok());
+    writer->complete_async_close();
+    manager->process_uploading_packed_files();
+    ASSERT_EQ(handle->upload_state(), PackedSliceUploadState::UPLOADED);
+
+    uploading.reset();
+    manager->global_slice_locations_for_test().clear();
+    manager->uploaded_packed_files_for_test().clear();
+
+    EXPECT_TRUE(manager->wait_upload_done(handle).ok());
+    EXPECT_EQ(handle->location().size, payload.size());
 }
 
 TEST_F(PackedFileManagerTest, WaitUploadDoneReportsFailureAfterContextRecycled) {

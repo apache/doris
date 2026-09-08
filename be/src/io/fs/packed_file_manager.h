@@ -129,8 +129,8 @@ public:
     Status wait_upload_done(const PackedSliceHandlePtr& handle);
 
     // Look a slice location up by small file path, for readers that have no handle to the
-    // slice. The entry is subject to the retention based cleanup, so this can fail for a
-    // file written long ago.
+    // slice. The entry lives as long as anything else holds the slice, so this only fails
+    // for a file whose writer and packed file context are both long gone.
     Status get_packed_slice_location(const std::string& path, PackedSliceLocation* location);
 
     // Start the background management thread
@@ -234,9 +234,10 @@ private:
     std::unordered_map<std::string, std::shared_ptr<PackedFileContext>> _uploaded_packed_files;
     std::mutex _packed_files_mutex;
 
-    // Global index mapping small file path to packed file index. It only serves readers
-    // that look a file up by path; writers hold their own handle to the slice, so
-    // recycling an entry here never invalidates a writer.
+    // Global index mapping small file path to packed file index, for readers that have no
+    // handle to the slice, such as PackedFileSystem::open_file_impl() reading a segment back
+    // before its rowset meta exists. An entry is only recycled once nothing else holds the
+    // slice, so it outlives every writer and packed file context that could still read it.
     std::unordered_map<std::string, PackedSliceHandlePtr> _global_slice_locations;
     std::mutex _global_index_mutex;
 
