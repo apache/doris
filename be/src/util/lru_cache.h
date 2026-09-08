@@ -34,6 +34,7 @@
 #include <functional>
 #include <memory>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <utility>
 
@@ -238,8 +239,9 @@ private:
 
 // An entry is a variable length heap-allocated structure.  Entries
 // are kept in a circular doubly linked list ordered by access time.
-// Note: member variables can only be POD types and raw pointer,
-// cannot be class objects or smart pointers, because LRUHandle will be created using malloc.
+// Heap entries use placement construction in malloc-allocated storage to allow
+// an inline variable-length key. Members must remain trivially destructible:
+// free() deletes the value and frees the storage without calling a destructor.
 struct LRUHandle {
     void* value = nullptr;
     struct LRUHandle* next_hash = nullptr; // next entry in hash table
@@ -248,13 +250,13 @@ struct LRUHandle {
     size_t charge;
     size_t key_length;
     size_t total_size; // Entry charge, used to limit cache capacity, LRUCacheType::SIZE including key length.
-    bool in_cache; // Whether entry is in the cache.
-    uint32_t refs;
+    bool in_cache; // Protected by the shard mutex; includes one cache-owned reference.
+    std::atomic<uint32_t> refs {0};
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
     LRUCacheType type;
-    int64_t last_visit_time; // Save the last visit time of this cache entry.
-    char key_data[1];        // Beginning of key
+    std::atomic<int64_t> last_visit_time {0}; // Updated by concurrent lookups.
+    char key_data[1];                         // Beginning of key
     // Note! key_data must be at the end.
 
     CacheKey key() const {
@@ -368,7 +370,10 @@ public:
 private:
     void _lru_remove(LRUHandle* e);
     void _lru_append(LRUHandle* list, LRUHandle* e);
-    bool _unref(LRUHandle* e);
+    void _ref(LRUHandle* e);
+    // Returns the reference count BEFORE decrementing. The caller holds the
+    // exclusive shard lock, but non-final releases can still run concurrently.
+    uint32_t _unref(LRUHandle* e);
     void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head);
     void _evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head);
     void _evict_one_entry(LRUHandle* e);
@@ -381,8 +386,10 @@ private:
     // Initialized before use.
     size_t _capacity = 0;
 
-    // _mutex protects the following state.
-    std::mutex _mutex;
+    // The table, LRU lists, in_cache and usage require the exclusive lock for
+    // mutation. Shared lookup can only pin an already-pinned entry. Atomic
+    // releases may run without the lock, but never cross refs == 2 that way.
+    std::shared_mutex _mutex;
     size_t _usage = 0;
 
     // Dummy head of LRU list.
@@ -394,9 +401,9 @@ private:
 
     HandleTable _table;
 
-    uint64_t _lookup_count = 0; // number of cache lookups
-    uint64_t _hit_count = 0;    // number of cache hits
-    uint64_t _miss_count = 0;   // number of cache misses
+    std::atomic<uint64_t> _lookup_count {0}; // number of cache lookups
+    std::atomic<uint64_t> _hit_count {0};    // number of cache hits
+    std::atomic<uint64_t> _miss_count {0};   // number of cache misses
     uint64_t _stampede_count = 0;
 
     CacheValueTimeExtractor _cache_value_time_extractor;
