@@ -304,18 +304,24 @@ public final class LanceIndexAdmission {
                 return false;
             }
         }
-        JsonObject compression = null;
-        if (exposed != null && exposed.has("compression") && exposed.get("compression").isJsonObject()) {
-            compression = exposed.getAsJsonObject("compression");
+        // A compression block that is present but not an object is malformed provider data:
+        // fail closed (design section 3.4) rather than treat every numeric property as
+        // unexposed. ANN requests always carry num_sub_vectors, so there is always at least
+        // one numeric property to corroborate.
+        if (exposed != null && exposed.has("compression") && !exposed.get("compression").isJsonObject()) {
+            return false;
         }
+        JsonObject compression = exposed == null || !exposed.has("compression")
+                ? null : exposed.getAsJsonObject("compression");
         return numericPropertyMatches(request.get("num_sub_vectors"), compression, "num_sub_vectors")
                 && numericPropertyMatches(request.get("num_bits"), compression, "num_bits");
     }
 
     /**
      * True when the request leaves the property unset (never compared) or the snapshot exposes
-     * no stable value for it (skipped); otherwise the exposed value must be numerically equal.
-     * An exposed but non-numeric value fails closed.
+     * no value for it (skipped); otherwise the exposed value must be numerically equal. An
+     * exposed but non-primitive or non-numeric value is malformed provider data and fails
+     * closed (design section 3.4), matching the metric comparison above.
      */
     private static boolean numericPropertyMatches(String requestValue, JsonObject compression,
             String exposedKey) {
@@ -323,8 +329,11 @@ public final class LanceIndexAdmission {
             return true;
         }
         JsonElement exposed = compression == null ? null : compression.get(exposedKey);
-        if (exposed == null || !exposed.isJsonPrimitive()) {
+        if (exposed == null) {
             return true;
+        }
+        if (!exposed.isJsonPrimitive()) {
+            return false;
         }
         try {
             return exposed.getAsLong() == Long.parseLong(requestValue.trim());
