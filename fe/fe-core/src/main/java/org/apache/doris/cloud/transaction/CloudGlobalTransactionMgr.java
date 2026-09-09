@@ -2590,6 +2590,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public long getTransactionIdWatermark() throws UserException {
+        // MetaService's conflict check treats end_txn_id as an exclusive upper bound.
+        return getNextTransactionId() + 1;
+    }
+
+    @Override
     public int getRunningTxnNums(Long dbId) throws AnalysisException {
         return 0;
     }

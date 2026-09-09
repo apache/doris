@@ -135,6 +135,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
@@ -156,6 +157,8 @@ import org.apache.doris.tablefunction.MetadataGenerator;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TAbortRemoteTxnRequest;
 import org.apache.doris.thrift.TAbortRemoteTxnResult;
+import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceRequest;
+import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceResult;
 import org.apache.doris.thrift.TAddOrDropPartitionsRequest;
 import org.apache.doris.thrift.TAddOrDropPartitionsResult;
 import org.apache.doris.thrift.TAutoIncrementRangeRequest;
@@ -3391,6 +3394,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("Failed to fetchSchemaTableData", e);
             return MetadataGenerator.errorResult(e.getMessage());
         }
+    }
+
+    @Override
+    public TAcquireTimeBasedChangeReadFenceResult acquireTimeBasedChangeReadFence(
+            TAcquireTimeBasedChangeReadFenceRequest request) throws TException {
+        TAcquireTimeBasedChangeReadFenceResult result = new TAcquireTimeBasedChangeReadFenceResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        if (status.getStatusCode() != TStatusCode.OK) {
+            return result;
+        }
+
+        try {
+            TimeBasedChangeVisibleWaiter.ChangeReadFence fence =
+                    TimeBasedChangeVisibleWaiter.acquireFenceOnMaster(
+                            request.getDbToTableIds(),
+                            request.isSetEndTimestampMs() ? request.getEndTimestampMs() : null,
+                            request.getTimeoutMs(), request.isWaitForTransactions());
+            result.setCurrentTso(fence.getCurrentTso());
+            result.setMaxJournalId(fence.getMaxJournalId());
+        } catch (UserException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getDetailMessage());
+        } catch (RuntimeException e) {
+            LOG.warn("failed to acquire time-based change read fence", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
     }
 
     private TNetworkAddress getClientAddr() {

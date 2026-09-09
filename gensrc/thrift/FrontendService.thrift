@@ -1980,6 +1980,22 @@ struct TSyncCloudTabletStatsRequest {
     1: optional binary tablet_stats_pb
 }
 
+// Establishes a closed upper bound for a time-based incremental read. The master FE
+// captures its current TSO before the transaction watermark and waits for transactions
+// involving the requested tables when wait_for_transactions is true.
+struct TAcquireTimeBasedChangeReadFenceRequest {
+    1: required map<i64, list<i64>> db_to_table_ids
+    2: optional i64 end_timestamp_ms
+    3: required i64 timeout_ms
+    4: required bool wait_for_transactions
+}
+
+struct TAcquireTimeBasedChangeReadFenceResult {
+    1: required Status.TStatus status
+    2: optional i64 current_tso
+    3: optional i64 max_journal_id
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -2037,6 +2053,9 @@ service FrontendService {
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
     TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
+
+    TAcquireTimeBasedChangeReadFenceResult acquireTimeBasedChangeReadFence(
+        1: TAcquireTimeBasedChangeReadFenceRequest request)
 
     TMySqlLoadAcquireTokenResult acquireToken()
 
