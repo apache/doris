@@ -104,9 +104,10 @@ suite("test_group_join_fusion_rf") {
     order_qt_fused_result query
 
     // Aggregates with GROUP BY keys but no aggregate functions (e.g. SELECT
-    // DISTINCT over an inner join) must not be fused: the fused operator
-    // requires at least one aggregate function, and fusing such a shape used
-    // to serialize a GroupJoinNode with empty aggregate_functions.
+    // DISTINCT over an inner join, or a pure GROUP BY over the join keys) are
+    // fused as well: the fused GroupJoin operator groups rows by the shared
+    // hash key and materializes the grouping-key columns, so it does not need
+    // any aggregate function (aggregate_functions stays empty on the node).
     sql "SET runtime_filter_mode = 'OFF'"
     def distinctQuery = """
         SELECT DISTINCT l.k1
@@ -114,11 +115,34 @@ suite("test_group_join_fusion_rf") {
         JOIN [shuffle] gj_rf_right r ON l.k1 = r.k1
         ORDER BY l.k1
         """
+    sql "SET experimental_enable_group_join_fusion = true"
+    def distinctPlan = sql "EXPLAIN " + distinctQuery
+    assertTrue(distinctPlan.toString().contains("VGROUP JOIN"),
+            "DISTINCT over the join must be fused into a GroupJoin, plan: " + distinctPlan)
     sql "SET experimental_enable_group_join_fusion = false"
     def distinctReference = sql distinctQuery
     sql "SET experimental_enable_group_join_fusion = true"
     def distinctFused = sql distinctQuery
     assertEquals(distinctReference, distinctFused)
+
+    // The same no-aggregate-function shape written as a plain GROUP BY (a pure
+    // deduplication query, the QA repro form) must equally be fused and return
+    // exactly the reference rows.
+    def pureGroupByQuery = """
+        SELECT l.k1
+        FROM gj_rf_left l
+        JOIN [shuffle] gj_rf_right r ON l.k1 = r.k1
+        GROUP BY l.k1
+        ORDER BY l.k1
+        """
+    def pureGroupByPlan = sql "EXPLAIN " + pureGroupByQuery
+    assertTrue(pureGroupByPlan.toString().contains("VGROUP JOIN"),
+            "Pure GROUP BY over the join must be fused into a GroupJoin, plan: " + pureGroupByPlan)
+    sql "SET experimental_enable_group_join_fusion = false"
+    def pureGroupByReference = sql pureGroupByQuery
+    sql "SET experimental_enable_group_join_fusion = true"
+    def pureGroupByFused = sql pureGroupByQuery
+    assertEquals(pureGroupByReference, pureGroupByFused)
 
     // Restore defaults so other suites are not affected.
     sql "SET experimental_enable_group_join_fusion = false"
