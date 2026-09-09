@@ -18,6 +18,7 @@
 
 // Checklist: F06 F15 I03.
 suite("test_uuid_point_query", "p0") {
+    sql "SET enable_sql_cache = false"
 
     sql "DROP TABLE IF EXISTS uuid_point_query"
     sql """CREATE TABLE uuid_point_query (u UUID NOT NULL,v UUID)

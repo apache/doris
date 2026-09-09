@@ -25,6 +25,7 @@ suite("test_uuid_runtime_bucket_pruning", "p0") {
     sql "SET runtime_filter_max_in_num = 1024"
     sql "SET disable_join_reorder = true"
     sql "SET enable_profile = true"
+    sql "SET enable_sql_cache = false"
     sql "SET profile_level = 2"
     sql "SET enable_condition_cache = false"
     sql "SET enable_query_cache = false"

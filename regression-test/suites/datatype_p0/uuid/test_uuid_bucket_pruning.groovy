@@ -17,6 +17,7 @@
 
 // Checklist: B09 C05 C08.
 suite("test_uuid_bucket_pruning", "p0") {
+    sql "SET enable_sql_cache = false"
 
     sql "DROP TABLE IF EXISTS uuid_bucket_pruning"
     sql """CREATE TABLE uuid_bucket_pruning (id INT, u UUID)

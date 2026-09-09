@@ -34,6 +34,7 @@ suite("test_uuid_zone_map", "p0") {
     sql "SET enable_condition_cache = false"
     sql "SET enable_query_cache = false"
     sql "SET enable_profile = true"
+    sql "SET enable_sql_cache = false"
     sql "SET profile_level = 2"
     sql "SET enable_expr_zonemap_filter = false"
     for (String comparison : ['>', '>=', '<', '<=', '=']) {

@@ -17,6 +17,7 @@
 
 // Checklist: F13 F14 F15 F16.
 suite("test_uuid_unique_update", "p0") {
+    sql "SET enable_sql_cache = false"
     for (boolean mow : [false, true]) {
         for (boolean rowStore : [false, true]) {
             sql "DROP TABLE IF EXISTS uuid_storage_unique"

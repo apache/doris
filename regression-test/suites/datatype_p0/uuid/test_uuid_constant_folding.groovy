@@ -18,6 +18,7 @@
 
 // Checklist: A03 A05 A06 C05 E02.
 suite("test_uuid_constant_folding", "p0") {
+    sql "SET enable_sql_cache = false"
 
     for (boolean skip : [false,true]) {
         sql "SET debug_skip_fold_constant = ${skip}"

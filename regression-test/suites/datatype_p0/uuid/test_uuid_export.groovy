@@ -53,9 +53,10 @@ suite("test_uuid_export", "p0,external") {
         new File("${localPath}_${token}_export").mkdirs()
     }
     String label = "uuid_export_${token.replace('-', '_')}"
-    String exportProperties = sinkProperties.isEmpty() ? "" : ", ${sinkProperties}"
+    String storageClause = localMode ? "" : "WITH S3 (${sinkProperties})"
     sql """EXPORT TABLE uuid_file_export TO "${exportPath}"
-           PROPERTIES("label"="${label}", "format"="parquet" ${exportProperties})"""
+           PROPERTIES("label"="${label}", "format"="parquet")
+           ${storageClause}"""
     String state = ""
     for (int attempt = 0; attempt < 60; ++attempt) {
         def jobs = sql "SHOW EXPORT WHERE LABEL='${label}'"

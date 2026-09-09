@@ -17,6 +17,7 @@
 
 // Checklist: B08 C05 C08.
 suite("test_uuid_partition_pruning", "p0") {
+    sql "SET enable_sql_cache = false"
     // UUID range/list partition bounds and hash-bucket constants are folded by FE.
     sql "DROP TABLE IF EXISTS uuid_range_partition"
     sql """

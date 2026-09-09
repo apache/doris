@@ -32,6 +32,10 @@ suite("test_uuid_spill", "p0") {
         FROM numbers("number"="262144")
     """
     sql "SET enable_profile = true"
+    sql "SET enable_sql_cache = false"
+    sql "SET enable_query_cache = false"
+    // Bucketed aggregation on a single BE does not use the aggregation spill operators.
+    sql "SET enable_bucketed_hash_agg = false"
     sql "SET profile_level = 2"
     sql "SET topn_opt_limit_threshold = 0"
     sql "SET spill_min_revocable_mem = 524288"

@@ -17,6 +17,7 @@
 
 // Checklist: B11 C11.
 suite("test_uuid_materialized_view", "p0") {
+    sql "SET enable_sql_cache = false"
     sql "DROP TABLE IF EXISTS uuid_duplicate_materialized_view"
     sql """
         CREATE TABLE uuid_duplicate_materialized_view (
