@@ -30,6 +30,7 @@ import org.apache.doris.mysql.MysqlCursorFetchCompatibility;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -231,7 +232,10 @@ public class FEOpExecutor {
 
         // Propagate the client's CLIENT_DEPRECATE_EOF capability so the master FE
         // generates packets matching the original client's protocol expectations.
-        if (ctx.getConnectType() == ConnectContext.ConnectType.MYSQL) {
+        // Only a MySQL connection negotiates this capability and owns a MysqlChannel;
+        // an Arrow Flight SQL session has none, and leaving the field unset keeps the
+        // master on its default packet layout.
+        if (ctx.getConnectType() == ConnectType.MYSQL) {
             params.setClientDeprecatedEOF(ctx.getMysqlChannel().clientDeprecatedEOF());
             params.setMysqlCapability(ctx.getCapability().getFlags());
         }
