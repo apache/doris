@@ -293,16 +293,43 @@ inline Op symmetric_op(Op op) {
     __builtin_unreachable();
 }
 
-inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSPtrs& arguments,
-                                    Op op) {
-    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+// Return true when `L <op> R` cannot be TRUE for any row, given that every non-null value of the
+// left operand lies in [lmin, lmax] and every non-null value of the right operand lies in
+// [rmin, rmax]. This only compares the four bounds: callers must already have rejected zone maps
+// whose bounds are unusable and columns that hold no non-null value at all.
+//
+// The slot-vs-literal path passes the literal as the degenerate range [literal, literal], which
+// reduces every branch below to the plain slot-vs-literal test it replaced.
+inline bool range_vs_range_no_match(const Field& lmin, const Field& lmax, const Field& rmin,
+                                    const Field& rmax, Op op) {
+    switch (op) {
+    case Op::EQ:
+        // Disjoint ranges cannot share a value.
+        return lmin > rmax || rmin > lmax;
+    case Op::NE:
+        // Only provable when both sides collapse to the same single value.
+        return lmin == lmax && rmin == rmax && lmin == rmin;
+    case Op::LT:
+        return lmin >= rmax;
+    case Op::LE:
+        return lmin > rmax;
+    case Op::GT:
+        return rmin >= lmax;
+    case Op::GE:
+        return rmin > lmax;
+    }
+    __builtin_unreachable();
+}
 
-    auto slot_type = expr_zonemap::fetch_compatible_slot_type(ctx, slot_literal->slot_index,
-                                                              slot_literal->slot_type);
+inline ZoneMapFilterResult evaluate_slot_literal(const ZoneMapEvalContext& ctx,
+                                                 const expr_zonemap::SlotLiteral& slot_literal,
+                                                 Op op) {
+    auto slot_type = expr_zonemap::fetch_compatible_slot_type(ctx, slot_literal.slot_index,
+                                                              slot_literal.slot_type);
     if (slot_type == nullptr) {
         return unsupported_zonemap_filter(ctx);
     }
-    auto zone_map_ptr = ctx.zone_map(slot_literal->slot_index);
+    auto zone_map_ptr = ctx.zone_map(slot_literal.slot_index);
     if (zone_map_ptr == nullptr) {
         return unsupported_zonemap_filter(ctx);
     }
@@ -314,42 +341,74 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
         return unsupported_zonemap_filter(ctx);
     }
 
-    const auto effective_op = slot_literal->literal_on_left ? symmetric_op(op) : op;
-    const auto& literal = slot_literal->literal;
+    const auto effective_op = slot_literal.literal_on_left ? symmetric_op(op) : op;
+    const auto& literal = slot_literal.literal;
     const bool literal_is_nan = literal.is_nan();
     const bool hidden_nan_can_match = (effective_op == Op::EQ && literal_is_nan) ||
                                       (effective_op == Op::NE && !literal_is_nan) ||
                                       (effective_op == Op::GT && !literal_is_nan) ||
                                       effective_op == Op::GE;
-    if (ctx.floating_nan_count_unknown(slot_literal->slot_index) && hidden_nan_can_match) {
+    if (ctx.floating_nan_count_unknown(slot_literal.slot_index) && hidden_nan_can_match) {
         // Parquet bounds omit NaNs, so only operators that cannot match a hidden NaN may prune.
         return unsupported_zonemap_filter(ctx);
     }
-    switch (effective_op) {
-    case Op::EQ:
-        return literal < zone_map.min_value || zone_map.max_value < literal
-                       ? ZoneMapFilterResult::kNoMatch
-                       : ZoneMapFilterResult::kMayMatch;
-    case Op::NE:
-        return zone_map.min_value == literal && zone_map.max_value == literal
-                       ? ZoneMapFilterResult::kNoMatch
-                       : ZoneMapFilterResult::kMayMatch;
-    case Op::LT:
-        return zone_map.min_value >= literal ? ZoneMapFilterResult::kNoMatch
-                                             : ZoneMapFilterResult::kMayMatch;
-    case Op::LE:
-        return zone_map.min_value > literal ? ZoneMapFilterResult::kNoMatch
-                                            : ZoneMapFilterResult::kMayMatch;
-    case Op::GT:
-        return zone_map.max_value <= literal ? ZoneMapFilterResult::kNoMatch
-                                             : ZoneMapFilterResult::kMayMatch;
-    case Op::GE:
-        return zone_map.max_value < literal ? ZoneMapFilterResult::kNoMatch
-                                            : ZoneMapFilterResult::kMayMatch;
-    }
+    return range_vs_range_no_match(zone_map.min_value, zone_map.max_value, literal, literal,
+                                   effective_op)
+                   ? ZoneMapFilterResult::kNoMatch
+                   : ZoneMapFilterResult::kMayMatch;
+}
 
-    // keep this to avoid compile failure with g++.
-    __builtin_unreachable();
+inline ZoneMapFilterResult evaluate_slot_slot(const ZoneMapEvalContext& ctx,
+                                              const expr_zonemap::SlotSlot& slot_slot, Op op) {
+    const auto left_type = expr_zonemap::fetch_compatible_slot_type(ctx, slot_slot.left_slot_index,
+                                                                    slot_slot.left_type);
+    const auto right_type = expr_zonemap::fetch_compatible_slot_type(
+            ctx, slot_slot.right_slot_index, slot_slot.right_type);
+    if (left_type == nullptr || right_type == nullptr) {
+        // The context skips a slot entirely when the segment cannot apply predicates on it.
+        return unsupported_zonemap_filter(ctx);
+    }
+    const auto left_zone_map = ctx.zone_map(slot_slot.left_slot_index);
+    const auto right_zone_map = ctx.zone_map(slot_slot.right_slot_index);
+    if (left_zone_map == nullptr || right_zone_map == nullptr) {
+        // A slot can be present with a data type but no zone map, so this is a separate check.
+        return unsupported_zonemap_filter(ctx);
+    }
+    // A column holding no non-null value makes the comparison NULL on every row, which never
+    // satisfies a WHERE conjunct. This must run before the range checks below: an all-null zone map
+    // leaves min/max default-constructed as TYPE_NULL, which the range checks would fatal on.
+    if (!left_zone_map->has_not_null || !right_zone_map->has_not_null) {
+        return ZoneMapFilterResult::kNoMatch;
+    }
+    if (!expr_zonemap::range_stats_usable_for_zonemap(*left_zone_map, left_type) ||
+        !expr_zonemap::range_stats_usable_for_zonemap(*right_zone_map, right_type)) {
+        return unsupported_zonemap_filter(ctx);
+    }
+    // Parquet bounds omit NaN without recording how many were skipped, so a zone map that looks
+    // like a single point may still hide one, which would flip the NE rule from false to true. The
+    // slot-vs-literal path can reason per operator because it knows whether the literal is NaN;
+    // with two slots there is no literal, so bail out for every operator instead.
+    if (ctx.floating_nan_count_unknown(slot_slot.left_slot_index) ||
+        ctx.floating_nan_count_unknown(slot_slot.right_slot_index)) {
+        return unsupported_zonemap_filter(ctx);
+    }
+    return range_vs_range_no_match(left_zone_map->min_value, left_zone_map->max_value,
+                                   right_zone_map->min_value, right_zone_map->max_value, op)
+                   ? ZoneMapFilterResult::kNoMatch
+                   : ZoneMapFilterResult::kMayMatch;
+}
+
+inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSPtrs& arguments,
+                                    Op op) {
+    if (auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+        slot_literal.has_value()) {
+        return evaluate_slot_literal(ctx, *slot_literal, op);
+    }
+    auto slot_slot = expr_zonemap::extract_slot_and_slot(arguments);
+    // can_evaluate_zonemap_filter accepts exactly the two shapes handled above, so reaching this
+    // point means the capability gate and this evaluator went out of sync.
+    DORIS_CHECK(slot_slot.has_value());
+    return evaluate_slot_slot(ctx, *slot_slot, op);
 }
 
 inline bool can_evaluate(const VExprSPtrs& arguments) {
@@ -375,6 +434,24 @@ inline bool can_evaluate(const VExprSPtrs& arguments) {
     }
 
     return true;
+}
+
+// Accept a comparison whose both operands are slot references. Kept separate from can_evaluate on
+// purpose: can_evaluate also gates dictionary filtering and can_evaluate_equality, and both of
+// those dereference extract_slot_and_literal behind a DORIS_CHECK, so widening it would abort on a
+// slot-vs-slot expression. Only can_evaluate_zonemap_filter ORs this in.
+inline bool can_evaluate_slot_slot(const VExprSPtrs& arguments) {
+    auto slot_slot = expr_zonemap::extract_slot_and_slot(arguments);
+    if (!slot_slot.has_value()) {
+        return false;
+    }
+    DORIS_CHECK(slot_slot->left_type != nullptr);
+    DORIS_CHECK(slot_slot->right_type != nullptr);
+    // The two zone maps' Fields are compared directly and Field comparison throws on mismatched
+    // non-string types, so reject incompatible column pairs here. A pair differing only by width or
+    // decimal scale never reaches this point anyway, because the optimizer inserts a cast and a
+    // cast is not a VSlotRef.
+    return expr_zonemap::data_types_compatible(slot_slot->left_type, slot_slot->right_type);
 }
 
 inline bool can_evaluate_equality(const VExprSPtrs& arguments, Op op) {
@@ -734,8 +811,11 @@ public:
     }
 
     bool can_evaluate_zonemap_filter(const VExprSPtrs& arguments) const override {
-        return comparison_zonemap_detail::op_from_name(name).has_value() &&
-               comparison_zonemap_detail::can_evaluate(arguments);
+        if (!comparison_zonemap_detail::op_from_name(name).has_value()) {
+            return false;
+        }
+        return comparison_zonemap_detail::can_evaluate(arguments) ||
+               comparison_zonemap_detail::can_evaluate_slot_slot(arguments);
     }
 
     ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx,

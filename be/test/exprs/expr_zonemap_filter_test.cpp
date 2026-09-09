@@ -140,6 +140,23 @@ ZoneMapEvalContext make_context(segment_v2::ZoneMap zone_map, const DataTypePtr&
     return ctx;
 }
 
+// Two slots in one context, which is what the segment-level and Parquet row-group-level callers
+// build for a compound expression. Slot 0 is the left operand, slot 1 the right.
+ZoneMapEvalContext make_two_slot_context(segment_v2::ZoneMap left, segment_v2::ZoneMap right,
+                                         const DataTypePtr& left_type,
+                                         const DataTypePtr& right_type) {
+    ZoneMapEvalContext ctx;
+    ZoneMapEvalContext::SlotZoneMap left_slot;
+    left_slot.data_type = left_type;
+    left_slot.zone_map = std::make_shared<segment_v2::ZoneMap>(std::move(left));
+    ctx.slots.emplace(0, std::move(left_slot));
+    ZoneMapEvalContext::SlotZoneMap right_slot;
+    right_slot.data_type = right_type;
+    right_slot.zone_map = std::make_shared<segment_v2::ZoneMap>(std::move(right));
+    ctx.slots.emplace(1, std::move(right_slot));
+    return ctx;
+}
+
 DictionaryEvalContext make_dictionary_context(std::vector<Field> values,
                                               const DataTypePtr& data_type) {
     DictionaryEvalContext ctx;
@@ -1950,6 +1967,183 @@ TEST(ExprZonemapFilterTest, ExprContextZonemapEvaluationShortCircuitsOnNoMatch) 
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
               VExprContext::evaluate_zonemap_filter({unsupported, no_match}, ctx));
     EXPECT_EQ(0, ctx.stats.unusable_zonemap_eval_count);
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotNotEqualsPrunesOnlyWhenBothCollapseToOneValue) {
+    auto type = int_type();
+    auto left = make_slot(0, type);
+    auto right = make_slot(1, type);
+    FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
+
+    // Both columns hold the single value 5, so `a != b` is false on every row.
+    auto same_point =
+            make_two_slot_context(make_int_zonemap(5, 5), make_int_zonemap(5, 5), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              not_equals.evaluate_zonemap_filter(same_point, {left, right}));
+
+    // Two different single values: `a != b` is true everywhere, so nothing can be pruned.
+    auto other_point =
+            make_two_slot_context(make_int_zonemap(5, 5), make_int_zonemap(6, 6), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              not_equals.evaluate_zonemap_filter(other_point, {left, right}));
+
+    // A non-degenerate range on either side leaves the outcome unknown.
+    auto left_range =
+            make_two_slot_context(make_int_zonemap(5, 6), make_int_zonemap(5, 5), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              not_equals.evaluate_zonemap_filter(left_range, {left, right}));
+    auto right_range =
+            make_two_slot_context(make_int_zonemap(5, 5), make_int_zonemap(5, 6), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              not_equals.evaluate_zonemap_filter(right_range, {left, right}));
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotCoversAllSixOperatorsAtTheBoundary) {
+    auto type = int_type();
+    auto left = make_slot(0, type);
+    auto right = make_slot(1, type);
+    // Left entirely above right, ranges touching at 10: [10, 20] vs [1, 10].
+    auto ctx = make_two_slot_context(make_int_zonemap(10, 20), make_int_zonemap(1, 10), type, type);
+
+    // a < b needs min_a >= max_b, which holds at the touching bound.
+    FunctionComparison<LessOp, NameLess> less;
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, less.evaluate_zonemap_filter(ctx, {left, right}));
+    // a <= b needs min_a > max_b, which does not hold: a == b == 10 is possible.
+    FunctionComparison<LessOrEqualsOp, NameLessOrEquals> less_equals;
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less_equals.evaluate_zonemap_filter(ctx, {left, right}));
+    FunctionComparison<GreaterOp, NameGreater> greater;
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch, greater.evaluate_zonemap_filter(ctx, {left, right}));
+    FunctionComparison<EqualsOp, NameEquals> equals;
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch, equals.evaluate_zonemap_filter(ctx, {left, right}));
+
+    // Fully disjoint: equality becomes impossible and so does a <= b.
+    auto disjoint =
+            make_two_slot_context(make_int_zonemap(10, 20), make_int_zonemap(1, 9), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals.evaluate_zonemap_filter(disjoint, {left, right}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less_equals.evaluate_zonemap_filter(disjoint, {left, right}));
+
+    // Mirrored, so a > b and a >= b become impossible.
+    auto mirrored =
+            make_two_slot_context(make_int_zonemap(1, 9), make_int_zonemap(10, 20), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              greater.evaluate_zonemap_filter(mirrored, {left, right}));
+    FunctionComparison<GreaterOrEqualsOp, NameGreaterOrEquals> greater_equals;
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              greater_equals.evaluate_zonemap_filter(mirrored, {left, right}));
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotGuardsCoverNullAndMissingStatistics) {
+    auto type = int_type();
+    auto left = make_slot(0, type);
+    auto right = make_slot(1, type);
+    FunctionComparison<LessOp, NameLess> less;
+
+    // A column with no non-null value makes the comparison NULL on every row.
+    auto all_null_zonemap = make_int_zonemap(1, 9);
+    all_null_zonemap.has_not_null = false;
+    auto all_null =
+            make_two_slot_context(std::move(all_null_zonemap), make_int_zonemap(1, 9), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, less.evaluate_zonemap_filter(all_null, {left, right}));
+
+    // The right slot is absent from the context entirely.
+    auto missing_slot = make_context(make_int_zonemap(1, 9), type);
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              less.evaluate_zonemap_filter(missing_slot, {left, right}));
+
+    // The right slot is present with a type but without a zone map.
+    auto missing_zonemap = make_context(make_int_zonemap(1, 9), type);
+    ZoneMapEvalContext::SlotZoneMap slot_without_zonemap;
+    slot_without_zonemap.data_type = type;
+    missing_zonemap.slots.emplace(1, std::move(slot_without_zonemap));
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              less.evaluate_zonemap_filter(missing_zonemap, {left, right}));
+
+    // pass_all marks the bounds as unusable even though has_not_null is set.
+    auto pass_all_zonemap = make_int_zonemap(1, 9);
+    pass_all_zonemap.pass_all = true;
+    auto pass_all = make_two_slot_context(make_int_zonemap(10, 20), std::move(pass_all_zonemap),
+                                          type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              less.evaluate_zonemap_filter(pass_all, {left, right}));
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotHandlesTheSameSlotOnBothSides) {
+    // FE's SimplifySelfComparison does not fold NotEqualTo, so `a != a` reaches the BE. It is never
+    // true, so returning kNoMatch is always sound; the range rule proves it when a is a single
+    // value and stays conservative otherwise.
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+    FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
+
+    auto single_value = make_context(make_int_zonemap(7, 7), type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              not_equals.evaluate_zonemap_filter(single_value, {slot, slot}));
+    auto range = make_context(make_int_zonemap(7, 8), type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              not_equals.evaluate_zonemap_filter(range, {slot, slot}));
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotWidensOnlyTheZonemapGateNotDictionaryOrBloom) {
+    // This is the regression guard for the trap in this change: comparison_zonemap_detail's
+    // can_evaluate is shared by dictionary filtering and can_evaluate_equality, and both dereference
+    // extract_slot_and_literal behind a DORIS_CHECK. Widening it would abort on `a != b`, so the
+    // slot-vs-slot shape must only ever be accepted by can_evaluate_zonemap_filter.
+    auto type = int_type();
+    auto left = make_slot(0, type);
+    auto right = make_slot(1, type);
+    FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
+
+    EXPECT_TRUE(not_equals.can_evaluate_zonemap_filter({left, right}));
+    EXPECT_FALSE(not_equals.can_evaluate_dictionary_filter({left, right}));
+    EXPECT_FALSE(not_equals.can_evaluate_bloom_filter({left, right}));
+
+    // Slot vs literal keeps working on every gate.
+    EXPECT_TRUE(not_equals.can_evaluate_zonemap_filter({left, make_int_literal(1)}));
+    EXPECT_TRUE(not_equals.can_evaluate_dictionary_filter({left, make_int_literal(1)}));
+
+    // Two columns of incompatible types are rejected: the two Fields would be compared directly and
+    // Field comparison throws on mismatched non-string types.
+    auto bigint = std::make_shared<DataTypeInt64>();
+    EXPECT_FALSE(not_equals.can_evaluate_zonemap_filter({left, make_slot(1, bigint)}));
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotBailsOutWhenAFloatingNanCountIsUnknown) {
+    // Parquet bounds omit NaN without reporting how many were skipped, so a zone map that looks like
+    // a single point may still hide one. That would flip the NE rule from false to true, so the
+    // slot-vs-slot path refuses to prune for every operator once either side is marked unknown.
+    auto type = std::make_shared<DataTypeFloat64>();
+    auto left = make_slot(0, type);
+    auto right = make_slot(1, type);
+    FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
+
+    auto make_double_zonemap = [](double value) {
+        segment_v2::ZoneMap zone_map;
+        zone_map.min_value = Field::create_field<TYPE_DOUBLE>(value);
+        zone_map.max_value = Field::create_field<TYPE_DOUBLE>(value);
+        zone_map.has_not_null = true;
+        return zone_map;
+    };
+
+    // Both sides are the same single value, so without the NaN guard this would prune.
+    auto known =
+            make_two_slot_context(make_double_zonemap(1.0), make_double_zonemap(1.0), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              not_equals.evaluate_zonemap_filter(known, {left, right}));
+
+    for (int unknown_slot : {0, 1}) {
+        auto ctx = make_two_slot_context(make_double_zonemap(1.0), make_double_zonemap(1.0), type,
+                                         type);
+        ctx.slots[unknown_slot].floating_nan_count_unknown = true;
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  not_equals.evaluate_zonemap_filter(ctx, {left, right}))
+                << "unknown NaN count on slot " << unknown_slot << " must stop pruning";
+        // Reaching kUnsupported through unsupported_zonemap_filter is what bumps this counter, so it
+        // also proves the guard fired rather than some earlier bail-out.
+        EXPECT_EQ(1, ctx.stats.unusable_zonemap_eval_count);
+    }
 }
 
 } // namespace doris
