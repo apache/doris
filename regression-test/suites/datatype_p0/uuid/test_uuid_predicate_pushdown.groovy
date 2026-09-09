@@ -43,7 +43,7 @@ suite("test_uuid_predicate_pushdown", "p0") {
         String token = "uuid_predicate_${UUID.randomUUID()}"
         qt_pushdown """/* ${token} */ SELECT COUNT(*),SUM(id),MIN(u),MAX(u)
                        FROM uuid_predicate_pushdown WHERE u ${comparison} CAST('${value}' AS UUID)"""
-        uuidCheckProfile(token, ['RowsVectorPredFiltered'],
+        checkProfileCounters(token, ['RowsVectorPredFiltered'],
                          ['RowsStatsFiltered','RowsKeyRangeFiltered','RowsBloomFilterFiltered','RowsInvertedIndexFiltered'])
         qt_reference """SELECT COUNT(*),SUM(id),MIN(u),MAX(u) FROM uuid_predicate_pushdown
                         WHERE CONCAT(CAST(u AS STRING),'') ${comparison} '${value}'"""
@@ -53,7 +53,7 @@ suite("test_uuid_predicate_pushdown", "p0") {
                              "u NOT IN (CAST('${value}' AS UUID),CAST(REPEAT('f',32) AS UUID))", 'u IS NULL', 'u IS NOT NULL']) {
         String token = "uuid_predicate_set_${UUID.randomUUID()}"
         qt_sets "/* ${token} */ SELECT COUNT(*),SUM(id),MIN(u),MAX(u) FROM uuid_predicate_pushdown WHERE ${predicate}"
-        uuidCheckProfile(token, [predicate == "u NOT IN (CAST('${value}' AS UUID))" ? 'RowsVectorPredFiltered' : 'RowsShortCircuitPredFiltered'],
+        checkProfileCounters(token, [predicate == "u NOT IN (CAST('${value}' AS UUID))" ? 'RowsVectorPredFiltered' : 'RowsShortCircuitPredFiltered'],
                          ['RowsStatsFiltered','RowsInvertedIndexFiltered'])
     }
 

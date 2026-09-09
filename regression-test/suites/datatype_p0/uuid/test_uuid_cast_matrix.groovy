@@ -16,10 +16,11 @@
 // under the License.
 
 suite("test_uuid_cast_matrix", "p0") {
+    def matrix = this.evaluate(new File(context.file.parentFile, "uuid_matrix.groovy"))
     sql "DROP TABLE IF EXISTS uuid_matrix_cast"
-    sql """CREATE TABLE uuid_matrix_cast (${uuidMatrixSchema()})
+    sql """CREATE TABLE uuid_matrix_cast (${matrix.schema()})
            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"""
-    sql "INSERT INTO uuid_matrix_cast VALUES ${uuidMatrixValues()}"
+    sql "INSERT INTO uuid_matrix_cast VALUES ${matrix.values()}"
 
     sql "DROP TABLE IF EXISTS uuid_matrix_cast_text"
     sql """CREATE TABLE uuid_matrix_cast_text (id INT,s STRING)
@@ -35,23 +36,23 @@ suite("test_uuid_cast_matrix", "p0") {
     List<Map> rows = texts.collect { [s: "CONCAT(${it},'')"] }
     sql "INSERT INTO uuid_matrix_cast_text VALUES ${rows.withIndex().collect { r,i -> "(${i},${r.s})" }.join(',')}"
     sql "SET enable_strict_cast=false"
-    uuidRunMatrix('text', 'uuid_matrix_cast_text', ['s'], { s ->
+    matrix.run(delegate, 'text', 'uuid_matrix_cast_text', ['s'], { s ->
         [cast_uuid: "CAST(${s} AS UUID)", try_uuid: "TRY_CAST(${s} AS UUID)",
          char_uuid: "CAST(CAST(${s} AS CHAR(64)) AS UUID)", varchar_uuid: "CAST(CAST(${s} AS VARCHAR(64)) AS UUID)",
          variant_uuid: "CAST(CAST(${s} AS VARIANT) AS UUID)"]
     }, [rows: rows])
-    uuidRunMatrix('uuid', 'uuid_matrix_cast', ['u'], { u ->
+    matrix.run(delegate, 'uuid', 'uuid_matrix_cast', ['u'], { u ->
         [identity_value: "CAST(${u} AS UUID)", string_value: "CAST(${u} AS STRING)",
          char_value: "CAST(${u} AS CHAR(36))", varchar_value: "CAST(${u} AS VARCHAR(36))",
          variant_roundtrip: "CAST(CAST(${u} AS VARIANT) AS UUID)",
          string_roundtrip: "CAST(CAST(${u} AS STRING) AS UUID)",
          try_roundtrip: "TRY_CAST(CAST(${u} AS STRING) AS UUID)"]
     })
-    uuidRunMatrix('array', 'uuid_matrix_cast', ['a'], { a ->
+    matrix.run(delegate, 'array', 'uuid_matrix_cast', ['a'], { a ->
         [text_value: "CAST(${a} AS STRING)", array_strings: "CAST(${a} AS ARRAY<STRING>)",
          roundtrip: "CAST(CAST(${a} AS ARRAY<STRING>) AS ARRAY<UUID>)"]
     })
-    uuidRunMatrix('map', 'uuid_matrix_cast', ['m'], { m ->
+    matrix.run(delegate, 'map', 'uuid_matrix_cast', ['m'], { m ->
         [text_value: "CAST(${m} AS STRING)", roundtrip: "CAST(CAST(${m} AS MAP<STRING,STRING>) AS MAP<UUID,UUID>)"]
     })
     for (String mode : ['fe','be','runtime']) {
