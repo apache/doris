@@ -44,7 +44,7 @@ suite("test_create_view_star_replace") {
 
     sql """CREATE OR REPLACE VIEW view_star_replace_v AS
         SELECT l.* EXCEPT(payload) REPLACE(l.a + r.b AS a)
-        FROM view_star_replace_t l JOIN view_star_replace_t r ON l.a = r.a"""
+        FROM view_star_replace_t l JOIN (SELECT a AS ra, b FROM view_star_replace_t) r ON l.a = r.ra"""
     order_qt_join "SELECT * FROM view_star_replace_v"
 
     sql """CREATE OR REPLACE VIEW view_star_replace_v AS
