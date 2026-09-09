@@ -35,6 +35,7 @@
 #include "cloud/config.h"
 #include "cpp/sync_point.h"
 #include "json2pb/json_to_pb.h"
+#include "runtime/runtime_profile.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
@@ -247,7 +248,8 @@ TEST_F(CloudCompactionTest, update_tablet_stats_counts_zero_segment_rowset) {
         tablet->reset_approximate_stats(0, 0, 0, 0);
     }
 
-    CloudRowsetBuilder builder(_engine, WriteRequest {}, nullptr);
+    RuntimeProfile profile("CloudCompactionTest");
+    CloudRowsetBuilder builder(_engine, WriteRequest {}, &profile);
 
     auto empty_rowset = create_prepared_rowset(0, 0);
     ASSERT_NE(empty_rowset, nullptr);
