@@ -75,6 +75,7 @@ class CloudCompactionTest : public testing::Test {
     void SetUp() override {
         _old_rw_separation = config::enable_compaction_rw_separation;
         config::enable_compaction_rw_separation = false;
+        _old_cluster_info = ExecEnv::GetInstance()->cluster_info();
         config::compaction_promotion_size_mbytes = 1024;
         config::compaction_promotion_ratio = 0.05;
         config::compaction_promotion_min_size_mbytes = 64;
@@ -107,9 +108,13 @@ class CloudCompactionTest : public testing::Test {
         })";
         _cluster_info = std::make_shared<CloudClusterInfo>();
         _cluster_info->_is_in_standby = false;
-        ExecEnv::GetInstance()->_cluster_info = _cluster_info.get();
+        ExecEnv::GetInstance()->set_cluster_info(_cluster_info.get());
     }
-    void TearDown() override { config::enable_compaction_rw_separation = _old_rw_separation; }
+
+    void TearDown() override {
+        ExecEnv::GetInstance()->set_cluster_info(_old_cluster_info);
+        config::enable_compaction_rw_separation = _old_rw_separation;
+    }
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
         RowsetMetaPB rowset_meta_pb;
@@ -147,6 +152,7 @@ class CloudCompactionTest : public testing::Test {
 
 protected:
     bool _old_rw_separation {false};
+    ClusterInfo* _old_cluster_info {nullptr};
     std::string _json_rowset_meta;
     TabletMetaSharedPtr _tablet_meta;
 

@@ -199,6 +199,68 @@ TEST(RecycleOperationLogTest, RecycleOneOperationLog) {
     ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
 }
 
+TEST(RecycleOperationLogTest, RecycleLegacySchemaChangeLogKeepsTabletLoadStats) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    txn_kv->update_commit_version(1000);
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_ENABLED);
+    update_instance_info(txn_kv.get(), instance);
+
+    constexpr int64_t tablet_id = 10001;
+    const std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+    TabletStatsPB expected_stats;
+    expected_stats.set_num_rows(100);
+    expected_stats.set_data_size(1000);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), load_stats_key, expected_stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    Versionstamp expected_version;
+    {
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        TabletStatsPB actual_stats;
+        ASSERT_EQ(meta_reader.get_tablet_load_stats(tablet_id, &actual_stats, &expected_version),
+                  TxnErrorCode::TXN_OK);
+        EXPECT_EQ(actual_stats.SerializeAsString(), expected_stats.SerializeAsString());
+    }
+
+    const std::string log_key = versioned::log_key(instance_id);
+    {
+        OperationLogPB operation_log;
+        operation_log.mutable_schema_change()->set_new_tablet_id(tablet_id);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned::blob_put(txn.get(), log_key, operation_log);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    MetaReader meta_reader(instance_id, txn_kv.get());
+    TabletStatsPB actual_stats;
+    Versionstamp actual_version;
+    ASSERT_EQ(meta_reader.get_tablet_load_stats(tablet_id, &actual_stats, &actual_version),
+              TxnErrorCode::TXN_OK);
+    EXPECT_EQ(actual_stats.SerializeAsString(), expected_stats.SerializeAsString());
+    EXPECT_EQ(actual_version, expected_version);
+    EXPECT_EQ(count_range(txn_kv.get(), encode_versioned_key(load_stats_key, Versionstamp::min()),
+                          encode_versioned_key(load_stats_key, Versionstamp::max())),
+              1);
+    EXPECT_EQ(count_range(txn_kv.get(), encode_versioned_key(log_key, Versionstamp::min()),
+                          encode_versioned_key(log_key, Versionstamp::max())),
+              0);
+}
+
 TEST(RecycleOperationLogTest, RecycleCommitPartitionLog) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     txn_kv->update_commit_version(1000);
@@ -2176,6 +2238,7 @@ TEST(RecycleOperationLogTest, RecycleSchemaChangeLog) {
                   TxnErrorCode::TXN_OK);
         ASSERT_TRUE(operation_log.has_schema_change());
         const auto& schema_change_log = operation_log.schema_change();
+        ASSERT_TRUE(schema_change_log.update_tablet_load_stats());
         ASSERT_GT(schema_change_log.recycle_rowsets_size(), 0);
         for (const auto& recycle_rs : schema_change_log.recycle_rowsets()) {
             ASSERT_EQ(recycle_rs.rowset_meta().segments_key_bounds_size(), 0);

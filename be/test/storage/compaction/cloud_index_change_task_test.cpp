@@ -17,11 +17,14 @@
 
 #include <gtest/gtest.h>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "json2pb/json_to_pb.h"
+#include "runtime/exec_env.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/task/engine_cloud_index_change_task.h"
 
@@ -29,13 +32,27 @@ namespace doris {
 
 class CloudIndexChangeTaskTest : public testing::Test {
 public:
-    void SetUp() {
+    void SetUp() override {
+        _old_rw_separation = config::enable_compaction_rw_separation;
+        config::enable_compaction_rw_separation = false;
+        _old_cluster_info = ExecEnv::GetInstance()->cluster_info();
+        _cluster_info = std::make_unique<CloudClusterInfo>();
+        ExecEnv::GetInstance()->set_cluster_info(_cluster_info.get());
         _engine = std::make_unique<CloudStorageEngine>(EngineOptions {});
-        auto sp = SyncPoint::get_instance();
+        auto* sp = SyncPoint::get_instance();
+        sp->clear_all_call_backs();
         sp->enable_processing();
     }
 
-    void TearDown() {}
+    void TearDown() override {
+        auto* sp = SyncPoint::get_instance();
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+        _engine.reset();
+        ExecEnv::GetInstance()->set_cluster_info(_old_cluster_info);
+        _cluster_info.reset();
+        config::enable_compaction_rw_separation = _old_rw_separation;
+    }
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
         std::string json_rowset_meta = R"({
@@ -74,6 +91,9 @@ public:
     }
 
 public:
+    bool _old_rw_separation {false};
+    ClusterInfo* _old_cluster_info {nullptr};
+    std::unique_ptr<CloudClusterInfo> _cluster_info;
     std::unique_ptr<CloudStorageEngine> _engine;
 };
 

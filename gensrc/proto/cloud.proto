@@ -866,6 +866,8 @@ message SchemaChangeLogPB {
     optional int64 new_tablet_id = 2;
     optional int64 alter_version = 3;
     repeated RecycleRowsetPB recycle_rowsets = 4;
+    // Whether the schema change transaction wrote a new tablet load stats version.
+    optional bool update_tablet_load_stats = 5;
 }
 
 message CommitPartitionLogPB {

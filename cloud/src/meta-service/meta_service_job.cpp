@@ -2150,6 +2150,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                               new_tablet_id);
             return;
         }
+        schema_change_log.set_update_tablet_load_stats(true);
 
         LOG_INFO("put versioned tablet compact stats key")
                 .tag("tablet_id", tablet_id)

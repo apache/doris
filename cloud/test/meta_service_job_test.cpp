@@ -51,6 +51,8 @@ namespace doris::cloud {
 // External functions from meta_service_test.cpp
 extern std::unique_ptr<MetaServiceProxy> get_meta_service();
 extern std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr);
+extern void put_compute_instance(MetaServiceProxy* meta_service, const std::string& instance_id,
+                                 const std::string& cluster_id, const std::string& cloud_unique_id);
 extern void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
                           int64_t partition_id, int64_t tablet_id);
 extern doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id,
@@ -6553,6 +6555,8 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest1) {
     DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), instance_id, "test_cluster_id",
+                                                 "test_cloud_unique_id"));
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -6616,6 +6620,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest1) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->prepare_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -6650,6 +6655,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest1) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->commit_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -6811,6 +6817,8 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest1) {
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest2) {
     DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), instance_id, "test_cluster_id",
+                                                 "test_cloud_unique_id"));
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -6874,6 +6882,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest2) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->prepare_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -6887,6 +6896,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest2) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->commit_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -7260,6 +7270,8 @@ TEST(MetaServiceJobTest, AbortSchemaChangeJobForRelatedRowsetTest2) {
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
     DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), instance_id, "test_cluster_id",
+                                                 "test_cloud_unique_id"));
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -7323,6 +7335,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->prepare_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -7354,6 +7367,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->commit_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -7496,6 +7510,8 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest3) {
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest4) {
     DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), instance_id, "test_cluster_id",
+                                                 "test_cloud_unique_id"));
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -7559,6 +7575,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest4) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->prepare_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -7572,6 +7589,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest4) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->commit_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -7741,6 +7759,8 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest4) {
 // Test: Complete flow - begin_txn(delete job) -> prepare_rowset -> recycle x 1 -> commit_rowset -> commit txn -> verify
 TEST(MetaServiceJobTest, DeleteJobForRelatedRowsetTest) {
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), instance_id, "test_cluster_id",
+                                                 "test_cloud_unique_id"));
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -7808,6 +7828,7 @@ TEST(MetaServiceJobTest, DeleteJobForRelatedRowsetTest) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->prepare_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -7839,6 +7860,7 @@ TEST(MetaServiceJobTest, DeleteJobForRelatedRowsetTest) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->commit_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;

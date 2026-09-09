@@ -127,6 +127,21 @@ std::unique_ptr<MetaServiceProxy> get_meta_service() {
     return get_meta_service(true);
 }
 
+void put_compute_instance(MetaServiceProxy* meta_service, const std::string& instance_id,
+                          const std::string& cluster_id, const std::string& cloud_unique_id) {
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto* cluster = instance.add_clusters();
+    cluster->set_cluster_id(cluster_id);
+    cluster->set_type(ClusterPB::COMPUTE);
+    cluster->add_nodes()->set_cloud_unique_id(cloud_unique_id);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
 std::unique_ptr<MetaServiceProxy> get_fdb_meta_service() {
     config::fdb_cluster_file_path = "fdb.cluster";
     static auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<FdbTxnKv>());
@@ -256,23 +271,35 @@ doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int pa
 }
 
 void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
-                    CreateRowsetResponse& res) {
+                    CreateRowsetResponse& res, const std::string& cloud_unique_id) {
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+    req->set_cloud_unique_id(cloud_unique_id);
     req->mutable_rowset_meta()->CopyFrom(rowset);
     meta_service->prepare_rowset(&cntl, req, &res, nullptr);
     if (!arena) delete req;
 }
 
+void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                    CreateRowsetResponse& res) {
+    prepare_rowset(meta_service, rowset, res, "");
+}
+
 void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
-                   CreateRowsetResponse& res) {
+                   CreateRowsetResponse& res, const std::string& cloud_unique_id) {
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+    req->set_cloud_unique_id(cloud_unique_id);
     req->mutable_rowset_meta()->CopyFrom(rowset);
     meta_service->commit_rowset(&cntl, req, &res, nullptr);
     if (!arena) delete req;
+}
+
+void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                   CreateRowsetResponse& res) {
+    commit_rowset(meta_service, rowset, res, "");
 }
 
 static void update_tmp_rowset(MetaServiceProxy* meta_service,
@@ -11582,6 +11609,8 @@ TEST(MetaServiceTest, // NOLINT(readability-function-cognitive-complexity)
 
 TEST(MetaServiceTest, StalePrepareRowset) {
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), mock_instance, mock_cluster_id,
+                                                 "test_cloud_unique_id"));
 
     int64_t table_id = 1;
     int64_t partition_id = 1;
@@ -11596,19 +11625,19 @@ TEST(MetaServiceTest, StalePrepareRowset) {
     auto rowset = create_rowset(txn_id, tablet_id, partition_id);
     rowset.mutable_load_id()->set_hi(123);
     rowset.mutable_load_id()->set_lo(456);
-    prepare_rowset(meta_service.get(), rowset, res);
+    prepare_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id");
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
     res.Clear();
-    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
-    prepare_rowset(meta_service.get(), rowset, res);
+    prepare_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id");
     ASSERT_TRUE(res.status().msg().find("rowset already exists") != std::string::npos)
             << res.status().msg();
     ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED) << res.status().code();
 
     commit_txn(meta_service.get(), db_id, txn_id, label);
-    prepare_rowset(meta_service.get(), rowset, res);
+    prepare_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id");
     ASSERT_TRUE(res.status().msg().find("txn is not in") != std::string::npos)
             << res.status().msg();
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
@@ -11616,6 +11645,8 @@ TEST(MetaServiceTest, StalePrepareRowset) {
 
 TEST(MetaServiceTest, StaleCommitRowset) {
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), mock_instance, mock_cluster_id,
+                                                 "test_cloud_unique_id"));
 
     int64_t table_id = 1;
     int64_t partition_id = 1;
@@ -11630,17 +11661,17 @@ TEST(MetaServiceTest, StaleCommitRowset) {
     auto rowset = create_rowset(txn_id, tablet_id, partition_id);
     rowset.mutable_load_id()->set_hi(123);
     rowset.mutable_load_id()->set_lo(456);
-    prepare_rowset(meta_service.get(), rowset, res);
+    prepare_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id");
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
     res.Clear();
-    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
-    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
     commit_txn(meta_service.get(), db_id, txn_id, label);
-    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
     ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
             << res.status().msg();
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
@@ -11658,6 +11689,8 @@ TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
     };
 
     std::string instance_id = "commit_rowset_recycle_key_test_instance_id";
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), instance_id, mock_cluster_id,
+                                                 "test_cloud_unique_id"));
     auto sp = SyncPoint::get_instance();
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
@@ -11693,15 +11726,18 @@ TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
         auto rowset = create_rowset(txn_id, tablet_id, partition_id);
         rowset.mutable_load_id()->set_hi(123);
         rowset.mutable_load_id()->set_lo(456);
-        ASSERT_NO_FATAL_FAILURE(prepare_rowset(meta_service.get(), rowset, res));
+        ASSERT_NO_FATAL_FAILURE(
+                prepare_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
         res.Clear();
-        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_NO_FATAL_FAILURE(
+                commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
         res.Clear();
 
         ASSERT_NO_FATAL_FAILURE(put_recycle_rowset(rowset));
-        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_NO_FATAL_FAILURE(
+                commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
         ASSERT_TRUE(res.status().msg().find("mutually exclusive") != std::string::npos)
                 << res.status().msg();
@@ -11722,7 +11758,8 @@ TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
         rowset.mutable_load_id()->set_hi(789);
         rowset.mutable_load_id()->set_lo(101112);
 
-        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_NO_FATAL_FAILURE(
+                commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
         ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
                 << res.status().msg();
