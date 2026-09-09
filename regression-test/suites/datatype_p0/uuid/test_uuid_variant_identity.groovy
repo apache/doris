@@ -24,7 +24,9 @@ suite("test_uuid_variant_identity", "nonConcurrent") {
         """
         sql "DROP TABLE IF EXISTS uuid_variant_identity"
         sql """
-            CREATE TABLE uuid_variant_identity (id INT, v VARIANT<'u':UUID>)
+            CREATE TABLE uuid_variant_identity (
+                id INT, v VARIANT<'u':UUID, PROPERTIES('variant_enable_doc_mode'='false')>
+            )
             DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
             PROPERTIES('replication_num'='1')
         """
