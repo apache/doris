@@ -47,13 +47,14 @@ import java.util.Optional;
  */
 public final class IcebergCatalogProperties {
 
-    /** Iceberg catalog backend type: rest, hms, glue, jdbc, hadoop, s3tables. */
+    /** Iceberg catalog backend type: rest, hms, glue, dlf, jdbc, hadoop, s3tables. */
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
 
     // ---- Flavor literals (the accepted iceberg.catalog.type values) ----
     public static final String TYPE_REST = "rest";
     public static final String TYPE_HMS = "hms";
     public static final String TYPE_GLUE = "glue";
+    public static final String TYPE_DLF = "dlf";
     public static final String TYPE_JDBC = "jdbc";
     public static final String TYPE_HADOOP = "hadoop";
     public static final String TYPE_S3_TABLES = "s3tables";
@@ -81,7 +82,7 @@ public final class IcebergCatalogProperties {
     public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
 
     @ConnectorProperty(names = {ICEBERG_CATALOG_TYPE}, required = false,
-            description = "The metastore backend: rest, hms, glue, jdbc, hadoop or s3tables.")
+            description = "The metastore backend: rest, hms, glue, dlf, jdbc, hadoop or s3tables.")
     private String catalogType = "";
 
     @ConnectorProperty(names = {ENABLE_MAPPING_VARBINARY}, required = false,
@@ -135,6 +136,10 @@ public final class IcebergCatalogProperties {
      */
     public IcebergCatalogProperties checkCreateTimeOnlyRules() {
         checkMetaCacheProperties(raw);
+        // DLF only exposes two-level namespaces; applying a synthetic root would make every lookup miss.
+        if (TYPE_DLF.equals(flavor) && externalCatalogName != null) {
+            throw new IllegalArgumentException("external_catalog.name is not supported for Iceberg DLF catalogs");
+        }
         // Selects the backend by flavor and enforces its fail-fast rules -- REST (security/creds enums,
         // OAuth2, signing, AK/SK), Glue (AK/SK-together, endpoint https, at-least-one-credential), JDBC
         // (uri/catalog_name/warehouse), the shared HMS connection checks; hadoop/s3tables are no-op (their

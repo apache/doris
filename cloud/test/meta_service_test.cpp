@@ -11268,6 +11268,13 @@ TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     };
 
+    auto remove_recycle_rowset = [&](const doris::RowsetMetaCloudPB& rowset) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(recycle_rowset_key({instance_id, rowset.tablet_id(), rowset.rowset_id_v2()}));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+
     {
         int64_t table_id = 1;
         int64_t partition_id = 1;
@@ -11316,6 +11323,44 @@ TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
         ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
                 << res.status().msg();
     }
+
+    auto check_different_rowset_commit = [&](int64_t table_id, int64_t tablet_id, int64_t db_id,
+                                             bool remove_recycle_key) {
+        std::string label = "test_commit_rowset_different_rowset";
+        create_tablet(meta_service.get(), table_id, 1, table_id, tablet_id);
+
+        int64_t txn_id = 0;
+        ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+        CreateRowsetResponse res;
+        auto rowset_a = create_rowset(txn_id, tablet_id, table_id);
+        rowset_a.mutable_load_id()->set_hi(123);
+        rowset_a.mutable_load_id()->set_lo(456);
+        ASSERT_NO_FATAL_FAILURE(prepare_rowset(meta_service.get(), rowset_a, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+        res.Clear();
+
+        auto rowset_b = create_rowset(txn_id, tablet_id, table_id);
+        rowset_b.mutable_load_id()->set_hi(789);
+        rowset_b.mutable_load_id()->set_lo(101112);
+        ASSERT_NO_FATAL_FAILURE(prepare_rowset(meta_service.get(), rowset_b, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+        res.Clear();
+
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset_a, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+        res.Clear();
+
+        if (remove_recycle_key) {
+            ASSERT_NO_FATAL_FAILURE(remove_recycle_rowset(rowset_b));
+        }
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset_b, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED) << res.status().msg();
+        ASSERT_TRUE(res.has_existed_rowset_meta());
+        ASSERT_EQ(res.existed_rowset_meta().rowset_id_v2(), rowset_a.rowset_id_v2());
+    };
+
+    check_different_rowset_commit(3, 3, 100203, false);
+    check_different_rowset_commit(4, 4, 100204, true);
 }
 
 TEST(MetaServiceTest, AlterObjInfoTest) {

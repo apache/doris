@@ -225,7 +225,9 @@ public class MTMVPartitionUtil {
         try {
             return isMTMVSync(MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap()),
                     mtmvRelation.getBaseTablesOneLevelAndFromView(), Sets.newHashSet());
-        } catch (AnalysisException e) {
+        } catch (AnalysisException | RuntimeException e) {
+            // A metadata listing can retain an MTMV while a concurrent DROP closes its external catalog.
+            // Keep this status probe available and report that stale MTMV as unsynchronized.
             LOG.warn("isMTMVSync failed: ", e);
             return false;
         }

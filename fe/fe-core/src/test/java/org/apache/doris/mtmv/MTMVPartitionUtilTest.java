@@ -153,6 +153,15 @@ public class MTMVPartitionUtilTest {
     }
 
     @Test
+    public void testIsMTMVSyncReturnsFalseWhenCatalogIsDroppedConcurrently() throws AnalysisException {
+        Mockito.when(baseOlapTable.getTableSnapshot(
+                        Mockito.any(MTMVRefreshContext.class), Mockito.any(Optional.class)))
+                .thenThrow(new IllegalStateException("Scoped meta cache 'hive-table' is closed"));
+
+        Assertions.assertFalse(MTMVPartitionUtil.isMTMVSync(mtmv));
+    }
+
+    @Test
     public void testIsSyncWithPartition() throws AnalysisException {
         boolean isSyncWithPartition = MTMVPartitionUtil
                 .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
