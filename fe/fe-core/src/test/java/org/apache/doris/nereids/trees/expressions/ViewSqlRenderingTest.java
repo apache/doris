@@ -79,12 +79,12 @@ class ViewSqlRenderingTest {
     @Test
     void testOutermostRewriteWins() {
         TreeMap<Pair<Integer, Integer>, String> ranges = new StatementContext().getIndexInSqlToString();
-        ranges.put(Pair.of(7, 23), "99 AS `a`");
-        ranges.put(Pair.of(16, 16), "ignored");
-        ranges.put(Pair.of(22, 22), "ignored");
-        ranges.put(Pair.of(7, 16), "ignored");
-        ranges.put(Pair.of(16, 23), "ignored");
-        ranges.put(Pair.of(30, 30), "`t`");
+        ranges.put(Pair.of(7, 25), "99 AS `a`");
+        ranges.put(Pair.of(17, 17), "ignored");
+        ranges.put(Pair.of(24, 24), "ignored");
+        ranges.put(Pair.of(7, 17), "ignored");
+        ranges.put(Pair.of(17, 25), "ignored");
+        ranges.put(Pair.of(32, 32), "`t`");
         Assertions.assertEquals("SELECT 99 AS `a` FROM `t`",
                 BaseViewInfo.rewriteSql(ranges, "SELECT * REPLACE(a+1 AS a) FROM t"));
         Assertions.assertEquals(6, ranges.size());
