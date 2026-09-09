@@ -46,8 +46,8 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
@@ -71,24 +71,24 @@ public class StreamingInsertTaskAuditTest {
     public void testS3RunSubmitsAuditEvent() throws Exception {
         AuditEvent auditEvent = runS3Task(null);
 
-        Assert.assertEquals(AuditEvent.EventType.AFTER_QUERY, auditEvent.type);
-        Assert.assertEquals(StmtType.INSERT.name(), auditEvent.stmtType);
-        Assert.assertFalse(auditEvent.stmt.contains(ORIGIN_URI));
-        Assert.assertTrue(auditEvent.stmt.contains(RESOLVED_URI));
-        Assert.assertFalse(auditEvent.stmt.contains("private-value"));
-        Assert.assertEquals("OK", auditEvent.state);
-        Assert.assertTrue(auditEvent.isInternal);
+        Assertions.assertEquals(AuditEvent.EventType.AFTER_QUERY, auditEvent.type);
+        Assertions.assertEquals(StmtType.INSERT.name(), auditEvent.stmtType);
+        Assertions.assertFalse(auditEvent.stmt.contains(ORIGIN_URI));
+        Assertions.assertTrue(auditEvent.stmt.contains(RESOLVED_URI));
+        Assertions.assertFalse(auditEvent.stmt.contains("private-value"));
+        Assertions.assertEquals("OK", auditEvent.state);
+        Assertions.assertTrue(auditEvent.isInternal);
     }
 
     @Test
     public void testFailedS3RunSubmitsErrorAuditEvent() throws Exception {
         AuditEvent auditEvent = runS3Task(new RuntimeException("insert failed"));
 
-        Assert.assertEquals(AuditEvent.EventType.AFTER_QUERY, auditEvent.type);
-        Assert.assertEquals(StmtType.INSERT.name(), auditEvent.stmtType);
-        Assert.assertEquals("ERR", auditEvent.state);
-        Assert.assertTrue(auditEvent.errorMessage.contains("insert failed"));
-        Assert.assertTrue(auditEvent.isInternal);
+        Assertions.assertEquals(AuditEvent.EventType.AFTER_QUERY, auditEvent.type);
+        Assertions.assertEquals(StmtType.INSERT.name(), auditEvent.stmtType);
+        Assertions.assertEquals("ERR", auditEvent.state);
+        Assertions.assertTrue(auditEvent.errorMessage.contains("insert failed"));
+        Assertions.assertTrue(auditEvent.isInternal);
     }
 
     @Test
@@ -149,12 +149,12 @@ public class StreamingInsertTaskAuditTest {
             // A retry must not audit files from an earlier attempt after preparation fails.
             Deencapsulation.setField(task, "auditSql", "stale audit SQL from a previous attempt");
             task.before();
-            Assert.assertNull(task.getAuditSql());
-            Assert.assertEquals(2, parsers.constructed().size());
+            Assertions.assertNull(task.getAuditSql());
+            Assertions.assertEquals(2, parsers.constructed().size());
             Mockito.verify(parsers.constructed().get(0)).parseSingle(S3_SQL);
             Mockito.verify(parsers.constructed().get(1)).parseForEncryption(Mockito.eq(S3_SQL), Mockito.anyMap());
             task.run();
-            Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+            Assertions.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
             Mockito.verify(taskCommand).run(ctx, executors.constructed().get(1));
             audit.verifyNoInteractions();
         }
@@ -180,8 +180,8 @@ public class StreamingInsertTaskAuditTest {
 
             Map<String, String> rewrittenProperties =
                     rewritten.getAllTVFRelation().get(0).getProperties().getMap();
-            Assert.assertEquals(1, rewrittenProperties.size());
-            Assert.assertEquals(RESOLVED_URI, rewrittenProperties.get("URI"));
+            Assertions.assertEquals(1, rewrittenProperties.size());
+            Assertions.assertEquals(RESOLVED_URI, rewrittenProperties.get("URI"));
         }
     }
 
@@ -250,7 +250,7 @@ public class StreamingInsertTaskAuditTest {
             if (commandFailure == null) {
                 task.run();
             } else {
-                Assert.assertThrows(JobException.class, task::run);
+                Assertions.assertThrows(JobException.class, task::run);
             }
 
             if (!expectAudit) {
@@ -261,8 +261,8 @@ public class StreamingInsertTaskAuditTest {
             ArgumentCaptor<AuditEvent> auditEventCaptor = ArgumentCaptor.forClass(AuditEvent.class);
             Mockito.verify(statusMgr).submitFinishQueryToAudit(auditEventCaptor.capture());
             AuditEvent auditEvent = auditEventCaptor.getValue();
-            Assert.assertTrue(commandStartTime.get() > 0);
-            Assert.assertEquals(commandStartTime.get(), auditEvent.timestamp);
+            Assertions.assertTrue(commandStartTime.get() > 0);
+            Assertions.assertEquals(commandStartTime.get(), auditEvent.timestamp);
             return auditEvent;
         } finally {
             ConnectContext.remove();
