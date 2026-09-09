@@ -59,6 +59,16 @@ public class TSOTimestampTest {
     }
 
     @Test
+    public void testComposePhysicalTimestampUsesZeroLogicalCounter() {
+        long physicalTime = 1625097600000L;
+
+        long composed = TSOTimestamp.composePhysicalTimestamp(physicalTime);
+
+        org.junit.jupiter.api.Assertions.assertEquals(physicalTime, TSOTimestamp.extractPhysicalTime(composed));
+        org.junit.jupiter.api.Assertions.assertEquals(0L, TSOTimestamp.extractLogicalCounter(composed));
+    }
+
+    @Test
     public void testBitWidthLimitations() {
         // Test that values are properly masked to fit in their respective bit widths
         long largePhysicalTime = (1L << 46) + 1000L; // Larger than 46 bits

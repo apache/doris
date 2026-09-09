@@ -711,11 +711,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         Map<String, String> params = scanParams.getMapParams();
         Long startTimestamp = OlapScanNode.parseChangeTimestamp(
                 params.getOrDefault(OlapScanNode.OLAP_START_TIMESTAMP, "0"));
-        startTimestamp = TSOTimestamp.composeFullTimestamp(startTimestamp);
+        // BE applies start_tso < commit_tso <= end_tso. Logical zero on both boundaries
+        // therefore gives the user-facing physical interval [startTimestamp, endTimestamp).
+        startTimestamp = TSOTimestamp.composePhysicalTimestamp(startTimestamp);
         Long endTimestamp = null;
         if (params.containsKey((OlapScanNode.OLAP_END_TIMESTAMP))) {
             endTimestamp = OlapScanNode.parseChangeTimestamp(params.get(OlapScanNode.OLAP_END_TIMESTAMP));
-            endTimestamp = TSOTimestamp.composeFullTimestamp(endTimestamp);
+            endTimestamp = TSOTimestamp.composePhysicalTimestamp(endTimestamp);
         }
         return Pair.of(startTimestamp, endTimestamp);
     }
