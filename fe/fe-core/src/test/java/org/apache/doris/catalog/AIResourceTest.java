@@ -23,6 +23,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.datasource.property.constants.AIProperties;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -210,6 +211,91 @@ public class AIResourceTest {
                 Resource.fromCommand(createResourceCommand);
             }
         });
+    }
+
+    @Test
+    public void testEmbedOnlyResource() throws DdlException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(AIProperties.EMBED_ENDPOINT, "https://api.example.com/v1/embeddings");
+        properties.put(AIProperties.EMBED_PROVIDER_TYPE, "openai");
+        properties.put(AIProperties.EMBED_MODEL_NAME, "text-embedding-model");
+        properties.put(AIProperties.EMBED_API_KEY, "embed-api-key");
+
+        AIResource aiResource = new AIResource("embed-only-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(properties));
+
+        Assertions.assertEquals("OPENAI", aiResource.getProperty(AIProperties.EMBED_PROVIDER_TYPE));
+        Assertions.assertEquals("https://api.example.com/v1/embeddings",
+                aiResource.toThrift().getEmbedEndpoint());
+        Assertions.assertEquals("OPENAI", aiResource.toThrift().getEmbedProviderType());
+        Assertions.assertEquals("text-embedding-model", aiResource.toThrift().getEmbedModelName());
+        Assertions.assertEquals("embed-api-key", aiResource.toThrift().getEmbedApiKey());
+        Assertions.assertFalse(aiResource.toThrift().isSetEndpoint());
+    }
+
+    @Test
+    public void testLocalEmbedResourceWithoutApiKey() throws DdlException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(AIProperties.EMBED_ENDPOINT, "http://localhost:8000/v1/embeddings");
+        properties.put(AIProperties.EMBED_PROVIDER_TYPE, "local");
+        properties.put(AIProperties.EMBED_MODEL_NAME, "local-embedding-model");
+
+        AIResource aiResource = new AIResource("local-embed-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(properties));
+
+        Assertions.assertEquals("LOCAL", aiResource.getProperty(AIProperties.EMBED_PROVIDER_TYPE));
+    }
+
+    @Test
+    public void testRejectEmbedResourceWithoutApiKey() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(AIProperties.EMBED_ENDPOINT, "https://api.example.com/v1/embeddings");
+        properties.put(AIProperties.EMBED_PROVIDER_TYPE, "openai");
+        properties.put(AIProperties.EMBED_MODEL_NAME, "text-embedding-model");
+
+        AIResource aiResource = new AIResource("embed-resource-without-api-key");
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
+        Assertions.assertTrue(exception.getMessage().contains("ai.embed.api_key"));
+    }
+
+    @Test
+    public void testMaskEmbedApiKey() throws DdlException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(AIProperties.EMBED_ENDPOINT, "https://api.example.com/v1/embeddings");
+        properties.put(AIProperties.EMBED_PROVIDER_TYPE, "openai");
+        properties.put(AIProperties.EMBED_MODEL_NAME, "text-embedding-model");
+        properties.put(AIProperties.EMBED_API_KEY, "embed-api-key");
+
+        AIResource aiResource = new AIResource("embed-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(properties));
+        BaseProcResult result = new BaseProcResult();
+        aiResource.getProcNodeData(result);
+
+        Assertions.assertTrue(result.getRows().stream().anyMatch(row ->
+                AIProperties.EMBED_API_KEY.equals(row.get(2)) && "******".equals(row.get(3))));
+        Assertions.assertFalse(result.getRows().stream().anyMatch(row -> row.contains("embed-api-key")));
+    }
+
+    @Test
+    public void testRejectPartialEmbedProperties() throws DdlException {
+        Map<String, String> properties = new HashMap<>(aiProperties);
+        properties.put(AIProperties.EMBED_ENDPOINT, "https://api.example.com/v1/embeddings");
+
+        AIResource aiResource = new AIResource("partial-embed-resource");
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
+        Assertions.assertTrue(exception.getMessage().contains("ai.embed.provider_type"));
+    }
+
+    @Test
+    public void testRejectResourceWithoutCompletePropertyGroup() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("ai.validity_check", "false");
+
+        AIResource aiResource = new AIResource("empty-ai-resource");
+        Assertions.assertThrows(DdlException.class,
+                () -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
     }
 
     @Test

@@ -678,9 +678,9 @@ enum TCompoundType {
 }
 
 struct TAIResource {
-  1: required string endpoint
-  2: required string provider_type
-  3: required string model_name
+  1: optional string endpoint
+  2: optional string provider_type
+  3: optional string model_name
   4: optional string api_key
   5: optional double temperature
   6: optional i64 max_tokens
@@ -688,6 +688,10 @@ struct TAIResource {
   8: optional i32 retry_delay_second
   9: optional string anthropic_version
   10: optional i32 dimensions
+  11: optional string embed_endpoint
+  12: optional string embed_provider_type
+  13: optional string embed_model_name
+  14: optional string embed_api_key
 }
 
 struct TCondition {

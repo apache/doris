@@ -96,7 +96,7 @@ public:
             return Status::OK();
         }
 
-        TAIResource config;
+        AIResource config;
         std::shared_ptr<AIAdapter> adapter;
         if (Status status = this->_init_from_resource(context, block, arguments, config, adapter);
             !status.ok()) {
@@ -130,7 +130,7 @@ protected:
         return Status::OK();
     }
 
-    static void normalize_endpoint(TAIResource& config) {
+    static void normalize_endpoint(AIResource& config) {
         // 1. If users configure only the version root like `.../v1` or `.../v1beta`, append
         //    `models/<model>:batchEmbedContents` for `embed`, and `models/<model>:generateContent`
         //    for other AI scalar functions.
@@ -171,7 +171,7 @@ protected:
 
     // Executes one HTTP POST request and validates transport-level success.
     Status do_send_request(HttpClient* client, const std::string& request_body,
-                           std::string& response, const TAIResource& config,
+                           std::string& response, const AIResource& config,
                            std::shared_ptr<AIAdapter>& adapter, FunctionContext* context) const {
         RETURN_IF_ERROR(client->init(config.endpoint, false));
 
@@ -207,7 +207,7 @@ protected:
 
     // Sends the request with retry mechanism for handling transient failures
     Status send_request_to_llm(const std::string& request_body, std::string& response,
-                               const TAIResource& config, std::shared_ptr<AIAdapter>& adapter,
+                               const AIResource& config, std::shared_ptr<AIAdapter>& adapter,
                                FunctionContext* context) const {
         return HttpClient::execute_with_retry(config.max_retries, config.retry_delay_second,
                                               [this, &request_body, &response, &config, &adapter,
@@ -228,7 +228,7 @@ protected:
     // Provider-reusable helper for string-returning functions.
     // Executes one batch request and parses the provider result into one string per input row.
     Status execute_batch_request(const std::vector<std::string>& batch_prompts,
-                                 std::vector<std::string>& results, const TAIResource& config,
+                                 std::vector<std::string>& results, const AIResource& config,
                                  std::shared_ptr<AIAdapter>& adapter,
                                  FunctionContext* context) const {
 #ifdef BE_TEST
@@ -292,7 +292,7 @@ protected:
     // Runs the common batch execution flow; derived classes only need to define how one batch of
     // string results is inserted into the final output column.
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t input_rows_count, const TAIResource& config,
+                   uint32_t result, size_t input_rows_count, const AIResource& config,
                    std::shared_ptr<AIAdapter>& adapter) const {
         Columns prompt_columns;
         prompt_columns.reserve(arguments.size() - 1);
@@ -417,7 +417,7 @@ protected:
 private:
     // The ai resource must be literal
     Status _init_from_resource(FunctionContext* context, const Block& block,
-                               const ColumnNumbers& arguments, TAIResource& config,
+                               const ColumnNumbers& arguments, AIResource& config,
                                std::shared_ptr<AIAdapter>& adapter) const {
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
         StringRef resource_name_ref = resource_column.column->get_data_at(0);
@@ -428,7 +428,7 @@ private:
         DORIS_CHECK(ai_resources);
         auto it = ai_resources->find(resource_name);
         DORIS_CHECK(it != ai_resources->end());
-        config = it->second;
+        config = assert_cast<const Derived&>(*this).select_ai_resource(it->second);
 
         normalize_endpoint(config);
 
@@ -438,6 +438,8 @@ private:
         adapter->init(config);
         return Status::OK();
     }
+
+    AIResource select_ai_resource(const TAIResource& resource) const { return AIResource(resource); }
 
     // Serializes one text batch into the shared JSON-array prompt format consumed by LLM
     // providers for batch string functions.

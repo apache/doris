@@ -42,16 +42,12 @@ namespace doris {
 struct AIResource {
     AIResource() = default;
     AIResource(const TAIResource& tai)
-            : endpoint(tai.endpoint),
-              provider_type(tai.provider_type),
-              model_name(tai.model_name),
-              api_key(tai.api_key),
-              temperature(tai.temperature),
-              max_tokens(tai.max_tokens),
-              max_retries(tai.max_retries),
-              retry_delay_second(tai.retry_delay_second),
-              anthropic_version(tai.anthropic_version),
-              dimensions(tai.dimensions) {}
+            : AIResource(tai, tai.endpoint, tai.provider_type, tai.model_name, tai.api_key) {}
+
+    static AIResource from_embed(const TAIResource& tai) {
+        return AIResource(tai, tai.embed_endpoint, tai.embed_provider_type, tai.embed_model_name,
+                          tai.embed_api_key);
+    }
 
     std::string endpoint;
     std::string provider_type;
@@ -89,6 +85,21 @@ struct AIResource {
         buf.read_binary(anthropic_version);
         buf.read_binary(dimensions);
     }
+
+private:
+    AIResource(const TAIResource& tai, const std::string& selected_endpoint,
+               const std::string& selected_provider_type, const std::string& selected_model_name,
+               const std::string& selected_api_key)
+            : endpoint(selected_endpoint),
+              provider_type(selected_provider_type),
+              model_name(selected_model_name),
+              api_key(selected_api_key),
+              temperature(tai.temperature),
+              max_tokens(tai.max_tokens),
+              max_retries(tai.max_retries),
+              retry_delay_second(tai.retry_delay_second),
+              anthropic_version(tai.anthropic_version),
+              dimensions(tai.dimensions) {}
 };
 
 enum class MultimodalType { IMAGE, VIDEO, AUDIO };
@@ -123,6 +134,7 @@ public:
         _config.max_retries = config.max_retries;
         _config.retry_delay_second = config.retry_delay_second;
         _config.anthropic_version = config.anthropic_version;
+        _config.dimensions = config.dimensions;
     }
 
     // Build request payload based on input text strings

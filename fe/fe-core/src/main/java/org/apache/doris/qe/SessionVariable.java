@@ -999,8 +999,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
     public static final String DEFAULT_AI_RESOURCE = "default_ai_resource";
-    public static final String DEFAULT_EMBED_RESOURCE = "default_embed_resource";
-    public static final String DEFAULT_MULTIMODAL_EMBED_RESOURCE = "default_multimodal_embed_resource";
     public static final String FILE_PRESIGNED_URL_TTL_SECONDS = "file_presigned_url_ttl_seconds";
     public static final String EMBED_MAX_BATCH_SIZE = "embed_max_batch_size";
     public static final String AI_CONTEXT_WINDOW_SIZE = "ai_context_window_size";
@@ -3448,14 +3446,6 @@ public class SessionVariable implements Serializable, Writable {
             description = "Defines the default AI resource to be used when no specific AI resource is specified "
                     + "in the function arguments.")
     public String defaultAIResource = "";
-
-    @VarAttrDef.VarAttr(name = DEFAULT_EMBED_RESOURCE, needForward = true,
-            description = "Defines the default AI resource used by EMBED when no resource is specified.")
-    public String defaultEmbedResource = "";
-
-    @VarAttrDef.VarAttr(name = DEFAULT_MULTIMODAL_EMBED_RESOURCE, needForward = true,
-            description = "Defines the default AI resource used by multimodal EMBED when no resource is specified.")
-    public String defaultMultimodalEmbedResource = "";
 
     @VarAttrDef.VarAttr(name = FILE_PRESIGNED_URL_TTL_SECONDS, needForward = true,
             description = "Expiration time in seconds for S3 presigned URL used by multimodal EMBED.")

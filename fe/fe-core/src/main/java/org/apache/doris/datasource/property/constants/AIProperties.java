@@ -32,9 +32,13 @@ public class AIProperties extends BaseProperties {
     public static final String ENDPOINT = "ai.endpoint";
     public static final String PROVIDER_TYPE = "ai.provider_type";
     public static final String MODEL_NAME = "ai.model_name";
+    public static final String EMBED_ENDPOINT = "ai.embed.endpoint";
+    public static final String EMBED_PROVIDER_TYPE = "ai.embed.provider_type";
+    public static final String EMBED_MODEL_NAME = "ai.embed.model_name";
 
     // optional
     public static final String API_KEY = "ai.api_key";
+    public static final String EMBED_API_KEY = "ai.embed.api_key";
     public static final String TEMPERATURE = "ai.temperature";
     public static final String MAX_TOKEN = "ai.max_token";
     public static final String MAX_RETRIES = "ai.max_retries";
@@ -53,29 +57,24 @@ public class AIProperties extends BaseProperties {
     public static final String VALIDITY_CHECK = "ai.validity_check";
 
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, PROVIDER_TYPE, MODEL_NAME);
+    public static final List<String> EMBED_REQUIRED_FIELDS =
+            Arrays.asList(EMBED_ENDPOINT, EMBED_PROVIDER_TYPE, EMBED_MODEL_NAME);
     public static final List<String> PROVIDERS
             = Arrays.asList("OPENAI", "LOCAL", "GEMINI", "DEEPSEEK", "ANTHROPIC",
             "MOONSHOT", "QWEN", "MINIMAX", "ZHIPU", "BAICHUAN", "VOYAGEAI", "JINA");
 
     public static void requiredAIProperties(Map<String, String> properties) throws DdlException {
-        // Check required field
-        for (String field : REQUIRED_FIELDS) {
-            if (Strings.isNullOrEmpty(properties.get(field))) {
-                throw new DdlException("Missing [" + field + "] in properties.");
-            }
+        boolean hasGeneralProperties = hasAnyProperty(properties, REQUIRED_FIELDS, API_KEY);
+        boolean hasEmbedProperties = hasAnyProperty(properties, EMBED_REQUIRED_FIELDS, EMBED_API_KEY);
+        if (!hasGeneralProperties && !hasEmbedProperties) {
+            throw new DdlException("At least one complete AI property group must be configured.");
         }
 
-        // Check the provider is valid
-        properties.put(PROVIDER_TYPE, properties.get(PROVIDER_TYPE).toUpperCase());
-        if (PROVIDERS.stream().noneMatch(s -> s.equals(properties.get(PROVIDER_TYPE).toUpperCase()))) {
-            throw new DdlException("Provider must be one of " + PROVIDERS);
+        if (hasGeneralProperties) {
+            validatePropertyGroup(properties, REQUIRED_FIELDS, PROVIDER_TYPE, API_KEY);
         }
-
-        // Only the 'local' provider can ignore the 'api-key'
-        if (!"LOCAL".equals(properties.get(AIProperties.PROVIDER_TYPE))
-                && Strings.isNullOrEmpty(properties.get(AIProperties.API_KEY))) {
-            throw new DdlException("Missing [" + API_KEY + "] in properties for provider: "
-                    + properties.get(AIProperties.PROVIDER_TYPE));
+        if (hasEmbedProperties) {
+            validatePropertyGroup(properties, EMBED_REQUIRED_FIELDS, EMBED_PROVIDER_TYPE, EMBED_API_KEY);
         }
 
         // Check weather the 'temperature' is valid
@@ -94,6 +93,30 @@ public class AIProperties extends BaseProperties {
             if (tempVal <= 0) {
                 throw new DdlException("Dimensions must be a positive integer");
             }
+        }
+    }
+
+    private static boolean hasAnyProperty(Map<String, String> properties, List<String> requiredFields,
+            String apiKeyField) {
+        return properties.containsKey(apiKeyField) || requiredFields.stream().anyMatch(properties::containsKey);
+    }
+
+    private static void validatePropertyGroup(Map<String, String> properties, List<String> requiredFields,
+            String providerTypeField, String apiKeyField) throws DdlException {
+        for (String field : requiredFields) {
+            if (Strings.isNullOrEmpty(properties.get(field))) {
+                throw new DdlException("Missing [" + field + "] in properties.");
+            }
+        }
+
+        String providerType = properties.get(providerTypeField).toUpperCase();
+        properties.put(providerTypeField, providerType);
+        if (!PROVIDERS.contains(providerType)) {
+            throw new DdlException("Provider must be one of " + PROVIDERS);
+        }
+
+        if (!"LOCAL".equals(providerType) && Strings.isNullOrEmpty(properties.get(apiKeyField))) {
+            throw new DdlException("Missing [" + apiKeyField + "] in properties for provider: " + providerType);
         }
     }
 
