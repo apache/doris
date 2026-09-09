@@ -2939,6 +2939,63 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testHistoricalPredicatePlansAfterColumnRename() throws Exception {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false);
+    }
+
+    @Test
+    public void testHistoricalPredicatePlansAfterColumnDrop() throws Exception {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(true);
+    }
+
+    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn) throws Exception {
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(1, "x", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "y", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "part", Types.IntegerType.get()));
+        HadoopTables tables = new HadoopTables(new Configuration());
+        String tableLocation = temporaryFolder.getRoot().toPath()
+                .resolve("historical_predicate_after_" + (dropColumn ? "drop" : "rename")).toUri().toString();
+        Table table = tables.create(
+                historicalSchema, PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "2"), tableLocation);
+        DataFile historicalDataFile = DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/historical.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(2)
+                .build();
+        table.newFastAppend().appendFile(historicalDataFile).commit();
+        long historicalSnapshotId = table.currentSnapshot().snapshotId();
+        int historicalSchemaId = table.currentSnapshot().schemaId();
+
+        if (dropColumn) {
+            table.updateSchema().deleteColumn("x").commit();
+        } else {
+            table.updateSchema().renameColumn("x", "renamed_x").commit();
+        }
+        DataFile currentDataFile = DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/current.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(1)
+                .build();
+        table.newFastAppend().appendFile(currentDataFile).commit();
+
+        // Historical filters must be resolved with the snapshot schema after later schema evolution.
+        TableScan scan = table.newScan()
+                .useSnapshot(historicalSnapshotId)
+                .project(table.schemas().get(historicalSchemaId));
+        BinaryPredicate conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(new TableName(), "x"), new IntLiteral(1, Type.INT));
+        org.apache.iceberg.expressions.Expression predicate =
+                IcebergUtils.convertToIcebergExpr(conjunct, scan.schema());
+        Assert.assertNotNull(predicate);
+        scan = scan.filter(predicate);
+        Assert.assertEquals(1, materializeTasks(scan).size());
+    }
+
+    @Test
     public void testPinnedBranchUsesFrozenSnapshotWithCurrentSchema() throws Exception {
         Schema snapshotSchema = new Schema(11, ImmutableList.of(
                 Types.NestedField.optional(1, "old_name", Types.StringType.get())));
