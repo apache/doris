@@ -48,6 +48,7 @@ import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -151,10 +152,11 @@ public abstract class Literal extends Expression implements LeafExpression {
 
     @Override
     public String computeToSql(SqlRenderMode mode) {
-        // Diagnostic SQL represents dates/times as strings and floating-point values as
-        // decimal tokens. Persist an explicit cast so reparsing retains the literal type.
-        if (this instanceof DateLiteral || this instanceof FractionalLiteral || this instanceof TimeV2Literal) {
-            return "cast(" + computeToSql() + " as " + dataType.toSql() + ")";
+        // Diagnostic SQL does not retain these scalar literal types. Quoting the value
+        // inside an explicit cast also preserves non-finite floating-point values.
+        if (this instanceof DateLiteral || this instanceof FractionalLiteral || this instanceof TimeV2Literal
+                || this instanceof JsonLiteral || this instanceof IPv4Literal || this instanceof IPv6Literal) {
+            return "cast(" + SqlLiteralUtils.quoteStringLiteral(getStringValue()) + " as " + dataType.toSql() + ")";
         }
         return computeToSql();
     }

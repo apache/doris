@@ -25,7 +25,11 @@ import org.apache.doris.nereids.parser.ParserTestBase;
 import org.apache.doris.nereids.trees.expressions.Expression.SqlRenderMode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.JsonLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.types.IntegerType;
@@ -90,12 +94,15 @@ class ViewSqlRenderingTest extends ParserTestBase {
     }
 
     @Test
-    void testTypedDateLiteral() {
-        DateV2Literal literal = new DateV2Literal("2026-01-02");
-        Expression parsed = new NereidsParser().parseExpression(literal.toSql(SqlRenderMode.FOR_VIEW));
-        Assertions.assertInstanceOf(Cast.class, parsed);
-        Assertions.assertEquals(literal.getDataType(), parsed.getDataType());
-        Assertions.assertEquals("'2026-01-02'", literal.toSql());
+    void testTypedLiterals() {
+        for (Literal literal : ImmutableList.of(new DateV2Literal("2026-01-02"),
+                new DoubleLiteral(1.25), new DoubleLiteral(Double.POSITIVE_INFINITY),
+                new JsonLiteral("{\"x\":1}"), new IPv4Literal("127.0.0.1"))) {
+            Expression parsed = new NereidsParser().parseExpression(literal.toSql(SqlRenderMode.FOR_VIEW));
+            Assertions.assertInstanceOf(Cast.class, parsed);
+            Assertions.assertEquals(literal.getDataType(), parsed.getDataType());
+        }
+        Assertions.assertEquals("'2026-01-02'", new DateV2Literal("2026-01-02").toSql());
     }
 
     @Test
