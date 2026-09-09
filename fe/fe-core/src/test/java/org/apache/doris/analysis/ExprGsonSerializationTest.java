@@ -149,6 +149,7 @@ public class ExprGsonSerializationTest {
         samples.put(TimeStampNsLiteral.class,
                 new TimeStampNsLiteral(2024, 4, 27, 12, 34, 56, 123456789));
         samples.put(TimeV2Literal.class, new TimeV2Literal(12, 34, 56, 123456, 6, false));
+        samples.put(UuidLiteral.class, new UuidLiteral("550e8400-e29b-41d4-a716-446655440000"));
         samples.put(VarBinaryLiteral.class, new VarBinaryLiteral("bin".getBytes(StandardCharsets.UTF_8)));
         samples.put(BetweenPredicate.class, createBetweenPredicate());
         samples.put(BinaryPredicate.class, createBinaryPredicate());
