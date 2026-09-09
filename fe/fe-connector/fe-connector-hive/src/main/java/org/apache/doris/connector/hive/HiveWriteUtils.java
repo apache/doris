@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.thrift.THivePartitionUpdate;
 
 import org.apache.hadoop.fs.Path;
@@ -26,6 +27,7 @@ import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -201,6 +203,44 @@ final class HiveWriteUtils {
             start = end + 1;
         }
         return result;
+    }
+
+    /** Builds a metastore-rendered Hive partition name from declaration-order keys and values. */
+    static String makePartName(List<String> partKeys, List<String> values) {
+        StringBuilder result = new StringBuilder();
+        for (int index = 0; index < partKeys.size(); index++) {
+            if (index != 0) {
+                result.append('/');
+            }
+            result.append(escapePathName(partKeys.get(index).toLowerCase(Locale.ROOT)))
+                    .append('=')
+                    .append(escapePathName(values.get(index)));
+        }
+        return result.toString();
+    }
+
+    private static String escapePathName(String path) {
+        if (path == null || path.isEmpty()) {
+            return ConnectorPartitionValues.NULL_PARTITION_NAME;
+        }
+        StringBuilder result = new StringBuilder();
+        for (int index = 0; index < path.length(); index++) {
+            char character = path.charAt(index);
+            if (needsPathEscaping(character)) {
+                result.append('%').append(String.format("%02X", (int) character));
+            } else {
+                result.append(character);
+            }
+        }
+        return result.toString();
+    }
+
+    private static boolean needsPathEscaping(char character) {
+        return character < ' '
+                || character == '"' || character == '#' || character == '%' || character == '\''
+                || character == '*' || character == '/' || character == ':' || character == '='
+                || character == '?' || character == '\\' || character == 0x7F || character == '{'
+                || character == '[' || character == ']' || character == '^';
     }
 
     /**

@@ -98,6 +98,7 @@ public class ThriftHmsClient implements HmsClient {
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = tbl -> null;
     private static final long POOL_BORROW_TIMEOUT_MS = 60_000L;
     private static final int ADD_PARTITIONS_BATCH_SIZE = 20;
+    private static final int MAX_FILTERED_PARTITIONS = HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE;
     private static final String TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
 
     private final HiveConf hiveConf;
@@ -237,6 +238,21 @@ public class ThriftHmsClient implements HmsClient {
      */
     static short toThriftMaxParts(int maxParts) {
         return maxParts <= 0 ? (short) -1 : (short) maxParts;
+    }
+
+    @Override
+    public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
+        List<Partition> partitions = execute(client -> client.listPartitionsByFilter(
+                dbName, tableName, filter, (short) (MAX_FILTERED_PARTITIONS + 1)));
+        if (isFilteredPartitionResponseSaturated(partitions.size())) {
+            throw new HmsClientException("HMS partition filter matched more than "
+                    + MAX_FILTERED_PARTITIONS + " partitions");
+        }
+        return partitions.stream().map(ThriftHmsClient::convertPartition).collect(Collectors.toList());
+    }
+
+    static boolean isFilteredPartitionResponseSaturated(int partitionCount) {
+        return partitionCount > MAX_FILTERED_PARTITIONS;
     }
 
     @Override
