@@ -4266,4 +4266,16 @@ public class Config extends ConfigBase {
                     "Static upper bound for num_sub_vectors of Lance IVF_PQ indexes."})
     public static int lance_index_max_num_sub_vectors = 256;
 
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
+            description = {"Lance 索引已决 job 记录的最长留存时间(秒),超过后被清理;已决记录只服务审计。",
+                    "Max retention time in seconds for resolved Lance index jobs; resolved records serve audit only."})
+    public static long lance_index_job_keep_max_second = 7 * 24 * 3600;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
+            description = {"Lance 索引 job 留存清理线程的运行周期(秒)。",
+                    "Interval in seconds between Lance index job retention clean rounds."})
+    public static long lance_index_job_clean_interval_second = 3600;
+
 }
