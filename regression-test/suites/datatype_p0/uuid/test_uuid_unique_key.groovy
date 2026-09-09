@@ -17,6 +17,7 @@
 
 // Checklist: B06 B07 F06 F13.
 suite("test_uuid_unique_key", "p0") {
+    sql "SET enable_sql_cache = false"
     sql "DROP TABLE IF EXISTS uuid_unique_mow_unique_key"
     sql """
         CREATE TABLE uuid_unique_mow_unique_key (

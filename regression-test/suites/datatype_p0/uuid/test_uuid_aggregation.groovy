@@ -17,6 +17,8 @@
 
 // Checklist: C04 D09 E06 E07.
 suite("test_uuid_aggregation", "p0") {
+    sql "SET enable_sql_cache = false"
+    sql "SET enable_query_cache = false"
     sql "DROP TABLE IF EXISTS uuid_query_paths_aggregation"
     sql """
         CREATE TABLE uuid_query_paths_aggregation (id INT, u UUID, grp INT)

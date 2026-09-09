@@ -17,6 +17,7 @@
 
 // Checklist: A05 D06 D08 E08.
 suite("test_uuid_sort_topn", "p0") {
+    sql "SET enable_sql_cache = false"
     sql "DROP TABLE IF EXISTS uuid_duplicate_sort_topn"
     sql """
         CREATE TABLE uuid_duplicate_sort_topn (

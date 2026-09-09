@@ -18,6 +18,8 @@
 // Checklist: B10 F10 F16.
 suite("test_uuid_inverted_index", "p0") {
     sql "SET enable_profile = true"
+    // SQL result cache hits skip BE scans and do not contain index-filter counters.
+    sql "SET enable_sql_cache = false"
     sql "SET profile_level = 2"
     sql "SET enable_condition_cache = false"
     sql "SET enable_query_cache = false"

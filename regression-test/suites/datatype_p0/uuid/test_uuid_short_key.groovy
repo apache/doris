@@ -26,6 +26,7 @@ suite("test_uuid_short_key", "p0") {
            CAST(CONCAT('8000000000000000',LPAD(HEX(number),16,'0')) AS UUID),number
            FROM numbers('number'='16384')"""
     sql "SET enable_profile = true"
+    sql "SET enable_sql_cache = false"
     sql "SET profile_level = 2"
     sql "SET enable_condition_cache = false"
     sql "SET enable_query_cache = false"

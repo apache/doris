@@ -63,6 +63,9 @@ Suite.metaClass.uuidMatrixValues = { ->
 Suite.metaClass.uuidRunMatrix = { String group, String table, List<String> columns, Closure expressions,
                                   Map options = [:] ->
     Suite suite = delegate as Suite
+    // Repeated SQL must execute the selected folding/aggregation mode instead of reusing results.
+    suite.sql "SET enable_sql_cache = false"
+    suite.sql "SET enable_query_cache = false"
     List<Map> rows = options.rows ?: suite.uuidMatrixRows()
     int allColumns = (1 << columns.size()) - 1
     for (String mode : ['fe', 'be', 'runtime']) {

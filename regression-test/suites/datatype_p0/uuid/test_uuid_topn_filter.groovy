@@ -29,6 +29,7 @@ suite("test_uuid_topn_filter", "p0") {
                           LPAD(HEX(number),16,'0')) AS UUID))
            FROM numbers('number'='131072')"""
     sql "SET enable_profile = true"
+    sql "SET enable_sql_cache = false"
     sql "SET profile_level = 2"
     sql "SET enable_condition_cache = false"
     sql "SET enable_query_cache = false"

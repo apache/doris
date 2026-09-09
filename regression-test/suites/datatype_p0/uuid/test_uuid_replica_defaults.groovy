@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_uuid_replica_defaults", "p0") {
+    sql "SET enable_sql_cache = false"
+    sql "SET enable_query_cache = false"
     if (isCloudMode()) {
         return
     }
