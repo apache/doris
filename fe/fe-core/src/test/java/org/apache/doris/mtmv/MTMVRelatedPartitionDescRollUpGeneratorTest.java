@@ -135,7 +135,8 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
                 Lists.newArrayList(new SlotRef(null, null), new StringLiteral("hour")), true);
         try (MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class)) {
             mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getPartitionColumnType(
-                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class)))
+                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class),
+                    Mockito.nullable(Optional.class)))
                     .thenReturn(ScalarType.createTimeStampNsType());
             Mockito.when(mtmvPartitionInfo.getExpr()).thenReturn(expr);
             Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
@@ -156,7 +157,7 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
                     Sets.newHashSet("maximum"));
 
             Map<PartitionKeyDesc, Set<String>> result = generator.rollUpRange(relatedPartitionDescs,
-                    mtmvPartitionInfo, null);
+                    mtmvPartitionInfo, null, Optional.empty());
 
             PartitionKeyDesc expectedOneNanosecond = PartitionKeyDesc.createFixed(
                     Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000000")),
