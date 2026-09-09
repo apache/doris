@@ -67,7 +67,18 @@ suite("test_variant_light_field_pattern_index", "p0") {
         (3, parse_to_variant('{"num_a":"001","num_b":"004"}')),
         (4, parse_to_variant('{"num_a":"006","num_b":"007"}'))"""
     order_qt_mixed "SELECT id, v FROM test_variant_light_field_pattern"
-    trigger_and_wait_compaction("test_variant_light_field_pattern", "full")
+    setBeConfigTemporary([enable_compaction_checksum: true]) {
+        trigger_and_wait_compaction("test_variant_light_field_pattern", "full")
+        def backendIPs = [:]
+        def backendPorts = [:]
+        getBackendIpHttpPort(backendIPs, backendPorts)
+        for (def tablet : sql_return_maparray("SHOW TABLETS FROM test_variant_light_field_pattern")) {
+            def (code, out, err) = be_show_tablet_status(
+                    backendIPs[tablet.BackendId], backendPorts[tablet.BackendId], tablet.TabletId)
+            assertEquals(0, code)
+            assertTrue(parseJson(out)["last full failure time"].startsWith("1970-01-01"), out)
+        }
+    }
     order_qt_compacted "SELECT id, v FROM test_variant_light_field_pattern"
     order_qt_index "SELECT id FROM test_variant_light_field_pattern WHERE CAST(v['num_a'] AS INT)=1"
     sql "SET enable_inverted_index_query = false"

@@ -32,19 +32,26 @@ suite("test_variant_light_properties", "p0") {
 
     sql """ALTER TABLE test_variant_light_properties MODIFY COLUMN v
         VARIANT<'a': INT, 'b': INT, PROPERTIES("variant_max_subcolumns_count"="0")>"""
-    // ALTER alone leaves the BE schema unchanged until a load propagates the new version.
+    // ALTER changes the write policy without rewriting existing rowsets.
     order_qt_after_alter "SELECT id, v FROM test_variant_light_properties"
     trigger_and_wait_compaction("test_variant_light_properties", "full")
     order_qt_before_propagation "SELECT id, v FROM test_variant_light_properties"
     sql """INSERT INTO test_variant_light_properties VALUES
         (5, parse_to_variant('{"a":"005","b":"006","keep":10}'))"""
     order_qt_new_write "SELECT id, v FROM test_variant_light_properties"
+    order_qt_mixed_filtered """SELECT id FROM test_variant_light_properties
+        WHERE CAST(v['a'] AS INT) = 1 OR CAST(v['b'] AS INT) = 4"""
     trigger_and_wait_compaction("test_variant_light_properties", "full")
     order_qt_after_compaction "SELECT id, v FROM test_variant_light_properties"
     order_qt_paths """SELECT id, v['a'], v['b'], v['keep']
         FROM test_variant_light_properties"""
     order_qt_filtered """SELECT id FROM test_variant_light_properties
         WHERE CAST(v['a'] AS INT) = 1 OR CAST(v['b'] AS INT) = 4"""
+
+    sql "SET enable_inverted_index_query = false"
+    order_qt_filtered_scan """SELECT id FROM test_variant_light_properties
+        WHERE CAST(v['a'] AS INT) = 1 OR CAST(v['b'] AS INT) = 4"""
+    sql "SET enable_inverted_index_query = true"
 
     sql """ALTER TABLE test_variant_light_properties MODIFY COLUMN v
         VARIANT<PROPERTIES("variant_max_subcolumns_count"="1")>"""

@@ -287,7 +287,7 @@ TEST_F(IndexStorageVariantCompactionReadTest, VariantDocModeWritesDocValueColumn
     EXPECT_EQ(compacted_read->rows_read, 4);
 }
 
-TEST_F(IndexStorageVariantCompactionReadTest, CompactionAppliesLatestVariantProperties) {
+TEST_F(IndexStorageVariantCompactionReadTest, CompactionPreservesInputVariantProperties) {
     VariantColumnSpec variant;
     variant.unique_id = 2;
     variant.name = "v";
@@ -326,7 +326,8 @@ TEST_F(IndexStorageVariantCompactionReadTest, CompactionAppliesLatestVariantProp
     _tablet->update_max_version_schema(target);
     auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, inputs);
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
-    EXPECT_EQ(compacted.value()->tablet_schema()->schema_version(), target->schema_version());
+    EXPECT_EQ(compacted.value()->tablet_schema()->schema_version(),
+              inputs.front()->tablet_schema()->schema_version());
     IndexReadOptions read_options;
     read_options.collect_variant_values = true;
     auto result = read_rowsets({compacted.value()}, read_options);
@@ -334,11 +335,12 @@ TEST_F(IndexStorageVariantCompactionReadTest, CompactionAppliesLatestVariantProp
     ASSERT_EQ(result->variant_values_by_uid.at(2).size(), 2);
     for (const auto& value : result->variant_values_by_uid.at(2)) {
         ASSERT_TRUE(value.has_value());
-        EXPECT_EQ(*value, R"({"hot":1,"new":1,"old":7})");
+        EXPECT_EQ(*value, R"({"hot":1,"new":"001","old":7})");
     }
 }
 
-TEST_F(IndexStorageVariantCompactionReadTest, CompactionAppliesCountChangesOutsideInputRowsets) {
+TEST_F(IndexStorageVariantCompactionReadTest,
+       CompactionPreservesValuesAcrossCountChangesOutsideInputs) {
     VariantColumnSpec variant;
     variant.unique_id = 2;
     variant.name = "v";
@@ -365,15 +367,16 @@ TEST_F(IndexStorageVariantCompactionReadTest, CompactionAppliesCountChangesOutsi
         _tablet->update_max_version_schema(target);
         auto compacted = compact_rowsets_and_reload(IndexCompactionKind::CUMULATIVE, inputs);
         ASSERT_TRUE(compacted.has_value()) << compacted.error();
-        EXPECT_EQ(compacted.value()->tablet_schema()->schema_version(), schema_version);
+        EXPECT_EQ(compacted.value()->tablet_schema()->schema_version(),
+                  inputs.front()->tablet_schema()->schema_version());
         auto probe = probe_rowset(compacted.value());
         ASSERT_TRUE(probe.has_value()) << probe.error();
         int materialized_paths = 0;
         for (const auto* path : {"a", "b", "c"}) {
             materialized_paths += has_variant_layout(probe.value(), 2, path);
         }
-        // Zero preserves the existing meaning: no limit on materialized dynamic paths.
-        EXPECT_EQ(materialized_paths, count == 0 ? 3 : count);
+        // The changed policy is outside the inputs; the old layout remains readable.
+        EXPECT_EQ(materialized_paths, 1);
         IndexReadOptions read_options;
         read_options.collect_variant_values = true;
         auto read = read_rowsets({compacted.value()}, read_options);
@@ -393,15 +396,14 @@ void IndexStorageVariantCompactionReadTest::run_numeric_index_compaction(bool ad
     IndexTabletOptions options;
     options.tablet_id = 110057;
     options.variant_columns = {variant};
-    if (add_index) {
-        options.variant_columns[0].predefined_paths = {
-                VariantPathSpec {.path = "a",
-                                 .type = FieldType::OLAP_FIELD_TYPE_INT,
-                                 .nullable = true,
-                                 .pattern_type = PatternTypePB::MATCH_NAME,
-                                 .array_item_type = {},
-                                 .array_item_nullable = true}};
-    } else {
+    options.variant_columns[0].predefined_paths = {VariantPathSpec {
+            .path = "a",
+            .type = add_index ? FieldType::OLAP_FIELD_TYPE_INT : FieldType::OLAP_FIELD_TYPE_STRING,
+            .nullable = true,
+            .pattern_type = PatternTypePB::MATCH_NAME,
+            .array_item_type = {},
+            .array_item_nullable = true}};
+    if (!add_index) {
         options.inverted_indexes = {IndexSpec::field_pattern_index(1100571, "idx_a", 2, "a")};
     }
     ASSERT_TRUE(create_tablet(options).ok());
@@ -426,6 +428,14 @@ void IndexStorageVariantCompactionReadTest::run_numeric_index_compaction(bool ad
     auto target = build_tablet_schema(options);
     target->set_schema_version(tablet_schema()->schema_version() + 1);
     _tablet->update_max_version_schema(target);
+    _tablet_schema = target;
+    IndexRowsetSpec new_rowset;
+    new_rowset.version = 2;
+    new_rowset.batches.push_back(IndexBatch::single_variant(
+            {R"({"a":"001","keep":"yes"})", R"({"a":"002","keep":"no"})"}, 4));
+    auto written = write_rowset(new_rowset);
+    ASSERT_TRUE(written.has_value()) << written.error();
+    inputs.push_back(written.value());
     auto compacted = compact_rowsets(IndexCompactionKind::FULL, inputs);
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
     ASSERT_EQ(compacted.value()->tablet_schema()->inverted_indexes().size(), 1);
@@ -438,7 +448,7 @@ void IndexStorageVariantCompactionReadTest::run_numeric_index_compaction(bool ad
     read_options.return_columns = {0, 1, static_cast<uint32_t>(path_id)};
     read_options.collect_variant_values = true;
     read_options.need_ordered_result = true;
-    read_options.enable_fallback_on_missing_inverted_index = false;
+    read_options.enable_fallback_on_missing_inverted_index = true;
     read_options.target_cast_type_for_variants[path_name] =
             make_nullable(std::make_shared<DataTypeInt32>());
     read_options.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
@@ -446,24 +456,22 @@ void IndexStorageVariantCompactionReadTest::run_numeric_index_compaction(bool ad
             false));
     auto indexed = read_rowsets(readable.value(), read_options);
     ASSERT_TRUE(indexed.has_value()) << indexed.error();
-    EXPECT_EQ(indexed->rows_read, 2);
-    expect_index_filter_stats(indexed.value(), 2);
+    EXPECT_EQ(indexed->rows_read, 3);
+    if (add_index) {
+        expect_index_filter_stats(indexed.value(), 3);
+    }
     read_options.enable_inverted_index_query = false;
     auto scanned = read_rowsets(readable.value(), read_options);
     ASSERT_TRUE(scanned.has_value()) << scanned.error();
-    EXPECT_EQ(scanned->rows_read, 2);
+    EXPECT_EQ(scanned->rows_read, 3);
     EXPECT_EQ(indexed->variant_values_by_uid, scanned->variant_values_by_uid);
-    for (const auto& value : indexed->variant_values_by_uid.at(2)) {
-        ASSERT_TRUE(value.has_value());
-        EXPECT_EQ(*value, R"({"a":1,"keep":"yes"})");
-    }
 }
 
-TEST_F(IndexStorageVariantCompactionReadTest, ConvertedNumericIndexFiltersRows) {
+TEST_F(IndexStorageVariantCompactionReadTest, MixedTemplateIndexMatchesScan) {
     run_numeric_index_compaction(false);
 }
 
-TEST_F(IndexStorageVariantCompactionReadTest, NewFieldPatternIndexFromTabletSchema) {
+TEST_F(IndexStorageVariantCompactionReadTest, MixedIndexSchemasMatchScan) {
     run_numeric_index_compaction(true);
 }
 
@@ -472,7 +480,7 @@ TEST_F(IndexStorageVariantCompactionReadTest, NewFieldPatternIndexFromTabletSche
 class VariantPolicySnapshotTest : public IndexStorageTestFixture,
                                   public testing::WithParamInterface<std::tuple<bool, bool>> {};
 
-TEST_P(VariantPolicySnapshotTest, SnapshotWithInterleavedWritePreservesCompleteValues) {
+TEST_P(VariantPolicySnapshotTest, InputSchemaWithInterleavedWritePreservesCompleteValues) {
     const auto [doc_mode, external_meta] = GetParam();
     VariantColumnSpec variant;
     variant.max_subcolumns_count = 1;
@@ -519,7 +527,7 @@ TEST_P(VariantPolicySnapshotTest, SnapshotWithInterleavedWritePreservesCompleteV
                 if (late_write != nullptr) {
                     return;
                 }
-                // prepare_compaction_schema has already captured the first version.
+                // Advancing the tablet schema must not reinterpret the selected old inputs.
                 _tablet->update_max_version_schema(second);
                 IndexRowsetSpec rowset;
                 rowset.version = 2;
@@ -546,19 +554,13 @@ TEST_P(VariantPolicySnapshotTest, SnapshotWithInterleavedWritePreservesCompleteV
         auto compacted = compact_rowsets_and_reload(IndexCompactionKind::CUMULATIVE, inputs);
         ASSERT_TRUE(compacted.has_value()) << compacted.error();
         EXPECT_EQ(compacted.value()->tablet_schema()->schema_version(),
-                  pass == 0 ? first->schema_version() : second->schema_version());
+                  inputs.front()->tablet_schema()->schema_version());
         auto read = read_rowsets({compacted.value()}, read_options);
         ASSERT_TRUE(read.has_value()) << read.error();
         ASSERT_EQ(read->variant_values_by_uid.at(2).size(), pass == 0 ? 2 : 3);
         for (const auto& value : read->variant_values_by_uid.at(2)) {
             ASSERT_TRUE(value.has_value());
-            // Doc buckets retain source values; templates convert the materialized copy.
-            // Sparse mode reconstructs the root from converted subcolumns instead.
-            const bool late_row = pass == 1 && &value == &read->variant_values_by_uid.at(2).back();
-            EXPECT_EQ(*value,
-                      (doc_mode || late_row) ? original
-                      : pass == 0 ? R"({"a":1,"arr":[1,null,3],"nested":{"keep":"x"},"z":true})"
-                                  : R"({"a":"1","arr":[1,null,3],"nested":{"keep":"x"},"z":true})");
+            EXPECT_EQ(*value, original);
         }
         // Recreate both metadata and schema from serialized bytes, not shared pointers.
         std::string persisted;
@@ -590,8 +592,7 @@ TEST_P(VariantPolicySnapshotTest, SnapshotWithInterleavedWritePreservesCompleteV
         ASSERT_EQ(path_values.size(), pass == 0 ? 2 : 3);
         for (const auto& value : path_values) {
             ASSERT_TRUE(value.has_value());
-            const bool late_row = pass == 1 && &value == &path_values.back();
-            EXPECT_EQ(*value, pass == 0 ? "1" : (doc_mode || late_row) ? R"("001")" : R"("1")");
+            EXPECT_EQ(*value, R"("001")");
         }
         inputs = {compacted.value()};
         if (pass == 0) {

@@ -36,6 +36,10 @@ suite("test_variant_light_properties_boundaries", "p0") {
     order_qt_altered "SELECT id, v, untouched FROM test_variant_policy_boundaries"
     sql """INSERT INTO test_variant_policy_boundaries VALUES
         (7, parse_to_variant('{"num_a":"bad","num_b":"2147483648","keep":true}'), parse_to_variant('{"s":"007"}'))"""
+    order_qt_mixed_index "SELECT id FROM test_variant_policy_boundaries WHERE CAST(v['num_b'] AS INT) = 5"
+    sql "SET enable_inverted_index_query = false"
+    order_qt_mixed_scan "SELECT id FROM test_variant_policy_boundaries WHERE CAST(v['num_b'] AS INT) = 5"
+    sql "SET enable_inverted_index_query = true"
     trigger_and_wait_compaction("test_variant_policy_boundaries", "full")
     order_qt_compacted "SELECT id, v, untouched FROM test_variant_policy_boundaries"
     order_qt_paths """SELECT id, v['num_a'], v['num_b'], v['arr'], v['nested'], v['keep']
