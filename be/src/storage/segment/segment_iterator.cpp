@@ -1295,6 +1295,9 @@ Status SegmentIterator::_apply_index_expr() {
     // are therefore evaluated without the candidate; the top-level
     // single-predicate consumption stays exact within the candidate.
     auto evaluate_without_candidate_for_compound = [&](const VExprContextSPtr& expr_ctx) {
+        // Earlier expression conjuncts may have crossed the engage threshold.
+        // Refresh for both subsequent conjuncts and virtual-column projections.
+        _refresh_candidate_pushdown();
         const auto& root = expr_ctx->root();
         DORIS_CHECK(root != nullptr);
         const VExpr* effective_root = root.get();
