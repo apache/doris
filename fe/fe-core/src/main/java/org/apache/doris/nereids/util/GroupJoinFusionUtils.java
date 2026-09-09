@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -67,9 +68,9 @@ public final class GroupJoinFusionUtils {
      * <p>
      * Returns null when the shape is not eligible (not an INNER/CROSS hash join, mark join,
      * broadcast join, residual non-equi conjuncts, null-safe equal conjuncts, aggregates
-     * reading both sides or intermediate project slots) or when the group-by keys cannot
-     * be mapped one-to-one onto the conjuncts. Session-level gates
-     * (enable_group_join_fusion, enable_spill) are checked by the callers, not here.
+     * reading both sides, aggregates with an internal ORDER BY, or intermediate project slots)
+     * or when the group-by keys cannot be mapped one-to-one onto the conjuncts. Session-level
+     * gates (enable_group_join_fusion, enable_spill) are checked by the callers, not here.
      */
     public static List<Expression> alignedConjunctsForGroupJoin(
             Aggregate<?> aggregate, PhysicalHashJoin<?, ?> join) {
@@ -102,6 +103,20 @@ public final class GroupJoinFusionUtils {
         joinChildrenOutputs.addAll(rightOutput);
         if (!joinChildrenOutputs.containsAll(aggregate.getInputSlots())) {
             return null;
+        }
+        // Order-sensitive aggregates (internal ORDER BY, e.g. GROUP_CONCAT(... ORDER BY ...))
+        // are not fusable. The fused operator keeps only a per-key local aggregate state on one
+        // side plus the other side's per-key row count, so it cannot reconstruct the interleaved
+        // join row order such aggregates need; and TGroupJoinAggFunction carries no per-function
+        // sort info (unlike AggregationNode's agg_sort_infos), so the translated expression's
+        // ORDER BY column would be treated as an ordinary aggregate argument by the BE
+        // group-join operators (they always pass an empty TSortInfo) and abort with
+        // "Agg Function ... is not implemented". OrderExpression appears under an output
+        // expression only inside an aggregate function's argument list.
+        for (Expression outputExpr : aggregate.getOutputExpressions()) {
+            if (!outputExpr.collect(OrderExpression.class::isInstance).isEmpty()) {
+                return null;
+            }
         }
         // Aggregate functions must not reference columns from both join sides: the per-side
         // aggregation state is maintained by the corresponding probe/build operator.
