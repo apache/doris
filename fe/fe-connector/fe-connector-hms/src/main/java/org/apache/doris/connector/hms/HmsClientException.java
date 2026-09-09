@@ -31,6 +31,11 @@ public class HmsClientException extends RuntimeException {
         super(message, cause);
     }
 
+    public HmsClientException(String message, HmsPartitionBatchStats partitionBatchStats) {
+        super(message);
+        this.partitionBatchStats = partitionBatchStats;
+    }
+
     public HmsClientException(String formatString, Object... args) {
         super(String.format(formatString, args));
     }

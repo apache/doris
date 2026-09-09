@@ -17,12 +17,14 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
+import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -40,6 +42,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * FIX-SCAN-METRICS — guards {@link PluginDrivenScanNode#writeScanProfilesInto}, the connector-agnostic
@@ -196,6 +199,34 @@ public class PluginDrivenScanNodeScanProfileTest {
         Assertions.assertEquals(1, finalizations.get());
         Assertions.assertNotNull(summary.getChildMap().get("Connector Metadata Access")
                 .getChildMap().get("partial batch scan"));
+    }
+
+    @Test
+    public void repeatedBatchFailurePublicationDoesNotStrandFinalization() {
+        AtomicReference<UserException> batchException = new AtomicReference<>();
+        SplitAssignment splitAssignment = Mockito.mock(SplitAssignment.class);
+        AtomicInteger finalizations = new AtomicInteger();
+        PluginDrivenScanNode.SubmittedTaskFinalizer finalizer =
+                new PluginDrivenScanNode.SubmittedTaskFinalizer(finalizations::incrementAndGet);
+        UserException failure = new UserException("batch failed");
+
+        finalizer.taskSubmitted();
+        finalizer.taskSubmitted();
+        finalizer.closeDispatch();
+        try {
+            PluginDrivenScanNode.publishBatchFailure(batchException, splitAssignment, failure);
+        } finally {
+            finalizer.taskFinished();
+        }
+        try {
+            PluginDrivenScanNode.publishBatchFailure(batchException, splitAssignment, failure);
+        } finally {
+            finalizer.taskFinished();
+        }
+
+        Mockito.verify(splitAssignment).setException(failure);
+        Assertions.assertEquals(0, failure.getSuppressed().length);
+        Assertions.assertEquals(1, finalizations.get());
     }
 
     @Test

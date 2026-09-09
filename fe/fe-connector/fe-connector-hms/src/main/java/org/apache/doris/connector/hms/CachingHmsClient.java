@@ -472,6 +472,8 @@ public class CachingHmsClient implements HmsClient {
                     HmsPartitionInfo resolved = batch.resolvedPartitions.get(registration.key);
                     if (resolved != null) {
                         resultByIdentity.put(resolved.getValues(), resolved);
+                    } else if (!batch.claimedKeys.contains(registration.key)) {
+                        retries.add(registration.partition);
                     }
                 } else {
                     retries.add(registration.partition);
