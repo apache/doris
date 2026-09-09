@@ -458,6 +458,72 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
+    /** Capture local target identity before reading remote metadata, without holding a DDL lock over I/O. */
+    public LanceIndexTarget captureLanceIndexTarget(LanceExternalCatalog catalog) throws DdlException {
+        readLock();
+        try {
+            requireCurrentLanceCatalog(catalog);
+            return new LanceIndexTarget(lanceIndexTargetProperties(catalog), catalog.getIndexTargetVersion());
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public static final class LanceIndexTarget {
+        private final Map<String, String> properties;
+        private final long version;
+
+        private LanceIndexTarget(Map<String, String> properties, long version) {
+            this.properties = properties;
+            this.version = version;
+        }
+    }
+
+    @FunctionalInterface
+    public interface LanceIndexAdmissionAction<T> {
+        T run() throws Exception;
+    }
+
+    /**
+     * Revalidate the target and transfer a prepared admission to the job manager atomically
+     * with DROP CATALOG and identity ALTER. The action must contain only local job creation or a no-op;
+     * all metadata loading must finish before entering this short critical section.
+     * Lock order is CatalogMgr then LanceIndexJobManager, as on the catalog DDL path.
+     */
+    public <T> T withLanceIndexAdmission(LanceExternalCatalog catalog, LanceIndexTarget expectedTarget,
+            LanceIndexAdmissionAction<T> action) throws Exception {
+        readLock();
+        try {
+            requireCurrentLanceCatalog(catalog);
+            if (catalog.getIndexTargetVersion() != expectedTarget.version
+                    || !lanceIndexTargetProperties(catalog).equals(expectedTarget.properties)) {
+                throw new DdlException("Lance catalog target changed during index admission; retry the statement");
+            }
+            return action.run();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    private void requireCurrentLanceCatalog(LanceExternalCatalog catalog) throws DdlException {
+        if (idToCatalog.get(catalog.getId()) != catalog) {
+            throw new DdlException("Lance catalog changed during index admission; retry the statement");
+        }
+    }
+
+    private static Map<String, String> lanceIndexTargetProperties(LanceExternalCatalog catalog) {
+        Map<String, String> target = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : catalog.getProperties().entrySet()) {
+            for (String identityKey : LANCE_TARGET_IDENTITY_KEYS) {
+                if (identityKey.equalsIgnoreCase(entry.getKey())) {
+                    target.put(entry.getKey(), entry.getValue());
+                    break;
+                }
+            }
+        }
+        return target;
+    }
+
     /**
      * Whether the supplied properties change any Lance target identity key relative to the
      * currently persisted values. A same-value rewrite is an idempotent no-op and is not a
@@ -729,6 +795,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
+            if (catalog instanceof LanceExternalCatalog
+                    && hasLanceIdentityKeyChange(catalog.getProperties(), log.getNewProps())) {
+                // Invalidate in-flight snapshots before a tentative mutation, even if validation
+                // rolls it back. A loader outside this lock may have observed the temporary target.
+                ((LanceExternalCatalog) catalog).advanceIndexTargetVersion();
+            }
             if (catalog instanceof ExternalCatalog) {
                 // The tentative property window (legacy validators mutate the live CatalogProperty
                 // before commit/rollback) must be invisible to a concurrent lazy cache-group

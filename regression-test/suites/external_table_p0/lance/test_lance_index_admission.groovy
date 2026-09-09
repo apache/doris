@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_lance_index_admission", "p0,external") {
+suite("test_lance_index_admission", "p0,external,nonConcurrent") {
     // The Lance fixture is preinstalled in the MinIO container of the Iceberg
     // external environment, so this suite deliberately shares its switch.
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
@@ -54,11 +54,26 @@ suite("test_lance_index_admission", "p0,external") {
     sql """DROP CATALOG IF EXISTS `${restCatalog}`"""
     try_sql "DROP USER '${user}'@'%'"
 
+    // Both settings are masterOnly. Read them on the master even if the suite's
+    // ordinary JDBC connection points at a follower. SHOW uses the experimental
+    // display name for the gate, while ADMIN SET accepts its unprefixed alias.
+    def gateRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'experimental_enable_lance_index_mutation'"""
+    def quotaRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'lance_index_job_max_unresolved_per_table'"""
+    assertEquals(1, gateRows.size())
+    assertEquals(1, quotaRows.size())
+    String originalGate = gateRows[0][1].toString()
+    String originalQuota = quotaRows[0][1].toString()
+    // The main scenario admits two jobs on one table, independently of the
+    // cluster's original quota. The dedicated quota case temporarily lowers it.
+    String suiteQuota = Math.max(2L, originalQuota.toLong()).toString()
+    Throwable suiteFailure = null
+
     try {
+        master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "${suiteQuota}")"""
         // Open the mutation gate for this suite only. masterOnly configs set through
         // ADMIN SET land on the master node locally, which is where admission reads them;
         // the finally block below restores the gate no matter where the suite fails (T4).
-        sql """ADMIN SET FRONTEND CONFIG ("enable_lance_index_mutation" = "true")"""
+        master_sql """ADMIN SET FRONTEND CONFIG ("enable_lance_index_mutation" = "true")"""
 
         sql """
             CREATE CATALOG `${filesystemCatalog}` PROPERTIES (
@@ -127,18 +142,18 @@ suite("test_lance_index_admission", "p0,external") {
         // scalar column of predicate_pushdown): with the limit at one, the first
         // differently-named job is admitted and the second is rejected. The quota key
         // includes the persisted catalog id, so the per-run catalog keeps this rerun-safe.
-        sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "1")"""
+        master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "1")"""
         try {
-            def quotaRows = sql """CREATE INDEX `${quotaIndexNameA}` ON `${filesystemCatalog}`.`doris`.`${quotaTableName}` (row_id) USING BTREE"""
-            assertEquals(1, quotaRows.size())
+            def admittedQuotaRows = sql """CREATE INDEX `${quotaIndexNameA}` ON `${filesystemCatalog}`.`doris`.`${quotaTableName}` (row_id) USING BTREE"""
+            assertEquals(1, admittedQuotaRows.size())
             test {
                 sql """CREATE INDEX `${quotaIndexNameB}` ON `${filesystemCatalog}`.`doris`.`${quotaTableName}` (row_id) USING BTREE"""
                 exception "quota exceeded"
             }
         } finally {
             // Restore immediately so the remaining cases of this run are unaffected; the
-            // outer finally repeats both restores for crash safety (T4).
-            try_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "8")"""
+            // outer finally restores the original cluster settings even if this fails.
+            master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "${suiteQuota}")"""
         }
 
         // Job inspection is authorized row by row: a user without SHOW privilege on the
@@ -210,13 +225,32 @@ suite("test_lance_index_admission", "p0,external") {
         assertEquals(dropJobId, dropJobRow.JobId.toString())
         assertEquals("PENDING", createJobRowAfterDrop.State.toString())
         assertEquals("PENDING", dropJobRow.State.toString())
+    } catch (Throwable failure) {
+        suiteFailure = failure
+        throw failure
     } finally {
-        // T4: every restore is wrapped on its own so that one failure cannot skip the rest;
-        // a crashed suite must never leave the shared pipeline cluster with the gate open.
-        try_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "8")"""
-        try_sql """ADMIN SET FRONTEND CONFIG ("enable_lance_index_mutation" = "false")"""
-        try_sql "DROP USER '${user}'@'%'"
-        try_sql """DROP CATALOG IF EXISTS `${restCatalog}`"""
+        // Attempt every cleanup, but never report success after a failed restore.
+        // Preserve the scenario failure and attach cleanup failures to it.
+        Throwable cleanupFailure = suiteFailure
+        [
+            { master_sql """ADMIN SET FRONTEND CONFIG ("enable_lance_index_mutation" = "${originalGate}")""" },
+            { master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "${originalQuota}")""" },
+            { sql "DROP USER IF EXISTS '${user}'@'%'" },
+            { sql """DROP CATALOG IF EXISTS `${restCatalog}`""" }
+        ].each { cleanup ->
+            try {
+                cleanup()
+            } catch (Throwable failure) {
+                if (cleanupFailure == null) {
+                    cleanupFailure = failure
+                } else {
+                    cleanupFailure.addSuppressed(failure)
+                }
+            }
+        }
+        if (suiteFailure == null && cleanupFailure != null) {
+            throw cleanupFailure
+        }
         // The filesystem catalog stays behind: admitted jobs remain unresolved and guard
         // DROP CATALOG until FORCE_RELEASE lands in a later slice.
     }
