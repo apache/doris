@@ -78,6 +78,16 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
                     totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
                     if (joinType.isLeftJoin()) {
+                        // For one-side outer join the right child is the nullable side: an ON conjunct
+                        // referencing only the preserved (left) side must not be pushed into the left
+                        // input, otherwise preserved rows would be filtered out before null-extending.
+                        filterBitMap = LongBitmap.or(filterBitMap, rightHand);
+                    } else if (joinType.isFullOuterJoin()) {
+                        // FULL OUTER JOIN preserves both sides, so an ON conjunct referencing only one
+                        // side must never be pushed into that side's scan (rows failing the conjunct
+                        // must still be output with the other side null-extended). Union the whole
+                        // join's tables so the conjunct stays as the full outer join's own condition.
+                        filterBitMap = LongBitmap.or(filterBitMap, leftHand);
                         filterBitMap = LongBitmap.or(filterBitMap, rightHand);
                     }
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
@@ -90,6 +100,16 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
                     totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
                     if (joinType.isLeftJoin()) {
+                        // For one-side outer join the right child is the nullable side: an ON conjunct
+                        // referencing only the preserved (left) side must not be pushed into the left
+                        // input, otherwise preserved rows would be filtered out before null-extending.
+                        filterBitMap = LongBitmap.or(filterBitMap, rightHand);
+                    } else if (joinType.isFullOuterJoin()) {
+                        // FULL OUTER JOIN preserves both sides, so an ON conjunct referencing only one
+                        // side must never be pushed into that side's scan (rows failing the conjunct
+                        // must still be output with the other side null-extended). Union the whole
+                        // join's tables so the conjunct stays as the full outer join's own condition.
+                        filterBitMap = LongBitmap.or(filterBitMap, leftHand);
                         filterBitMap = LongBitmap.or(filterBitMap, rightHand);
                     }
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
@@ -120,8 +140,14 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
     private void collectJoinConstraintList(LeadingHint leading, Long leftHand, Long rightHand, JoinType joinType,
                                             Long filterTableBitMap, Long nonNullableSlotBitMap) {
         Long totalTables = LongBitmap.or(leftHand, rightHand);
-        if (joinType.isInnerOrCrossJoin()) {
+        if (joinType.isInnerJoin()) {
             leading.setInnerJoinBitmap(LongBitmap.or(leading.getInnerJoinBitmap(), totalTables));
+            return;
+        }
+        if (joinType.isCrossJoin()) {
+            JoinConstraint newJoinConstraint = new JoinConstraint(leftHand, rightHand, leftHand, rightHand,
+                    JoinType.CROSS_JOIN, false);
+            leading.getJoinConstraintList().add(newJoinConstraint);
             return;
         }
         if (joinType.isFullOuterJoin()) {
