@@ -479,9 +479,14 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     private Expression analyzeLambdaFunction(Lambda lambda, Expression lambdaFunction,
             List<Slot> boundedSlots, ExpressionRewriteContext context) {
-        ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
-                boundedSlots), context == null ? null : context.cascadesContext,
+        ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, newLambdaScope(boundedSlots),
+                context == null ? null : context.cascadesContext,
                 true, true) {
+            @Override
+            protected boolean isLambdaBodyAnalyzer() {
+                return true;
+            }
+
             @Override
             protected boolean shouldPrioritizeRelationQualifier() {
                 return false;
@@ -495,6 +500,36 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
         };
         return lambdaAnalyzer.analyze(lambdaFunction, context);
+    }
+
+    /**
+     * Build the scope of a lambda body. The lambda arguments shadow the same-named slots that are visible
+     * to the enclosing expression, and the enclosing scope becomes the outer scope. Slot binding only looks
+     * one level up, so when this analyzer itself analyzes a lambda body (nested high-order functions), the
+     * scope of this analyzer only holds the enclosing lambda arguments: merge them into the new scope and keep
+     * the plan scope as the outer scope, so that the columns captured by the nested lambda body stay bindable.
+     */
+    private Scope newLambdaScope(List<Slot> lambdaArgumentSlots) {
+        Scope enclosingScope = getScope();
+        if (!isLambdaBodyAnalyzer()) {
+            return new Scope(Optional.of(enclosingScope), lambdaArgumentSlots);
+        }
+        ImmutableList.Builder<Slot> slots = ImmutableList.builderWithExpectedSize(
+                lambdaArgumentSlots.size() + enclosingScope.getSlots().size());
+        slots.addAll(lambdaArgumentSlots);
+        for (Slot enclosingArgument : enclosingScope.getSlots()) {
+            boolean shadowed = lambdaArgumentSlots.stream()
+                    .anyMatch(argument -> argument.getName().equalsIgnoreCase(enclosingArgument.getName()));
+            if (!shadowed) {
+                slots.add(enclosingArgument);
+            }
+        }
+        return new Scope(enclosingScope.getOuterScope(), slots.build());
+    }
+
+    /** Whether this analyzer analyzes a lambda body, whose scope only holds the lambda arguments. */
+    protected boolean isLambdaBodyAnalyzer() {
+        return false;
     }
 
     /** Whether relation-qualified columns should be resolved across scopes before nested fields. */
