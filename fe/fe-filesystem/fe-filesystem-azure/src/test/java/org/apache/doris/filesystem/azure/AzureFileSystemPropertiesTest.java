@@ -31,6 +31,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -308,22 +311,77 @@ class AzureFileSystemPropertiesTest {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
                 "azure.auth_type", "SAS",
                 "azure.account_name", "account",
-                "azure.sas_token", "?sv=2024-01-01&se=4102444800000&sig=temporary"));
+                "azure.sas_token", "?sv=2024-01-01&se=2100-01-01T00:00:00Z&sig=temporary"));
 
-        Assertions.assertEquals("sv=2024-01-01&se=4102444800000&sig=temporary", properties.getSasToken());
+        Assertions.assertEquals("sv=2024-01-01&se=2100-01-01T00:00:00Z&sig=temporary",
+                properties.getSasToken());
         Assertions.assertEquals(properties.getSasToken(), properties.toMap().get("AZURE_SAS_TOKEN"));
     }
 
     @Test
-    void bind_rejectsExpiredSasBeforeClientCreation() {
+    void validateAndNormalizeUri_usesConfiguredLocationOnlyAsConsistencyCheck() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.account_name", "account",
+                "azure.account_key", "key",
+                "azure.container", "container"));
+
+        String path = "abfss://container@account.dfs.core.windows.net/path/file.parquet";
+        Assertions.assertEquals(path, properties.validateAndNormalizeUri(path));
+        Assertions.assertThrows(StoragePropertiesException.class,
+                () -> properties.validateAndNormalizeUri(
+                        "abfss://other@account.dfs.core.windows.net/path/file.parquet"));
+        Assertions.assertThrows(StoragePropertiesException.class,
+                () -> properties.validateAndNormalizeUri(
+                        "abfss://container@other.dfs.core.windows.net/path/file.parquet"));
+    }
+
+    @Test
+    void bind_defersExpiredSasUntilCredentialOutput() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "AZURE_AUTH_TYPE", "SAS",
+                "AZURE_ENDPOINT", "account.blob.core.windows.net",
+                "AZURE_SAS_TOKEN", "sv=2024-01-01&sig=expired",
+                "AZURE_SAS_EXPIRY_MS", "1"));
+
         StoragePropertiesException exception = Assertions.assertThrows(StoragePropertiesException.class,
-                () -> AzureFileSystemProperties.of(Map.of(
-                        "AZURE_AUTH_TYPE", "SAS",
-                        "AZURE_ENDPOINT", "account.blob.core.windows.net",
-                        "AZURE_SAS_TOKEN", "sv=2024-01-01&sig=expired",
-                        "AZURE_SAS_EXPIRY_MS", "1")));
+                () -> properties.toMap());
 
         Assertions.assertTrue(exception.getMessage().contains("expired"), exception.getMessage());
+    }
+
+    @Test
+    void validateSasExpiry_acceptsInjectedClockBeforeExpiry() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "AZURE_AUTH_TYPE", "SAS",
+                "AZURE_SAS_TOKEN", "sv=2024-01-01&se=2026-01-02T00:00:00Z&sig=x"));
+
+        properties.validateSasExpiry(Clock.fixed(
+                Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC));
+    }
+
+    @Test
+    void bind_rejectsConflictingExplicitCredentialMaterials() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> AzureFileSystemProperties.of(Map.of(
+                        "azure.auth_type", "OAuth2",
+                        "azure.oauth2_account_host", "account.dfs.core.windows.net",
+                        "azure.oauth2_client_id", "client-id",
+                        "azure.oauth2_client_secret", "client-secret",
+                        "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token",
+                        "azure.sas_token", "sig=temporary")));
+
+        Assertions.assertTrue(exception.getMessage().contains("sas_token must not be set"), exception.getMessage());
+    }
+
+    @Test
+    void bind_rejectsAmbiguousImplicitCredentialMaterials() {
+        StoragePropertiesException exception = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> AzureFileSystemProperties.of(Map.of(
+                        "azure.account_name", "account",
+                        "azure.account_key", "key",
+                        "azure.sas_token", "sig=temporary")));
+
+        Assertions.assertTrue(exception.getMessage().contains("cannot infer"), exception.getMessage());
     }
 
     /**

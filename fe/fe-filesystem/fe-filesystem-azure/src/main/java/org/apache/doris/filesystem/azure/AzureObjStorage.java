@@ -49,6 +49,7 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -98,6 +99,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     protected BlobServiceClient buildClient() throws IOException {
+        properties.validateSasExpiry(Clock.systemUTC());
         String endpoint = requireProperty(
                 properties.getEndpoint(), AzureFileSystemProperties.ENDPOINT, "Azure endpoint");
         BlobServiceClientBuilder builder = new BlobServiceClientBuilder().endpoint(endpoint);

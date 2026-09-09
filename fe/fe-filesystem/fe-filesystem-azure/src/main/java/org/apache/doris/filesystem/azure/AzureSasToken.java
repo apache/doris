@@ -78,6 +78,16 @@ public final class AzureSasToken {
         return expiresAt.map(expiry -> !expiry.isAfter(Instant.now(clock))).orElse(false);
     }
 
+    /**
+     * Ensures this token is usable at the supplied time. A token without an expiry remains
+     * usable because the provider did not give Doris a timestamp it can enforce.
+     */
+    public void validateNotExpired(Clock clock) {
+        if (isExpired(clock)) {
+            throw new StoragePropertiesException("Azure SAS credential is expired");
+        }
+    }
+
     private static Instant instantFromEpochMillis(Long expiryMs) {
         if (expiryMs <= 0) {
             throw new StoragePropertiesException("Azure SAS expiry must be a positive Unix timestamp");

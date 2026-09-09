@@ -37,6 +37,7 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.time.Clock;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -215,7 +216,11 @@ public final class AzureFileSystemProperties
                 break;
             case SAS:
                 rules.check(() -> StringUtils.isBlank(sasToken),
-                        "When auth_type is SAS, sas_token is required.");
+                        "When auth_type is SAS, sas_token is required.")
+                        .check(() -> StringUtils.isNotBlank(accountKey),
+                                "When auth_type is SAS, account_key must not be set.")
+                        .check(() -> hasOauth2CredentialMaterial(),
+                                "When auth_type is SAS, OAuth2 credential material must not be set.");
                 break;
             case OAUTH2:
                 rules.check(() -> StringUtils.isBlank(oauthAccountHost)
@@ -224,12 +229,15 @@ public final class AzureFileSystemProperties
                                 || StringUtils.isBlank(oauthServerUri),
                         "When auth_type is OAuth2, oauth2_account_host, oauth2_client_id, "
                                 + "oauth2_client_secret, and oauth2_server_uri are required.");
+                rules.check(() -> StringUtils.isNotBlank(accountKey),
+                                "When auth_type is OAuth2, account_key must not be set.")
+                        .check(() -> StringUtils.isNotBlank(sasToken),
+                                "When auth_type is OAuth2, sas_token must not be set.");
                 break;
             default:
                 throw new IllegalStateException("Unhandled Azure auth type: " + authType);
         }
         rules.validate("Invalid Azure filesystem properties");
-        validateSasExpiry();
     }
 
     @Override
@@ -282,6 +290,7 @@ public final class AzureFileSystemProperties
 
     @Override
     public Map<String, String> toMap() {
+        validateSasExpiry(Clock.systemUTC());
         // Keep Azure's native credential vocabulary at the FE→BE boundary. The BE still receives
         // FILE_S3, but its provider marker dispatches this map to the Azure SDK. In particular,
         // an Azure SAS is not an AWS session token.
@@ -329,6 +338,7 @@ public final class AzureFileSystemProperties
 
     @Override
     public Map<String, String> toHadoopConfigurationMap() {
+        validateSasExpiry(Clock.systemUTC());
         Map<String, String> cfg = new HashMap<>();
         // No blanket ABFS/WASB cache disabling: the Doris-patched FileSystem keys its cache by the
         // per-scheme credential fingerprint below, so different credentials never share an
@@ -416,12 +426,25 @@ public final class AzureFileSystemProperties
         // Parse account/container/path now so malformed locations fail before a scan reaches BE;
         // return the original path (apart from a case-insensitive scheme) to preserve object keys.
         try {
-            AzureUri.parse(path);
+            AzureUri parsed = AzureUri.parse(path);
+            validateLocationBinding(parsed);
         } catch (IOException e) {
             throw new StoragePropertiesException("Invalid Azure URI: " + path, e);
         }
         return path.substring(0, delimiter).equals(scheme)
                 ? path : scheme + path.substring(delimiter);
+    }
+
+    private void validateLocationBinding(AzureUri uri) {
+        if (StringUtils.isNotBlank(accountName) && StringUtils.isNotBlank(uri.accountName())
+                && !StringUtils.equalsIgnoreCase(accountName, uri.accountName())) {
+            throw new StoragePropertiesException(
+                    "Azure URI account does not match configured account_name");
+        }
+        if (StringUtils.isNotBlank(container) && !StringUtils.equals(container, uri.container())) {
+            throw new StoragePropertiesException(
+                    "Azure URI container does not match configured container");
+        }
     }
 
     public String getEndpoint() {
@@ -529,7 +552,20 @@ public final class AzureFileSystemProperties
         }
         // Infer only when the property binder found no nonblank auth type, respecting its alias
         // precedence and case-sensitive key matching. OAuth2 continues to require an explicit type.
-        return StringUtils.isNotBlank(sasToken) ? AzureAuthType.SAS : AzureAuthType.SHARED_KEY;
+        boolean hasSas = StringUtils.isNotBlank(sasToken);
+        boolean hasSharedKey = StringUtils.isNotBlank(accountKey);
+        if (hasSas && hasSharedKey) {
+            throw new StoragePropertiesException(
+                    "Azure auth_type is required when SharedKey and SAS credential materials are both set; "
+                            + "cannot infer an authentication mode");
+        }
+        return hasSas ? AzureAuthType.SAS : AzureAuthType.SHARED_KEY;
+    }
+
+    private boolean hasOauth2CredentialMaterial() {
+        return StringUtils.isNotBlank(clientId) || StringUtils.isNotBlank(clientSecret)
+                || StringUtils.isNotBlank(oauthServerUri) || StringUtils.isNotBlank(oauthAccountHost)
+                || StringUtils.isNotBlank(tenantId);
     }
 
     private AzureAccountHost resolveAccountHostModel() {
@@ -561,13 +597,11 @@ public final class AzureFileSystemProperties
         return accountHost == null ? "" : accountHost.dfsHost();
     }
 
-    private void validateSasExpiry() {
+    void validateSasExpiry(Clock clock) {
         if (!isSasAuth() || sasCredential == null || sasCredential.expiresAt().isEmpty()) {
             return;
         }
-        if (sasCredential.isExpired(java.time.Clock.systemUTC())) {
-            throw new StoragePropertiesException("Azure SAS credential is expired");
-        }
+        sasCredential.validateNotExpired(clock);
     }
 
     private static Long parseSasExpiry(String expiry) {
