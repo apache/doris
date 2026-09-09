@@ -17,8 +17,10 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.iceberg.dlf.DLFCatalog;
 import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
@@ -233,10 +235,10 @@ public class IcebergConnector implements Connector {
             mvccPartitionViewCache;
     private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> // null under session=user
             listPartitionsViewCache;
-    private final CatalogMetaCache metaCache = new CatalogMetaCache();
+    private final CatalogMetaCache metaCache;
     // Manifest content cache — pure metadata, default-off (meta.cache.iceberg.manifest.enable), and consumed
     // ONLY after a per-user resolveTable(ForRead) -- exempt: no read path without a per-user load.
-    private final IcebergManifestCache manifestCache = new IcebergManifestCache(metaCache);
+    private final IcebergManifestCache manifestCache;
 
     // Lazily-built plugin-side Kerberos authenticator (single-owner auth; see TcclPinningConnectorContext).
     // null for a non-Kerberos catalog. Its doAs acts on the PLUGIN's UserGroupInformation copy — the one the
@@ -260,6 +262,8 @@ public class IcebergConnector implements Connector {
         // authenticator never logs in — so without this the DDL/read hits secured HDFS as SIMPLE auth.
         this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader(),
                 this::pluginAuthenticator);
+        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "iceberg", this.properties);
+        this.manifestCache = new IcebergManifestCache(metaCache, this.properties);
         // Authorization-sensitive projection (snapshotId/schemaId). Under iceberg.rest.session=user the value is
         // per-user AUTHORIZED metadata that a "can-list-cannot-load" principal must not see. beginQuerySnapshot
         // reads this cache WITHOUT a preceding per-user loadTable, so a shared (table-keyed, no user dimension)
@@ -283,7 +287,7 @@ public class IcebergConnector implements Connector {
                 || IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties))
                 ? null
                 : new IcebergTableCache(
-                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY,
+                        metaCache, cacheSpec("table"),
                         this::cachedTableCleanup, catalogResourceTracker);
         // PERF-02: partition-view cache. Authorization-sensitive projection: a shared (table+snapshot-keyed, no
         // user dimension) hit would disclose one user's partition list. Its readers are all downstream of a
@@ -294,7 +298,7 @@ public class IcebergConnector implements Connector {
         this.partitionCache = isUserSessionEnabled()
                 ? null
                 : new IcebergPartitionCache(
-                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                        metaCache, cacheSpec("partition"));
         // PERF-03: inferred-file-format cache. Same authorization-sensitive treatment as partitionCache (disabled
         // under session=user, kept otherwise); readers already tolerate a null cache (resolveFileFormatName).
         this.formatCache = isUserSessionEnabled()
@@ -319,11 +323,15 @@ public class IcebergConnector implements Connector {
         this.mvccPartitionViewCache = isUserSessionEnabled()
                 ? null
                 : new ConnectorMetadataCache<>(metaCache, "iceberg.mvcc-partition-view",
-                        "iceberg", "partition_view", this.properties);
+                        "iceberg", "partition_view", this.properties,
+                        key -> ScopePath.table(key.getDb(), key.getTable()),
+                        IcebergCacheSizeEstimator::estimateMvccPartitionViewEntry);
         this.listPartitionsViewCache = isUserSessionEnabled()
                 ? null
                 : new ConnectorMetadataCache<>(metaCache, "iceberg.list-partitions-view",
-                        "iceberg", "partition_view", this.properties);
+                        "iceberg", "partition_view", this.properties,
+                        key -> ScopePath.table(key.getDb(), key.getTable()),
+                        IcebergCacheSizeEstimator::estimatePartitionInfoViewEntry);
     }
 
     /**
@@ -343,6 +351,15 @@ public class IcebergConnector implements Connector {
                     DEFAULT_TABLE_CACHE_TTL_SECOND);
             return DEFAULT_TABLE_CACHE_TTL_SECOND;
         }
+    }
+
+    private CacheSpec cacheSpec(String entryName) {
+        CacheSpec defaults = CacheSpec.ofConnectorTtl(
+                resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+        // Normalize the legacy table knob before generic parsing can reinterpret -1 as no expiration.
+        Map<String, String> cacheProperties = new HashMap<>(this.properties);
+        cacheProperties.put(TABLE_CACHE_TTL_SECOND, Long.toString(defaults.getTtlSecond()));
+        return CacheSpec.fromProperties(cacheProperties, "iceberg", entryName, defaults);
     }
 
     @Override

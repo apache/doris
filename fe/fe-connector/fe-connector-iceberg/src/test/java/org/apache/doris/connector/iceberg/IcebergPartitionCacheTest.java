@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.iceberg.IcebergPartitionUtils.IcebergRawPartition;
 
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -51,6 +53,26 @@ public class IcebergPartitionCacheTest {
     }
 
     @Test
+    public void disabledBoundedPartitionsDoNotPrepareCachePayload() {
+        for (CacheSpec spec : new CacheSpec[] {CacheSpec.ofWeight(false, 100L, 1000L, 1024L * 1024L),
+                CacheSpec.ofWeight(true, 0L, 1000L, 1024L * 1024L)}) {
+            List<IcebergRawPartition> partitions = raws(3);
+            AtomicInteger loads = new AtomicInteger();
+            try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+                IcebergPartitionCache cache = new IcebergPartitionCache(owner, spec);
+                for (int i = 0; i < 2; i++) {
+                    Assertions.assertSame(partitions, cache.getOrLoad(key("db", "t", 5L), () -> {
+                        loads.incrementAndGet();
+                        return partitions;
+                    }));
+                }
+                Assertions.assertEquals(2, loads.get());
+                Assertions.assertEquals(0, cache.size());
+            }
+        }
+    }
+
+    @Test
     public void cachesWithinTtlAndServesTheSameList() {
         AtomicInteger loads = new AtomicInteger();
         IcebergPartitionCache c = new IcebergPartitionCache(100, 1000);
@@ -71,6 +93,29 @@ public class IcebergPartitionCacheTest {
         Assertions.assertEquals(1, loads.get(), "the live scan must run exactly once within TTL");
         Assertions.assertEquals(1, c.loadCountForTest(), "the metric-gate load count must be 1");
         Assertions.assertTrue(c.isEnabled());
+    }
+
+    @Test
+    public void weightBoundedPartitionsAreEstimatedAndCached() {
+        AtomicInteger loads = new AtomicInteger();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergPartitionCache cache = new IcebergPartitionCache(
+                    owner, CacheSpec.ofWeight(true, 100L, 1000L, 1024L * 1024L));
+
+            List<IcebergRawPartition> first = cache.getOrLoad(key("db", "t", 5L), () -> {
+                loads.incrementAndGet();
+                return raws(3);
+            });
+            List<IcebergRawPartition> second = cache.getOrLoad(key("db", "t", 5L), () -> {
+                loads.incrementAndGet();
+                return raws(7);
+            });
+
+            Assertions.assertSame(first, second);
+            Assertions.assertEquals(1, loads.get());
+            Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> first.add(raws(1).get(0)));
+        }
     }
 
     @Test

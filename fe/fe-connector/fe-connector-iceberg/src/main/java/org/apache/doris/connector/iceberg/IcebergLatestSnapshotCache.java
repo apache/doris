@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 
@@ -77,7 +78,7 @@ final class IcebergLatestSnapshotCache {
     private final MetaCache<TableIdentifier, CachedSnapshot> entry;
 
     IcebergLatestSnapshotCache(long ttlSeconds, int maxSize) {
-        this(new CatalogMetaCache(), ttlSeconds, maxSize);
+        this(CatalogMetaCache.unmanaged(), ttlSeconds, maxSize);
     }
 
     IcebergLatestSnapshotCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
@@ -87,6 +88,7 @@ final class IcebergLatestSnapshotCache {
         this.entry = owner.create(MetaCacheDefinition
                 .<TableIdentifier, CachedSnapshot>builder(
                         "iceberg-latest-snapshot", spec, IcebergLatestSnapshotCache::scope)
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
     }
 

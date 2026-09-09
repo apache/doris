@@ -135,7 +135,11 @@ public final class IcebergCatalogProperties {
      * @return this, so the provider can call it in one expression
      */
     public IcebergCatalogProperties checkCreateTimeOnlyRules() {
-        checkMetaCacheProperties(raw);
+        return checkCreateTimeOnlyRules(raw);
+    }
+
+    public IcebergCatalogProperties checkCreateTimeOnlyRules(Map<String, String> submittedProperties) {
+        checkMetaCacheProperties(raw, submittedProperties);
         // DLF only exposes two-level namespaces; applying a synthetic root would make every lookup miss.
         if (TYPE_DLF.equals(flavor) && externalCatalogName != null) {
             throw new IllegalArgumentException("external_catalog.name is not supported for Iceberg DLF catalogs");
@@ -156,7 +160,10 @@ public final class IcebergCatalogProperties {
      * {@code enable} must be boolean, {@code ttl-second} must be a long &ge; -1 (the "no expiration"
      * sentinel), {@code capacity} must be a long &ge; 0. Absent keys are skipped.
      */
-    private static void checkMetaCacheProperties(Map<String, String> properties) {
+    private static void checkMetaCacheProperties(
+            Map<String, String> properties, Map<String, String> submittedProperties) {
+        CacheSpec.checkWeightProperties(properties, submittedProperties, "iceberg",
+                "table", "partition", "manifest", "partition_view");
         CacheSpec.checkBooleanProperty(properties.get(IcebergConnector.TABLE_CACHE_ENABLE),
                 IcebergConnector.TABLE_CACHE_ENABLE);
         CacheSpec.checkLongProperty(properties.get(IcebergConnector.TABLE_CACHE_TTL_SECOND),

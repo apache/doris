@@ -28,10 +28,14 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCacheGovernance;
+import org.apache.doris.datasource.doris.FeServiceClient;
+import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
 import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
+import org.apache.doris.datasource.property.constants.RemoteDorisProperties;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
@@ -43,6 +47,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.system.Backend;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -67,6 +72,120 @@ public class ExternalCatalogTest extends TestWithFeService {
     private Env env;
     private CatalogMgr mgr;
     private ConnectContext rootCtx;
+
+    @Test
+    public void testScopedWeightAlterStillInvalidatesRemoteBackendsAndRowCounts() throws Exception {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(RemoteDorisProperties.FE_THRIFT_HOSTS, "127.0.0.1:9020");
+        properties.put(RemoteDorisProperties.FE_HTTP_HOSTS, "127.0.0.1:8030");
+        properties.put(RemoteDorisProperties.FE_ARROW_HOSTS, "127.0.0.1:8070");
+        properties.put(RemoteDorisProperties.USER, "root");
+        properties.put(RemoteDorisProperties.PASSWORD, "");
+        properties.put(RemoteDorisProperties.USE_ARROW_FLIGHT, "true");
+        FeServiceClient client = Mockito.mock(FeServiceClient.class);
+        RemoteDorisExternalCatalog catalog = new RemoteDorisExternalCatalog(
+                2292L, "budget_invalidation", "", properties, "") {
+            @Override
+            public FeServiceClient getFeServiceClient() {
+                return client;
+            }
+        };
+        mgr.getIdToCatalog().put(catalog.getId(), catalog);
+        ExternalMetaCacheMgr cacheMgr = env.getExtMetaCacheMgr();
+        ExternalRowCountCache originalRowCounts = cacheMgr.getRowCountCache();
+        ExternalRowCountCache rowCounts = new ExternalRowCountCache(MoreExecutors.newDirectExecutorService());
+        Deencapsulation.setField(cacheMgr, "rowCountCache", rowCounts);
+        try {
+            for (String weightKey : new String[] {"meta.cache.default.future_entry.max-weight",
+                    "meta.cache.doris.backends.max-weight"}) {
+                Backend oldBackend = new Backend(1L, "127.0.0.1", 9050);
+                Backend newBackend = new Backend(1L, "127.0.0.2", 9050);
+                cacheMgr.invalidateCatalog(catalog.getId());
+                Mockito.when(client.listBackends()).thenReturn(Lists.newArrayList(oldBackend));
+                Assertions.assertSame(oldBackend, cacheMgr.doris(catalog.getId()).getBackends(catalog.getId()).get(1L));
+                Mockito.when(client.listBackends()).thenReturn(Lists.newArrayList(newBackend));
+                ExternalTable table = Mockito.mock(ExternalTable.class);
+                Mockito.when(table.fetchRowCountWithMetaCache(false)).thenReturn(100L);
+                try (MockedStatic<StatisticsUtil> statistics = Mockito.mockStatic(StatisticsUtil.class)) {
+                    statistics.when(() -> StatisticsUtil.findTable(catalog.getId(), 1L, 2L)).thenReturn(table);
+                    Assertions.assertEquals(100L, rowCounts.getCachedRowCount(catalog.getId(), 1L, 2L, false));
+                    Map<String, String> updates = Maps.newHashMap();
+                    updates.put(RemoteDorisProperties.FE_THRIFT_HOSTS, "127.0.0.2:9020");
+                    updates.put(weightKey, "64MB");
+                    catalog.modifyCatalogProps(updates);
+                    Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+                            rowCounts.getCachedRowCountIfPresent(catalog.getId(), 1L, 2L), weightKey);
+                    Assertions.assertSame(newBackend,
+                            cacheMgr.doris(catalog.getId()).getBackends(catalog.getId()).get(1L), weightKey);
+                }
+            }
+        } finally {
+            cacheMgr.removeCatalog(catalog.getId());
+            Deencapsulation.setField(cacheMgr, "rowCountCache", originalRowCounts);
+            mgr.getIdToCatalog().remove(catalog.getId());
+        }
+    }
+
+    @Test
+    public void testCachePreparationCannotRepublishPreAlterBudget() throws Exception {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("catalog_provider.class", RefreshCatalogTest.RefreshCatalogProvider.class.getName());
+        properties.put("meta.cache.max-weight", "4KB");
+        CountDownLatch snapshotCaptured = new CountDownLatch(1);
+        CountDownLatch finishPreparation = new CountDownLatch(1);
+        AtomicInteger snapshots = new AtomicInteger();
+        TestExternalCatalog catalog = new TestExternalCatalog(2291L, "budget_publication", "", properties, "") {
+            @Override
+            public void overlayMetaCacheConfig(Map<String, String> config) {
+                Assertions.assertTrue(Thread.holdsLock(this),
+                        "the property snapshot and core owner publication must hold ALTER's monitor");
+                if (snapshots.getAndIncrement() == 0) {
+                    Assertions.assertEquals("4KB", config.get("meta.cache.max-weight"));
+                    snapshotCaptured.countDown();
+                    try {
+                        Assertions.assertTrue(finishPreparation.await(10L, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                }
+            }
+
+            @Override
+            protected void closeResources() {
+                Assertions.assertEquals("4KB", getProperties().get("meta.cache.max-weight"),
+                        "new limits must not be published before old connector resources close");
+                super.closeResources();
+            }
+        };
+        mgr.getIdToCatalog().put(catalog.getId(), catalog);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> prepare = executor.submit(() -> env.getExtMetaCacheMgr()
+                    .prepareCatalogByEngine(catalog.getId(), "default"));
+            Assertions.assertTrue(snapshotCaptured.await(10L, TimeUnit.SECONDS));
+            CountDownLatch alterStarted = new CountDownLatch(1);
+            Future<?> alter = executor.submit(() -> {
+                alterStarted.countDown();
+                catalog.modifyCatalogProps(java.util.Collections.singletonMap("meta.cache.max-weight", "2KB"));
+            });
+            Assertions.assertTrue(alterStarted.await(10L, TimeUnit.SECONDS));
+            finishPreparation.countDown();
+            prepare.get(10L, TimeUnit.SECONDS);
+            alter.get(10L, TimeUnit.SECONDS);
+            env.getExtMetaCacheMgr().prepareCatalogByEngine(catalog.getId(), "default");
+            Assertions.assertEquals("2KB", catalog.getProperties().get("meta.cache.max-weight"));
+            Assertions.assertEquals(1, MetaCacheGovernance.catalogCaches(catalog.getId()).size());
+            Assertions.assertEquals(2048L, MetaCacheGovernance.catalogCaches(catalog.getId())
+                    .get(0).catalogMaxWeight().getAsLong());
+        } finally {
+            finishPreparation.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(10L, TimeUnit.SECONDS));
+            env.getExtMetaCacheMgr().removeCatalog(catalog.getId());
+            mgr.getIdToCatalog().remove(catalog.getId());
+        }
+    }
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -1021,7 +1140,7 @@ public class ExternalCatalogTest extends TestWithFeService {
         mgr.getIdToCatalog().put(catalog.getId(), catalog);
         try {
             env.getExtMetaCacheMgr().prepareCatalogByEngine(
-                    catalog.getId(), "default", Maps.newHashMap());
+                    catalog.getId(), "default");
             org.apache.doris.connector.cache.MetaCache<SchemaCacheKey, SchemaCacheValue> schemaEntry =
                     env.getExtMetaCacheMgr()
                     .engine("default")
