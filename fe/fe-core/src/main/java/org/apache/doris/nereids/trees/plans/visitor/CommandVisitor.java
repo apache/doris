@@ -164,6 +164,7 @@ import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.ResolveLanceIndexJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
@@ -683,6 +684,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowCreateRepositoryCommand(ShowCreateRepositoryCommand showCreateRepositoryCommand, C context) {
         return visitCommand(showCreateRepositoryCommand, context);
+    }
+
+    default R visitResolveLanceIndexJobCommand(ResolveLanceIndexJobCommand resolveLanceIndexJobCommand, C context) {
+        return visitCommand(resolveLanceIndexJobCommand, context);
     }
 
     default R visitShowLanceIndexJobCommand(ShowLanceIndexJobCommand showLanceIndexJobCommand, C context) {
