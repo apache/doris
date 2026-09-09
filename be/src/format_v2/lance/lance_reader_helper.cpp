@@ -207,6 +207,48 @@ size_t lance_vector_element_width(TVectorElementType::type type) {
     return 0;
 }
 
+Status parse_fragment_ids(const TLanceFileDesc& lance_params, std::vector<uint64_t>* fragment_ids) {
+    DORIS_CHECK(fragment_ids != nullptr);
+    fragment_ids->clear();
+    if (!lance_params.__isset.fragment_ids || lance_params.fragment_ids.empty()) {
+        return Status::OK();
+    }
+    fragment_ids->reserve(lance_params.fragment_ids.size());
+    for (const auto fragment_id : lance_params.fragment_ids) {
+        if (fragment_id < 0) {
+            return Status::InvalidArgument("Lance fragment id must be non-negative: {}",
+                                           fragment_id);
+        }
+        fragment_ids->emplace_back(static_cast<uint64_t>(fragment_id));
+    }
+    return Status::OK();
+}
+
+Status parse_index_segment_uuids(const TLanceFileDesc& lance_params,
+                                 std::vector<uint8_t>* segment_uuids, size_t* segment_count) {
+    DORIS_CHECK(segment_uuids != nullptr);
+    DORIS_CHECK(segment_count != nullptr);
+    segment_uuids->clear();
+    *segment_count = 0;
+    if (!lance_params.__isset.index_segment_uuids || lance_params.index_segment_uuids.empty()) {
+        return Status::OK();
+    }
+    constexpr size_t UUID_SIZE = 16;
+    if (lance_params.index_segment_uuids.size() > std::numeric_limits<size_t>::max() / UUID_SIZE) {
+        return Status::InvalidArgument("too many Lance index segment UUIDs");
+    }
+    segment_uuids->reserve(lance_params.index_segment_uuids.size() * UUID_SIZE);
+    for (const auto& uuid : lance_params.index_segment_uuids) {
+        if (uuid.size() != UUID_SIZE) {
+            return Status::InvalidArgument("Lance index segment UUID must contain 16 bytes, got {}",
+                                           uuid.size());
+        }
+        segment_uuids->insert(segment_uuids->end(), uuid.begin(), uuid.end());
+    }
+    *segment_count = lance_params.index_segment_uuids.size();
+    return Status::OK();
+}
+
 Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow_schema,
                                      std::vector<std::string>* column_names,
                                      std::vector<DataTypePtr>* column_types) {
