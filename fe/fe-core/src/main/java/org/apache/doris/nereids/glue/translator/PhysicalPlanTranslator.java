@@ -3343,9 +3343,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return null;
         }
 
-        // Child must be PhysicalHashJoin (optionally through PhysicalProject)
+        // Child must be PhysicalHashJoin (optionally through one pure-passthrough
+        // PhysicalProject; see the project gate in GroupJoinFusionUtils).
         Plan child = aggregate.child(0);
+        PhysicalProject<?> project = null;
         if (child instanceof PhysicalProject) {
+            project = (PhysicalProject<?>) child;
             child = child.child(0);
         }
         if (!(child instanceof PhysicalHashJoin)) {
@@ -3361,7 +3364,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // group-by order: the processor guarantees this for every eligible shape, and anything
         // that is not aligned stays on the regular HashJoinNode + AggregationNode path.
         List<Expression> alignedConjuncts = GroupJoinFusionUtils.alignedConjunctsForGroupJoin(
-                (Aggregate<?>) aggregate, join);
+                (Aggregate<?>) aggregate, project, join);
         if (alignedConjuncts == null
                 || !GroupJoinFusionUtils.sameConjunctOrder(
                         alignedConjuncts, join.getHashJoinConjuncts())) {
