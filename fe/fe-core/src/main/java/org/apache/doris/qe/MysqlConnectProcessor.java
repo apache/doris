@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;

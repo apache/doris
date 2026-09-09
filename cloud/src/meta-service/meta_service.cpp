@@ -2758,26 +2758,6 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     std::string existed_commit_val;
     err = txn->get(tmp_rs_key, &existed_commit_val);
     if (err == TxnErrorCode::TXN_OK) {
-        if (config::enable_recycle_delete_rowset_key_check) {
-            bool recycle_rs_key_exists = false;
-            if (!check_recycle_rowset_key(txn.get(), recycle_rs_key, rowset_meta,
-                                          &recycle_rs_key_exists, code, msg)) {
-                return;
-            }
-            if (recycle_rs_key_exists) {
-                code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = fmt::format(
-                        "tmp rowset key and recycle rowset key are mutually exclusive, "
-                        "tmp_rs_key={}, recycle_rs_key={}",
-                        hex(tmp_rs_key), hex(recycle_rs_key));
-                LOG(INFO) << "skip commit rowset because tmp rowset key and recycle rowset key are "
-                             "mutually exclusive, txn_id="
-                          << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
-                          << ", rowset_id=" << rowset_id << ", tmp_rs_key=" << hex(tmp_rs_key)
-                          << ", recycle_rs_key=" << hex(recycle_rs_key) << ", msg=" << msg;
-                return;
-            }
-        }
         auto existed_rowset_meta = response->mutable_existed_rowset_meta();
         if (!existed_rowset_meta->ParseFromString(existed_commit_val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
@@ -2785,6 +2765,26 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
             return;
         }
         if (existed_rowset_meta->rowset_id_v2() == rowset_meta.rowset_id_v2()) {
+            if (config::enable_recycle_delete_rowset_key_check) {
+                bool recycle_rs_key_exists = false;
+                if (!check_recycle_rowset_key(txn.get(), recycle_rs_key, rowset_meta,
+                                              &recycle_rs_key_exists, code, msg)) {
+                    return;
+                }
+                if (recycle_rs_key_exists) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    msg = fmt::format(
+                            "tmp rowset key and recycle rowset key are mutually exclusive, "
+                            "tmp_rs_key={}, recycle_rs_key={}",
+                            hex(tmp_rs_key), hex(recycle_rs_key));
+                    LOG(INFO) << "skip commit rowset because tmp rowset key and recycle rowset key "
+                                 "are mutually exclusive, txn_id="
+                              << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
+                              << ", rowset_id=" << rowset_id << ", tmp_rs_key=" << hex(tmp_rs_key)
+                              << ", recycle_rs_key=" << hex(recycle_rs_key) << ", msg=" << msg;
+                    return;
+                }
+            }
             // Same request, return OK
             response->set_allocated_existed_rowset_meta(nullptr);
             return;
