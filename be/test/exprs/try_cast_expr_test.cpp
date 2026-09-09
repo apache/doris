@@ -428,10 +428,12 @@ TEST_F(TryCastExprTest, real_cast_array_decimal_overflow) {
 }
 
 TEST_F(TryCastExprTest, real_cast_map_integer_overflow) {
-    auto input_type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
-                                                    std::make_shared<DataTypeInt32>());
-    auto result_type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
-                                                     std::make_shared<DataTypeInt8>());
+    auto input_type =
+            std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeInt32>()),
+                                          make_nullable(std::make_shared<DataTypeInt32>()));
+    auto result_type =
+            std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeInt32>()),
+                                          make_nullable(std::make_shared<DataTypeInt8>()));
     for (bool nullable : {false, true}) {
         DataTypePtr from_type = nullable ? make_nullable(input_type) : input_type;
         check_real_cast(from_type, result_type, {"{1:12}", "{1:128}", "{1:null}", "{}"},
