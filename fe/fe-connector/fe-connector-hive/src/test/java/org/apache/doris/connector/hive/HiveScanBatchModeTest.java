@@ -115,6 +115,17 @@ public class HiveScanBatchModeTest {
         Assertions.assertFalse(provider.supportsBatchScan(new FakeSession(), handle));
     }
 
+    @Test
+    public void supportsBatchScanIsTrueForConnectorFilteredTable() {
+        HiveScanPlanProvider provider = provider(null, new CountingLister());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .build();
+
+        Assertions.assertTrue(provider.supportsBatchScan(new FakeSession(), handle));
+    }
+
     // ==================== planScanForPartitionBatch: scoped to the batch, no duplication ====================
 
     @Test
@@ -122,7 +133,7 @@ public class HiveScanBatchModeTest {
         CountingLister lister = new CountingLister();
         // getPartitions echoes each requested name back as a partition whose location IS the name, so the counting
         // lister's keys are the partition names actually resolved for this batch.
-        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        HiveScanPlanProvider provider = provider(null, lister);
 
         // The handle carries the FULL pruned set (all three partitions). If the batch hook were NOT scoped to the
         // batch (SPI default -> whole-pruned-set planScan), all three would be listed -> 3 ranges.
@@ -134,6 +145,10 @@ public class HiveScanBatchModeTest {
                         part("year=2023/month=12"),
                         part("year=2024/month=01"),
                         part("year=2024/month=02")))
+                .prunedPartitionsByName(Map.of(
+                        "year=2023/month=12", part("year=2023/month=12"),
+                        "year=2024/month=01", part("year=2024/month=01"),
+                        "year=2024/month=02", part("year=2024/month=02")))
                 .build();
 
         List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(new FakeSession(),
