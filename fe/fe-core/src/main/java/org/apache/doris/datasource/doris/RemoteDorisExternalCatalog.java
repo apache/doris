@@ -26,6 +26,10 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.log.InitCatalogLog;
 import org.apache.doris.datasource.property.constants.RemoteDorisProperties;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.ComputeGroup;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.ImmutableList;
@@ -39,6 +43,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class RemoteDorisExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(RemoteDorisExternalCatalog.class);
@@ -174,19 +179,14 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
     }
 
     /**
-     * Returns the remote olap table behind the given table, or null if the table does not
-     * belong to a remote doris cluster. Covers both access modes: the virtual cluster mode
-     * binds a RemoteOlapTable directly, and the arrow flight mode binds a
-     * RemoteDorisExternalTable wrapping one.
+     * Returns the remote olap table behind the given table, or null if the table is not a
+     * remote doris table bound in the virtual cluster mode (use_arrow_flight=false), which
+     * binds a RemoteOlapTable directly. The arrow flight mode binds a
+     * RemoteDorisExternalTable, which is rejected by MaterializeProbeVisitor, so topn lazy
+     * materialization never runs for it.
      */
     public static RemoteOlapTable getRemoteOlapTable(TableIf table) {
-        if (table instanceof RemoteOlapTable) {
-            return (RemoteOlapTable) table;
-        }
-        if (table instanceof RemoteDorisExternalTable) {
-            return (RemoteOlapTable) ((RemoteDorisExternalTable) table).getOlapTable();
-        }
-        return null;
+        return table instanceof RemoteOlapTable ? (RemoteOlapTable) table : null;
     }
 
     /**
@@ -195,9 +195,44 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
      * are independently allocated; on collision the second phase fetch cannot distinguish the
      * id spaces and would route rows to a wrong backend, so topn lazy materialization must
      * be skipped.
+     *
+     * <p>Callers must pass one table per remote catalog (see LazyMaterializeTopN): tables of
+     * the same catalog share the same backend map and would be falsely reported as a
+     * remote-vs-remote conflict.
      */
     public static boolean hasRemoteBackendIdConflict(Collection<RemoteOlapTable> remoteTables) {
-        Set<Long> localBackendIds = new HashSet<>(Env.getCurrentSystemInfo().getAllBackendIds());
+        // Align with the address book domain of MaterializationNode.initNodeInfo: only alive,
+        // query-available backends of the selected compute group are routed to, so ids outside
+        // that domain cannot collide at runtime and must not disable the optimization.
+        // Fall back to the whole cluster's ids when the compute group cannot be resolved
+        // (e.g. unit tests without a session); the wider set only skips the optimization
+        // more often and never breaks correctness.
+        Set<Long> localBackendIds;
+        try {
+            BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
+                    .needQueryAvailable()
+                    .setRequireAliveBe()
+                    .build();
+            ConnectContext context = ConnectContext.get();
+            if (context == null) {
+                context = new ConnectContext();
+            }
+            ComputeGroup computeGroup = context.getComputeGroupSafely();
+            localBackendIds = policy.getCandidateBackends(computeGroup.getBackendList()).stream()
+                    .map(Backend::getId)
+                    .collect(Collectors.toSet());
+        } catch (Exception e) {
+            localBackendIds = new HashSet<>(Env.getCurrentSystemInfo().getAllBackendIds());
+        }
+        return hasRemoteBackendIdConflict(remoteTables, localBackendIds);
+    }
+
+    /**
+     * Core conflict check with an explicitly given local id domain, so unit tests do not
+     * depend on the compute-group resolution above.
+     */
+    static boolean hasRemoteBackendIdConflict(Collection<RemoteOlapTable> remoteTables,
+            Set<Long> localBackendIds) {
         Set<Long> seenRemoteBackendIds = new HashSet<>();
         for (RemoteOlapTable remoteTable : remoteTables) {
             for (Long backendId : remoteTable.getAllBackendsByAllCluster().keySet()) {

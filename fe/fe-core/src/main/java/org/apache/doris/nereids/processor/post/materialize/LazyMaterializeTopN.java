@@ -167,9 +167,10 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         // MaterializationNode nodes info and the cross cluster multiget rpc). Backend ids of
         // clusters are independently allocated; any id collision (remote vs local, or remote
         // vs remote across catalogs) would silently route the fetch to a wrong backend, so
-        // skip the rewrite and fall back to normal execution. Resolving the remote table may
-        // issue metadata rpcs (arrow flight mode), degrade on failure too.
-        List<RemoteOlapTable> remoteTables = new ArrayList<>();
+        // skip the rewrite and fall back to normal execution. Degrade on resolve failure too.
+        // Tables of the same remote catalog share one backend map, so dedupe by catalog:
+        // a self join or two tables from one catalog must not be treated as a conflict.
+        Map<Long, RemoteOlapTable> catalogToRemoteTable = new HashMap<>();
         for (Relation relation : relationToLazySlotMap.keySet()) {
             if (!(relation instanceof CatalogRelation)) {
                 continue;
@@ -178,7 +179,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             try {
                 RemoteOlapTable remoteTable = RemoteDorisExternalCatalog.getRemoteOlapTable(relationTable);
                 if (remoteTable != null) {
-                    remoteTables.add(remoteTable);
+                    catalogToRemoteTable.putIfAbsent(remoteTable.getCatalog().getId(), remoteTable);
                 }
             } catch (Exception e) {
                 LOG.warn("Skip TopN lazy materialization: failed to resolve remote doris table {}",
@@ -186,10 +187,10 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                 return topN;
             }
         }
-        if (!remoteTables.isEmpty()
-                && RemoteDorisExternalCatalog.hasRemoteBackendIdConflict(remoteTables)) {
+        if (!catalogToRemoteTable.isEmpty()
+                && RemoteDorisExternalCatalog.hasRemoteBackendIdConflict(catalogToRemoteTable.values())) {
             LOG.warn("Skip TopN lazy materialization: backend id collides between the local"
-                    + " cluster and remote doris cluster(s), tables={}", remoteTables);
+                    + " cluster and remote doris cluster(s), tables={}", catalogToRemoteTable.values());
             return topN;
         }
         for (Relation relation : relationToLazySlotMap.keySet()) {

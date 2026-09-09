@@ -46,6 +46,7 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/io_common.h"
+#include "runtime/cluster_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"      // ExecEnv
 #include "runtime/fragment_mgr.h"  // FragmentMgr

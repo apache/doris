@@ -40,6 +40,7 @@ import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanNode;
@@ -1324,7 +1325,7 @@ public class LocalShuffleNodeCoverageTest {
         }
 
         @Override
-        public void initNodeInfo() {
+        public void initNodeInfo(List<Backend> remoteBackends) {
         }
     }
 }

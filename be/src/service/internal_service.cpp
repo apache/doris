@@ -90,6 +90,7 @@
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/cdc_client_mgr.h"
+#include "runtime/cluster_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"

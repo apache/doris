@@ -17,38 +17,22 @@
 
 package org.apache.doris.datasource.doris;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class RemoteDorisExternalCatalogTest {
 
-    private Backend localBackend1;
-    private Backend localBackend2;
-
-    @Before
-    public void setUp() {
-        localBackend1 = new Backend(1L, "192.168.1.1", 9050);
-        localBackend2 = new Backend(2L, "192.168.1.2", 9050);
-        Env.getCurrentSystemInfo().addBackend(localBackend1);
-        Env.getCurrentSystemInfo().addBackend(localBackend2);
-    }
-
-    @After
-    public void tearDown() throws Exception {
-        Env.getCurrentSystemInfo().dropBackend(localBackend1.getId());
-        Env.getCurrentSystemInfo().dropBackend(localBackend2.getId());
-    }
+    private final Set<Long> localBackendIds = new HashSet<>(Arrays.asList(1L, 2L));
 
     private RemoteOlapTable remoteTableWithBackends(Map<Long, Backend> backends) {
         return new RemoteOlapTable() {
@@ -64,8 +48,8 @@ public class RemoteDorisExternalCatalogTest {
         RemoteOlapTable remoteTable = remoteTableWithBackends(ImmutableMap.of(
                 100L, new Backend(100L, "10.1.1.1", 9050),
                 101L, new Backend(101L, "10.1.1.2", 9050)));
-        Assert.assertFalse(RemoteDorisExternalCatalog
-                .hasRemoteBackendIdConflict(Collections.singletonList(remoteTable)));
+        Assertions.assertFalse(RemoteDorisExternalCatalog
+                .hasRemoteBackendIdConflict(Collections.singletonList(remoteTable), localBackendIds));
     }
 
     @Test
@@ -74,8 +58,8 @@ public class RemoteDorisExternalCatalogTest {
         RemoteOlapTable remoteTable = remoteTableWithBackends(ImmutableMap.of(
                 100L, new Backend(100L, "10.1.1.1", 9050),
                 1L, new Backend(1L, "10.1.1.2", 9050)));
-        Assert.assertTrue(RemoteDorisExternalCatalog
-                .hasRemoteBackendIdConflict(Collections.singletonList(remoteTable)));
+        Assertions.assertTrue(RemoteDorisExternalCatalog
+                .hasRemoteBackendIdConflict(Collections.singletonList(remoteTable), localBackendIds));
     }
 
     @Test
@@ -86,12 +70,13 @@ public class RemoteDorisExternalCatalogTest {
         RemoteOlapTable remoteTableB = remoteTableWithBackends(ImmutableMap.of(
                 200L, new Backend(200L, "10.2.1.1", 9050)));
         List<RemoteOlapTable> remoteTables = Arrays.asList(remoteTableA, remoteTableB);
-        Assert.assertTrue(RemoteDorisExternalCatalog.hasRemoteBackendIdConflict(remoteTables));
+        Assertions.assertTrue(RemoteDorisExternalCatalog
+                .hasRemoteBackendIdConflict(remoteTables, localBackendIds));
     }
 
     @Test
     public void testNoRemoteTable() {
-        Assert.assertFalse(RemoteDorisExternalCatalog
-                .hasRemoteBackendIdConflict(Collections.emptyList()));
+        Assertions.assertFalse(RemoteDorisExternalCatalog
+                .hasRemoteBackendIdConflict(Collections.emptyList(), localBackendIds));
     }
 }

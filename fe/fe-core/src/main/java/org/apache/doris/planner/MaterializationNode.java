@@ -169,9 +169,14 @@ public class MaterializationNode extends PlanNode {
         for (Backend backend : policy.getCandidateBackends(computeGroup.getBackendList())) {
             nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
-        // remote doris catalog backends; id conflicts are rejected before the plan rewrite
+        // Remote doris catalog backends. Skip the dead ones, as the local policy above does:
+        // the remote meta cache may still advertise them and an unreachable entry makes the
+        // second phase fetch fail eagerly. Id conflicts are rejected before the plan rewrite
         // (LazyMaterializeTopN), so no check here.
         for (Backend backend : remoteBackends) {
+            if (!backend.isAlive()) {
+                continue;
+            }
             nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
     }
