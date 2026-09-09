@@ -618,14 +618,18 @@ build_snappy() {
 
     local snappy_cxx_flags="-O3"
     case "$(uname -m)" in
-        x86_64)
-            # Enable Snappy's vectorized paths within the BE's SSE4.2 baseline.
-            snappy_cxx_flags+=" -mssse3"
-            ;;
-        aarch64|arm64)
-            # Match the BE ARM baseline so Snappy can use NEON CRC32 hashing.
-            snappy_cxx_flags+=" -march=${ARM_MARCH:-armv8-a+crc}"
-            ;;
+    x86_64)
+        # Match the BE's SSE4.2 baseline and optional AVX2 target.
+        snappy_cxx_flags+=" -msse4.2"
+        case "${USE_AVX2:-ON}" in
+        0 | OFF | off | FALSE | false | NO | no) ;;
+        *) snappy_cxx_flags+=" -mavx2" ;;
+        esac
+        ;;
+    aarch64 | arm64)
+        # Match the BE ARM baseline so Snappy can use NEON CRC32 hashing.
+        snappy_cxx_flags+=" -march=${ARM_MARCH:-armv8-a+crc}"
+        ;;
     esac
 
     mkdir -p "${BUILD_DIR}"

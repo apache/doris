@@ -4,8 +4,9 @@ This file contains version of the third-party dependency libraries in the build-
 
 ## 20260909
 
-- Modified: snappy 1.1.10 -> 1.2.1. Enable x86 SSSE3 paths and ARM CRC32 hashing
-  within the BE's instruction-set baseline (`ARM_MARCH`, default `armv8-a+crc`).
+- Modified: snappy 1.1.10 -> 1.2.1. Enable x86 SSE4.2 paths and AVX2 by default;
+  use `USE_AVX2=0` or `OFF` when building third-party libraries for a non-AVX2 BE.
+  Enable ARM CRC32 hashing through `ARM_MARCH` (default `armv8-a+crc`).
   Retain RTTI for `SnappySlicesSource` and remove the sign-compare patch already
   included upstream.
 
