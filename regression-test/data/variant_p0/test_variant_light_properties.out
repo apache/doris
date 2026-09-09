@@ -102,3 +102,15 @@
 -- !rowstore_short_circuit_enabled --
 1	{"a":"001"}
 
+-- !sparse_promotion_before --
+0	{"lost":"old","row":0}
+1	{"fresh":7,"row":1}
+
+-- !sparse_promotion_after --
+0	{"lost":"old","row":0}
+1	{"fresh":7,"row":1}
+
+-- !sparse_promotion_path --
+0	old
+1	\N
+

@@ -121,4 +121,27 @@ suite("test_variant_light_properties", "p0") {
         sql """ALTER TABLE test_variant_light_properties_rowstore MODIFY COLUMN v VARIANT<'a': INT>"""
         exception "Can not change variant schema templates on a row-store table"
     }
+
+    // A sparse-only old path must survive promotion to an unlimited path budget.
+    setBeConfigTemporary([enable_vertical_compaction: true,
+                          enable_vertical_compact_variant_subcolumns: true,
+                          enable_ordered_data_compaction: false]) {
+        sql "DROP TABLE IF EXISTS test_variant_count_sparse_promotion"
+        sql """CREATE TABLE test_variant_count_sparse_promotion (
+            id INT, v VARIANT<PROPERTIES("variant_max_subcolumns_count"="1",
+                "variant_max_sparse_column_statistics_size"="1")>)
+            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES("replication_num"="1", "disable_auto_compaction"="true")"""
+        sql """INSERT INTO test_variant_count_sparse_promotion VALUES
+            (0, parse_to_variant('{"row":0,"lost":"old"}'))"""
+        sql """ALTER TABLE test_variant_count_sparse_promotion MODIFY COLUMN v
+            VARIANT<PROPERTIES("variant_max_subcolumns_count"="0",
+                "variant_max_sparse_column_statistics_size"="1")>"""
+        sql """INSERT INTO test_variant_count_sparse_promotion VALUES
+            (1, parse_to_variant('{"row":1,"fresh":7}'))"""
+        order_qt_sparse_promotion_before "SELECT id, v FROM test_variant_count_sparse_promotion"
+        trigger_and_wait_compaction("test_variant_count_sparse_promotion", "full")
+        order_qt_sparse_promotion_after "SELECT id, v FROM test_variant_count_sparse_promotion"
+        order_qt_sparse_promotion_path "SELECT id, v['lost'] FROM test_variant_count_sparse_promotion"
+    }
 }
