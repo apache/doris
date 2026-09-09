@@ -24,7 +24,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -48,8 +48,9 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
     public static final String SNAPSHOT_ID = "snapshot_id";
 
     public IcebergCherrypickSnapshotAction(Map<String, String> properties,
-            Optional<PartitionNamesInfo> partitionNamesInfo, Optional<Expression> whereCondition) {
-        super("cherrypick_snapshot", properties, partitionNamesInfo, whereCondition);
+            Optional<PartitionNamesInfo> partitionNamesInfo, Optional<Expression> whereCondition,
+            IcebergMetadataOps metadataOps) {
+        super("cherrypick_snapshot", properties, partitionNamesInfo, whereCondition, metadataOps);
     }
 
     @Override
@@ -70,7 +71,7 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = ((IcebergExternalTable) table).getWritableIcebergTable();
+        Table icebergTable = getWritableIcebergTable(table);
         Long sourceSnapshotId = namedArguments.getLong(SNAPSHOT_ID);
 
         try {

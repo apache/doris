@@ -24,9 +24,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache.CatalogGenerationChangedException;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -47,6 +50,7 @@ import java.util.Optional;
  * [WHERE condition]
  */
 public class ExecuteActionCommand extends Command implements ForwardWithSync {
+    private static final int MAX_CATALOG_GENERATION_RETRIES = 1;
     private final TableNameInfo tableNameInfo;
     private final String actionName;
     private final Map<String, String> properties;
@@ -96,15 +100,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
         }
 
         try {
-            ExecuteAction action = ExecuteActionFactory.createAction(
-                    actionName, properties, partitionNamesInfo, whereCondition, table);
-
-            if (!action.isSupported(table)) {
-                throw new AnalysisException("Action '" + actionName + "' is not supported for this table engine");
-            }
-
-            action.validate(tableNameInfo, ctx.getCurrentUserIdentity());
-            ResultSet resultSet = executeAuthenticated(action, (ExternalTable) table);
+            ResultSet resultSet = executeWithCatalogGenerationRetry(ctx, table);
             logRefreshTable(table, System.currentTimeMillis());
             if (resultSet != null) {
                 executor.sendResultSet(resultSet);
@@ -144,14 +140,46 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
         return whereCondition;
     }
 
-    private ResultSet executeAuthenticated(ExecuteAction action, ExternalTable table) throws Exception {
+    private ResultSet executeWithCatalogGenerationRetry(ConnectContext ctx, TableIf table) throws Exception {
+        ExternalTable externalTable = (ExternalTable) table;
+        ExternalCatalog catalog = externalTable.getCatalog();
+        for (int retry = 0; ; retry++) {
+            try {
+                ExecuteAction action;
+                ExecutionAuthenticator authenticator;
+                synchronized (catalog) {
+                    // Reset also holds this monitor, so the action's metadata ops and
+                    // authenticator form one generation.
+                    catalog.makeSureInitialized();
+                    action = ExecuteActionFactory.createAction(
+                            actionName, properties, partitionNamesInfo, whereCondition, table);
+                    authenticator = catalog.getExecutionAuthenticator();
+                }
+                if (!action.isSupported(table)) {
+                    throw new AnalysisException("Action '" + actionName + "' is not supported for this table engine");
+                }
+                action.validate(tableNameInfo, ctx.getCurrentUserIdentity());
+                return executeAuthenticated(action, externalTable, authenticator);
+            } catch (CatalogGenerationChangedException e) {
+                // A generation fence fails before mutation, so rebuilding the action is safe;
+                // never retry commit errors.
+                if (retry >= MAX_CATALOG_GENERATION_RETRIES) {
+                    throw new UserException(e.getMessage(), e);
+                }
+            }
+        }
+    }
+
+    private ResultSet executeAuthenticated(ExecuteAction action, ExternalTable table,
+            ExecutionAuthenticator authenticator) throws Exception {
         try {
-            // Iceberg tables retain filesystem configuration, not the caller's UGI, so table loading and
-            // metadata commits must stay within one catalog authentication scope.
-            return table.getCatalog().getExecutionAuthenticator().execute(() -> {
+            // Iceberg tables retain filesystem configuration, not the caller's UGI, so loading the table and
+            // committing its metadata must stay within one catalog authentication scope.
+            return authenticator.execute(() -> {
                 try {
                     return action.execute(table);
                 } catch (UserException e) {
+                    // Hadoop doAs obscures checked exceptions, so carry this one across as a runtime exception.
                     throw new AuthenticatedActionException(e);
                 }
             });
