@@ -31,14 +31,16 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 /**
  * Persistence coverage for the Lance index job infrastructure: the manager image
  * write/read round trip (including the fence-index and quota rebuild in
- * gsonPostProcess), the journal mounting point for op code 500
- * ({@link OperationType#OP_LANCE_INDEX_JOB_UPSERT}) through
+ * gsonPostProcess), the journal mounting points for op code 500
+ * ({@link OperationType#OP_LANCE_INDEX_JOB_UPSERT}) and op code 501
+ * ({@link OperationType#OP_LANCE_INDEX_JOB_REMOVE}) through
  * {@link JournalEntity#write}/{@link JournalEntity#readFields}, the single-record Gson
  * round trip field by field, and the bounded-text rejection at construction time.
  */
@@ -269,6 +271,54 @@ public class LanceIndexJobManagerPersistTest {
     }
 
     @Test
+    public void journalEntityRoundtripUsesOpCode501() throws Exception {
+        LanceIndexJobRemoveOperation operation = new LanceIndexJobRemoveOperation(Arrays.asList(7L, 3L, 12L));
+
+        ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+        DataOutputStream output = new DataOutputStream(byteStream);
+        JournalEntity journalEntity = new JournalEntity();
+        journalEntity.setData(operation);
+        journalEntity.setOpCode(OperationType.OP_LANCE_INDEX_JOB_REMOVE);
+        journalEntity.write(output);
+        output.flush();
+
+        JournalEntity replayed = new JournalEntity();
+        replayed.readFields(new DataInputStream(new ByteArrayInputStream(byteStream.toByteArray())));
+
+        Assertions.assertEquals(OperationType.OP_LANCE_INDEX_JOB_REMOVE, replayed.getOpCode());
+        Assertions.assertEquals(501, replayed.getOpCode());
+        Assertions.assertTrue(replayed.getData() instanceof LanceIndexJobRemoveOperation);
+        Assertions.assertEquals(Arrays.asList(7L, 3L, 12L),
+                ((LanceIndexJobRemoveOperation) replayed.getData()).getJobIds());
+    }
+
+    @Test
+    public void managerImageShrinksAfterRetentionGc() throws Exception {
+        TestManager source = new TestManager();
+        source.createJob(newCreateJob(1L, "IdxGone"), 100, 100, 100);
+        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, 9999L);
+        source.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
+                        LanceIndexJobCompletionReason.NONE, "lost", false));
+        Assertions.assertTrue(source.forceRelease(1L, 2L, "admin", "note", "warning"));
+        source.createJob(newCreateJob(2L, "IdxStay"), 100, 100, 100);
+        Assertions.assertEquals(Collections.singletonList(1L), source.removeResolvedJobsOlderThan(-1L, 1024));
+
+        ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+        source.write(new DataOutputStream(byteStream));
+        LanceIndexJobManager loaded =
+                LanceIndexJobManager.read(new DataInputStream(new ByteArrayInputStream(byteStream.toByteArray())));
+
+        // The GC'd record never reaches the image; the unresolved survivor keeps its
+        // fence and quota through the gsonPostProcess rebuild.
+        Assertions.assertEquals(1, loaded.getJobCount());
+        Assertions.assertNull(loaded.getJob(1L));
+        Assertions.assertNotNull(loaded.getJob(2L));
+        Assertions.assertEquals(1L, loaded.getQuota().getGlobalCount());
+        Assertions.assertTrue(loaded.isFenceHeld(loaded.getJob(2L).fenceKey()));
+    }
+
+    @Test
     public void jobStreamRoundtripPreservesAllFields() throws Exception {
         LanceIndexJob job = fullyPopulatedJob();
 
@@ -446,11 +496,16 @@ public class LanceIndexJobManagerPersistTest {
     }
 
     /**
-     * Edit-log seam: captures every durable record instead of writing the journal.
+     * Edit-log seams: no journal in a pure persistence unit test.
      */
     private static class TestManager extends LanceIndexJobManager {
         @Override
         protected void writeEditLog(LanceIndexJob job) {
+            // No journal in a pure persistence unit test.
+        }
+
+        @Override
+        protected void writeRemoveLog(List<Long> jobIds) {
             // No journal in a pure persistence unit test.
         }
     }
