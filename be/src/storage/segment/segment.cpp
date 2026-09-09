@@ -343,7 +343,11 @@ io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t 
 }
 
 int64_t Segment::get_metadata_size() const {
-    std::shared_ptr<SegmentFooterPB> footer_pb_shared = _footer_pb.lock();
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared;
+    {
+        std::lock_guard<std::mutex> lock(_footer_pb_lock);
+        footer_pb_shared = _footer_pb.lock();
+    }
     return sizeof(Segment) + (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0) +
            (footer_pb_shared ? footer_pb_shared->ByteSizeLong() : 0);
 }
@@ -1346,7 +1350,11 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
 Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
                                     OlapReaderStatistics* stats,
                                     const io::IOContext* source_io_ctx) {
-    std::shared_ptr<SegmentFooterPB> footer_pb_shared = _footer_pb.lock();
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared;
+    {
+        std::lock_guard<std::mutex> lock(_footer_pb_lock);
+        footer_pb_shared = _footer_pb.lock();
+    }
     if (footer_pb_shared != nullptr) {
         footer_pb = footer_pb_shared;
         return Status::OK();
@@ -1379,7 +1387,10 @@ Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
                                   _file_reader->size() - 12);
     }
     footer_pb_shared = cache_handle.get<std::shared_ptr<SegmentFooterPB>>();
-    _footer_pb = footer_pb_shared;
+    {
+        std::lock_guard<std::mutex> lock(_footer_pb_lock);
+        _footer_pb = footer_pb_shared;
+    }
     footer_pb = footer_pb_shared;
     return Status::OK();
 }
