@@ -105,7 +105,7 @@ class AzureFileSystemPropertiesTest {
                 "azure.account_name", "account", "azure.account_key", "key"));
         StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
                 () -> properties.validateAndNormalizeUri(
-                        "abfss://container@account.dfs.core.windows.net/%GG?sig=secret-signature"));
+                        "https://account.blob.core.windows.net/container/%GG?sig=secret-signature"));
 
         Assertions.assertEquals("Invalid Azure URI", error.getMessage());
         Assertions.assertEquals("Invalid percent encoding in Azure object path", error.getCause().getMessage());

@@ -126,10 +126,10 @@ class AzureUriTest {
     // ---------------------------------------------------------------------
 
     @Test
-    void parse_decodesPercentEncodedKey() throws IOException {
+    void parse_preservesLiteralAdlsPercentSequences() throws IOException {
         AzureUri uri = AzureUri.parse(
                 "wasbs://mycontainer@myaccount.blob.core.windows.net/dir/with%20space/a%2Bb.csv");
-        Assertions.assertEquals("dir/with space/a+b.csv", uri.key());
+        Assertions.assertEquals("dir/with%20space/a%2Bb.csv", uri.key());
         Assertions.assertEquals("mycontainer", uri.container());
     }
 
@@ -171,9 +171,9 @@ class AzureUriTest {
     }
 
     @Test
-    void toString_percentEncodesKey_keepsSlashes() throws IOException {
-        // Input contains percent-encoded space (%20) and percent-encoded '+' (%2B);
-        // round-tripping through parse/toString must preserve them and keep '/' literal.
+    void toString_preservesLiteralAdlsName() throws IOException {
+        // ADLSLocation treats these percent sequences as object-name characters.
+        // Rendering must not change them before the next SDK call.
         AzureUri uri = AzureUri.parse(
                 "wasbs://mycontainer@myaccount.blob.core.windows.net/dir/with%20space/a%2Bb.csv");
         Assertions.assertEquals(
@@ -267,9 +267,7 @@ class AzureUriTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"abfss://container@account.dfs.core.windows.net/",
-            "wasbs://container@account.blob.core.windows.net/",
-            "https://account.blob.core.windows.net/container/", "s3://container/"})
+    @ValueSource(strings = {"https://account.blob.core.windows.net/container/", "s3://container/"})
     void parse_decodesPathOnceWithoutChangingPlusOrSeparators(String prefix) throws IOException {
         AzureUri uri = AzureUri.parse(prefix + "/dir//http://example/a+b%2Bc%252F%20file%3F%23");
 
@@ -278,6 +276,28 @@ class AzureUriTest {
         Assertions.assertEquals(uri.key(), roundTrip.key());
         Assertions.assertEquals(uri.accountName(), roundTrip.accountName());
         Assertions.assertEquals(uri.container(), roundTrip.container());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"abfs", "abfss", "wasb", "wasbs"})
+    void parse_preservesAdlsNamesWithoutPercentDecoding(String scheme) throws IOException {
+        String key = "/dir//http://example/p=a%2Fb/a+b%2Bc%252F%20file%3F%23";
+        String location = scheme + "://container@account.dfs.core.windows.net/" + key;
+        AzureUri uri = AzureUri.parse(location);
+
+        Assertions.assertEquals(key, uri.key());
+        Assertions.assertEquals(location, uri.toString());
+        Assertions.assertEquals(key, AzureUri.parse(uri.toString()).key());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"%", "%2", "%GG"})
+    void parse_acceptsLiteralPercentCharactersInAdlsNames(String name) throws IOException {
+        String location = "abfss://container@account.dfs.core.windows.net/" + name;
+        AzureUri uri = AzureUri.parse(location);
+
+        Assertions.assertEquals(name, uri.key());
+        Assertions.assertEquals(location, uri.toString());
     }
 
     @Test
@@ -304,9 +324,9 @@ class AzureUriTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"%", "%2", "%GG"})
-    void parse_reportsMalformedEscapeWithoutLeakingQuery(String malformedEscape) {
+    void parse_reportsMalformedHttpEscapeWithoutLeakingQuery(String malformedEscape) {
         IOException error = Assertions.assertThrows(IOException.class, () -> AzureUri.parse(
-                "abfss://container@account.dfs.core.windows.net/" + malformedEscape + "?sig=secret-signature"));
+                "https://account.blob.core.windows.net/container/" + malformedEscape + "?sig=secret-signature"));
 
         Assertions.assertEquals("Invalid percent encoding in Azure object path", error.getMessage());
         Assertions.assertNull(error.getCause());

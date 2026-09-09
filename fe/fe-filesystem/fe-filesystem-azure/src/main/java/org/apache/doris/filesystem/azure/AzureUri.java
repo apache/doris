@@ -28,7 +28,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * Parsed Azure Blob Storage URI.
+ * Parsed Azure storage location or HTTP(S) URL.
  *
  * <p>Supported formats:
  * <ul>
@@ -66,9 +66,12 @@ public final class AzureUri {
      * Parses an Azure path into its components.
      *
      * <p>Strips any URL query string (everything after the first {@code ?}) and
-     * fragment (everything after the first {@code #}) before extracting the key,
-     * then percent-decodes the key once as UTF-8, preserving literal {@code +}
-     * characters and path separators. The container name is validated
+     * fragment (everything after the first {@code #}) before extracting the key.
+     * Iceberg ADLSFileIO passes ABFS/WASB object names literally to the Java SDK,
+     * including percent sequences; the SDK encodes them for transport. HTTP(S)
+     * keys are URL paths and are percent-decoded once as UTF-8. The existing S3
+     * compatibility decoding is unchanged. Literal {@code +} characters and path
+     * separators are preserved. The container name is validated
      * against Azure's naming rules and is NOT decoded (Azure containers are
      * required to be ASCII per the storage service contract).
      *
@@ -97,8 +100,7 @@ public final class AzureUri {
         }
 
         AzureUri parsed;
-        if (scheme.equals("wasb") || scheme.equals("wasbs")
-                || scheme.equals("abfs") || scheme.equals("abfss")) {
+        if (isAdlsScheme(scheme)) {
             parsed = parseWasbAbfs(scheme, rest);
         } else if (scheme.equals("https") || scheme.equals("http")) {
             parsed = parseHttps(scheme, rest);
@@ -124,7 +126,7 @@ public final class AzureUri {
         String container = authority.substring(0, atIdx);
         AzureAccountHost accountHost = parseAccountHost(authority.substring(atIdx + 1));
         String key = slashIdx < 0 ? "" : rest.substring(slashIdx + 1);
-        return new AzureUri(scheme, authority, accountHost, container, decodeKey(key));
+        return new AzureUri(scheme, authority, accountHost, container, key);
     }
 
     private static AzureUri parseHttps(String scheme, String rest) throws IOException {
@@ -185,6 +187,11 @@ public final class AzureUri {
         }
     }
 
+    private static boolean isAdlsScheme(String scheme) {
+        return scheme.equals("abfs") || scheme.equals("abfss")
+                || scheme.equals("wasb") || scheme.equals("wasbs");
+    }
+
     public String scheme() {
         return scheme;
     }
@@ -209,14 +216,16 @@ public final class AzureUri {
     /**
      * Renders this URI with its original scheme and complete authority, including the cloud suffix.
      *
-     * <p>The key is percent-encoded with UTF-8 so that any reserved or non-ASCII
-     * characters round-trip safely through SDK calls. Path separators ({@code /})
-     * are preserved literally; spaces are emitted as {@code %20} (not {@code +}).
+     * <p>ABFS/WASB names remain literal, matching ADLSLocation and avoiding a second
+     * encoding of percent characters on the next parse. HTTP(S) and the existing
+     * S3-compatible rendering percent-encode the key as UTF-8, preserving path
+     * separators ({@code /}) and emitting spaces as {@code %20} (not {@code +}).
      */
     @Override
     public String toString() {
         String containerPath = scheme.equals("http") || scheme.equals("https") ? "/" + container : "";
-        return scheme + "://" + authority + containerPath + "/" + encodeKey(key);
+        String renderedKey = isAdlsScheme(scheme) ? key : encodeKey(key);
+        return scheme + "://" + authority + containerPath + "/" + renderedKey;
     }
 
     private static String encodeKey(String raw) {
