@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -476,7 +477,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
 
     @Override
     public String computeToSql(SqlRenderMode mode) {
-        return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'";
+        return SqlLiteralUtils.quoteStringLiteral(value);
     }
 
     @Override

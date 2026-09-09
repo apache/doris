@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.parser.ParserTestBase;
 import org.apache.doris.nereids.trees.expressions.Expression.SqlRenderMode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
@@ -28,6 +29,8 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -35,7 +38,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.TreeMap;
 
-class ViewSqlRenderingTest {
+class ViewSqlRenderingTest extends ParserTestBase {
     @Test
     void testQualifiedExpressionAndIndependentCache() {
         SlotReference slot = new SlotReference(new ExprId(1), "a`b", IntegerType.INSTANCE,
@@ -55,7 +58,7 @@ class ViewSqlRenderingTest {
     void testSubPathAndStringEscaping() {
         SlotReference slot = new SlotReference(new ExprId(2), "payload", IntegerType.INSTANCE,
                 true, ImmutableList.of("t")).withSubPath(ImmutableList.of("user", "name"));
-        Assertions.assertEquals("`t`.`payload`['user']['name']", slot.toSql(SqlRenderMode.FOR_VIEW));
+        Assertions.assertEquals("`t`.`payload`[\"user\"][\"name\"]", slot.toSql(SqlRenderMode.FOR_VIEW));
         StringLiteral literal = new StringLiteral("O'Reilly");
         Expression parsed = new NereidsParser().parseExpression(literal.toSql(SqlRenderMode.FOR_VIEW));
         Assertions.assertEquals(literal, parsed);
@@ -93,6 +96,21 @@ class ViewSqlRenderingTest {
         Assertions.assertInstanceOf(Cast.class, parsed);
         Assertions.assertEquals(literal.getDataType(), parsed.getDataType());
         Assertions.assertEquals("'2026-01-02'", literal.toSql());
+    }
+
+    @Test
+    void testStringSqlModes() {
+        long originalMode = ConnectContext.get().getSessionVariable().getSqlMode();
+        try {
+            StringLiteral literal = new StringLiteral("C:\\new\\file O'Reilly");
+            for (long mode : new long[] {0, SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES}) {
+                ConnectContext.get().getSessionVariable().setSqlMode(mode);
+                Assertions.assertEquals(literal,
+                        new NereidsParser().parseExpression(literal.toSql(SqlRenderMode.FOR_VIEW)));
+            }
+        } finally {
+            ConnectContext.get().getSessionVariable().setSqlMode(originalMode);
+        }
     }
 
     @Test
