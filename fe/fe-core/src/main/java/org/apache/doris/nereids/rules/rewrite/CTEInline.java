@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
@@ -86,8 +87,13 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                 return false;
             });
             if (mustInlineCTEs.contains(cteAnchor.getCteId())) {
+                LogicalCTEProducer<?> cteProducer = (LogicalCTEProducer<?>) cteAnchor.left();
+                if (containsNondeterministicFunction(cteProducer)) {
+                    throw new AnalysisException("recursive cte must inline all used ctes, but inline is blocked by"
+                            + " none deterministic function");
+                }
                 // should inline
-                Plan root = cteAnchor.right().accept(this, (LogicalCTEProducer<?>) cteAnchor.left());
+                Plan root = cteAnchor.right().accept(this, cteProducer);
                 // process child
                 return root.accept(this, null);
             } else {
