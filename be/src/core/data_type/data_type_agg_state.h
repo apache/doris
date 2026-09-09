@@ -26,6 +26,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_fixed_length_object.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/data_type_string_serde.h"
@@ -43,8 +44,17 @@ public:
               _function_name(std::move(function_name)),
               _be_exec_version(be_exec_version) {
         DataTypePtr result_type;
-        auto arg_primitive_type = _sub_types[0]->get_primitive_type();
-        if (is_decimalv3(arg_primitive_type)) {
+        if (_sub_types.empty()) {
+            // count(*) has no input type from which to infer its result type.
+            if (_function_name != "count") {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Aggregate function {} does not support AggState with zero arguments",
+                        _function_name);
+            }
+            result_type = std::make_shared<DataTypeInt64>();
+        } else if (auto arg_primitive_type = _sub_types[0]->get_primitive_type();
+                   is_decimalv3(arg_primitive_type)) {
             // TODO: handle decimal256 correctly according to session var enable_decimal256
             int precision = 0;
             if (arg_primitive_type == PrimitiveType::TYPE_DECIMAL256) {
