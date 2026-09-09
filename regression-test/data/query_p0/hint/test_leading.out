@@ -2726,3 +2726,12 @@ SyntaxError:
 -- !select107_9 --
 3103
 
+-- !select_full_1 --
+753247
+
+-- !select_full_2 --
+756244
+
+-- !select_cross --
+794000
+
