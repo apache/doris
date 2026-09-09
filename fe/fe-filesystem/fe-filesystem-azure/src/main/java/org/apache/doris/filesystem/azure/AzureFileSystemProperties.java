@@ -245,6 +245,11 @@ public final class AzureFileSystemProperties
     }
 
     @Override
+    public void validateForAccess() {
+        validateSasExpiry(Clock.systemUTC());
+    }
+
+    @Override
     public String providerName() {
         return "AZURE";
     }
@@ -294,7 +299,7 @@ public final class AzureFileSystemProperties
 
     @Override
     public Map<String, String> toMap() {
-        validateSasExpiry(Clock.systemUTC());
+        validateForAccess();
         // Keep Azure's native credential vocabulary at the FE→BE boundary. The BE still receives
         // FILE_S3, but its provider marker dispatches this map to the Azure SDK. In particular,
         // an Azure SAS is not an AWS session token.
@@ -342,7 +347,7 @@ public final class AzureFileSystemProperties
 
     @Override
     public Map<String, String> toHadoopConfigurationMap() {
-        validateSasExpiry(Clock.systemUTC());
+        validateForAccess();
         Map<String, String> cfg = new HashMap<>();
         // No blanket ABFS/WASB cache disabling: the Doris-patched FileSystem keys its cache by the
         // per-scheme credential fingerprint below, so different credentials never share an

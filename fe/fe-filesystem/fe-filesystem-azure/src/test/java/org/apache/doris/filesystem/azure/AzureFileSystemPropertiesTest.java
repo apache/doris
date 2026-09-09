@@ -23,6 +23,7 @@ import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
@@ -371,6 +372,7 @@ class AzureFileSystemPropertiesTest {
                 "azure.sas_token", "si=stored-access-policy&sig=temporary"));
 
         Assertions.assertEquals("", properties.getSasExpiryMs());
+        Assertions.assertDoesNotThrow(properties::validateForAccess);
         Assertions.assertFalse(properties.toMap().containsKey("AZURE_SAS_EXPIRY_MS"));
     }
 
@@ -399,11 +401,45 @@ class AzureFileSystemPropertiesTest {
                 "AZURE_SAS_TOKEN", "sv=2024-01-01&sig=expired",
                 "AZURE_SAS_EXPIRY_MS", "1"));
 
+        StorageProperties bound = properties;
+        Assertions.assertDoesNotThrow(bound::validate);
+        StoragePropertiesException accessException = Assertions.assertThrows(StoragePropertiesException.class,
+                bound::validateForAccess);
+        Assertions.assertEquals("Azure SAS credential is expired", accessException.getMessage());
+        Assertions.assertNull(accessException.getCause());
+
         StoragePropertiesException exception = Assertions.assertThrows(StoragePropertiesException.class,
                 () -> properties.toMap());
 
         Assertions.assertTrue(exception.getMessage().contains("expired"), exception.getMessage());
         Assertions.assertThrows(StoragePropertiesException.class, properties::toHadoopConfigurationMap);
+    }
+
+    @Test
+    void validateForAccess_acceptsUnexpiredSas() {
+        StorageProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.sas_token", "sig=temporary",
+                "azure.sas_expiry_ms", "4102444800000"));
+
+        Assertions.assertDoesNotThrow(properties::validateForAccess);
+    }
+
+    @Test
+    void validateForAccess_doesNotApplySasExpiryToSharedKeyOrOAuth2() {
+        StorageProperties sharedKey = AzureFileSystemProperties.of(Map.of(
+                "azure.account_name", "account",
+                "azure.account_key", "key",
+                "azure.sas_expiry_ms", "1"));
+        StorageProperties oauth2 = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "OAuth2",
+                "azure.oauth2_account_host", "account.dfs.core.windows.net",
+                "azure.oauth2_client_id", "client-id",
+                "azure.oauth2_client_secret", "client-secret",
+                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token",
+                "azure.sas_expiry_ms", "1"));
+
+        Assertions.assertDoesNotThrow(sharedKey::validateForAccess);
+        Assertions.assertDoesNotThrow(oauth2::validateForAccess);
     }
 
     @Test

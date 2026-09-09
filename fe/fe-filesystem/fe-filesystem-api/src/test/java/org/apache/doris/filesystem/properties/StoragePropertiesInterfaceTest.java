@@ -34,6 +34,26 @@ class StoragePropertiesInterfaceTest {
         Assertions.assertTrue(properties instanceof StorageProperties);
     }
 
+    @Test
+    void accessValidationDefaultsToNoOp() {
+        StorageProperties properties = new TestProperties();
+
+        Assertions.assertDoesNotThrow(properties::validateForAccess);
+    }
+
+    @Test
+    void bindingValidationDoesNotPerformAccessValidation() {
+        StorageProperties properties = new TestProperties() {
+            @Override
+            public void validateForAccess() {
+                throw new IllegalArgumentException("Test credential is expired");
+            }
+        };
+
+        Assertions.assertDoesNotThrow(properties::validate);
+        Assertions.assertThrows(IllegalArgumentException.class, properties::validateForAccess);
+    }
+
     private static class TestProperties implements FileSystemProperties {
         @Override
         public String providerName() {

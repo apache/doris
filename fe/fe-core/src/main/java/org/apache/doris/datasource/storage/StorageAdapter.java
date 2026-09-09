@@ -423,8 +423,10 @@ public final class StorageAdapter {
      * <p>The returned map is a defensive copy: the Broker/Local/Http branch of
      * {@link #computeBackendConfigProperties()} hands back the caller's own raw property map, which
      * must not gain the injected keys nor any caller's later edits.
+     * Credential validity is checked on every access, independently of the map cache.
      */
     public Map<String, String> getBackendConfigProperties() {
+        spi.validateForAccess();
         if (backendConfigProperties == null) {
             Map<String, String> props = new HashMap<>(computeBackendConfigProperties());
             FsCacheKeys.putFsCacheKeys(props, spi);
@@ -450,9 +452,8 @@ public final class StorageAdapter {
                 // Align fe-core: Broker/Local/Http return the raw user properties verbatim.
                 return origProps;
             case AZURE:
-                // Provider-owned map for both SharedKey and SAS (and an explicit OAUTH2 marker
-                // that the native BE rejects until a complete Entra-ID path is available). Keep
-                // Azure out of the generic S3 key alignment below.
+                // Azure owns its authentication parameters; keep them out of the generic S3
+                // key alignment below.
                 return spi.toBackendProperties()
                         .orElseThrow(() -> new IllegalStateException(
                                 "Provider " + providerKey + " exposes no backend properties"))
@@ -542,8 +543,7 @@ public final class StorageAdapter {
 
     /**
      * Align the Azure catalog restriction that OAuth2 is supported only for the Iceberg REST
-     * catalog. This check reads catalog-level keys the SPI never sees, so it stays in the facade;
-     * native BE OAuth2 remains explicitly unsupported even for that catalog.
+     * catalog. This check reads catalog-level keys the SPI never sees, so it stays in the facade.
      */
     private void checkAzureOauth2OnlyForIcebergRest() {
         if (!"AZURE".equals(providerKey)) {

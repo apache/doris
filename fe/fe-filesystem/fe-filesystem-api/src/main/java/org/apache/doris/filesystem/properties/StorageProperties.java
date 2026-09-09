@@ -47,9 +47,22 @@ public interface StorageProperties {
     FileSystemType type();
 
     /**
-     * Validates the already-bound property model.
+     * Validates the format and required fields of the already-bound property model.
+     * This may run during metadata replay, so time-dependent checks belong in
+     * {@link #validateForAccess()} instead.
      */
     default void validate() {
+    }
+
+    /**
+     * Checks whether the bound credentials can be used now, for example against a known expiry.
+     * Callers must invoke this on each credential access, including when returning a cached
+     * configuration map. The default preserves providers without time-dependent validation.
+     *
+     * <p>This is local validation only: implementations must not perform I/O, refresh credentials,
+     * or mutate the binding. Invalid credentials must fail explicitly without exposing secrets.</p>
+     */
+    default void validateForAccess() {
     }
 
     /**
