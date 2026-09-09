@@ -43,9 +43,6 @@ public class BinlogGcer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(BinlogGcer.class);
     private static final long GC_DURATION_MS = 15 * 1000L; // 15s
 
-    // TODO(Drogon): use this to control gc frequency by real gc time waste sample
-    private long lastGcTime = 0L;
-
     public BinlogGcer() {
         super("binlog-gcer", GC_DURATION_MS);
     }

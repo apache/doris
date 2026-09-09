@@ -137,4 +137,19 @@ public class RestoreCommandTest extends TestWithFeService {
         Assertions.assertEquals(86400L * 1000, command.getTimeoutMs());
         Assertions.assertEquals("2025-06-12-11-15-20", command.getBackupTimestamp());
     }
+
+    @Test
+    public void testForceReplaceRequiresAtomicRestore() {
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, "label0");
+        Map<String, String> properties = ImmutableMap.of(
+                "backup_timestamp", "2025-06-12-11-15-20",
+                "force_replace", "true");
+        RestoreCommand command = new RestoreCommand(labelNameInfo, "testRepo",
+                new ArrayList<>(), properties, false);
+
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, command::analyzeProperties);
+        Assertions.assertTrue(exception.getMessage().contains(
+                "force_replace requires atomic_restore=true"));
+    }
 }

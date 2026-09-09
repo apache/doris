@@ -263,6 +263,7 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
     RETURN_IF_ERROR(ThreadPoolBuilder("BinlogCompactionTaskThreadPool")
                             .set_min_threads(binlog_compaction_threads)
                             .set_max_threads(binlog_compaction_threads)
+                            .set_max_queue_size(binlog_compaction_threads)
                             .build(&_binlog_compaction_thread_pool));
 
     if (config::enable_segcompaction) {
@@ -290,6 +291,7 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
             [this]() { this->_binlog_compaction_tasks_producer_callback(); },
             &_binlog_compaction_tasks_producer_thread));
     LOG(INFO) << "binlog compaction tasks producer thread started";
+    RETURN_IF_ERROR(_start_row_binlog_ttl_scanner());
 
     int32_t max_checkpoint_thread_num = config::max_meta_checkpoint_threads;
     if (max_checkpoint_thread_num < 0) {
@@ -1037,7 +1039,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 if (!_permit_limiter.try_request(permits)) {
                     _pop_tablet_from_submitted_compaction(tablet, compaction_type);
                     tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
-                    return Status::OK();
+                    return Status::TooManyTasks("Insufficient binlog compaction permits");
                 }
             } else {
                 _permit_limiter.request(permits);

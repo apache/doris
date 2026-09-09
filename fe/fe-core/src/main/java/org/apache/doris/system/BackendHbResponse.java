@@ -51,6 +51,8 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private boolean isShutDown = false;
     // The physical memory available for use by BE.
     private long beMemory = 0;
+    @SerializedName(value = "nodeFeatureFlags")
+    private long nodeFeatureFlags = 0;
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
@@ -150,6 +152,14 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public long getBeMemory() {
         return beMemory;
+    }
+
+    public long getNodeFeatureFlags() {
+        return nodeFeatureFlags;
+    }
+
+    public void setNodeFeatureFlags(long nodeFeatureFlags) {
+        this.nodeFeatureFlags = nodeFeatureFlags;
     }
 
     @Override

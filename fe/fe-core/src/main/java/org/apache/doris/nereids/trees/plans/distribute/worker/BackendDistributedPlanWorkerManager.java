@@ -31,6 +31,7 @@ import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -55,6 +56,8 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
     static {
         DUMMY_BACKEND = new Backend(-1, "dummy", -1);
         DUMMY_BACKEND.setAlive(true);
+        // Constant queries execute in this FE and support its current features.
+        DUMMY_BACKEND.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
     }
 
     private final Map<Long, Supplier<ImmutableMap<Long, Backend>>> allClusterBackends = Maps.newHashMap();

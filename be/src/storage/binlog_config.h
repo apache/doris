@@ -28,6 +28,9 @@ namespace doris {
 
 class TBinlogConfig;
 class BinlogConfigPB;
+class RowsetMeta;
+
+bool row_binlog_rowset_expired(const RowsetMeta& meta, int64_t cutoff);
 
 class BinlogConfig {
 public:
@@ -65,6 +68,15 @@ public:
     void set_need_historical_value(bool need_historical_value) {
         _need_historical_value = need_historical_value;
     }
+    bool row_ttl_enabled() const {
+        return _enable && is_row_binlog_format() && _effective_row_ttl_seconds >= 0;
+    }
+    // Legacy adapter, used when constructing historical configurations.
+    void set_row_ttl_enabled(bool enabled) {
+        _effective_row_ttl_seconds = enabled ? _ttl_seconds : -1;
+    }
+    int64_t effective_row_ttl_seconds() const { return _effective_row_ttl_seconds; }
+    int64_t row_ttl_cutoff_tso(int64_t reference_tso) const;
 
     bool is_ccr_binlog_format() const {
         return _binlog_format == BinlogFormatPB::STATEMENT_AND_SNAPSHOT;
@@ -84,6 +96,7 @@ private:
     int64_t _max_history_nums {std::numeric_limits<int64_t>::max()};
     BinlogFormatPB _binlog_format = BinlogFormatPB::STATEMENT_AND_SNAPSHOT;
     bool _need_historical_value {false};
+    int64_t _effective_row_ttl_seconds {-1};
 };
 
 } // namespace doris

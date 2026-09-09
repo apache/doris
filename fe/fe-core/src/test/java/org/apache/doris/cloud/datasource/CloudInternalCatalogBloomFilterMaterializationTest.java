@@ -41,6 +41,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class CloudInternalCatalogBloomFilterMaterializationTest {
@@ -64,7 +65,8 @@ public class CloudInternalCatalogBloomFilterMaterializationTest {
                         org.apache.doris.catalog.info.IndexType.BLOOMFILTER,
                         Map.of("bloom_filter_fpp", "0.02"), "")),
                 Lists.newArrayList(keyColumn, valueColumn), new DataSortInfo(TSortType.LEXICAL, 1),
-                TCompressionType.LZ4F, TStorageFormat.V2, "", false, false, "tbl", 0L, false, false, 1, null, "",
+                TCompressionType.LZ4F, TStorageFormat.V2, "", false, false, "tbl", 0L, -1L, Optional.empty(),
+                false, false, false, 1, null, "",
                 0L, 0L, 0L, 0L, 0L, false, null, TInvertedIndexFileStorageFormat.V2, 16384L, false, null,
                 65536L, EncryptionAlgorithmPB.PLAINTEXT, 262144L, false, Collections.emptyMap(), 5,
                 OlapFile.TabletRolePB.TABLET_ROLE_DATA).build();
@@ -90,7 +92,8 @@ public class CloudInternalCatalogBloomFilterMaterializationTest {
                 Lists.newArrayList(new Index(1L, "bf_k1", Lists.newArrayList("k1"),
                         org.apache.doris.catalog.info.IndexType.BLOOMFILTER, null, "")),
                 Lists.newArrayList(keyColumn), new DataSortInfo(TSortType.LEXICAL, 1),
-                TCompressionType.LZ4F, TStorageFormat.V2, "", false, false, "tbl", 0L, false, false, 1, null, "",
+                TCompressionType.LZ4F, TStorageFormat.V2, "", false, false, "tbl", 0L, -1L, Optional.empty(),
+                false, false, false, 1, null, "",
                 0L, 0L, 0L, 0L, 0L, false, null, TInvertedIndexFileStorageFormat.V2, 16384L, false, null,
                 65536L, EncryptionAlgorithmPB.PLAINTEXT, 262144L, false, Collections.emptyMap(), 5,
                 OlapFile.TabletRolePB.TABLET_ROLE_DATA).build();
@@ -110,7 +113,8 @@ public class CloudInternalCatalogBloomFilterMaterializationTest {
         OlapFile.TabletMetaCloudPB tabletMeta = catalog.createTabletMetaBuilder(1L, 1L, 1L, tablet,
                 TTabletType.TABLET_TYPE_DISK, 1, KeysType.DUP_KEYS, (short) 1, null, 0, Lists.newArrayList(),
                 Lists.newArrayList(keyColumn), new DataSortInfo(TSortType.LEXICAL, 1),
-                TCompressionType.LZ4F, TStorageFormat.V2, "", false, false, "tbl", 0L, false, false, 1, null, "",
+                TCompressionType.LZ4F, TStorageFormat.V2, "", false, false, "tbl", 0L, -1L, Optional.empty(),
+                false, false, false, 1, null, "",
                 0L, 0L, 0L, 0L, 0L, false, null, TInvertedIndexFileStorageFormat.V2, 16384L, false, null,
                 65536L, EncryptionAlgorithmPB.PLAINTEXT, 262144L, false, Collections.emptyMap(), 5,
                 OlapFile.TabletRolePB.TABLET_ROLE_DATA).build();
@@ -135,7 +139,8 @@ public class CloudInternalCatalogBloomFilterMaterializationTest {
                 TTabletType.TABLET_TYPE_DISK, 1, KeysType.DUP_KEYS, (short) 1, bfColumns, 0.02,
                 Lists.newArrayList(), Lists.newArrayList(keyColumn, valueColumn),
                 new DataSortInfo(TSortType.LEXICAL, 1), TCompressionType.LZ4F, TStorageFormat.V2,
-                "", false, false, "tbl", 0L, false, false, 1, null, "", 0L, 0L, 0L, 0L, 0L,
+                "", false, false, "tbl", 0L, -1L, Optional.empty(), false, false, false, 1, null, "",
+                0L, 0L, 0L, 0L, 0L,
                 false, null, TInvertedIndexFileStorageFormat.V2, 16384L, false, null, 65536L,
                 EncryptionAlgorithmPB.PLAINTEXT, 262144L, false, Collections.emptyMap(), 5,
                 OlapFile.TabletRolePB.TABLET_ROLE_DATA).build();
@@ -165,7 +170,8 @@ public class CloudInternalCatalogBloomFilterMaterializationTest {
                         Map.of("bloom_filter_fpp", "0.03"), "")),
                 Lists.newArrayList(shadowKeyColumn, valueColumn),
                 new DataSortInfo(TSortType.LEXICAL, 1), TCompressionType.LZ4F, TStorageFormat.V2,
-                "", false, true, "tbl", 0L, false, false, 1, null, "", 0L, 0L, 0L, 0L, 0L,
+                "", false, true, "tbl", 0L, -1L, Optional.empty(), false, false, false, 1, null, "",
+                0L, 0L, 0L, 0L, 0L,
                 false, null, TInvertedIndexFileStorageFormat.V2, 16384L, false, null, 65536L,
                 EncryptionAlgorithmPB.PLAINTEXT, 262144L, false, Collections.emptyMap(), 5,
                 OlapFile.TabletRolePB.TABLET_ROLE_DATA).build();

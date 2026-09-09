@@ -1011,6 +1011,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     public boolean updateDbProperties(Map<String, String> properties) throws DdlException {
         if (PropertyAnalyzer.hasBinlogConfig(properties)) {
             BinlogConfig oldBinlogConfig = getBinlogConfig();
+            BinlogConfig effectiveConfig = new BinlogConfig(oldBinlogConfig);
+            effectiveConfig.mergeFromProperties(properties);
+            if (effectiveConfig.isEnableForStreaming()
+                    && properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
+                    && effectiveConfig.getTtlSeconds() <= 0) {
+                throw new DdlException("ROW binlog.ttl_seconds must be greater than 0");
+            }
             BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
 
             if (newBinlogConfig.isEnableForCCR() && !oldBinlogConfig.isEnableForCCR()) {
@@ -1052,16 +1059,24 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
      * table binlog config after applying table properties.
      */
     public Pair<BinlogConfig, BinlogConfig> getBinlogConfigsForCreateTable(
-            Map<String, String> tableProperties) {
+            Map<String, String> tableProperties) throws AnalysisException {
         BinlogConfig dbBinlogConfig;
+        boolean dbHasRowBinlogTtl;
         readLock();
         try {
             dbBinlogConfig = new BinlogConfig(binlogConfig);
+            dbHasRowBinlogTtl = dbProperties.getProperties().containsKey(
+                    PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS);
         } finally {
             readUnlock();
         }
         BinlogConfig createTableBinlogConfig = new BinlogConfig(dbBinlogConfig);
         createTableBinlogConfig.mergeFromProperties(tableProperties);
+        if (createTableBinlogConfig.isEnableForStreaming()) {
+            long ttl = tableProperties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
+                    || dbHasRowBinlogTtl ? createTableBinlogConfig.getTtlSeconds() : BinlogConfig.TTL_SECONDS;
+            createTableBinlogConfig.applyExplicitRowTtl(ttl);
+        }
         return Pair.of(dbBinlogConfig, createTableBinlogConfig);
     }
 

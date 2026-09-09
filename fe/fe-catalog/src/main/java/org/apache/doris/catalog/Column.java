@@ -79,6 +79,8 @@ public class Column implements GsonPostProcessable {
     // For time-travel (FOR VERSION/TIME AS OF) on duplicate / mow tables with row binlog enabled.
     public static final String COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
     public static final String ROW_LSN_COL = "__DORIS_ROW_LSN_COL__";
+    // Stores the final row expiration time as Unix epoch microseconds. NULL never expires.
+    public static final String TTL_COL = "__DORIS_TTL_COL__";
     // table stream columns
     public static final String STREAM_CHANGE_TYPE_COL = "__DORIS_STREAM_CHANGE_TYPE_COL__";
     public static final String STREAM_SEQ_COL = "__DORIS_STREAM_SEQUENCE_COL__";
@@ -554,6 +556,12 @@ public class Column implements GsonPostProcessable {
 
     public boolean isRowLsnColumn() {
         return !visible && aggregationType == AggregateType.NONE && nameEquals(ROW_LSN_COL, true);
+    }
+
+    public boolean isTtlColumn() {
+        return !visible && (aggregationType == AggregateType.REPLACE
+                || aggregationType == AggregateType.NONE || aggregationType == null)
+                && nameEquals(TTL_COL, true);
     }
 
     // now we only support BloomFilter on (same behavior with BE):

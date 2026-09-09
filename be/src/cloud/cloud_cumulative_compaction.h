@@ -72,9 +72,10 @@ public:
     int64_t get_input_rowsets_bytes() const { return _input_rowsets_total_size; }
     int64_t get_input_num_rows() const { return _input_row_num; }
 
-private:
+protected:
     Status advance_cumulative_point_before_pick(int64_t min_conflict_version);
 
+private:
     Status pick_rowsets_to_compact();
 
     Status prepare_merge_input_rowsets(MergeInputRowsetsResult* result) override;

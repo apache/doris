@@ -41,11 +41,20 @@ public class DownloadTask extends AgentTask {
 
     // for cloud mode
     private String storageVaultId;
+    private final boolean rowTtlTask;
 
 
     public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
             Map<String, String> srcToDestPath, FsBroker brokerAddr, Map<String, String> brokerProperties,
             StorageBackend.StorageType storageType, String location, String storageVaultId) {
+        this(resourceInfo, backendId, signature, jobId, dbId, srcToDestPath, brokerAddr,
+                brokerProperties, storageType, location, storageVaultId, false);
+    }
+
+    public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
+            Map<String, String> srcToDestPath, FsBroker brokerAddr, Map<String, String> brokerProperties,
+            StorageBackend.StorageType storageType, String location, String storageVaultId,
+            boolean rowTtlTask) {
         super(resourceInfo, backendId, TTaskType.DOWNLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = srcToDestPath;
@@ -55,15 +64,22 @@ public class DownloadTask extends AgentTask {
         this.location = location;
         this.isFromLocalSnapshot = false;
         this.storageVaultId = storageVaultId;
+        this.rowTtlTask = rowTtlTask;
     }
 
     public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
                         List<TRemoteTabletSnapshot> remoteTabletSnapshots) {
+        this(resourceInfo, backendId, signature, jobId, dbId, remoteTabletSnapshots, false);
+    }
+
+    public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
+            List<TRemoteTabletSnapshot> remoteTabletSnapshots, boolean rowTtlTask) {
         super(resourceInfo, backendId, TTaskType.DOWNLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = new java.util.HashMap<String, String>();
         this.remoteTabletSnapshots = remoteTabletSnapshots;
         this.isFromLocalSnapshot = true;
+        this.rowTtlTask = rowTtlTask;
     }
 
     public long getJobId() {
@@ -84,6 +100,11 @@ public class DownloadTask extends AgentTask {
 
     public void updateBrokerProperties(Map<String, String> brokerProperties) {
         this.brokerProperties = new java.util.HashMap<>(brokerProperties);
+    }
+
+    @Override
+    public boolean isRowTtlTask() {
+        return rowTtlTask;
     }
 
     public TDownloadReq toThrift() {

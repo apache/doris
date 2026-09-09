@@ -25,6 +25,9 @@
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
 #include "json2pb/json_to_pb.h"
+#include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
+#include "storage/binlog.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/storage_engine.h"
@@ -38,7 +41,9 @@ class TestBinlogCumulativeCompactionPolicy : public testing::Test {
 public:
     TestBinlogCumulativeCompactionPolicy() : _engine(StorageEngine({})) {}
 
-    void SetUp() {
+    void SetUp() override {
+        _previous_cluster = ExecEnv::GetInstance()->cluster_info();
+        ExecEnv::GetInstance()->set_cluster_info(&_cluster);
         config::binlog_compaction_goal_size_mbytes = 128;
         config::binlog_compaction_file_count_threshold = 100;
         config::binlog_level_compaction_max_deltas = 2000;
@@ -73,7 +78,7 @@ public:
             "num_segments": 1
         })";
     }
-    void TearDown() {}
+    void TearDown() override { ExecEnv::GetInstance()->set_cluster_info(_previous_cluster); }
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end,
                       int8_t compaction_level) {
@@ -156,6 +161,8 @@ public:
 protected:
     std::string _json_rowset_meta;
     StorageEngine _engine;
+    ClusterInfo _cluster;
+    ClusterInfo* _previous_cluster = nullptr;
     TabletMetaSharedPtr _tablet_meta;
 };
 
@@ -218,6 +225,44 @@ TEST_F(TestBinlogCumulativeCompactionPolicy, calc_l0_score) {
     // L0 rowsets: [0-0] -> 4 (overlapping), [1-1] -> 1. total = 5.
     EXPECT_EQ(5, score);
     EXPECT_EQ(0, prefer_level);
+}
+
+TEST_F(TestBinlogCumulativeCompactionPolicy, expired_rowset_has_minimum_schedule_score) {
+    RowsetMetaSharedPtr rowset(new RowsetMeta());
+    init_rs_meta(rowset, 0, 0, 0);
+    rowset->set_commit_tso(100);
+    ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset).ok());
+
+    BinlogConfig binlog_config(true, 0, 1024, 10, BinlogFormatPB::ROW, false);
+    binlog_config.set_row_ttl_enabled(true);
+    _tablet_meta->set_binlog_config(std::move(binlog_config));
+    _cluster.advance_row_binlog_ttl_reference_tso(100);
+    TabletSharedPtr tablet(new Tablet(_engine, _tablet_meta, nullptr));
+    ASSERT_TRUE(tablet->init().ok());
+
+    int8_t prefer_level = -1;
+    EXPECT_EQ(
+            dynamic_cast<BinlogCumulativeCompactionPolicy*>(tablet->cumulative_compaction_policy())
+                    ->calc_binlog_compaction_score(tablet.get(), &prefer_level),
+            1);
+    EXPECT_EQ(prefer_level, 0);
+}
+
+TEST_F(TestBinlogCumulativeCompactionPolicy, expired_singleton_bypasses_visible_wait) {
+    config::binlog_compaction_wait_timesec_after_visible = 600;
+    RowsetMetaSharedPtr rowset(new RowsetMeta());
+    init_rs_meta(rowset, 2, 2, 0);
+    rowset->set_commit_tso(100);
+    rowset->set_newest_write_timestamp(UnixSeconds());
+    ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset).ok());
+
+    TabletSharedPtr tablet(new Tablet(_engine, _tablet_meta, nullptr));
+    ASSERT_TRUE(tablet->init().ok());
+    EXPECT_TRUE(tablet->pick_candidate_rowsets_to_binlog_compaction().empty());
+
+    auto candidates = tablet->pick_candidate_rowsets_to_binlog_compaction(100);
+    ASSERT_EQ(candidates.size(), 1);
+    EXPECT_EQ(candidates.front()->version(), Version(2, 2));
 }
 
 // Pick level from candidate rowsets. Versions are ordered old -> new as higher -> lower level:
@@ -359,6 +404,56 @@ TEST_F(TestBinlogCumulativeCompactionPolicy, pick_input_rowsets_l0_not_triggered
     // L0 score 5 < file count threshold 100, size below goal, time threshold not reached.
     EXPECT_EQ(0, picked);
     EXPECT_EQ(0, input_rowsets.size());
+}
+
+TEST_F(TestBinlogCumulativeCompactionPolicy, ttl_scan_honors_tablet_auto_compaction_switch) {
+    auto rowset = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset, 0, 0, 0);
+    rowset->set_commit_tso(100L << kTsoLogicalBits);
+    ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset).ok());
+    BinlogConfig binlog_config(true, 0, 1024, 10, BinlogFormatPB::ROW, false);
+    binlog_config.set_row_ttl_enabled(true);
+    _tablet_meta->set_binlog_config(binlog_config);
+    _cluster.advance_row_binlog_ttl_reference_tso(100L << kTsoLogicalBits);
+    TabletSharedPtr tablet(new Tablet(_engine, _tablet_meta, nullptr));
+
+    _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(true);
+    EXPECT_FALSE(tablet->scan_expired_row_binlog_rowsets());
+    _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(false);
+    EXPECT_TRUE(tablet->scan_expired_row_binlog_rowsets());
+}
+
+TEST_F(TestBinlogCumulativeCompactionPolicy, ttl_scan_eventually_visits_every_rowset) {
+    // TTL compares physical milliseconds and includes every logical TSO in the cutoff millisecond.
+    constexpr int64_t expired_tso = 100L << kTsoLogicalBits;
+    constexpr int64_t retained_tso = 200L << kTsoLogicalBits;
+    BinlogConfig binlog_config(true, 0, 1024, 10, BinlogFormatPB::ROW, false);
+    binlog_config.set_row_ttl_enabled(true);
+    _tablet_meta->set_binlog_config(binlog_config);
+    for (int64_t v = 0; v < 1024; ++v) {
+        auto meta = std::make_shared<RowsetMeta>();
+        init_rs_meta(meta, v, v, 0);
+        meta->set_commit_tso(retained_tso);
+        ASSERT_TRUE(_tablet_meta->add_rs_meta(meta).ok());
+    }
+    RowsetMetaSharedPtr last;
+    for (const auto& [version, meta] : _tablet_meta->all_rs_metas()) {
+        last = meta;
+    }
+    last->set_commit_tso(expired_tso);
+    TabletSharedPtr tablet(new Tablet(_engine, _tablet_meta, nullptr));
+    EXPECT_FALSE(tablet->scan_expired_row_binlog_rowsets());
+    _cluster.advance_row_binlog_ttl_reference_tso(expired_tso);
+    bool found = false;
+    for (int n = 0; n < 5; ++n) {
+        found |= tablet->scan_expired_row_binlog_rowsets();
+    }
+    EXPECT_TRUE(found);
+    // Concurrent publish/compaction can remove the cursor's rowset between rounds.
+    _tablet_meta->delete_rs_meta_by_version(last->version(), nullptr);
+    for (int n = 0; n < 6; ++n) {
+        EXPECT_FALSE(tablet->scan_expired_row_binlog_rowsets());
+    }
 }
 
 } // namespace doris

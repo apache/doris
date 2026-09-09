@@ -142,6 +142,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private TEncryptionAlgorithm tdeAlgorithm;
     private Map<String, List<String>> columnSeqMapping;
+    private long rowTtlDurationUs;
+    private Optional<Integer> rowTtlTimeZoneOffsetSeconds;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -170,7 +172,9 @@ public class CreateReplicaTask extends AgentTask {
                              boolean variantEnableFlattenNested,
                              long storagePageSize, TEncryptionAlgorithm tdeAlgorithm,
                              long storageDictPageSize, Map<String, List<String>> columnSeqMapping,
-                             int verticalCompactionNumColumnsPerGroup) {
+                             int verticalCompactionNumColumnsPerGroup,
+                             long rowTtlDurationUs,
+                             Optional<Integer> rowTtlTimeZoneOffsetSeconds) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -222,6 +226,8 @@ public class CreateReplicaTask extends AgentTask {
         this.storageDictPageSize = storageDictPageSize;
         this.tdeAlgorithm = tdeAlgorithm;
         this.columnSeqMapping = columnSeqMapping;
+        this.rowTtlDurationUs = rowTtlDurationUs;
+        this.rowTtlTimeZoneOffsetSeconds = rowTtlTimeZoneOffsetSeconds;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -230,6 +236,11 @@ public class CreateReplicaTask extends AgentTask {
 
     public boolean isRecoverTask() {
         return isRecoverTask;
+    }
+
+    @Override
+    public boolean isRowTtlTask() {
+        return columns.stream().anyMatch(Column::isTtlColumn);
     }
 
     public void countDownLatch(long backendId, long tabletId) {
@@ -317,6 +328,7 @@ public class CreateReplicaTask extends AgentTask {
         int versionCol = -1;
         int commitTsoCol = -1;
         int rowLsnCol = -1;
+        int ttlCol = -1;
         List<TColumn> tColumns = null;
         Object tCols = objectPool.get(columns);
         if (tCols != null) {
@@ -361,6 +373,9 @@ public class CreateReplicaTask extends AgentTask {
             if (column.isRowLsnColumn()) {
                 rowLsnCol = i;
             }
+            if (column.isTtlColumn()) {
+                ttlCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
@@ -368,6 +383,11 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setVersionColIdx(versionCol);
         tSchema.setCommitTsoColIdx(commitTsoCol);
         tSchema.setRowLsnColIdx(rowLsnCol);
+        tSchema.setTtlColIdx(ttlCol);
+        tSchema.setRowTtlDurationUs(ttlCol >= 0 ? rowTtlDurationUs : -1);
+        if (ttlCol >= 0 && rowTtlTimeZoneOffsetSeconds.isPresent()) {
+            tSchema.setRowTtlTimeZoneOffsetSeconds(rowTtlTimeZoneOffsetSeconds.get());
+        }
         tSchema.setRowStoreColCids(rowStoreColumnUniqueIds);
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             tSchema.setClusterKeyUids(clusterKeyUids);
