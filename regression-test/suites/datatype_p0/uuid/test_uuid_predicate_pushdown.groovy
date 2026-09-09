@@ -35,6 +35,7 @@ suite("test_uuid_predicate_pushdown", "p0") {
     sql "SET enable_condition_cache = false"
     sql "SET enable_query_cache = false"
     sql "SET enable_profile = true"
+    sql "SET enable_sql_cache = false"
     sql "SET profile_level = 2"
     sql "SET enable_expr_zonemap_filter = false"
     String value = '80000000-0000-0000-0000-000000000000'

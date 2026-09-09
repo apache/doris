@@ -17,6 +17,8 @@
 
 // Checklist: B06 F12.
 suite("test_uuid_aggregate_model", "p0") {
+    sql "SET enable_sql_cache = false"
+    sql "SET enable_query_cache = false"
     // Aggregate model UUID key/value columns.
     sql "DROP TABLE IF EXISTS uuid_aggregate"
     sql """

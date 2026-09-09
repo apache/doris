@@ -17,6 +17,7 @@
 
 // Checklist: B07 B08 B09 C08 F06 F16.
 suite("test_uuid_composite_partition", "p0") {
+    sql "SET enable_sql_cache = false"
     // Composite UUID partition/short keys distinguish adjacent values with the same prefix.
     sql "DROP TABLE IF EXISTS uuid_storage_partition"
     sql """CREATE TABLE uuid_storage_partition (u UUID NOT NULL, id INT NOT NULL, v INT)
