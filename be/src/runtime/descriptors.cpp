@@ -104,6 +104,9 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
     auto convert_to_thrift_column_access_path = [](const PColumnAccessPath& pb_path) {
         TColumnAccessPath thrift_path;
         thrift_path.type = (TAccessPathType::type)pb_path.type();
+        if (pb_path.has_version()) {
+            thrift_path.__set_version(pb_path.version());
+        }
         if (pb_path.has_data_access_path()) {
             thrift_path.__isset.data_access_path = true;
             for (int i = 0; i < pb_path.data_access_path().path_size(); ++i) {
@@ -160,6 +163,9 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
                                                      doris::PColumnAccessPath* pb_path) {
         pb_path->Clear();
         pb_path->set_type((PAccessPathType)thrift_path.type); // 使用 reinterpret_cast 进行类型转换
+        if (thrift_path.__isset.version) {
+            pb_path->set_version(thrift_path.version);
+        }
         if (thrift_path.__isset.data_access_path) {
             auto* pb_data = pb_path->mutable_data_access_path();
             pb_data->Clear();
