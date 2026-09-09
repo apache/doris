@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorStorageAccess;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -34,7 +35,6 @@ import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWriteSortColumn;
-import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TFileCompressType;
@@ -92,10 +92,11 @@ import java.util.stream.Collectors;
  * unaffected by the migration.</p>
  *
  * <p><b>Scope.</b> INSERT / OVERWRITE ({@code TIcebergTableSink}, T06), DELETE ({@code TIcebergDeleteSink})
- * and UPDATE / MERGE ({@code TIcebergMergeSink}, T07a). REWRITE (procedures, P6.4) is not built here. The
- * write distribution and the vended-credentials overlay of the hadoop config are registered deviations
- * (DV-T0x-vended / -broker / -materialize) closed at the P6.6 cutover. At format-version&ge;3 the DELETE /
- * MERGE sink's {@code rewritable_delete_file_sets} is filled here from the scan-time supply the
+ * and UPDATE / MERGE ({@code TIcebergMergeSink}, T07a). REWRITE delegates to the table sink builder. The
+ * write distribution and broker/materialization behavior were registered deviations closed at the P6.6
+ * cutover. URI, reader and backend credentials now come from one request-local storage access result.
+ * At format-version&ge;3 the DELETE / MERGE sink's {@code rewritable_delete_file_sets} is filled here
+ * from the scan-time supply the
  * per-statement {@link IcebergStatementScope} carried across the scan&rarr;write seam (commit-bridge S4 part 2),
  * replacing the legacy fe-resident rewritable-delete planner.</p>
  *
@@ -737,14 +738,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setFileFormat(toTFileFormatType(schemaContext.getFileFormat()));
         tSink.setCompressionType(toTFileCompressType(schemaContext.getFileCompression()));
 
-        // Backend config: BE-canonical static catalog creds (AWS_* for generic object stores, AZURE_* for
-        // Azure, dfs/hadoop for HDFS) plus the REST per-table vended overlay
-        // (see buildHadoopConfig), mirroring legacy IcebergTableSink + the scan-side credential assembly.
-        tSink.setHadoopConfig(buildHadoopConfig(table));
-
-        // Output location: normalized for the BE writer, raw kept as the original; the BE file type comes
-        // from the engine (broker-aware). All vended-aware so a REST catalog's path still resolves.
+        // The URI, reader and backend credentials belong to one request-local storage binding.
+        // Keep the historical Thrift field name even when it carries native object-store properties.
         LocationFields location = resolveLocationFields(table, schemaContext.getDataLocation());
+        tSink.setHadoopConfig(location.backendProperties);
         tSink.setOutputPath(location.outputPath);
         tSink.setFileType(location.fileType);
         if (!location.brokerAddresses.isEmpty()) {
@@ -811,9 +808,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setDeleteType(TFileContent.POSITION_DELETES);
         tSink.setFileFormat(toTFileFormatType(schemaContext.getFileFormat()));
         tSink.setCompressType(toTFileCompressType(schemaContext.getFileCompression()));
-        tSink.setHadoopConfig(buildHadoopConfig(table));
-
         LocationFields location = resolveLocationFields(table, schemaContext.getDataLocation());
+        tSink.setHadoopConfig(location.backendProperties);
         tSink.setOutputPath(location.outputPath);
         tSink.setTableLocation(location.rawLocation);
         tSink.setFileType(location.fileType);
@@ -884,9 +880,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
         tSink.setFileFormat(toTFileFormatType(schemaContext.getFileFormat()));
         tSink.setCompressionType(toTFileCompressType(schemaContext.getFileCompression()));
-        tSink.setHadoopConfig(buildHadoopConfig(table));
-
         LocationFields location = resolveLocationFields(table, schemaContext.getDataLocation());
+        tSink.setHadoopConfig(location.backendProperties);
         tSink.setOutputPath(location.outputPath);
         tSink.setOriginalOutputPath(location.rawLocation);
         tSink.setTableLocation(location.rawLocation);
@@ -952,29 +947,21 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     /**
-     * Resolves the shared sink location fields (port of legacy {@code LocationPath.of(dataLocation(table))}):
-     * the raw data location, the normalized BE write path, and the BE file type — all vended-aware so a REST
-     * catalog's object-store path still resolves. Used by all three sink dialects.
+     * Resolves the write-authorized table's credentials and the pinned output URI together. All three sink
+     * dialects consume this one result; they must not merge another catalog-wide credential map into it.
      */
-    private LocationFields resolveLocationFields(Table table) {
-        return resolveLocationFields(table, dataLocation(table));
-    }
-
     private LocationFields resolveLocationFields(Table table, String rawLocation) {
-        Map<String, String> vendedToken = IcebergScanPlanProvider.extractVendedToken(
+        Map<String, String> vendedToken = IcebergScanPlanProvider.extractNativeVendedToken(
                 table, IcebergScanPlanProvider.restVendedCredentialsEnabled(properties));
-        if (context != null) {
-            TFileType fileType = TFileType.valueOf(storage().getBackendFileType(rawLocation, vendedToken));
-            // A broker backend (ofs://, gfs:// -> FILE_BROKER) must also carry the broker addresses, or BE
-            // gets a broker sink with an empty broker list and the write fails. Mirrors legacy
-            // IcebergTableSink: resolve broker addresses only when fileType == FILE_BROKER (S3/HDFS/local
-            // never touch the broker registry).
-            List<TNetworkAddress> brokerAddresses = fileType == TFileType.FILE_BROKER
-                    ? resolveBrokerAddresses() : Collections.emptyList();
-            return new LocationFields(rawLocation,
-                    storage().normalizeStorageUri(rawLocation, vendedToken), fileType, brokerAddresses);
-        }
-        return new LocationFields(rawLocation, rawLocation, TFileType.FILE_S3, Collections.emptyList());
+        ConnectorStorageContext storageContext = context == null ? ConnectorStorageContext.NOOP : storage();
+        ConnectorStorageAccess access = storageContext.newStorageAccessResolver(vendedToken).apply(rawLocation);
+        TFileType fileType = TFileType.valueOf(access.getBackendFileType());
+        // A broker sink must carry the catalog's live broker addresses. Native/HDFS/local writes never
+        // consult that registry; contexts without storage resolution fail at the SPI boundary above.
+        List<TNetworkAddress> brokerAddresses = fileType == TFileType.FILE_BROKER
+                ? resolveBrokerAddresses() : Collections.emptyList();
+        return new LocationFields(rawLocation, access.getNormalizedUri(), fileType,
+                access.getBackendProperties(), brokerAddresses);
     }
 
     /**
@@ -1002,40 +989,17 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         private final String rawLocation;
         private final String outputPath;
         private final TFileType fileType;
+        private final Map<String, String> backendProperties;
         private final List<TNetworkAddress> brokerAddresses;
 
         LocationFields(String rawLocation, String outputPath, TFileType fileType,
-                List<TNetworkAddress> brokerAddresses) {
+                Map<String, String> backendProperties, List<TNetworkAddress> brokerAddresses) {
             this.rawLocation = rawLocation;
             this.outputPath = outputPath;
             this.fileType = fileType;
+            this.backendProperties = backendProperties;
             this.brokerAddresses = brokerAddresses;
         }
-    }
-
-    private Map<String, String> buildHadoopConfig(Table table) {
-        Map<String, String> merged = new HashMap<>();
-        if (context != null) {
-            // Static catalog credentials in BE-canonical form (AWS_* for generic object stores, AZURE_* for
-            // Azure, dfs/hadoop for HDFS),
-            // sourced from the typed fe-filesystem StorageProperties bound by the catalog and handed over via
-            // storage().getStorageProperties(): each backend's toBackendProperties().toMap() yields the canonical map
-            // (design S3 — the write derives its BE creds from the SAME typed fe-filesystem source as the scan
-            // path IcebergScanPlanProvider.getScanNodeProperties, retiring the redundant fe-core
-            // getBackendStorageProperties() second parse). The BE object-storage sink consumes AWS_* for
-            // generic S3-compatible stores and AZURE_* for provider=azure; the fs.s3a.* Hadoop form (correct
-            // for the FE iceberg-catalog Configuration) would leave a native writer with no usable creds.
-            for (StorageProperties sp : IcebergCatalogFactory.selectEffectiveStorages(
-                    storage().getStorageProperties())) {
-                sp.toBackendProperties().ifPresent(b -> merged.putAll(b.toMap()));
-            }
-            // REST per-table vended overlay (colliding key takes the vended value — legacy/scan precedence): a
-            // vending catalog's static storage map is empty by design, so the vended creds are the only ones.
-            merged.putAll(storage().vendStorageCredentials(
-                    IcebergScanPlanProvider.extractVendedToken(
-                            table, IcebergScanPlanProvider.restVendedCredentialsEnabled(properties))));
-        }
-        return merged;
     }
 
     private IcebergConnectorTransaction currentTransaction(ConnectorSession session) {

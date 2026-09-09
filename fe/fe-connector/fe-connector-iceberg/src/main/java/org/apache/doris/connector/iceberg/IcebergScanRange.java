@@ -53,6 +53,8 @@ public class IcebergScanRange implements ConnectorScanRange {
 
     // The BE-facing data-file path: scheme-normalized (oss/cos/obs/s3a -> s3) so BE's S3 factory can open it.
     private final String path;
+    // Explicit provider-selected reader for Azure/OneLake data; absent for legacy and JNI ranges.
+    private final String backendFileType;
     // The RAW iceberg data-file path; BE matches position-delete entries against it (original_file_path).
     private final String originalPath;
     private final long start;
@@ -117,6 +119,7 @@ public class IcebergScanRange implements ConnectorScanRange {
 
     private IcebergScanRange(Builder builder) {
         this.path = builder.path;
+        this.backendFileType = builder.backendFileType;
         // Default the raw original path to the (possibly already-raw) path when a caller does not split them
         // — keeps single-arg .path(...) callers (and the prior behavior) intact.
         this.originalPath = builder.originalPath != null ? builder.originalPath : builder.path;
@@ -151,6 +154,11 @@ public class IcebergScanRange implements ConnectorScanRange {
     @Override
     public Optional<String> getPath() {
         return Optional.ofNullable(path);
+    }
+
+    @Override
+    public Optional<String> getBackendFileType() {
+        return Optional.ofNullable(backendFileType);
     }
 
     @Override
@@ -450,6 +458,7 @@ public class IcebergScanRange implements ConnectorScanRange {
      */
     public static class Builder {
         private String path;
+        private String backendFileType;
         private String originalPath;
         private long start;
         private long length = -1;
@@ -481,6 +490,11 @@ public class IcebergScanRange implements ConnectorScanRange {
 
         public Builder path(String path) {
             this.path = path;
+            return this;
+        }
+
+        public Builder backendFileType(String backendFileType) {
+            this.backendFileType = backendFileType;
             return this;
         }
 

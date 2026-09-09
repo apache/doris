@@ -122,6 +122,25 @@ public class FileSystemPluginManagerTest {
     }
 
     @Test
+    public void bindAllExceptSkipsReplacedAuthenticationBeforeBindingAndKeepsRealHdfs() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.loadBuiltins();
+        Map<String, String> raw = Map.of("azure.account_name", "account", "azure.account_key", "old-key",
+                "azure.auth_type", "invalid-old-authentication", "fs.defaultFS", "hdfs://namenode:8020",
+                "hadoop.username", "reader");
+        Assertions.assertThrows(StoragePropertiesException.class, () -> manager.bindAll(raw));
+
+        List<FileSystemProperties> remaining = manager.bindAllExcept(raw, Set.of("aZuRe"));
+
+        Assertions.assertEquals(1, remaining.size());
+        Assertions.assertEquals("HDFS", remaining.get(0).providerName());
+        Assertions.assertFalse(remaining.get(0).isSyntheticDefault());
+        Assertions.assertEquals("reader", remaining.get(0).toBackendProperties().orElseThrow().toMap()
+                .get("hadoop.username"));
+        Assertions.assertEquals("invalid-old-authentication", raw.get("azure.auth_type"));
+    }
+
+    @Test
     public void bindAll_marksOnlyTheRealHdfsFallbackCreationPath() {
         FileSystemPluginManager manager = new FileSystemPluginManager();
         manager.loadBuiltins();

@@ -100,6 +100,18 @@ public class PluginApiVersionWiringTest {
     }
 
     @Test
+    public void connectorPluginWithoutTheResolvedStorageContractIsRefused() throws IOException {
+        ApiVersionGate gate = ApiVersionGate.forFamily("connector", ConnectorProvider.class);
+        Assertions.assertEquals("8.0", gate.getExpectedVersion());
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+
+        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("7.0")));
+
+        Assertions.assertFalse(manager.getRegisteredTypes().contains("version_probe"),
+                "a plugin from before the resolved storage contract must not be admitted");
+    }
+
+    @Test
     public void connectorPluginDeclaringNothingIsRefused() throws IOException {
         // The regression this whole change exists for: before, a plugin that said nothing about its API
         // version inherited the kernel's own default and was always admitted.
@@ -132,6 +144,18 @@ public class PluginApiVersionWiringTest {
 
         Assertions.assertFalse(providerNames(manager).contains("version_probe_fs"),
                 "an incompatible filesystem plugin must not join the storage routing table");
+    }
+
+    @Test
+    public void filesystemPluginWithoutTheUriAwareBackendContractIsRefused() throws IOException {
+        ApiVersionGate gate = ApiVersionGate.forFamily("filesystem", FileSystemProvider.class);
+        Assertions.assertEquals("4.0", gate.getExpectedVersion());
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+
+        manager.loadPlugins(Collections.singletonList(filesystemPluginRoot("3.0")));
+
+        Assertions.assertFalse(providerNames(manager).contains("version_probe_fs"),
+                "a plugin from before URI-aware backend properties must not join storage routing");
     }
 
     @Test

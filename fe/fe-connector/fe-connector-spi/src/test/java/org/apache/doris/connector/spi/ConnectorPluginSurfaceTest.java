@@ -20,7 +20,10 @@ package org.apache.doris.connector.spi;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -73,21 +76,27 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // The shared filesystem API now records synthetic default bindings. Connector plugins link
-        // against that API too, so the previous major must not load against the changed contract.
-        Assertions.assertEquals("7.0", version.getProperty("api.version"));
+        // Request-local storage access now binds a URI, reader and credentials together. Its resolver
+        // and the shared URI-aware filesystem API require plugins built against this new major.
+        Assertions.assertEquals("8.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorProvider.class,
             ConnectorContext.class,
+            ConnectorStorageContext.class,
+            ConnectorStorageAccess.class,
+            ConnectorStorageAccessResolver.class,
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorTableSchema.class,
             ConnectorScanPlanProvider.class,
+            ConnectorScanRange.class,
             ConnectorWriteHandle.class,
             ConnectorWritePlanProvider.class,
+            FileSystemProperties.class,
+            StorageProperties.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
             org.apache.doris.extension.spi.PluginContext.class);

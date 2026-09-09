@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.spi.AzureBlobEndpointSignals;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -183,13 +184,19 @@ public final class AzureFileSystemProperties
     private final AzureAuthType authType;
     private final AzureAccountHost accountHost;
     private final AzureSasToken sasCredential;
+    private final boolean explicitEndpoint;
+    private final Clock clock;
+    private final Object hadoopBackendPropertiesLock = new Object();
+    private volatile Map<String, String> cachedHadoopBackendProperties;
 
-    private AzureFileSystemProperties(Map<String, String> rawProperties) {
+    private AzureFileSystemProperties(Map<String, String> rawProperties, Clock clock) {
+        this.clock = clock;
         // Defensive copy before wrapping: unmodifiableMap alone is only a read-only view,
         // so without the copy later mutations of the caller's map would leak through.
         this.rawProperties = Collections.unmodifiableMap(new HashMap<>(rawProperties));
         this.matchedProperties = Collections.unmodifiableMap(collectMatchedProperties(rawProperties));
         ConnectorPropertiesUtils.bindConnectorProperties(this, rawProperties);
+        this.explicitEndpoint = StringUtils.isNotBlank(endpoint);
         this.authType = resolveAuthType();
         azureAuthType = authType.propertyValue();
         this.accountHost = resolveAccountHostModel();
@@ -203,7 +210,11 @@ public final class AzureFileSystemProperties
     }
 
     public static AzureFileSystemProperties of(Map<String, String> properties) {
-        AzureFileSystemProperties props = new AzureFileSystemProperties(properties);
+        return of(properties, Clock.systemUTC());
+    }
+
+    static AzureFileSystemProperties of(Map<String, String> properties, Clock clock) {
+        AzureFileSystemProperties props = new AzureFileSystemProperties(properties, clock);
         props.validate();
         return props;
     }
@@ -217,6 +228,7 @@ public final class AzureFileSystemProperties
 
     private AzureFileSystemProperties(AzureVendedSas sas, Map<String, String> credentials,
             Map<String, String> catalogProperties) {
+        this.clock = Clock.systemUTC();
         // Only connection defaults survive credential replacement. Do not rebind old key/OAuth2
         // aliases or round-trip the SAS through the BE's AZURE_* protocol.
         Map<String, String> connection = connectionProperties(catalogProperties);
@@ -235,6 +247,7 @@ public final class AzureFileSystemProperties
             }
         }
         ConnectorPropertiesUtils.bindConnectorProperties(this, connection);
+        this.explicitEndpoint = StringUtils.isNotBlank(endpoint);
         this.authType = AzureAuthType.SAS;
         this.azureAuthType = authType.propertyValue();
         this.accountHost = sas.accountHost();
@@ -244,7 +257,7 @@ public final class AzureFileSystemProperties
         }
         if (StringUtils.isNotBlank(endpoint)) {
             AzureAccountHost configuredHost = AzureAccountHost.parse(endpoint);
-            if (!configuredHost.cloudSuffix().isEmpty()
+            if (AzureBlobEndpointSignals.isAzureBlobEndpoint(endpoint, catalogProperties)
                     && !configuredHost.blobHost().equalsIgnoreCase(accountHost.blobHost())) {
                 throw new StoragePropertiesException("Azure vended SAS account does not match the catalog endpoint");
             }
@@ -326,7 +339,7 @@ public final class AzureFileSystemProperties
 
     @Override
     public void validateForAccess() {
-        validateSasExpiry(Clock.systemUTC());
+        validateSasExpiry(clock);
     }
 
     @Override
@@ -366,15 +379,33 @@ public final class AzureFileSystemProperties
     }
 
     @Override
+    public Optional<BackendStorageProperties> resolveBackendProperties(String normalizedUri) {
+        AzureUri uri = parseAndValidateUri(normalizedUri);
+        if (isOneLake(uri)) {
+            return Optional.of(new BackendStorageProperties() {
+                @Override
+                public BackendStorageKind backendKind() {
+                    return BackendStorageKind.HDFS;
+                }
+
+                @Override
+                public Map<String, String> toMap() {
+                    return hadoopBackendProperties();
+                }
+            });
+        }
+        return toBackendProperties();
+    }
+
+    @Override
     public Optional<HadoopStorageProperties> toHadoopProperties() {
         return Optional.of(this);
     }
 
     @Override
     public BackendStorageKind backendKind() {
-        // Azure keeps FILE_S3 for the existing Thrift contract. provider=azure and the
-        // provider-owned AZURE_* map make the BE select its native Azure SDK client.
-        return BackendStorageKind.S3_COMPATIBLE;
+        // Native provider identity is independent of the existing FILE_S3 Thrift reader slot.
+        return BackendStorageKind.NATIVE;
     }
 
     @Override
@@ -397,14 +428,10 @@ public final class AzureFileSystemProperties
                 }
                 break;
             case OAUTH2:
-                // Preserve the OneLake Hadoop view until routing selects it separately from the
-                // native credentials. Both paths currently consume this binding's backend map.
-                azureProps.putAll(oauth2BackendProperties());
                 azureProps.put(BACKEND_CLIENT_ID, clientId);
                 azureProps.put(BACKEND_CLIENT_SECRET, clientSecret);
                 resolveTenantId().ifPresent(value -> azureProps.put(BACKEND_TENANT_ID, value));
                 azureProps.put(BACKEND_OAUTH_SERVER_URI, oauthServerUri);
-                azureProps.put(BACKEND_OAUTH_ACCOUNT_HOST, oauthAccountHost);
                 break;
             default:
                 throw new IllegalStateException("Unhandled Azure auth type: " + authType);
@@ -416,12 +443,6 @@ public final class AzureFileSystemProperties
         if (StringUtils.isNotBlank(backendAccountName)) {
             azureProps.put(BACKEND_ACCOUNT_NAME, backendAccountName);
         }
-        if (StringUtils.isNotBlank(container)) {
-            azureProps.put(BACKEND_CONTAINER, container);
-        }
-        // Keep this generic option for existing Azure callers that persist it. Native Azure does
-        // not use path-style addressing, but removing the key would change old maps.
-        azureProps.put(USE_PATH_STYLE, usePathStyle);
         return Collections.unmodifiableMap(azureProps);
     }
 
@@ -471,7 +492,23 @@ public final class AzureFileSystemProperties
      * remains explicitly FILE_HDFS-routed; ordinary Azure ABFS paths use the native fields in
      * {@link #toMap()}.
      */
-    private Map<String, String> oauth2BackendProperties() {
+    private Map<String, String> hadoopBackendProperties() {
+        // Caching configuration must not extend the credential's validity on later accesses.
+        validateForAccess();
+        Map<String, String> cached = cachedHadoopBackendProperties;
+        if (cached == null) {
+            synchronized (hadoopBackendPropertiesLock) {
+                cached = cachedHadoopBackendProperties;
+                if (cached == null) {
+                    cached = buildHadoopBackendProperties();
+                    cachedHadoopBackendProperties = cached;
+                }
+            }
+        }
+        return cached;
+    }
+
+    private Map<String, String> buildHadoopBackendProperties() {
         Configuration conf = new Configuration();
         toHadoopConfigurationMap().forEach(conf::set);
         rawProperties.forEach((key, value) -> {
@@ -498,6 +535,13 @@ public final class AzureFileSystemProperties
      */
     @Override
     public String validateAndNormalizeUri(String path) {
+        AzureUri parsed = parseAndValidateUri(path);
+        int delimiter = path.indexOf("://");
+        return path.substring(0, delimiter).equals(parsed.scheme())
+                ? path : parsed.scheme() + path.substring(delimiter);
+    }
+
+    private AzureUri parseAndValidateUri(String path) {
         if (StringUtils.isBlank(path)) {
             throw new StoragePropertiesException("Path cannot be null or empty");
         }
@@ -512,25 +556,40 @@ public final class AzureFileSystemProperties
                 || scheme.equals("s3"))) {
             throw new StoragePropertiesException("Unsupported Azure URI scheme");
         }
+        if (scheme.equals("s3") && !isSharedKeyAuth()) {
+            throw new StoragePropertiesException("Azure SAS/OAuth2 data access requires an Azure URI");
+        }
         // Parse account/container/path now so malformed locations fail before a scan reaches BE;
         // return the original path (apart from a case-insensitive scheme) to preserve object keys.
         try {
             AzureUri parsed = AzureUri.parse(path);
             validateLocationBinding(parsed);
+            if (scheme.equals("http") || scheme.equals("https")) {
+                URI uriEndpoint = httpAuthority(parsed.accountHost().orElseThrow().blobEndpoint());
+                URI configuredEndpoint = httpAuthority(endpoint);
+                if (!claimsUri(path) || uriEndpoint == null || configuredEndpoint == null
+                        || !sameOrigin(uriEndpoint, configuredEndpoint)) {
+                    throw new StoragePropertiesException("Azure URI endpoint does not match the binding");
+                }
+            }
+            return parsed;
         } catch (IOException e) {
             throw new StoragePropertiesException("Invalid Azure URI", e);
         }
-        return path.substring(0, delimiter).equals(scheme)
-                ? path : scheme + path.substring(delimiter);
     }
 
     private void validateLocationBinding(AzureUri uri) {
-        if (StringUtils.isNotBlank(accountName) && StringUtils.isNotBlank(uri.accountName())
+        // Custom HTTP endpoint hosts do not encode a storage account name. Their exact origin
+        // is checked separately; treating the first DNS label as an account rejects valid proxies.
+        boolean accountInAuthority = !(uri.scheme().equals("http") || uri.scheme().equals("https"))
+                || AzureBlobEndpointSignals.isAzureBlobEndpoint(
+                        uri.accountHost().orElseThrow().blobEndpoint(), rawProperties);
+        if (accountInAuthority && StringUtils.isNotBlank(accountName) && StringUtils.isNotBlank(uri.accountName())
                 && !StringUtils.equalsIgnoreCase(accountName, uri.accountName())) {
             throw new StoragePropertiesException(
                     "Azure URI account does not match configured account_name");
         }
-        if (accountHost != null && uri.accountHost().isPresent()) {
+        if (accountInAuthority && accountHost != null && uri.accountHost().isPresent()) {
             AzureAccountHost uriHost = uri.accountHost().get();
             if (!accountHost.cloudSuffix().isEmpty() && !uriHost.cloudSuffix().isEmpty()
                     && !accountHost.blobHost().equalsIgnoreCase(uriHost.blobHost())) {
@@ -541,6 +600,69 @@ public final class AzureFileSystemProperties
             throw new StoragePropertiesException(
                     "Azure URI container does not match configured container");
         }
+    }
+
+    @Override
+    public boolean claimsUri(String uri) {
+        // Only parse the authority here. An invalid key (for example %GG) on an Azure host
+        // must still select this binding and fail strict validation instead of routing as HTTP.
+        URI authority = httpAuthority(uri);
+        if (authority == null) {
+            return false;
+        }
+        if (AzureBlobEndpointSignals.isAzureBlobEndpoint(authority.toString(), rawProperties)) {
+            return true;
+        }
+        URI configuredEndpoint = explicitEndpoint ? httpAuthority(endpoint) : null;
+        return configuredEndpoint != null && sameOrigin(authority, configuredEndpoint);
+    }
+
+    private static boolean isOneLake(AzureUri uri) {
+        return (uri.scheme().equals("abfs") || uri.scheme().equals("abfss"))
+                && uri.accountHost().filter(host -> host.isDfsHost()
+                        && "fabric.microsoft.com".equalsIgnoreCase(host.cloudSuffix())).isPresent();
+    }
+
+    private static URI httpAuthority(String value) {
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        int delimiter = value.indexOf("://");
+        if (delimiter <= 0) {
+            return null;
+        }
+        String scheme = value.substring(0, delimiter).toLowerCase(Locale.ROOT);
+        if (!scheme.equals("http") && !scheme.equals("https")) {
+            return null;
+        }
+        int authorityEnd = value.length();
+        for (char separator : new char[] {'/', '?', '#'}) {
+            int index = value.indexOf(separator, delimiter + 3);
+            if (index >= 0) {
+                authorityEnd = Math.min(authorityEnd, index);
+            }
+        }
+        try {
+            URI authority = new URI(scheme + value.substring(delimiter, authorityEnd));
+            if (authority.getHost() == null || authority.getRawUserInfo() != null
+                    || authority.getPort() > 65535) {
+                return null;
+            }
+            return authority;
+        } catch (URISyntaxException e) {
+            // URI syntax errors contain the original input, potentially including credentials.
+            return null;
+        }
+    }
+
+    private static boolean sameOrigin(URI first, URI second) {
+        return first.getScheme().equalsIgnoreCase(second.getScheme())
+                && first.getHost().equalsIgnoreCase(second.getHost())
+                && effectivePort(first) == effectivePort(second);
+    }
+
+    private static int effectivePort(URI uri) {
+        return uri.getPort() >= 0 ? uri.getPort() : uri.getScheme().equalsIgnoreCase("https") ? 443 : 80;
     }
 
     public String getEndpoint() {

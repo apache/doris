@@ -24,6 +24,7 @@ import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.datasource.storage.StorageUriUtils;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.thrift.TFileType;
 
@@ -134,7 +135,7 @@ public class LocationPath {
             normalize = false;
         }
         if (normalize) {
-            storageAdapter = findStorageAdapter(type, schema, storageAdaptersMap);
+            storageAdapter = findStorageAdapter(type, schema, location, storageAdaptersMap);
 
             if (storageAdapter == null) {
                 throw new UserException("No storage properties found for schema: " + schema);
@@ -175,9 +176,8 @@ public class LocationPath {
         try {
             return LocationPath.ofAdapters(location, storageAdaptersMap, true);
         } catch (UserException | StoragePropertiesException e) {
-            // the facade throws unchecked StoragePropertiesException where legacy threw checked
-            // UserException — keep the legacy location context in the wrapped message
-            throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
+            // A storage URI may carry a SAS query. Do not include it in diagnostic context.
+            throw new StoragePropertiesException("Failed to resolve storage location", e);
         }
     }
 
@@ -297,8 +297,22 @@ public class LocationPath {
      * @param storageAdaptersMap a map of available storage types to their bindings
      * @return a matching {@link StorageAdapter} if found; otherwise, {@code null}
      */
-    private static StorageAdapter findStorageAdapter(StorageTypeId type, String schema,
+    private static StorageAdapter findStorageAdapter(StorageTypeId type, String schema, String location,
                                                      Map<StorageTypeId, StorageAdapter> storageAdaptersMap) {
+        // Only an already-bound provider may claim a generic URI (for example an Azure Blob
+        // HTTPS URL). A claim still goes through that provider's strict location validation.
+        StorageAdapter claimed = null;
+        for (StorageAdapter candidate : storageAdaptersMap.values()) {
+            if (candidate.getSpiProperties().claimsUri(location)) {
+                if (claimed != null) {
+                    throw new StoragePropertiesException("Multiple storage bindings claim the location");
+                }
+                claimed = candidate;
+            }
+        }
+        if (claimed != null) {
+            return claimed;
+        }
         // Step 1: Try direct match by type
         StorageAdapter adapter = storageAdaptersMap.get(type);
         if (adapter != null) {
@@ -373,6 +387,10 @@ public class LocationPath {
     }
 
     public TFileType getTFileTypeForBE() {
+        if (storageAdapter != null) {
+            return storageAdapter.getBackendFileType(
+                    storageAdapter.resolveBackendProperties(normalizedLocation).backendKind());
+        }
         if (("abfs".equals(schema) || "abfss".equals(schema))
                 && StorageUriUtils.isOneLakeLocation(normalizedLocation)) {
             return TFileType.FILE_HDFS;
@@ -403,6 +421,15 @@ public class LocationPath {
 
 
     public FileSystemType getFileSystemType() {
+        if (storageAdapter != null) {
+            BackendStorageKind kind = storageAdapter.resolveBackendProperties(normalizedLocation).backendKind();
+            if (kind == BackendStorageKind.HDFS) {
+                return FileSystemType.HDFS;
+            }
+            if (kind == BackendStorageKind.NATIVE) {
+                return storageAdapter.getSpiProperties().type();
+            }
+        }
         if (("abfs".equals(schema) || "abfss".equals(schema))
                 && StorageUriUtils.isOneLakeLocation(normalizedLocation)) {
             return FileSystemType.HDFS;

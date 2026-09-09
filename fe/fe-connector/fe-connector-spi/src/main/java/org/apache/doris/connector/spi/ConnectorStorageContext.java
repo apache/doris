@@ -49,9 +49,9 @@ import java.util.function.UnaryOperator;
 public interface ConnectorStorageContext {
 
     /**
-     * The context for a catalog whose storage the engine does not manage. Every method keeps its interface
-     * default, so a connector reaching a service that is not there gets the same benign answer it would get
-     * from a context that simply did not override it.
+     * The context for a catalog whose storage the engine does not manage. Methods retain their interface
+     * defaults. In particular, resolved data access is unavailable: a URI scheme alone cannot establish
+     * a storage identity or its credentials.
      */
     ConnectorStorageContext NOOP = new ConnectorStorageContext() {
     };
@@ -138,6 +138,26 @@ public interface ConnectorStorageContext {
      */
     default UnaryOperator<String> newStorageUriNormalizer(Map<String, String> rawVendedCredentials) {
         return rawUri -> normalizeStorageUri(rawUri, rawVendedCredentials);
+    }
+
+    /**
+     * Captures one request's storage bindings and resolves each location to its matching provider,
+     * normalized URI, reader and backend credential view together. Vended authentication replaces the
+     * matching static authentication group before credentials are accessed; unrelated bindings are not
+     * flattened into the result. The returned resolver must not be cached across requests or credential
+     * generations. A write creates it after acquiring the write-authorized table, not from a read token.
+     * Its provider snapshot permits binding-presence checks without resolving a metadata root as a data URI.
+     *
+     * <p>The engine implements binding and routing. Contexts without that service fail explicitly rather
+     * than inventing an authenticated data path from a URI scheme. Existing normalization-only hooks
+     * remain available to connectors that do not consume this resolved-access contract.
+     *
+     * @param rawVendedCredentials raw request credentials; null/empty selects static bindings
+     * @return a resolver with a provider snapshot, whose access values contain only the selected binding's properties
+     */
+    default ConnectorStorageAccessResolver newStorageAccessResolver(
+            Map<String, String> rawVendedCredentials) {
+        throw new UnsupportedOperationException("Storage access resolution is unavailable for this catalog");
     }
 
     /**

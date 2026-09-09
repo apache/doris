@@ -299,7 +299,9 @@ public class LocationPathTest {
         LocationPath locationPath = LocationPath.ofAdapters(location, oneLakeAdapters);
         Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());
         Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
-        Assertions.assertEquals("OAuth", locationPath.getStorageAdapter().getBackendConfigProperties()
+        StorageAdapter oneLakeAdapter = locationPath.getStorageAdapter();
+        Assertions.assertEquals("OAuth", oneLakeAdapter.getBackendConfigProperties(
+                oneLakeAdapter.resolveBackendProperties(locationPath.getNormalizedLocation()))
                 .get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));
         location = "abfs://1a2b3c4d-1234-5678-abcd-9876543210ef@onelake.dfs.fabric.microsoft.com/myworkspace/lakehouse/default/Files/data/test.parquet";
         locationPath = LocationPath.ofAdapters(location, oneLakeAdapters);
@@ -311,7 +313,7 @@ public class LocationPathTest {
         // discard the account host needed by the BE Azure client.
         Assertions.assertEquals(location, locationPath.getNormalizedLocation());
         Assertions.assertEquals(TFileType.FILE_S3, locationPath.getTFileTypeForBE());
-        Assertions.assertEquals(FileSystemType.S3, locationPath.getFileSystemType());
+        Assertions.assertEquals(FileSystemType.AZURE, locationPath.getFileSystemType());
 
     }
 
@@ -343,7 +345,7 @@ public class LocationPathTest {
 
         Assertions.assertEquals(location, path.getNormalizedLocation());
         Assertions.assertEquals(TFileType.FILE_S3, path.getTFileTypeForBE());
-        Assertions.assertEquals(FileSystemType.S3, path.getFileSystemType());
+        Assertions.assertEquals(FileSystemType.AZURE, path.getFileSystemType());
         Assertions.assertEquals("SAS", adapter.getBackendConfigProperties().get("AZURE_AUTH_TYPE"));
     }
 

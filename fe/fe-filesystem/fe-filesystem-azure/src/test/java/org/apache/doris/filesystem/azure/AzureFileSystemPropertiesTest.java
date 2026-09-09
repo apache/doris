@@ -71,8 +71,7 @@ class AzureFileSystemPropertiesTest {
                 "AZURE_AUTH_TYPE", "SHARED_KEY",
                 "AZURE_ACCOUNT_NAME", "account",
                 "AZURE_ENDPOINT", "https://account.blob.core.windows.net",
-                "AZURE_ACCOUNT_KEY", "shared-key",
-                "use_path_style", "false"), properties.toMap());
+                "AZURE_ACCOUNT_KEY", "shared-key"), properties.toMap());
         Map<String, String> hadoop = properties.toHadoopConfigurationMap();
         Assertions.assertEquals("shared-key", hadoop.get("fs.azure.account.key.account.blob.core.windows.net"));
         Assertions.assertFalse(hadoop.keySet().stream().anyMatch(key -> key.contains("oauth")));
@@ -94,9 +93,9 @@ class AzureFileSystemPropertiesTest {
                 () -> properties.validateAndNormalizeUri(
                         "abfss://container@account.dfs.core.windows.net/dir/file"));
         Assertions.assertEquals("Azure URI account host does not match the binding", mismatch.getMessage());
-        // A legacy S3-style URI has no account host to replace the explicitly configured one.
-        Assertions.assertEquals("s3://container/dir/file",
-                properties.validateAndNormalizeUri("s3://container/dir/file"));
+        // Only legacy SharedKey access supports S3-style locations without an account authority.
+        Assertions.assertThrows(StoragePropertiesException.class,
+                () -> properties.validateAndNormalizeUri("s3://container/dir/file"));
     }
 
     @Test
@@ -376,14 +375,13 @@ class AzureFileSystemPropertiesTest {
         BackendStorageProperties backend = properties.toBackendProperties().orElseThrow();
         Map<String, String> backendMap = backend.toMap();
 
-        Assertions.assertEquals(BackendStorageKind.S3_COMPATIBLE, backend.backendKind());
+        Assertions.assertEquals(BackendStorageKind.NATIVE, backend.backendKind());
         Assertions.assertEquals(Map.of(
                 "provider", "azure",
                 "AZURE_AUTH_TYPE", "SHARED_KEY",
                 "AZURE_ENDPOINT", "https://account.blob.core.windows.net",
                 "AZURE_ACCOUNT_NAME", "account",
-                "AZURE_ACCOUNT_KEY", "key",
-                "use_path_style", "true"), backendMap);
+                "AZURE_ACCOUNT_KEY", "key"), backendMap);
     }
 
     @Test
@@ -403,10 +401,8 @@ class AzureFileSystemPropertiesTest {
                 "AZURE_AUTH_TYPE", "SAS",
                 "AZURE_ENDPOINT", "https://account.blob.core.windows.net",
                 "AZURE_ACCOUNT_NAME", "account",
-                "AZURE_CONTAINER", "container",
                 "AZURE_SAS_TOKEN", "sv=2024-01-01&sig=temporary",
-                "AZURE_SAS_EXPIRY_MS", "4102444800000",
-                "use_path_style", "false"), backendMap);
+                "AZURE_SAS_EXPIRY_MS", "4102444800000"), backendMap);
     }
 
     @Test
@@ -551,32 +547,33 @@ class AzureFileSystemPropertiesTest {
     }
 
     /**
-     * Pins both the compatibility OAuth2 map used by genuine Microsoft Fabric OneLake locations
-     * and the native service-principal fields used by ordinary Azure ABFS paths.
+     * The full Hadoop configuration belongs only to the URI-selected OneLake backend view.
      */
     @Test
-    void toBackendProperties_oauth2DumpsHadoopResolvedConfig() {
+    void resolveBackendProperties_oneLakeDumpsHadoopResolvedConfig() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "azure.endpoint", "account.blob.core.windows.net",
                 "azure.auth_type", "OAuth2",
-                "azure.oauth2_account_host", "myaccount.dfs.core.windows.net",
+                "azure.oauth2_account_host", "onelake.dfs.fabric.microsoft.com",
                 "azure.oauth2_client_id", "client-id",
                 "azure.oauth2_client_secret", "client-secret",
                 "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
 
-        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+        BackendStorageProperties backend = properties.resolveBackendProperties(
+                "abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/file").orElseThrow();
+        Map<String, String> backendMap = backend.toMap();
+        Assertions.assertEquals(BackendStorageKind.HDFS, backend.backendKind());
 
         // 1. The OAuth config the ABFS connector actually authenticates with.
         Assertions.assertEquals("OAuth",
-                backendMap.get("fs.azure.account.auth.type.myaccount.dfs.core.windows.net"));
+                backendMap.get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));
         Assertions.assertEquals("org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider",
-                backendMap.get("fs.azure.account.oauth.provider.type.myaccount.dfs.core.windows.net"));
+                backendMap.get("fs.azure.account.oauth.provider.type.onelake.dfs.fabric.microsoft.com"));
         Assertions.assertEquals("client-id",
-                backendMap.get("fs.azure.account.oauth2.client.id.myaccount.dfs.core.windows.net"));
+                backendMap.get("fs.azure.account.oauth2.client.id.onelake.dfs.fabric.microsoft.com"));
         Assertions.assertEquals("client-secret",
-                backendMap.get("fs.azure.account.oauth2.client.secret.myaccount.dfs.core.windows.net"));
+                backendMap.get("fs.azure.account.oauth2.client.secret.onelake.dfs.fabric.microsoft.com"));
         Assertions.assertEquals("https://login.microsoftonline.com/tenant/oauth2/token",
-                backendMap.get("fs.azure.account.oauth2.client.endpoint.myaccount.dfs.core.windows.net"));
+                backendMap.get("fs.azure.account.oauth2.client.endpoint.onelake.dfs.fabric.microsoft.com"));
 
         // 2. hadoop core-default.xml is merged in. This is the whole reason the module compiles
         //    against hadoop-common: a plain key-value map would carry the OAuth keys above but none
@@ -586,16 +583,9 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertTrue(backendMap.size() > 100,
                 "expected a resolved hadoop config, got " + backendMap.size() + " keys");
 
-        // 3. Native attempts carry an explicit OAuth2 marker and service-principal fields, never
-        // an AK/SK or SAS fallback.
-        Assertions.assertEquals("OAUTH2", backendMap.get("AZURE_AUTH_TYPE"), backendMap.toString());
-        Assertions.assertEquals("client-id", backendMap.get("AZURE_CLIENT_ID"));
-        Assertions.assertEquals("client-secret", backendMap.get("AZURE_CLIENT_SECRET"));
-        Assertions.assertEquals("tenant", backendMap.get("AZURE_TENANT_ID"));
-        Assertions.assertEquals("https://login.microsoftonline.com/tenant/oauth2/token",
-                backendMap.get("AZURE_OAUTH_SERVER_URI"));
-        Assertions.assertFalse(backendMap.containsKey("AZURE_ACCOUNT_KEY"), backendMap.toString());
-        Assertions.assertFalse(backendMap.containsKey("AZURE_SAS_TOKEN"), backendMap.toString());
+        // 3. The selected Hadoop view never carries native Azure authentication fields.
+        Assertions.assertFalse(backendMap.containsKey("provider"));
+        Assertions.assertFalse(backendMap.keySet().stream().anyMatch(key -> key.startsWith("AZURE_")));
     }
 
     @Test
@@ -609,11 +599,14 @@ class AzureFileSystemPropertiesTest {
 
         Map<String, String> hadoop = properties.toHadoopConfigurationMap();
         Assertions.assertEquals("OAuth", hadoop.get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));
-        Assertions.assertEquals("client-id", hadoop.get("fs.azure.account.oauth2.client.id.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertEquals("client-id",
+                hadoop.get("fs.azure.account.oauth2.client.id.onelake.dfs.fabric.microsoft.com"));
         Assertions.assertEquals("client-secret",
                 hadoop.get("fs.azure.account.oauth2.client.secret.onelake.dfs.fabric.microsoft.com"));
         Assertions.assertEquals("OAuth",
-                properties.toMap().get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));
+                properties.resolveBackendProperties("abfss://workspace@onelake.dfs.fabric.microsoft.com/file")
+                        .orElseThrow().toMap().get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertFalse(properties.toMap().keySet().stream().anyMatch(key -> key.startsWith("fs.")));
         Assertions.assertFalse(hadoop.keySet().stream().anyMatch(key -> key.contains(".blob.fabric.microsoft.com")));
     }
 
@@ -636,11 +629,10 @@ class AzureFileSystemPropertiesTest {
     }
 
     @Test
-    void toBackendProperties_oauth2PassesUserFsKeysThroughAndNormalizesCacheFlags() {
+    void resolveBackendProperties_oneLakePassesUserFsKeysThroughAndNormalizesCacheFlags() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "azure.endpoint", "account.blob.core.windows.net",
                 "azure.auth_type", "OAuth2",
-                "azure.oauth2_account_host", "myaccount.dfs.core.windows.net",
+                "azure.oauth2_account_host", "onelake.dfs.fabric.microsoft.com",
                 "azure.oauth2_client_id", "client-id",
                 "azure.oauth2_client_secret", "client-secret",
                 "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token",
@@ -649,7 +641,8 @@ class AzureFileSystemPropertiesTest {
                 // explicit cache flag in a spelling only BooleanUtils understands
                 "fs.abfss.impl.disable.cache", "no"));
 
-        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+        Map<String, String> backendMap = properties.resolveBackendProperties(
+                "abfss://workspace@onelake.dfs.fabric.microsoft.com/file").orElseThrow().toMap();
 
         Assertions.assertEquals("8", backendMap.get("fs.azure.readaheadqueue.depth"));
         // Explicit user value wins, but normalized to true/false — "no" must not reach BE verbatim.

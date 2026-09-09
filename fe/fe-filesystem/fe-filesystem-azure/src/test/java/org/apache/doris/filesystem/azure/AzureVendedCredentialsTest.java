@@ -56,8 +56,7 @@ class AzureVendedCredentialsTest {
                 "AZURE_ACCOUNT_NAME", "account",
                 "AZURE_ENDPOINT", "https://account.blob.core.windows.net",
                 "AZURE_SAS_TOKEN", EXPIRING_TOKEN,
-                "AZURE_SAS_EXPIRY_MS", "4102444800000",
-                "use_path_style", "false"), properties.toMap());
+                "AZURE_SAS_EXPIRY_MS", "4102444800000"), properties.toMap());
         Assertions.assertFalse(properties.toString().contains("secret-signature"));
     }
 
@@ -97,8 +96,7 @@ class AzureVendedCredentialsTest {
                 "AZURE_AUTH_TYPE", "SAS",
                 "AZURE_ACCOUNT_NAME", "account",
                 "AZURE_ENDPOINT", "https://account.blob.core.windows.net",
-                "AZURE_SAS_TOKEN", TOKEN,
-                "use_path_style", "false"), properties.toMap());
+                "AZURE_SAS_TOKEN", TOKEN), properties.toMap());
         Assertions.assertFalse(properties.rawProperties().values().stream().anyMatch(value -> value.contains("old-")));
         Assertions.assertEquals(TOKEN,
                 properties.toHadoopConfigurationMap().get("fs.azure.sas.fixed.token." + HOST));
@@ -271,7 +269,7 @@ class AzureVendedCredentialsTest {
                 Map.of(TOKEN_KEY, TOKEN, containerKey, " container "), Map.of()).orElseThrow();
 
         Assertions.assertEquals("container", properties.getContainer());
-        Assertions.assertEquals("container", properties.toMap().get("AZURE_CONTAINER"));
+        Assertions.assertFalse(properties.toMap().containsKey("AZURE_CONTAINER"));
         Assertions.assertEquals("abfss://container@" + HOST + "/file",
                 properties.validateAndNormalizeUri("abfss://container@" + HOST + "/file"));
         Assertions.assertThrows(StoragePropertiesException.class,
@@ -342,7 +340,7 @@ class AzureVendedCredentialsTest {
 
         Assertions.assertEquals("true", properties.getUsePathStyle());
         Assertions.assertEquals("true", properties.getForceParsingByStandardUrl());
-        Assertions.assertEquals("true", properties.toMap().get("use_path_style"));
+        Assertions.assertFalse(properties.toMap().containsKey("use_path_style"));
         Assertions.assertFalse(properties.rawProperties().containsKey(catalogKey));
     }
 

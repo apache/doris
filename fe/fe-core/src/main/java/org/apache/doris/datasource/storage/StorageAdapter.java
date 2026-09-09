@@ -19,6 +19,8 @@ package org.apache.doris.datasource.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.filesystem.properties.BackendStorageKind;
+import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
@@ -27,6 +29,7 @@ import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.foundation.security.ExecutionAuthenticator;
 import org.apache.doris.fs.FileSystemPluginManager;
+import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.commons.lang3.StringUtils;
@@ -156,6 +159,17 @@ public final class StorageAdapter {
      */
     public static List<StorageAdapter> ofAll(Map<String, String> origProps) {
         List<FileSystemProperties> bindings = manager().bindAll(withHadoopConfigDir(origProps));
+        List<StorageAdapter> result = new ArrayList<>(bindings.size());
+        for (FileSystemProperties binding : bindings) {
+            result.add(new StorageAdapter(binding, origProps));
+        }
+        return result;
+    }
+
+    /** Builds the remaining static bindings from the same raw snapshot used for vending. */
+    public static List<StorageAdapter> ofAllExcept(Map<String, String> origProps, Set<String> replacedProviders) {
+        List<FileSystemProperties> bindings =
+                manager().bindAllExcept(withHadoopConfigDir(origProps), replacedProviders);
         List<StorageAdapter> result = new ArrayList<>(bindings.size());
         for (FileSystemProperties binding : bindings) {
             result.add(new StorageAdapter(binding, origProps));
@@ -425,9 +439,9 @@ public final class StorageAdapter {
     }
 
     /**
-     * Backend (BE) configuration map, key-for-key equal to the legacy typed classes plus the
+     * Backend (BE) configuration map. Hadoop-compatible views retain the
      * per-scheme {@code doris.fs.cache.key.<scheme>} entries identifying the credential set it was
-     * built from (see {@link FsCacheKeys}).
+     * built from (see {@link FsCacheKeys}); native views contain only their provider's wire properties.
      *
      * <p>The returned map is a defensive copy: the Broker/Local/Http branch of
      * {@link #computeBackendConfigProperties()} hands back the caller's own raw property map, which
@@ -438,10 +452,85 @@ public final class StorageAdapter {
         spi.validateForAccess();
         if (backendConfigProperties == null) {
             Map<String, String> props = new HashMap<>(computeBackendConfigProperties());
-            FsCacheKeys.putFsCacheKeys(props, spi);
+            if (spi.toBackendProperties().map(BackendStorageProperties::backendKind).orElse(null)
+                    != BackendStorageKind.NATIVE) {
+                FsCacheKeys.putFsCacheKeys(props, spi);
+            }
             backendConfigProperties = props;
         }
         return new HashMap<>(backendConfigProperties);
+    }
+
+    /** Selects a backend view from this binding, after URI validation and normalization. */
+    public BackendStorageProperties resolveBackendProperties(String normalizedUri) {
+        return spi.resolveBackendProperties(normalizedUri).orElseGet(() -> {
+            BackendStorageKind kind;
+            switch (type) {
+                case BROKER:
+                    kind = BackendStorageKind.BROKER;
+                    break;
+                case LOCAL:
+                    kind = BackendStorageKind.LOCAL;
+                    break;
+                case HTTP:
+                    kind = BackendStorageKind.NATIVE;
+                    break;
+                default:
+                    throw new IllegalStateException("Provider " + providerKey + " exposes no backend properties");
+            }
+            return new BackendStorageProperties() {
+                @Override
+                public BackendStorageKind backendKind() {
+                    return kind;
+                }
+
+                @Override
+                public Map<String, String> toMap() {
+                    return new HashMap<>(origProps);
+                }
+            };
+        });
+    }
+
+    /** Wire routing is engine-owned; the provider chooses the native/Hadoop view, not a URI guess. */
+    public TFileType getBackendFileType(BackendStorageKind kind) {
+        switch (kind) {
+            case S3_COMPATIBLE:
+                return TFileType.FILE_S3;
+            case HDFS:
+                return TFileType.FILE_HDFS;
+            case BROKER:
+                return TFileType.FILE_BROKER;
+            case LOCAL:
+                return TFileType.FILE_LOCAL;
+            case NATIVE:
+                // Azure retains the existing FILE_S3 transport and selects its client with provider=azure.
+                if (type == StorageTypeId.AZURE) {
+                    return TFileType.FILE_S3;
+                }
+                if (type == StorageTypeId.HTTP) {
+                    return TFileType.FILE_HTTP;
+                }
+                throw new IllegalStateException("No native BE reader registered for provider " + providerKey);
+            default:
+                throw new IllegalStateException("Unhandled backend storage kind: " + kind);
+        }
+    }
+
+    /** Emits only the selected view; native parameters never acquire Hadoop filesystem cache keys. */
+    public Map<String, String> getBackendConfigProperties(BackendStorageProperties view) {
+        if (view == spi.toBackendProperties().orElse(null)
+                || type == StorageTypeId.BROKER || type == StorageTypeId.LOCAL || type == StorageTypeId.HTTP) {
+            // Reuse the immutable default view's map and its access-time expiry check. Native
+            // scans call this once per file, so binding fingerprints must not be recomputed there.
+            return getBackendConfigProperties();
+        }
+        spi.validateForAccess();
+        Map<String, String> props = new HashMap<>(alignBackendConfigProperties(view.toMap()));
+        if (view.backendKind() != BackendStorageKind.NATIVE) {
+            FsCacheKeys.putFsCacheKeys(props, spi);
+        }
+        return props;
     }
 
     /**
@@ -460,13 +549,6 @@ public final class StorageAdapter {
             case HTTP:
                 // Align fe-core: Broker/Local/Http return the raw user properties verbatim.
                 return origProps;
-            case AZURE:
-                // Azure owns its authentication parameters; keep them out of the generic S3
-                // key alignment below.
-                return spi.toBackendProperties()
-                        .orElseThrow(() -> new IllegalStateException(
-                                "Provider " + providerKey + " exposes no backend properties"))
-                        .toMap();
             default:
                 break;
         }
@@ -474,6 +556,10 @@ public final class StorageAdapter {
                 .orElseThrow(() -> new IllegalStateException(
                         "Provider " + providerKey + " exposes no backend properties"))
                 .toMap();
+        return alignBackendConfigProperties(base);
+    }
+
+    private Map<String, String> alignBackendConfigProperties(Map<String, String> base) {
         if (spi instanceof S3CompatibleFileSystemProperties) {
             return alignS3FamilyBackendMap((S3CompatibleFileSystemProperties) spi, base);
         }

@@ -49,6 +49,7 @@ import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
 
 /**
  * Manages lifecycle of FileSystemProvider plugins.
@@ -274,6 +275,16 @@ public class FileSystemPluginManager {
      */
     public List<FileSystemProperties> bindAll(Map<String, String> properties) {
         return bindAll(properties, Collections.emptySet(), true);
+    }
+
+    /**
+     * Binds a raw catalog snapshot except for providers already replaced by request credentials.
+     * Skipping occurs before static binding/validation, not after constructing the obsolete identity.
+     */
+    public List<FileSystemProperties> bindAllExcept(Map<String, String> properties, Set<String> replacedProviders) {
+        Set<String> skipped = replacedProviders.stream().map(name -> name.toUpperCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        return bindAll(properties, skipped, true);
     }
 
     /**
