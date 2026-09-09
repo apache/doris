@@ -2591,7 +2591,8 @@ public class SessionVariable implements Serializable, Writable {
             description = {
                     "是否启用 Lance 两阶段延迟读取，默认开启，不受 topn_lazy_materialization_threshold 控制。"
                             + "当前支持 vector_search 和 full_text_search 中可安全延迟读取的列。",
-                    "Enable Lance two-phase lazy materialization, independently of topn_lazy_materialization_threshold. "
+                    "Enable Lance two-phase lazy materialization, "
+                            + "independently of topn_lazy_materialization_threshold. "
                             + "Enabled by default for eligible columns in vector_search and full_text_search."})
     public boolean enableLanceLazyMaterialization = true;
 

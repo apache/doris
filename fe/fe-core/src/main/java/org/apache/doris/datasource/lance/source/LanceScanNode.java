@@ -667,7 +667,8 @@ public class LanceScanNode extends FileQueryScanNode {
                 result.append(prefix).append("lanceScalarIndexScan=SEGMENT\n");
                 result.append(prefix).append("lanceGroupingIndex=").append(scalarIndexPlan.indexName).append("\n");
                 result.append(prefix).append("lanceGroupingIndexSegments=").append(plannedIndexSegments).append("\n");
-                result.append(prefix).append("lanceGroupingIndexedFragments=").append(plannedIndexFragments).append("\n");
+                result.append(prefix).append("lanceGroupingIndexedFragments=")
+                        .append(plannedIndexFragments).append("\n");
                 result.append(prefix).append("lanceGroupingUnindexedFragments=")
                         .append(plannedUnindexedFragments).append("\n");
             }

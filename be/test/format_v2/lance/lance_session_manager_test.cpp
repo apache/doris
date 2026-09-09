@@ -57,9 +57,7 @@ TEST(LanceSessionManagerTest, SessionAndDataCacheConfigurationsAreIndependent) {
     };
     LanceSessionManager manager(std::move(config));
     LanceDataset* raw_dataset = nullptr;
-    ASSERT_TRUE(manager
-                        .open_dataset(lance_fixture_path().c_str(), nullptr, 0, &raw_dataset)
-                        .ok());
+    ASSERT_TRUE(manager.open_dataset(lance_fixture_path().c_str(), nullptr, 0, &raw_dataset).ok());
     LanceDatasetPtr dataset(raw_dataset, lance_dataset_close);
     ASSERT_NE(dataset, nullptr);
 }
@@ -117,8 +115,8 @@ TEST(LanceSessionManagerTest, CreatesFoyerBackedSession) {
     {
         LanceSessionManager manager(std::move(config));
         LanceDataset* raw_dataset = nullptr;
-        const auto status = manager.open_dataset(lance_fixture_path().c_str(), nullptr, 0,
-                                                 &raw_dataset);
+        const auto status =
+                manager.open_dataset(lance_fixture_path().c_str(), nullptr, 0, &raw_dataset);
         LanceDatasetPtr dataset(raw_dataset, lance_dataset_close);
         EXPECT_TRUE(status.ok()) << status;
         EXPECT_NE(dataset, nullptr);

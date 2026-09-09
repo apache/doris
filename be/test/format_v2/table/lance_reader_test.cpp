@@ -1052,11 +1052,11 @@ TEST(LanceTableReaderVectorSearchTest, ReturnsStableGlobalRowIdsAndFetchesPayloa
     EXPECT_NE(fetch_profile.get_counter("LanceRowIdTakeReadTime"), nullptr);
     EXPECT_NE(fetch_profile.get_counter("LanceArrowToDorisBlockTime"), nullptr);
     EXPECT_NE(fetch_profile.get_counter("LanceRowIdFetchTotalTime"), nullptr);
-    expect_lance_profile_hierarchy(&fetch_profile,
-                                   {"LanceDatasetOpenTime", "LanceRowIdTakeReadTime",
-                                    "LanceArrowToDorisBlockTime", "LanceRowIdFetchTotalTime",
-                                    "LanceDataCacheBytesReadFromCache",
-                                    "LanceDataCacheBytesReadFromRemote"});
+    expect_lance_profile_hierarchy(
+            &fetch_profile,
+            {"LanceDatasetOpenTime", "LanceRowIdTakeReadTime", "LanceArrowToDorisBlockTime",
+             "LanceRowIdFetchTotalTime", "LanceDataCacheBytesReadFromCache",
+             "LanceDataCacheBytesReadFromRemote"});
     EXPECT_TRUE(payload_reader.close().ok());
 }
 
