@@ -102,26 +102,25 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                 properties.getEndpoint(), AzureFileSystemProperties.ENDPOINT, "Azure endpoint");
         BlobServiceClientBuilder builder = new BlobServiceClientBuilder().endpoint(endpoint);
 
-        if (properties.isSharedKeyAuth()) {
-            String accountName = requireProperty(
-                    properties.getAccountName(), AzureFileSystemProperties.ACCOUNT_NAME, "Azure account name");
-            String accountKey = requireProperty(
-                    properties.getAccountKey(), AzureFileSystemProperties.ACCOUNT_KEY, "Azure account key");
-            builder.credential(new StorageSharedKeyCredential(accountName, accountKey));
-        } else if (properties.isSasAuth()) {
-            String sasToken = properties.getSasToken();
-            if (sasToken == null || sasToken.isEmpty()) {
-                throw new IOException("Azure SAS authentication requires a non-empty token");
-            }
-            builder.sasToken(stripSasPrefix(sasToken));
-        } else {
-            String tenantId = properties.resolveTenantId()
-                    .orElseThrow(() -> new IOException("Azure tenant id is required for OAuth2 native SDK access"));
-            builder.credential(new ClientSecretCredentialBuilder()
-                    .tenantId(tenantId)
-                    .clientId(properties.getClientId())
-                    .clientSecret(properties.getClientSecret())
-                    .build());
+        switch (properties.authType()) {
+            case SHARED_KEY:
+                builder.credential(new StorageSharedKeyCredential(
+                        properties.getAccountName(), properties.getAccountKey()));
+                break;
+            case SAS:
+                builder.sasToken(stripSasPrefix(properties.getSasToken()));
+                break;
+            case OAUTH2:
+                String tenantId = properties.resolveTenantId()
+                        .orElseThrow(() -> new IOException("Azure tenant id is required for OAuth2 native SDK access"));
+                builder.credential(new ClientSecretCredentialBuilder()
+                        .tenantId(tenantId)
+                        .clientId(properties.getClientId())
+                        .clientSecret(properties.getClientSecret())
+                        .build());
+                break;
+            default:
+                throw new IllegalStateException("Unhandled Azure auth type: " + properties.authType());
         }
         return builder.buildClient();
     }

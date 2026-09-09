@@ -159,6 +159,33 @@ class AzureObjStorageExtensionTest {
         Assertions.assertNotNull(storage.buildClient());
     }
 
+    @Test
+    void buildClient_acceptsCanonicalSharedKeyAuthType() throws Exception {
+        AzureObjStorage storage = new AzureObjStorage(Map.of(
+                "AZURE_AUTH_TYPE", "SHARED_KEY",
+                "AZURE_ACCOUNT_NAME", "account",
+                "AZURE_ACCOUNT_KEY", "dGVzdA=="));
+
+        BlobServiceClient client = storage.buildClient();
+
+        Assertions.assertEquals("https://account.blob.core.windows.net", client.getAccountUrl());
+    }
+
+    @Test
+    void buildClient_acceptsExplicitOAuth2Credential() throws Exception {
+        AzureObjStorage storage = new AzureObjStorage(Map.of(
+                "azure.auth_type", "OAUTH2",
+                "azure.endpoint", "account.blob.core.windows.net",
+                "azure.oauth2_account_host", "account.dfs.core.windows.net",
+                "azure.oauth2_client_id", "client-id",
+                "azure.oauth2_client_secret", "client-secret",
+                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
+
+        BlobServiceClient client = storage.buildClient();
+
+        Assertions.assertEquals("https://account.blob.core.windows.net", client.getAccountUrl());
+    }
+
     // ------------------------------------------------------------------
     // listObjectsWithPrefix tests
     // ------------------------------------------------------------------

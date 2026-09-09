@@ -150,7 +150,7 @@ public final class AzureFileSystemProperties
     @ConnectorProperty(names = {AUTH_TYPE, "AZURE_AUTH_TYPE"},
             required = false,
             description = "The auth type of Azure Blob Storage.")
-    private String azureAuthType = SHARED_KEY_AUTH;
+    private String azureAuthType = "";
 
     @ConnectorProperty(names = {SAS_TOKEN, "azure.sas-token", "AZURE_SAS_TOKEN"},
             required = false,
@@ -181,6 +181,7 @@ public final class AzureFileSystemProperties
 
     private final Map<String, String> rawProperties;
     private final Map<String, String> matchedProperties;
+    private final AzureAuthType authType;
 
     private AzureFileSystemProperties(Map<String, String> rawProperties) {
         // Defensive copy before wrapping: unmodifiableMap alone is only a read-only view,
@@ -188,7 +189,9 @@ public final class AzureFileSystemProperties
         this.rawProperties = Collections.unmodifiableMap(new HashMap<>(rawProperties));
         this.matchedProperties = Collections.unmodifiableMap(collectMatchedProperties(rawProperties));
         ConnectorPropertiesUtils.bindConnectorProperties(this, rawProperties);
-        normalize();
+        this.authType = resolveAuthType();
+        azureAuthType = authType.propertyValue();
+        endpoint = formatAzureEndpoint(endpoint, accountName, oauthAccountHost);
     }
 
     public static AzureFileSystemProperties of(Map<String, String> properties) {
@@ -199,24 +202,30 @@ public final class AzureFileSystemProperties
 
     @Override
     public void validate() {
-        new ParamRules()
-                .check(() -> !isSharedKeyAuth() && !isSasAuth() && !isOauth2Auth(),
-                        "Unsupported Azure auth_type: " + azureAuthType)
-                .check(() -> isSharedKeyAuth()
-                                && (StringUtils.isBlank(accountName) || StringUtils.isBlank(accountKey)),
-                        "When auth_type is SharedKey, account_name and account_key are required.")
-                .check(() -> isSharedKeyAuth() && StringUtils.isNotBlank(sasToken),
-                        "When auth_type is SharedKey, sas_token must not be set.")
-                .check(() -> isSasAuth() && StringUtils.isBlank(sasToken),
-                        "When auth_type is SAS, sas_token is required.")
-                .check(() -> isOauth2Auth()
-                                && (StringUtils.isBlank(oauthAccountHost)
+        ParamRules rules = new ParamRules();
+        switch (authType) {
+            case SHARED_KEY:
+                rules.check(() -> StringUtils.isBlank(accountName) || StringUtils.isBlank(accountKey),
+                                "When auth_type is SharedKey, account_name and account_key are required.")
+                        .check(() -> StringUtils.isNotBlank(sasToken),
+                                "When auth_type is SharedKey, sas_token must not be set.");
+                break;
+            case SAS:
+                rules.check(() -> StringUtils.isBlank(sasToken),
+                        "When auth_type is SAS, sas_token is required.");
+                break;
+            case OAUTH2:
+                rules.check(() -> StringUtils.isBlank(oauthAccountHost)
                                 || StringUtils.isBlank(clientId)
                                 || StringUtils.isBlank(clientSecret)
-                                || StringUtils.isBlank(oauthServerUri)),
+                                || StringUtils.isBlank(oauthServerUri),
                         "When auth_type is OAuth2, oauth2_account_host, oauth2_client_id, "
-                                + "oauth2_client_secret, and oauth2_server_uri are required.")
-                .validate("Invalid Azure filesystem properties");
+                                + "oauth2_client_secret, and oauth2_server_uri are required.");
+                break;
+            default:
+                throw new IllegalStateException("Unhandled Azure auth type: " + authType);
+        }
+        rules.validate("Invalid Azure filesystem properties");
         validateSasExpiry();
     }
 
@@ -275,18 +284,29 @@ public final class AzureFileSystemProperties
         // an Azure SAS is not an AWS session token.
         Map<String, String> azureProps = new HashMap<>();
         azureProps.put("provider", "azure");
-        azureProps.put(BACKEND_AUTH_TYPE, backendAuthType());
-        if (isOauth2Auth()) {
-            // Keep the account-scoped fs.azure.* settings available to the explicitly HDFS-bound
-            // Fabric OneLake path, and send the same service-principal material to the native BE
-            // path. Both paths use this binding; the reader selected by the URI decides which
-            // credential vocabulary it consumes.
-            azureProps.putAll(oauth2BackendProperties());
-            azureProps.put(BACKEND_CLIENT_ID, clientId);
-            azureProps.put(BACKEND_CLIENT_SECRET, clientSecret);
-            resolveTenantId().ifPresent(value -> azureProps.put(BACKEND_TENANT_ID, value));
-            azureProps.put(BACKEND_OAUTH_SERVER_URI, oauthServerUri);
-            azureProps.put(BACKEND_OAUTH_ACCOUNT_HOST, oauthAccountHost);
+        azureProps.put(BACKEND_AUTH_TYPE, authType.name());
+        switch (authType) {
+            case SHARED_KEY:
+                azureProps.put(BACKEND_ACCOUNT_KEY, accountKey);
+                break;
+            case SAS:
+                azureProps.put(BACKEND_SAS_TOKEN, stripSasPrefix(sasToken));
+                if (StringUtils.isNotBlank(sasExpiryMs)) {
+                    azureProps.put(BACKEND_SAS_EXPIRY_MS, sasExpiryMs);
+                }
+                break;
+            case OAUTH2:
+                // Preserve the OneLake Hadoop view until routing selects it separately from the
+                // native credentials. Both paths currently consume this binding's backend map.
+                azureProps.putAll(oauth2BackendProperties());
+                azureProps.put(BACKEND_CLIENT_ID, clientId);
+                azureProps.put(BACKEND_CLIENT_SECRET, clientSecret);
+                resolveTenantId().ifPresent(value -> azureProps.put(BACKEND_TENANT_ID, value));
+                azureProps.put(BACKEND_OAUTH_SERVER_URI, oauthServerUri);
+                azureProps.put(BACKEND_OAUTH_ACCOUNT_HOST, oauthAccountHost);
+                break;
+            default:
+                throw new IllegalStateException("Unhandled Azure auth type: " + authType);
         }
         if (StringUtils.isNotBlank(endpoint)) {
             azureProps.put(BACKEND_ENDPOINT, endpoint);
@@ -295,17 +315,8 @@ public final class AzureFileSystemProperties
         if (StringUtils.isNotBlank(backendAccountName)) {
             azureProps.put(BACKEND_ACCOUNT_NAME, backendAccountName);
         }
-        if (isSharedKeyAuth() && StringUtils.isNotBlank(accountKey)) {
-            azureProps.put(BACKEND_ACCOUNT_KEY, accountKey);
-        }
         if (StringUtils.isNotBlank(container)) {
             azureProps.put(BACKEND_CONTAINER, container);
-        }
-        if (isSasAuth() && StringUtils.isNotBlank(sasToken)) {
-            azureProps.put(BACKEND_SAS_TOKEN, stripSasPrefix(sasToken));
-            if (StringUtils.isNotBlank(sasExpiryMs)) {
-                azureProps.put(BACKEND_SAS_EXPIRY_MS, sasExpiryMs);
-            }
         }
         // Keep this generic option for existing Azure callers that persist it. Native Azure does
         // not use path-style addressing, but removing the key would change old maps.
@@ -325,24 +336,30 @@ public final class AzureFileSystemProperties
                 cfg.put(key, value);
             }
         });
-        if (isOauth2Auth()) {
-            cfg.put("fs.azure.account.auth.type." + oauthAccountHost, "OAuth");
-            cfg.put("fs.azure.account.oauth.provider.type." + oauthAccountHost,
-                    "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider");
-            cfg.put("fs.azure.account.oauth2.client.id." + oauthAccountHost, clientId);
-            cfg.put("fs.azure.account.oauth2.client.secret." + oauthAccountHost, clientSecret);
-            cfg.put("fs.azure.account.oauth2.client.endpoint." + oauthAccountHost, oauthServerUri);
-        } else if (isSasAuth()) {
-            String accountHost = resolveAccountHost();
-            if (StringUtils.isNotBlank(accountHost)) {
-                cfg.put("fs.azure.account.auth.type." + accountHost, SAS_AUTH);
-                cfg.put("fs.azure.sas.fixed.token." + accountHost, stripSasPrefix(sasToken));
-            }
-        } else {
-            for (String suffix : normalizedAzureBlobHostSuffixes()) {
-                cfg.put("fs.azure.account.key." + accountName + "." + suffix, accountKey);
-            }
-            cfg.put("fs.azure.account.key", accountKey);
+        switch (authType) {
+            case SHARED_KEY:
+                for (String suffix : normalizedAzureBlobHostSuffixes()) {
+                    cfg.put("fs.azure.account.key." + accountName + "." + suffix, accountKey);
+                }
+                cfg.put("fs.azure.account.key", accountKey);
+                break;
+            case SAS:
+                String accountHost = resolveAccountHost();
+                if (StringUtils.isNotBlank(accountHost)) {
+                    cfg.put("fs.azure.account.auth.type." + accountHost, SAS_AUTH);
+                    cfg.put("fs.azure.sas.fixed.token." + accountHost, stripSasPrefix(sasToken));
+                }
+                break;
+            case OAUTH2:
+                cfg.put("fs.azure.account.auth.type." + oauthAccountHost, "OAuth");
+                cfg.put("fs.azure.account.oauth.provider.type." + oauthAccountHost,
+                        "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider");
+                cfg.put("fs.azure.account.oauth2.client.id." + oauthAccountHost, clientId);
+                cfg.put("fs.azure.account.oauth2.client.secret." + oauthAccountHost, clientSecret);
+                cfg.put("fs.azure.account.oauth2.client.endpoint." + oauthAccountHost, oauthServerUri);
+                break;
+            default:
+                throw new IllegalStateException("Unhandled Azure auth type: " + authType);
         }
         return Collections.unmodifiableMap(cfg);
     }
@@ -448,6 +465,10 @@ public final class AzureFileSystemProperties
         return azureAuthType;
     }
 
+    public AzureAuthType authType() {
+        return authType;
+    }
+
     public String getContainer() {
         return container;
     }
@@ -461,15 +482,15 @@ public final class AzureFileSystemProperties
     }
 
     public boolean isSharedKeyAuth() {
-        return SHARED_KEY_AUTH.equalsIgnoreCase(azureAuthType);
+        return authType == AzureAuthType.SHARED_KEY;
     }
 
     public boolean isSasAuth() {
-        return SAS_AUTH.equalsIgnoreCase(azureAuthType);
+        return authType == AzureAuthType.SAS;
     }
 
     public boolean isOauth2Auth() {
-        return OAUTH2_AUTH.equalsIgnoreCase(azureAuthType);
+        return authType == AzureAuthType.OAUTH2;
     }
 
     public Optional<String> resolveTenantId() {
@@ -499,41 +520,13 @@ public final class AzureFileSystemProperties
         }
     }
 
-    private void normalize() {
-        endpoint = formatAzureEndpoint(endpoint, accountName, oauthAccountHost);
+    private AzureAuthType resolveAuthType() {
         if (StringUtils.isNotBlank(azureAuthType)) {
-            if (SHARED_KEY_AUTH.equalsIgnoreCase(azureAuthType)) {
-                azureAuthType = SHARED_KEY_AUTH;
-            } else if (SAS_AUTH.equalsIgnoreCase(azureAuthType)) {
-                azureAuthType = SAS_AUTH;
-            } else if (OAUTH2_AUTH.equalsIgnoreCase(azureAuthType)) {
-                azureAuthType = OAUTH2_AUTH;
-            }
+            return AzureAuthType.parse(azureAuthType);
         }
-        // A token-only binding is unambiguously SAS. This supports provider-owned
-        // AZURE_SAS_TOKEN input without requiring a second auth-type key.
-        if (!hasExplicitAuthType() && StringUtils.isNotBlank(sasToken)
-                && SHARED_KEY_AUTH.equalsIgnoreCase(azureAuthType)) {
-            azureAuthType = SAS_AUTH;
-        }
-    }
-
-    private boolean hasExplicitAuthType() {
-        return rawProperties.keySet().stream()
-                .anyMatch(key -> AUTH_TYPE.equalsIgnoreCase(key)
-                        || "AZURE_AUTH_TYPE".equalsIgnoreCase(key));
-    }
-
-    private String backendAuthType() {
-        if (isSharedKeyAuth()) {
-            return "SHARED_KEY";
-        }
-        if (isSasAuth()) {
-            return SAS_AUTH;
-        }
-        // OAuth2 remains explicit so the BE selects ClientSecretCredential instead of treating
-        // the service-principal material as SharedKey.
-        return "OAUTH2";
+        // Infer only when the property binder found no nonblank auth type, respecting its alias
+        // precedence and case-sensitive key matching. OAuth2 continues to require an explicit type.
+        return StringUtils.isNotBlank(sasToken) ? AzureAuthType.SAS : AzureAuthType.SHARED_KEY;
     }
 
     private String resolveBackendAccountName() {
