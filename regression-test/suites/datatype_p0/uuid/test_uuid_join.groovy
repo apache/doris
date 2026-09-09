@@ -17,6 +17,7 @@
 
 // Checklist: A05 D06 D09 D10 E05 E12 E14.
 suite("test_uuid_join", "p0") {
+    sql "SET enable_sql_cache = false"
     sql "DROP TABLE IF EXISTS uuid_query_paths_join"
     sql """
         CREATE TABLE uuid_query_paths_join (id INT, u UUID, grp INT)
