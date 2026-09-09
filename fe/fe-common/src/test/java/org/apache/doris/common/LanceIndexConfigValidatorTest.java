@@ -25,8 +25,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * Coverage for the Lance index admission configuration items in {@link Config} and the
- * positive-value validators in {@link LanceIndexConfigValidator}: reviewed defaults, the
+ * Coverage for the Lance index admission and retention configuration items in
+ * {@link Config} and the positive-value validators in {@link LanceIndexConfigValidator}:
+ * reviewed defaults, the
  * {@link ConfigBase.ConfField} wiring (mutable/masterOnly/callback/varType), rejection of
  * zero, negative and non-numeric values, and that an accepted value is really assigned to
  * the field (a bare validating handler that never assigns would let ADMIN SET pass without
@@ -42,6 +43,8 @@ public class LanceIndexConfigValidatorTest {
         Assertions.assertEquals(256L, Config.lance_index_job_max_unresolved_global);
         Assertions.assertEquals(4096, Config.lance_index_max_num_partitions);
         Assertions.assertEquals(256, Config.lance_index_max_num_sub_vectors);
+        Assertions.assertEquals(7 * 24 * 3600L, Config.lance_index_job_keep_max_second);
+        Assertions.assertEquals(3600L, Config.lance_index_job_clean_interval_second);
     }
 
     @Test
@@ -56,6 +59,10 @@ public class LanceIndexConfigValidatorTest {
                 LanceIndexConfigValidator.PositiveIntConfigHandler.class);
         assertCallbackWiring("lance_index_max_num_sub_vectors", false,
                 LanceIndexConfigValidator.PositiveIntConfigHandler.class);
+        assertCallbackWiring("lance_index_job_keep_max_second", true,
+                LanceIndexConfigValidator.PositiveLongConfigHandler.class);
+        assertCallbackWiring("lance_index_job_clean_interval_second", true,
+                LanceIndexConfigValidator.PositiveLongConfigHandler.class);
 
         ConfigBase.ConfField gate = Config.class.getField("enable_lance_index_mutation")
                 .getAnnotation(ConfigBase.ConfField.class);
@@ -79,6 +86,8 @@ public class LanceIndexConfigValidatorTest {
         assertLongAssigns("lance_index_job_max_unresolved_per_table");
         assertLongAssigns("lance_index_job_max_unresolved_per_catalog");
         assertLongAssigns("lance_index_job_max_unresolved_global");
+        assertLongAssigns("lance_index_job_keep_max_second");
+        assertLongAssigns("lance_index_job_clean_interval_second");
     }
 
     private static void assertLongAssigns(String fieldName) throws Exception {
@@ -100,6 +109,14 @@ public class LanceIndexConfigValidatorTest {
         assertLongRejected("lance_index_job_max_unresolved_per_table", "-8");
         assertLongRejected("lance_index_job_max_unresolved_per_table", "not-a-number");
         assertLongRejected("lance_index_job_max_unresolved_per_table", "");
+        assertLongRejected("lance_index_job_keep_max_second", "0");
+        assertLongRejected("lance_index_job_keep_max_second", "-604800");
+        assertLongRejected("lance_index_job_keep_max_second", "not-a-number");
+        assertLongRejected("lance_index_job_keep_max_second", "");
+        assertLongRejected("lance_index_job_clean_interval_second", "0");
+        assertLongRejected("lance_index_job_clean_interval_second", "-3600");
+        assertLongRejected("lance_index_job_clean_interval_second", "not-a-number");
+        assertLongRejected("lance_index_job_clean_interval_second", "");
     }
 
     private static void assertLongRejected(String fieldName, String value) throws Exception {
@@ -170,6 +187,8 @@ public class LanceIndexConfigValidatorTest {
         long originalQuota = Config.lance_index_job_max_unresolved_per_catalog;
         int originalBound = Config.lance_index_max_num_partitions;
         boolean originalGate = Config.enable_lance_index_mutation;
+        long originalKeep = Config.lance_index_job_keep_max_second;
+        long originalInterval = Config.lance_index_job_clean_interval_second;
         try {
             ConfigBase.setMutableConfig("lance_index_job_max_unresolved_per_catalog", "96");
             Assertions.assertEquals(96L, Config.lance_index_job_max_unresolved_per_catalog);
@@ -187,10 +206,24 @@ public class LanceIndexConfigValidatorTest {
 
             ConfigBase.setMutableConfig("enable_lance_index_mutation", "true");
             Assertions.assertTrue(Config.enable_lance_index_mutation);
+
+            ConfigBase.setMutableConfig("lance_index_job_keep_max_second", "600");
+            Assertions.assertEquals(600L, Config.lance_index_job_keep_max_second);
+            Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("lance_index_job_keep_max_second", "0"));
+            Assertions.assertEquals(600L, Config.lance_index_job_keep_max_second);
+
+            ConfigBase.setMutableConfig("lance_index_job_clean_interval_second", "120");
+            Assertions.assertEquals(120L, Config.lance_index_job_clean_interval_second);
+            Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("lance_index_job_clean_interval_second", "-1"));
+            Assertions.assertEquals(120L, Config.lance_index_job_clean_interval_second);
         } finally {
             Config.lance_index_job_max_unresolved_per_catalog = originalQuota;
             Config.lance_index_max_num_partitions = originalBound;
             Config.enable_lance_index_mutation = originalGate;
+            Config.lance_index_job_keep_max_second = originalKeep;
+            Config.lance_index_job_clean_interval_second = originalInterval;
         }
     }
 }
