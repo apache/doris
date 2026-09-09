@@ -23,6 +23,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression.SqlRenderMode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
@@ -83,6 +84,15 @@ class ViewSqlRenderingTest {
         Lambda lambda = new Lambda(ImmutableList.of("x"), new UnboundSlot("x"));
         Assertions.assertEquals("x -> x", lambda.toSql(SqlRenderMode.FOR_VIEW));
         new NereidsParser().parseExpression("array_map(" + lambda.toSql(SqlRenderMode.FOR_VIEW) + ", [1, 2])");
+    }
+
+    @Test
+    void testTypedDateLiteral() {
+        DateV2Literal literal = new DateV2Literal("2026-01-02");
+        Expression parsed = new NereidsParser().parseExpression(literal.toSql(SqlRenderMode.FOR_VIEW));
+        Assertions.assertInstanceOf(Cast.class, parsed);
+        Assertions.assertEquals(literal.getDataType(), parsed.getDataType());
+        Assertions.assertEquals("'2026-01-02'", literal.toSql());
     }
 
     @Test

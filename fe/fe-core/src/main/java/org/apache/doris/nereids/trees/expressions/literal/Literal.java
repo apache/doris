@@ -150,6 +150,16 @@ public abstract class Literal extends Expression implements LeafExpression {
     }
 
     @Override
+    public String computeToSql(SqlRenderMode mode) {
+        // Diagnostic SQL represents dates/times as strings and floating-point values as
+        // decimal tokens. Persist an explicit cast so reparsing retains the literal type.
+        if (this instanceof DateLiteral || this instanceof FractionalLiteral || this instanceof TimeV2Literal) {
+            return "cast(" + computeToSql() + " as " + dataType.toSql() + ")";
+        }
+        return computeToSql();
+    }
+
+    @Override
     public String computeToSql() {
         return toString();
     }

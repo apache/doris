@@ -89,6 +89,12 @@ suite("test_create_view_star_replace") {
         SELECT * EXCEPT(payload) REPLACE(map('first', a, 'second', b) AS b) FROM view_star_replace_t"""
     order_qt_map "SELECT a, b['first'], b['second'], name FROM view_star_replace_v"
 
+    sql """CREATE OR REPLACE VIEW view_star_replace_v AS
+        SELECT * EXCEPT(payload) REPLACE(DATE '2026-01-02' AS b) FROM view_star_replace_t"""
+    qt_date_definition "SHOW CREATE VIEW view_star_replace_v"
+    order_qt_date "SELECT * FROM view_star_replace_v"
+    qt_date_schema "DESC view_star_replace_v"
+
     test {
         sql """CREATE OR REPLACE VIEW view_star_replace_v AS
             SELECT * REPLACE(1 AS missing) FROM view_star_replace_t"""
