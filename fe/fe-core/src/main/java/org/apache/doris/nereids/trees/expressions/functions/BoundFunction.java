@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -27,7 +28,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.LazyCompute;
+import org.apache.doris.nereids.util.Utils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -92,7 +95,10 @@ public abstract class BoundFunction extends Function implements ComputeSignature
 
     @Override
     public String computeToSql(SqlRenderMode mode) throws UnboundException {
-        StringBuilder sql = new StringBuilder(getName()).append("(");
+        if (mode == SqlRenderMode.FOR_VIEW) {
+            return functionNameToSql(mode) + "(" + argumentsToViewSql() + ")";
+        }
+        StringBuilder sql = new StringBuilder(functionNameToSql(mode)).append("(");
         int arity = arity();
         for (int i = 0; i < arity; i++) {
             Expression arg = child(i);
@@ -102,6 +108,39 @@ public abstract class BoundFunction extends Function implements ComputeSignature
             }
         }
         return sql.append(")").toString();
+    }
+
+    /** Render ordinary arguments followed by any in-function ORDER BY keys. */
+    protected String argumentsToViewSql() {
+        StringBuilder sql = new StringBuilder();
+        for (int i = 0; i < arity(); i++) {
+            Expression argument = child(i);
+            if (argument instanceof OrderExpression && (i == 0 || !(child(i - 1) instanceof OrderExpression))) {
+                sql.append(" ORDER BY ");
+            } else if (i > 0) {
+                sql.append(", ");
+            }
+            sql.append(argument.toSql(SqlRenderMode.FOR_VIEW));
+        }
+        return sql.toString();
+    }
+
+    /** Keep the database of a bound UDF when persisting its invocation. */
+    protected String functionNameToSql(SqlRenderMode mode) {
+        if (mode == SqlRenderMode.FOR_VIEW && this instanceof Udf) {
+            try {
+                FunctionName functionName = ((Udf) this).getCatalogFunction().getFunctionName();
+                List<String> parts = new ArrayList<>();
+                if (functionName.getDb() != null) {
+                    parts.add(functionName.getDb());
+                }
+                parts.add(functionName.getFunction());
+                return Utils.qualifiedNameWithBackquote(parts);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException("Cannot render UDF name for view", e);
+            }
+        }
+        return getName();
     }
 
     @Override

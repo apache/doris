@@ -144,7 +144,10 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
 
     @Override
     public String computeToSql(SqlRenderMode mode) throws UnboundException {
-        StringBuilder sql = new StringBuilder(getName()).append("(");
+        if (mode == SqlRenderMode.FOR_VIEW) {
+            return functionNameToSql(mode) + "(" + (distinct ? "DISTINCT " : "") + argumentsToViewSql() + ")";
+        }
+        StringBuilder sql = new StringBuilder(functionNameToSql(mode)).append("(");
         if (distinct) {
             sql.append("DISTINCT ");
         }

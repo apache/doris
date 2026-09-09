@@ -31,11 +31,13 @@ suite("test_create_view_star_replace") {
 
     sql """CREATE VIEW view_star_replace_v AS
         SELECT * EXCEPT(payload) REPLACE(99 AS a) FROM view_star_replace_t"""
+    qt_constant_definition "SHOW CREATE VIEW view_star_replace_v"
     order_qt_constant "SELECT * FROM view_star_replace_v"
     order_qt_constant_direct "SELECT * EXCEPT(payload) REPLACE(99 AS a) FROM view_star_replace_t"
 
     sql """ALTER VIEW view_star_replace_v AS
         SELECT * EXCEPT(payload) REPLACE(a + 1 AS a, upper(name) AS name) FROM view_star_replace_t"""
+    qt_expression_definition "SHOW CREATE VIEW view_star_replace_v"
     order_qt_expression "SELECT * FROM view_star_replace_v"
     order_qt_expression_direct """SELECT * EXCEPT(payload)
         REPLACE(a + 1 AS a, upper(name) AS name) FROM view_star_replace_t"""
@@ -69,6 +71,23 @@ suite("test_create_view_star_replace") {
     sql """CREATE OR REPLACE VIEW view_star_replace_v(x, y, z) AS
         SELECT * EXCEPT(payload) REPLACE(a * 2 AS a) FROM view_star_replace_t"""
     order_qt_explicit_columns "SELECT * FROM view_star_replace_v"
+
+    sql """CREATE OR REPLACE VIEW view_star_replace_v AS
+        SELECT * REPLACE(`a``b` + 1 AS `a``b`) FROM (SELECT a AS `a``b`, b FROM view_star_replace_t) q"""
+    order_qt_backquote "SELECT * FROM view_star_replace_v"
+    qt_backquote_definition "SHOW CREATE VIEW view_star_replace_v"
+
+    sql """CREATE OR REPLACE VIEW view_star_replace_v AS
+        SELECT * EXCEPT(payload) REPLACE(concat(name, 'O''Reilly') AS name) FROM view_star_replace_t"""
+    order_qt_string "SELECT * FROM view_star_replace_v"
+
+    sql """CREATE OR REPLACE VIEW view_star_replace_v AS
+        SELECT * EXCEPT(payload) REPLACE(array_map(x -> x + a, [1, 2]) AS b) FROM view_star_replace_t"""
+    order_qt_lambda "SELECT * FROM view_star_replace_v"
+
+    sql """CREATE OR REPLACE VIEW view_star_replace_v AS
+        SELECT * EXCEPT(payload) REPLACE(map('first', a, 'second', b) AS b) FROM view_star_replace_t"""
+    order_qt_map "SELECT a, b['first'], b['second'], name FROM view_star_replace_v"
 
     test {
         sql """CREATE OR REPLACE VIEW view_star_replace_v AS
