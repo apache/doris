@@ -109,6 +109,10 @@ protected:
         std::vector<int32_t> output_segment_group_sizes;
     };
 
+    // Snapshot the current Variant write policy before selecting any compaction fast path.
+    Status prepare_compaction_schema();
+    Status fetch_latest_tablet_schema(TabletSchemaSPtr* schema);
+
     Status merge_input_rowsets();
 
     virtual Status prepare_merge_input_rowsets(MergeInputRowsetsResult* /*result*/) {
@@ -188,6 +192,8 @@ protected:
 
     bool _is_vertical;
     bool _is_ordered_data_compaction {false};
+    bool _variant_properties_changed {false};
+    bool _variant_templates_changed {false};
     bool _trigger_quick_merge_by_binlog {false};
     bool _allow_delete_in_cumu_compaction;
     bool _enable_vertical_compact_variant_subcolumns;

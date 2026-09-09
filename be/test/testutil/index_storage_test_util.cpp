@@ -41,6 +41,7 @@
 #include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
+#include "cpp/sync_point.h"
 #include "exec/common/variant_util.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
@@ -1070,6 +1071,13 @@ int64_t ScopedDebugPoint::execute_num() const {
 IndexStorageTestFixture::~IndexStorageTestFixture() = default;
 
 void IndexStorageTestFixture::SetUp() {
+    _sync_point_was_enabled = SyncPoint::get_instance()->get_enable();
+    SyncPoint::get_instance()->enable_processing();
+    SyncPoint::get_instance()->set_call_back(
+            "Compaction::fetch_latest_tablet_schema", [](auto&& args) {
+                auto* result = try_any_cast<std::pair<Status, bool>*>(args.back());
+                result->second = true;
+            });
     const auto* test_info = testing::UnitTest::GetInstance()->current_test_info();
     const std::string test_name =
             sanitize_test_name(std::string(test_info->test_suite_name()) + "_" + test_info->name());
@@ -1108,6 +1116,10 @@ void IndexStorageTestFixture::SetUp() {
 }
 
 void IndexStorageTestFixture::TearDown() {
+    SyncPoint::get_instance()->clear_call_back("Compaction::fetch_latest_tablet_schema");
+    if (!_sync_point_was_enabled) {
+        SyncPoint::get_instance()->disable_processing();
+    }
     _tablet.reset();
     _tablet_schema.reset();
     _data_dir.reset();
