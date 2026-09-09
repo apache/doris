@@ -185,6 +185,9 @@ public class AIResource extends Resource {
         if (properties.containsKey(AIProperties.EMBED_MODEL_NAME)) {
             tAIResource.setEmbedModelName(properties.get(AIProperties.EMBED_MODEL_NAME));
         }
+        if (!Strings.isNullOrEmpty(properties.get(AIProperties.EFFORT))) {
+            tAIResource.setEffort(properties.get(AIProperties.EFFORT));
+        }
         tAIResource.setAnthropicVersion(properties.get(AIProperties.ANTHROPIC_VERSION));
 
         try {

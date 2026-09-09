@@ -299,6 +299,41 @@ public class AIResourceTest {
     }
 
     @Test
+    public void testRejectInvalidEffort() {
+        Map<String, String> properties = new HashMap<>(aiProperties);
+        properties.put(AIProperties.EFFORT, "invalid");
+
+        AIResource aiResource = new AIResource("invalid-effort-resource");
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
+        Assertions.assertTrue(exception.getMessage().contains(AIProperties.EFFORT));
+    }
+
+    @Test
+    public void testValidEffortIsForwarded() throws DdlException {
+        for (String effort : AIProperties.EFFORT_LEVELS) {
+            Map<String, String> properties = new HashMap<>(aiProperties);
+            properties.put(AIProperties.EFFORT, effort);
+
+            AIResource aiResource = new AIResource("effort-resource");
+            aiResource.setProperties(ImmutableMap.copyOf(properties));
+
+            Assertions.assertEquals(effort, aiResource.toThrift().getEffort());
+        }
+    }
+
+    @Test
+    public void testEmptyEffortIsNotForwarded() throws DdlException {
+        Map<String, String> properties = new HashMap<>(aiProperties);
+        properties.put(AIProperties.EFFORT, "");
+
+        AIResource aiResource = new AIResource("empty-effort-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(properties));
+
+        Assertions.assertFalse(aiResource.toThrift().isSetEffort());
+    }
+
+    @Test
     public void testInvalidProvider() throws UserException {
         Assertions.assertThrows(DdlException.class, () -> {
             try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {

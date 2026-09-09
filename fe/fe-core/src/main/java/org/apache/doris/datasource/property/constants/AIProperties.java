@@ -45,6 +45,7 @@ public class AIProperties extends BaseProperties {
     public static final String RETRY_DELAY_SECOND = "ai.retry_delay_second";
     public static final String ANTHROPIC_VERSION = "ai.anthropic_version";
     public static final String DIMENSIONS = "ai.dimensions";
+    public static final String EFFORT = "ai.effort";
 
     // default_val
     public static final String DEFAULT_TEMPERATURE = "-1";
@@ -62,6 +63,8 @@ public class AIProperties extends BaseProperties {
     public static final List<String> PROVIDERS
             = Arrays.asList("OPENAI", "LOCAL", "GEMINI", "DEEPSEEK", "ANTHROPIC",
             "MOONSHOT", "QWEN", "MINIMAX", "ZHIPU", "BAICHUAN", "VOYAGEAI", "JINA");
+    public static final List<String> EFFORT_LEVELS =
+            Arrays.asList("none", "minimal", "low", "medium", "high", "xhigh", "max");
 
     public static void requiredAIProperties(Map<String, String> properties) throws DdlException {
         boolean hasGeneralProperties = hasAnyProperty(properties, REQUIRED_FIELDS, API_KEY);
@@ -75,6 +78,11 @@ public class AIProperties extends BaseProperties {
         }
         if (hasEmbedProperties) {
             validatePropertyGroup(properties, EMBED_REQUIRED_FIELDS, EMBED_PROVIDER_TYPE, EMBED_API_KEY);
+        }
+
+        String effort = properties.get(EFFORT);
+        if (!Strings.isNullOrEmpty(effort) && !EFFORT_LEVELS.contains(effort)) {
+            throw new DdlException("[" + EFFORT + "] must be one of " + EFFORT_LEVELS);
         }
 
         // Check weather the 'temperature' is valid
