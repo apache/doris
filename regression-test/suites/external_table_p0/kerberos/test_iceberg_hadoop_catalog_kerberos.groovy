@@ -98,6 +98,39 @@ suite("test_iceberg_hadoop_catalog_kerberos", "p0,external,kerberos,external_doc
           'partition_val2'
         );
     """
+    def snapshotsAfterFirstInsert = sql """
+        select snapshot_id from ${test_tbl_name}\$snapshots order by committed_at
+    """
+    assert snapshotsAfterFirstInsert.size() == 1
+    String firstSnapshotId = String.valueOf(snapshotsAfterFirstInsert[0][0])
+
+    sql """
+        insert into ${test_tbl_name} values (
+          '2024-05-27 12:34:56',
+          false,
+          456,
+          4567890123456,
+          45.67,
+          89.012,
+          45678.9012,
+          'another example',
+          '2024-05-27',
+          '2024-05-27 14:00:00',
+          'partition_val1',
+          'partition_val2'
+        );
+    """
+    def dataBeforeRollback = sql """select count(1) from ${test_tbl_name}"""
+    assert dataBeforeRollback.get(0).get(0) == 2
+
+    // Rollback must commit metadata with the same Kerberos identity used to acquire the table.
+    sql """
+        alter table ${catalog_name}.${database_name}.${test_tbl_name}
+        execute rollback_to_snapshot("snapshot_id" = "${firstSnapshotId}")
+    """
+    def dataAfterRollback = sql """select count(1) from ${test_tbl_name}"""
+    assert dataAfterRollback.get(0).get(0) == 1
+
     sql """
         insert into ${test_tbl_name} values (
           '2024-05-27 12:34:56',
@@ -118,7 +151,7 @@ suite("test_iceberg_hadoop_catalog_kerberos", "p0,external,kerberos,external_doc
     def snapshotsBeforeExpire = sql """
         select snapshot_id from ${test_tbl_name}\$snapshots order by committed_at
     """
-    assert snapshotsBeforeExpire.size() == 2
+    assert snapshotsBeforeExpire.size() == 3
 
     // The action must reuse the catalog's Kerberos identity while committing new metadata.
     sql """
