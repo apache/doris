@@ -1,5 +1,5 @@
 Lance-C v0.1.9 scanner options: PR #75 followed by PR #78.
-Apply after lance-c-0.1.9-pr-73.patch and lance-c-0.1.9-pr-74.patch.
+Apply after lance-c-0.1.9-pr-74.patch, before lance-c-0.1.9-pr-77.patch.
 The upstream mail patches below are concatenated without modification.
 
 PR #75: https://github.com/lance-format/lance-c/pull/75
