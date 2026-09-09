@@ -45,9 +45,9 @@ public:
     using PreparedFunctionImpl::execute;
 
     AIResource select_ai_resource(const TAIResource& resource) const {
-        bool has_embed_properties = resource.__isset.embed_endpoint ||
-                resource.__isset.embed_provider_type || resource.__isset.embed_model_name ||
-                resource.__isset.embed_api_key;
+        bool has_embed_properties =
+                resource.__isset.embed_endpoint || resource.__isset.embed_provider_type ||
+                resource.__isset.embed_model_name || resource.__isset.embed_api_key;
         return has_embed_properties ? AIResource::from_embed(resource) : AIResource(resource);
     }
 

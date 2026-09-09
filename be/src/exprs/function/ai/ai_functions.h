@@ -439,7 +439,9 @@ private:
         return Status::OK();
     }
 
-    AIResource select_ai_resource(const TAIResource& resource) const { return AIResource(resource); }
+    AIResource select_ai_resource(const TAIResource& resource) const {
+        return AIResource(resource);
+    }
 
     // Serializes one text batch into the shared JSON-array prompt format consumed by LLM
     // providers for batch string functions.

@@ -299,8 +299,8 @@ TEST(EMBED_TEST, prefer_embed_resource_properties) {
                                query_ctx.get());
     auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
 
-    auto col_resource =
-            ColumnHelper::create_column<DataTypeString>(std::vector<std::string> {"embed_resource"});
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(
+            std::vector<std::string> {"embed_resource"});
     auto col_text =
             ColumnHelper::create_column<DataTypeString>(std::vector<std::string> {"test input"});
 

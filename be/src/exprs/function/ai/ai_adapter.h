@@ -1315,7 +1315,8 @@ public:
         if (!_config.effort.empty()) {
             rapidjson::Value thinking_config(rapidjson::kObjectType);
             thinking_config.AddMember("thinkingLevel",
-                                      rapidjson::Value(_config.effort.c_str(), allocator), allocator);
+                                      rapidjson::Value(_config.effort.c_str(), allocator),
+                                      allocator);
             generationConfig.AddMember("thinkingConfig", thinking_config, allocator);
         }
         doc.AddMember("generationConfig", generationConfig, allocator);

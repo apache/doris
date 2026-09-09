@@ -23,6 +23,7 @@ import org.apache.doris.datasource.property.constants.AIProperties;
 import org.apache.doris.thrift.TAIResource;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -94,6 +95,13 @@ public class AIResource extends Resource {
 
     public String getProperty(String propertyKey) {
         return properties.get(propertyKey);
+    }
+
+    public boolean hasCompleteGeneralProperties() {
+        return AIProperties.REQUIRED_FIELDS.stream()
+                .allMatch(field -> !Strings.isNullOrEmpty(properties.get(field)))
+                && ("LOCAL".equalsIgnoreCase(properties.get(AIProperties.PROVIDER_TYPE))
+                        || !Strings.isNullOrEmpty(properties.get(AIProperties.API_KEY)));
     }
 
     private boolean isNeedCheck(Map<String, String> newProperties) {

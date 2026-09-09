@@ -28,6 +28,11 @@ import org.apache.doris.datasource.property.constants.AIProperties;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AISentiment;
+import org.apache.doris.nereids.trees.expressions.functions.ai.Embed;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.EditLog;
@@ -231,6 +236,67 @@ public class AIResourceTest {
         Assertions.assertEquals("text-embedding-model", aiResource.toThrift().getEmbedModelName());
         Assertions.assertEquals("embed-api-key", aiResource.toThrift().getEmbedApiKey());
         Assertions.assertFalse(aiResource.toThrift().isSetEndpoint());
+    }
+
+    @Test
+    public void testRejectEmbedOnlyResourceForNonEmbedScalarFunction() throws DdlException {
+        AIResource aiResource = createEmbedOnlyResource();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            ResourceMgr resourceMgr = Mockito.mock(ResourceMgr.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getResourceMgr()).thenReturn(resourceMgr);
+            Mockito.when(resourceMgr.getResource("embed-only-resource")).thenReturn(aiResource);
+
+            AISentiment function = new AISentiment(new StringLiteral("embed-only-resource"),
+                    new StringLiteral("text"));
+            Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
+        }
+    }
+
+    @Test
+    public void testRejectEmbedOnlyResourceForAiAgg() throws DdlException {
+        AIResource aiResource = createEmbedOnlyResource();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            ResourceMgr resourceMgr = Mockito.mock(ResourceMgr.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getResourceMgr()).thenReturn(resourceMgr);
+            Mockito.when(resourceMgr.getResource("embed-only-resource")).thenReturn(aiResource);
+
+            AIAgg function = new AIAgg(new StringLiteral("embed-only-resource"),
+                    new StringLiteral("text"), new StringLiteral("task"));
+            Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
+        }
+    }
+
+    @Test
+    public void testAcceptEmbedOnlyResourceForEmbedFunction() throws DdlException {
+        AIResource aiResource = createEmbedOnlyResource();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            ResourceMgr resourceMgr = Mockito.mock(ResourceMgr.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getResourceMgr()).thenReturn(resourceMgr);
+            Mockito.when(resourceMgr.getResource("embed-only-resource")).thenReturn(aiResource);
+
+            Embed function = new Embed(new StringLiteral("embed-only-resource"),
+                    new StringLiteral("text"));
+            Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
+            Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
+        }
+    }
+
+    private AIResource createEmbedOnlyResource() throws DdlException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(AIProperties.EMBED_ENDPOINT, "https://api.example.com/v1/embeddings");
+        properties.put(AIProperties.EMBED_PROVIDER_TYPE, "openai");
+        properties.put(AIProperties.EMBED_MODEL_NAME, "text-embedding-model");
+        properties.put(AIProperties.EMBED_API_KEY, "embed-api-key");
+
+        AIResource aiResource = new AIResource("embed-only-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(properties));
+        return aiResource;
     }
 
     @Test
