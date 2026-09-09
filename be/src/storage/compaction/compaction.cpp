@@ -554,9 +554,9 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     _newest_write_timestamp = _input_rowsets.back()->newest_write_timestamp();
 
     std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
-    std::ranges::transform(_input_rowsets, rowset_metas.begin(),
-                           [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
-    _cur_tablet_schema = BaseTablet::tablet_schema_with_merged_max_schema_version(rowset_metas);
+    std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
+                   [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
+    _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
 
     // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
@@ -692,27 +692,6 @@ Status CompactionMixin::execute_compact() {
     uint32_t checksum_before;
     uint32_t checksum_after;
     bool enable_compaction_checksum = config::enable_compaction_checksum;
-    // Template changes can convert values during the existing merge path, so byte
-    // checksums are not comparable across inputs with different Variant templates.
-    if (enable_compaction_checksum) {
-        const auto& reference = _input_rowsets.front()->tablet_schema();
-        for (const auto& rowset : _input_rowsets) {
-            const auto& schema = rowset->tablet_schema();
-            if (std::ranges::any_of(reference->columns(), [&](const auto& column) {
-                    if (!column->is_variant_type() || column->is_extracted_column()) {
-                        return false;
-                    }
-                    return !schema->has_column_unique_id(column->unique_id()) ||
-                           !std::ranges::equal(
-                                   column->get_sub_columns(),
-                                   schema->column_by_uid(column->unique_id()).get_sub_columns(),
-                                   [](const auto& lhs, const auto& rhs) { return *lhs == *rhs; });
-                })) {
-                enable_compaction_checksum = false;
-                break;
-            }
-        }
-    }
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_before);
@@ -2104,12 +2083,12 @@ Status CloudCompactionMixin::build_basic_info() {
     _newest_write_timestamp = _input_rowsets.back()->newest_write_timestamp();
 
     std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
-    std::ranges::transform(_input_rowsets, rowset_metas.begin(),
-                           [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
+    std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
+                   [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     if (is_index_change_compaction()) {
         RETURN_IF_ERROR(rebuild_tablet_schema());
     } else {
-        _cur_tablet_schema = BaseTablet::tablet_schema_with_merged_max_schema_version(rowset_metas);
+        _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
     }
 
     // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
