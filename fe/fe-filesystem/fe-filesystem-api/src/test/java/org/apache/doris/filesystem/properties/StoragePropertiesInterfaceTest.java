@@ -35,6 +35,25 @@ class StoragePropertiesInterfaceTest {
     }
 
     @Test
+    void normalBindingsAreNotSyntheticByDefault() {
+        StorageProperties properties = new TestProperties();
+
+        Assertions.assertFalse(properties.isSyntheticDefault());
+    }
+
+    @Test
+    void syntheticOriginIsVisibleThroughStorageProperties() {
+        StorageProperties properties = new TestProperties() {
+            @Override
+            public boolean isSyntheticDefault() {
+                return true;
+            }
+        };
+
+        Assertions.assertTrue(properties.isSyntheticDefault());
+    }
+
+    @Test
     void accessValidationDefaultsToNoOp() {
         StorageProperties properties = new TestProperties();
 

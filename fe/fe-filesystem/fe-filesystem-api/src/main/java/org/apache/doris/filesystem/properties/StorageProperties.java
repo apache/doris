@@ -47,6 +47,15 @@ public interface StorageProperties {
     FileSystemType type();
 
     /**
+     * Returns whether the registry added this binding as a fallback without matching the user's
+     * storage configuration. The origin is fixed at binding creation, not inferred from raw keys.
+     * Normal provider bindings, including heuristic matches, return false.
+     */
+    default boolean isSyntheticDefault() {
+        return false;
+    }
+
+    /**
      * Validates the format and required fields of the already-bound property model.
      * This may run during metadata replay, so time-dependent checks belong in
      * {@link #validateForAccess()} instead.

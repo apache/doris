@@ -122,6 +122,66 @@ public class FileSystemPluginManagerTest {
     }
 
     @Test
+    public void bindAll_marksOnlyTheRealHdfsFallbackCreationPath() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.loadBuiltins();
+        Map<String, String> raw = Map.of("azure.account_name", "account", "azure.account_key", "key");
+
+        List<FileSystemProperties> result = manager.bindAll(raw);
+
+        Assertions.assertEquals(2, result.size());
+        Assertions.assertEquals("HDFS", result.get(0).providerName());
+        Assertions.assertTrue(result.get(0).isSyntheticDefault());
+        Assertions.assertEquals("AZURE", result.get(1).providerName());
+        Assertions.assertFalse(result.get(1).isSyntheticDefault());
+        Assertions.assertEquals(raw, result.get(0).rawProperties());
+    }
+
+    @Test
+    public void bindAll_keepsHdfsOnlyFallback() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.loadBuiltins();
+
+        List<FileSystemProperties> result = manager.bindAll(Map.of());
+
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals("HDFS", result.get(0).providerName());
+        Assertions.assertTrue(result.get(0).isSyntheticDefault());
+    }
+
+    @Test
+    public void bindAll_doesNotMarkExplicitOrUriMatchedHdfsAsSynthetic() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.loadBuiltins();
+        for (Map<String, String> raw : List.of(
+                Map.of("fs.hdfs.support", "true"),
+                Map.of("uri", "hdfs://namenode/warehouse"),
+                Map.of("URI", "viewfs://mount/warehouse"),
+                Map.of("hadoop.username", "test-user"))) {
+            List<FileSystemProperties> result = manager.bindAll(raw);
+
+            Assertions.assertEquals(1, result.size());
+            Assertions.assertEquals("HDFS", result.get(0).providerName());
+            Assertions.assertFalse(result.get(0).isSyntheticDefault());
+        }
+    }
+
+    @Test
+    public void bindAll_preservesRealMixedAzureAndHdfsBindings() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.loadBuiltins();
+        Map<String, String> raw = Map.of("azure.account_name", "account", "azure.account_key", "key",
+                "uri", "hdfs://namenode/warehouse");
+
+        List<FileSystemProperties> result = manager.bindAll(raw);
+
+        Assertions.assertEquals(2, result.size());
+        Assertions.assertTrue(result.stream().anyMatch(binding -> "HDFS".equals(binding.providerName())));
+        Assertions.assertTrue(result.stream().anyMatch(binding -> "AZURE".equals(binding.providerName())));
+        Assertions.assertTrue(result.stream().noneMatch(FileSystemProperties::isSyntheticDefault));
+    }
+
+    @Test
     public void bindVended_keepsTypedBindingWithoutRebindingOrDefaultHdfs() {
         FileSystemPluginManager manager = new FileSystemPluginManager();
         FileSystemProperties azure = new FakeFsProps("AZURE");
@@ -200,11 +260,6 @@ public class FileSystemPluginManagerTest {
 
         Assertions.assertEquals(List.of(custom), manager.bindVended(token, connection).get());
     }
-
-    // NOTE: real object-store providers (S3/OSS/COS/OBS) are runtime directory-loaded plugins
-    // (Env.loadPlugins), NOT on fe-core's unit-test classpath (fe-core pom: "fe-filesystem impl
-    // modules: runtime dependencies removed in Phase 4 P4.1"). End-to-end binding against the real
-    // providers is therefore covered by P1-T06 (docker / full plugin classpath), not here.
 
     // ---- helpers ----
 

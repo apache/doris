@@ -6,6 +6,7 @@ org.apache.doris.extension.spi.PluginFactory#create(org.apache.doris.extension.s
 org.apache.doris.extension.spi.PluginFactory#description():java.lang.String
 org.apache.doris.extension.spi.PluginFactory#name():java.lang.String
 org.apache.doris.filesystem.spi.FileSystemProvider#bind(java.util.Map):org.apache.doris.filesystem.properties.FileSystemProperties
+org.apache.doris.filesystem.spi.FileSystemProvider#bindDefault(java.util.Map):org.apache.doris.filesystem.properties.FileSystemProperties
 org.apache.doris.filesystem.spi.FileSystemProvider#bindVended(java.util.Map,java.util.Map):java.util.Optional
 org.apache.doris.filesystem.spi.FileSystemProvider#capabilities(org.apache.doris.filesystem.properties.FileSystemProperties):java.util.Set
 org.apache.doris.filesystem.spi.FileSystemProvider#create():org.apache.doris.extension.spi.Plugin

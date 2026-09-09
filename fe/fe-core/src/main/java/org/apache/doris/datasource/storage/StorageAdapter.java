@@ -326,20 +326,11 @@ public final class StorageAdapter {
     /**
      * Legacy {@code HdfsProperties.isExplicitlyConfigured()}: {@code false} only for the
      * default-HDFS fallback binding that {@code bindAll}/legacy {@code createAll} auto-prepends
-     * when nothing HDFS-like matched. A binding whose own provider matches the raw props
-     * (explicit {@code fs.x.support} flag or guess heuristics) is explicit; non-HDFS types were
-     * always explicit in fe-core.
+     * when nothing HDFS-like matched. The provider records that origin when binding; callers
+     * must not rerun routing heuristics against raw properties to reconstruct it.
      */
     public boolean isExplicitlyConfigured() {
-        if (type != StorageTypeId.HDFS) {
-            return true;
-        }
-        for (FileSystemProvider provider : manager().getProviders()) {
-            if (providerKey.equalsIgnoreCase(provider.name())) {
-                return provider.supportsExplicit(origProps) || provider.supportsGuess(origProps);
-            }
-        }
-        return true;
+        return !spi.isSyntheticDefault();
     }
 
     /**

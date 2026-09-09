@@ -370,7 +370,7 @@ public class FileSystemPluginManager {
         if (includeDefaultHdfs && useGuess && !hdfsFamilyMatched) {
             FileSystemProvider hdfs = providerByName("HDFS");
             if (hdfs != null) {
-                result.add(0, hdfs.bind(properties));
+                result.add(0, hdfs.bindDefault(properties));
             }
         }
         return result;

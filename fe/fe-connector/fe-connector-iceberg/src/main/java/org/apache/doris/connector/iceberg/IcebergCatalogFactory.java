@@ -23,6 +23,7 @@ import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStorePro
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
+import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
@@ -213,8 +214,9 @@ public final class IcebergCatalogFactory {
     }
 
     /**
-     * Selects the storage bindings Iceberg should consume together. All non-S3-compatible bindings are
-     * preserved, while the S3-compatible family is reduced to the same single binding selected for S3FileIO:
+     * Selects the storage bindings Iceberg should consume together. Synthetic defaults are omitted for
+     * object-storage-only catalogs; HDFS-only defaults and real mixed-storage bindings are preserved.
+     * The S3-compatible family is reduced to the same single binding selected for S3FileIO:
      * a cloud-specific provider such as OSS/COS/OBS wins over the generic S3 fallback. Raw-property routing can
      * legitimately bind both (for legacy parity), but merging both maps would let a later generic S3 binding
      * overwrite the explicit provider's endpoint, credentials, and path-style setting.
@@ -222,16 +224,15 @@ public final class IcebergCatalogFactory {
     public static List<StorageProperties> selectEffectiveStorages(
             List<? extends StorageProperties> storages) {
         S3CompatibleFileSystemProperties chosenS3 = chooseS3Compatible(storages).orElse(null);
-        boolean hasAzure = storages.stream()
-                .anyMatch(storage -> "AZURE".equalsIgnoreCase(storage.providerName()));
+        boolean objectStorageOnly = storages.stream()
+                .anyMatch(storage -> !storage.isSyntheticDefault() && storage.kind() == StorageKind.OBJECT_STORAGE)
+                && storages.stream().allMatch(storage -> storage.isSyntheticDefault()
+                        || storage.kind() == StorageKind.OBJECT_STORAGE);
         List<StorageProperties> selected = new ArrayList<>();
         for (StorageProperties storage : storages) {
-            // bindAll adds a synthetic default HDFS binding when an object-store-only catalog has
-            // no HDFS properties. Once Azure is present, retaining that pad would merge Hadoop
-            // defaults into the native Azure scan/write payload. A real mixed Azure+HDFS catalog
-            // remains intact when its raw properties contain explicit HDFS settings.
-            if (hasAzure && "HDFS".equalsIgnoreCase(storage.providerName())
-                    && !hasExplicitHdfsProperties(storage.rawProperties())) {
+            // Only the registry's fallback creation path can identify a synthetic binding. Raw
+            // Hadoop/Azure key prefixes cannot distinguish it from a real mixed-storage binding.
+            if (objectStorageOnly && storage.isSyntheticDefault()) {
                 continue;
             }
             if (!(storage instanceof S3CompatibleFileSystemProperties) || storage == chosenS3) {
@@ -239,26 +240,6 @@ public final class IcebergCatalogFactory {
             }
         }
         return selected;
-    }
-
-    private static boolean hasExplicitHdfsProperties(Map<String, String> properties) {
-        if (properties == null) {
-            return false;
-        }
-        return properties.entrySet().stream().anyMatch(entry -> {
-            String key = entry.getKey();
-            if (key == null) {
-                return false;
-            }
-            String lower = key.toLowerCase(Locale.ROOT);
-            String value = entry.getValue();
-            return lower.startsWith("hdfs.") || lower.startsWith("dfs.")
-                    || lower.startsWith("hadoop.") || "fs.defaultfs".equals(lower)
-                    || "hadoop.config.resources".equals(lower) || lower.startsWith("fs.hdfs.")
-                    || lower.startsWith("fs.jfs.")
-                    || (("provider".equals(lower) || "_storage_type_".equals(lower))
-                            && ("hdfs".equalsIgnoreCase(value) || "jfs".equalsIgnoreCase(value)));
-        });
     }
 
     /**

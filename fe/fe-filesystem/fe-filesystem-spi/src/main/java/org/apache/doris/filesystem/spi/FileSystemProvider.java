@@ -94,6 +94,17 @@ public interface FileSystemProvider<P extends FileSystemProperties> extends Plug
     }
 
     /**
+     * Binds a registry-supplied default when no user configuration matched this storage family.
+     * Providers that distinguish fallback bindings override this hook and return their normal
+     * typed model with {@link org.apache.doris.filesystem.properties.StorageProperties#isSyntheticDefault()}
+     * set to true. The origin must not be encoded in raw properties or runtime configuration maps.
+     * The default preserves normal binding for providers without fallback-origin support.
+     */
+    default P bindDefault(Map<String, String> properties) {
+        return bind(properties);
+    }
+
+    /**
      * Binds externally issued credentials directly into this provider's typed model.
      * The catalog properties supply connection defaults, not fallback authentication material.
      * Authentication is replaced as a group; implementations must retain and validate any scope
