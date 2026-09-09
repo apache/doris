@@ -114,18 +114,6 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
     }
 
     /**
-     * Compose the TSO at the start of the given millisecond, i.e. logical counter 0.
-     * This is the smallest TSO within that millisecond, suitable as a left-closed lower bound
-     * or a right-open (exclusive) upper bound. For a millisecond's inclusive upper bound (its
-     * last TSO), use composeTimestamp(ms + 1, 0) - 1.
-     *
-     * @return 64-bit TSO timestamp with zero logical counter
-     */
-    public static long composeEmptyCounterTSO(long physicalTimestamp) {
-        return composeTimestamp(physicalTimestamp, 0);
-    }
-
-    /**
      * Compose the lower boundary of a physical millisecond.
      *
      * @return 64-bit TSO timestamp with a zero logical counter

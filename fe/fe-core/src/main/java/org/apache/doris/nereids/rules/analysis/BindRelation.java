@@ -583,7 +583,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     : TSOTimestamp.nextTso(version);
         }
         long ms = OlapScanNode.parseChangeTimestamp(snapshot.getValue());
-        return TSOTimestamp.composeEmptyCounterTSO(ms + 1);
+        return TSOTimestamp.composePhysicalTimestamp(ms + 1);
     }
 
     /**
@@ -723,15 +723,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private Pair<Long, Long> parseTimestampRange(TableScanParams scanParams) {
         Map<String, String> params = scanParams.getMapParams();
         // @incr reads a left-closed right-open range [startTso, endTso): BE applies GE/LT directly.
-        // composeEmptyCounterTSO maps a millisecond to its start (logical counter 0), so GE includes
+        // composePhysicalTimestamp maps a millisecond to its start (logical counter 0), so GE includes
         // the whole startMs and LT excludes the whole endMs. No +1 shift is needed here.
         Long startTimestamp = OlapScanNode.parseChangeTimestamp(
                 params.getOrDefault(OlapScanNode.OLAP_START_TIMESTAMP, "0"));
-        startTimestamp = TSOTimestamp.composeEmptyCounterTSO(startTimestamp);
+        startTimestamp = TSOTimestamp.composePhysicalTimestamp(startTimestamp);
         Long endTimestamp = null;
         if (params.containsKey((OlapScanNode.OLAP_END_TIMESTAMP))) {
             endTimestamp = OlapScanNode.parseChangeTimestamp(params.get(OlapScanNode.OLAP_END_TIMESTAMP));
-            endTimestamp = TSOTimestamp.composeEmptyCounterTSO(endTimestamp);
+            endTimestamp = TSOTimestamp.composePhysicalTimestamp(endTimestamp);
         }
         return Pair.of(startTimestamp, endTimestamp);
     }

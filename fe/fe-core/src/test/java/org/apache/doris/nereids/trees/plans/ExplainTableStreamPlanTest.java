@@ -443,7 +443,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             for (TScanRangeLocations loc : locations) {
                 TPaloScanRange range = loc.getScanRange().getPaloScanRange();
                 long pid = tabletIdToPartitionId.get(range.getTabletId());
-                // BE reads [startTso, endTso), so OlapScanNode shifts the recorded offset by +1.
+                // BE reads [startTso, endTso), so the stream wrapper shifts the recorded offset by +1.
                 Assertions.assertEquals(TSOTimestamp.nextTso(nextOffsets.get(pid)), range.getStartTso(),
                         "after offset commit, new startTSO must equal the previously committed next TSO + 1");
                 assertedAtLeastOne = true;
@@ -591,8 +591,8 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         String startTs = "2026-05-25 20:51:28";
         String endTs = "2026-05-25 21:51:28";
         // @incr is left-closed right-open [start, end): BE uses GE/LT on the composed bounds directly.
-        long expectedStartTso = TSOTimestamp.composeEmptyCounterTSO(OlapScanNode.parseChangeTimestamp(startTs));
-        long expectedEndTso = TSOTimestamp.composeEmptyCounterTSO(OlapScanNode.parseChangeTimestamp(endTs));
+        long expectedStartTso = TSOTimestamp.composePhysicalTimestamp(OlapScanNode.parseChangeTimestamp(startTs));
+        long expectedEndTso = TSOTimestamp.composePhysicalTimestamp(OlapScanNode.parseChangeTimestamp(endTs));
 
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");
