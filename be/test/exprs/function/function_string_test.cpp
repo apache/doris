@@ -21,11 +21,15 @@
 #include <string>
 #include <vector>
 
+#include "core/block/block.h"
+#include "core/column/column_const.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
+#include "exprs/function/simple_function_factory.h"
 #include "util/encryption_util.h"
 #include "util/md5.h"
 
@@ -695,6 +699,78 @@ TEST(function_string_test, function_string_rtrim_test) {
     }};
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+}
+
+// Regression for a BE crash: when the input column reaching Trim1Impl/Trim2Impl
+// is a ColumnConst (as happens on some pushdown / materialization paths that call
+// the function implementation directly instead of through the normal execute()
+// entry), the implementation used to assert_cast<ColumnString*> the const-wrapped
+// column and abort. The fix unpacks the const first via unpack_if_const.
+//
+// Note: the normal check_function path cannot reproduce this, because an
+// all-constant call is unwrapped by default_implementation_for_constant_arguments
+// before reaching the implementation, and a partially-constant call is impossible
+// since trim forces its second argument to be constant. So we build the
+// ColumnConst block ourselves and call execute_impl directly.
+TEST(function_string_test, function_string_trim_const_input_regression) {
+    const size_t input_rows_count = 4;
+
+    auto call_trim_impl_with_const = [&](const std::string& func_name,
+                                         const ColumnsWithTypeAndName& args,
+                                         const std::string& expected) {
+        auto return_type = std::make_shared<DataTypeString>();
+        auto function =
+                SimpleFunctionFactory::instance().get_function(func_name, args, return_type);
+        ASSERT_TRUE(function != nullptr) << func_name;
+
+        // prepare() on the DefaultFunction wrapper returns the underlying IFunction,
+        // whose execute_impl is public and skips the const-unwrapping layer.
+        Block dummy(args);
+        auto prepared = function->prepare(nullptr, dummy, {}, 0);
+        auto impl = std::dynamic_pointer_cast<IFunction>(prepared);
+        ASSERT_TRUE(impl != nullptr) << func_name;
+
+        Block block(args);
+        ColumnNumbers arguments(args.size());
+        for (size_t i = 0; i < args.size(); ++i) {
+            arguments[i] = static_cast<uint32_t>(i);
+        }
+        uint32_t result_idx = static_cast<uint32_t>(args.size());
+        block.insert({nullptr, return_type, "result"});
+
+        Status st = impl->execute_impl(nullptr, block, arguments, result_idx, input_rows_count);
+        ASSERT_TRUE(st.ok()) << func_name << ": " << st.to_string();
+
+        auto res_col = block.get_by_position(result_idx).column;
+        ASSERT_TRUE(res_col.get() != nullptr) << func_name;
+        // The result may itself be wrapped in a ColumnConst; unwrap for comparison.
+        if (const auto* const_col = check_and_get_column<ColumnConst>(res_col.get())) {
+            res_col = const_col->get_data_column_ptr();
+        }
+        const auto* str_col = assert_cast<const ColumnString*>(res_col.get());
+        auto ref = str_col->get_data_at(0);
+        EXPECT_EQ(std::string(ref.data, ref.size), expected) << func_name;
+    };
+
+    auto make_const_string = [&](const std::string& value) -> ColumnWithTypeAndName {
+        auto nested = ColumnString::create();
+        nested->insert_data(value.data(), value.size());
+        return {ColumnConst::create(std::move(nested), input_rows_count),
+                std::make_shared<DataTypeString>(), "arg"};
+    };
+
+    // Single-argument trim family: the sole argument reaches Trim1Impl as a
+    // ColumnConst. This is the exact shape that previously crashed.
+    call_trim_impl_with_const("trim", {make_const_string("   spaced out string   ")},
+                              "spaced out string");
+    call_trim_impl_with_const("ltrim", {make_const_string("   leading   ")}, "leading   ");
+    call_trim_impl_with_const("rtrim", {make_const_string("   trailing   ")}, "   trailing");
+
+    // Two-argument trim: the first argument reaches Trim2Impl as a ColumnConst,
+    // exercising its unpack_if_const path. The second (remove-string) argument is
+    // always constant.
+    call_trim_impl_with_const("trim", {make_const_string("xxhelloxx"), make_const_string("x")},
+                              "hello");
 }
 
 TEST(function_string_test, function_string_repeat_test) {
