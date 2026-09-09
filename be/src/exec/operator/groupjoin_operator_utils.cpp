@@ -68,9 +68,6 @@ Status validate_group_join_node(const TPlanNode& tnode) {
                 "GroupJoin only supports final-result aggregate output mode now: {}",
                 group_join_node.agg_output_mode);
     }
-    if (group_join_node.aggregate_functions.empty()) {
-        return Status::InternalError("GroupJoin requires at least one aggregate function");
-    }
     for (const auto& eq_join_conjunct : group_join_node.eq_join_conjuncts) {
         if (eq_join_conjunct.__isset.opcode &&
             eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL) {
@@ -352,14 +349,16 @@ Status drain_groupjoin_result(GroupJoinSharedState* shared_state, size_t batch_s
                           using HashMethodType = std::decay_t<decltype(hash_method)>;
                           using KeyType = typename HashMethodType::Key;
                           std::vector<KeyType> keys(batch_size);
-                          if (local_state._values.size() < batch_size) {
-                              local_state._values.resize(batch_size);
-                          }
-                          if (local_state._entries.size() < batch_size) {
-                              local_state._entries.resize(batch_size);
-                          }
-                          if (local_state._repeats.size() < batch_size) {
-                              local_state._repeats.resize(batch_size);
+                          if (agg_size != 0) {
+                              if (local_state._values.size() < batch_size) {
+                                  local_state._values.resize(batch_size);
+                              }
+                              if (local_state._entries.size() < batch_size) {
+                                  local_state._entries.resize(batch_size);
+                              }
+                              if (local_state._repeats.size() < batch_size) {
+                                  local_state._repeats.resize(batch_size);
+                              }
                           }
 
                           uint32_t num_rows = 0;
@@ -371,8 +370,10 @@ Status drain_groupjoin_result(GroupJoinSharedState* shared_state, size_t batch_s
                               // probe_count alone is not sufficient.
                               if (entry->build_count > 0 && entry->probe_count > 0) {
                                   keys[num_rows] = iter.get_first();
-                                  local_state._entries[num_rows] = entry;
-                                  local_state._values[num_rows] = entry->agg_states;
+                                  if (agg_size != 0) {
+                                      local_state._entries[num_rows] = entry;
+                                      local_state._values[num_rows] = entry->agg_states;
+                                  }
                                   ++num_rows;
                               }
                               ++iter;
@@ -410,6 +411,10 @@ void destroy_entry_agg_states(GroupJoinSharedState* shared_state, GroupJoinEntry
 
 void destroy_agg_states(GroupJoinSharedState* shared_state) {
     if (shared_state == nullptr || shared_state->data_variants == nullptr) {
+        return;
+    }
+    // Pure GROUP BY entries have no aggregate states to destroy.
+    if (shared_state->aggregate_evaluators.empty()) {
         return;
     }
     std::visit(Overload {[&](std::monostate&) -> void {},
