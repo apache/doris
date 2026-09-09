@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -105,6 +107,59 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
             Assertions.assertEquals(exprs.get(i).getExprId().asInt(), l2.get(i).getExprId().asInt());
         }
 
+    }
+
+    @Test
+    public void testGuardReplacementBoundary() {
+        Expression add = ExprParser.INSTANCE.parseExpression("a+b");
+        SessionVarGuardExpr guard = new SessionVarGuardExpr(add, ImmutableMap.of());
+        Alias bareAlias = new Alias(add);
+        Assertions.assertSame(guard, guard.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE,
+                ImmutableMap.of(add, bareAlias)));
+
+        Alias guardedAlias = new Alias(guard);
+        Assertions.assertEquals(guardedAlias.toSlot(),
+                guard.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE,
+                        ImmutableMap.of(guard, guardedAlias)));
+
+        SessionVarGuardExpr nested = new SessionVarGuardExpr(new Add(add, Literal.of(1)), ImmutableMap.of());
+        Assertions.assertEquals(new SessionVarGuardExpr(new Add(bareAlias.toSlot(), Literal.of(1)),
+                ImmutableMap.of()), nested.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE,
+                        ImmutableMap.of(add, bareAlias)));
+    }
+
+    @Test
+    public void testGuardMultiLayerInputs() throws Exception {
+        Expression add = ExprParser.INSTANCE.parseExpression("a+b");
+        SessionVarGuardExpr guard = new SessionVarGuardExpr(add, ImmutableMap.of());
+        Method method = CommonSubExpressionOpt.class
+                .getDeclaredMethod("computeMultiLayerProjections", Set.class, List.class);
+        method.setAccessible(true);
+        // Exercise both discovery orders for guarded and unguarded expressions at the same depth.
+        for (List<NamedExpression> projects : ImmutableList.of(
+                ImmutableList.<NamedExpression>of(new Alias(add), new Alias(add),
+                        new Alias(guard), new Alias(guard)),
+                ImmutableList.<NamedExpression>of(new Alias(guard), new Alias(guard),
+                        new Alias(add), new Alias(add)))) {
+            List<List<NamedExpression>> layers = (List<List<NamedExpression>>) method.invoke(
+                    new CommonSubExpressionOpt(), add.getInputSlots(), projects);
+            Assertions.assertEquals(2, layers.size());
+            Set<Slot> available = new HashSet<>(add.getInputSlots());
+            for (List<NamedExpression> layer : layers) {
+                Set<Slot> outputs = new HashSet<>();
+                for (NamedExpression expression : layer) {
+                    Assertions.assertTrue(available.containsAll(expression.getInputSlots()),
+                            "A projection must only reference inputs from the preceding layer");
+                    outputs.add(expression.toSlot());
+                }
+                available = outputs;
+            }
+            Assertions.assertTrue(layers.get(0).stream()
+                    .anyMatch(e -> e instanceof Alias && e.child(0).equals(guard)));
+            for (int i = 0; i < projects.size(); i++) {
+                Assertions.assertEquals(projects.get(i).getExprId(), layers.get(1).get(i).getExprId());
+            }
+        }
     }
 
     private void assertExpression(Expression expr, String str) {
