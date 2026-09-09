@@ -281,6 +281,166 @@
 35
 36
 
+-- !null_object_roundtrip --
+20	true	false	true	false	true	true
+21	true	false	false	false	false	false
+26	true	false	true	true	true	false
+36	true	false	true	false	true	true
+37	true	false	false	false	false	false
+38	true	false	true	false	true	false
+
+-- !sql --
+1	false	false	true	false	true	true	false	true
+2	false	false	false	true	false	false	true	false
+3	true	false	\N	\N	false	\N	\N	false
+4	false	true	\N	\N	false	\N	\N	false
+5	true	true	\N	\N	true	\N	\N	true
+
+-- !sql --
+1
+
+-- !sql --
+2
+
+-- !sql --
+1
+5
+
+-- !sql --
+1	false	false	false	true	false	false	true	false
+2	false	false	false	true	false	false	true	false
+3	true	false	\N	\N	false	\N	\N	false
+4	false	true	\N	\N	false	\N	\N	false
+5	true	true	\N	\N	true	\N	\N	true
+
+-- !sql --
+
+-- !sql --
+1
+2
+
+-- !sql --
+5
+
+-- !sql --
+1	false	false	true	false	true	true	false	true
+2	false	false	false	true	false	false	true	false
+3	true	false	\N	\N	false	\N	\N	false
+4	false	true	\N	\N	false	\N	\N	false
+5	true	true	\N	\N	true	\N	\N	true
+
+-- !sql --
+1
+
+-- !sql --
+2
+
+-- !sql --
+1
+5
+
+-- !sql --
+1	false	false	true	false	true	true	false	true
+2	false	false	false	true	false	false	true	false
+3	true	false	\N	\N	false	\N	\N	false
+4	false	true	\N	\N	false	\N	\N	false
+5	true	true	\N	\N	true	\N	\N	true
+
+-- !sql --
+1
+
+-- !sql --
+2
+
+-- !sql --
+1
+5
+
+-- !sql --
+1	false	false	true	false	true	true	false	true
+2	false	false	false	true	false	false	true	false
+3	true	false	\N	\N	false	\N	\N	false
+4	false	true	\N	\N	false	\N	\N	false
+5	true	true	\N	\N	true	\N	\N	true
+
+-- !sql --
+1
+
+-- !sql --
+2
+
+-- !sql --
+1
+5
+
+-- !sql --
+1	false	false	true	false	true	true	false	true
+2	false	false	false	true	false	false	true	false
+3	true	false	\N	\N	false	\N	\N	false
+4	false	true	\N	\N	false	\N	\N	false
+5	true	true	\N	\N	true	\N	\N	true
+
+-- !sql --
+1
+
+-- !sql --
+2
+
+-- !sql --
+1
+5
+
+-- !sql --
+1	false	false	true	false	true	true	false	true
+2	false	false	false	true	false	false	true	false
+3	true	false	\N	\N	false	\N	\N	false
+4	false	true	\N	\N	false	\N	\N	false
+5	true	true	\N	\N	true	\N	\N	true
+
+-- !sql --
+1
+
+-- !sql --
+2
+
+-- !sql --
+1
+5
+
+-- !sql --
+1	false	false	true	false	true	true	false	true
+2	false	false	false	true	false	false	true	false
+3	true	false	\N	\N	false	\N	\N	false
+4	false	true	\N	\N	false	\N	\N	false
+5	true	true	\N	\N	true	\N	\N	true
+
+-- !sql --
+1
+
+-- !sql --
+2
+
+-- !sql --
+1
+5
+
+-- !sql --
+1	false	false	true	false	true	true	false	true
+2	false	false	false	true	false	false	true	false
+3	true	false	\N	\N	false	\N	\N	false
+4	false	true	\N	\N	false	\N	\N	false
+5	true	true	\N	\N	true	\N	\N	true
+
+-- !sql --
+1
+
+-- !sql --
+2
+
+-- !sql --
+1
+5
+
 -- !explicit_numeric_cast --
 1	true	false	false
 2	false	false	true

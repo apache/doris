@@ -3184,6 +3184,78 @@ TEST(ColumnVariantV2Test, ETCrossCheckTemporalClassMatrix) {
                                    ntz_representations[2], 0);
 }
 
+TEST(ColumnVariantV2Test, TypedComparisonBoundariesMatchEncodedWithoutMaterializing) {
+    auto check = [](const ColumnVariantV2::MutablePtr& typed) {
+        ASSERT_TRUE(typed->is_typed());
+        const auto* original = &typed->typed_column();
+        auto encoded = ColumnVariantV2::create();
+        encoded->insert_range_from(*typed, 0, typed->size());
+        encoded->ensure_encoded();
+        ASSERT_FALSE(encoded->is_typed());
+        for (size_t right = 0; right < typed->size(); ++right) {
+            for (int hint : {-1, 1}) {
+                for (size_t left = 0; left < typed->size(); ++left) {
+                    const int expected = encoded->compare_at(left, right, *encoded, hint);
+                    EXPECT_EQ(typed->compare_at(left, right, *typed, hint), expected);
+                    EXPECT_EQ(typed->compare_at(left, right, *encoded, hint), expected);
+                    EXPECT_EQ(encoded->compare_at(left, right, *typed, hint), expected);
+                }
+                for (int direction : {-1, 1}) {
+                    std::vector<uint8_t> typed_cmp(typed->size(), 0);
+                    std::vector<uint8_t> encoded_cmp(typed->size(), 0);
+                    IColumn::Filter typed_filter(typed->size(), 0);
+                    IColumn::Filter encoded_filter(typed->size(), 0);
+                    typed->compare_internal(right, *typed, hint, direction, typed_cmp,
+                                            typed_filter.data());
+                    encoded->compare_internal(right, *encoded, hint, direction, encoded_cmp,
+                                              encoded_filter.data());
+                    EXPECT_EQ(typed_cmp, encoded_cmp);
+                    EXPECT_EQ(typed_filter, encoded_filter);
+                }
+            }
+        }
+        // Prove the tested input did not silently become encoded during comparison.
+        EXPECT_TRUE(typed->is_typed());
+        EXPECT_EQ(&typed->typed_column(), original);
+    };
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnInt64, Int64>({0, -1, 9007199254740993LL, 0}, {0, 0, 0, 1}),
+            std::make_shared<DataTypeInt64>()));
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnFloat64>(
+                    {-std::numeric_limits<double>::infinity(), -0.0, 0.0, 1.5,
+                     std::numeric_limits<double>::infinity(),
+                     std::numeric_limits<double>::quiet_NaN(),
+                     std::bit_cast<double>(uint64_t {0xfff8000000000001ULL}), 0.0},
+                    {0, 0, 0, 0, 0, 0, 0, 1}),
+            std::make_shared<DataTypeFloat64>()));
+    check(ColumnVariantV2::create_typed(
+            nullable_decimal<ColumnDecimal64, Decimal64>(
+                    2, {Decimal64 {-150}, Decimal64 {0}, Decimal64 {150}, Decimal64 {0}},
+                    {0, 0, 0, 1}),
+            std::make_shared<DataTypeDecimal64>(18, 2)));
+    const auto date =
+            DateV2Value<DateV2ValueType>::create_from_olap_date(pack_olap_date(2024, 2, 29));
+    const auto next =
+            DateV2Value<DateV2ValueType>::create_from_olap_date(pack_olap_date(2024, 3, 1));
+    check(ColumnVariantV2::create_typed(nullable_fixed<ColumnDateV2, DateV2Value<DateV2ValueType>>(
+                                                {date, next, date}, {0, 0, 1}),
+                                        std::make_shared<DataTypeDateV2>()));
+    // Address order differs from textual Variant order for these values.
+    IPv4 ip4_a {}, ip4_b {};
+    ASSERT_TRUE(IPv4Value::from_string(ip4_a, "10.0.0.2"));
+    ASSERT_TRUE(IPv4Value::from_string(ip4_b, "10.0.0.10"));
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnIPv4, IPv4>({ip4_a, ip4_b, ip4_a}, {0, 0, 1}),
+            std::make_shared<DataTypeIPv4>()));
+    IPv6 ip6_a {}, ip6_b {};
+    ASSERT_TRUE(IPv6Value::from_string(ip6_a, "2001:db8::2"));
+    ASSERT_TRUE(IPv6Value::from_string(ip6_b, "2001:db8::10"));
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnIPv6, IPv6>({ip6_a, ip6_b, ip6_a}, {0, 0, 1}),
+            std::make_shared<DataTypeIPv6>()));
+}
+
 TEST(ColumnVariantV2Test, TypedNaNOrderingIgnoresNullDirectionHint) {
     auto typed = ColumnVariantV2::create_typed(
             nullable_fixed<ColumnFloat64>({1.0, std::numeric_limits<double>::quiet_NaN()}, {0, 0}),

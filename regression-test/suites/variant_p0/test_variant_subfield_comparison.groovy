@@ -92,14 +92,58 @@ suite("test_variant_subfield_comparison", "p0,nonConcurrent") {
                     OR ${expression}['a'] IS NULL ORDER BY id"""
         }
         // TopN ordering is supported; relational ordering predicates still require CAST.
-        [">", ">=", "<", "<="].each { op ->
-            test {
-                sql "SELECT v['a'] ${op} v['b'] FROM variant_subfield_values"
-                exception "CAST to a concrete type first"
+        ["v", "parse_to_variant(doc)"].each { expression ->
+            [">", ">=", "<", "<="].each { op ->
+                test {
+                    sql "SELECT ${expression}['a'] ${op} ${expression}['b'] FROM variant_subfield_values"
+                    exception "CAST to a concrete type first"
+                }
+                test {
+                    sql """SELECT id FROM variant_subfield_values
+                        WHERE ${expression}['a'] ${op} ${expression}['b']"""
+                    exception "CAST to a concrete type first"
+                }
             }
-            test {
-                sql "SELECT id FROM variant_subfield_values WHERE v['a'] ${op} v['b']"
-                exception "CAST to a concrete type first"
+        }
+        // Isolate the known storage round-trip differences from ordinary equality cases.
+        qt_null_object_roundtrip """SELECT id,
+            v['a'] IS NULL, parse_to_variant(doc)['a'] IS NULL,
+            v['b'] IS NULL, parse_to_variant(doc)['b'] IS NULL,
+            v['a'] <=> v['b'],
+            parse_to_variant(doc)['a'] <=> parse_to_variant(doc)['b']
+            FROM variant_subfield_values WHERE id IN (20,21,26,36,37,38) ORDER BY id"""
+
+        // JSON text cannot retain Decimal, date or IP physical types. Cast scalar
+        // columns to Variant directly to exercise these same-row comparison types.
+        sql "DROP TABLE IF EXISTS variant_comparison_scalar_sources"
+        sql """CREATE TABLE variant_comparison_scalar_sources
+            (id INT, a STRING, b STRING)
+            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES("replication_num"="1")"""
+        [
+            ["DECIMAL(18,2)", "DECIMAL(38,3)", "1.50", "1.500", "1.501"],
+            ["DECIMAL(18,2)", "DOUBLE", "1.50", "1.5", "1.6"],
+            ["DECIMAL(18,2)", "BIGINT", "1.00", "1", "2"],
+            ["DATEV2", "DATEV2", "2024-02-29", "2024-02-29", "2024-03-01"],
+            ["DATETIMEV2(3)", "DATETIMEV2(6)", "2024-02-29 12:34:56.123",
+                "2024-02-29 12:34:56.123000", "2024-02-29 12:34:56.123001"],
+            ["IPV4", "IPV4", "10.0.0.2", "10.0.0.2", "10.0.0.10"],
+            ["IPV6", "IPV6", "2001:db8::1", "2001:0db8:0:0:0:0:0:1", "2001:db8::2"],
+            ["DOUBLE", "DOUBLE", "NaN", "NaN", "Infinity"],
+            ["DOUBLE", "DOUBLE", "Infinity", "Infinity", "-Infinity"]
+        ].each { spec ->
+            sql "TRUNCATE TABLE variant_comparison_scalar_sources"
+            sql """INSERT INTO variant_comparison_scalar_sources VALUES
+                (1, '${spec[2]}', '${spec[3]}'), (2, '${spec[2]}', '${spec[4]}'),
+                (3, NULL, '${spec[3]}'), (4, '${spec[2]}', NULL), (5, NULL, NULL)"""
+            def source = """SELECT id, CAST(CAST(a AS ${spec[0]}) AS VARIANT) a,
+                CAST(CAST(b AS ${spec[1]}) AS VARIANT) b
+                FROM variant_comparison_scalar_sources"""
+            qt_sql """SELECT id, a IS NULL, b IS NULL,
+                a = b, a != b, a <=> b, b = a, b != a, b <=> a
+                FROM (${source}) t ORDER BY id"""
+            ["=", "!=", "<=>"].each { op ->
+                qt_sql "SELECT id FROM (${source}) t WHERE a ${op} b ORDER BY id"
             }
         }
         qt_explicit_numeric_cast """SELECT id,
