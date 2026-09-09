@@ -83,9 +83,11 @@ public class AlignGroupJoinConjunctOrder extends PlanPostProcessor {
         PhysicalHashJoin<?, ?> join = (PhysicalHashJoin<?, ?>) child;
 
         // Same eligibility as the fusion decision; when the GROUP BY merely permutes the join
-        // keys, align the join's conjunct order with it.
+        // keys, align the join's conjunct order with it. The intermediate project (if any) is
+        // passed through so the shared gate enforces the same pure-passthrough rule as the
+        // translator: an aligned-but-computing project would not fuse anyway.
         List<Expression> alignedConjuncts = GroupJoinFusionUtils.alignedConjunctsForGroupJoin(
-                aggregate, join);
+                aggregate, project, join);
         if (alignedConjuncts == null
                 || GroupJoinFusionUtils.sameConjunctOrder(
                         alignedConjuncts, join.getHashJoinConjuncts())) {
