@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class AzureAccountHostTest {
 
@@ -31,7 +32,9 @@ class AzureAccountHostTest {
             "account.dfs.core.windows.net, account, core.windows.net, true",
             "account.blob.core.windows.net, account, core.windows.net, false",
             "https://account.dfs.core.chinacloudapi.cn, account, core.chinacloudapi.cn, true",
+            "account.dfs.core.usgovcloudapi.net, account, core.usgovcloudapi.net, true",
             "account.blob.core.usgovcloudapi.net, account, core.usgovcloudapi.net, false",
+            "account.dfs.core.cloudapi.de, account, core.cloudapi.de, true",
             "account.blob.core.cloudapi.de, account, core.cloudapi.de, false"
     })
     void parse_extractsAccountAndCloudSuffix(String input, String account, String suffix, boolean dfs) {
@@ -60,6 +63,27 @@ class AzureAccountHostTest {
         Assertions.assertEquals("account", host.accountName());
         Assertions.assertEquals("example.test", host.cloudSuffix());
         Assertions.assertEquals("https://account.blob.example.test", host.blobEndpoint());
+    }
+
+    @Test
+    void blobEndpoint_preservesTransportAndEncodedPathWhenConvertingDfsHost() {
+        AzureAccountHost host = AzureAccountHost.parse(
+                "http://account.dfs.core.chinacloudapi.cn:10000/proxy%2Fpath//a+b");
+
+        Assertions.assertEquals("account.blob.core.chinacloudapi.cn", host.blobHost());
+        Assertions.assertEquals("http://account.blob.core.chinacloudapi.cn:10000/proxy%2Fpath//a+b",
+                host.blobEndpoint());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://storage.example.test:8443/proxy%2Fpath",
+            "http://127.0.0.1:10000/devstoreaccount1", "http://localhost:10000"})
+    void parse_preservesCustomEndpointWithoutInventingServiceLabels(String endpoint) {
+        AzureAccountHost host = AzureAccountHost.parse(endpoint);
+
+        Assertions.assertEquals(endpoint, host.blobEndpoint());
+        Assertions.assertEquals(host.blobHost(), host.dfsHost());
+        Assertions.assertEquals("", host.cloudSuffix());
     }
 
     @Test

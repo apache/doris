@@ -23,7 +23,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Locale;
 
-/** Parsed Azure account authority shared by native, Hadoop, and FileIO renderers. */
+/** Parsed Azure account authority and endpoint shared by provider configuration renderers. */
 public final class AzureAccountHost {
 
     private static final String DEFAULT_CLOUD_SUFFIX = "core.windows.net";
@@ -33,16 +33,19 @@ public final class AzureAccountHost {
     private final String accountName;
     private final String cloudSuffix;
     private final boolean dfsHost;
+    private final URI endpoint;
 
-    private AzureAccountHost(String accountName, String cloudSuffix, boolean dfsHost) {
+    private AzureAccountHost(String accountName, String cloudSuffix, boolean dfsHost, URI endpoint) {
         this.accountName = accountName;
         this.cloudSuffix = cloudSuffix;
         this.dfsHost = dfsHost;
+        this.endpoint = endpoint;
     }
 
     /**
      * Parses an account host or endpoint such as {@code account.dfs.core.windows.net}.
-     * A URI scheme is optional; only the authority host is retained.
+     * A URI scheme is optional. Explicit transport settings are retained when rendering a Blob
+     * endpoint; a custom host without a Blob/DFS service label is not rewritten.
      */
     public static AzureAccountHost parse(String hostOrEndpoint) {
         if (hostOrEndpoint == null || hostOrEndpoint.isBlank()) {
@@ -50,12 +53,14 @@ public final class AzureAccountHost {
         }
         String value = hostOrEndpoint.trim();
         String uriValue = value.contains("://") ? value : "https://" + value;
-        final String host;
+        final URI endpoint;
         try {
-            host = new URI(uriValue).getHost();
+            endpoint = new URI(uriValue);
         } catch (URISyntaxException e) {
-            throw new StoragePropertiesException("Invalid Azure account host", e);
+            // URISyntaxException includes the input, which can contain a credential-bearing query.
+            throw new StoragePropertiesException("Invalid Azure account host");
         }
+        String host = endpoint.getHost();
         if (host == null || host.isBlank()) {
             throw new StoragePropertiesException("Invalid Azure account host");
         }
@@ -64,18 +69,17 @@ public final class AzureAccountHost {
         int dfsIndex = lowerHost.indexOf(DFS_MARKER);
         if (dfsIndex > 0) {
             return new AzureAccountHost(host.substring(0, dfsIndex),
-                    host.substring(dfsIndex + DFS_MARKER.length()), true);
+                    host.substring(dfsIndex + DFS_MARKER.length()), true, endpoint);
         }
         int blobIndex = lowerHost.indexOf(BLOB_MARKER);
         if (blobIndex > 0) {
             return new AzureAccountHost(host.substring(0, blobIndex),
-                    host.substring(blobIndex + BLOB_MARKER.length()), false);
+                    host.substring(blobIndex + BLOB_MARKER.length()), false, endpoint);
         }
 
         int dot = host.indexOf('.');
         String accountName = dot > 0 ? host.substring(0, dot) : host;
-        String suffix = dot > 0 ? host.substring(dot + 1) : DEFAULT_CLOUD_SUFFIX;
-        return new AzureAccountHost(accountName, suffix, false);
+        return new AzureAccountHost(accountName, "", false, endpoint);
     }
 
     /** Creates a public-cloud account host when only the account name is configured. */
@@ -83,7 +87,7 @@ public final class AzureAccountHost {
         if (accountName == null || accountName.isBlank()) {
             throw new StoragePropertiesException("Azure account name must not be empty");
         }
-        return parse(accountName.trim());
+        return parse(accountName.trim() + BLOB_MARKER + DEFAULT_CLOUD_SUFFIX);
     }
 
     public String accountName() {
@@ -95,15 +99,25 @@ public final class AzureAccountHost {
     }
 
     public String dfsHost() {
-        return accountName + DFS_MARKER.substring(1) + cloudSuffix;
+        return cloudSuffix.isEmpty() ? endpoint.getHost() : accountName + DFS_MARKER + cloudSuffix;
     }
 
     public String blobHost() {
-        return accountName + BLOB_MARKER.substring(1) + cloudSuffix;
+        return cloudSuffix.isEmpty() ? endpoint.getHost() : accountName + BLOB_MARKER + cloudSuffix;
     }
 
     public String blobEndpoint() {
-        return "https://" + blobHost();
+        if (!dfsHost) {
+            return endpoint.toString();
+        }
+        String value = endpoint.toString();
+        int hostStart = value.indexOf("://") + 3;
+        if (endpoint.getRawUserInfo() != null) {
+            hostStart += endpoint.getRawUserInfo().length() + 1;
+        }
+        // Replace only the authority host: URI reconstruction would decode/re-encode paths.
+        return value.substring(0, hostStart) + blobHost()
+                + value.substring(hostStart + endpoint.getHost().length());
     }
 
     public boolean isDfsHost() {

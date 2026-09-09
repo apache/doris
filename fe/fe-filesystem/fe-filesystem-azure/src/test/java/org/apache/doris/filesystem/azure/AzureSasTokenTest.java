@@ -21,6 +21,8 @@ import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -47,12 +49,25 @@ class AzureSasTokenTest {
     }
 
     @Test
+    void of_readsEncodedOffsetWithoutChangingSignature() {
+        String raw = "se=2026-01-02T08%3A00%3A00%2B08%3A00&sig=a+b%2Fc";
+        AzureSasToken token = AzureSasToken.of(raw, null);
+
+        Assertions.assertEquals(Instant.parse("2026-01-02T00:00:00Z"), token.expiresAt().orElseThrow());
+        Assertions.assertEquals(raw, token.value());
+    }
+
+    @Test
     void of_usesEarlierOfExplicitAndTokenExpiry() {
         AzureSasToken token = AzureSasToken.of(
                 "sv=2024-01-01&se=2026-01-03T00:00:00Z&sig=x",
                 Instant.parse("2026-01-02T00:00:00Z").toEpochMilli());
 
         Assertions.assertEquals(Instant.parse("2026-01-02T00:00:00Z"), token.expiresAt().orElseThrow());
+
+        AzureSasToken earlierToken = AzureSasToken.of(
+                "se=2026-01-02T00:00:00Z&sig=x", Instant.parse("2026-01-03T00:00:00Z").toEpochMilli());
+        Assertions.assertEquals(Instant.parse("2026-01-02T00:00:00Z"), earlierToken.expiresAt().orElseThrow());
     }
 
     @Test
@@ -60,6 +75,7 @@ class AzureSasTokenTest {
         AzureSasToken token = AzureSasToken.of("sv=2024-01-01&se=2026-01-01T00:00:00Z&sig=x", null);
 
         Assertions.assertTrue(token.isExpired(NOW));
+        Assertions.assertThrows(StoragePropertiesException.class, () -> token.validateNotExpired(NOW));
     }
 
     @Test
@@ -68,6 +84,29 @@ class AzureSasTokenTest {
                 () -> AzureSasToken.of("sv=2024-01-01&se=not-a-date&sig=x", null));
         Assertions.assertThrows(StoragePropertiesException.class,
                 () -> AzureSasToken.of("sv=2024-01-01\n&sig=x", null));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\nsig=x", "sig=x\r\n", "?\r\nsig=x"})
+    void of_rejectsLineBreaksBeforeTrimming(String raw) {
+        Assertions.assertThrows(StoragePropertiesException.class, () -> AzureSasToken.of(raw, null));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"se=not-a-date-secret", "se=%GG-secret", "se=%", "se=",
+            "se=%2B999999999-12-31T23%3A59%3A59Z"})
+    void of_rejectsInvalidExpiryWithoutEchoingInput(String raw) {
+        StoragePropertiesException exception = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> AzureSasToken.of(raw + "&sig=secret", null));
+
+        Assertions.assertFalse(exception.getMessage().contains("secret"));
+        Assertions.assertNull(exception.getCause());
+    }
+
+    @Test
+    void of_rejectsAmbiguousDuplicateExpiry() {
+        Assertions.assertThrows(StoragePropertiesException.class,
+                () -> AzureSasToken.of("se=2026-01-01T00:00:00Z&se=2027-01-01T00:00:00Z&sig=x", null));
     }
 
     @Test

@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.azure;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
@@ -35,7 +36,10 @@ import org.mockito.Mockito;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
@@ -169,6 +173,35 @@ class AzureObjStorageExtensionTest {
         BlobServiceClient client = storage.buildClient();
 
         Assertions.assertEquals("https://account.blob.core.windows.net", client.getAccountUrl());
+    }
+
+    @Test
+    void getClient_rechecksExpiryBeforeReturningCachedSasClient() throws Exception {
+        Clock clock = Mockito.mock(Clock.class);
+        Mockito.when(clock.instant()).thenReturn(Instant.parse("2026-01-01T00:00:00Z"));
+        AzureObjStorage storage = new AzureObjStorage(AzureFileSystemProperties.of(Map.of(
+                "azure.account_name", "account",
+                "azure.sas_token", "se=2026-01-02T00:00:00Z&sig=temporary")), clock);
+
+        BlobServiceClient client = storage.getClient();
+        Assertions.assertNotNull(client);
+        Assertions.assertSame(client, storage.getClient());
+
+        Mockito.when(clock.instant()).thenReturn(Instant.parse("2026-01-02T00:00:00Z"));
+        Assertions.assertThrows(StoragePropertiesException.class, storage::getClient);
+    }
+
+    @Test
+    void buildClient_rejectsSasExpiredSinceBinding() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.account_name", "account",
+                "azure.sas_token", "sig=temporary",
+                "azure.sas_expiry_ms", "1"));
+        AzureObjStorage storage = new AzureObjStorage(properties,
+                Clock.fixed(Instant.ofEpochMilli(1), ZoneOffset.UTC));
+
+        Assertions.assertThrows(StoragePropertiesException.class, storage::buildClient);
+        Assertions.assertThrows(StoragePropertiesException.class, storage::getClient);
     }
 
     @Test

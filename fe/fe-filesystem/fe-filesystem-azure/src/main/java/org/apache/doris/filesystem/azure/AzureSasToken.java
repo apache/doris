@@ -48,15 +48,15 @@ public final class AzureSasToken {
         if (raw == null || raw.isBlank()) {
             throw new StoragePropertiesException("Azure SAS token must not be empty");
         }
+        if (raw.indexOf('\r') >= 0 || raw.indexOf('\n') >= 0) {
+            throw new StoragePropertiesException("Azure SAS token must not contain a line break");
+        }
         String normalized = raw.trim();
         while (normalized.startsWith("?") || normalized.startsWith("&")) {
             normalized = normalized.substring(1);
         }
         if (normalized.isEmpty()) {
             throw new StoragePropertiesException("Azure SAS token must not be empty");
-        }
-        if (normalized.indexOf('\r') >= 0 || normalized.indexOf('\n') >= 0) {
-            throw new StoragePropertiesException("Azure SAS token must not contain a line break");
         }
 
         Optional<Instant> explicitExpiry = Optional.ofNullable(explicitExpiryMs)
@@ -79,8 +79,8 @@ public final class AzureSasToken {
     }
 
     /**
-     * Ensures this token is usable at the supplied time. A token without an expiry remains
-     * usable because the provider did not give Doris a timestamp it can enforce.
+     * Rejects a known expired token. Without expiry information Doris cannot prevalidate its
+     * lifetime; the storage service still decides whether to accept it.
      */
     public void validateNotExpired(Clock clock) {
         if (isExpired(clock)) {
@@ -92,14 +92,11 @@ public final class AzureSasToken {
         if (expiryMs <= 0) {
             throw new StoragePropertiesException("Azure SAS expiry must be a positive Unix timestamp");
         }
-        try {
-            return Instant.ofEpochMilli(expiryMs);
-        } catch (DateTimeException | ArithmeticException e) {
-            throw new StoragePropertiesException("Invalid Azure SAS expiry value", e);
-        }
+        return Instant.ofEpochMilli(expiryMs);
     }
 
     private static Optional<Instant> findTokenExpiry(String token) {
+        Optional<Instant> expiry = Optional.empty();
         for (String field : token.split("&", -1)) {
             int separator = field.indexOf('=');
             if (separator <= 0 || !field.substring(0, separator).equals("se")) {
@@ -109,19 +106,30 @@ public final class AzureSasToken {
             if (encodedExpiry.isEmpty()) {
                 throw new StoragePropertiesException("Azure SAS credential has an empty expiry");
             }
-            String decodedExpiry = URLDecoder.decode(encodedExpiry, StandardCharsets.UTF_8);
-            try {
-                return Optional.of(OffsetDateTime.parse(
-                        decodedExpiry, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant());
-            } catch (DateTimeParseException e) {
-                try {
-                    return Optional.of(Instant.parse(decodedExpiry));
-                } catch (DateTimeParseException ignored) {
-                    throw new StoragePropertiesException("Azure SAS credential has an invalid expiry", e);
-                }
+            if (expiry.isPresent()) {
+                throw new StoragePropertiesException("Azure SAS credential has multiple expiry fields");
             }
+            expiry = Optional.of(parseTokenExpiry(encodedExpiry));
         }
-        return Optional.empty();
+        return expiry;
+    }
+
+    private static Instant parseTokenExpiry(String encodedExpiry) {
+        try {
+            String decodedExpiry = URLDecoder.decode(encodedExpiry, StandardCharsets.UTF_8);
+            Instant expiry;
+            try {
+                expiry = OffsetDateTime.parse(decodedExpiry, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant();
+            } catch (DateTimeParseException e) {
+                expiry = Instant.parse(decodedExpiry);
+            }
+            // The native protocol represents expiry as signed Unix milliseconds.
+            expiry.toEpochMilli();
+            return expiry;
+        } catch (IllegalArgumentException | DateTimeException | ArithmeticException e) {
+            // Decode/parse exceptions include the raw input. Do not propagate it into logs.
+            throw new StoragePropertiesException("Azure SAS credential has an invalid expiry");
+        }
     }
 
     private static Optional<Instant> minExpiry(Optional<Instant> first, Optional<Instant> second) {

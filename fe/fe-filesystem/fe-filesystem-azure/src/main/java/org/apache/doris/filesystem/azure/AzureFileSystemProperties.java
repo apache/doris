@@ -196,6 +196,10 @@ public final class AzureFileSystemProperties
         endpoint = formatAzureEndpoint(endpoint, accountHost);
         this.sasCredential = authType == AzureAuthType.SAS && StringUtils.isNotBlank(sasToken)
                 ? AzureSasToken.of(sasToken, parseSasExpiry(sasExpiryMs)) : null;
+        if (sasCredential != null) {
+            sasExpiryMs = sasCredential.expiresAt()
+                    .map(expiry -> Long.toString(expiry.toEpochMilli())).orElse("");
+        }
     }
 
     public static AzureFileSystemProperties of(Map<String, String> properties) {
@@ -585,12 +589,7 @@ public final class AzureFileSystemProperties
         if (StringUtils.isNotBlank(accountName)) {
             return accountName;
         }
-        String host = resolveAccountHost();
-        if (StringUtils.isBlank(host)) {
-            return "";
-        }
-        int dot = host.indexOf('.');
-        return dot > 0 ? host.substring(0, dot) : host;
+        return accountHost == null ? "" : accountHost.accountName();
     }
 
     private String resolveAccountHost() {
@@ -598,10 +597,9 @@ public final class AzureFileSystemProperties
     }
 
     void validateSasExpiry(Clock clock) {
-        if (!isSasAuth() || sasCredential == null || sasCredential.expiresAt().isEmpty()) {
-            return;
+        if (isSasAuth()) {
+            sasCredential.validateNotExpired(clock);
         }
-        sasCredential.validateNotExpired(clock);
     }
 
     private static Long parseSasExpiry(String expiry) {
@@ -611,7 +609,7 @@ public final class AzureFileSystemProperties
         try {
             return Long.parseLong(expiry.trim());
         } catch (NumberFormatException e) {
-            throw new StoragePropertiesException("Invalid Azure SAS expiry value", e);
+            throw new StoragePropertiesException("Invalid Azure SAS expiry value");
         }
     }
 
@@ -619,23 +617,7 @@ public final class AzureFileSystemProperties
         if (StringUtils.isBlank(endpoint)) {
             return accountHost == null ? "" : accountHost.blobEndpoint();
         }
-        String normalizedEndpoint = addHttpsScheme(endpoint);
-        try {
-            AzureAccountHost parsed = AzureAccountHost.parse(normalizedEndpoint);
-            return parsed.isDfsHost() ? parsed.blobEndpoint() : normalizedEndpoint;
-        } catch (StoragePropertiesException e) {
-            return normalizedEndpoint;
-        }
-    }
-
-    private static String addHttpsScheme(String endpoint) {
-        if (StringUtils.isBlank(endpoint)) {
-            return "";
-        }
-        if (endpoint.contains("://")) {
-            return endpoint;
-        }
-        return "https://" + endpoint;
+        return AzureAccountHost.parse(endpoint).blobEndpoint();
     }
 
     private static Set<String> normalizedAzureBlobHostSuffixes() {

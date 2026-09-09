@@ -28,6 +28,7 @@ import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
@@ -108,15 +109,46 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertEquals("SharedKey", properties.getAzureAuthType());
     }
 
-    @Test
-    void bind_convertsDfsEndpointToBlobEndpointForNativeClient() {
+    @ParameterizedTest
+    @ValueSource(strings = {"core.windows.net", "core.chinacloudapi.cn", "core.usgovcloudapi.net", "core.cloudapi.de"})
+    void bind_convertsDfsEndpointToBlobEndpointForNativeClient(String suffix) {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "azure.endpoint", "account.dfs.core.chinacloudapi.cn",
+                "azure.endpoint", "account.dfs." + suffix,
+                "azure.account_name", "account",
                 "azure.account_key", "key"));
 
-        Assertions.assertEquals("https://account.blob.core.chinacloudapi.cn", properties.getEndpoint());
+        Assertions.assertEquals("https://account.blob." + suffix, properties.getEndpoint());
         Assertions.assertEquals("key", properties.toHadoopConfigurationMap()
-                .get("fs.azure.account.key.account.blob.core.chinacloudapi.cn"));
+                .get("fs.azure.account.key.account.blob." + suffix));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "http://account.dfs.core.windows.net:10000/proxy%2Fpath, http://account.blob.core.windows.net:10000/proxy%2Fpath",
+            "http://127.0.0.1:10000/account, http://127.0.0.1:10000/account",
+            "https://storage.example.test:8443, https://storage.example.test:8443"
+    })
+    void bind_preservesExplicitEndpointTransport(String input, String expected) {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.endpoint", input,
+                "azure.account_name", "account",
+                "azure.account_key", "key"));
+
+        Assertions.assertEquals(expected, properties.getEndpoint());
+        Assertions.assertEquals(expected, properties.toMap().get("AZURE_ENDPOINT"));
+    }
+
+    @Test
+    void bind_usesEndpointAccountAndCloudSuffixForSas() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.endpoint", "account.dfs.core.usgovcloudapi.net",
+                "azure.sas_token", "sig=temporary"));
+
+        Assertions.assertEquals("account", properties.toMap().get("AZURE_ACCOUNT_NAME"));
+        Assertions.assertEquals("https://account.blob.core.usgovcloudapi.net",
+                properties.toMap().get("AZURE_ENDPOINT"));
+        Assertions.assertEquals("sig=temporary", properties.toHadoopConfigurationMap()
+                .get("fs.azure.sas.fixed.token.account.dfs.core.usgovcloudapi.net"));
     }
 
     @Test
@@ -316,6 +348,30 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertEquals("sv=2024-01-01&se=2100-01-01T00:00:00Z&sig=temporary",
                 properties.getSasToken());
         Assertions.assertEquals(properties.getSasToken(), properties.toMap().get("AZURE_SAS_TOKEN"));
+        Assertions.assertEquals("4102444800000", properties.getSasExpiryMs());
+        Assertions.assertEquals("4102444800000", properties.toMap().get("AZURE_SAS_EXPIRY_MS"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"4102444800000, 4102444800000", "4133980800000, 4102531200000"})
+    void toMap_emitsEarlierExplicitOrTokenExpiry(String explicitExpiry, String expectedExpiry) {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.sas_token", "se=2100-01-02T00%3A00%3A00Z&sig=a+b%2Fc",
+                "azure.sas_expiry_ms", explicitExpiry));
+
+        Assertions.assertEquals(expectedExpiry, properties.getSasExpiryMs());
+        Assertions.assertEquals(expectedExpiry, properties.toMap().get("AZURE_SAS_EXPIRY_MS"));
+        Assertions.assertEquals("se=2100-01-02T00%3A00%3A00Z&sig=a+b%2Fc",
+                properties.toMap().get("AZURE_SAS_TOKEN"));
+    }
+
+    @Test
+    void toMap_doesNotInventUnknownSasExpiry() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.sas_token", "si=stored-access-policy&sig=temporary"));
+
+        Assertions.assertEquals("", properties.getSasExpiryMs());
+        Assertions.assertFalse(properties.toMap().containsKey("AZURE_SAS_EXPIRY_MS"));
     }
 
     @Test
@@ -347,6 +403,7 @@ class AzureFileSystemPropertiesTest {
                 () -> properties.toMap());
 
         Assertions.assertTrue(exception.getMessage().contains("expired"), exception.getMessage());
+        Assertions.assertThrows(StoragePropertiesException.class, properties::toHadoopConfigurationMap);
     }
 
     @Test
@@ -357,6 +414,9 @@ class AzureFileSystemPropertiesTest {
 
         properties.validateSasExpiry(Clock.fixed(
                 Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC));
+        Assertions.assertThrows(StoragePropertiesException.class,
+                () -> properties.validateSasExpiry(Clock.fixed(
+                        Instant.parse("2026-01-02T00:00:00Z"), ZoneOffset.UTC)));
     }
 
     @Test
@@ -430,6 +490,25 @@ class AzureFileSystemPropertiesTest {
                 backendMap.get("AZURE_OAUTH_SERVER_URI"));
         Assertions.assertFalse(backendMap.containsKey("AZURE_ACCOUNT_KEY"), backendMap.toString());
         Assertions.assertFalse(backendMap.containsKey("AZURE_SAS_TOKEN"), backendMap.toString());
+    }
+
+    @Test
+    void toHadoopConfigurationMap_preservesOneLakeOAuth2Host() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "OAuth2",
+                "azure.oauth2_account_host", "onelake.dfs.fabric.microsoft.com",
+                "azure.oauth2_client_id", "client-id",
+                "azure.oauth2_client_secret", "client-secret",
+                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
+
+        Map<String, String> hadoop = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("OAuth", hadoop.get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertEquals("client-id", hadoop.get("fs.azure.account.oauth2.client.id.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertEquals("client-secret",
+                hadoop.get("fs.azure.account.oauth2.client.secret.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertEquals("OAuth",
+                properties.toMap().get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertFalse(hadoop.keySet().stream().anyMatch(key -> key.contains(".blob.fabric.microsoft.com")));
     }
 
     @ParameterizedTest
