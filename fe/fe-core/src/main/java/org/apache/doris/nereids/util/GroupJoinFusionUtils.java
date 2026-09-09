@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
 import com.google.common.collect.Sets;
 
@@ -68,12 +70,21 @@ public final class GroupJoinFusionUtils {
      * <p>
      * Returns null when the shape is not eligible (not an INNER/CROSS hash join, mark join,
      * broadcast join, residual non-equi conjuncts, null-safe equal conjuncts, aggregates
-     * reading both sides, aggregates with an internal ORDER BY, or intermediate project slots)
-     * or when the group-by keys cannot be mapped one-to-one onto the conjuncts. Session-level
-     * gates (enable_group_join_fusion, enable_spill) are checked by the callers, not here.
+     * reading both sides, aggregates with an internal ORDER BY, an intermediate Project that
+     * computes columns, or intermediate project slots) or when the group-by keys cannot be
+     * mapped one-to-one onto the conjuncts. Session-level gates (enable_group_join_fusion,
+     * enable_spill) are checked by the callers, not here.
+     *
+     * @param project the Project between the aggregate and the join, or null when the aggregate
+     *        directly consumes the join. Only a pure passthrough project (each output is a bare
+     *        slot already produced by one of the join children) is fusable: the fused operator
+     *        evaluates aggregates over the join children rows, so any computation between the
+     *        aggregate and the join (weighted re-multiplication of pre-aggregated sides, hoisted
+     *        casts, CSE columns, ...) must stay on the ordinary HashJoinNode + AggregationNode
+     *        path which evaluates the Project.
      */
     public static List<Expression> alignedConjunctsForGroupJoin(
-            Aggregate<?> aggregate, PhysicalHashJoin<?, ?> join) {
+            Aggregate<?> aggregate, PhysicalProject<?> project, PhysicalHashJoin<?, ?> join) {
         if (join.getJoinType() != JoinType.INNER_JOIN && !join.getJoinType().isCrossJoin()) {
             return null;
         }
@@ -101,6 +112,23 @@ public final class GroupJoinFusionUtils {
         Set<Slot> joinChildrenOutputs = Sets.newHashSet();
         joinChildrenOutputs.addAll(leftOutput);
         joinChildrenOutputs.addAll(rightOutput);
+        // Pure-passthrough gate for the intermediate Project (Scheme A): the Project between
+        // the aggregate and the join may only forward columns the join children already
+        // produce. A Project computing anything (eager pre-aggregation weights such as
+        // cntL*cntR, hoisted type-coercion casts, CSE columns) cannot be skipped by the fused
+        // operator, so such shapes fall back to the ordinary path. Note slot ExprIds are
+        // reused by the eager-agg rewrite (the same id denotes the raw child column below the
+        // project and the weighted value above it), so an existence test on ids alone would
+        // let the weighted shape through; checking that every project output IS a bare slot of
+        // a join child is the structural test that catches it.
+        if (project != null) {
+            for (NamedExpression projectOutput : project.getProjects()) {
+                if (!(projectOutput instanceof SlotReference)
+                        || (!leftOutput.contains(projectOutput) && !rightOutput.contains(projectOutput))) {
+                    return null;
+                }
+            }
+        }
         if (!joinChildrenOutputs.containsAll(aggregate.getInputSlots())) {
             return null;
         }
