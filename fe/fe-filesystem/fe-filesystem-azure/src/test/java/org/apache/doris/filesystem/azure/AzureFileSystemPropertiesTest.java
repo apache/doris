@@ -106,6 +106,17 @@ class AzureFileSystemPropertiesTest {
     }
 
     @Test
+    void bind_convertsDfsEndpointToBlobEndpointForNativeClient() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.endpoint", "account.dfs.core.chinacloudapi.cn",
+                "azure.account_key", "key"));
+
+        Assertions.assertEquals("https://account.blob.core.chinacloudapi.cn", properties.getEndpoint());
+        Assertions.assertEquals("key", properties.toHadoopConfigurationMap()
+                .get("fs.azure.account.key.account.blob.core.chinacloudapi.cn"));
+    }
+
+    @Test
     void bind_acceptsLegacyUppercaseKeysForExistingAzureCallers() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
                 "AZURE_ACCOUNT_NAME", "legacy-account",
@@ -290,6 +301,17 @@ class AzureFileSystemPropertiesTest {
                 "AZURE_SAS_TOKEN", "sv=2024-01-01&sig=temporary",
                 "AZURE_SAS_EXPIRY_MS", "4102444800000",
                 "use_path_style", "false"), backendMap);
+    }
+
+    @Test
+    void bind_normalizesSasTokenAndReadsTokenExpiry() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "SAS",
+                "azure.account_name", "account",
+                "azure.sas_token", "?sv=2024-01-01&se=4102444800000&sig=temporary"));
+
+        Assertions.assertEquals("sv=2024-01-01&se=4102444800000&sig=temporary", properties.getSasToken());
+        Assertions.assertEquals(properties.getSasToken(), properties.toMap().get("AZURE_SAS_TOKEN"));
     }
 
     @Test

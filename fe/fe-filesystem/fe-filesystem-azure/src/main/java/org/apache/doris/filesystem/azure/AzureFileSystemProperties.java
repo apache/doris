@@ -74,8 +74,6 @@ public final class AzureFileSystemProperties
     public static final String SHARED_KEY_AUTH = "SharedKey";
     public static final String SAS_AUTH = "SAS";
     public static final String OAUTH2_AUTH = "OAuth2";
-    public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
-
     // Provider-owned backend keys. Azure keeps the existing FILE_S3 wire slot for compatibility,
     // while these names prevent Azure credentials from inheriting AWS/S3 parameter semantics.
     public static final String BACKEND_AUTH_TYPE = "AZURE_AUTH_TYPE";
@@ -182,6 +180,8 @@ public final class AzureFileSystemProperties
     private final Map<String, String> rawProperties;
     private final Map<String, String> matchedProperties;
     private final AzureAuthType authType;
+    private final AzureAccountHost accountHost;
+    private final AzureSasToken sasCredential;
 
     private AzureFileSystemProperties(Map<String, String> rawProperties) {
         // Defensive copy before wrapping: unmodifiableMap alone is only a read-only view,
@@ -191,7 +191,10 @@ public final class AzureFileSystemProperties
         ConnectorPropertiesUtils.bindConnectorProperties(this, rawProperties);
         this.authType = resolveAuthType();
         azureAuthType = authType.propertyValue();
-        endpoint = formatAzureEndpoint(endpoint, accountName, oauthAccountHost);
+        this.accountHost = resolveAccountHostModel();
+        endpoint = formatAzureEndpoint(endpoint, accountHost);
+        this.sasCredential = authType == AzureAuthType.SAS && StringUtils.isNotBlank(sasToken)
+                ? AzureSasToken.of(sasToken, parseSasExpiry(sasExpiryMs)) : null;
     }
 
     public static AzureFileSystemProperties of(Map<String, String> properties) {
@@ -290,7 +293,7 @@ public final class AzureFileSystemProperties
                 azureProps.put(BACKEND_ACCOUNT_KEY, accountKey);
                 break;
             case SAS:
-                azureProps.put(BACKEND_SAS_TOKEN, stripSasPrefix(sasToken));
+                azureProps.put(BACKEND_SAS_TOKEN, sasCredential.value());
                 if (StringUtils.isNotBlank(sasExpiryMs)) {
                     azureProps.put(BACKEND_SAS_EXPIRY_MS, sasExpiryMs);
                 }
@@ -347,7 +350,7 @@ public final class AzureFileSystemProperties
                 String accountHost = resolveAccountHost();
                 if (StringUtils.isNotBlank(accountHost)) {
                     cfg.put("fs.azure.account.auth.type." + accountHost, SAS_AUTH);
-                    cfg.put("fs.azure.sas.fixed.token." + accountHost, stripSasPrefix(sasToken));
+                    cfg.put("fs.azure.sas.fixed.token." + accountHost, sasCredential.value());
                 }
                 break;
             case OAUTH2:
@@ -434,7 +437,7 @@ public final class AzureFileSystemProperties
     }
 
     public String getSasToken() {
-        return sasToken;
+        return sasCredential == null ? sasToken : sasCredential.value();
     }
 
     public String getSasExpiryMs() {
@@ -529,6 +532,19 @@ public final class AzureFileSystemProperties
         return StringUtils.isNotBlank(sasToken) ? AzureAuthType.SAS : AzureAuthType.SHARED_KEY;
     }
 
+    private AzureAccountHost resolveAccountHostModel() {
+        if (StringUtils.isNotBlank(oauthAccountHost)) {
+            return AzureAccountHost.parse(oauthAccountHost);
+        }
+        if (StringUtils.isNotBlank(endpoint)) {
+            return AzureAccountHost.parse(endpoint);
+        }
+        if (StringUtils.isNotBlank(accountName)) {
+            return AzureAccountHost.fromAccountName(accountName);
+        }
+        return null;
+    }
+
     private String resolveBackendAccountName() {
         if (StringUtils.isNotBlank(accountName)) {
             return accountName;
@@ -542,61 +558,40 @@ public final class AzureFileSystemProperties
     }
 
     private String resolveAccountHost() {
-        if (StringUtils.isNotBlank(oauthAccountHost)) {
-            return oauthAccountHost;
-        }
-        if (StringUtils.isBlank(endpoint)) {
-            return "";
-        }
-        try {
-            String host = new URI(endpoint).getHost();
-            if (StringUtils.isBlank(host)) {
-                return "";
-            }
-            String lowerHost = host.toLowerCase(Locale.ROOT);
-            int blobMarker = lowerHost.indexOf(".blob.");
-            return blobMarker >= 0
-                    ? host.substring(0, blobMarker) + ".dfs" + host.substring(blobMarker + 5)
-                    : host;
-        } catch (URISyntaxException | IllegalArgumentException e) {
-            return "";
-        }
+        return accountHost == null ? "" : accountHost.dfsHost();
     }
 
     private void validateSasExpiry() {
-        if (!isSasAuth() || StringUtils.isBlank(sasExpiryMs)) {
+        if (!isSasAuth() || sasCredential == null || sasCredential.expiresAt().isEmpty()) {
             return;
         }
-        final long expiry;
-        try {
-            expiry = Long.parseLong(sasExpiryMs.trim());
-        } catch (NumberFormatException e) {
-            throw new StoragePropertiesException("Invalid Azure SAS expiry value: " + sasExpiryMs, e);
-        }
-        if (expiry <= 0) {
-            throw new StoragePropertiesException("Azure SAS expiry must be a positive Unix timestamp");
-        }
-        if (expiry <= System.currentTimeMillis()) {
+        if (sasCredential.isExpired(java.time.Clock.systemUTC())) {
             throw new StoragePropertiesException("Azure SAS credential is expired");
         }
     }
 
-    private static String stripSasPrefix(String token) {
-        String normalized = token == null ? "" : token.trim();
-        while (normalized.startsWith("?") || normalized.startsWith("&")) {
-            normalized = normalized.substring(1);
+    private static Long parseSasExpiry(String expiry) {
+        if (StringUtils.isBlank(expiry)) {
+            return null;
         }
-        return normalized;
+        try {
+            return Long.parseLong(expiry.trim());
+        } catch (NumberFormatException e) {
+            throw new StoragePropertiesException("Invalid Azure SAS expiry value", e);
+        }
     }
 
-    private static String formatAzureEndpoint(String endpoint, String accountName, String accountHost) {
+    private static String formatAzureEndpoint(String endpoint, AzureAccountHost accountHost) {
         if (StringUtils.isBlank(endpoint)) {
-            if (StringUtils.isNotBlank(accountName)) {
-                return String.format(AZURE_ENDPOINT_TEMPLATE, accountName);
-            }
-            return addHttpsScheme(accountHost);
+            return accountHost == null ? "" : accountHost.blobEndpoint();
         }
-        return addHttpsScheme(endpoint);
+        String normalizedEndpoint = addHttpsScheme(endpoint);
+        try {
+            AzureAccountHost parsed = AzureAccountHost.parse(normalizedEndpoint);
+            return parsed.isDfsHost() ? parsed.blobEndpoint() : normalizedEndpoint;
+        } catch (StoragePropertiesException e) {
+            return normalizedEndpoint;
+        }
     }
 
     private static String addHttpsScheme(String endpoint) {

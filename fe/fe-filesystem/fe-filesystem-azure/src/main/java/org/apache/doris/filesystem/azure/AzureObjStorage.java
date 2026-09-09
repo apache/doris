@@ -108,7 +108,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                         properties.getAccountName(), properties.getAccountKey()));
                 break;
             case SAS:
-                builder.sasToken(stripSasPrefix(properties.getSasToken()));
+                builder.sasToken(properties.getSasToken());
                 break;
             case OAUTH2:
                 String tenantId = properties.resolveTenantId()
@@ -123,14 +123,6 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                 throw new IllegalStateException("Unhandled Azure auth type: " + properties.authType());
         }
         return builder.buildClient();
-    }
-
-    private static String stripSasPrefix(String token) {
-        String normalized = token.trim();
-        while (normalized.startsWith("?") || normalized.startsWith("&")) {
-            normalized = normalized.substring(1);
-        }
-        return normalized;
     }
 
     @Override
