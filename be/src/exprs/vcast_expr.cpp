@@ -185,20 +185,12 @@ Status TryCastExpr::execute_column_impl(VExprContext* context, const Block* bloc
     // If there is an error that can be handled by try cast,
     // it will be converted into line execution.
     ColumnWithTypeAndName input_info {from_column, from_type, _children[0]->expr_name()};
-    // distinguish whether the return value of the original cast is nullable
-    if (_original_cast_return_is_nullable) {
-        RETURN_IF_ERROR(single_row_execute<true>(context, input_info, result_column));
-    } else {
-        RETURN_IF_ERROR(single_row_execute<false>(context, input_info, result_column));
-    }
-    // wrap nullable
-    result_column = make_nullable(result_column);
+    RETURN_IF_ERROR(single_row_execute(context, input_info, result_column));
     DCHECK_EQ(result_column->size(), count);
 
     return Status::OK();
 }
 
-template <bool original_cast_reutrn_is_nullable>
 Status TryCastExpr::single_row_execute(VExprContext* context,
                                        const ColumnWithTypeAndName& input_info,
                                        ColumnPtr& return_column) const {
@@ -207,23 +199,7 @@ Status TryCastExpr::single_row_execute(VExprContext* context,
     const auto& input_name = input_info.name;
     auto result_column = _data_type->create_column();
 
-    ColumnNullable& result_null_column = assert_cast<ColumnNullable&>(*result_column);
-
-    IColumn& result_nested_column = result_null_column.get_nested_column();
-    auto& result_null_map_data = result_null_column.get_null_map_data();
-
-    auto insert_from_single_row = [&](const IColumn& single_exec_column, size_t row) {
-        DCHECK_EQ(single_exec_column.size(), 1);
-        if constexpr (original_cast_reutrn_is_nullable) {
-            result_null_column.insert_from(single_exec_column, 0);
-        } else {
-            DCHECK(!single_exec_column.is_nullable());
-            result_nested_column.insert_from(single_exec_column, 0);
-            result_null_map_data.push_back(0);
-        }
-    };
-
-    auto insert_null = [&](size_t row) { result_null_column.insert_default(); };
+    auto& result_null_column = assert_cast<ColumnNullable&>(*result_column);
 
     const auto size = input_column->size();
     for (size_t row = 0; row < size; ++row) {
@@ -234,12 +210,17 @@ Status TryCastExpr::single_row_execute(VExprContext* context,
         auto single_exec_status = _function->execute(context->fn_context(_fn_context_index),
                                                      single_row_block, {0}, 1, 1);
         if (single_exec_status.ok()) {
-            insert_from_single_row(*single_row_block.get_by_position(1).column, row);
+            // FunctionCast uses TRY_CAST's nullable return type even when the original CAST
+            // is non-nullable. Normalize the actual result before copying the successful row.
+            auto single_exec_column = make_nullable(
+                    single_row_block.get_by_position(1).column->convert_to_full_column_if_const());
+            DCHECK_EQ(single_exec_column->size(), 1);
+            result_null_column.insert_from(*single_exec_column, 0);
         } else {
             if (!cast_error_code(single_exec_status)) {
                 return single_exec_status;
             }
-            insert_null(row);
+            result_null_column.insert_default();
         }
     }
     return_column = std::move(result_column);

@@ -117,7 +117,6 @@ public:
 
 private:
     DataTypePtr original_cast_return_type() const;
-    template <bool original_cast_reutrn_is_nullable>
     Status single_row_execute(VExprContext* context, const ColumnWithTypeAndName& input_info,
                               ColumnPtr& return_column) const;
 
