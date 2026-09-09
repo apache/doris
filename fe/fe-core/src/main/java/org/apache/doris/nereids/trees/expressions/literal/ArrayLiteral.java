@@ -135,8 +135,13 @@ public class ArrayLiteral extends Literal implements ComparableLiteral {
 
     @Override
     public String computeToSql() {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
         String items = this.items.stream()
-                .map(Literal::toSql)
+                .map(expr -> expr.toSql(mode))
                 .collect(Collectors.joining(", "));
         return "[" + items + "]";
     }

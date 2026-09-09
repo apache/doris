@@ -101,14 +101,19 @@ public class Lambda extends Expression {
 
     @Override
     public String computeToSql() {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
         StringBuilder builder = new StringBuilder();
         String argStr = argumentNames.get(0);
         if (argumentNames.size() > 1) {
             argStr = argumentNames.stream().collect(Collectors.joining(", ", "(", ")"));
         }
-        builder.append(String.format("%s -> %s", argStr, getLambdaFunction().toSql()));
+        builder.append(String.format("%s -> %s", argStr, getLambdaFunction().toSql(mode)));
         for (int i = 1; i < getArguments().size(); i++) {
-            builder.append(", ").append(getArgument(i).toSql());
+            builder.append(", ").append(getArgument(i).toSql(mode));
         }
         return builder.toString();
     }

@@ -95,6 +95,15 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
     }
 
     @Override
+    public String computeToSql(SqlRenderMode mode) {
+        String sql = frameUnits + " ";
+        if (rightBoundary != null) {
+            return sql + "BETWEEN " + leftBoundary.toSql(mode) + " AND " + rightBoundary.toSql(mode);
+        }
+        return sql + leftBoundary.toSql(mode);
+    }
+
+    @Override
     public String computeToSql() {
         StringBuilder sb = new StringBuilder();
         sb.append(frameUnits + " ");
@@ -253,7 +262,13 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
             return sb.toString();
         }
 
-        /** toSql*/
+        /** Render the offset using the same SQL mode as the window expression. */
+        public String toSql(SqlRenderMode mode) {
+            String offset = boundOffset.map(value -> value.toSql(mode) + " ").orElse("");
+            return offset + frameBoundType.toString().replace('_', ' ');
+        }
+
+        /** Render a frame boundary for diagnostic SQL. */
         public String toSql() {
             StringBuilder sb = new StringBuilder();
             boundOffset.ifPresent(value -> sb.append(value + " "));

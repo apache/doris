@@ -56,7 +56,12 @@ public class IsNull extends Expression implements UnaryExpression, AlwaysNotNull
 
     @Override
     public String computeToSql() throws UnboundException {
-        return child().toSql() + " IS NULL";
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) throws UnboundException {
+        return child().toSql(mode) + " IS NULL";
     }
 
     @Override

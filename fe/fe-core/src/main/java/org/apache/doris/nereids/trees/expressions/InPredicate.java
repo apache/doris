@@ -214,8 +214,13 @@ public class InPredicate extends Expression {
 
     @Override
     public String computeToSql() {
-        return compareExpr.toSql() + " IN " + options.stream()
-            .map(Expression::toSql).sorted()
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
+        return compareExpr.toSql(mode) + " IN " + options.stream()
+            .map(expr -> expr.toSql(mode)).sorted()
             .collect(Collectors.joining(", ", "(", ")"));
     }
 

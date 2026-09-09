@@ -101,10 +101,15 @@ public class AggregateExpression extends Expression implements UnaryExpression {
 
     @Override
     public String computeToSql() {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
         if (aggregateParam.aggMode.productAggregateBuffer) {
-            return "partial_" + function.toSql();
+            return "partial_" + function.toSql(mode);
         } else {
-            return function.toSql();
+            return function.toSql(mode);
         }
     }
 

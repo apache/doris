@@ -124,6 +124,11 @@ public class StructLiteral extends Literal {
 
     @Override
     public String computeToSql() {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
         StringBuilder sb = new StringBuilder();
         sb.append("STRUCT(");
         for (int i = 0; i < fields.size(); i++) {
@@ -132,7 +137,7 @@ public class StructLiteral extends Literal {
             }
             sb.append("'").append(((StructType) dataType).getFields().get(i).getName()).append("'");
             sb.append(":");
-            sb.append(fields.get(i).toSql());
+            sb.append(fields.get(i).toSql(mode));
         }
         sb.append(")");
         return sb.toString();

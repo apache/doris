@@ -74,6 +74,7 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -134,6 +135,15 @@ public class BaseViewInfo {
         int beg = 0;
         for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {
             Pair<Integer, Integer> index = entry.getKey();
+            Preconditions.checkArgument(
+                    index.first >= 0 && index.first <= index.second && index.second < querySql.length(),
+                    "Invalid SQL rewrite range: %s, SQL length: %s", index, querySql.length());
+            if (index.first < beg) {
+                // An enclosing replacement already contains the complete SQL for this range.
+                Preconditions.checkArgument(index.second < beg,
+                        "Partially overlapping SQL rewrite ranges: previous end=%s, current=%s", beg - 1, index);
+                continue;
+            }
             builder.append(querySql, beg, index.first);
             builder.append(entry.getValue());
             beg = index.second + 1;

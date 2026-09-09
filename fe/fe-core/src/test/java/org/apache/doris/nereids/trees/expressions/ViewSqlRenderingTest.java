@@ -1,0 +1,87 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.expressions;
+
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression.SqlRenderMode;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
+import org.apache.doris.nereids.types.IntegerType;
+
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.TreeMap;
+
+class ViewSqlRenderingTest {
+    @Test
+    void testQualifiedExpressionAndIndependentCache() {
+        SlotReference slot = new SlotReference(new ExprId(1), "a`b", IntegerType.INSTANCE,
+                true, ImmutableList.of("db", "t"));
+        Alias expression = new Alias(new Add(slot, new IntegerLiteral(1)), "a`b");
+        String original = expression.toSql();
+        String viewSql = expression.toSql(SqlRenderMode.FOR_VIEW);
+        Assertions.assertEquals("(`db`.`t`.`a``b` + 1) AS `a``b`", viewSql);
+        Assertions.assertEquals(original, expression.toSql());
+        new NereidsParser().parseSingle("SELECT " + viewSql + " FROM db.t");
+        Alias fresh = new Alias(new Add(slot, new IntegerLiteral(1)), "a`b");
+        Assertions.assertEquals(viewSql, fresh.toSql(SqlRenderMode.FOR_VIEW));
+        Assertions.assertEquals(original, fresh.toSql());
+    }
+
+    @Test
+    void testSubPathAndStringEscaping() {
+        SlotReference slot = new SlotReference(new ExprId(2), "payload", IntegerType.INSTANCE,
+                true, ImmutableList.of("t")).withSubPath(ImmutableList.of("user", "name"));
+        Assertions.assertEquals("`t`.`payload`['user']['name']", slot.toSql(SqlRenderMode.FOR_VIEW));
+        StringLiteral literal = new StringLiteral("O'Reilly");
+        Expression parsed = new NereidsParser().parseExpression(literal.toSql(SqlRenderMode.FOR_VIEW));
+        Assertions.assertEquals(literal, parsed);
+    }
+
+    @Test
+    void testOutermostRewriteWins() {
+        TreeMap<Pair<Integer, Integer>, String> ranges = new StatementContext().getIndexInSqlToString();
+        ranges.put(Pair.of(7, 23), "99 AS `a`");
+        ranges.put(Pair.of(16, 16), "ignored");
+        ranges.put(Pair.of(22, 22), "ignored");
+        ranges.put(Pair.of(7, 16), "ignored");
+        ranges.put(Pair.of(16, 23), "ignored");
+        ranges.put(Pair.of(30, 30), "`t`");
+        Assertions.assertEquals("SELECT 99 AS `a` FROM `t`",
+                BaseViewInfo.rewriteSql(ranges, "SELECT * REPLACE(a+1 AS a) FROM t"));
+        Assertions.assertEquals(6, ranges.size());
+    }
+
+    @Test
+    void testAdjacentAndInvalidRanges() {
+        TreeMap<Pair<Integer, Integer>, String> ranges = new StatementContext().getIndexInSqlToString();
+        ranges.put(Pair.of(0, 1), "A");
+        ranges.put(Pair.of(2, 3), "B");
+        Assertions.assertEquals("ABef", BaseViewInfo.rewriteSql(ranges, "abcdef"));
+        ranges.put(Pair.of(1, 2), "crossing");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> BaseViewInfo.rewriteSql(ranges, "abcdef"));
+        ranges.clear();
+        ranges.put(Pair.of(0, 6), "invalid");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> BaseViewInfo.rewriteSql(ranges, "abcdef"));
+    }
+}

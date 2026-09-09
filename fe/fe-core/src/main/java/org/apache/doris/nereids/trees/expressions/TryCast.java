@@ -75,7 +75,12 @@ public class TryCast extends Cast implements UnaryExpression, Monotonic, AlwaysN
 
     @Override
     public String computeToSql() throws UnboundException {
-        return "tryCast(" + child().toSql() + " as " + targetType.toSql() + ")";
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) throws UnboundException {
+        return "tryCast(" + child().toSql(mode) + " as " + targetType.toSql() + ")";
     }
 
     @Override

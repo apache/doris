@@ -265,7 +265,12 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public String computeToSql() throws UnboundException {
-        return "cast(" + child().toSql() + " as " + targetType.toSql() + ")";
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) throws UnboundException {
+        return "cast(" + child().toSql(mode) + " as " + targetType.toSql() + ")";
     }
 
     @Override

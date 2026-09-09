@@ -114,8 +114,13 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
 
     @Override
     public String computeToSql() throws UnboundException {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) throws UnboundException {
         String params = children.stream()
-                .map(Expression::toSql)
+                .map(expr -> expr.toSql(mode))
                 .collect(Collectors.joining(", "));
         return getName() + "(" + (isDistinct ? "distinct " : "") + params + ")";
     }

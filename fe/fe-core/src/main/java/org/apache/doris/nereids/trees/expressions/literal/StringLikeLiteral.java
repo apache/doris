@@ -475,6 +475,11 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
     }
 
     @Override
+    public String computeToSql(SqlRenderMode mode) {
+        return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'";
+    }
+
+    @Override
     public String toString() {
         return "'" + value + "'";
     }

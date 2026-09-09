@@ -47,7 +47,12 @@ public abstract class UnaryOperator extends Expression implements UnaryExpressio
 
     @Override
     public String computeToSql() {
-        return "(" + symbol + " " + child().toSql() + ")";
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
+        return "(" + symbol + " " + child().toSql(mode) + ")";
     }
 
     @Override
