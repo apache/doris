@@ -725,7 +725,17 @@ if (GLIBC_COMPATIBILITY)
     # Keep lance_c here instead of COMMON_THIRDPARTY: placing its required libm there
     # would resolve -lm symbol before Doris compatibility is scanned, preventing
     # the linker from selecting Doris' optimized implementations.
+    # lance_c can also introduce single-precision math references after the
+    # compatibility archive has already been scanned. As ClickHouse does for its
+    # compatibility archive, force the GLIBC_2.27 math symbols to be undefined up
+    # front so the linker extracts Doris' musl implementations instead of binding
+    # late references to the toolchain's libm.
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        -Wl,-u,logf
+        -Wl,-u,powf
+        -Wl,-u,expf
+        -Wl,-u,exp2f
+        -Wl,-u,log2f
         glibc-compatibility-explicit
         glibc-compatibility
         -lm
