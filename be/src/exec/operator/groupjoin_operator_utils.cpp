@@ -83,6 +83,9 @@ Status do_evaluate(const Block& block, VExprContextSPtrs& exprs,
     for (size_t i = 0; i < exprs.size(); ++i) {
         RETURN_IF_ERROR(exprs[i]->execute(&block, key_columns_holder[i]));
         key_columns_holder[i] = key_columns_holder[i]->convert_to_full_column_if_const();
+        auto mutable_col = IColumn::mutate(std::move(key_columns_holder[i]));
+        mutable_col->replace_float_special_values();
+        key_columns_holder[i] = std::move(mutable_col);
     }
     return Status::OK();
 }
