@@ -24,6 +24,7 @@
 #include "storage/rowset/rowset_factory.h"
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/variant/index_storage_variant_test_base.h"
+#include "util/defer_op.h"
 
 namespace doris::index_storage_test {
 
@@ -34,6 +35,7 @@ static bool nested_group_write_path_available() {
 
 class IndexStorageVariantCompactionReadTest : public IndexStorageTestFixture {
 protected:
+    void run_numeric_index_compaction(bool add_index);
     void run_deep_sparse_variant_lifecycle(bool external_segment_meta, int64_t tablet_id);
     void run_nested_group_variant_lifecycle(bool external_segment_meta, int64_t tablet_id);
 };
@@ -320,18 +322,8 @@ TEST_F(IndexStorageVariantCompactionReadTest, CompactionAppliesLatestVariantProp
                              .array_item_nullable = true}};
     auto target = build_tablet_schema(options);
     target->set_schema_version(tablet_schema()->schema_version() + 1);
-    // No new load has propagated the policy to this tablet. The FE snapshot alone must suffice.
-    SyncPoint::get_instance()->set_call_back(
-            "Compaction::fetch_latest_tablet_schema", [&target](auto&& args) {
-                *try_any_cast<TabletSchemaSPtr*>(args[0]) = target;
-                auto* result = try_any_cast<std::pair<Status, bool>*>(args.back());
-                result->second = true;
-            });
-    target->set_schema_version(tablet_schema()->schema_version() - 1);
-    auto stale = compact_rowsets(IndexCompactionKind::CUMULATIVE, inputs);
-    ASSERT_FALSE(stale.has_value());
-    EXPECT_NE(stale.error().to_string().find("older than input schema"), std::string::npos);
-    target->set_schema_version(tablet_schema()->schema_version() + 1);
+    // The latest schema is known to BE but none of the input rowsets use it yet.
+    _tablet->update_max_version_schema(target);
     auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, inputs);
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
     EXPECT_EQ(compacted.value()->tablet_schema()->schema_version(), target->schema_version());
@@ -346,7 +338,7 @@ TEST_F(IndexStorageVariantCompactionReadTest, CompactionAppliesLatestVariantProp
     }
 }
 
-TEST_F(IndexStorageVariantCompactionReadTest, CompactionAppliesCountChangesWithoutNewLoad) {
+TEST_F(IndexStorageVariantCompactionReadTest, CompactionAppliesCountChangesOutsideInputRowsets) {
     VariantColumnSpec variant;
     variant.unique_id = 2;
     variant.name = "v";
@@ -364,19 +356,13 @@ TEST_F(IndexStorageVariantCompactionReadTest, CompactionAppliesCountChangesWitho
         ASSERT_TRUE(written.has_value()) << written.error();
         inputs.push_back(written.value());
     }
-    TabletSchemaSPtr target;
-    SyncPoint::get_instance()->set_call_back(
-            "Compaction::fetch_latest_tablet_schema", [&target](auto&& args) {
-                *try_any_cast<TabletSchemaSPtr*>(args[0]) = target;
-                auto* result = try_any_cast<std::pair<Status, bool>*>(args.back());
-                result->second = true;
-            });
     int schema_version = tablet_schema()->schema_version();
     for (int count : {0, 3, 1, 0}) {
         SCOPED_TRACE(count);
         options.variant_columns[0].max_subcolumns_count = count;
-        target = build_tablet_schema(options);
+        auto target = build_tablet_schema(options);
         target->set_schema_version(++schema_version);
+        _tablet->update_max_version_schema(target);
         auto compacted = compact_rowsets_and_reload(IndexCompactionKind::CUMULATIVE, inputs);
         ASSERT_TRUE(compacted.has_value()) << compacted.error();
         EXPECT_EQ(compacted.value()->tablet_schema()->schema_version(), schema_version);
@@ -401,13 +387,23 @@ TEST_F(IndexStorageVariantCompactionReadTest, CompactionAppliesCountChangesWitho
     }
 }
 
-TEST_F(IndexStorageVariantCompactionReadTest, ConvertedNumericIndexFiltersRows) {
+void IndexStorageVariantCompactionReadTest::run_numeric_index_compaction(bool add_index) {
     VariantColumnSpec variant;
     variant.max_subcolumns_count = 1;
     IndexTabletOptions options;
     options.tablet_id = 110057;
     options.variant_columns = {variant};
-    options.inverted_indexes = {IndexSpec::field_pattern_index(1100571, "idx_a", 2, "a")};
+    if (add_index) {
+        options.variant_columns[0].predefined_paths = {
+                VariantPathSpec {.path = "a",
+                                 .type = FieldType::OLAP_FIELD_TYPE_INT,
+                                 .nullable = true,
+                                 .pattern_type = PatternTypePB::MATCH_NAME,
+                                 .array_item_type = {},
+                                 .array_item_nullable = true}};
+    } else {
+        options.inverted_indexes = {IndexSpec::field_pattern_index(1100571, "idx_a", 2, "a")};
+    }
     ASSERT_TRUE(create_tablet(options).ok());
     std::vector<RowsetSharedPtr> inputs;
     for (int version = 0; version < 2; ++version) {
@@ -426,15 +422,13 @@ TEST_F(IndexStorageVariantCompactionReadTest, ConvertedNumericIndexFiltersRows) 
                              .pattern_type = PatternTypePB::MATCH_NAME,
                              .array_item_type = {},
                              .array_item_nullable = true}};
+    options.inverted_indexes = {IndexSpec::field_pattern_index(1100571, "idx_a", 2, "a")};
     auto target = build_tablet_schema(options);
     target->set_schema_version(tablet_schema()->schema_version() + 1);
-    SyncPoint::get_instance()->set_call_back(
-            "Compaction::fetch_latest_tablet_schema", [&](auto&& args) {
-                *try_any_cast<TabletSchemaSPtr*>(args[0]) = target;
-                try_any_cast<std::pair<Status, bool>*>(args.back())->second = true;
-            });
+    _tablet->update_max_version_schema(target);
     auto compacted = compact_rowsets(IndexCompactionKind::FULL, inputs);
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
+    ASSERT_EQ(compacted.value()->tablet_schema()->inverted_indexes().size(), 1);
     auto readable = rowsets_with_variant_extended_schema({compacted.value()});
     ASSERT_TRUE(readable.has_value()) << readable.error();
     const auto path_id = column_id_by_path("v.a");
@@ -465,12 +459,20 @@ TEST_F(IndexStorageVariantCompactionReadTest, ConvertedNumericIndexFiltersRows) 
     }
 }
 
-// Exercise both persisted layouts with the same policy transition. Switching the FE
-// pointer after handing out the snapshot models an ALTER interleaving without sleeps.
+TEST_F(IndexStorageVariantCompactionReadTest, ConvertedNumericIndexFiltersRows) {
+    run_numeric_index_compaction(false);
+}
+
+TEST_F(IndexStorageVariantCompactionReadTest, NewFieldPatternIndexFromTabletSchema) {
+    run_numeric_index_compaction(true);
+}
+
+// Exercise both persisted layouts with a newer tablet schema arriving after the
+// compaction snapshot. The stage callback controls the interleaving without sleeps.
 class VariantPolicySnapshotTest : public IndexStorageTestFixture,
                                   public testing::WithParamInterface<std::tuple<bool, bool>> {};
 
-TEST_P(VariantPolicySnapshotTest, SnapshotAndFailureRetryPreserveCompleteValues) {
+TEST_P(VariantPolicySnapshotTest, SnapshotWithInterleavedWritePreservesCompleteValues) {
     const auto [doc_mode, external_meta] = GetParam();
     VariantColumnSpec variant;
     variant.max_subcolumns_count = 1;
@@ -502,37 +504,33 @@ TEST_P(VariantPolicySnapshotTest, SnapshotAndFailureRetryPreserveCompleteValues)
     options.variant_columns[0].predefined_paths[0].type = FieldType::OLAP_FIELD_TYPE_STRING;
     auto second = build_tablet_schema(options);
     second->set_schema_version(first->schema_version() + 1);
-    TabletSchemaSPtr current = first;
+    _tablet->update_max_version_schema(first);
     RowsetSharedPtr late_write;
-    bool fail_rpc = true;
-    int fetches = 0;
+    const bool sync_points_enabled = SyncPoint::get_instance()->get_enable();
+    SyncPoint::get_instance()->enable_processing();
+    Defer restore_sync_points([&] {
+        SyncPoint::get_instance()->clear_call_back("compaction::CompactionMixin::build_basic_info");
+        if (!sync_points_enabled) {
+            SyncPoint::get_instance()->disable_processing();
+        }
+    });
     SyncPoint::get_instance()->set_call_back(
-            "Compaction::fetch_latest_tablet_schema", [&](auto&& args) {
-                ++fetches;
-                auto* result = try_any_cast<std::pair<Status, bool>*>(args.back());
-                result->second = true;
-                if (fail_rpc) {
-                    result->first = Status::InternalError("injected schema fetch failure");
+            "compaction::CompactionMixin::build_basic_info", [&](auto&& args) {
+                if (late_write != nullptr) {
                     return;
                 }
-                *try_any_cast<TabletSchemaSPtr*>(args[0]) = current;
-                if (current == first) {
-                    // An old-schema transaction publishes after the compaction snapshot.
-                    IndexRowsetSpec rowset;
-                    rowset.version = 2;
-                    rowset.batches.push_back(IndexBatch::single_variant({original}, 2));
-                    auto written = write_rowset(rowset);
-                    if (!written.has_value()) {
-                        result->first = written.error();
-                        return;
-                    }
-                    late_write = written.value();
-                }
-                current = second;
+                // prepare_compaction_schema has already captured the first version.
+                _tablet->update_max_version_schema(second);
+                IndexRowsetSpec rowset;
+                rowset.version = 2;
+                rowset.batches.push_back(IndexBatch::single_variant({original}, 2));
+                auto written = write_rowset(rowset);
+                ASSERT_TRUE(written.has_value()) << written.error();
+                late_write = written.value();
+                // An older load must not replace the latest write policy.
+                _tablet->update_max_version_schema(tablet_schema());
+                EXPECT_EQ(_tablet->tablet_schema()->schema_version(), second->schema_version());
             });
-    auto failed = compact_rowsets(IndexCompactionKind::CUMULATIVE, inputs);
-    ASSERT_FALSE(failed.has_value());
-    EXPECT_NE(failed.error().to_string().find("injected schema fetch failure"), std::string::npos);
     IndexReadOptions read_options;
     read_options.return_columns = {0, 1};
     read_options.collect_variant_values = true;
@@ -544,7 +542,6 @@ TEST_P(VariantPolicySnapshotTest, SnapshotAndFailureRetryPreserveCompleteValues)
         ASSERT_TRUE(value.has_value());
         EXPECT_EQ(*value, original);
     }
-    fail_rpc = false;
     for (int pass = 0; pass < 2; ++pass) {
         auto compacted = compact_rowsets_and_reload(IndexCompactionKind::CUMULATIVE, inputs);
         ASSERT_TRUE(compacted.has_value()) << compacted.error();
@@ -606,7 +603,6 @@ TEST_P(VariantPolicySnapshotTest, SnapshotAndFailureRetryPreserveCompleteValues)
             inputs.push_back(late_write);
         }
     }
-    EXPECT_EQ(fetches, 3);
 }
 
 INSTANTIATE_TEST_SUITE_P(StorageModes, VariantPolicySnapshotTest,

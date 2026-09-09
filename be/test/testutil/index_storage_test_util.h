@@ -335,7 +335,6 @@ protected:
 
 private:
     std::string _test_dir;
-    bool _sync_point_was_enabled = false;
     std::string _tmp_dir;
     TabletSchemaSPtr _tablet_schema;
     TabletSharedPtr _tablet;

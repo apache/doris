@@ -41,7 +41,6 @@
 #include "core/column/column_variant.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
-#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "storage/compaction/cumulative_compaction.h"
@@ -74,16 +73,7 @@ static constexpr int32_t kRowsPerSegment = 400000;
 
 class VariantDocModeCompactionTest : public ::testing::Test {
 protected:
-    bool _sync_point_was_enabled = false;
-
     void SetUp() override {
-        _sync_point_was_enabled = SyncPoint::get_instance()->get_enable();
-        SyncPoint::get_instance()->enable_processing();
-        SyncPoint::get_instance()->set_call_back(
-                "Compaction::fetch_latest_tablet_schema", [](auto&& args) {
-                    auto* result = try_any_cast<std::pair<Status, bool>*>(args.back());
-                    result->second = true;
-                });
         char buffer[MAX_PATH_LEN];
         ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + std::string(kTestDir);
@@ -120,10 +110,6 @@ protected:
     }
 
     void TearDown() override {
-        SyncPoint::get_instance()->clear_call_back("Compaction::fetch_latest_tablet_schema");
-        if (!_sync_point_was_enabled) {
-            SyncPoint::get_instance()->disable_processing();
-        }
         // ASSERT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
         engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);

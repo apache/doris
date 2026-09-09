@@ -40,9 +40,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.service.FrontendServiceImpl;
-import org.apache.doris.thrift.TGetTabletSchemaResult;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -52,7 +49,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
@@ -697,15 +693,6 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertEquals(++schemaVersion,
                     table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
             Assertions.assertEquals(OlapTable.OlapTableState.NORMAL, table.getState());
-            long tabletId = table.getPartitions().iterator().next().getBaseIndex().getTablets().get(0).getId();
-            TGetTabletSchemaResult snapshot = new FrontendServiceImpl(null).getTabletSchema(tabletId);
-            Assertions.assertEquals(TStatusCode.OK, snapshot.getStatus().getStatusCode());
-            Assertions.assertEquals(schemaVersion, snapshot.getSchemaVersion());
-            Assertions.assertEquals(uniqueId, snapshot.getColumns().get(1).getColUniqueId());
-            Assertions.assertEquals(table.getColumn("v").getVariantMaxSubcolumnsCount(),
-                    snapshot.getColumns().get(1).getColumnType().getVariantMaxSubcolumnsCount());
-            Assertions.assertEquals(List.of(1, 2, 2, 0).get(i).intValue(),
-                    snapshot.getColumns().get(1).getChildrenColumnSize());
             // Round-trip the actual journal payload type, then apply the follower replay path.
             Map<Long, LinkedList<Column>> replaySchema = Maps.newHashMap();
             replaySchema.put(replayTable.getBaseIndexId(), table.getBaseSchema().stream()
@@ -721,17 +708,11 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertEquals(table.getColumn("v"), replayTable.getColumn("v"));
             Assertions.assertEquals(schemaVersion,
                     replayTable.getIndexMetaByIndexId(replayTable.getBaseIndexId()).getSchemaVersion());
-            long replayTabletId = replayTable.getPartitions().iterator().next()
-                    .getBaseIndex().getTablets().get(0).getId();
-            TGetTabletSchemaResult replaySnapshot = new FrontendServiceImpl(null).getTabletSchema(replayTabletId);
-            Assertions.assertEquals(snapshot.getColumns(), replaySnapshot.getColumns());
-            Assertions.assertEquals(snapshot.getSchemaVersion(), replaySnapshot.getSchemaVersion());
+
         }
         Assertions.assertEquals(0, table.getColumn("v").getVariantMaxSubcolumnsCount());
         Assertions.assertNull(table.getColumn("v").getChildren());
-        TGetTabletSchemaResult missing = new FrontendServiceImpl(null).getTabletSchema(Long.MAX_VALUE);
-        Assertions.assertEquals(TStatusCode.NOT_FOUND, missing.getStatus().getStatusCode());
-        Assertions.assertFalse(missing.isSetColumns());
+
 
         createTable("CREATE TABLE test.sc_variant_row_store (id INT, "
                 + "v VARIANT<PROPERTIES('variant_max_subcolumns_count'='1')>) "
@@ -743,14 +724,28 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 alterTable("ALTER TABLE test.sc_variant_row_store MODIFY COLUMN v VARIANT<'a': INT>",
                         connectContext));
         Assertions.assertTrue(exception.getMessage().contains("schema templates on a row-store table"));
-        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
-            Env follower = Mockito.mock(Env.class);
-            Mockito.when(follower.isMaster()).thenReturn(false);
-            env.when(Env::getCurrentEnv).thenReturn(follower);
-            TGetTabletSchemaResult notMaster = new FrontendServiceImpl(null).getTabletSchema(Long.MAX_VALUE);
-            Assertions.assertEquals(TStatusCode.NOT_MASTER, notMaster.getStatus().getStatusCode());
-            Assertions.assertFalse(notMaster.isSetColumns());
-        }
+
+    }
+
+    @Test
+    public void testModifyVariantIndexedTemplateValidation() throws Exception {
+        createTable("CREATE TABLE test.sc_variant_indexed (id INT, v VARIANT<'a': STRING>, "
+                + "INDEX idx_a(v) USING INVERTED PROPERTIES('field_pattern'='a', 'parser'='english')) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES ('replication_num'='1', 'light_schema_change'='true')");
+        expectException("ALTER TABLE test.sc_variant_indexed MODIFY COLUMN v VARIANT<'b': INT>",
+                "referenced by index idx_a");
+        expectException("ALTER TABLE test.sc_variant_indexed MODIFY COLUMN v VARIANT",
+                "referenced by index idx_a");
+        expectException("ALTER TABLE test.sc_variant_indexed MODIFY COLUMN v VARIANT<'a': INT>",
+                "parser");
+        alterTable("ALTER TABLE test.sc_variant_indexed MODIFY COLUMN v "
+                + "VARIANT<'a': STRING, PROPERTIES('variant_max_subcolumns_count'='0')>", connectContext);
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
+                .getTableOrMetaException("sc_variant_indexed", Table.TableType.OLAP);
+        Assertions.assertEquals(0, table.getColumn("v").getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals("a", table.getColumn("v").getChildren().get(0).getName());
+        Assertions.assertEquals(PrimitiveType.STRING, table.getColumn("v").getChildren().get(0).getDataType());
     }
 
     @Test
