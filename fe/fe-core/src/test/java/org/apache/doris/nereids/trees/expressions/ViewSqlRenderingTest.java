@@ -65,7 +65,9 @@ class ViewSqlRenderingTest {
         Expression expression = new Add(slot, new IntegerLiteral(1));
         java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(2);
         try {
-            java.util.concurrent.Future<String> diagnostic = executor.submit(expression::toSql);
+            java.util.concurrent.Future<String> diagnostic = executor.submit(() -> {
+                return expression.toSql();
+            });
             java.util.concurrent.Future<String> view = executor.submit(() -> expression.toSql(SqlRenderMode.FOR_VIEW));
             Assertions.assertEquals("(a + 1)", diagnostic.get());
             Assertions.assertEquals("(`t`.`a` + 1)", view.get());

@@ -107,7 +107,7 @@ public class Lambda extends Expression {
     @Override
     public String computeToSql(SqlRenderMode mode) {
         if (mode == SqlRenderMode.FOR_VIEW) {
-            String names = argumentNames.stream().map(name -> "`" + name.replace("`", "``") + "`")
+            String names = argumentNames.stream()
                     .collect(Collectors.joining(", ", "(", ")"));
             StringBuilder sql = new StringBuilder(names).append(" -> ").append(getLambdaFunction().toSql(mode));
             for (int i = 1; i < getArguments().size(); i++) {
