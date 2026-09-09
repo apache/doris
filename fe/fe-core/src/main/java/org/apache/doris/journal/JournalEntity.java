@@ -50,6 +50,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.datasource.lance.job.LanceIndexJob;
+import org.apache.doris.datasource.lance.job.LanceIndexJobRemoveOperation;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
 import org.apache.doris.indexpolicy.IndexPolicy;
@@ -1016,6 +1017,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_LANCE_INDEX_JOB_UPSERT: {
                 data = LanceIndexJob.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_LANCE_INDEX_JOB_REMOVE: {
+                data = LanceIndexJobRemoveOperation.read(in);
                 isRead = true;
                 break;
             }
