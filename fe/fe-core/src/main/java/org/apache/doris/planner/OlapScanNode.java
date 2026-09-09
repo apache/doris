@@ -1980,6 +1980,9 @@ public class OlapScanNode extends ScanNode {
             if (changeTimestamp < 0) {
                 throw new ParseException("Invalid TIMESTAMP format in incr clause: " + ts);
             }
+            if (changeTimestamp > TSOTimestamp.MAX_PHYSICAL_TIMESTAMP) {
+                throw new ParseException("Timestamp exceeds supported TSO range: " + ts);
+            }
             return changeTimestamp;
         }
         throw new ParseException("Invalid timestamp:" + ts);

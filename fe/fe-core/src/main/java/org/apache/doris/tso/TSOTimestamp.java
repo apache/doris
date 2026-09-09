@@ -77,6 +77,9 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
     // room for nextTso() to compute a successor without overflow.
     public static final long MAX_REAL_TSO = Long.MAX_VALUE - 1;
 
+    // Largest physical millisecond that can be represented by a real TSO.
+    public static final long MAX_PHYSICAL_TIMESTAMP = extractPhysicalTime(MAX_REAL_TSO);
+
     /**
      * Constructor with specific physical time and logical counter
      *
@@ -119,7 +122,7 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
      * @return 64-bit TSO timestamp with a zero logical counter
      */
     public static long composePhysicalTimestamp(long physicalTimestamp) {
-        return composeTimestamp(physicalTimestamp, 0L);
+        return composeRealTso(physicalTimestamp, 0L);
     }
 
     /**

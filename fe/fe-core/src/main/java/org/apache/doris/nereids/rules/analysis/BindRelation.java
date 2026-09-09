@@ -562,9 +562,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
     /**
      * Resolve a TableSnapshot to the right-open (exclusive) commit-tso upper bound: the scan keeps
      * rows with commit_tso &lt; the returned value. VERSION: literal tso + 1 (so the literal itself is
-     * included). TIME: start of the millisecond after the requested one (so the whole requested
-     * millisecond, all logical counters, is included). Used uniformly by the dup filter, the mow
-     * union left filter and the mow union right-branch lower bound.
+     * included). TIME: successor of (requested millisecond, logical counter 0), so that exact TSO
+     * is included but larger logical counters in the same millisecond are excluded. Used uniformly
+     * by the dup filter, the mow union left filter and the mow union right-branch lower bound.
      */
     private long resolveSnapshotTso(TableSnapshot snapshot) {
         if (snapshot.getType() == TableSnapshot.VersionType.VERSION) {
@@ -583,7 +583,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     : TSOTimestamp.nextTso(version);
         }
         long ms = OlapScanNode.parseChangeTimestamp(snapshot.getValue());
-        return TSOTimestamp.composePhysicalTimestamp(ms + 1);
+        return TSOTimestamp.nextTso(TSOTimestamp.composePhysicalTimestamp(ms));
     }
 
     /**
