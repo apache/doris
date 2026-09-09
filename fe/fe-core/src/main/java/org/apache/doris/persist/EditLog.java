@@ -2311,8 +2311,8 @@ public class EditLog {
         logModifyTableProperty(OperationType.OP_DYNAMIC_PARTITION, info);
     }
 
-    public void logTableStreamCleanup(TableStreamCleanupInfo info) {
-        logEdit(OperationType.OP_TABLE_STREAM_CLEANUP, info);
+    public EditLogItem logTableStreamCleanup(TableStreamCleanupInfo info) {
+        return submitEdit(OperationType.OP_TABLE_STREAM_CLEANUP, info);
     }
 
     public long logModifyReplicationNum(ModifyTablePropertyOperationLog info) {
