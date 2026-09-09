@@ -71,15 +71,6 @@ public class PrivInfo implements Writable {
     @SerializedName(value = "retainPasswd")
     private boolean retainPasswd;
 
-    // MySQL-compatible "DISCARD OLD PASSWORD": drop the retained secondary
-    // password. Rides OP_SET_PASSWORD (with passwd = the account's current
-    // primary) instead of a new operation type, so an FE binary WITHOUT this
-    // feature replays the entry as a plain set-password to the value the
-    // account already holds — a harmless no-op — rather than failing on an
-    // unknown operation. See Auth.discardOldPasswordInternal.
-    @SerializedName(value = "discardPasswd")
-    private boolean discardPasswd;
-
     private PrivInfo() {
 
     }
@@ -90,13 +81,12 @@ public class PrivInfo implements Writable {
         this(userIdent, privs, passwd, role, passwordOptions, null, null);
     }
 
-    // For set password with the MySQL-compatible dual password clauses
-    // (RETAIN CURRENT PASSWORD on a change; DISCARD OLD PASSWORD standalone)
+    // For set password with the MySQL-compatible RETAIN CURRENT PASSWORD
+    // clause (DISCARD OLD PASSWORD journals via AlterUserOperationLog instead)
     public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
-            PasswordOptions passwordOptions, boolean retainPasswd, boolean discardPasswd) {
+            PasswordOptions passwordOptions, boolean retainPasswd) {
         this(userIdent, privs, passwd, role, passwordOptions, null, null);
         this.retainPasswd = retainPasswd;
-        this.discardPasswd = discardPasswd;
     }
 
     public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
@@ -185,10 +175,6 @@ public class PrivInfo implements Writable {
 
     public boolean isRetainPasswd() {
         return retainPasswd;
-    }
-
-    public boolean isDiscardPasswd() {
-        return discardPasswd;
     }
 
     public String getRole() {

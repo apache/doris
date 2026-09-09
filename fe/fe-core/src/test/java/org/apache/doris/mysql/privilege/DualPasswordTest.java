@@ -44,13 +44,17 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+
+import java.lang.reflect.Field;
+import java.util.List;
+import java.util.Map;
 
 /**
  * MySQL-compatible dual password:
@@ -67,7 +71,7 @@ public class DualPasswordTest {
     private InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
     private MockedStatic<Env> mockedEnvStatic;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         auth = new Auth();
         mockedEnvStatic = Mockito.mockStatic(Env.class);
@@ -80,7 +84,7 @@ public class DualPasswordTest {
         Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
         ConnectContext.remove();
@@ -123,47 +127,47 @@ public class DualPasswordTest {
 
         // initial password p1
         auth.setPassword(user, MysqlPassword.makeScrambledPassword("p1"));
-        Assert.assertTrue(canLogin("rot", "p1"));
-        Assert.assertFalse(canLogin("rot", "p2"));
+        Assertions.assertTrue(canLogin("rot", "p1"));
+        Assertions.assertFalse(canLogin("rot", "p2"));
 
         // p2 RETAIN CURRENT PASSWORD -> p1 and p2 both authenticate
         auth.setPasswordInternal(user, MysqlPassword.makeScrambledPassword("p2"), null,
                 true, false, true /* retain */, false);
-        Assert.assertTrue(canLogin("rot", "p2"));
-        Assert.assertTrue(canLogin("rot", "p1"));
-        Assert.assertFalse(canLogin("rot", "p0"));
+        Assertions.assertTrue(canLogin("rot", "p2"));
+        Assertions.assertTrue(canLogin("rot", "p1"));
+        Assertions.assertFalse(canLogin("rot", "p0"));
 
         // p3 RETAIN -> the one-secondary rule evicts p1; p2 + p3 authenticate
         auth.setPasswordInternal(user, MysqlPassword.makeScrambledPassword("p3"), null,
                 true, false, true /* retain */, false);
-        Assert.assertTrue(canLogin("rot", "p3"));
-        Assert.assertTrue(canLogin("rot", "p2"));
-        Assert.assertFalse(canLogin("rot", "p1"));
+        Assertions.assertTrue(canLogin("rot", "p3"));
+        Assertions.assertTrue(canLogin("rot", "p2"));
+        Assertions.assertFalse(canLogin("rot", "p1"));
 
         // p4 WITHOUT retain -> the secondary REMAINS UNCHANGED (MySQL: "the
         // secondary password remains unchanged"); the replaced primary p3 is
         // simply gone -> p4 + p2 authenticate, p3 does not
         auth.setPasswordInternal(user, MysqlPassword.makeScrambledPassword("p4"), null,
                 true, false, false /* no retain */, false);
-        Assert.assertTrue(canLogin("rot", "p4"));
-        Assert.assertFalse(canLogin("rot", "p3"));
-        Assert.assertTrue(canLogin("rot", "p2"));
+        Assertions.assertTrue(canLogin("rot", "p4"));
+        Assertions.assertFalse(canLogin("rot", "p3"));
+        Assertions.assertTrue(canLogin("rot", "p2"));
 
         // p5 RETAIN, then DISCARD OLD PASSWORD (via the replay path, which is
         // also what a follower executes) -> only p5 remains
         auth.setPasswordInternal(user, MysqlPassword.makeScrambledPassword("p5"), null,
                 true, false, true /* retain */, false);
-        Assert.assertTrue(canLogin("rot", "p4"));
+        Assertions.assertTrue(canLogin("rot", "p4"));
         auth.replayAlterUser(new AlterUserOperationLog(AlterUserOpType.DISCARD_OLD_PASSWORD,
                 user, null, null, PasswordOptions.UNSET_OPTION, null));
-        Assert.assertTrue(canLogin("rot", "p5"));
-        Assert.assertFalse(canLogin("rot", "p4"));
+        Assertions.assertTrue(canLogin("rot", "p5"));
+        Assertions.assertFalse(canLogin("rot", "p4"));
 
         // DISCARD with no secondary present: silent no-op (MySQL: discards
         // the secondary password, "if one exists")
         auth.replayAlterUser(new AlterUserOperationLog(AlterUserOpType.DISCARD_OLD_PASSWORD,
                 user, null, null, PasswordOptions.UNSET_OPTION, null));
-        Assert.assertTrue(canLogin("rot", "p5"));
+        Assertions.assertTrue(canLogin("rot", "p5"));
     }
 
     @Test
@@ -171,7 +175,7 @@ public class DualPasswordTest {
         UserIdentity user = createUser("empty_cur");
         // MySQL: "If you specify RETAIN CURRENT PASSWORD for an account that
         // has an empty primary password, the statement fails."
-        Assert.assertThrows(DdlException.class, () -> auth.setPasswordInternal(user,
+        Assertions.assertThrows(DdlException.class, () -> auth.setPasswordInternal(user,
                 MysqlPassword.makeScrambledPassword("p1"), null, true, false, true /* retain */, false));
     }
 
@@ -181,15 +185,15 @@ public class DualPasswordTest {
         auth.setPassword(user, MysqlPassword.makeScrambledPassword("p1"));
         auth.setPasswordInternal(user, MysqlPassword.makeScrambledPassword("p2"), null,
                 true, false, true /* retain */, false);
-        Assert.assertTrue(canLogin("empty_new", "p1"));
+        Assertions.assertTrue(canLogin("empty_new", "p1"));
 
         // MySQL: "If the new password ... is empty, the secondary password
         // becomes empty as well, even if RETAIN CURRENT PASSWORD is given."
         auth.setPasswordInternal(user, new byte[0], null,
                 true, false, true /* retain */, false);
-        Assert.assertTrue(canLogin("empty_new", ""));
-        Assert.assertFalse(canLogin("empty_new", "p1"));
-        Assert.assertFalse(canLogin("empty_new", "p2"));
+        Assertions.assertTrue(canLogin("empty_new", ""));
+        Assertions.assertFalse(canLogin("empty_new", "p1"));
+        Assertions.assertFalse(canLogin("empty_new", "p2"));
     }
 
     @Test
@@ -200,9 +204,9 @@ public class DualPasswordTest {
         // a follower replaying OP_SET_PASSWORD with retainPasswd=true must
         // reach the same dual-slot state as the master
         auth.replaySetPassword(new PrivInfo(user, null,
-                MysqlPassword.makeScrambledPassword("p2"), null, null, true /* retain */, false));
-        Assert.assertTrue(canLogin("replayer", "p2"));
-        Assert.assertTrue(canLogin("replayer", "p1"));
+                MysqlPassword.makeScrambledPassword("p2"), null, null, true /* retain */));
+        Assertions.assertTrue(canLogin("replayer", "p2"));
+        Assertions.assertTrue(canLogin("replayer", "p1"));
 
         // and a replay without the flag (all journals written before this
         // feature, plus any plain password change) behaves like a plain
@@ -210,9 +214,9 @@ public class DualPasswordTest {
         // (MySQL: "the secondary password remains unchanged")
         auth.replaySetPassword(new PrivInfo(user, null,
                 MysqlPassword.makeScrambledPassword("p3"), null, null));
-        Assert.assertTrue(canLogin("replayer", "p3"));
-        Assert.assertFalse(canLogin("replayer", "p2"));
-        Assert.assertTrue(canLogin("replayer", "p1"));
+        Assertions.assertTrue(canLogin("replayer", "p3"));
+        Assertions.assertFalse(canLogin("replayer", "p2"));
+        Assertions.assertTrue(canLogin("replayer", "p1"));
     }
 
     @Test
@@ -221,16 +225,16 @@ public class DualPasswordTest {
         Password password = new Password(MysqlPassword.makeScrambledPassword("p2"));
         password.setSecondaryPassword(MysqlPassword.makeScrambledPassword("p1"));
         Password reloaded = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(password), Password.class);
-        Assert.assertArrayEquals(password.getPassword(), reloaded.getPassword());
-        Assert.assertArrayEquals(password.getSecondaryPassword(), reloaded.getSecondaryPassword());
-        Assert.assertTrue(reloaded.hasSecondaryPassword());
+        Assertions.assertArrayEquals(password.getPassword(), reloaded.getPassword());
+        Assertions.assertArrayEquals(password.getSecondaryPassword(), reloaded.getSecondaryPassword());
+        Assertions.assertTrue(reloaded.hasSecondaryPassword());
 
         // an image/journal written BEFORE this feature deserializes with an
         // absent secondary slot -> unchanged single-password behavior
         Password legacy = GsonUtils.GSON.fromJson(
                 GsonUtils.GSON.toJson(new Password(MysqlPassword.makeScrambledPassword("p1"))), Password.class);
-        Assert.assertFalse(legacy.hasSecondaryPassword());
-        Assert.assertNull(legacy.getSecondaryPassword());
+        Assertions.assertFalse(legacy.hasSecondaryPassword());
+        Assertions.assertNull(legacy.getSecondaryPassword());
     }
 
     @Test
@@ -239,18 +243,18 @@ public class DualPasswordTest {
 
         AlterUserCommand retain = (AlterUserCommand) parser.parseSingle(
                 "ALTER USER u1 IDENTIFIED BY 'x' RETAIN CURRENT PASSWORD");
-        Assert.assertTrue(retain.getAlterUserInfo().isRetainCurrentPassword());
-        Assert.assertFalse(retain.getAlterUserInfo().isDiscardOldPassword());
+        Assertions.assertTrue(retain.getAlterUserInfo().isRetainCurrentPassword());
+        Assertions.assertFalse(retain.getAlterUserInfo().isDiscardOldPassword());
 
         AlterUserCommand discard = (AlterUserCommand) parser.parseSingle(
                 "ALTER USER u1 DISCARD OLD PASSWORD");
-        Assert.assertTrue(discard.getAlterUserInfo().isDiscardOldPassword());
-        Assert.assertFalse(discard.getAlterUserInfo().isRetainCurrentPassword());
+        Assertions.assertTrue(discard.getAlterUserInfo().isDiscardOldPassword());
+        Assertions.assertFalse(discard.getAlterUserInfo().isRetainCurrentPassword());
 
         AlterUserCommand plain = (AlterUserCommand) parser.parseSingle(
                 "ALTER USER u1 IDENTIFIED BY 'x'");
-        Assert.assertFalse(plain.getAlterUserInfo().isRetainCurrentPassword());
-        Assert.assertFalse(plain.getAlterUserInfo().isDiscardOldPassword());
+        Assertions.assertFalse(plain.getAlterUserInfo().isRetainCurrentPassword());
+        Assertions.assertFalse(plain.getAlterUserInfo().isDiscardOldPassword());
 
         // DISCARD and OLD are nonReserved: still valid as identifiers
         parser.parseSingle("SELECT old, discard FROM discard.old");
@@ -263,8 +267,8 @@ public class DualPasswordTest {
         NereidsParser parser = new NereidsParser();
         AlterUserCommand cmd = (AlterUserCommand) parser.parseSingle(
                 "ALTER USER u1 RETAIN CURRENT PASSWORD");
-        Assert.assertTrue(cmd.getAlterUserInfo().isRetainCurrentPassword());
-        Assert.assertThrows(AnalysisException.class, () -> cmd.getAlterUserInfo().validate());
+        Assertions.assertTrue(cmd.getAlterUserInfo().isRetainCurrentPassword());
+        Assertions.assertThrows(AnalysisException.class, () -> cmd.getAlterUserInfo().validate());
     }
 
     @Test
@@ -274,17 +278,17 @@ public class DualPasswordTest {
         // service account uses to rotate its own credential with an overlap.
         UserIdentity user = createUser("setpw");
         auth.setPassword(user, MysqlPassword.makeScrambledPassword("p1"));
-        Assert.assertTrue(canLogin("setpw", "p1"));
+        Assertions.assertTrue(canLogin("setpw", "p1"));
 
         auth.setPassword(user, MysqlPassword.makeScrambledPassword("p2"), true /* retain */);
-        Assert.assertTrue(canLogin("setpw", "p2"));         // new primary
-        Assert.assertTrue(canLogin("setpw", "p1"));         // retained secondary
+        Assertions.assertTrue(canLogin("setpw", "p2"));         // new primary
+        Assertions.assertTrue(canLogin("setpw", "p1"));         // retained secondary
 
         // a plain SET PASSWORD (retain=false) preserves the secondary (MySQL)
         auth.setPassword(user, MysqlPassword.makeScrambledPassword("p3"), false);
-        Assert.assertTrue(canLogin("setpw", "p3"));
-        Assert.assertTrue(canLogin("setpw", "p1"));         // still valid
-        Assert.assertFalse(canLogin("setpw", "p2"));        // replaced primary gone
+        Assertions.assertTrue(canLogin("setpw", "p3"));
+        Assertions.assertTrue(canLogin("setpw", "p1"));         // still valid
+        Assertions.assertFalse(canLogin("setpw", "p2"));        // replaced primary gone
     }
 
     @Test
@@ -311,25 +315,26 @@ public class DualPasswordTest {
         SetOptionsCommand cmd = (SetOptionsCommand) parser.parseSingle(
                 "SET PASSWORD = PASSWORD('p2') RETAIN CURRENT PASSWORD");
         // a password change must always forward to master
-        Assert.assertEquals(RedirectStatus.FORWARD_WITH_SYNC, cmd.toRedirectStatus());
+        Assertions.assertEquals(RedirectStatus.FORWARD_WITH_SYNC, cmd.toRedirectStatus());
 
         grantPriv(false);
-        Assert.assertThrows(AnalysisException.class, () -> cmd.run(ctx, null));
+        Assertions.assertThrows(AnalysisException.class, () -> cmd.run(ctx, null));
         // nothing changed: p1 still the only valid password
-        Assert.assertTrue(canLogin("gated", "p1"));
-        Assert.assertFalse(canLogin("gated", "p2"));
+        Assertions.assertTrue(canLogin("gated", "p1"));
+        Assertions.assertFalse(canLogin("gated", "p2"));
 
         grantPriv(true);
         cmd.run(ctx, null);
-        Assert.assertTrue(canLogin("gated", "p2"));
-        Assert.assertTrue(canLogin("gated", "p1"));
+        Assertions.assertTrue(canLogin("gated", "p2"));
+        Assertions.assertTrue(canLogin("gated", "p1"));
 
         // the journaled entry carries the retain flag
         ArgumentCaptor<PrivInfo> captor = ArgumentCaptor.forClass(PrivInfo.class);
         Mockito.verify(editLog, Mockito.atLeastOnce()).logSetPassword(captor.capture());
         PrivInfo journaled = captor.getValue();
-        Assert.assertTrue(journaled.isRetainPasswd());
-        Assert.assertFalse(journaled.isDiscardPasswd());
+        Assertions.assertTrue(journaled.isRetainPasswd());
+        // DISCARD never rides OP_SET_PASSWORD
+        Mockito.verify(editLog, Mockito.never()).logAlterUser(Mockito.any(AlterUserOperationLog.class));
     }
 
     @Test
@@ -344,8 +349,8 @@ public class DualPasswordTest {
         NereidsParser parser = new NereidsParser();
         SetOptionsCommand cmd = (SetOptionsCommand) parser.parseSingle("SET PASSWORD = PASSWORD('p2')");
         cmd.run(ctx, null);
-        Assert.assertTrue(canLogin("selfplain", "p2"));
-        Assert.assertFalse(canLogin("selfplain", "p1"));
+        Assertions.assertTrue(canLogin("selfplain", "p2"));
+        Assertions.assertFalse(canLogin("selfplain", "p1"));
     }
 
     @Test
@@ -362,70 +367,141 @@ public class DualPasswordTest {
                 "ALTER USER 'target'@'%' IDENTIFIED BY 'p2' RETAIN CURRENT PASSWORD");
 
         grantPriv(false);
-        Assert.assertThrows(AnalysisException.class, () -> cmd.doRun(ctx, null));
-        Assert.assertTrue(canLogin("target", "p1"));
-        Assert.assertFalse(canLogin("target", "p2"));
+        Assertions.assertThrows(AnalysisException.class, () -> cmd.doRun(ctx, null));
+        Assertions.assertTrue(canLogin("target", "p1"));
+        Assertions.assertFalse(canLogin("target", "p2"));
 
         grantPriv(true);
         cmd.doRun(ctx, null);
-        Assert.assertTrue(canLogin("target", "p2"));
-        Assert.assertTrue(canLogin("target", "p1"));
+        Assertions.assertTrue(canLogin("target", "p2"));
+        Assertions.assertTrue(canLogin("target", "p1"));
 
         ArgumentCaptor<PrivInfo> captor = ArgumentCaptor.forClass(PrivInfo.class);
         Mockito.verify(editLog, Mockito.atLeastOnce()).logSetPassword(captor.capture());
-        Assert.assertTrue(captor.getValue().isRetainPasswd());
+        Assertions.assertTrue(captor.getValue().isRetainPasswd());
     }
 
     @Test
-    public void testDiscardJournalsAsSetPasswordPrivInfo() throws Exception {
-        // DISCARD OLD PASSWORD must journal via OP_SET_PASSWORD/PrivInfo
-        // (passwd = the unchanged primary), NEVER via OP_ALTER_USER: a
-        // pre-feature FE binary deserializes an unknown AlterUserOpType as
-        // null and fails replay, but replays the PrivInfo form as a plain
-        // set-password to the value the account already has — a no-op.
+    public void testDiscardJournalsAsNoOpPolicyEntry() throws Exception {
+        // DISCARD OLD PASSWORD journals an OP_ALTER_USER entry whose carrier
+        // op is SET_PASSWORD_POLICY with every option UNSET plus the discard
+        // marker. A pre-feature binary ignores the marker and replays a policy
+        // update that changes nothing; it must NOT ride OP_SET_PASSWORD (an
+        // old binary's set-password replay appends to the password history
+        // and refreshes the creation time) nor a new AlterUserOpType name (an
+        // old binary deserializes it as null and fails replay).
         UserIdentity admin = createUser("adm2");
         UserIdentity user = createUser("dsc");
         auth.setPassword(user, MysqlPassword.makeScrambledPassword("p1"));
         auth.setPasswordInternal(user, MysqlPassword.makeScrambledPassword("p2"), null,
                 true, false, true /* retain */, false);
-        Assert.assertTrue(canLogin("dsc", "p1"));
+        Assertions.assertTrue(canLogin("dsc", "p1"));
         ConnectContext ctx = ctxFor(admin);
         grantPriv(true);
 
         NereidsParser parser = new NereidsParser();
         AlterUserCommand cmd = (AlterUserCommand) parser.parseSingle("ALTER USER 'dsc'@'%' DISCARD OLD PASSWORD");
+        Mockito.clearInvocations(editLog); // the setup above journaled set-password entries of its own
         cmd.doRun(ctx, null);
-        Assert.assertTrue(canLogin("dsc", "p2"));
-        Assert.assertFalse(canLogin("dsc", "p1"));
+        Assertions.assertTrue(canLogin("dsc", "p2"));
+        Assertions.assertFalse(canLogin("dsc", "p1"));
 
-        // never journaled as an ALTER USER operation
-        Mockito.verify(editLog, Mockito.never()).logAlterUser(Mockito.any(AlterUserOperationLog.class));
-        ArgumentCaptor<PrivInfo> captor = ArgumentCaptor.forClass(PrivInfo.class);
-        Mockito.verify(editLog, Mockito.atLeastOnce()).logSetPassword(captor.capture());
-        PrivInfo journaled = captor.getValue();
-        Assert.assertTrue(journaled.isDiscardPasswd());
-        Assert.assertFalse(journaled.isRetainPasswd());
-        // passwd rides the CURRENT primary so an old binary's plain
-        // set-password replay changes nothing
-        Assert.assertArrayEquals(MysqlPassword.makeScrambledPassword("p2"), journaled.getPasswd());
+        // never journaled as a set-password
+        Mockito.verify(editLog, Mockito.never()).logSetPassword(Mockito.any(PrivInfo.class));
+        ArgumentCaptor<AlterUserOperationLog> captor = ArgumentCaptor.forClass(AlterUserOperationLog.class);
+        Mockito.verify(editLog, Mockito.times(1)).logAlterUser(captor.capture());
+        AlterUserOperationLog journaled = captor.getValue();
+        Assertions.assertTrue(journaled.isDiscardOldPassword());
+        Assertions.assertEquals(AlterUserOpType.SET_PASSWORD_POLICY, journaled.getOp());
+        Assertions.assertNull(journaled.getPassword());
+        Assertions.assertNull(journaled.getRole());
+        Assertions.assertNull(journaled.getComment());
+        Assertions.assertEquals(PasswordOptions.UNSET, journaled.getPasswordOptions().getExpirePolicySecond());
+        Assertions.assertEquals(PasswordOptions.UNSET, journaled.getPasswordOptions().getHistoryPolicy());
+        Assertions.assertEquals(PasswordOptions.UNSET, journaled.getPasswordOptions().getLoginAttempts());
+        Assertions.assertEquals(PasswordOptions.UNSET, journaled.getPasswordOptions().getPasswordLockSecond());
+        Assertions.assertEquals(PasswordOptions.UNSET, journaled.getPasswordOptions().getAccountUnlocked());
+
+        // the marker survives the journal round trip, and the carrier op is
+        // what a pre-feature binary (which drops the unknown field) sees
+        AlterUserOperationLog reloaded = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(journaled),
+                AlterUserOperationLog.class);
+        Assertions.assertTrue(reloaded.isDiscardOldPassword());
+        Assertions.assertEquals(AlterUserOpType.SET_PASSWORD_POLICY, reloaded.getOp());
 
         // a CURRENT binary replaying the entry discards the secondary
         UserIdentity follower = createUser("dsc2");
         auth.setPassword(follower, MysqlPassword.makeScrambledPassword("p1"));
         auth.setPasswordInternal(follower, MysqlPassword.makeScrambledPassword("p2"), null,
                 true, false, true /* retain */, false);
-        auth.replaySetPassword(new PrivInfo(follower, null,
-                MysqlPassword.makeScrambledPassword("p2"), null, null, false, true /* discard */));
-        Assert.assertTrue(canLogin("dsc2", "p2"));
-        Assert.assertFalse(canLogin("dsc2", "p1"));
+        auth.replayAlterUser(AlterUserOperationLog.discardOldPassword(follower));
+        Assertions.assertTrue(canLogin("dsc2", "p2"));
+        Assertions.assertFalse(canLogin("dsc2", "p1"));
+    }
 
-        // a PRE-FEATURE binary interprets the same entry as a plain
-        // set-password (flags unknown to it): the primary stays valid
-        UserIdentity legacy = createUser("dsc3");
-        auth.setPassword(legacy, MysqlPassword.makeScrambledPassword("p2"));
-        auth.replaySetPassword(new PrivInfo(legacy, null,
-                MysqlPassword.makeScrambledPassword("p2"), null, null));
-        Assert.assertTrue(canLogin("dsc3", "p2"));
+    @Test
+    public void testDiscardReplayLeavesPasswordPolicyUntouched() throws Exception {
+        // The exact concern behind the carrier choice: replaying the DISCARD
+        // entry must leave the password policy state alone on BOTH a current
+        // binary and a pre-feature one (history entries, creation time).
+        UserIdentity user = createUser("pol");
+        auth.setPassword(user, MysqlPassword.makeScrambledPassword("p1"));
+        // an expire policy makes the creation time live (0 = never refreshed)
+        auth.getPasswdPolicyManager().updatePolicy(user, null, new PasswordOptions(
+                86400 /* expire */, 3 /* history */, PasswordOptions.UNSET, PasswordOptions.UNSET,
+                PasswordOptions.UNSET, PasswordOptions.UNSET));
+        auth.setPasswordInternal(user, MysqlPassword.makeScrambledPassword("p2"), null,
+                true, false, true /* retain */, false);
+        PasswordPolicy policy = policyOf(user);
+        // a sentinel a refresh would overwrite (recent enough not to expire the password)
+        long sentinel = System.currentTimeMillis() - 12_345L;
+        policy.getExpirePolicy().passwordCreateTime = sentinel;
+        List<List<String>> before = auth.getPasswdPolicyManager().getPolicyInfo(user);
+        int historySize = historySizeOf(user);
+
+        // the pre-feature binary's view of the entry: the same carrier fields
+        // with the marker dropped (this IS the pre-feature replay code path:
+        // alterUserInternal(SET_PASSWORD_POLICY) is unchanged)
+        AlterUserOperationLog journaled = AlterUserOperationLog.discardOldPassword(user);
+        auth.replayAlterUser(new AlterUserOperationLog(journaled.getOp(), journaled.getUserIdent(),
+                journaled.getPassword(), journaled.getRole(), journaled.getPasswordOptions(),
+                journaled.getComment()));
+        Assertions.assertTrue(canLogin("pol", "p2"));
+        Assertions.assertTrue(canLogin("pol", "p1")); // a pre-feature binary keeps the secondary
+        Assertions.assertEquals(historySize, historySizeOf(user));
+        Assertions.assertEquals(sentinel, policy.getExpirePolicy().passwordCreateTime);
+        Assertions.assertEquals(before, auth.getPasswdPolicyManager().getPolicyInfo(user));
+
+        // the current binary's replay: the secondary goes, the policy stays
+        auth.replayAlterUser(journaled);
+        Assertions.assertTrue(canLogin("pol", "p2"));
+        Assertions.assertFalse(canLogin("pol", "p1"));
+        Assertions.assertEquals(historySize, historySizeOf(user));
+        Assertions.assertEquals(sentinel, policy.getExpirePolicy().passwordCreateTime);
+        Assertions.assertEquals(before, auth.getPasswdPolicyManager().getPolicyInfo(user));
+
+        // the contrast that ruled out an OP_SET_PASSWORD carrier: a plain
+        // set-password replay of the unchanged primary (what a pre-feature
+        // binary would have run) appends to the history and refreshes the
+        // creation time
+        auth.replaySetPassword(new PrivInfo(user, null, MysqlPassword.makeScrambledPassword("p2"), null, null));
+        Assertions.assertEquals(historySize + 1, historySizeOf(user));
+        Assertions.assertNotEquals(sentinel, policy.getExpirePolicy().passwordCreateTime);
+    }
+
+    private PasswordPolicy policyOf(UserIdentity user) throws Exception {
+        Field field = PasswordPolicyManager.class.getDeclaredField("policyMap");
+        field.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<UserIdentity, PasswordPolicy> policyMap = (Map<UserIdentity, PasswordPolicy>) field.get(
+                auth.getPasswdPolicyManager());
+        return policyMap.get(user);
+    }
+
+    private int historySizeOf(UserIdentity user) throws Exception {
+        Field field = PasswordPolicy.class.getDeclaredField("historyPolicy");
+        field.setAccessible(true);
+        return ((PasswordPolicy.HistoryPolicy) field.get(policyOf(user))).historyPasswords.size();
     }
 
     @Test
@@ -446,9 +522,9 @@ public class DualPasswordTest {
             auth.setPassword(user, MysqlPassword.makeScrambledPassword("p1"));
             auth.setPasswordInternal(user, MysqlPassword.makeScrambledPassword("p2"), null,
                     true, false, true /* retain */, false);
-            Assert.assertTrue(canLogin("lockacc", "p1"));
+            Assertions.assertTrue(canLogin("lockacc", "p1"));
             // an accepted secondary-slot authentication counts
-            Assert.assertEquals(Long.valueOf(1L), MetricRepo.COUNTER_SECONDARY_PASSWORD_AUTH.getValue());
+            Assertions.assertEquals(Long.valueOf(1L), MetricRepo.COUNTER_SECONDARY_PASSWORD_AUTH.getValue());
 
             ConnectContext ctx = ctxFor(admin);
             grantPriv(true);
@@ -458,13 +534,13 @@ public class DualPasswordTest {
             policy.doRun(ctx, null);
 
             // one failed attempt locks the account
-            Assert.assertFalse(canLogin("lockacc", "wrong"));
+            Assertions.assertFalse(canLogin("lockacc", "wrong"));
             // both slots now reject: the retained password does not bypass policy
-            Assert.assertFalse(canLogin("lockacc", "p2"));
-            Assert.assertFalse(canLogin("lockacc", "p1"));
+            Assertions.assertFalse(canLogin("lockacc", "p2"));
+            Assertions.assertFalse(canLogin("lockacc", "p1"));
             // ... and the REJECTED secondary attempt did not count as a
             // successful secondary authentication
-            Assert.assertEquals(Long.valueOf(1L), MetricRepo.COUNTER_SECONDARY_PASSWORD_AUTH.getValue());
+            Assertions.assertEquals(Long.valueOf(1L), MetricRepo.COUNTER_SECONDARY_PASSWORD_AUTH.getValue());
         } finally {
             MetricRepo.isInit = oldIsInit;
             MetricRepo.COUNTER_SECONDARY_PASSWORD_AUTH = oldCounter;
@@ -484,7 +560,7 @@ public class DualPasswordTest {
 
         auth.refreshUserPrivEntriesByResovledIPs(
                 ImmutableMap.of("mydomain.example", Sets.newHashSet("192.168.1.1")));
-        Assert.assertTrue(canLogin("domuser", "p1"));
+        Assertions.assertTrue(canLogin("domuser", "p1"));
 
         // rotate the domain user with RETAIN, then refresh (what the
         // DomainResolver does periodically)
@@ -493,9 +569,9 @@ public class DualPasswordTest {
         auth.refreshUserPrivEntriesByResovledIPs(
                 ImmutableMap.of("mydomain.example", Sets.newHashSet("192.168.1.1")));
 
-        Assert.assertTrue(canLogin("domuser", "p2"));
+        Assertions.assertTrue(canLogin("domuser", "p2"));
         // the retained password survives the refresh
-        Assert.assertTrue(canLogin("domuser", "p1"));
-        Assert.assertFalse(canLogin("domuser", "p0"));
+        Assertions.assertTrue(canLogin("domuser", "p1"));
+        Assertions.assertFalse(canLogin("domuser", "p0"));
     }
 }

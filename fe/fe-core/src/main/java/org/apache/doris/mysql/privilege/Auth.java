@@ -1037,21 +1037,13 @@ public class Auth implements Writable {
     // MySQL-compatible SET PASSWORD ... RETAIN CURRENT PASSWORD: keep the
     // previous password valid as the secondary password.
     public void setPassword(UserIdentity userIdentity, byte[] password,
-            boolean retainCurrentPassword) throws DdlException {
+            boolean retainCurrent) throws DdlException {
         setPasswordInternal(userIdentity, password, null, true /* err on non exist */,
-                false /* set by resolver */, retainCurrentPassword, false);
+                false /* set by resolver */, retainCurrent, false);
     }
 
     public void replaySetPassword(PrivInfo info) {
         try {
-            if (info.isDiscardPasswd()) {
-                // DISCARD OLD PASSWORD rides OP_SET_PASSWORD — see
-                // discardOldPasswordInternal for why. The journaled passwd is
-                // the account's unchanged primary (for older binaries); here
-                // only the discard matters.
-                discardOldPasswordInternal(info.getUserIdent(), true);
-                return;
-            }
             setPasswordInternal(info.getUserIdent(), info.getPasswd(), null, true /* err on non exist */,
                     false /* set by resolver */, info.isRetainPasswd(), true);
         } catch (DdlException e) {
@@ -1066,7 +1058,7 @@ public class Auth implements Writable {
     }
 
     public void setPasswordInternal(UserIdentity userIdent, byte[] password, UserIdentity domainUserIdent,
-            boolean errOnNonExist, boolean setByResolver, boolean retainCurrentPassword,
+            boolean errOnNonExist, boolean setByResolver, boolean retainCurrent,
             boolean isReplay) throws DdlException {
         Preconditions.checkArgument(!setByResolver || domainUserIdent != null, setByResolver + ", " + domainUserIdent);
         writeLock();
@@ -1076,7 +1068,7 @@ public class Auth implements Writable {
                     ErrorReport.reportDdlException(ErrorCode.ERR_CREDENTIALS_CONTRADICT_TO_HISTORY,
                             userIdent.getQualifiedUser(), userIdent.getHost());
                 }
-                if (retainCurrentPassword) {
+                if (retainCurrent) {
                     // MySQL-compatible RETAIN CURRENT PASSWORD constraint:
                     // "If you specify RETAIN CURRENT PASSWORD for an account
                     // that has an empty primary password, the statement
@@ -1095,48 +1087,45 @@ public class Auth implements Writable {
                     }
                 }
             }
-            userManager.setPassword(userIdent, password, errOnNonExist, retainCurrentPassword);
+            userManager.setPassword(userIdent, password, errOnNonExist, retainCurrent);
             if (password != null) {
                 // save password to password history
                 passwdPolicyManager.updatePassword(userIdent, password);
             }
 
             if (!isReplay) {
-                PrivInfo info = new PrivInfo(userIdent, null, password, null, null, retainCurrentPassword, false);
+                PrivInfo info = new PrivInfo(userIdent, null, password, null, null, retainCurrent);
                 Env.getCurrentEnv().getEditLog().logSetPassword(info);
             }
         } finally {
             writeUnlock();
         }
         LOG.info("finished to set password for {}. is replay: {}, retain current: {}",
-                userIdent, isReplay, retainCurrentPassword);
+                userIdent, isReplay, retainCurrent);
     }
 
     /**
      * MySQL-compatible "ALTER USER ... DISCARD OLD PASSWORD": drop the
-     * retained secondary password.
+     * retained secondary password. Not a password change, so the password
+     * policy state (history, creation time) is left untouched.
      *
-     * <p>Journaled via OP_SET_PASSWORD/PrivInfo with the discard flag and
-     * passwd = the account's CURRENT primary password, NOT via a new
-     * operation value on OP_ALTER_USER: an FE binary without this feature
-     * deserializes an unknown AlterUserOpType enum name as null and fails
-     * replay, whereas it replays this entry as a plain set-password to the
-     * value the account already holds — a harmless no-op. That keeps the
-     * journal readable by pre-feature binaries.
+     * <p>Journaled as an OP_ALTER_USER entry whose carrier op is
+     * SET_PASSWORD_POLICY with every option UNSET plus a discard marker
+     * ({@link AlterUserOperationLog#discardOldPassword}). An FE binary
+     * without this feature ignores the marker and replays a policy update
+     * that changes nothing, so the journal stays readable by pre-feature
+     * binaries with no side effect. A new AlterUserOpType name is not an
+     * option there (an unknown enum name deserializes as null and fails
+     * replay), and neither is OP_SET_PASSWORD with the unchanged primary (a
+     * pre-feature binary's set-password replay appends that primary to the
+     * password history and refreshes the password creation time).
      */
     private void discardOldPasswordInternal(UserIdentity userIdent, boolean isReplay) throws DdlException {
         writeLock();
         try {
-            User user = userManager.getUserByUserIdentity(userIdent);
-            if (user == null) {
-                throw new DdlException("user " + userIdent + " does not exist");
-            }
-            userManager.discardOldPassword(userIdent, true);
+            userManager.discardOldPassword(userIdent, true /* err on non exist */);
             if (!isReplay) {
-                byte[] currentPrimary = user.getPassword() == null || user.getPassword().getPassword() == null
-                        ? new byte[0] : user.getPassword().getPassword();
-                PrivInfo info = new PrivInfo(userIdent, null, currentPrimary, null, null, false, true);
-                Env.getCurrentEnv().getEditLog().logSetPassword(info);
+                Env.getCurrentEnv().getEditLog().logAlterUser(AlterUserOperationLog.discardOldPassword(userIdent));
             }
         } finally {
             writeUnlock();
@@ -2008,10 +1997,14 @@ public class Auth implements Writable {
 
     public void replayAlterUser(AlterUserOperationLog log) {
         try {
-            // retainCurrentPassword is always false here: the SET_PASSWORD
+            // A DISCARD OLD PASSWORD entry carries op = SET_PASSWORD_POLICY
+            // (a no-op for pre-feature binaries) plus the discard marker; the
+            // marker decides what this binary replays.
+            AlterUserOpType opType = log.isDiscardOldPassword() ? AlterUserOpType.DISCARD_OLD_PASSWORD : log.getOp();
+            // retainCurrent is always false here: the SET_PASSWORD
             // branch (the only one it applies to) journals via
             // logSetPassword/PrivInfo, which carries the flag itself.
-            alterUserInternal(true, log.getOp(), log.getUserIdent(), log.getPassword(), log.getRole(),
+            alterUserInternal(true, opType, log.getUserIdent(), log.getPassword(), log.getRole(),
                     log.getPasswordOptions(), log.getComment(), false, true);
         } catch (DdlException e) {
             LOG.error("should not happen", e);
@@ -2020,7 +2013,7 @@ public class Auth implements Writable {
 
     private void alterUserInternal(boolean ifExists, AlterUserOpType opType, UserIdentity userIdent, byte[] password,
                                    String role, PasswordOptions passwordOptions, String comment,
-                                   boolean retainCurrentPassword, boolean isReplay) throws DdlException {
+                                   boolean retainCurrent, boolean isReplay) throws DdlException {
         writeLock();
         try {
             if (!doesUserExist(userIdent)) {
@@ -2031,13 +2024,12 @@ public class Auth implements Writable {
             }
             switch (opType) {
                 case SET_PASSWORD:
-                    setPasswordInternal(userIdent, password, null, false, false, retainCurrentPassword, isReplay);
+                    setPasswordInternal(userIdent, password, null, false, false, retainCurrent, isReplay);
                     break;
                 case DISCARD_OLD_PASSWORD:
                     // MySQL-compatible "ALTER USER ... DISCARD OLD PASSWORD":
                     // evict the retained secondary password early. Journals
-                    // via OP_SET_PASSWORD (see discardOldPasswordInternal),
-                    // never via OP_ALTER_USER.
+                    // its own OP_ALTER_USER entry (see discardOldPasswordInternal).
                     discardOldPasswordInternal(userIdent, isReplay);
                     break;
                 case SET_ROLE:
@@ -2064,7 +2056,7 @@ public class Auth implements Writable {
                 //      the edit log is wrote in "setPasswordInternal"
                 // For DISCARD_OLD_PASSWORD:
                 //      the edit log is wrote in "discardOldPasswordInternal"
-                //      (as OP_SET_PASSWORD, readable by pre-feature binaries)
+                //      (a no-op carrier for pre-feature binaries)
                 AlterUserOperationLog log = new AlterUserOperationLog(opType, userIdent, password, role,
                         passwordOptions, comment);
                 Env.getCurrentEnv().getEditLog().logAlterUser(log);
