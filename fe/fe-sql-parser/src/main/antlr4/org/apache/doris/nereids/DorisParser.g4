@@ -2216,18 +2216,15 @@ tableSnapshot
 // replace identifier with errorCapturingIdentifier where the immediate follow symbol is not an expression, otherwise
 // valid expressions such as "a-b" can be recognized as an identifier
 errorCapturingIdentifier
-    : identifier errorCapturingIdentifierExtra
+    : identifier errorCapturingIdentifierExtra?
     ;
 
 // extra left-factoring grammar
 errorCapturingIdentifierExtra
     : (SUBTRACT identifier)+ #errorIdent
-    |                        #realIdent
     ;
 finally {
-    if ($ctx instanceof ErrorIdentContext) {
-        reportUnquotedIdentifier((ErrorIdentContext) $ctx);
-    }
+    reportUnquotedIdentifier((ErrorIdentContext) $ctx);
 }
 
 identifier

@@ -170,17 +170,17 @@ public class ConfigTest {
         int original = Config.cloud_warm_up_job_scheduler_interval_millisecond;
         try {
             ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "2000");
-            Assert.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+            Assertions.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
 
-            ConfigException zeroException = Assert.assertThrows(ConfigException.class,
+            ConfigException zeroException = Assertions.assertThrows(ConfigException.class,
                     () -> ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "0"));
-            Assert.assertTrue(zeroException.getMessage().contains("must be greater than 0"));
-            Assert.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+            Assertions.assertTrue(zeroException.getMessage().contains("must be greater than 0"));
+            Assertions.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
 
-            ConfigException negativeException = Assert.assertThrows(ConfigException.class,
+            ConfigException negativeException = Assertions.assertThrows(ConfigException.class,
                     () -> ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "-1"));
-            Assert.assertTrue(negativeException.getMessage().contains("must be greater than 0"));
-            Assert.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+            Assertions.assertTrue(negativeException.getMessage().contains("must be greater than 0"));
+            Assertions.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
         } finally {
             Config.cloud_warm_up_job_scheduler_interval_millisecond = original;
         }
