@@ -76,6 +76,9 @@ suite("test_ivm_agg_previous_commit_not_visible", "nonConcurrent") {
 
     def waitTaskSuccess = { String excludeTaskId ->
         def task = latestTask(excludeTaskId)
+        if (task.Status.toString() != "SUCCESS") {
+            logger.info("refresh task ${task.TaskId} is ${task.Status}, error: ${task.ErrorMsg}")
+        }
         assertEquals("SUCCESS", task.Status.toString())
         return task
     }
