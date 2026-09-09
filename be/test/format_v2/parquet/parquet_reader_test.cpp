@@ -1769,7 +1769,8 @@ TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
                     std::vector<format::ColumnDefinition> schema;
                     ASSERT_TRUE(reader->get_schema(&schema).ok());
                     ASSERT_EQ(schema.size(), 1);
-                    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_UUID);
+                    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(),
+                              mapping ? TYPE_VARBINARY : TYPE_UUID);
                     auto request = std::make_shared<format::FileScanRequest>();
                     request->non_predicate_columns = {field_projection(0)};
                     request->local_positions.emplace(format::LocalColumnId(0),
@@ -1787,7 +1788,16 @@ TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
                         for (size_t row = 0; row < rows; ++row) {
                             const bool expected_null = optional && (total + row) % 4 == 1;
                             EXPECT_EQ(column.is_null_at(row), expected_null);
-                            if (!expected_null) {
+                            if (expected_null) {
+                                continue;
+                            }
+                            if (mapping) {
+                                const auto value = column.get_nested_column().get_data_at(row);
+                                EXPECT_EQ(value.size, bytes.size());
+                                EXPECT_EQ(value.to_string(),
+                                          std::string(reinterpret_cast<const char*>(bytes.data()),
+                                                      bytes.size()));
+                            } else {
                                 EXPECT_EQ(remove_nullable(schema[0].type)
                                                   ->to_string(column.get_nested_column(), row),
                                           "00112233-4455-6677-8899-aabbccddeeff");
