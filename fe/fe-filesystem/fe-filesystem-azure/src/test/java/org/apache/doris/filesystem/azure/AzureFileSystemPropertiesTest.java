@@ -30,17 +30,87 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 class AzureFileSystemPropertiesTest {
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"SharedKey", "SHARED_KEY"})
+    void bind_preservesSharedKeyWithUnusedLegacyOAuth2Fields(String authType) {
+        Map<String, String> input = new HashMap<>(Map.of(
+                "azure.account_name", "account",
+                "azure.account_key", "shared-key",
+                "azure.oauth2_account_host", "not a valid Azure host",
+                "azure.oauth2_client_id", "legacy-client",
+                "azure.oauth2_client_secret", "legacy-secret",
+                "azure.oauth2_client_tenant_id", "legacy-tenant",
+                "azure.oauth2_server_uri", "not a valid token endpoint"));
+        if (authType != null) {
+            input.put("azure.auth_type", authType);
+        }
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(input);
+
+        Assertions.assertEquals(AzureAuthType.SHARED_KEY, properties.authType());
+        Assertions.assertEquals("not a valid Azure host", properties.getOauthAccountHost());
+        Assertions.assertEquals("legacy-client", properties.getClientId());
+        Assertions.assertEquals("legacy-secret", properties.getClientSecret());
+        Assertions.assertEquals("https://account.blob.core.windows.net", properties.getEndpoint());
+        Assertions.assertEquals(Map.of(
+                "provider", "azure",
+                "AZURE_AUTH_TYPE", "SHARED_KEY",
+                "AZURE_ACCOUNT_NAME", "account",
+                "AZURE_ENDPOINT", "https://account.blob.core.windows.net",
+                "AZURE_ACCOUNT_KEY", "shared-key",
+                "use_path_style", "false"), properties.toMap());
+        Map<String, String> hadoop = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("shared-key", hadoop.get("fs.azure.account.key.account.blob.core.windows.net"));
+        Assertions.assertFalse(hadoop.keySet().stream().anyMatch(key -> key.contains("oauth")));
+        Assertions.assertFalse(hadoop.values().stream().anyMatch(value -> value.contains("legacy-")));
+        Assertions.assertFalse(properties.toString().contains("legacy-secret"));
+    }
+
+    @Test
+    void validateAndNormalizeUri_preservesCloudAndOriginalObjectPath() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "SAS", "azure.sas_token", "sig=temporary",
+                "azure.endpoint", "https://account.dfs.core.chinacloudapi.cn", "container", "container"));
+        String path = "abfss://container@account.dfs.core.chinacloudapi.cn//dir/http://example/a+b%252Ffile";
+
+        Assertions.assertEquals(path, properties.validateAndNormalizeUri(path));
+        Assertions.assertEquals("https://account.blob.core.chinacloudapi.cn/container/dir/file",
+                properties.validateAndNormalizeUri("https://account.blob.core.chinacloudapi.cn/container/dir/file"));
+        StoragePropertiesException mismatch = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> properties.validateAndNormalizeUri(
+                        "abfss://container@account.dfs.core.windows.net/dir/file"));
+        Assertions.assertEquals("Azure URI account host does not match the binding", mismatch.getMessage());
+        // A legacy S3-style URI has no account host to replace the explicitly configured one.
+        Assertions.assertEquals("s3://container/dir/file",
+                properties.validateAndNormalizeUri("s3://container/dir/file"));
+    }
+
+    @Test
+    void validateAndNormalizeUri_doesNotIncludeSasInErrors() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.account_name", "account", "azure.account_key", "key"));
+        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> properties.validateAndNormalizeUri(
+                        "abfss://container@account.dfs.core.windows.net/%GG?sig=secret-signature"));
+
+        Assertions.assertEquals("Invalid Azure URI", error.getMessage());
+        Assertions.assertEquals("Invalid percent encoding in Azure object path", error.getCause().getMessage());
+        Assertions.assertNull(error.getCause().getCause());
+    }
 
     @Test
     void bind_usesFeCoreAzureAliasOrder() {

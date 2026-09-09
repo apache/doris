@@ -62,9 +62,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -220,73 +220,49 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
 
     @Override
     public Map<String, String> vendStorageCredentials(Map<String, String> rawVendedCredentials) {
-        // Map the per-table vended token to the BE-facing canonical properties (AWS_* for generic
-        // object stores, AZURE_* for Azure). Legacy normalization failures remain fail-soft, but
-        // Azure SAS validation failures are propagated so an expired token cannot silently fall back
-        // to a different credential set. buildVendedStorageMap shares the typed-map build with
-        // normalizeStorageUri (single source of truth — no drift).
-        try {
-            Map<StorageTypeId, StorageAdapter> map = buildVendedStorageMap(rawVendedCredentials);
-            return map == null ? Collections.emptyMap()
-                    : CredentialUtils.getBackendPropertiesFromStorageMap(map);
-        } catch (CredentialUtils.AzureSasCredentialException e) {
-            // An expired/malformed vended SAS must not fall back to a static or empty map: that
-            // would send a scan to BE with the wrong identity and hide the real expiry error.
-            throw e;
-        } catch (Exception e) {
-            LOG.warn("Failed to normalize vended credentials", e);
-            return Collections.emptyMap();
-        }
+        return withVendedStorageMap(rawVendedCredentials,
+                CredentialUtils::getBackendPropertiesFromStorageMap, Collections.emptyMap());
     }
 
     /**
-     * Builds the vended {@link StorageAdapter} typed map from a raw per-table token: normalize
-     * cloud-storage props (including Iceberg ADLS SAS), run {@link StorageAdapter#ofAll}
-     * (normalizes arbitrary token key shapes + derives region/endpoint), then index by
-     * {@link StorageTypeId}. Mirrors the
-     * legacy vended-credentials normalization tail exactly, so the BE-credential overlay
-     * ({@link #vendStorageCredentials}) and the URI normalization ({@link #normalizeStorageUri(String,
-     * Map)}) derive the SAME credentials from the SAME token — no drift. Returns {@code null} when the
-     * token is null/empty or yields no cloud-storage props. Non-Azure normalization failures retain
-     * the legacy "return null → fall back to the base/static map" contract; Azure SAS validation
-     * failures are propagated so expiry cannot be hidden by a fallback.
+     * Shares provider binding between backend credentials, URI normalization and reader selection.
+     * Returns null only when no usable vended properties exist and callers should use the static map.
      */
     private Map<StorageTypeId, StorageAdapter> buildVendedStorageMap(
             Map<String, String> rawVendedCredentials) {
+        return withVendedStorageMap(rawVendedCredentials, Function.identity(), null);
+    }
+
+    /**
+     * Provider-owned vended credentials and their use stay outside the legacy fail-soft boundary. In
+     * particular, a SAS can bind successfully for replay/URI normalization and expire before its backend
+     * map is emitted: that access-time failure must not become an empty credential overlay. Providers
+     * without a vended dialect retain their existing filtered-property binding and failure behavior.
+     */
+    private <T> T withVendedStorageMap(Map<String, String> rawVendedCredentials,
+            Function<Map<StorageTypeId, StorageAdapter>, T> useBindings, T noBindings) {
         if (rawVendedCredentials == null || rawVendedCredentials.isEmpty()) {
-            return null;
+            return noBindings;
+        }
+        Optional<List<StorageAdapter>> providerBindings = StorageAdapter.ofVended(
+                rawVendedCredentials, rawStoragePropsSupplier.get());
+        if (providerBindings.isPresent()) {
+            return useBindings.apply(indexStorageBindings(providerBindings.get()));
         }
         try {
-            Map<String, String> normalized = CredentialUtils.normalizeCloudStorageProperties(rawVendedCredentials);
-            if (normalized.isEmpty()) {
-                return null;
+            Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(rawVendedCredentials);
+            if (filtered.isEmpty()) {
+                return noBindings;
             }
-            List<StorageAdapter> vended = StorageAdapter.ofAll(normalized);
-            Map<StorageTypeId, StorageAdapter> result = vended.stream()
-                    .collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
-            // The plugin registry adds a default HDFS binding when no HDFS provider is present.
-            // A pure Azure vended token must not inherit that fallback: it is an object-client
-            // credential set, and retaining the synthetic HDFS entry would reintroduce the old
-            // Azure→Hadoop channel into the scan-level map. Preserve a real HDFS binding when the
-            // token explicitly contains HDFS configuration for a mixed connector.
-            if (result.containsKey(StorageTypeId.AZURE) && !containsHdfsConfiguration(normalized)) {
-                result.remove(StorageTypeId.HDFS);
-            }
-            return result;
-        } catch (CredentialUtils.AzureSasCredentialException e) {
-            throw e;
+            return useBindings.apply(indexStorageBindings(StorageAdapter.ofAll(filtered)));
         } catch (Exception e) {
             LOG.warn("Failed to normalize vended credentials", e);
-            return null;
+            return noBindings;
         }
     }
 
-    private static boolean containsHdfsConfiguration(Map<String, String> properties) {
-        return properties.keySet().stream().anyMatch(key -> {
-            String lower = key.toLowerCase(Locale.ROOT);
-            return lower.startsWith("hdfs.") || lower.startsWith("dfs.")
-                    || lower.startsWith("hadoop.") || "fs.defaultfs".equals(lower);
-        });
+    private static Map<StorageTypeId, StorageAdapter> indexStorageBindings(List<StorageAdapter> bindings) {
+        return bindings.stream().collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
     }
 
     @Override
@@ -460,7 +436,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     @Override
     public UnaryOperator<String> newStorageUriNormalizer(Map<String, String> rawVendedCredentials) {
         // PERF: the vended token is scan-invariant, so derive the effective storage map (the expensive
-        // buildVendedStorageMap = StorageProperties.createAll + hadoop config build) ONCE per scan and reuse
+        // provider binding / legacy raw-property conversion) ONCE per scan and reuse
         // it for every per-file normalize, instead of rebuilding it per data/delete file. Each application is
         // byte-identical to normalizeStorageUri(rawUri, token): the SAME empty-uri short-circuit, the SAME
         // vended-replaces-static precedence, the SAME fail-loud LocationPath. The derivation is done LAZILY on

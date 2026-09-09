@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -90,6 +91,21 @@ public interface FileSystemProvider<P extends FileSystemProperties> extends Plug
     default P bind(Map<String, String> properties) {
         throw new UnsupportedOperationException(
                 name() + " does not support typed FileSystemProperties binding yet.");
+    }
+
+    /**
+     * Binds externally issued credentials directly into this provider's typed model.
+     * The catalog properties supply connection defaults, not fallback authentication material.
+     * Authentication is replaced as a group; implementations must retain and validate any scope
+     * carried by the credential. This hook performs no I/O and must not mutate either input.
+     *
+     * <p>Empty means the credential format is not recognized by this provider. Recognized but
+     * invalid credentials must throw a credential-safe exception, never return empty or fall back
+     * to another identity. Time-dependent checks belong to the returned model's
+     * {@link org.apache.doris.filesystem.properties.StorageProperties#validateForAccess()}.</p>
+     */
+    default Optional<P> bindVended(Map<String, String> credentials, Map<String, String> catalogProperties) {
+        return Optional.empty();
     }
 
     /**

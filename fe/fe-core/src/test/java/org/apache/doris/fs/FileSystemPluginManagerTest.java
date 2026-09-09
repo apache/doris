@@ -23,6 +23,7 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -31,7 +32,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
 
 public class FileSystemPluginManagerTest {
 
@@ -118,12 +121,128 @@ public class FileSystemPluginManagerTest {
         Assertions.assertTrue(bound.isEmpty());
     }
 
+    @Test
+    public void bindVended_keepsTypedBindingWithoutRebindingOrDefaultHdfs() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        FileSystemProperties azure = new FakeFsProps("AZURE");
+        manager.registerProvider(vendedProvider("AZURE", (credentials, catalog) -> Optional.of(azure)));
+        manager.registerProvider(nonSupportingProvider("HDFS"));
+
+        List<FileSystemProperties> result = manager.bindVended(Map.of("token", "temporary"), Map.of()).get();
+
+        Assertions.assertEquals(List.of(azure), result);
+        // Both raw binding implementations throw: neither Azure rebinding nor default HDFS is allowed.
+    }
+
+    @Test
+    public void bindVended_declinesUnknownDialectWithoutRunningRawBinding() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(vendedProvider("AZURE", (credentials, catalog) -> Optional.empty()));
+
+        Assertions.assertFalse(manager.bindVended(Map.of("other.token", "temporary"), Map.of()).isPresent());
+    }
+
+    @Test
+    public void bindVended_propagatesRecognizedCredentialFailure() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        StoragePropertiesException failure = new StoragePropertiesException("Invalid provider credential");
+        manager.registerProvider(vendedProvider("AZURE", (credentials, catalog) -> {
+            throw failure;
+        }));
+
+        Assertions.assertSame(failure, Assertions.assertThrows(StoragePropertiesException.class,
+                () -> manager.bindVended(Map.of("token", "invalid"), Map.of())));
+    }
+
+    @Test
+    public void bindVended_preservesOtherProvidersAndTheirExclusivity() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        FileSystemProperties azure = new FakeFsProps("AZURE");
+        FileSystemProperties jfs = new FakeFsProps("JFS");
+        FileSystemProperties ossHdfs = new FakeFsProps("OSS_HDFS");
+        FileSystemProperties s3 = new FakeFsProps("S3");
+        manager.registerProvider(vendedProvider("AZURE", (credentials, catalog) -> Optional.of(azure)));
+        manager.registerProvider(bindingProvider("JFS", jfs));
+        manager.registerProvider(bindingProvider("HDFS", new FakeFsProps("HDFS")));
+        manager.registerProvider(bindingProvider("OSS_HDFS", ossHdfs));
+        manager.registerProvider(bindingProvider("OSS", new FakeFsProps("OSS")));
+        manager.registerProvider(bindingProvider("S3", s3));
+
+        List<FileSystemProperties> result = manager.bindVended(Map.of("token", "temporary"), Map.of()).get();
+
+        Assertions.assertEquals(List.of(azure, jfs, ossHdfs, s3), result);
+    }
+
+    @Test
+    public void bindVended_preservesExplicitFlagSuppressionOfGuessProviders() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        FileSystemProperties azure = new FakeFsProps("AZURE");
+        manager.registerProvider(vendedProvider("AZURE", (credentials, catalog) -> Optional.of(azure)));
+        manager.registerProvider(bindingProvider("S3", new FakeFsProps("S3")));
+
+        List<FileSystemProperties> result = manager.bindVended(
+                Map.of("token", "temporary", "fs.azure.support", "true"), Map.of()).get();
+
+        Assertions.assertEquals(List.of(azure), result);
+    }
+
+    @Test
+    public void bindVended_supportsUnlistedProviderAndSuppliesCatalogContext() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        FileSystemProperties custom = new FakeFsProps("CUSTOM");
+        Map<String, String> token = Map.of("custom.token", "temporary");
+        Map<String, String> connection = Map.of("custom.endpoint", "endpoint");
+        manager.registerProvider(vendedProvider("CUSTOM", (credentials, catalog) -> {
+            Assertions.assertSame(token, credentials);
+            Assertions.assertSame(connection, catalog);
+            return Optional.of(custom);
+        }));
+
+        Assertions.assertEquals(List.of(custom), manager.bindVended(token, connection).get());
+    }
+
     // NOTE: real object-store providers (S3/OSS/COS/OBS) are runtime directory-loaded plugins
     // (Env.loadPlugins), NOT on fe-core's unit-test classpath (fe-core pom: "fe-filesystem impl
     // modules: runtime dependencies removed in Phase 4 P4.1"). End-to-end binding against the real
     // providers is therefore covered by P1-T06 (docker / full plugin classpath), not here.
 
     // ---- helpers ----
+
+    private static FileSystemProvider<FileSystemProperties> vendedProvider(String name,
+            BiFunction<Map<String, String>, Map<String, String>, Optional<FileSystemProperties>> bindVended) {
+        return new FileSystemProvider<FileSystemProperties>() {
+            @Override
+            public String name() {
+                return name;
+            }
+
+            @Override
+            public boolean supports(Map<String, String> properties) {
+                return true;
+            }
+
+            @Override
+            public boolean supportsGuess(Map<String, String> properties) {
+                return true;
+            }
+
+            @Override
+            public Optional<FileSystemProperties> bindVended(Map<String, String> credentials,
+                    Map<String, String> catalogProperties) {
+                return bindVended.apply(credentials, catalogProperties);
+            }
+
+            @Override
+            public FileSystemProperties bind(Map<String, String> properties) {
+                throw new AssertionError("Vended binding must not be rebound through a raw property map");
+            }
+
+            @Override
+            public FileSystem create(Map<String, String> properties) {
+                throw new AssertionError("Binding must not create a client");
+            }
+        };
+    }
 
     private static FileSystemProvider<FileSystemProperties> bindingProvider(
             String name, FileSystemProperties bound) {

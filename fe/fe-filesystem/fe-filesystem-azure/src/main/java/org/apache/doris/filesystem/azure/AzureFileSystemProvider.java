@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -89,18 +90,21 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
     }
 
     @Override
+    public Optional<AzureFileSystemProperties> bindVended(
+            Map<String, String> credentials, Map<String, String> catalogProperties) {
+        return AzureVendedSas.parse(credentials).map(sas -> AzureFileSystemProperties.withVendedSas(
+                sas, credentials, supportsExplicit(catalogProperties) || supportsGuess(catalogProperties)
+                        ? catalogProperties : Map.of()));
+    }
+
+    @Override
     public FileSystem create(AzureFileSystemProperties properties) throws IOException {
         return new AzureFileSystem(new AzureObjStorage(properties));
     }
 
     @Override
     public boolean supportsExplicit(Map<String, String> properties) {
-        // Native backend maps carry an explicit provider marker. Keep those maps selectable even
-        // when another connector property disables heuristic guesses for the whole binding pass.
-        return Boolean.parseBoolean(properties.getOrDefault("fs.azure.support", "false"))
-                || isExplicitAzure(properties)
-                || firstPresent(properties, ACCOUNT_NAME_KEYS) != null
-                || firstPresent(properties, SAS_TOKEN_KEYS) != null;
+        return Boolean.parseBoolean(properties.getOrDefault("fs.azure.support", "false"));
     }
 
     /**
@@ -118,7 +122,9 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
         // (endpoint alias list, host extraction, dot-anchored endsWith, probe-injected live
         // suffix list) is shared with the S3-compatible fallback providers via
         // AzureBlobEndpointSignals so their mutual exclusion can never drift from this claim.
-        if ("azure".equalsIgnoreCase(properties.get(PROVIDER_KEY))) {
+        if ("azure".equalsIgnoreCase(properties.get(PROVIDER_KEY))
+                || firstPresent(properties, ACCOUNT_NAME_KEYS) != null
+                || firstPresent(properties, SAS_TOKEN_KEYS) != null) {
             return true;
         }
         return AzureBlobEndpointSignals.guessIsAzureBlobEndpoint(properties);

@@ -63,6 +63,29 @@ class AzureFileSystemProviderTest {
         Assertions.assertFalse(provider.supports(props));
     }
 
+    @Test
+    void supportsExplicit_requiresRawAzureSupportFlag() {
+        Assertions.assertTrue(provider.supportsExplicit(Map.of("fs.azure.support", "true")));
+        Assertions.assertFalse(provider.supportsExplicit(Map.of("fs.azure.support", "false")));
+        Assertions.assertFalse(provider.supportsExplicit(Map.of("provider", "azure")));
+        Assertions.assertFalse(provider.supportsExplicit(Map.of("_STORAGE_TYPE_", "AZURE")));
+        Assertions.assertFalse(provider.supportsExplicit(Map.of("AZURE_ACCOUNT_NAME", "account")));
+        Assertions.assertFalse(provider.supportsExplicit(Map.of("fs.s3.support", "true")));
+    }
+
+    @Test
+    void supportsGuess_doesNotTreatConvertedStorageMarkerAsExplicitInput() {
+        Assertions.assertFalse(provider.supportsGuess(Map.of("_STORAGE_TYPE_", "AZURE")));
+        Assertions.assertTrue(provider.supportsGuess(Map.of("provider", "azure")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://ACCOUNT.DFS.CORE.WINDOWS.NET",
+            "https://account.dfs.core.chinacloudapi.cn", "https://ACCOUNT.BLOB.CORE.USGOVCLOUDAPI.NET"})
+    void supportsGuess_recognizesDfsAndCaseInsensitiveAzureHosts(String endpoint) {
+        Assertions.assertTrue(provider.supportsGuess(Map.of("azure.endpoint", endpoint)));
+    }
+
     // F21 — provider must recognise all four Azure sovereign-cloud blob host suffixes.
     @ParameterizedTest
     @ValueSource(strings = {

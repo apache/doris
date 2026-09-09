@@ -19,6 +19,9 @@ package org.apache.doris.filesystem.azure;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 
@@ -90,7 +93,7 @@ class AzureUriTest {
     @Test
     void toStringReconstructsUri() throws IOException {
         AzureUri uri = AzureUri.parse("wasbs://mycontainer@myaccount.blob.core.windows.net/path/key");
-        Assertions.assertEquals("wasbs://mycontainer@myaccount/path/key", uri.toString());
+        Assertions.assertEquals("wasbs://mycontainer@myaccount.blob.core.windows.net/path/key", uri.toString());
     }
 
     @Test
@@ -174,7 +177,138 @@ class AzureUriTest {
         AzureUri uri = AzureUri.parse(
                 "wasbs://mycontainer@myaccount.blob.core.windows.net/dir/with%20space/a%2Bb.csv");
         Assertions.assertEquals(
-                "wasbs://mycontainer@myaccount/dir/with%20space/a%2Bb.csv",
+                "wasbs://mycontainer@myaccount.blob.core.windows.net/dir/with%20space/a%2Bb.csv",
                 uri.toString());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "abfs, dfs, core.windows.net",
+            "abfss, dfs, core.chinacloudapi.cn",
+            "abfss, dfs, core.usgovcloudapi.net",
+            "abfss, dfs, core.cloudapi.de",
+            "wasb, blob, core.windows.net",
+            "wasbs, blob, core.chinacloudapi.cn",
+            "wasbs, blob, core.usgovcloudapi.net",
+            "wasbs, blob, core.cloudapi.de"
+    })
+    void parse_preservesAccountHostAndCloudSuffix(String scheme, String service, String suffix) throws IOException {
+        String location = scheme + "://container@account." + service + "." + suffix + "/dir/file";
+        AzureUri uri = AzureUri.parse(location);
+        AzureAccountHost host = uri.accountHost().orElseThrow();
+
+        Assertions.assertEquals("account", uri.accountName());
+        Assertions.assertEquals("account", host.accountName());
+        Assertions.assertEquals(suffix, host.cloudSuffix());
+        Assertions.assertEquals("account.dfs." + suffix, host.dfsHost());
+        Assertions.assertEquals("https://account.blob." + suffix, host.blobEndpoint());
+        Assertions.assertEquals(location, uri.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"core.windows.net", "core.chinacloudapi.cn", "core.usgovcloudapi.net", "core.cloudapi.de"})
+    void parse_preservesHttpsAuthorityAndContainerPath(String suffix) throws IOException {
+        String endpoint = "https://account.blob." + suffix + ":8443";
+        String location = endpoint + "/container/dir/file";
+        AzureUri uri = AzureUri.parse(location);
+
+        Assertions.assertEquals("account", uri.accountName());
+        Assertions.assertEquals(suffix, uri.accountHost().orElseThrow().cloudSuffix());
+        Assertions.assertEquals(endpoint, uri.accountHost().orElseThrow().blobEndpoint());
+        Assertions.assertEquals("container", uri.container());
+        Assertions.assertEquals("dir/file", uri.key());
+        Assertions.assertEquals(location, uri.toString());
+    }
+
+    @Test
+    void parse_preservesExplicitHttpTransportAndPort() throws IOException {
+        AzureUri uri = AzureUri.parse("http://account.dfs.core.chinacloudapi.cn:10000/container/dir/file");
+
+        Assertions.assertEquals("http://account.blob.core.chinacloudapi.cn:10000",
+                uri.accountHost().orElseThrow().blobEndpoint());
+        Assertions.assertEquals("http://account.dfs.core.chinacloudapi.cn:10000/container/dir/file", uri.toString());
+    }
+
+    @Test
+    void parse_preservesCustomAuthorityWithoutInventingCloudSuffix() throws IOException {
+        String location = "wasbs://container@storage.example.test:8443/dir/file";
+        AzureUri uri = AzureUri.parse(location);
+
+        Assertions.assertEquals("storage", uri.accountName());
+        Assertions.assertEquals("", uri.accountHost().orElseThrow().cloudSuffix());
+        Assertions.assertEquals("storage.example.test", uri.accountHost().orElseThrow().blobHost());
+        Assertions.assertEquals(location, uri.toString());
+    }
+
+    @Test
+    void parse_preservesOneLakeAuthority() throws IOException {
+        String location = "abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/data/file";
+        AzureUri uri = AzureUri.parse(location);
+
+        Assertions.assertEquals("onelake", uri.accountName());
+        Assertions.assertEquals("onelake.dfs.fabric.microsoft.com", uri.accountHost().orElseThrow().dfsHost());
+        Assertions.assertEquals("workspace", uri.container());
+        Assertions.assertEquals("lakehouse/Tables/data/file", uri.key());
+        // Parsing a location must not rewrite OneLake to a Blob endpoint or choose its reader.
+        Assertions.assertEquals(location, uri.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"s3", "s3a", "s3n"})
+    void parse_preservesLegacyS3CompatibleLocations(String scheme) throws IOException {
+        String location = scheme + "://container/dir/file";
+        AzureUri uri = AzureUri.parse(location);
+
+        Assertions.assertEquals("", uri.accountName());
+        Assertions.assertTrue(uri.accountHost().isEmpty());
+        Assertions.assertEquals("container", uri.container());
+        Assertions.assertEquals("dir/file", uri.key());
+        Assertions.assertEquals(location, uri.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"abfss://container@account.dfs.core.windows.net/",
+            "wasbs://container@account.blob.core.windows.net/",
+            "https://account.blob.core.windows.net/container/", "s3://container/"})
+    void parse_decodesPathOnceWithoutChangingPlusOrSeparators(String prefix) throws IOException {
+        AzureUri uri = AzureUri.parse(prefix + "/dir//http://example/a+b%2Bc%252F%20file%3F%23");
+
+        Assertions.assertEquals("/dir//http://example/a+b+c%2F file?#", uri.key());
+        AzureUri roundTrip = AzureUri.parse(uri.toString());
+        Assertions.assertEquals(uri.key(), roundTrip.key());
+        Assertions.assertEquals(uri.accountName(), roundTrip.accountName());
+        Assertions.assertEquals(uri.container(), roundTrip.container());
+    }
+
+    @Test
+    void parse_normalizesSchemeOnly() throws IOException {
+        AzureUri uri = AzureUri.parse("ABFSS://container@account.dfs.core.windows.net/Dir/File");
+
+        Assertions.assertEquals("abfss", uri.scheme());
+        Assertions.assertEquals("Dir/File", uri.key());
+        Assertions.assertEquals("abfss://container@account.dfs.core.windows.net/Dir/File", uri.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"abfss://container@/file", "abfss://@account.dfs.core.windows.net/file",
+            "abfss://container@account@other.dfs.core.windows.net/file",
+            "abfss://container/file@account.dfs.core.windows.net/file",
+            "https:///container/file", "https://user@account.blob.core.windows.net/container/file"})
+    void parse_rejectsMalformedAuthorityWithoutLeakingQuery(String location) {
+        IOException error = Assertions.assertThrows(IOException.class,
+                () -> AzureUri.parse(location + "?sig=secret-signature"));
+
+        Assertions.assertFalse(error.getMessage().contains("secret-signature"));
+        Assertions.assertNull(error.getCause());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"%", "%2", "%GG"})
+    void parse_reportsMalformedEscapeWithoutLeakingQuery(String malformedEscape) {
+        IOException error = Assertions.assertThrows(IOException.class, () -> AzureUri.parse(
+                "abfss://container@account.dfs.core.windows.net/" + malformedEscape + "?sig=secret-signature"));
+
+        Assertions.assertEquals("Invalid percent encoding in Azure object path", error.getMessage());
+        Assertions.assertNull(error.getCause());
     }
 }

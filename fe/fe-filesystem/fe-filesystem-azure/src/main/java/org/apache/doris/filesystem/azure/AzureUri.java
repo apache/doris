@@ -17,10 +17,14 @@
 
 package org.apache.doris.filesystem.azure;
 
+import org.apache.doris.foundation.property.StoragePropertiesException;
+
 import java.io.IOException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
@@ -45,13 +49,15 @@ public final class AzureUri {
             Pattern.compile("^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$");
 
     private final String scheme;
-    private final String accountName;
+    private final String authority;
+    private final AzureAccountHost accountHost;
     private final String container;
     private final String key;
 
-    private AzureUri(String scheme, String accountName, String container, String key) {
+    private AzureUri(String scheme, String authority, AzureAccountHost accountHost, String container, String key) {
         this.scheme = scheme;
-        this.accountName = accountName;
+        this.authority = authority;
+        this.accountHost = accountHost;
         this.container = container;
         this.key = key;
     }
@@ -61,7 +67,8 @@ public final class AzureUri {
      *
      * <p>Strips any URL query string (everything after the first {@code ?}) and
      * fragment (everything after the first {@code #}) before extracting the key,
-     * then percent-decodes the key as UTF-8. The container name is validated
+     * then percent-decodes the key once as UTF-8, preserving literal {@code +}
+     * characters and path separators. The container name is validated
      * against Azure's naming rules and is NOT decoded (Azure containers are
      * required to be ASCII per the storage service contract).
      *
@@ -74,10 +81,10 @@ public final class AzureUri {
             throw new IOException("Azure path must not be null or empty");
         }
         int schemeEnd = path.indexOf("://");
-        if (schemeEnd < 0) {
-            throw new IOException("Cannot parse Azure URI without scheme: " + path);
+        if (schemeEnd <= 0) {
+            throw new IOException("Cannot parse Azure URI without scheme");
         }
-        String scheme = path.substring(0, schemeEnd).toLowerCase();
+        String scheme = path.substring(0, schemeEnd).toLowerCase(Locale.ROOT);
         String rest = path.substring(schemeEnd + 3);
         // Strip query and fragment so they do not pollute the key segment.
         int queryIdx = rest.indexOf('?');
@@ -92,41 +99,43 @@ public final class AzureUri {
         AzureUri parsed;
         if (scheme.equals("wasb") || scheme.equals("wasbs")
                 || scheme.equals("abfs") || scheme.equals("abfss")) {
-            parsed = parseWasbAbfs(scheme, rest, path);
+            parsed = parseWasbAbfs(scheme, rest);
         } else if (scheme.equals("https") || scheme.equals("http")) {
             parsed = parseHttps(scheme, rest);
         } else if (scheme.equals("s3") || scheme.equals("s3a") || scheme.equals("s3n")) {
             parsed = parseS3Compat(scheme, rest);
         } else {
-            throw new IOException("Unsupported Azure URI scheme '" + scheme + "' in path: " + path);
+            throw new IOException("Unsupported Azure URI scheme");
         }
         if (!CONTAINER_NAME_PATTERN.matcher(parsed.container).matches()) {
-            throw new IOException("Invalid Azure container name: " + parsed.container);
+            throw new IOException("Invalid Azure container name");
         }
         return parsed;
     }
 
-    private static AzureUri parseWasbAbfs(String scheme, String rest, String original) throws IOException {
+    private static AzureUri parseWasbAbfs(String scheme, String rest) throws IOException {
         // wasb://container@account.blob.core.windows.net/path
-        int atIdx = rest.indexOf('@');
-        if (atIdx < 0) {
-            throw new IOException("Invalid Azure URI format (missing '@'): " + original);
+        int slashIdx = rest.indexOf('/');
+        String authority = slashIdx < 0 ? rest : rest.substring(0, slashIdx);
+        int atIdx = authority.indexOf('@');
+        if (atIdx <= 0 || atIdx == authority.length() - 1 || authority.indexOf('@', atIdx + 1) >= 0) {
+            throw new IOException("Invalid Azure URI authority: expected container@account-host");
         }
-        String container = rest.substring(0, atIdx);
-        String hostAndPath = rest.substring(atIdx + 1);
-        int slashIdx = hostAndPath.indexOf('/');
-        String host = slashIdx < 0 ? hostAndPath : hostAndPath.substring(0, slashIdx);
-        String key = slashIdx < 0 ? "" : hostAndPath.substring(slashIdx + 1);
-        String accountName = host.contains(".") ? host.substring(0, host.indexOf('.')) : host;
-        return new AzureUri(scheme, accountName, container, decodeKey(key));
+        String container = authority.substring(0, atIdx);
+        AzureAccountHost accountHost = parseAccountHost(authority.substring(atIdx + 1));
+        String key = slashIdx < 0 ? "" : rest.substring(slashIdx + 1);
+        return new AzureUri(scheme, authority, accountHost, container, decodeKey(key));
     }
 
-    private static AzureUri parseHttps(String scheme, String rest) {
+    private static AzureUri parseHttps(String scheme, String rest) throws IOException {
         // https://account.blob.core.windows.net/container/path
         int slashIdx = rest.indexOf('/');
         String host = slashIdx < 0 ? rest : rest.substring(0, slashIdx);
+        if (host.isEmpty() || host.indexOf('@') >= 0) {
+            throw new IOException("Invalid Azure URI account host");
+        }
         String pathAfterHost = slashIdx < 0 ? "" : rest.substring(slashIdx + 1);
-        String accountName = host.contains(".") ? host.substring(0, host.indexOf('.')) : host;
+        AzureAccountHost accountHost = parseAccountHost(scheme + "://" + host);
         int containerEnd = pathAfterHost.indexOf('/');
         String container;
         String key;
@@ -137,10 +146,10 @@ public final class AzureUri {
             container = pathAfterHost.substring(0, containerEnd);
             key = pathAfterHost.substring(containerEnd + 1);
         }
-        return new AzureUri(scheme, accountName, container, decodeKey(key));
+        return new AzureUri(scheme, host, accountHost, container, decodeKey(key));
     }
 
-    private static AzureUri parseS3Compat(String scheme, String rest) {
+    private static AzureUri parseS3Compat(String scheme, String rest) throws IOException {
         // s3://container/key — S3-compatibility mode; accountName from properties
         int slashIdx = rest.indexOf('/');
         String container;
@@ -152,14 +161,28 @@ public final class AzureUri {
             container = rest.substring(0, slashIdx);
             key = rest.substring(slashIdx + 1);
         }
-        return new AzureUri(scheme, "", container, decodeKey(key));
+        return new AzureUri(scheme, container, null, container, decodeKey(key));
     }
 
-    private static String decodeKey(String raw) {
+    private static AzureAccountHost parseAccountHost(String host) throws IOException {
+        try {
+            return AzureAccountHost.parse(host);
+        } catch (StoragePropertiesException e) {
+            throw new IOException("Invalid Azure URI account host");
+        }
+    }
+
+    private static String decodeKey(String raw) throws IOException {
         if (raw.isEmpty()) {
             return raw;
         }
-        return URLDecoder.decode(raw, StandardCharsets.UTF_8);
+        try {
+            // URLDecoder uses HTML form rules, but '+' is a literal character in an object path.
+            return URLDecoder.decode(raw.replace("+", "%2B"), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            // The decoder error may contain the input. Do not retain URI credential material.
+            throw new IOException("Invalid percent encoding in Azure object path");
+        }
     }
 
     public String scheme() {
@@ -167,7 +190,12 @@ public final class AzureUri {
     }
 
     public String accountName() {
-        return accountName;
+        return accountHost == null ? "" : accountHost.accountName();
+    }
+
+    /** The URI's account and cloud suffix; absent for legacy S3-compatible locations. */
+    public Optional<AzureAccountHost> accountHost() {
+        return Optional.ofNullable(accountHost);
     }
 
     public String container() {
@@ -179,7 +207,7 @@ public final class AzureUri {
     }
 
     /**
-     * Renders this URI in a canonical {@code scheme://container@accountName/key} form.
+     * Renders this URI with its original scheme and complete authority, including the cloud suffix.
      *
      * <p>The key is percent-encoded with UTF-8 so that any reserved or non-ASCII
      * characters round-trip safely through SDK calls. Path separators ({@code /})
@@ -187,7 +215,8 @@ public final class AzureUri {
      */
     @Override
     public String toString() {
-        return scheme + "://" + container + "@" + accountName + "/" + encodeKey(key);
+        String containerPath = scheme.equals("http") || scheme.equals("https") ? "/" + container : "";
+        return scheme + "://" + authority + containerPath + "/" + encodeKey(key);
     }
 
     private static String encodeKey(String raw) {

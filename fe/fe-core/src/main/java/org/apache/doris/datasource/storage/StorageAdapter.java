@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -160,6 +161,23 @@ public final class StorageAdapter {
             result.add(new StorageAdapter(binding, origProps));
         }
         return result;
+    }
+
+    /**
+     * Wraps provider-owned vended bindings directly, without serializing a backend map and rebinding it
+     * as catalog properties. Empty means the dialect was not recognized; invalid recognized credentials
+     * propagate instead of falling back to another identity.
+     */
+    public static Optional<List<StorageAdapter>> ofVended(Map<String, String> credentials,
+            Map<String, String> catalogProperties) {
+        return manager().bindVended(withHadoopConfigDir(credentials), withHadoopConfigDir(catalogProperties))
+                .map(bindings -> {
+                    List<StorageAdapter> result = new ArrayList<>(bindings.size());
+                    for (FileSystemProperties binding : bindings) {
+                        result.add(new StorageAdapter(binding, binding.rawProperties()));
+                    }
+                    return result;
+                });
     }
 
     /**

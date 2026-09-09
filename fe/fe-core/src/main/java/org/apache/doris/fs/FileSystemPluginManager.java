@@ -41,8 +41,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -270,12 +273,60 @@ public class FileSystemPluginManager {
      * default HDFS binding is inserted at index 0 (fe-core's default-HDFS fallback).
      */
     public List<FileSystemProperties> bindAll(Map<String, String> properties) {
+        return bindAll(properties, Collections.emptySet(), true);
+    }
+
+    /**
+     * Binds credentials using provider-owned vended dialects before raw-property routing. Empty means
+     * that no provider recognized the dialect; recognized but invalid credentials must propagate the
+     * provider's exception. Other matching providers retain their normal explicit/guess routing, but a
+     * vended binding never creates a synthetic default HDFS entry.
+     */
+    public Optional<List<FileSystemProperties>> bindVended(Map<String, String> credentials,
+            Map<String, String> catalogProperties) {
+        List<FileSystemProperties> result = new ArrayList<>();
+        Set<String> matchedProviders = new HashSet<>();
+        for (StorageRegistry.Provider meta : StorageRegistry.Provider.values()) {
+            FileSystemProvider<?> provider = providerByName(meta.name());
+            if (provider != null) {
+                bindVendedProvider(provider, credentials, catalogProperties, result, matchedProviders);
+            }
+        }
+        for (FileSystemProvider<?> provider : providers) {
+            if (!StorageRegistry.Provider.byName(provider.name()).isPresent()) {
+                bindVendedProvider(provider, credentials, catalogProperties, result, matchedProviders);
+            }
+        }
+        if (result.isEmpty()) {
+            return Optional.empty();
+        }
+        result.addAll(bindAll(credentials, matchedProviders, false));
+        return Optional.of(result);
+    }
+
+    private static void bindVendedProvider(FileSystemProvider<?> provider, Map<String, String> credentials,
+            Map<String, String> catalogProperties, List<FileSystemProperties> result, Set<String> matchedProviders) {
+        String providerName = provider.name().toUpperCase(Locale.ROOT);
+        if (matchedProviders.contains(providerName)) {
+            return;
+        }
+        provider.bindVended(credentials, catalogProperties).ifPresent(binding -> {
+            result.add(binding);
+            matchedProviders.add(providerName);
+        });
+    }
+
+    private List<FileSystemProperties> bindAll(Map<String, String> properties, Set<String> skippedProviders,
+            boolean includeDefaultHdfs) {
         boolean useGuess = !hasAnyExplicitFsSupport(properties);
         Map<String, String> probeView = withProbeContext(properties);
         List<FileSystemProperties> result = new ArrayList<>();
-        boolean ossHdfsMatched = false;
-        boolean hdfsFamilyMatched = false;
+        boolean ossHdfsMatched = skippedProviders.contains("OSS_HDFS");
+        boolean hdfsFamilyMatched = skippedProviders.contains("HDFS") || skippedProviders.contains("JFS");
         for (StorageRegistry.Provider meta : StorageRegistry.Provider.values()) {
+            if (skippedProviders.contains(meta.name())) {
+                continue;
+            }
             FileSystemProvider provider = providerByName(meta.name());
             if (provider == null) {
                 continue;
@@ -307,7 +358,8 @@ public class FileSystemPluginManager {
         }
         // Unlisted (out-of-tree) providers append after the known set, registration order.
         for (FileSystemProvider provider : providers) {
-            if (StorageRegistry.Provider.byName(provider.name()).isPresent()) {
+            if (StorageRegistry.Provider.byName(provider.name()).isPresent()
+                    || skippedProviders.contains(provider.name().toUpperCase(Locale.ROOT))) {
                 continue;
             }
             FileSystemProperties bound = tryBindUnlisted(provider, properties, useGuess, probeView);
@@ -315,7 +367,7 @@ public class FileSystemPluginManager {
                 result.add(bound);
             }
         }
-        if (useGuess && !hdfsFamilyMatched) {
+        if (includeDefaultHdfs && useGuess && !hdfsFamilyMatched) {
             FileSystemProvider hdfs = providerByName("HDFS");
             if (hdfs != null) {
                 result.add(0, hdfs.bind(properties));

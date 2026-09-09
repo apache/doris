@@ -208,6 +208,86 @@ public final class AzureFileSystemProperties
         return props;
     }
 
+    static AzureFileSystemProperties withVendedSas(AzureVendedSas sas,
+            Map<String, String> credentials, Map<String, String> catalogProperties) {
+        AzureFileSystemProperties props = new AzureFileSystemProperties(sas, credentials, catalogProperties);
+        props.validate();
+        return props;
+    }
+
+    private AzureFileSystemProperties(AzureVendedSas sas, Map<String, String> credentials,
+            Map<String, String> catalogProperties) {
+        // Only connection defaults survive credential replacement. Do not rebind old key/OAuth2
+        // aliases or round-trip the SAS through the BE's AZURE_* protocol.
+        Map<String, String> connection = connectionProperties(catalogProperties);
+        // The SAS suffix owns the account/endpoint. Other stores' location fields and the old
+        // static identity in the FileIO map must not override its scope. Only connection options
+        // are overlaid, by typed field rather than by alias spelling.
+        for (Field field : ConnectorPropertiesUtils.getConnectorProperties(AzureFileSystemProperties.class)) {
+            if (Set.of("usePathStyle", "forceParsingByStandardUrl").contains(field.getName())) {
+                String matched = ConnectorPropertiesUtils.getMatchedPropertyName(field, credentials);
+                if (matched != null) {
+                    for (String alias : field.getAnnotation(ConnectorProperty.class).names()) {
+                        connection.remove(alias);
+                    }
+                    connection.put(matched, credentials.get(matched));
+                }
+            }
+        }
+        ConnectorPropertiesUtils.bindConnectorProperties(this, connection);
+        this.authType = AzureAuthType.SAS;
+        this.azureAuthType = authType.propertyValue();
+        this.accountHost = sas.accountHost();
+        if (StringUtils.isNotBlank(accountName)
+                && !accountName.equalsIgnoreCase(accountHost.accountName())) {
+            throw new StoragePropertiesException("Azure vended SAS account does not match the catalog account");
+        }
+        if (StringUtils.isNotBlank(endpoint)) {
+            AzureAccountHost configuredHost = AzureAccountHost.parse(endpoint);
+            if (!configuredHost.cloudSuffix().isEmpty()
+                    && !configuredHost.blobHost().equalsIgnoreCase(accountHost.blobHost())) {
+                throw new StoragePropertiesException("Azure vended SAS account does not match the catalog endpoint");
+            }
+        }
+        this.accountName = accountHost.accountName();
+        this.endpoint = formatAzureEndpoint(endpoint, accountHost);
+        this.sasCredential = sas.token();
+        this.sasToken = sasCredential.value();
+        this.sasExpiryMs = sasCredential.expiresAt()
+                .map(expiry -> Long.toString(expiry.toEpochMilli())).orElse("");
+        for (Map.Entry<String, String> entry : credentials.entrySet()) {
+            String key = entry.getKey();
+            if (key != null && Set.of("adls.container", "adls.container-name", "azure.container", "azure.bucket")
+                    .contains(key.toLowerCase(Locale.ROOT))) {
+                String scopedContainer = entry.getValue();
+                if (StringUtils.isBlank(scopedContainer)
+                        || (StringUtils.isNotBlank(container) && !container.equals(scopedContainer.trim()))) {
+                    throw new StoragePropertiesException("Azure vended SAS container does not match the binding");
+                }
+                this.container = scopedContainer.trim();
+                connection.put(key, scopedContainer);
+            }
+        }
+        connection.putAll(sas.properties());
+        this.rawProperties = Collections.unmodifiableMap(new HashMap<>(connection));
+        this.matchedProperties = this.rawProperties;
+    }
+
+    private static Map<String, String> connectionProperties(Map<String, String> properties) {
+        Map<String, String> result = new HashMap<>();
+        Set<String> fields = Set.of("endpoint", "accountName", "container", "usePathStyle",
+                "forceParsingByStandardUrl");
+        for (Field field : ConnectorPropertiesUtils.getConnectorProperties(AzureFileSystemProperties.class)) {
+            if (fields.contains(field.getName())) {
+                String matched = ConnectorPropertiesUtils.getMatchedPropertyName(field, properties);
+                if (matched != null) {
+                    result.put(matched, properties.get(matched));
+                }
+            }
+        }
+        return result;
+    }
+
     @Override
     public void validate() {
         ParamRules rules = new ParamRules();
@@ -423,14 +503,14 @@ public final class AzureFileSystemProperties
         }
         int delimiter = path.indexOf("://");
         if (delimiter <= 0) {
-            throw new StoragePropertiesException("Azure URI must contain a scheme: " + path);
+            throw new StoragePropertiesException("Azure URI must contain a scheme");
         }
         String scheme = path.substring(0, delimiter).toLowerCase(Locale.ROOT);
         if (!(scheme.equals("wasb") || scheme.equals("wasbs")
                 || scheme.equals("abfs") || scheme.equals("abfss")
                 || scheme.equals("http") || scheme.equals("https")
                 || scheme.equals("s3"))) {
-            throw new StoragePropertiesException("Unsupported Azure URI scheme: " + path);
+            throw new StoragePropertiesException("Unsupported Azure URI scheme");
         }
         // Parse account/container/path now so malformed locations fail before a scan reaches BE;
         // return the original path (apart from a case-insensitive scheme) to preserve object keys.
@@ -438,7 +518,7 @@ public final class AzureFileSystemProperties
             AzureUri parsed = AzureUri.parse(path);
             validateLocationBinding(parsed);
         } catch (IOException e) {
-            throw new StoragePropertiesException("Invalid Azure URI: " + path, e);
+            throw new StoragePropertiesException("Invalid Azure URI", e);
         }
         return path.substring(0, delimiter).equals(scheme)
                 ? path : scheme + path.substring(delimiter);
@@ -449,6 +529,13 @@ public final class AzureFileSystemProperties
                 && !StringUtils.equalsIgnoreCase(accountName, uri.accountName())) {
             throw new StoragePropertiesException(
                     "Azure URI account does not match configured account_name");
+        }
+        if (accountHost != null && uri.accountHost().isPresent()) {
+            AzureAccountHost uriHost = uri.accountHost().get();
+            if (!accountHost.cloudSuffix().isEmpty() && !uriHost.cloudSuffix().isEmpty()
+                    && !accountHost.blobHost().equalsIgnoreCase(uriHost.blobHost())) {
+                throw new StoragePropertiesException("Azure URI account host does not match the binding");
+            }
         }
         if (StringUtils.isNotBlank(container) && !StringUtils.equals(container, uri.container())) {
             throw new StoragePropertiesException(
@@ -578,7 +665,7 @@ public final class AzureFileSystemProperties
     }
 
     private AzureAccountHost resolveAccountHostModel() {
-        if (StringUtils.isNotBlank(oauthAccountHost)) {
+        if (authType == AzureAuthType.OAUTH2 && StringUtils.isNotBlank(oauthAccountHost)) {
             return AzureAccountHost.parse(oauthAccountHost);
         }
         if (StringUtils.isNotBlank(endpoint)) {
