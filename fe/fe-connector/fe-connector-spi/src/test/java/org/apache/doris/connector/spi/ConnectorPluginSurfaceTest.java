@@ -86,6 +86,12 @@ public class ConnectorPluginSurfaceTest {
             version.load(in);
         }
         // OpenCSV scan properties require major 9: inlined keys cannot fail JVM linkage on an older FE.
+        // Connector partition pruning is the other half of this major: it added
+        // ConnectorCapability.SUPPORTS_CONNECTOR_PARTITION_PRUNING, on top of the storage predicate pruning,
+        // provider-level DDL validation and ConnectorMetadata's listsPartitionsAtSnapshot already in the
+        // surface - the method a connector answers "my partition listing is exact at the pinned snapshot"
+        // with. A plugin built against an earlier major must be refused rather than run against a contract it
+        // did not compile against.
         Assertions.assertEquals("9.0", version.getProperty("api.version"));
     }
 
