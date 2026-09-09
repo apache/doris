@@ -21,9 +21,12 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.Map;
 
 public class ObjectInfoAdapterTest {
 
@@ -82,5 +85,103 @@ public class ObjectInfoAdapterTest {
         Assert.assertEquals("stage-ak", oss.getAccessKey());
         Assert.assertEquals("stage-sk", oss.getSecretKey());
         Assert.assertEquals("stage-token", oss.getSessionToken());
+    }
+
+    @Test
+    public void testAzureSharedKeyWithoutTokenPreservesNativeParameters() {
+        for (String token : new String[] {null, ""}) {
+            StorageAdapter adapter = ObjectInfoAdapter.toStorageAdapter(azureObjectInfo("account-key", token));
+            Map<String, String> backend = adapter.getBackendConfigProperties();
+
+            Assert.assertEquals(StorageTypeId.AZURE, adapter.getType());
+            Assert.assertEquals("azure", backend.get("provider"));
+            Assert.assertEquals("SHARED_KEY", backend.get("AZURE_AUTH_TYPE"));
+            Assert.assertEquals("account-key", backend.get("AZURE_ACCOUNT_KEY"));
+            Assert.assertEquals("account", backend.get("AZURE_ACCOUNT_NAME"));
+            Assert.assertEquals("https://account.blob.core.windows.net", backend.get("AZURE_ENDPOINT"));
+            Assert.assertEquals("container", backend.get("AZURE_CONTAINER"));
+            Assert.assertFalse(backend.containsKey("AZURE_SAS_TOKEN"));
+            Assert.assertFalse(backend.containsKey("AZURE_SAS_EXPIRY_MS"));
+        }
+    }
+
+    @Test
+    public void testAzureSasReplacesSharedKeyInsteadOfCombiningCredentials() {
+        String token = "?sv=2024-01-01&se=2100-01-01T00%3A00%3A00Z&sig=temporary%2Bsignature";
+        for (String key : new String[] {null, "", "old-account-key"}) {
+            ObjectInfo objectInfo = azureObjectInfo(key, token);
+            StorageAdapter adapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
+            Map<String, String> backend = adapter.getBackendConfigProperties();
+
+            Assert.assertEquals(StorageTypeId.AZURE, adapter.getType());
+            Assert.assertEquals("SAS", adapter.getOrigProps().get("azure.auth_type"));
+            Assert.assertFalse(adapter.getOrigProps().containsKey("azure.account_key"));
+            Assert.assertEquals("azure", backend.get("provider"));
+            Assert.assertEquals("SAS", backend.get("AZURE_AUTH_TYPE"));
+            Assert.assertEquals(token.substring(1), backend.get("AZURE_SAS_TOKEN"));
+            Assert.assertEquals("4102444800000", backend.get("AZURE_SAS_EXPIRY_MS"));
+            Assert.assertEquals("account", backend.get("AZURE_ACCOUNT_NAME"));
+            Assert.assertEquals("container", backend.get("AZURE_CONTAINER"));
+            Assert.assertEquals("https://account.blob.core.windows.net", backend.get("AZURE_ENDPOINT"));
+            Assert.assertFalse(backend.containsKey("AZURE_ACCOUNT_KEY"));
+            Assert.assertFalse(backend.keySet().stream().anyMatch(name -> name.startsWith("AWS_")));
+            Assert.assertEquals(key, objectInfo.getSk());
+            Assert.assertEquals(token, objectInfo.getToken());
+        }
+    }
+
+    @Test
+    public void testAzureMalformedSasDoesNotFallBackToSharedKey() {
+        String token = "se=invalid-expiry&sig=must-not-be-logged";
+        StoragePropertiesException failure = Assert.assertThrows(StoragePropertiesException.class,
+                () -> ObjectInfoAdapter.toStorageAdapter(azureObjectInfo("account-key", token)));
+
+        Assert.assertEquals("Azure SAS credential has an invalid expiry", failure.getMessage());
+        Assert.assertNull(failure.getCause());
+        Assert.assertFalse(failure.getMessage().contains("must-not-be-logged"));
+    }
+
+    @Test
+    public void testAzureBlankSuppliedSasDoesNotFallBackToSharedKey() {
+        IllegalArgumentException failure = Assert.assertThrows(IllegalArgumentException.class,
+                () -> ObjectInfoAdapter.toStorageAdapter(azureObjectInfo("account-key", " ")));
+
+        Assert.assertTrue(failure.getMessage().contains("When auth_type is SAS, sas_token is required"));
+    }
+
+    @Test
+    public void testAzureExpiredSasRejectsAccessInsteadOfFallingBackToSharedKey() {
+        StorageAdapter adapter = ObjectInfoAdapter.toStorageAdapter(azureObjectInfo(
+                "account-key", "se=2000-01-01T00%3A00%3A00Z&sig=expired"));
+
+        Assert.assertEquals("SAS", adapter.getOrigProps().get("azure.auth_type"));
+        Assert.assertFalse(adapter.getOrigProps().containsKey("azure.account_key"));
+        StoragePropertiesException failure = Assert.assertThrows(StoragePropertiesException.class,
+                adapter::getBackendConfigProperties);
+        Assert.assertEquals("Azure SAS credential is expired", failure.getMessage());
+        Assert.assertNull(failure.getCause());
+    }
+
+    @Test
+    public void testObjectInfoMasksTokensWithoutChangingCredentials() {
+        for (Cloud.ObjectStoreInfoPB.Provider provider : new Cloud.ObjectStoreInfoPB.Provider[] {
+                Cloud.ObjectStoreInfoPB.Provider.AZURE,
+                Cloud.ObjectStoreInfoPB.Provider.OSS,
+                Cloud.ObjectStoreInfoPB.Provider.S3}) {
+            ObjectInfo objectInfo = new ObjectInfo(provider, "account", "secret-key-plain", "container",
+                    "endpoint", "region", "prefix", null, null, null, "token-plain");
+
+            String rendered = objectInfo.toString();
+            Assert.assertFalse(rendered.contains("token-plain"));
+            Assert.assertFalse(rendered.contains("secret-key-plain"));
+            Assert.assertTrue(rendered.contains("token='******'"));
+            Assert.assertEquals("token-plain", objectInfo.getToken());
+            Assert.assertEquals("secret-key-plain", objectInfo.getSk());
+        }
+    }
+
+    private static ObjectInfo azureObjectInfo(String key, String token) {
+        return new ObjectInfo(Cloud.ObjectStoreInfoPB.Provider.AZURE, "account", key, "container",
+                "account.blob.core.windows.net", "", "stage-prefix", null, null, null, token);
     }
 }
