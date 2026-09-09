@@ -100,15 +100,15 @@ public class PluginApiVersionWiringTest {
     }
 
     @Test
-    public void connectorPluginWithoutTheResolvedStorageContractIsRefused() throws IOException {
+    public void connectorPluginWithoutTheFileIOPropertiesContractIsRefused() throws IOException {
         ApiVersionGate gate = ApiVersionGate.forFamily("connector", ConnectorProvider.class);
-        Assertions.assertEquals("8.0", gate.getExpectedVersion());
+        Assertions.assertEquals("9.0", gate.getExpectedVersion());
         ConnectorPluginManager manager = new ConnectorPluginManager();
 
-        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("7.0")));
+        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("8.0")));
 
         Assertions.assertFalse(manager.getRegisteredTypes().contains("version_probe"),
-                "a plugin from before the resolved storage contract must not be admitted");
+                "a plugin from before the FileIO properties contract must not be admitted");
     }
 
     @Test
@@ -147,15 +147,15 @@ public class PluginApiVersionWiringTest {
     }
 
     @Test
-    public void filesystemPluginWithoutTheUriAwareBackendContractIsRefused() throws IOException {
+    public void filesystemPluginWithoutTheFileIOPropertiesContractIsRefused() throws IOException {
         ApiVersionGate gate = ApiVersionGate.forFamily("filesystem", FileSystemProvider.class);
-        Assertions.assertEquals("4.0", gate.getExpectedVersion());
+        Assertions.assertEquals("5.0", gate.getExpectedVersion());
         FileSystemPluginManager manager = new FileSystemPluginManager();
 
-        manager.loadPlugins(Collections.singletonList(filesystemPluginRoot("3.0")));
+        manager.loadPlugins(Collections.singletonList(filesystemPluginRoot("4.0")));
 
         Assertions.assertFalse(providerNames(manager).contains("version_probe_fs"),
-                "a plugin from before URI-aware backend properties must not join storage routing");
+                "a plugin from before FileIO properties must not join storage routing");
     }
 
     @Test

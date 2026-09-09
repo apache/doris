@@ -403,6 +403,51 @@ public final class AzureFileSystemProperties
     }
 
     @Override
+    public Map<String, String> toIcebergFileIOProperties() {
+        validateForAccess();
+        if (isOauth2Auth()) {
+            // Iceberg's ADLSFileIO cannot construct this per-catalog client-secret identity.
+            // Its Hadoop FileIO consumes our separate Hadoop view; native BE auth is unchanged.
+            return Map.of("io-impl", "org.apache.iceberg.hadoop.HadoopFileIO");
+        }
+        if (accountHost == null) {
+            throw new StoragePropertiesException("Azure Iceberg FileIO requires an account name or endpoint");
+        }
+        // The SDK applies endpoint() after credentials; a SAS in its query would replace the
+        // already validated credential. Never let the endpoint become a second auth source.
+        URI fileIOEndpoint = URI.create(endpoint);
+        if (fileIOEndpoint.getRawUserInfo() != null || fileIOEndpoint.getRawQuery() != null
+                || fileIOEndpoint.getRawFragment() != null) {
+            throw new StoragePropertiesException(
+                    "Azure Iceberg FileIO endpoint must not contain userinfo, query or fragment");
+        }
+
+        Map<String, String> properties = new HashMap<>();
+        switch (authType) {
+            case SHARED_KEY:
+                properties.put("adls.auth.shared-key.account.name", accountName);
+                properties.put("adls.auth.shared-key.account.key", accountKey);
+                break;
+            case SAS:
+                // Iceberg 1.10.1 AzureProperties looks up SAS by the full ADLSLocation host.
+                for (String host : new String[] {accountHost.dfsHost(), accountHost.blobHost()}) {
+                    properties.put("adls.sas-token." + host, sasCredential.value());
+                    if (StringUtils.isNotBlank(sasExpiryMs)) {
+                        properties.put("adls.sas-token-expires-at-ms." + host, sasExpiryMs);
+                    }
+                }
+                break;
+            default:
+                throw new IllegalStateException("Unhandled Azure auth type: " + authType);
+        }
+        // Iceberg's connection-string property is an endpoint URL, not an SDK connection string.
+        for (String host : new String[] {accountHost.dfsHost(), accountHost.blobHost()}) {
+            properties.put("adls.connection-string." + host, endpoint);
+        }
+        return Collections.unmodifiableMap(properties);
+    }
+
+    @Override
     public BackendStorageKind backendKind() {
         // Native provider identity is independent of the existing FILE_S3 Thrift reader slot.
         return BackendStorageKind.NATIVE;

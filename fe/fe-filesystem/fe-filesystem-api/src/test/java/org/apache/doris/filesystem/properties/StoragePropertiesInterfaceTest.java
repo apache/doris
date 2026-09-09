@@ -61,6 +61,16 @@ class StoragePropertiesInterfaceTest {
     }
 
     @Test
+    void fileIOPropertiesDefaultDoesNotChangeOtherProvidersSelectionOrCredentials() {
+        StorageProperties properties = new TestProperties();
+
+        Map<String, String> output = properties.toIcebergFileIOProperties();
+
+        Assertions.assertEquals(Collections.emptyMap(), output);
+        Assertions.assertThrows(UnsupportedOperationException.class, () -> output.put("io-impl", "other"));
+    }
+
+    @Test
     void bindingValidationDoesNotPerformAccessValidation() {
         StorageProperties properties = new TestProperties() {
             @Override

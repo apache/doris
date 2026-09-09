@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.properties;
 
 import org.apache.doris.filesystem.FileSystemType;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 
@@ -96,5 +97,24 @@ public interface StorageProperties {
      */
     default Optional<HadoopStorageProperties> toHadoopProperties() {
         return Optional.empty();
+    }
+
+    /**
+     * Storage authentication and connection properties for the official Iceberg FileIO.
+     * This is a separate consumer dialect from the native backend and Hadoop maps. The
+     * provider owns translation; no Iceberg or SDK objects cross the plugin boundary.
+     *
+     * <p>Emitting credentials is an access point, so implementations must validate their
+     * validity here. The default contributes nothing and preserves existing FileIO selection.
+     * Returned maps must be immutable and must not be logged.</p>
+     *
+     * <p>A provider may include {@code io-impl} when its authentication requires a specific
+     * default FileIO. Consumers must reconcile this requirement with explicit configuration,
+     * REST server overrides and vended credentials before constructing FileIO; they must not
+     * blindly overwrite those choices or silently substitute another identity. Hadoop
+     * authentication still comes from {@link #toHadoopProperties()}, not this map.</p>
+     */
+    default Map<String, String> toIcebergFileIOProperties() {
+        return Collections.emptyMap();
     }
 }

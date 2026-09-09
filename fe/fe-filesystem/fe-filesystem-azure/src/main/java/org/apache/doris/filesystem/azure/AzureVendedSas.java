@@ -110,7 +110,9 @@ final class AzureVendedSas {
             if (uri.getHost() == null || !host.equalsIgnoreCase(uri.getHost())) {
                 throw new StoragePropertiesException("Invalid Azure ADLS SAS account host");
             }
-            return uri.getHost().toLowerCase(Locale.ROOT);
+            // DFS and Blob address the same account; only canonicalize the grouping key.
+            // Retain the original property names for Iceberg's exact-host credential lookup.
+            return AzureAccountHost.parse(uri.getHost().toLowerCase(Locale.ROOT)).dfsHost();
         } catch (URISyntaxException e) {
             throw new StoragePropertiesException("Invalid Azure ADLS SAS account host");
         }

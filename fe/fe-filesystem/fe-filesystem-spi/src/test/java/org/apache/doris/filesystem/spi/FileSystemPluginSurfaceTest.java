@@ -71,8 +71,8 @@ public class FileSystemPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing filesystem plugin API version resource");
             version.load(in);
         }
-        // Binding-owned URI claims and URI-specific backend properties extend the shared API.
-        Assertions.assertEquals("4.0", version.getProperty("api.version"));
+        // Provider-owned Iceberg FileIO properties extend the shared storage API.
+        Assertions.assertEquals("5.0", version.getProperty("api.version"));
     }
 
     /** The types a filesystem plugin implements or calls. Everything reachable on them is the contract. */

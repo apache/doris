@@ -76,9 +76,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Request-local storage access now binds a URI, reader and credentials together. Its resolver
-        // and the shared URI-aware filesystem API require plugins built against this new major.
-        Assertions.assertEquals("8.0", version.getProperty("api.version"));
+        // The shared storage API now exposes provider-owned Iceberg FileIO properties.
+        Assertions.assertEquals("9.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
