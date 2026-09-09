@@ -19,6 +19,9 @@ package org.apache.doris.extension.loader;
 
 import org.apache.doris.extension.spi.PluginFactory;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.MalformedURLException;
@@ -103,6 +106,8 @@ import java.util.stream.Stream;
  * interleaving and producing inconsistent outcomes.
  */
 public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
+
+    private static final Logger LOG = LogManager.getLogger(DirectoryPluginRuntimeManager.class);
 
     private final ConcurrentMap<String, PluginHandle<F>> handlesByName = new ConcurrentHashMap<>();
     private final Object lifecycleLock = new Object();
@@ -287,6 +292,10 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                         LoadFailure.STAGE_API_VERSION,
                         "Rejected plugin in " + normalizedDir + ": " + rejection,
                         null);
+            }
+            String acceptanceWarning = apiVersionGate.acceptanceWarning(declaredApiVersion);
+            if (acceptanceWarning != null) {
+                LOG.warn("Loading legacy unversioned plugin from {}: {}", normalizedDir, acceptanceWarning);
             }
 
             try {
