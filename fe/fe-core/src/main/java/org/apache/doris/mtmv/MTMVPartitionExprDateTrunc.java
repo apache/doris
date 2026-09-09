@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
@@ -74,10 +75,11 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         List<BaseColInfo> pctInfos = mvPartitionInfo.getPctInfos();
         for (BaseColInfo pctInfo : pctInfos) {
             MTMVRelatedTableIf pctTable = MTMVUtil.getRelatedTable(pctInfo.getTableInfo());
-            PartitionType partitionType = pctTable.getPartitionType(MvccUtil.getSnapshotFromContext(pctTable));
+            Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(pctTable);
+            PartitionType partitionType = pctTable.getPartitionType(snapshot);
             if (partitionType == PartitionType.RANGE) {
                 Type partitionColumnType = MTMVPartitionUtil
-                        .getPartitionColumnType(pctTable, pctInfo.getColName());
+                        .getPartitionColumnType(pctTable, pctInfo.getColName(), snapshot);
                 if (!partitionColumnType.isDateType()) {
                     throw new AnalysisException(
                             "partitionColumnType should be date/datetime "
@@ -130,9 +132,10 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
 
     @Override
     public PartitionKeyDesc generateRollUpPartitionKeyDesc(PartitionKeyDesc partitionKeyDesc,
-            MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf pctTable) throws AnalysisException {
+            MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf pctTable,
+            Optional<MvccSnapshot> snapshot) throws AnalysisException {
         Type partitionColumnType = MTMVPartitionUtil
-                .getPartitionColumnType(pctTable, mvPartitionInfo.getPartitionColByPctTable(pctTable));
+                .getPartitionColumnType(pctTable, mvPartitionInfo.getPartitionColByPctTable(pctTable), snapshot);
         // mtmv only support one partition column
         Preconditions.checkState(partitionKeyDesc.getLowerValues().size() == 1,
                 "only support one partition column");

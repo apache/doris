@@ -35,7 +35,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
-import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshContext.PreparedPartitionSnapshots;
@@ -63,6 +62,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -672,8 +672,9 @@ public class MTMVPartitionUtil {
         return refreshPartitionSnapshot;
     }
 
-    public static Type getPartitionColumnType(MTMVRelatedTableIf relatedTable, String col) throws AnalysisException {
-        List<Column> partitionColumns = relatedTable.getPartitionColumns(MvccUtil.getSnapshotFromContext(relatedTable));
+    public static Type getPartitionColumnType(MTMVRelatedTableIf relatedTable, String col,
+            Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        List<Column> partitionColumns = relatedTable.getPartitionColumns(snapshot);
         for (Column column : partitionColumns) {
             if (column.getName().equals(col)) {
                 return column.getType();

@@ -764,10 +764,17 @@ public class MTMVTask extends AbstractTask {
             }
         }
         this.completedPartitions = Lists.newCopyOnWriteArrayList();
-        // Snapshot persistence happens after refresh partitions are split into execution groups. Load the
-        // complete union here so the default one-partition group size cannot turn a large Hive MTMV into
-        // one metadata request per MV partition; generatePartitionSnapshots reuses this context cache.
-        context.preparePartitionSnapshots(Sets.newHashSet(needRefreshPartitions));
+        try {
+            // Snapshot persistence happens after refresh partitions are split into execution groups. Load the
+            // complete union here so the default one-partition group size cannot turn a large Hive MTMV into
+            // one metadata request per MV partition; generatePartitionSnapshots reuses this context cache.
+            context.preparePartitionSnapshots(Sets.newHashSet(needRefreshPartitions));
+        } catch (Exception e) {
+            // Preloading is only a batching optimization. Retrying through the existing per-group load below
+            // preserves completed-group progress when a later chunk of the union fails.
+            LOG.warn("Failed to preload partition snapshots for mv={}, taskId={}; "
+                    + "falling back to per-group loading", mtmv.getName(), getTaskId(), e);
+        }
         int refreshPartitionNum = mtmv.getRefreshPartitionNum();
         long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
                 % refreshPartitionNum) > 0 ? 1 : 0);
