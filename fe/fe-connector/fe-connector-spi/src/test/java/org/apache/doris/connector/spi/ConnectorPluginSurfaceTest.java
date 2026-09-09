@@ -81,9 +81,9 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Storage predicate pruning and provider-level DDL validation both changed the public surface in
-        // major 7. An older FE must reject plugins using either addition before linking incompatible bytecode.
-        Assertions.assertEquals("7.0", version.getProperty("api.version"));
+        // Connector partition pruning changed the public surface in major 8. An older FE must reject plugins
+        // using the added capability before linking incompatible bytecode.
+        Assertions.assertEquals("8.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

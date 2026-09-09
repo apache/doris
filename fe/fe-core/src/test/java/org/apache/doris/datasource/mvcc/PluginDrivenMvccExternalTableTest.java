@@ -568,6 +568,63 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testConnectorPartitionPruningLatestSnapshotDefersPartitionEnumeration() {
+        Fixture f = Fixture.connectorPartitionPruning();
+
+        Assertions.assertTrue(f.table.supportsLatestSnapshotPreload(),
+                "the lightweight connector snapshot must be preloaded before internal table locks are taken");
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+
+        Assertions.assertEquals(PINNED_SNAPSHOT_ID, pin.getConnectorSnapshot().getSnapshotId());
+        Assertions.assertTrue(pin.getNameToPartitionItem().isEmpty(),
+                "a connector-filtered table must not enumerate every partition while binding the latest snapshot");
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(
+                Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testConnectorPartitionPruningMaterializesFullViewForExplicitConsumer() {
+        Fixture f = Fixture.connectorPartitionPruning();
+        f.table.loadSnapshot(Optional.empty(), Optional.empty());
+
+        Map<String, PartitionItem> partitions = f.table.getNameToPartitionItems(Optional.empty());
+
+        Assertions.assertEquals(2, partitions.size());
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.eq(Optional.empty()));
+    }
+
+    @Test
+    public void testConnectorPartitionPruningMaterializesMtmvSnapshotBeforeLock() {
+        Fixture f = Fixture.connectorPartitionPruning();
+        PluginDrivenMvccSnapshot lightweight = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+
+        PluginDrivenMvccSnapshot materialized = (PluginDrivenMvccSnapshot)
+                f.table.materializePartitionViewForMtmv(lightweight);
+
+        Assertions.assertEquals(2, materialized.getNameToPartitionItem().size());
+        Assertions.assertEquals(materialized.getNameToPartitionItem(),
+                f.table.getNameToPartitionItems(Optional.of(materialized)));
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.eq(Optional.empty()));
+    }
+
+    @Test
+    public void testConnectorPartitionPruningUsesOnDemandMtmvFreshness() throws AnalysisException {
+        Fixture f = Fixture.connectorPartitionPruning();
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(),
+                Mockito.eq("dt=2024-01-01"))).thenReturn(OptionalLong.of(TS_2024_01_01));
+
+        MTMVTimestampSnapshot snapshot = (MTMVTimestampSnapshot) f.table.getPartitionSnapshot(
+                "dt=2024-01-01", null, Optional.empty());
+
+        Assertions.assertEquals(TS_2024_01_01, snapshot.getSnapshotVersion());
+    }
+
+    @Test
     public void testInitialLatestPartitionAccountingUsesPinnedHandle() {
         Fixture f = Fixture.partitioned();
         Mockito.when(f.metadata.listPartitions(
@@ -1334,6 +1391,13 @@ public class PluginDrivenMvccExternalTableTest {
                 ConnectorPartitionInfo.UNKNOWN, orderedValuesOf(name), Collections.emptyList());
     }
 
+    private static ConnectorPartitionInfo cpiWithPartitionValueMap(String name, long lastModifiedMillis) {
+        List<String> values = orderedValuesOf(name);
+        return new ConnectorPartitionInfo(name, Collections.singletonMap("dt", values.get(0)), Collections.emptyMap(),
+                ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN, lastModifiedMillis,
+                ConnectorPartitionInfo.UNKNOWN, values, Collections.emptyList());
+    }
+
     /**
      * Like {@link #cpi} but with the ordered values supplied EXPLICITLY rather than derived from the
      * rendered name — needed for the spec-evolution shapes, where a row's value count legitimately
@@ -1433,6 +1497,12 @@ public class PluginDrivenMvccExternalTableTest {
                     cpi("dt=2024-02-02", TS_2024_02_02)));
         }
 
+        static Fixture connectorPartitionPruning() {
+            return build(Arrays.asList(
+                    cpiWithPartitionValueMap("dt=2024-01-01", TS_2024_01_01),
+                    cpiWithPartitionValueMap("dt=2024-02-02", TS_2024_02_02)), false, Type.DATEV2, true);
+        }
+
         static Fixture with(List<ConnectorPartitionInfo> partitions) {
             return build(partitions, false);
         }
@@ -1476,11 +1546,16 @@ public class PluginDrivenMvccExternalTableTest {
         }
 
         private static Fixture build(List<ConnectorPartitionInfo> partitions, boolean timeTravel) {
-            return build(partitions, timeTravel, Type.DATEV2);
+            return build(partitions, timeTravel, Type.DATEV2, false);
         }
 
         private static Fixture build(List<ConnectorPartitionInfo> partitions, boolean timeTravel,
                 Type partitionColType) {
+            return build(partitions, timeTravel, partitionColType, false);
+        }
+
+        private static Fixture build(List<ConnectorPartitionInfo> partitions, boolean timeTravel,
+                Type partitionColType, boolean connectorPartitionPruning) {
             ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
             ConnectorSession session = Mockito.mock(ConnectorSession.class);
             Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
@@ -1550,6 +1625,11 @@ public class PluginDrivenMvccExternalTableTest {
                             // Bypass the live Env-backed schema cache; route the LATEST seam to the
                             // canned value so the real getSchemaCacheValue() override is exercised.
                             return Optional.of(latestCacheValue);
+                        }
+
+                        @Override
+                        public boolean supportsConnectorPartitionPruning() {
+                            return connectorPartitionPruning;
                         }
                     };
             return new Fixture(table, metadata, handle, pinnedHandle, session, latestCacheValue,

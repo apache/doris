@@ -39,6 +39,8 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -51,6 +53,7 @@ import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.datasource.systable.PartitionsSysTable;
 import org.apache.doris.datasource.systable.PluginDrivenSysTable;
 import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.analysis.AnalysisInfo;
@@ -950,16 +953,56 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     @Override
+    public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
+        if (supportsConnectorPartitionPruning()) {
+            return SelectedPartitions.DEFERRED_PARTITION_PRUNING;
+        }
+        return super.initSelectedPartitions(snapshot);
+    }
+
+    /** Whether this table defers partition materialization until Nereids supplies a connector predicate. */
+    public boolean supportsConnectorPartitionPruning() {
+        return hasCapability(ConnectorCapability.SUPPORTS_CONNECTOR_PARTITION_PRUNING);
+    }
+
+    @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+        return getNameToPartitionItems(snapshot, Optional.empty());
+    }
+
+    /**
+     * Builds the generic partition map from a connector-filtered partition view. Callers use this only after
+     * converting a Nereids predicate into the neutral connector expression grammar.
+     */
+    public Optional<Map<String, PartitionItem>> getNameToPartitionItemsByFilter(Optional<MvccSnapshot> snapshot,
+            ConnectorExpression partitionFilter) {
+        List<Column> partitionColumns = getPartitionColumns(snapshot);
+        if (partitionColumns.isEmpty()) {
+            return Optional.empty();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Optional.empty();
+        }
+        Optional<FilterApplicationResult<ConnectorTableHandle>> filterResult = metadata.applyFilter(
+                session, handleOpt.get(), new ConnectorFilterConstraint(partitionFilter));
+        if (!filterResult.isPresent()) {
+            return Optional.empty();
+        }
+        return Optional.of(buildNameToPartitionItems(snapshot, metadata, session,
+                filterResult.get().getHandle(), partitionColumns));
+    }
+
+    private Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot,
+            Optional<ConnectorExpression> partitionFilter) {
         List<Column> partitionColumns = getPartitionColumns(snapshot);
         if (partitionColumns.isEmpty()) {
             return Collections.emptyMap();
         }
-        List<String> remoteNames = getSchemaCacheValue(snapshot)
-                .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
-                .orElse(Collections.emptyList());
-        List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
-
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
@@ -969,12 +1012,24 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return Collections.emptyMap();
         }
 
-        // One round-trip, no FE-side partition-value cache (per CACHE-P1: the cutover lists
-        // partitions per query instead of maintaining a second-level cache). The connector returns
-        // each partition's display name plus a raw-keyed value map; we extract values in
-        // partition-column order via the cached remote names.
-        List<ConnectorPartitionInfo> partitions =
-                metadata.listPartitions(session, handleOpt.get(), Optional.empty());
+        return buildNameToPartitionItems(snapshot, metadata, session, handleOpt.get(), partitionColumns,
+                partitionFilter);
+    }
+
+    private Map<String, PartitionItem> buildNameToPartitionItems(Optional<MvccSnapshot> snapshot,
+            ConnectorMetadata metadata, ConnectorSession session, ConnectorTableHandle handle,
+            List<Column> partitionColumns) {
+        return buildNameToPartitionItems(snapshot, metadata, session, handle, partitionColumns, Optional.empty());
+    }
+
+    private Map<String, PartitionItem> buildNameToPartitionItems(Optional<MvccSnapshot> snapshot,
+            ConnectorMetadata metadata, ConnectorSession session, ConnectorTableHandle handle,
+            List<Column> partitionColumns, Optional<ConnectorExpression> partitionFilter) {
+        List<String> remoteNames = getSchemaCacheValue(snapshot)
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
+                .orElse(Collections.emptyList());
+        List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
+        List<ConnectorPartitionInfo> partitions = metadata.listPartitions(session, handle, partitionFilter);
         List<String> partitionNames = new ArrayList<>(partitions.size());
         List<List<String>> partitionValues = new ArrayList<>(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {

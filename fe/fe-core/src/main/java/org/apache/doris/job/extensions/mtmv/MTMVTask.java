@@ -46,6 +46,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
@@ -1143,6 +1144,10 @@ public class MTMVTask extends AbstractTask {
             if (tableIf instanceof MvccTable) {
                 MvccTable mvccTable = (MvccTable) tableIf;
                 MvccSnapshot mvccSnapshot = mvccTable.loadSnapshot(Optional.empty(), Optional.empty());
+                if (mvccTable instanceof PluginDrivenMvccExternalTable) {
+                    mvccSnapshot = ((PluginDrivenMvccExternalTable) mvccTable)
+                            .materializePartitionViewForMtmv(mvccSnapshot);
+                }
                 snapshots.put(new MvccTableInfo(mvccTable), mvccSnapshot);
             }
         }

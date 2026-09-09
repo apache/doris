@@ -18,7 +18,10 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.connector.converter.NereidsToConnectorExpressionConverter;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -114,21 +117,49 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         }
 
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
+        boolean connectorFilteredPartitions = false;
+        if (nameToPartitionItem.isEmpty()
+                && scan.getSelectedPartitions().isDeferredPartitionPruning()
+                && externalTable instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) externalTable).supportsConnectorPartitionPruning()) {
+            ConnectorExpression connectorPredicate =
+                    NereidsToConnectorExpressionConverter.convert(filter.getPredicate());
+            if (connectorPredicate != null) {
+                Optional<Map<String, PartitionItem>> connectorPartitions =
+                        ((PluginDrivenExternalTable) externalTable).getNameToPartitionItemsByFilter(
+                                ctx.getStatementContext().getSnapshot(externalTable,
+                                        scan.getTableSnapshot(), scan.getScanParams()), connectorPredicate);
+                if (connectorPartitions.isPresent()) {
+                    nameToPartitionItem = connectorPartitions.get();
+                    connectorFilteredPartitions = true;
+                }
+            }
+        }
+        if (!connectorFilteredPartitions && nameToPartitionItem.isEmpty()
+                && (scan.getSelectedPartitions().isNotPruned()
+                || scan.getSelectedPartitions().isDeferredPartitionPruning())) {
+            nameToPartitionItem = externalTable.getNameToPartitionItems(
+                    ctx.getStatementContext().getSnapshot(externalTable,
+                            scan.getTableSnapshot(), scan.getScanParams()));
+        }
+        final Map<String, PartitionItem> partitionItems = nameToPartitionItem;
         Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.empty();
         boolean enableBinarySearch = ctx.getConnectContext() == null
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
-        if (enableBinarySearch && !nameToPartitionItem.isEmpty()) {
-            sortedPartitionRanges = scan.getSelectedPartitions().sortedPartitionRanges
-                    .or(() -> (Optional) externalTable.getSortedPartitionRanges(scan))
-                    .or(() -> Optional.ofNullable(SortedPartitionRanges.build(nameToPartitionItem)));
+        if (enableBinarySearch && !partitionItems.isEmpty()) {
+            sortedPartitionRanges = connectorFilteredPartitions
+                    ? Optional.ofNullable(SortedPartitionRanges.build(partitionItems))
+                    : scan.getSelectedPartitions().sortedPartitionRanges
+                            .or(() -> (Optional) externalTable.getSortedPartitionRanges(scan))
+                            .or(() -> Optional.ofNullable(SortedPartitionRanges.build(partitionItems)));
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
-                partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx,
+                partitionSlots, filter.getPredicate(), partitionItems, ctx,
                 PartitionTableType.EXTERNAL, sortedPartitionRanges);
         List<String> prunedPartitions = new ArrayList<>(result.partitions);
 
         for (String name : prunedPartitions) {
-            PartitionItem item = nameToPartitionItem.get(name);
+            PartitionItem item = partitionItems.get(name);
             // Within THIS query, nameToPartitionItem and sortedPartitionRanges are built from the same
             // frozen map. On a cross-query cache HIT, sortedPartitionRanges instead reuses ranges built by
             // an earlier query keyed by the identical (snapshotId, schemaId) version token -- content is
@@ -139,7 +170,9 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                     "pruned partition %s is missing in the selected partitions snapshot", name);
             selectedPartitionItems.put(name, item);
         }
-        return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true,
-                result.hasPartitionPredicate);
+        long totalPartitionNum = connectorFilteredPartitions
+                ? SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM : partitionItems.size();
+        return new SelectedPartitions(totalPartitionNum, selectedPartitionItems, true,
+                connectorFilteredPartitions || result.hasPartitionPredicate);
     }
 }
