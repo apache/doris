@@ -1151,6 +1151,12 @@ suite("test_leading") {
     qt_select107_7 """select /*+ leading(t3 broadcast t1 shuffle t2) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     qt_select107_8 """select /*+ leading(t3 broadcast {t1 shuffle t2}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     qt_select107_9 """select /*+ leading(t3 broadcast {t2 shuffle t1}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
+
+    qt_select_full_1 """SELECT /*+ LEADING(a,b) */ count(*) FROM t1 FULL OUTER JOIN t2 ON t1.c1 > 100;"""
+    qt_select_full_2 """SELECT /*+ LEADING(a,b) */ count(*) FROM t1 FULL OUTER JOIN t2 ON t2.c2 > 100;"""
+
+    qt_select_cross """SELECT /*+ leading(b c a) */ COUNT(*) FROM (t1 LEFT SEMI JOIN t2 ON t1.c1 = t2.c2) CROSS JOIN t3;"""
+    
     sql """drop table if exists t1;"""
     sql """drop table if exists t2;"""
     sql """drop table if exists t3;"""
