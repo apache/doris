@@ -17,6 +17,12 @@
 
 package org.apache.doris.datasource.lance.source;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
@@ -34,6 +40,7 @@ import org.apache.doris.thrift.TFtsCoverageMode;
 import org.apache.doris.thrift.TFtsMatchOperator;
 import org.apache.doris.thrift.TFtsQueryType;
 import org.apache.doris.thrift.TFullTextSearchParams;
+import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchOptions;
@@ -41,6 +48,7 @@ import org.apache.doris.thrift.TVectorSearchParams;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.Assert;
 import org.junit.Test;
@@ -50,10 +58,184 @@ import java.nio.ByteBuffer;
 import java.security.InvalidParameterException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class LanceScanNodeTest {
+
+    @Test
+    public void testLabelListSegmentsForAlreadyPushedArrayFilter() {
+        UUID first = UUID.fromString("11111111-2222-3333-4444-555555555555");
+        UUID second = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/labels.lance", 42,
+                new Schema(Collections.singletonList(new Field("labels",
+                        FieldType.nullable(ArrowType.List.INSTANCE),
+                        Collections.singletonList(Field.nullable("item", new ArrowType.Int(64, true)))))),
+                Arrays.asList(new LanceFragmentInfo(1, 10, 10), new LanceFragmentInfo(2, 20, 20),
+                        new LanceFragmentInfo(3, 30, 30)),
+                Collections.singletonMap("labels", 9),
+                Arrays.asList(scalarSegment(first, IndexType.LABEL_LIST, Collections.singletonList(1L)),
+                        scalarSegment(second, IndexType.LABEL_LIST, Collections.singletonList(2L))),
+                Collections.emptyMap());
+        Map<Long, LanceFragmentInfo> fragments = new LinkedHashMap<>();
+        metadata.getFragments().forEach(fragment -> fragments.put(fragment.getId(), fragment));
+        // This checks the planner's pushed-predicate contract. Array predicate conversion
+        // remains a separate prerequisite for ordinary SQL to select a LabelList segment.
+        Expr filter = new FunctionCallExpr("array_contains",
+                Arrays.asList(new SlotRef(null, "labels"), new IntLiteral(42)));
+        LanceScalarIndexPlanner.Plan plan =
+                LanceScalarIndexPlanner.plan(metadata, Collections.singletonList(filter), fragments);
+        Assert.assertNotNull(plan);
+        Assert.assertEquals("key_idx", plan.indexName);
+        plan.splits.addUncoveredFragments(fragments.values(), 1);
+        List<Split> splits = plan.splits.buildFragmentSplits(20, fragments);
+        Assert.assertEquals(3, splits.size());
+        Assert.assertEquals(Collections.singletonList(first), ((LanceSplit) splits.get(0)).getIndexSegmentUuids());
+        Assert.assertEquals(Collections.singletonList(second), ((LanceSplit) splits.get(1)).getIndexSegmentUuids());
+        Assert.assertEquals(Collections.singletonList(3L), ((LanceSplit) splits.get(2)).getFragmentIds());
+        Assert.assertFalse(((LanceSplit) splits.get(2)).hasIndexSegmentUuids());
+    }
+
+    @Test
+    public void testScalarSegmentsKeepSingleOwnerAndSerializeFallback() throws Exception {
+        for (IndexType type : Arrays.asList(IndexType.BTREE, IndexType.BITMAP)) {
+            LanceScanNode node = newNode();
+            UUID first = UUID.fromString("11111111-2222-3333-4444-555555555555");
+            UUID second = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+            setMetadata(node, scalarMetadata(Arrays.asList(
+                    scalarSegment(first, type, Arrays.asList(1L, 2L)),
+                    scalarSegment(second, type, Collections.singletonList(3L)))));
+            setPushedConjuncts(node, scalarPredicate());
+            node.setLimit(5);
+
+            // More BEs than segments must not cause repeated segment searches.
+            List<Split> splits = node.getSplits(20);
+            Assert.assertEquals(3, splits.size());
+            Assert.assertEquals(Arrays.asList(1L, 2L), ((LanceSplit) splits.get(0)).getFragmentIds());
+            Assert.assertEquals(Collections.singletonList(3L), ((LanceSplit) splits.get(1)).getFragmentIds());
+            Assert.assertEquals(Collections.singletonList(4L), ((LanceSplit) splits.get(2)).getFragmentIds());
+            for (int i = 0; i < splits.size(); i++) {
+                TFileRangeDesc range = new TFileRangeDesc();
+                node.setScanParams(range, splits.get(i));
+                TLanceFileDesc params = range.getTableFormatParams().getLanceParams();
+                Assert.assertEquals(42L, params.getVersion());
+                Assert.assertEquals(5L, params.getLimit());
+                if (i < 2) {
+                    ByteBuffer uuid = params.getIndexSegmentUuids().get(0).duplicate();
+                    Assert.assertEquals(i == 0 ? first : second, new UUID(uuid.getLong(), uuid.getLong()));
+                    Assert.assertFalse(params.isSetUseScalarIndex());
+                } else {
+                    Assert.assertFalse(params.isSetIndexSegmentUuids());
+                    Assert.assertTrue(params.isSetUseScalarIndex());
+                    Assert.assertFalse(params.isUseScalarIndex());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testScalarSegmentPlanRejectsUnsafeCoverageAndUnsupportedTypes() throws Exception {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        List<List<LanceIndexSegmentInfo>> candidates = Arrays.asList(
+                Collections.singletonList(scalarSegment(first, IndexType.BTREE, null)),
+                Arrays.asList(scalarSegment(first, IndexType.BTREE, Arrays.asList(1L, 2L)),
+                        scalarSegment(second, IndexType.BTREE, Arrays.asList(2L, 3L))),
+                Collections.singletonList(scalarSegment(first, IndexType.INVERTED, Arrays.asList(1L, 2L))),
+                Collections.singletonList(scalarSegment(first, IndexType.VECTOR, Arrays.asList(1L, 2L))));
+        for (List<LanceIndexSegmentInfo> segments : candidates) {
+            LanceScanNode node = newNode();
+            setMetadata(node, scalarMetadata(segments));
+            setPushedConjuncts(node, scalarPredicate());
+            List<Split> splits = node.getSplits(20);
+            Assert.assertEquals(4, splits.size());
+            for (Split split : splits) {
+                TFileRangeDesc range = new TFileRangeDesc();
+                node.setScanParams(range, split);
+                Assert.assertFalse(range.getTableFormatParams().getLanceParams().isSetIndexSegmentUuids());
+                Assert.assertFalse(range.getTableFormatParams().getLanceParams().isSetUseScalarIndex());
+            }
+        }
+    }
+
+    @Test
+    public void testScalarSegmentSelectionDoesNotDescendThroughOrOrNot() throws Exception {
+        Expr predicate = scalarPredicate();
+        for (Expr filter : Arrays.asList(
+                new CompoundPredicate(CompoundPredicate.Operator.OR, predicate, predicate),
+                new CompoundPredicate(CompoundPredicate.Operator.NOT, predicate, null))) {
+            LanceScanNode node = newNode();
+            setMetadata(node, scalarMetadata(Collections.singletonList(
+                    scalarSegment(UUID.randomUUID(), IndexType.BTREE, Arrays.asList(1L, 2L, 3L, 4L)))));
+            setPushedConjuncts(node, filter);
+            Assert.assertEquals(4, node.getSplits(20).size());
+            setPushedConjuncts(node, new CompoundPredicate(CompoundPredicate.Operator.AND, filter, predicate));
+            List<Split> splits = node.getSplits(20);
+            Assert.assertEquals(1, splits.size());
+            Assert.assertTrue(((LanceSplit) splits.get(0)).hasIndexSegmentUuids());
+        }
+    }
+
+    @Test
+    public void testDebugFragmentGroupingBypassesScalarSegments() throws Exception {
+        SessionVariable session = new SessionVariable();
+        session.lanceFragmentsPerSplit = 1;
+        LanceScanNode node = newNode(session);
+        setMetadata(node, scalarMetadata(Collections.singletonList(
+                scalarSegment(UUID.randomUUID(), IndexType.BTREE, Arrays.asList(1L, 2L, 3L, 4L)))));
+        setPushedConjuncts(node, scalarPredicate());
+        List<Split> splits = node.getSplits(20);
+        Assert.assertEquals(4, splits.size());
+        for (Split split : splits) {
+            Assert.assertFalse(((LanceSplit) split).hasIndexSegmentUuids());
+        }
+    }
+
+    @Test
+    public void testScalarSegmentDoesNotPushLimitPastDorisResidual() throws Exception {
+        LanceScanNode node = newNode();
+        setMetadata(node, scalarMetadata(Collections.singletonList(
+                scalarSegment(UUID.randomUUID(), IndexType.BTREE, Arrays.asList(1L, 2L, 3L, 4L)))));
+        node.getConjuncts().add(scalarPredicate());
+        node.getConjuncts().add(new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new FunctionCallExpr("abs", Collections.singletonList(new SlotRef(null, "key"))),
+                new IntLiteral(2)));
+        node.convertPredicate();
+        node.setLimit(1);
+        List<Split> splits = node.getSplits(20);
+        Assert.assertEquals(1, splits.size());
+        Assert.assertEquals(1, node.getConjuncts().size());
+        TFileRangeDesc range = new TFileRangeDesc();
+        node.setScanParams(range, splits.get(0));
+        Assert.assertTrue(range.getTableFormatParams().getLanceParams().isSetIndexSegmentUuids());
+        Assert.assertFalse(range.getTableFormatParams().getLanceParams().isSetLimit());
+    }
+
+    private static Expr scalarPredicate() {
+        return new BinaryPredicate(BinaryPredicate.Operator.GE, new SlotRef(null, "key"), new IntLiteral(2));
+    }
+
+    private static LanceIndexSegmentInfo scalarSegment(UUID uuid, IndexType type, List<Long> fragments) {
+        return new LanceIndexSegmentInfo(uuid, "key_idx", Collections.singletonList(9), fragments, type, null);
+    }
+
+    private static LanceTableMetadata scalarMetadata(List<LanceIndexSegmentInfo> segments) {
+        return LanceTableMetadata.withIndexSegments("s3://bucket/scalar.lance", 42,
+                new Schema(Collections.singletonList(Field.nullable("key", new ArrowType.Int(64, true)))),
+                Arrays.asList(new LanceFragmentInfo(1, 10, 12), new LanceFragmentInfo(2, 20, 20),
+                        new LanceFragmentInfo(3, 30, 30), new LanceFragmentInfo(4, 40, 40)),
+                Collections.singletonMap("key", 9), segments, Collections.emptyMap());
+    }
+
+    private static void setPushedConjuncts(LanceScanNode node, Expr predicate) {
+        node.getConjuncts().clear();
+        node.getConjuncts().add(predicate);
+        node.convertPredicate();
+        Assert.assertTrue(node.getConjuncts().isEmpty());
+    }
 
     @Test
     public void testGroupedFragmentsPreserveCoverageWeightsAndScanParams() throws Exception {

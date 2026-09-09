@@ -160,6 +160,18 @@ Status LanceTableReader::init(TableReadOptions&& options) {
             {"deltas_searched",
              ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceVectorIndexSegmentsSearched",
                                           TUnit::UNIT, LANCE_READER_PROFILE, 1)},
+            {"scalar_segments_requested",
+             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceScalarIndexSegmentsRequested",
+                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
+            {"scalar_segments_searched",
+             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceScalarIndexSegmentsSearched",
+                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
+            {"scalar_segment_fallbacks",
+             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceScalarIndexSegmentFallbacks",
+                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
+            {"scalar_segment_candidate_rows",
+             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceScalarIndexCandidateRows",
+                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
     };
     _lance_time_metrics = {
             // This is wait time reported by the same Lance scan execution node described above,
@@ -168,6 +180,12 @@ Status LanceTableReader::init(TableReadOptions&& options) {
                                                           LANCE_READER_PROFILE, 1)},
             {"find_partitions_elapsed",
              ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LanceIVFPartitionRankingTime",
+                                        LANCE_READER_PROFILE, 1)},
+            {"scalar_segment_prepare_time",
+             ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LanceScalarIndexSegmentPrepareTime",
+                                        LANCE_READER_PROFILE, 1)},
+            {"scalar_segment_search_time",
+             ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LanceScalarIndexSegmentSearchTime",
                                         LANCE_READER_PROFILE, 1)},
     };
     if (_search_kind != SearchKind::NORMAL) {
@@ -857,8 +875,28 @@ Status LanceTableReader::_configure_normal_scan(LanceScanner* scanner,
         lance_scanner_set_fragment_ids(scanner, fragment_ids.data(), fragment_ids.size()) != 0) {
         return lance_error("set Lance scanner fragment ids");
     }
-    if (lance_params.__isset.index_segment_uuids && !lance_params.index_segment_uuids.empty()) {
-        return Status::InvalidArgument("normal Lance scan cannot contain index segment UUIDs");
+    std::vector<uint8_t> segment_uuids;
+    size_t segment_count = 0;
+    RETURN_IF_ERROR(parse_index_segment_uuids(lance_params, &segment_uuids, &segment_count));
+    if (segment_count > 1) {
+        return Status::InvalidArgument("normal Lance scan accepts only one scalar index segment");
+    }
+    if (segment_count == 1) {
+        if (fragment_ids.empty() || !lance_params.__isset.version || lance_params.version <= 0) {
+            return Status::InvalidArgument(
+                    "Lance scalar index segment requires a fixed version and nonempty fragment "
+                    "ids");
+        }
+        if (lance_params.__isset.use_scalar_index && !lance_params.use_scalar_index) {
+            return Status::InvalidArgument(
+                    "Lance scalar index segment cannot be combined with use_scalar_index=false");
+        }
+        if (lance_scanner_set_scalar_index_segment(scanner, segment_uuids.data()) != 0) {
+            return lance_error("set Lance scanner scalar index segment");
+        }
+    } else if (lance_params.__isset.use_scalar_index &&
+               lance_scanner_set_use_scalar_index(scanner, lance_params.use_scalar_index) != 0) {
+        return lance_error("set Lance scanner scalar index usage");
     }
     // FE sets this only when every predicate has been pushed into Lance.
     if (lance_params.__isset.limit && lance_params.limit > 0 &&

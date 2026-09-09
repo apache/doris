@@ -64,9 +64,10 @@ import java.util.UUID;
  *
  * <p>These modes share dataset metadata, storage properties, and BE scan-range serialization.
  * Keeping them in one node prevents those common parts from drifting apart. The search request is
- * also an explicit mode marker. Ordinary scans group fragments using index coverage or a fixed
- * fragment count. Indexed vector searches are
- * split by physical index segment, with uncovered fragments retained as flat-search fallbacks.
+ * also an explicit mode marker. Ordinary scans assign one BTree/Bitmap/LabelList segment per split when
+ * a pushed filter and known, disjoint coverage allow it; uncovered fragments use non-indexed scans.
+ * Other ordinary scans use fragment splits. Indexed vector searches are split by physical index
+ * segment, with uncovered fragments retained as flat-search fallbacks.
  * Full-text searches are split only by committed inverted-index segments, with coverage governed
  * by the request's STRICT or INDEX_ONLY mode. Each search split produces local candidates; a Doris
  * TopN above this scan merges them into the requested snapshot-wide result.
@@ -532,9 +533,9 @@ public class LanceScanNode extends FileQueryScanNode {
         lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
         lanceParams.setVersion(lanceSplit.getVersion());
         if (lanceSplit.hasFragmentIds()) {
-            if (searchKind == SearchKind.NORMAL && lanceSplit.hasIndexSegmentUuids()) {
+            if (searchKind == SearchKind.NORMAL && lanceSplit.getIndexSegmentUuids().size() > 1) {
                 throw new IllegalArgumentException(
-                        "Ordinary Lance scan split must not contain index segment UUIDs");
+                        "Ordinary Lance scan split can contain only one scalar index segment");
             }
             if (searchKind == SearchKind.FULL_TEXT && !lanceSplit.hasIndexSegmentUuids()) {
                 throw new IllegalArgumentException(
@@ -556,6 +557,11 @@ public class LanceScanNode extends FileQueryScanNode {
             // Only the metadata COUNT(*) split may omit fragment ids; it opens no BE scanner and
             // BE serves the row count from table_level_row_count below, leaving fragment_ids unset.
             throw new IllegalArgumentException("Lance scan split must contain fragments");
+        }
+        if (searchKind == SearchKind.NORMAL && scalarIndexPlan != null && !lanceSplit.hasIndexSegmentUuids()) {
+            // Uncovered fragments belong to separate tasks. Do not repeat global index
+            // evaluation on these tasks; the complete filter still applies to their rows.
+            lanceParams.setUseScalarIndex(false);
         }
         // Push LIMIT into each ordinary split scanner only when it is safe to truncate that
         // split early. External searches use their own per-split candidate bound.
@@ -658,6 +664,7 @@ public class LanceScanNode extends FileQueryScanNode {
                 result.append(prefix).append("lanceFragmentGrouping=FRAGMENT\n");
             } else {
                 result.append(prefix).append("lanceFragmentGrouping=INDEX_SEGMENT\n");
+                result.append(prefix).append("lanceScalarIndexScan=SEGMENT\n");
                 result.append(prefix).append("lanceGroupingIndex=").append(scalarIndexPlan.indexName).append("\n");
                 result.append(prefix).append("lanceGroupingIndexSegments=").append(plannedIndexSegments).append("\n");
                 result.append(prefix).append("lanceGroupingIndexedFragments=").append(plannedIndexFragments).append("\n");

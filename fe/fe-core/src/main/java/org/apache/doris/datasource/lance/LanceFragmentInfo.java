@@ -47,8 +47,8 @@ public final class LanceFragmentInfo {
     /**
      * Returns the number of physical rows stored before deletions.
      *
-     * <p>The BE legacy reader reads and merges physical batches before applying the deletion
-     * vector, so split scheduling uses this value rather than {@link #getRowCount()}.
+     * <p>Reading a fragment can process rows later discarded by deletion vectors, so split
+     * scheduling uses this value rather than {@link #getRowCount()}.
      */
     public long getPhysicalRows() {
         return physicalRows;

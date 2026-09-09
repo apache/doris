@@ -17,14 +17,16 @@
 
 package org.apache.doris.datasource.lance.source;
 
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.datasource.lance.LanceFragmentInfo;
 import org.apache.doris.datasource.lance.LanceIndexSegmentInfo;
 import org.apache.doris.datasource.lance.LanceTableMetadata;
 
+import org.lance.index.IndexType;
+
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -32,7 +34,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
-/** Groups fragments using scalar-index coverage. Index search planning remains entirely in Lance. */
+/** Assigns one BTree/Bitmap/LabelList segment and a disjoint fragment domain to each ordinary scan task. */
 final class LanceScalarIndexPlanner {
     static final class Plan {
         final String indexName;
@@ -62,11 +64,12 @@ final class LanceScalarIndexPlanner {
                         TreeMap::new, Collectors.toList()));
         Plan selected = null;
         for (List<LanceIndexSegmentInfo> segments : indices.values()) {
-            // The loader copies logical-index field metadata into every segment. An index
-            // is a candidate when any of its fields occurs in a pushed filter.
-            // Non-vector indices include INVERTED (FTS); this selects grouping, not search semantics.
+            // PR #79 supports one top-level key in BTree/Bitmap/LabelList indices. Lance
+            // performs the final typed driver selection and falls back within the same domain.
             LanceIndexSegmentInfo index = segments.get(0);
-            if (index.isVectorIndex() || Collections.disjoint(index.getFieldIds(), filterFields)) {
+            if ((index.getIndexType() != IndexType.BTREE && index.getIndexType() != IndexType.BITMAP
+                    && index.getIndexType() != IndexType.LABEL_LIST)
+                    || index.getFieldIds().size() != 1 || !filterFields.contains(index.getFieldIds().get(0))) {
                 continue;
             }
             Plan candidate = groupFragments(metadata, segments, visibleFragments);
@@ -79,12 +82,24 @@ final class LanceScalarIndexPlanner {
 
     private static Set<Integer> collectFilterFields(LanceTableMetadata metadata, List<Expr> pushedConjuncts) {
         Set<SlotRef> slots = new HashSet<>();
-        pushedConjuncts.forEach(expr -> expr.collect(SlotRef.class, slots));
+        pushedConjuncts.forEach(expr -> collectDriverSlots(expr, slots));
         Set<Integer> fields = new HashSet<>();
         for (SlotRef slot : slots) {
             metadata.getLanceFieldId(slot.getColumnName()).ifPresent(fields::add);
         }
         return fields;
+    }
+
+    private static void collectDriverSlots(Expr expr, Set<SlotRef> slots) {
+        // A predicate below OR or NOT is not a necessary condition of the whole filter.
+        // Do not select its index and then force every task into a non-indexed fallback.
+        if (expr instanceof CompoundPredicate) {
+            if (((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.AND) {
+                expr.getChildren().forEach(child -> collectDriverSlots(child, slots));
+            }
+        } else {
+            expr.collect(SlotRef.class, slots);
+        }
     }
 
     private static Plan groupFragments(LanceTableMetadata metadata, List<LanceIndexSegmentInfo> segments,
@@ -94,7 +109,9 @@ final class LanceScalarIndexPlanner {
         Set<Long> coveredFragments = new HashSet<>();
         long coveredRows = 0;
         for (LanceIndexSegmentInfo segment : segments) {
-            if (!segment.getFragmentIds().isPresent()) {
+            if (!segment.getFragmentIds().isPresent()
+                    || segment.getIndexType() != segments.get(0).getIndexType()
+                    || !segment.getFieldIds().equals(segments.get(0).getFieldIds())) {
                 return null;
             }
             List<Long> fragments = new ArrayList<>();
@@ -114,7 +131,7 @@ final class LanceScalarIndexPlanner {
                 coveredRows += Math.max(fragment.getPhysicalRows(), 0);
             }
             if (!fragments.isEmpty()) {
-                splits.addIndexSegmentFragmentGroup(fragments, physicalRows);
+                splits.addIndexSegmentSplit(segment.getUuid(), fragments, physicalRows);
             }
         }
         return splits.isEmpty() ? null : new Plan(segments.get(0).getIndexName(), splits, coveredRows);
