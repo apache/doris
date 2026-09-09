@@ -20,7 +20,6 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.CatalogMgr;
@@ -39,14 +38,18 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -54,7 +57,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class StreamingInsertTaskAuditTest {
@@ -95,6 +97,67 @@ public class StreamingInsertTaskAuditTest {
                 + "\"type\" = \"mysql\", \"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
                 + "\"table\" = \"source_table\", \"offset\" = \"latest\")";
         runTask(null, sql, Mockito.mock(JdbcTvfSourceOffsetProvider.class), Mockito.mock(Offset.class), false);
+    }
+
+    @Test
+    public void testAuditParsingFailureDoesNotFailInsert() throws Exception {
+        runWithAuditPreparationFailure(true);
+    }
+
+    @Test
+    public void testAuditRangeFailureDoesNotFailInsert() throws Exception {
+        runWithAuditPreparationFailure(false);
+    }
+
+    private void runWithAuditPreparationFailure(boolean parserFailure) throws Exception {
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        QueryState state = new QueryState();
+        Mockito.when(ctx.getState()).thenReturn(state);
+        StreamingJobProperties properties = Mockito.mock(StreamingJobProperties.class);
+        SourceOffsetProvider provider = Mockito.mock(SourceOffsetProvider.class);
+        Mockito.when(provider.getSourceType()).thenReturn("s3");
+        S3Offset offset = new S3Offset();
+        offset.setFileLists(RESOLVED_URI);
+        Mockito.when(provider.getNextOffset(Mockito.eq(properties), Mockito.anyMap())).thenReturn(offset);
+        InsertIntoTableCommand baseCommand = Mockito.mock(InsertIntoTableCommand.class);
+        Mockito.when(baseCommand.getParsedPlan()).thenReturn(Optional.of(Mockito.mock(LogicalPlan.class)));
+        InsertIntoTableCommand taskCommand = Mockito.mock(InsertIntoTableCommand.class);
+        UnboundTVFRelation tvf = Mockito.mock(UnboundTVFRelation.class);
+        Mockito.when(taskCommand.getAllTVFRelation()).thenReturn(Collections.singletonList(tvf));
+        Mockito.when(provider.rewriteTvfParams(Mockito.eq(baseCommand), Mockito.eq(offset), Mockito.anyLong()))
+                .thenReturn(taskCommand);
+        Mockito.doAnswer(invocation -> {
+            state.setOk();
+            return null;
+        }).when(taskCommand).run(Mockito.eq(ctx), Mockito.any(StmtExecutor.class));
+
+        try (MockedStatic<InsertTask> insertTask = Mockito.mockStatic(InsertTask.class);
+                MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class);
+                MockedConstruction<NereidsParser> parsers = Mockito.mockConstruction(NereidsParser.class,
+                        (parser, construction) -> {
+                            Mockito.when(parser.parseSingle(S3_SQL)).thenReturn(baseCommand);
+                            if (parserFailure) {
+                                Mockito.when(parser.parseForEncryption(Mockito.eq(S3_SQL), Mockito.anyMap()))
+                                        .thenThrow(new IllegalStateException("audit parsing failed"));
+                            }
+                            // Otherwise leave replacements empty to exercise the range assertion.
+                        });
+                MockedStatic<AuditLogHelper> audit = Mockito.mockStatic(AuditLogHelper.class)) {
+            insertTask.when(() -> InsertTask.makeConnectContext(UserIdentity.ROOT, "test_db")).thenReturn(ctx);
+            StreamingInsertTask task = new StreamingInsertTask(1L, 2L, S3_SQL, provider, "test_db", properties,
+                    Collections.emptyMap(), UserIdentity.ROOT, null);
+            // A retry must not audit files from an earlier attempt after preparation fails.
+            Deencapsulation.setField(task, "auditSql", "stale audit SQL from a previous attempt");
+            task.before();
+            Assert.assertNull(task.getAuditSql());
+            Assert.assertEquals(2, parsers.constructed().size());
+            Mockito.verify(parsers.constructed().get(0)).parseSingle(S3_SQL);
+            Mockito.verify(parsers.constructed().get(1)).parseForEncryption(Mockito.eq(S3_SQL), Mockito.anyMap());
+            task.run();
+            Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+            Mockito.verify(taskCommand).run(ctx, executors.constructed().get(1));
+            audit.verifyNoInteractions();
+        }
     }
 
     @Test
@@ -180,11 +243,8 @@ public class StreamingInsertTaskAuditTest {
             Deencapsulation.setField(task, "stmtExecutor", executor);
             Deencapsulation.setField(task, "runningOffset", offset);
             if (expectAudit) {
-                TreeMap<Pair<Integer, Integer>, String> replacements =
-                        new TreeMap<>(new Pair.PairComparator<>());
-                new NereidsParser().parseForEncryption(sql, replacements);
                 Deencapsulation.setField(task, "auditSql",
-                        Deencapsulation.invoke(task, "getAuditSql", replacements));
+                        Deencapsulation.invoke(task, "buildAuditSql"));
             }
 
             if (commandFailure == null) {

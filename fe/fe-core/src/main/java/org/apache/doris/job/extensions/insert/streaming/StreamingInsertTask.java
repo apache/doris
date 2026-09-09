@@ -96,6 +96,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
 
     @Override
     public void before() throws Exception {
+        auditSql = null;
         if (getIsCanceled().get()) {
             log.info("streaming insert task has been canceled, task id is {}", getTaskId());
             return;
@@ -113,14 +114,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
 
         this.runningOffset = offsetProvider.getNextOffset(jobProperties, originTvfProps);
         log.info("streaming insert task {} get running offset: {}", taskId, runningOffset.toString());
-        TreeMap<Pair<Integer, Integer>, String> replacements = new TreeMap<>(new Pair.PairComparator<>());
-        InsertIntoTableCommand baseCommand;
-        NereidsParser parser = new NereidsParser();
-        if (auditEnabled) {
-            baseCommand = (InsertIntoTableCommand) parser.parseForEncryption(sql, replacements);
-        } else {
-            baseCommand = (InsertIntoTableCommand) parser.parseSingle(sql);
-        }
+        InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
         baseCommand.setJobId(getTaskId());
         StmtExecutor baseStmtExecutor =
                 new StmtExecutor(ctx, new LogicalPlanAdapter(baseCommand, ctx.getStatementContext()));
@@ -132,8 +126,12 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         this.taskCommand.setLabelName(Optional.of(labelName));
         this.stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(taskCommand, ctx.getStatementContext()));
         if (auditEnabled) {
-            this.auditSql = getAuditSql(replacements);
             ctx.setExecutor(stmtExecutor);
+            try {
+                this.auditSql = buildAuditSql();
+            } catch (Exception e) {
+                log.warn("Failed to prepare audit SQL, label {}; skipping audit for this attempt", labelName, e);
+            }
         }
     }
 
@@ -165,14 +163,16 @@ public class StreamingInsertTask extends AbstractStreamingTask {
                     runningOffset.toString(), e);
             throw new JobException(errorMessage);
         } finally {
-            if (auditEnabled) {
+            if (auditSql != null) {
                 AuditLogHelper.logAuditLog(ctx, auditSql, stmtExecutor.getParsedStmt(),
                         stmtExecutor.getQueryStatisticsForAuditLog(), true);
             }
         }
     }
 
-    private String getAuditSql(TreeMap<Pair<Integer, Integer>, String> replacements) {
+    private String buildAuditSql() {
+        TreeMap<Pair<Integer, Integer>, String> replacements = new TreeMap<>(new Pair.PairComparator<>());
+        new NereidsParser().parseForEncryption(sql, replacements);
         List<UnboundTVFRelation> tvfRelations = taskCommand.getAllTVFRelation();
         Preconditions.checkState(replacements.size() == 1 && tvfRelations.size() == 1,
                 "S3 streaming insert must contain exactly one TVF");
