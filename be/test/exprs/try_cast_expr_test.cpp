@@ -124,6 +124,30 @@ struct TryCastTestRowExecReturnErrorImpl {
     }
 };
 
+template <bool nullable>
+struct TryCastTestOverflowImpl {
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, uint32_t result,
+                               size_t input_rows_count) {
+        const auto& column = block.get_by_position(arguments[0]).column;
+        auto ret_col = ColumnInt32::create();
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            auto value = column->get_int(row);
+            if (value == 0) {
+                return {ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "cast overflow"};
+            }
+            ret_col->insert_value(value);
+        }
+        if constexpr (nullable) {
+            block.get_by_position(result).column = ColumnNullable::create(
+                    std::move(ret_col), ColumnUInt8::create(input_rows_count, 0));
+        } else {
+            block.get_by_position(result).column = std::move(ret_col);
+        }
+        return Status::OK();
+    }
+};
+
 class MockVExprForTryCast : public VExpr {
 public:
     MockVExprForTryCast() = default;
@@ -275,6 +299,44 @@ TEST_F(TryCastExprTest, row_exec3) {
                                         "mock_input_column"});
     auto st = try_cast_expr.execute(context.get(), &block, &result_column_id);
     EXPECT_FALSE(st.ok()) << st.msg();
+}
+
+TEST_F(TryCastExprTest, arithmetic_overflow) {
+    auto check_overflow = [&]<bool nullable>() {
+        try_cast_expr._function = std::make_shared<DefaultFunction>(
+                try_cast_test_function<TryCastTestOverflowImpl<nullable>>::create(),
+                DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
+        try_cast_expr._original_cast_return_is_nullable = nullable;
+        for (size_t rows : {1, 3}) {
+            ColumnPtr result;
+            auto status = try_cast_expr.execute_column_impl(context.get(), nullptr, nullptr, rows,
+                                                            result);
+            ASSERT_TRUE(status.ok()) << status;
+            const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+            ASSERT_EQ(nullable_result.size(), rows);
+            EXPECT_TRUE(nullable_result.is_null_at(0));
+            for (size_t row = 1; row < rows; ++row) {
+                EXPECT_FALSE(nullable_result.is_null_at(row));
+                EXPECT_EQ(nullable_result.get_nested_column().get_int(row), row);
+            }
+        }
+    };
+    check_overflow.template operator()<false>();
+    check_overflow.template operator()<true>();
+}
+
+TEST_F(TryCastExprTest, child_arithmetic_overflow) {
+    class OverflowChild : public MockVExprForTryCast {
+        Status execute_column_impl(VExprContext* context, const Block* block,
+                                   const Selector* selector, size_t count,
+                                   ColumnPtr& result_column) const override {
+            return {ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "child overflow"};
+        }
+    };
+    try_cast_expr._children[0] = std::make_shared<OverflowChild>();
+    ColumnPtr result;
+    auto status = try_cast_expr.execute_column_impl(context.get(), nullptr, nullptr, 3, result);
+    EXPECT_TRUE(status.is<ErrorCode::ARITHMETIC_OVERFLOW_ERRROR>()) << status;
 }
 
 TEST_F(TryCastExprTest, selected_row_safety) {

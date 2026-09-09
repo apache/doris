@@ -130,13 +130,9 @@ Status VCastExpr::execute_column_impl(VExprContext* context, const Block* block,
     return Status::OK();
 }
 
-bool cast_error_code(Status& st) {
-    //There may be more error codes that need to be captured by try cast in the future.
-    if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
-        return true;
-    } else {
-        return false;
-    }
+bool cast_error_code(const Status& st) {
+    // Decimal conversions report value overflow separately from invalid arguments.
+    return st.is<ErrorCode::INVALID_ARGUMENT>() || st.is<ErrorCode::ARITHMETIC_OVERFLOW_ERRROR>();
 }
 
 DataTypePtr TryCastExpr::original_cast_return_type() const {
