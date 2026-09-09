@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -65,10 +66,10 @@ public final class GroupJoinFusionUtils {
      * (AlignGroupJoinConjunctOrder) or to require it already (the translator).
      * <p>
      * Returns null when the shape is not eligible (not an INNER/CROSS hash join, mark join,
-     * broadcast join, residual non-equi conjuncts, aggregates reading both sides or
-     * intermediate project slots, no aggregate function) or when the group-by keys cannot be
-     * mapped one-to-one onto the conjuncts. Session-level gates (enable_group_join_fusion,
-     * enable_spill) are checked by the callers, not here.
+     * broadcast join, residual non-equi conjuncts, null-safe equal conjuncts, aggregates
+     * reading both sides or intermediate project slots) or when the group-by keys cannot
+     * be mapped one-to-one onto the conjuncts. Session-level gates
+     * (enable_group_join_fusion, enable_spill) are checked by the callers, not here.
      */
     public static List<Expression> alignedConjunctsForGroupJoin(
             Aggregate<?> aggregate, PhysicalHashJoin<?, ?> join) {
@@ -100,12 +101,6 @@ public final class GroupJoinFusionUtils {
         joinChildrenOutputs.addAll(leftOutput);
         joinChildrenOutputs.addAll(rightOutput);
         if (!joinChildrenOutputs.containsAll(aggregate.getInputSlots())) {
-            return null;
-        }
-        // The BE group-join node requires at least one aggregate function.
-        boolean hasAggregateFunction = aggregate.getOutputExpressions().stream()
-                .anyMatch(expr -> expr.containsType(AggregateExpression.class));
-        if (!hasAggregateFunction) {
             return null;
         }
         // Aggregate functions must not reference columns from both join sides: the per-side
@@ -143,7 +138,11 @@ public final class GroupJoinFusionUtils {
         }
         List<EqualPredicate> equalConjuncts = new ArrayList<>();
         for (Expression conjunct : hashJoinConjuncts) {
-            if (!(conjunct instanceof EqualPredicate)) {
+            // Null-safe equal (a <=> b) is not fusable: the BE group-join node rejects
+            // EQ_FOR_NULL hash conjuncts (validate_group_join_node), so such joins stay on
+            // the regular HashJoinNode + AggregationNode path, which preserves the
+            // null-safe matching semantics.
+            if (!(conjunct instanceof EqualPredicate) || conjunct instanceof NullSafeEqual) {
                 return null;
             }
             EqualPredicate eq = (EqualPredicate) conjunct;
