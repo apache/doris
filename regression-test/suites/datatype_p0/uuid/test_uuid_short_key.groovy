@@ -34,7 +34,7 @@ suite("test_uuid_short_key", "p0") {
     qt_range """/* ${token} */ SELECT COUNT(*),MIN(u),MAX(u),SUM(id) FROM uuid_short_key
                 WHERE u >= CAST('80000000000000000000000000003000' AS UUID)
                   AND u < CAST('80000000000000000000000000003010' AS UUID)"""
-    uuidCheckProfile(token, ['RowsKeyRangeFiltered'], ['RowsInvertedIndexFiltered','RowsBloomFilterFiltered'])
+    checkProfileCounters(token, ['RowsKeyRangeFiltered'], ['RowsInvertedIndexFiltered','RowsBloomFilterFiltered'])
     qt_reference """SELECT COUNT(*),MIN(u),MAX(u),SUM(id) FROM uuid_short_key
                     WHERE id >= 12288 AND id < 12304"""
 

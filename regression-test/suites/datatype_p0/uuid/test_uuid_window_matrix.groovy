@@ -16,12 +16,13 @@
 // under the License.
 
 suite("test_uuid_window_matrix", "p0") {
+    def matrix = this.evaluate(new File(context.file.parentFile, "uuid_matrix.groovy"))
     sql "DROP TABLE IF EXISTS uuid_matrix_window"
-    sql """CREATE TABLE uuid_matrix_window (${uuidMatrixSchema()})
+    sql """CREATE TABLE uuid_matrix_window (${matrix.schema()})
            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"""
-    sql "INSERT INTO uuid_matrix_window VALUES ${uuidMatrixValues()}"
+    sql "INSERT INTO uuid_matrix_window VALUES ${matrix.values()}"
 
-    uuidRunMatrix('unary', 'uuid_matrix_window', ['u'], { u ->
+    matrix.run(delegate, 'unary', 'uuid_matrix_window', ['u'], { u ->
         String frame = 'OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)'
         [lag_value: "LAG(${u}) OVER (ORDER BY id)", lead_value: "LEAD(${u}) OVER (ORDER BY id)",
          first_value: "FIRST_VALUE(${u}) ${frame}", last_value: "LAST_VALUE(${u}) ${frame}",
@@ -33,7 +34,7 @@ suite("test_uuid_window_matrix", "p0") {
          percent_rank_value: "PERCENT_RANK() OVER (ORDER BY ${u})", cume_dist_value: "CUME_DIST() OVER (ORDER BY ${u})",
          ntile_value: "NTILE(3) OVER (ORDER BY ${u},id)"]
     })
-    uuidRunMatrix('default', 'uuid_matrix_window', ['u','v'], { u,v ->
+    matrix.run(delegate, 'default', 'uuid_matrix_window', ['u','v'], { u,v ->
         [lag_zero: "LAG(${u},0,${v}) OVER (ORDER BY id)", lead_zero: "LEAD(${u},0,${v}) OVER (ORDER BY id)",
          lag_value: "LAG(${u},1,${v}) OVER (ORDER BY id)", lead_value: "LEAD(${u},1,${v}) OVER (ORDER BY id)",
          lag_outside: "LAG(${u},100,${v}) OVER (ORDER BY id)", lead_outside: "LEAD(${u},100,${v}) OVER (ORDER BY id)"]
