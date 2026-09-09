@@ -105,6 +105,21 @@ public class PluginDrivenScanNodeBatchModeTest {
     }
 
     @Test
+    public void testDeferredPartitionViewMaterializationRestoresFullScanBatchEligibility() {
+        Map<String, PartitionItem> items = new LinkedHashMap<>();
+        for (int index = 0; index < THRESHOLD; index++) {
+            items.put("pt=" + index, Mockito.mock(PartitionItem.class));
+        }
+
+        SelectedPartitions materialized = PluginDrivenScanNode.materializeDeferredSelectedPartitions(
+                SelectedPartitions.DEFERRED_PARTITION_PRUNING, items);
+
+        Assertions.assertNotSame(SelectedPartitions.DEFERRED_PARTITION_PRUNING, materialized);
+        Assertions.assertTrue(
+                PluginDrivenScanNode.shouldUseBatchMode(materialized, true, true, THRESHOLD));
+    }
+
+    @Test
     public void testNoSlotsNeverBatches() {
         // No required slots (e.g. count-only) -> not batch. Pins the hasSlots guard.
         Assertions.assertFalse(PluginDrivenScanNode.shouldUseBatchMode(pruned(THRESHOLD), false, true, THRESHOLD));

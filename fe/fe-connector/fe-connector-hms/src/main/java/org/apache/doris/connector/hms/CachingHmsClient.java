@@ -215,6 +215,13 @@ public class CachingHmsClient implements HmsClient {
     }
 
     @Override
+    public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
+        // A filter result has no bounded cache key and must reflect the predicate sent by the current query.
+        // Do not read or populate the full partition-name cache here.
+        return delegate.listPartitionsByFilter(dbName, tableName, filter);
+    }
+
+    @Override
     public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
         return getPartitionsWithStats(dbName, tableName, partNames).getPartitions();
     }
