@@ -142,6 +142,35 @@ suite("test_lance_vector_search_metrics", "p0,external") {
         contains "lanceSearchIndexSegments=0"
     }
 
+    // The fixture creates a_l2 before z_cosine on this one embedding column. This is the
+    // production-path counterpart to LanceScanNodeTest: a cosine request must skip the earlier
+    // L2 group, plan z_cosine, and reach the physical IVF index rather than silently falling
+    // back to fragment search.
+    explain {
+        sql("""SELECT row_id, _distance
+               FROM ${search("vs_ivf_flat_f32_multi_metric", boundaryQuery, "9", "1", "cosine", "")}
+               ORDER BY _distance, row_id""")
+        contains "lanceMetric=cosine"
+        contains "lanceSearchUnindexedFragments=0"
+        contains "lanceSearchIndexSegments=1"
+    }
+    def multiMetricSingleProbe = sql """
+        SELECT row_id, _distance
+        FROM ${search("vs_ivf_flat_f32_multi_metric", boundaryQuery, "9", "1", "cosine", "")}
+        ORDER BY _distance, row_id
+    """
+    def multiMetricFlat = sql """
+        SELECT row_id, _distance
+        FROM ${flatSearch("vs_ivf_flat_f32_multi_metric", boundaryQuery, "9", "cosine")}
+        ORDER BY _distance, row_id
+    """
+    assertEquals(9, multiMetricSingleProbe.size())
+    assertEquals(9, multiMetricFlat.size())
+    assertFalse(multiMetricSingleProbe.collect { it[0] }.equals(multiMetricFlat.collect { it[0] }),
+            "vs_ivf_flat_f32_multi_metric: nprobes=1 matched flat search, so this case cannot "
+            + "prove the later cosine index was used. indexed=" + multiMetricSingleProbe
+            + " flat=" + multiMetricFlat)
+
     // An omitted metric is treated as l2 during index selection, so a cosine index is not
     // selected either. This pins current behaviour deliberately: the user-facing default
     // documented for `metric` is the metric of the matching index, which is not what index
