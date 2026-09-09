@@ -18,6 +18,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 
 #include "common/status.h"
 #include "util/string_util.h"
@@ -43,7 +44,10 @@ namespace doris {
 class S3URI {
 public:
     S3URI(const std::string& location) : _location(location) {}
-    Status parse();
+    // Azure SDK blob-name APIs encode their argument. Iceberg ADLSLocation passes
+    // ABFS/WASB names literally, so percent-decode only HTTP(S) Azure URL paths.
+    // Keep the old S3/raw-key contract. The provider flag also covers custom hosts.
+    Status parse(bool azure_provider = false);
     const std::string& get_bucket() const { return _bucket; }
     const std::string& get_key() const { return _key; }
     // The authority host, when present.  For Azure ABFS/WASB paths this is the
@@ -51,7 +55,9 @@ public:
     const std::string& get_endpoint() const { return _endpoint; }
     // The storage account name parsed from an Azure authority.
     const std::string& get_account() const { return _account; }
+    const std::string& get_scheme() const { return _scheme; }
     bool is_azure() const { return _is_azure; }
+    static bool is_azure_endpoint(std::string_view authority);
     const std::string& get_location() const { return _location; }
     std::string to_string() const;
 
@@ -70,6 +76,7 @@ private:
     static const StringCaseSet _VALID_SCHEMES;
 
     std::string _location;
+    std::string _scheme;
     std::string _bucket;
     std::string _key;
     std::string _endpoint;

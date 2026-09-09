@@ -114,6 +114,111 @@ TEST_F(S3URITest, InvalidAzureDataLakeAuthority) {
     EXPECT_FALSE(duplicate_separator.parse().ok());
 }
 
+TEST_F(S3URITest, AzureParsingErrorsDoNotEchoLocations) {
+    for (const auto* location :
+         {"abfss:///hidden-object?sig=sentinel",
+          "abfss://@account.dfs.core.windows.net/hidden-object?sig=sentinel",
+          "abfss://container@/hidden-object?sig=sentinel",
+          "WASBS://container@account@other.blob.core.windows.net/hidden-object?sig=sentinel",
+          "https://account.blob.core.windows.net//hidden-object?sig=sentinel"}) {
+        S3URI uri(location);
+        auto status = uri.parse();
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(status.to_string().find("sentinel"), std::string::npos);
+        EXPECT_EQ(status.to_string().find("hidden-object"), std::string::npos);
+        EXPECT_EQ(status.to_string().find("://"), std::string::npos);
+    }
+}
+
+TEST_F(S3URITest, ParsingErrorsRedactQueriesBeforeProviderSelection) {
+    for (const auto* location : {"https://custom.example.com//hidden-object?sig=sentinel",
+                                 "s3:///hidden-object?sig=sentinel#fragment-sentinel",
+                                 "unknown://host/hidden-object#fragment-sentinel"}) {
+        S3URI uri(location);
+        auto status = uri.parse();
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(status.to_string().find("sentinel"), std::string::npos);
+        EXPECT_NE(status.to_string().find("hidden-object"), std::string::npos);
+    }
+
+    S3URI custom("https://custom.example.com//hidden-object?sig=sentinel");
+    auto status = custom.parse(true);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(status.to_string().find("sentinel"), std::string::npos);
+    EXPECT_EQ(status.to_string().find("hidden-object"), std::string::npos);
+}
+
+TEST_F(S3URITest, SchemeSplitPreservesSeparatorsInObjectNames) {
+    for (const auto* location :
+         {"s3://container/path/http://example//file",
+          "abfss://container@account.dfs.core.windows.net/path/http://example//file",
+          "https://account.blob.core.windows.net/container/path/http://example//file"}) {
+        S3URI uri(location);
+        ASSERT_TRUE(uri.parse().ok());
+        EXPECT_EQ(uri.get_key(), "path/http://example//file");
+        EXPECT_EQ(uri.get_bucket(), "container");
+    }
+}
+
+TEST_F(S3URITest, IcebergAdlsPathsPreserveLiteralPercentSequences) {
+    for (const auto* scheme : {"abfs", "abfss", "wasb", "wasbs"}) {
+        for (const auto* key :
+             {"data/p=a%2Fb/file.parquet", "path/a%20b+%2520/http://example//file",
+              "path/100%/%2/%GG", "path/a b "}) {
+            const std::string service =
+                    std::string_view(scheme).starts_with("wasb") ? "blob" : "dfs";
+            S3URI uri(std::string(scheme) + "://container@account." + service +
+                      ".core.windows.net/" + key);
+            ASSERT_TRUE(uri.parse().ok());
+            EXPECT_EQ(uri.get_key(), key);
+            ASSERT_TRUE(uri.parse(true).ok());
+            EXPECT_EQ(uri.get_key(), key);
+        }
+    }
+}
+
+TEST_F(S3URITest, AzureHttpPercentDecodingOccursExactlyOnceAndPreservesPlus) {
+    S3URI uri("https://account.blob.core.windows.net/container/a%20b+%2520//c%3Ad%2Fe%3Ff%23g");
+    ASSERT_TRUE(uri.parse().ok());
+    EXPECT_EQ(uri.get_key(), "a b+%20//c:d/e?f#g");
+    ASSERT_TRUE(uri.parse(true).ok());
+    EXPECT_EQ(uri.get_key(), "a b+%20//c:d/e?f#g");
+
+    S3URI custom("https://custom.example.com/container/a%20b+%2520");
+    ASSERT_TRUE(custom.parse().ok());
+    EXPECT_FALSE(custom.is_azure());
+    EXPECT_EQ(custom.get_key(), "a%20b+%2520");
+    ASSERT_TRUE(custom.parse(true).ok());
+    EXPECT_EQ(custom.get_key(), "a b+%20");
+
+    S3URI raw("a%20b+%2520");
+    ASSERT_TRUE(raw.parse(true).ok());
+    EXPECT_EQ(raw.get_key(), "a%20b+%2520");
+    S3URI legacy("s3://container/a%20b+%2520");
+    ASSERT_TRUE(legacy.parse(true).ok());
+    EXPECT_EQ(legacy.get_key(), "a%20b+%2520");
+}
+
+TEST_F(S3URITest, RejectsInvalidAzureHttpPercentEncodingWithoutEchoingInput) {
+    for (const auto* key : {"path%", "path%1", "path%1g", "path%gg"}) {
+        S3URI uri(std::string("https://account.blob.core.windows.net/container/") + key +
+                  "?sig=secret");
+        auto status = uri.parse();
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(status.to_string().find("sig=secret"), std::string::npos);
+    }
+}
+
+TEST_F(S3URITest, AzureHostRecognitionDoesNotClaimUnrelatedHttpDomains) {
+    EXPECT_TRUE(S3URI::is_azure_endpoint("ACCOUNT.blob.core.windows.net:443"));
+    EXPECT_TRUE(S3URI::is_azure_endpoint("account.dfs.core.chinacloudapi.cn"));
+    EXPECT_TRUE(S3URI::is_azure_endpoint("account.blob.core.usgovcloudapi.net"));
+    EXPECT_TRUE(S3URI::is_azure_endpoint("account.blob.core.cloudapi.de"));
+    EXPECT_FALSE(S3URI::is_azure_endpoint("service.blob.example.com"));
+    EXPECT_FALSE(S3URI::is_azure_endpoint("account.blob.core.windows.net.example.com"));
+    EXPECT_FALSE(S3URI::is_azure_endpoint("onelake.dfs.fabric.microsoft.com"));
+}
+
 TEST_F(S3URITest, InvalidSchema) {
     std::string p1 = "xxx://a.b.com/bucket/path/to/file";
     S3URI uri1(p1);

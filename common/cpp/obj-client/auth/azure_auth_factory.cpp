@@ -48,12 +48,29 @@ int64_t unix_millis_now() {
 }
 
 std::optional<int64_t> sas_expiry_from_token(std::string_view token, std::string* error) {
+    std::optional<int64_t> result;
+    bool has_signature = false;
     size_t begin = 0;
     while (begin <= token.size()) {
         const auto end = token.find('&', begin);
         const auto field = token.substr(
                 begin, end == std::string_view::npos ? token.size() - begin : end - begin);
-        if (field.starts_with("se=")) {
+        const auto separator = field.find('=');
+        if (separator == std::string_view::npos || separator == 0) {
+            *error = "Azure SAS credential has an invalid query field";
+            return std::nullopt;
+        }
+        if (field.starts_with("sig=")) {
+            if (has_signature || field.size() == 4) {
+                *error = "Azure SAS credential has an invalid signature field";
+                return std::nullopt;
+            }
+            has_signature = true;
+        } else if (field.starts_with("se=")) {
+            if (result.has_value()) {
+                *error = "Azure SAS credential has duplicate expiry fields";
+                return std::nullopt;
+            }
             const auto encoded_expiry = field.substr(3);
             if (encoded_expiry.empty()) {
                 *error = "Azure SAS credential has an empty expiry";
@@ -64,9 +81,9 @@ std::optional<int64_t> sas_expiry_from_token(std::string_view token, std::string
                         Azure::Core::Url::Decode(std::string(encoded_expiry)),
                         Azure::DateTime::DateFormat::Rfc3339);
                 const auto system_time = static_cast<std::chrono::system_clock::time_point>(expiry);
-                return std::chrono::duration_cast<std::chrono::milliseconds>(
-                               system_time.time_since_epoch())
-                        .count();
+                result = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 system_time.time_since_epoch())
+                                 .count();
             } catch (const std::exception&) {
                 *error = "Azure SAS credential has an invalid expiry";
                 return std::nullopt;
@@ -77,7 +94,10 @@ std::optional<int64_t> sas_expiry_from_token(std::string_view token, std::string
         }
         begin = end + 1;
     }
-    return std::nullopt;
+    if (!has_signature) {
+        *error = "Azure SAS credential requires a signature field";
+    }
+    return result;
 }
 
 std::string oauth_tenant_from_uri(std::string_view oauth_server_uri) {
@@ -89,8 +109,8 @@ std::string oauth_tenant_from_uri(std::string_view oauth_server_uri) {
     }
     while (begin < path.size()) {
         const auto end = path.find('/', begin);
-        const auto part = path.substr(begin, end == std::string::npos ? path.size() - begin
-                                                                        : end - begin);
+        const auto part =
+                path.substr(begin, end == std::string::npos ? path.size() - begin : end - begin);
         if (!part.empty() && part != "oauth2" && part != "v2.0" && part != "token") {
             return part;
         }
@@ -116,17 +136,51 @@ std::string oauth_authority_from_uri(std::string_view oauth_server_uri) {
 
 } // namespace
 
+std::string AzureAuthFactory::validate(const AzureCredentialOptions& credential) {
+    int64_t effective_expiry_ms = 0;
+    return validate(credential, unix_millis_now(), &effective_expiry_ms);
+}
+
+std::string AzureAuthFactory::validate(const AzureCredentialOptions& credential, int64_t now_ms,
+                                       int64_t* effective_expiry_ms) {
+    *effective_expiry_ms = 0;
+    if (auto error = credential.validate(); !error.empty()) {
+        return error;
+    }
+    if (credential.type != AzureCredentialType::SAS) {
+        return {};
+    }
+    const auto token = normalize_sas_token(credential.sas_token);
+    if (token.empty()) {
+        return "Azure SAS credential requires a non-empty token";
+    }
+    if (contains_line_break(token)) {
+        return "Azure SAS token contains a line break";
+    }
+    std::string error;
+    const auto token_expiry = sas_expiry_from_token(token, &error);
+    if (!error.empty()) {
+        return error;
+    }
+    *effective_expiry_ms = credential.sas_expiration_time_ms;
+    if (token_expiry.has_value() &&
+        (*effective_expiry_ms == 0 || *token_expiry < *effective_expiry_ms)) {
+        *effective_expiry_ms = *token_expiry;
+    }
+    if ((token_expiry.has_value() && *token_expiry <= now_ms) ||
+        (*effective_expiry_ms > 0 && *effective_expiry_ms <= now_ms)) {
+        return "Azure SAS credential is expired";
+    }
+    return {};
+}
+
 AzureClientBuildResult AzureAuthFactory::create(
         std::string_view container_url, const AzureCredentialOptions& credential,
         Azure::Storage::Blobs::BlobClientOptions client_options) {
+    if (auto error = validate(credential); !error.empty()) {
+        return {.error = std::move(error)};
+    }
     if (credential.type == AzureCredentialType::OAUTH2) {
-        if (credential.oauth_client_id.empty() || credential.oauth_client_secret.empty()) {
-            return {.error = "Azure OAuth2 credential requires client id and client secret"};
-        }
-        if (credential.oauth_server_uri.empty()) {
-            return {.error = "Azure OAuth2 credential requires an OAuth server URI"};
-        }
-
         try {
             std::string tenant_id = credential.oauth_tenant_id;
             if (tenant_id.empty()) {
@@ -136,8 +190,7 @@ AzureClientBuildResult AzureAuthFactory::create(
                 return {.error = "Azure OAuth2 credential requires a tenant id"};
             }
             Azure::Identity::ClientSecretCredentialOptions identity_options;
-            identity_options.AuthorityHost =
-                    oauth_authority_from_uri(credential.oauth_server_uri);
+            identity_options.AuthorityHost = oauth_authority_from_uri(credential.oauth_server_uri);
             if (identity_options.AuthorityHost.empty()) {
                 return {.error = "Azure OAuth2 credential has an invalid OAuth server URI"};
             }
@@ -150,54 +203,40 @@ AzureClientBuildResult AzureAuthFactory::create(
                     std::string(container_url), std::move(credential_view),
                     std::move(client_options));
             return {.container_client = std::move(client)};
-        } catch (const std::exception& e) {
-            return {.error = std::string("failed to create Azure OAuth2 credential: ") + e.what()};
+        } catch (const std::exception&) {
+            return {.error = "failed to create Azure OAuth2 credential"};
         }
     }
 
     if (credential.type == AzureCredentialType::SAS) {
         auto token = normalize_sas_token(credential.sas_token);
-        if (token.empty()) {
-            return {.error = "Azure SAS credential requires a non-empty token"};
-        }
-        if (contains_line_break(token)) {
-            return {.error = "Azure SAS token contains a line break"};
-        }
-        if (credential.sas_expiration_time_ms < 0) {
-            return {.error = "Azure SAS credential has an invalid expiry"};
-        }
-        if (credential.sas_expiration_time_ms > 0 &&
-            credential.sas_expiration_time_ms <= unix_millis_now()) {
-            return {.error = "Azure SAS credential is expired"};
-        }
-        std::string expiry_error;
-        if (const auto token_expiry = sas_expiry_from_token(token, &expiry_error);
-            !expiry_error.empty()) {
-            return {.error = std::move(expiry_error)};
-        } else if (token_expiry.has_value() && *token_expiry <= unix_millis_now()) {
-            return {.error = "Azure SAS credential is expired"};
-        }
-
         std::string sas_url(container_url);
         sas_url += sas_url.find('?') == std::string::npos ? '?' : '&';
         sas_url += token;
-        auto client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
-                std::move(sas_url), std::move(client_options));
-        return {.container_client = std::move(client)};
+        try {
+            auto client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
+                    std::move(sas_url), std::move(client_options));
+            return {.container_client = std::move(client)};
+        } catch (const std::exception&) {
+            // SDK URL parse exceptions may contain the complete signed URL.
+            return {.error = "failed to create Azure SAS client"};
+        }
     }
 
     if (credential.type != AzureCredentialType::SHARED_KEY) {
         return {.error = "unsupported Azure credential type"};
     }
 
-    auto shared_key = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(
-            credential.account_name, credential.account_key);
-    auto client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
-            std::string(container_url), shared_key, std::move(client_options));
-    return {
-            .container_client = std::move(client),
-            .shared_key_credential = std::move(shared_key),
-    };
+    try {
+        auto shared_key = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(
+                credential.account_name, credential.account_key);
+        auto client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
+                std::string(container_url), shared_key, std::move(client_options));
+        return {.container_client = std::move(client),
+                .shared_key_credential = std::move(shared_key)};
+    } catch (const std::exception&) {
+        return {.error = "failed to create Azure SharedKey client"};
+    }
 }
 
 } // namespace doris

@@ -76,6 +76,7 @@ bvar::LatencyRecorder s3_file_reader_latency("s3_file_reader", "s3_latency");
 Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolder> client,
                                             std::string bucket, std::string key, int64_t file_size,
                                             RuntimeProfile* profile, std::string display_path) {
+    RETURN_IF_ERROR_RESULT(client->validate_for_access());
     if (file_size < 0) {
         auto res = client->object_file_size(bucket, key);
         if (!res.has_value()) {

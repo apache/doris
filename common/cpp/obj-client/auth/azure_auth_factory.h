@@ -18,34 +18,17 @@
 #pragma once
 
 #include <azure/storage/blobs/blob_container_client.hpp>
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
+
+#include "azure_credential_options.h"
 
 namespace Azure::Storage {
 class StorageSharedKeyCredential;
 }
 
 namespace doris {
-
-enum class AzureCredentialType {
-    SHARED_KEY,
-    SAS,
-    OAUTH2,
-};
-
-struct AzureCredentialOptions {
-    AzureCredentialType type = AzureCredentialType::SHARED_KEY;
-    std::string account_name;
-    std::string account_key;
-    std::string sas_token;
-    int64_t sas_expiration_time_ms = 0;
-    std::string oauth_client_id;
-    std::string oauth_client_secret;
-    std::string oauth_tenant_id;
-    std::string oauth_server_uri;
-};
 
 struct AzureClientBuildResult {
     std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> container_client {};
@@ -57,6 +40,16 @@ struct AzureClientBuildResult {
 
 class AzureAuthFactory {
 public:
+    // Called before cache lookup as well as SDK construction. Does not access
+    // the network or refresh a SAS credential.
+    static std::string validate(const AzureCredentialOptions& credential);
+
+    // Returns the earliest known SAS expiry (zero when unknown) without changing
+    // the token or inventing a lifetime. The caller supplies its access timestamp
+    // so cache lookup and SDK construction use the same expiry rule.
+    static std::string validate(const AzureCredentialOptions& credential, int64_t now_ms,
+                                int64_t* effective_expiry_ms);
+
     static AzureClientBuildResult create(std::string_view container_url,
                                          const AzureCredentialOptions& credential,
                                          Azure::Storage::Blobs::BlobClientOptions client_options);

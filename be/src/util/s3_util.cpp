@@ -33,6 +33,7 @@
 #include <azure/core/http/curl_transport.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #endif
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cstdlib>
@@ -43,6 +44,7 @@
 #include <memory>
 #include <ostream>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 #include "common/config.h"
@@ -68,76 +70,54 @@
 namespace doris {
 namespace {
 
+int64_t azure_client_time_millis() {
+    int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    TEST_SYNC_POINT_CALLBACK("S3ClientFactory::azure_client_time", &now);
+    return now;
+}
+
+Status validate_azure_credentials_for_access(const AzureCredentialOptions& credential,
+                                             int64_t now_ms, int64_t* effective_expiry_ms) {
+    *effective_expiry_ms = 0;
+    // Explicit expiry has no SDK dependency. Reject it before test creators as
+    // well, including builds without Azure support.
+    if (credential.type == AzureCredentialType::SAS) {
+        *effective_expiry_ms = credential.sas_expiration_time_ms;
+        if (*effective_expiry_ms > 0 && *effective_expiry_ms <= now_ms) {
+            return Status::InvalidArgument("Azure SAS credential is expired");
+        }
+    }
+#ifdef USE_AZURE
+    if (auto error = AzureAuthFactory::validate(credential, now_ms, effective_expiry_ms);
+        !error.empty()) {
+        return Status::InvalidArgument("{}", error);
+    }
+#endif
+    return Status::OK();
+}
+
 doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
     if (conf.endpoint.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
     }
-    // Azure Blob requests are authenticated by the endpoint and a native
-    // Azure credential; region is an AWS signing concept and is optional.
-    if (conf.provider != io::ObjStorageProvider::AZURE && conf.region.empty()) {
+    if (conf.provider == io::ObjStorageProvider::AZURE) {
+        if (auto error = conf.azure_credentials.validate(); !error.empty()) {
+            return Status::InvalidArgument("{}", error);
+        }
+        return Status::OK();
+    }
+    if (conf.region.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
     }
-
-    if (conf.provider == io::ObjStorageProvider::AZURE) {
-        if (!conf.azure_auth_type.empty() && !iequal(conf.azure_auth_type, "SAS") &&
-            !iequal(conf.azure_auth_type, "SHARED_KEY") &&
-            !iequal(conf.azure_auth_type, "OAUTH2")) {
-            return Status::InvalidArgument("Invalid Azure auth type: {}", conf.azure_auth_type);
-        }
-        if (iequal(conf.azure_auth_type, "SAS") && conf.token.empty()) {
-            return Status::InvalidArgument("Azure SAS authentication requires a non-empty token");
-        }
-        if (iequal(conf.azure_auth_type, "SHARED_KEY") && !conf.token.empty()) {
-            return Status::InvalidArgument(
-                    "Azure SharedKey authentication cannot be combined with a SAS token");
-        }
-        if (iequal(conf.azure_auth_type, "OAUTH2") && !conf.token.empty()) {
-            return Status::InvalidArgument(
-                    "Azure OAuth2 authentication cannot be combined with a SAS token");
-        }
-        if (iequal(conf.azure_auth_type, "OAUTH2") &&
-            (conf.azure_oauth_client_id.empty() || conf.azure_oauth_client_secret.empty() ||
-             conf.azure_oauth_server_uri.empty())) {
-            return Status::InvalidArgument(
-                    "Azure OAuth2 authentication requires client id, client secret, and OAuth "
-                    "server URI");
-        }
-    }
-
-    const bool azure_sas = conf.provider == io::ObjStorageProvider::AZURE &&
-                           (iequal(conf.azure_auth_type, "SAS") ||
-                            (conf.azure_auth_type.empty() && !conf.token.empty()));
-    const bool azure_oauth2 = conf.provider == io::ObjStorageProvider::AZURE &&
-                              iequal(conf.azure_auth_type, "OAUTH2");
-    if (conf.role_arn.empty() && !azure_sas && !azure_oauth2) {
-        // Allow anonymous access when both ak and sk are empty
-        bool hasAk = !conf.ak.empty();
-        bool hasSk = !conf.sk.empty();
-
-        // Either both credentials are provided or both are empty (anonymous access)
-        if (hasAk && conf.sk.empty()) {
+    if (conf.role_arn.empty()) {
+        // Preserve the existing non-Azure anonymous/static credential contract.
+        if (!conf.ak.empty() && conf.sk.empty()) {
             return Status::InvalidArgument<false>("Invalid s3 conf, empty sk");
         }
-        if (hasSk && conf.ak.empty()) {
+        if (!conf.sk.empty() && conf.ak.empty()) {
             return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
-        }
-    }
-    if (conf.provider == io::ObjStorageProvider::AZURE) {
-        if (conf.token_expiration_time_ms < 0) {
-            return Status::InvalidArgument(
-                    "Invalid Azure SAS configuration, negative token expiry");
-        }
-        if (!conf.token.empty() && conf.token_expiration_time_ms > 0 &&
-            conf.token_expiration_time_ms <=
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count()) {
-            return Status::InvalidArgument<false>(
-                    "Invalid Azure SAS configuration, vended token is expired");
-        }
-        if (conf.token.empty() && conf.token_expiration_time_ms > 0) {
-            return Status::InvalidArgument<false>(
-                    "Invalid Azure SAS configuration, token expiry is set without a token");
         }
     }
     return Status::OK();
@@ -235,7 +215,6 @@ constexpr char S3_SK[] = "AWS_SECRET_KEY";
 constexpr char S3_ENDPOINT[] = "AWS_ENDPOINT";
 constexpr char S3_REGION[] = "AWS_REGION";
 constexpr char S3_TOKEN[] = "AWS_TOKEN";
-constexpr char S3_TOKEN_EXPIRATION_TIME_MS[] = "AWS_TOKEN_EXPIRATION_TIME_MS";
 constexpr char S3_MAX_CONN_SIZE[] = "AWS_MAX_CONNECTIONS";
 constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
 constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
@@ -259,7 +238,6 @@ constexpr char AZURE_CLIENT_ID[] = "AZURE_CLIENT_ID";
 constexpr char AZURE_CLIENT_SECRET[] = "AZURE_CLIENT_SECRET";
 constexpr char AZURE_TENANT_ID[] = "AZURE_TENANT_ID";
 constexpr char AZURE_OAUTH_SERVER_URI[] = "AZURE_OAUTH_SERVER_URI";
-constexpr char AZURE_OAUTH_ACCOUNT_HOST[] = "AZURE_OAUTH_ACCOUNT_HOST";
 
 const std::string* find_property(const StringCaseMap<std::string>& properties,
                                  std::initializer_list<const char*> names) {
@@ -277,43 +255,6 @@ bool has_property(const StringCaseMap<std::string>& properties,
     return find_property(properties, names) != nullptr;
 }
 
-Status set_token_expiration_time(const StringCaseMap<std::string>& properties,
-                                 S3ClientConf* client_conf) {
-    const auto* value = find_property(
-            properties, {AZURE_SAS_EXPIRY_MS, "azure.sas_expiry_ms",
-                         "azure.sas-token-expires-at-ms", S3_TOKEN_EXPIRATION_TIME_MS});
-    if (value == nullptr) {
-        client_conf->token_expiration_time_ms = 0;
-        return Status::OK();
-    }
-    const auto trimmed_value = trim(*value);
-    if (!to_int64(trimmed_value, client_conf->token_expiration_time_ms) ||
-        client_conf->token_expiration_time_ms <= 0) {
-        return Status::InvalidArgument("invalid Azure SAS expiry value");
-    }
-    return Status::OK();
-}
-
-Status set_azure_auth_type(const StringCaseMap<std::string>& properties,
-                           S3ClientConf* client_conf) {
-    const auto* value = find_property(properties, {AZURE_AUTH_TYPE, "azure.auth_type"});
-    if (value == nullptr || value->empty()) {
-        client_conf->azure_auth_type.clear();
-        return Status::OK();
-    }
-    if (iequal(*value, "SHARED_KEY") || iequal(*value, "SHAREDKEY")) {
-        client_conf->azure_auth_type = "SHARED_KEY";
-    } else if (iequal(*value, "SAS")) {
-        client_conf->azure_auth_type = "SAS";
-    } else if (iequal(*value, "OAUTH2") || iequal(*value, "OAUTH")) {
-        client_conf->azure_auth_type = "OAUTH2";
-    } else {
-        return Status::InvalidArgument("Invalid Azure auth type: {}", *value);
-    }
-    return Status::OK();
-}
-
-#ifdef USE_AZURE
 std::string normalize_azure_endpoint(std::string endpoint) {
     if (endpoint.empty()) {
         return endpoint;
@@ -321,9 +262,8 @@ std::string normalize_azure_endpoint(std::string endpoint) {
     if (endpoint.find("://") == std::string::npos) {
         endpoint = "https://" + endpoint;
     }
-    endpoint = normalize_http_uri(endpoint);
-
     const auto scheme_end = endpoint.find("://");
+    endpoint.replace(0, scheme_end, to_lower(endpoint.substr(0, scheme_end)));
     const auto authority_begin = scheme_end == std::string::npos ? 0 : scheme_end + 3;
     const auto authority_end = endpoint.find('/', authority_begin);
     const auto authority_length = authority_end == std::string::npos
@@ -335,6 +275,7 @@ std::string normalize_azure_endpoint(std::string endpoint) {
     }
 
     auto lower_authority = to_lower(authority);
+    endpoint.replace(authority_begin, authority_length, lower_authority);
     const auto dfs_pos = lower_authority.find(".dfs.");
     if (dfs_pos != std::string::npos) {
         endpoint.replace(authority_begin + dfs_pos, 5, ".blob.");
@@ -342,10 +283,251 @@ std::string normalize_azure_endpoint(std::string endpoint) {
                authority.find(':') == std::string::npos) {
         endpoint.insert(authority_begin + authority.size(), ".blob.core.windows.net");
     }
+    while (endpoint.ends_with('/')) {
+        endpoint.pop_back();
+    }
     return endpoint;
 }
-#endif
+
+std::string endpoint_authority(const std::string& endpoint) {
+    const auto begin = endpoint.find("://") + 3;
+    auto authority = endpoint.substr(begin, endpoint.find('/', begin) - begin);
+    if (endpoint.starts_with("https://") && authority.ends_with(":443")) {
+        authority.resize(authority.size() - 4);
+    } else if (endpoint.starts_with("http://") && authority.ends_with(":80")) {
+        authority.resize(authority.size() - 3);
+    }
+    return authority;
+}
+
+// Only established SharedKey wire producers use AWS fields for Azure. Once
+// translated here the native factory never inspects these fields again.
+void import_legacy_azure_shared_key(S3ClientConf* conf) {
+    // Keep the established SharedKey endpoint normalization at the legacy
+    // boundary. Native endpoints and object keys retain their internal slashes.
+    conf->endpoint = normalize_http_uri(conf->endpoint);
+    conf->azure_credentials = {.type = AzureCredentialType::SHARED_KEY,
+                               .account_name = std::move(conf->ak),
+                               .account_key = std::move(conf->sk)};
+    conf->ak.clear();
+    conf->sk.clear();
+    conf->token.clear();
+    conf->region.clear();
+    conf->role_arn.clear();
+    conf->external_id.clear();
+    conf->cred_provider_type = CredProviderType::Default;
+}
+
+Status convert_azure_properties(const StringCaseMap<std::string>& properties, const S3URI& uri,
+                                S3Conf* conf) {
+    auto& client = conf->client_conf;
+    client.provider = io::ObjStorageProvider::AZURE;
+    const auto* auth_type = find_property(properties, {AZURE_AUTH_TYPE});
+    if (auth_type == nullptr) {
+        // Compatibility is deliberately limited to the old SharedKey map. An
+        // incomplete native map must not be mistaken for that old protocol.
+        for (const auto& [key, value] : properties) {
+            const auto lower = to_lower(key);
+            if (lower.starts_with("azure") || lower.starts_with("fs.azure.") ||
+                (lower == "aws_token" && !value.empty())) {
+                return Status::InvalidArgument("Azure native credentials require AZURE_AUTH_TYPE");
+            }
+        }
+        if (!has_property(properties, {S3_ENDPOINT}) || !has_property(properties, {S3_AK}) ||
+            !has_property(properties, {S3_SK})) {
+            return Status::InvalidArgument("Azure native credentials require AZURE_AUTH_TYPE");
+        }
+        client.endpoint = *find_property(properties, {S3_ENDPOINT});
+        client.ak = *find_property(properties, {S3_AK});
+        client.sk = *find_property(properties, {S3_SK});
+        import_legacy_azure_shared_key(&client);
+        for (const auto& [name, target] :
+             {std::pair {S3_MAX_CONN_SIZE, &client.max_connections},
+              std::pair {S3_REQUEST_TIMEOUT_MS, &client.request_timeout_ms},
+              std::pair {S3_CONN_TIMEOUT_MS, &client.connect_timeout_ms}}) {
+            if (const auto* value = find_property(properties, {name}); value != nullptr) {
+                if (!to_int(*value, *target)) {
+                    return Status::InvalidArgument("invalid Azure connection option {}", name);
+                }
+            }
+        }
+    } else {
+        for (const auto& [key, value] : properties) {
+            const auto lower = to_lower(key);
+            if (lower.starts_with("aws_") || lower.starts_with("azure.")) {
+                return Status::InvalidArgument(
+                        "Azure native credentials cannot use AWS or catalog property aliases");
+            }
+        }
+        // Older FE versions attach a Hadoop configuration view for OneLake to
+        // this map. Ignore those extra keys; they must never supply or override
+        // any native authentication field. FE routing separates the two views.
+        auto& credential = client.azure_credentials;
+        if (*auth_type == "SHARED_KEY") {
+            credential.type = AzureCredentialType::SHARED_KEY;
+        } else if (*auth_type == "SAS") {
+            credential.type = AzureCredentialType::SAS;
+        } else if (*auth_type == "OAUTH2") {
+            credential.type = AzureCredentialType::OAUTH2;
+        } else {
+            return Status::InvalidArgument("unsupported AZURE_AUTH_TYPE in native credentials");
+        }
+        auto set = [&](const char* key, std::string* target) {
+            if (const auto* value = find_property(properties, {key}); value != nullptr) {
+                *target = *value;
+            }
+        };
+        set(AZURE_ENDPOINT, &client.endpoint);
+        set(AZURE_ACCOUNT_NAME, &credential.account_name);
+        set(AZURE_ACCOUNT_KEY, &credential.account_key);
+        set(AZURE_SAS_TOKEN, &credential.sas_token);
+        set(AZURE_CLIENT_ID, &credential.oauth_client_id);
+        set(AZURE_CLIENT_SECRET, &credential.oauth_client_secret);
+        set(AZURE_TENANT_ID, &credential.oauth_tenant_id);
+        set(AZURE_OAUTH_SERVER_URI, &credential.oauth_server_uri);
+        if (const auto* expiry = find_property(properties, {AZURE_SAS_EXPIRY_MS});
+            expiry != nullptr) {
+            if (!to_int64(*expiry, credential.sas_expiration_time_ms) ||
+                credential.sas_expiration_time_ms <= 0) {
+                return Status::InvalidArgument("invalid Azure SAS expiry value");
+            }
+        }
+        if (client.endpoint.empty() || credential.account_name.empty()) {
+            return Status::InvalidArgument(
+                    "Azure native credentials require endpoint and account name");
+        }
+        if (credential.type == AzureCredentialType::SHARED_KEY && credential.account_key.empty()) {
+            return Status::InvalidArgument("Azure native SharedKey requires an account key");
+        }
+        // Existing Azure SharedKey catalogs also contain S3-spelled locations.
+        // This explicit compatibility case carries no account in its URI;
+        // SAS/OAuth2 native data locations must carry their Azure authority.
+        if (uri.get_scheme().empty() ||
+            (uri.get_scheme() == "s3" && credential.type != AzureCredentialType::SHARED_KEY)) {
+            return Status::InvalidArgument("Azure native credentials require an Azure data URI");
+        }
+        if (client.endpoint.find_first_of("?#@\r\n") != std::string::npos) {
+            return Status::InvalidArgument(
+                    "Azure endpoint must not contain credentials, query or fragment");
+        }
+        client.endpoint = normalize_azure_endpoint(client.endpoint);
+        if (!client.endpoint.starts_with("https://") && !client.endpoint.starts_with("http://")) {
+            return Status::InvalidArgument("Azure endpoint must use HTTP or HTTPS");
+        }
+        // A container property may constrain legacy callers, but is never a
+        // fallback location. Every native data URI identifies its container.
+        if (const auto* container = find_property(properties, {AZURE_CONTAINER});
+            container != nullptr && *container != uri.get_bucket()) {
+            return Status::InvalidArgument(
+                    "Azure URI container conflicts with the storage binding");
+        }
+    }
+    if (uri.get_bucket().empty()) {
+        return Status::InvalidArgument("Azure data URI requires a container");
+    }
+    conf->bucket = uri.get_bucket();
+    client.bucket = conf->bucket;
+    if (auth_type != nullptr) {
+        RETURN_IF_ERROR(S3ClientFactory::validate_azure_uri(uri, client));
+    }
+    return is_s3_conf_valid(client);
+}
 } // namespace
+
+Status S3ClientFactory::validate_azure_uri(const S3URI& uri, const S3ClientConf& conf) {
+    if (uri.get_scheme().empty()) {
+        return Status::OK(); // Internal file-system callers may pass a raw object key.
+    }
+    if (uri.get_bucket() != conf.bucket) {
+        return Status::InvalidArgument("Azure URI container conflicts with the storage binding");
+    }
+    if (uri.get_scheme() == "s3") {
+        if (conf.azure_credentials.type != AzureCredentialType::SHARED_KEY) {
+            return Status::InvalidArgument("Azure SAS/OAuth2 data access requires an Azure URI");
+        }
+        return Status::OK(); // Old SharedKey file-system paths use the S3 wire spelling.
+    }
+    const auto uri_host = to_lower(uri.get_endpoint());
+    if (uri_host.ends_with(".dfs.fabric.microsoft.com") ||
+        uri_host.ends_with(".blob.fabric.microsoft.com")) {
+        return Status::NotSupported("OneLake data access requires its Hadoop storage binding");
+    }
+    const auto endpoint = normalize_azure_endpoint(conf.endpoint);
+    const bool http_uri = uri.get_scheme() == "http" || uri.get_scheme() == "https";
+    const auto uri_endpoint = normalize_azure_endpoint(
+            http_uri ? uri.get_scheme() + "://" + uri.get_endpoint() : uri.get_endpoint());
+    if (endpoint_authority(endpoint) != endpoint_authority(uri_endpoint)) {
+        return Status::InvalidArgument(
+                "Azure URI account host conflicts with the storage endpoint");
+    }
+    if (http_uri && !endpoint.starts_with(uri.get_scheme() + "://")) {
+        return Status::InvalidArgument("Azure URI scheme conflicts with the storage endpoint");
+    }
+    if (S3URI::is_azure_endpoint(uri.get_endpoint()) &&
+        !iequal(conf.azure_credentials.account_name, uri.get_account())) {
+        return Status::InvalidArgument("Azure URI account conflicts with the credential account");
+    }
+    return Status::OK();
+}
+
+bool S3ClientConf::operator==(const S3ClientConf& other) const {
+    if (std::tie(provider, endpoint, bucket, max_connections, request_timeout_ms,
+                 connect_timeout_ms, is_internal_bucket) !=
+        std::tie(other.provider, other.endpoint, other.bucket, other.max_connections,
+                 other.request_timeout_ms, other.connect_timeout_ms, other.is_internal_bucket)) {
+        return false;
+    }
+    if (provider == io::ObjStorageProvider::AZURE) {
+        return azure_credentials == other.azure_credentials;
+    }
+    return std::tie(ak, sk, token, region, use_virtual_addressing, need_override_endpoint,
+                    cred_provider_type, role_arn, external_id) ==
+           std::tie(other.ak, other.sk, other.token, other.region, other.use_virtual_addressing,
+                    other.need_override_endpoint, other.cred_provider_type, other.role_arn,
+                    other.external_id);
+}
+
+uint64_t S3ClientConf::get_hash() const {
+    uint64_t hash = crc32_hash(endpoint) ^ crc32_hash(bucket) ^ max_connections ^
+                    request_timeout_ms ^ connect_timeout_ms ^ static_cast<int>(provider) ^
+                    is_internal_bucket;
+    if (provider == io::ObjStorageProvider::AZURE) {
+        const auto& credential = azure_credentials;
+        hash ^= static_cast<int>(credential.type);
+        hash ^= crc32_hash(credential.account_name + credential.account_key);
+        hash ^= crc32_hash(credential.sas_token);
+        hash ^= credential.sas_expiration_time_ms;
+        hash ^= crc32_hash(credential.oauth_client_id);
+        hash ^= crc32_hash(credential.oauth_client_secret);
+        hash ^= crc32_hash(credential.oauth_tenant_id);
+        hash ^= crc32_hash(credential.oauth_server_uri);
+        return hash;
+    }
+    // Preserve the S3 hash and full equality contract, including collision handling.
+    return hash ^ crc32_hash(ak + sk) ^ crc32_hash(token) ^ crc32_hash(region) ^
+           use_virtual_addressing ^ static_cast<int>(cred_provider_type) ^ crc32_hash(role_arn) ^
+           crc32_hash(external_id);
+}
+
+std::string S3ClientConf::to_string() const {
+    if (provider == io::ObjStorageProvider::AZURE) {
+        // Endpoints have no credential query in the native protocol. Also redact
+        // legacy endpoints at this logging boundary, without rewriting requests.
+        return fmt::format(
+                "(provider=azure, auth_type={}, account={}, endpoint={}, bucket={}, "
+                "sas_expiration_time_ms={}, is_internal_bucket={})",
+                static_cast<int>(azure_credentials.type), azure_credentials.account_name,
+                endpoint.substr(0, endpoint.find('?')), bucket,
+                azure_credentials.sas_expiration_time_ms, is_internal_bucket);
+    }
+    return fmt::format(
+            "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
+            "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
+            "cred_provider_type={}, role_arn={}, external_id={}, is_internal_bucket={})",
+            hide_access_key(ak), token.empty() ? "" : "******", endpoint, region, bucket,
+            max_connections, request_timeout_ms, connect_timeout_ms, use_virtual_addressing,
+            cred_provider_type, role_arn, external_id, is_internal_bucket);
+}
 
 S3ClientFactory::S3ClientFactory() {
     _aws_options = Aws::SDKOptions {};
@@ -397,6 +579,17 @@ S3ClientFactory& S3ClientFactory::instance() {
 
 Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3ClientConf& s3_conf) {
     RETURN_IF_ERROR_RESULT(is_s3_conf_valid(s3_conf));
+    const bool is_azure = s3_conf.provider == io::ObjStorageProvider::AZURE;
+    int64_t azure_expiry_ms = 0;
+    if (is_azure) {
+        const auto now_ms = azure_client_time_millis();
+        {
+            std::lock_guard l(_lock);
+            _prune_azure_clients(now_ms);
+        }
+        RETURN_IF_ERROR_RESULT(validate_azure_credentials_for_access(s3_conf.azure_credentials,
+                                                                     now_ms, &azure_expiry_ms));
+    }
 
 #ifdef BE_TEST
     {
@@ -409,17 +602,35 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3Cl
 
     {
         std::lock_guard l(_lock);
-        auto it = _cache.find(s3_conf);
-        if (it != _cache.end()) {
-            return it->second;
+        if (is_azure) {
+            if (azure_expiry_ms > 0 && azure_expiry_ms <= azure_client_time_millis()) {
+                _prune_azure_clients(azure_expiry_ms);
+                return ResultError(Status::InvalidArgument("Azure SAS credential is expired"));
+            }
+            auto it = _azure_cache.find(s3_conf);
+            if (it != _azure_cache.end()) {
+                it->second.last_access = ++_azure_cache_clock;
+                return it->second.client;
+            }
+        } else {
+            auto it = _cache.find(s3_conf);
+            if (it != _cache.end()) {
+                return it->second;
+            }
         }
     }
 
+    if (is_azure) {
+        TEST_SYNC_POINT("S3ClientFactory::azure_cache_miss");
+    }
     auto client_result = (s3_conf.provider == io::ObjStorageProvider::AZURE)
                                  ? _create_azure_client(s3_conf)
                                  : _create_s3_client(s3_conf);
     if (!client_result.has_value()) {
         return ResultError(std::move(client_result).error());
+    }
+    if (is_azure) {
+        TEST_SYNC_POINT("S3ClientFactory::azure_client_built");
     }
     auto obj_client = std::move(client_result).value();
     if (!config::is_cloud_mode() || s3_conf.is_internal_bucket) {
@@ -429,8 +640,53 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3Cl
 
     {
         std::lock_guard l(_lock);
+        if (is_azure) {
+            const auto now_ms = azure_client_time_millis();
+            _prune_azure_clients(now_ms);
+            if (azure_expiry_ms > 0 && azure_expiry_ms <= now_ms) {
+                return ResultError(Status::InvalidArgument("Azure SAS credential is expired"));
+            }
+            // A concurrent creator may have published the same identity while
+            // SDK construction ran outside the lock. Reuse that client.
+            auto it = _azure_cache.find(s3_conf);
+            if (it != _azure_cache.end()) {
+                it->second.last_access = ++_azure_cache_clock;
+                return it->second.client;
+            }
+            if (_azure_cache.size() >= _azure_cache_capacity) {
+                auto oldest = std::min_element(_azure_cache.begin(), _azure_cache.end(),
+                                               [](const auto& left, const auto& right) {
+                                                   return left.second.last_access <
+                                                          right.second.last_access;
+                                               });
+                _azure_cache.erase(oldest);
+            }
+            auto [inserted, _] = _azure_cache.emplace(
+                    s3_conf, AzureCachedClient {std::move(obj_client), azure_expiry_ms,
+                                                ++_azure_cache_clock});
+            return inserted->second.client;
+        }
         auto [it, _] = _cache.emplace(s3_conf, std::move(obj_client));
         return it->second;
+    }
+}
+
+Status S3ClientFactory::validate_credentials_for_access(const S3ClientConf& conf) {
+    if (conf.provider != io::ObjStorageProvider::AZURE) {
+        return Status::OK();
+    }
+    int64_t effective_expiry_ms = 0;
+    return validate_azure_credentials_for_access(conf.azure_credentials, azure_client_time_millis(),
+                                                 &effective_expiry_ms);
+}
+
+void S3ClientFactory::_prune_azure_clients(int64_t now_ms) {
+    for (auto it = _azure_cache.begin(); it != _azure_cache.end();) {
+        if (it->second.expiry_ms > 0 && it->second.expiry_ms <= now_ms) {
+            it = _azure_cache.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 
@@ -466,30 +722,10 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_azure_cli
                 std::make_shared<Azure::Core::Http::CurlTransport>(std::move(curl_options));
     }
 
-    std::string normalized_uri = normalize_http_uri(uri);
-    VLOG_DEBUG << "azure container uri:" << normalized_uri;
+    VLOG_DEBUG << "azure container uri:" << uri.substr(0, uri.find('?'));
     std::string tls_debug_context = build_azure_tls_debug_context(ca_cert_file_path);
 
-    AzureCredentialType credential_type = AzureCredentialType::SHARED_KEY;
-    if (iequal(s3_conf.azure_auth_type, "OAUTH2")) {
-        credential_type = AzureCredentialType::OAUTH2;
-    } else if (iequal(s3_conf.azure_auth_type, "SAS") || !s3_conf.token.empty()) {
-        credential_type = AzureCredentialType::SAS;
-    }
-    auto built = AzureAuthFactory::create(
-            normalized_uri,
-            {
-                    .type = credential_type,
-                    .account_name = s3_conf.ak,
-                    .account_key = s3_conf.sk,
-                    .sas_token = s3_conf.token,
-                    .sas_expiration_time_ms = s3_conf.token_expiration_time_ms,
-                    .oauth_client_id = s3_conf.azure_oauth_client_id,
-                    .oauth_client_secret = s3_conf.azure_oauth_client_secret,
-                    .oauth_tenant_id = s3_conf.azure_oauth_tenant_id,
-                    .oauth_server_uri = s3_conf.azure_oauth_server_uri,
-            },
-            std::move(options));
+    auto built = AzureAuthFactory::create(uri, s3_conf.azure_credentials, std::move(options));
     if (!built) {
         return ResultError(
                 Status::InvalidArgument("failed to create Azure client: {}", built.error));
@@ -499,8 +735,8 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_azure_cli
             std::move(built.container_client),
             ObjStorageEndpointInfo {
                     .endpoint = endpoint,
-                    .ak = s3_conf.ak,
-                    .sk = s3_conf.sk,
+                    .ak = s3_conf.azure_credentials.account_name,
+                    .sk = s3_conf.azure_credentials.account_key,
                     .tls_debug_context = std::move(tls_debug_context),
             },
             std::move(built.shared_key_credential));
@@ -600,12 +836,15 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         const std::map<std::string, std::string>& prop, const S3URI& s3_uri, S3Conf* s3_conf) {
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
     s3_conf->client_conf.provider = io::ObjStorageProvider::AWS;
-    s3_conf->client_conf.azure_auth_type.clear();
-    s3_conf->client_conf.azure_oauth_client_id.clear();
-    s3_conf->client_conf.azure_oauth_client_secret.clear();
-    s3_conf->client_conf.azure_oauth_tenant_id.clear();
-    s3_conf->client_conf.azure_oauth_server_uri.clear();
-    s3_conf->client_conf.token_expiration_time_ms = 0;
+    s3_conf->client_conf.azure_credentials = {};
+    if (const auto* provider = find_property(properties, {S3_PROVIDER});
+        provider != nullptr && iequal(*provider, AZURE_PROVIDER_STRING)) {
+        *s3_conf = {};
+        return convert_azure_properties(properties, s3_uri, s3_conf);
+    }
+    if (s3_uri.is_azure()) {
+        return Status::InvalidArgument("Azure data URI requires provider=azure");
+    }
     if (auto it = properties.find(S3_AK); it != properties.end()) {
         s3_conf->client_conf.ak = it->second;
     }
@@ -615,24 +854,13 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     if (auto it = properties.find(S3_TOKEN); it != properties.end()) {
         s3_conf->client_conf.token = it->second;
     }
-    if (const auto* value =
-                find_property(properties, {AZURE_SAS_TOKEN, "azure.sas_token", "azure.sas-token"});
-        value != nullptr) {
-        s3_conf->client_conf.token = *value;
-    }
     if (auto it = properties.find(S3_ENDPOINT); it != properties.end()) {
-        s3_conf->client_conf.endpoint = it->second;
-    }
-    if (auto it = properties.find(AZURE_ENDPOINT); it != properties.end()) {
         s3_conf->client_conf.endpoint = it->second;
     }
     if (auto it = properties.find(S3_NEED_OVERRIDE_ENDPOINT); it != properties.end()) {
         s3_conf->client_conf.need_override_endpoint = (it->second == "true");
     }
     if (auto it = properties.find(S3_REGION); it != properties.end()) {
-        s3_conf->client_conf.region = it->second;
-    }
-    if (auto it = properties.find("AZURE_REGION"); it != properties.end()) {
         s3_conf->client_conf.region = it->second;
     }
     if (auto it = properties.find(S3_MAX_CONN_SIZE); it != properties.end()) {
@@ -652,152 +880,13 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
                                            it->second);
         }
     }
-    if (auto it = properties.find(S3_PROVIDER); it != properties.end()) {
-        // S3 Provider properties should be case insensitive.
-        if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
-            s3_conf->client_conf.provider = io::ObjStorageProvider::AZURE;
-        }
-    }
-
-    // A native Azure binding is self-describing.  Accepting its provider-owned
-    // keys without a redundant provider marker makes the FE/BE contract less
-    // fragile while preserving the legacy provider=azure form.
-    if (has_property(properties, {AZURE_ENDPOINT,
-                                  AZURE_ACCOUNT_NAME,
-                                  AZURE_ACCOUNT_KEY,
-                                  AZURE_CONTAINER,
-                                  AZURE_SAS_TOKEN,
-                                  AZURE_AUTH_TYPE,
-                                  AZURE_CLIENT_ID,
-                                  AZURE_CLIENT_SECRET,
-                                  AZURE_TENANT_ID,
-                                  AZURE_OAUTH_SERVER_URI,
-                                  AZURE_OAUTH_ACCOUNT_HOST,
-                                  "azure.endpoint",
-                                  "azure.account_name",
-                                  "azure.account_key",
-                                  "azure.container",
-                                  "azure.sas_token",
-                                  "azure.sas-token",
-                                  "azure.auth_type",
-                                  "azure.oauth2_client_id",
-                                  "azure.oauth2_client_secret",
-                                  "azure.oauth2_client_tenant_id",
-                                  "azure.oauth2_server_uri",
-                                  "azure.oauth2_account_host"})) {
-        s3_conf->client_conf.provider = io::ObjStorageProvider::AZURE;
-    }
-
-    if (s3_conf->client_conf.provider == io::ObjStorageProvider::AZURE) {
-        if (const auto* value = find_property(properties, {AZURE_ACCOUNT_NAME, "azure.account_name",
-                                                           "azure.access_key", "AWS_ACCESS_KEY"});
-            value != nullptr) {
-            s3_conf->client_conf.ak = *value;
-        }
-        if (const auto* value = find_property(properties, {AZURE_ACCOUNT_KEY, "azure.account_key",
-                                                           "azure.secret_key", "AWS_SECRET_KEY"});
-            value != nullptr) {
-            s3_conf->client_conf.sk = *value;
-        }
-        if (const auto* value = find_property(
-                    properties, {AZURE_CONTAINER, "azure.container", "azure.bucket", "AWS_BUCKET"});
-            value != nullptr) {
-            s3_conf->bucket = *value;
-        }
-        RETURN_IF_ERROR(set_azure_auth_type(properties, &s3_conf->client_conf));
-
-        if (const auto* value =
-                    find_property(properties, {AZURE_CLIENT_ID, "azure.oauth2_client_id"});
-            value != nullptr) {
-            s3_conf->client_conf.azure_oauth_client_id = *value;
-        }
-        if (const auto* value =
-                    find_property(properties, {AZURE_CLIENT_SECRET, "azure.oauth2_client_secret"});
-            value != nullptr) {
-            s3_conf->client_conf.azure_oauth_client_secret = *value;
-        }
-        if (const auto* value =
-                    find_property(properties, {AZURE_TENANT_ID, "azure.oauth2_client_tenant_id"});
-            value != nullptr) {
-            s3_conf->client_conf.azure_oauth_tenant_id = *value;
-        }
-        if (const auto* value =
-                    find_property(properties, {AZURE_OAUTH_SERVER_URI, "azure.oauth2_server_uri"});
-            value != nullptr) {
-            s3_conf->client_conf.azure_oauth_server_uri = *value;
-        }
-
-        // Older FE code emitted only fs.azure.* settings for OAuth2. Mark that
-        // shape explicitly and recover the service-principal fields below so
-        // it is not silently interpreted as an empty SharedKey credential.
-        if (s3_conf->client_conf.azure_auth_type.empty()) {
-            for (const auto& [key, value] : properties) {
-                auto lower_key = to_lower(key);
-                if (lower_key.starts_with("fs.azure.account.auth.type.") &&
-                    iequal(value, "OAUTH")) {
-                    s3_conf->client_conf.azure_auth_type = "OAUTH2";
-                    break;
-                }
-            }
-        }
-        if (iequal(s3_conf->client_conf.azure_auth_type, "OAUTH2")) {
-            for (const auto& [key, value] : properties) {
-                auto lower_key = to_lower(key);
-                if (lower_key.starts_with("fs.azure.account.oauth2.client.id.")) {
-                    s3_conf->client_conf.azure_oauth_client_id = value;
-                } else if (lower_key.starts_with("fs.azure.account.oauth2.client.secret.")) {
-                    s3_conf->client_conf.azure_oauth_client_secret = value;
-                } else if (lower_key.starts_with("fs.azure.account.oauth2.client.endpoint.")) {
-                    s3_conf->client_conf.azure_oauth_server_uri = value;
-                }
-            }
-        }
-        if (s3_conf->client_conf.azure_auth_type.empty() &&
-            !s3_conf->client_conf.azure_oauth_client_id.empty() &&
-            !s3_conf->client_conf.azure_oauth_client_secret.empty() &&
-            !s3_conf->client_conf.azure_oauth_server_uri.empty()) {
-            s3_conf->client_conf.azure_auth_type = "OAUTH2";
-        }
-        if (s3_conf->client_conf.azure_auth_type.empty() && !s3_conf->client_conf.token.empty()) {
-            s3_conf->client_conf.azure_auth_type = "SAS";
-        }
-    }
-    if (s3_conf->client_conf.provider == io::ObjStorageProvider::AZURE) {
-        RETURN_IF_ERROR(set_token_expiration_time(properties, &s3_conf->client_conf));
-    }
-
     if (s3_uri.get_bucket().empty()) {
-        if (s3_conf->client_conf.provider != io::ObjStorageProvider::AZURE ||
-            s3_conf->bucket.empty()) {
-            return Status::InvalidArgument("Invalid S3 URI {}, bucket is not specified",
-                                           s3_uri.to_string());
-        }
+        return Status::InvalidArgument("Invalid S3 URI {}, bucket is not specified",
+                                       s3_uri.to_string());
     } else {
-        // The URI is authoritative for the object container.  This keeps the
-        // account/container/path tuple intact when a vended binding is reused
-        // for multiple files.
         s3_conf->bucket = s3_uri.get_bucket();
     }
-    if (s3_conf->client_conf.provider == io::ObjStorageProvider::AZURE) {
-        if (s3_conf->client_conf.endpoint.empty() && s3_uri.is_azure()) {
-            s3_conf->client_conf.endpoint = s3_uri.get_endpoint();
-        }
-        if (s3_conf->client_conf.ak.empty() && s3_uri.is_azure()) {
-            s3_conf->client_conf.ak = s3_uri.get_account();
-        }
-        if (s3_conf->client_conf.region.empty()) {
-            s3_conf->client_conf.region = "azure";
-        }
-        if (s3_conf->bucket.empty()) {
-            return Status::InvalidArgument("Invalid Azure URI, container is not specified");
-        }
-    }
-    // Keep the container in the client configuration for the native Azure
-    // constructor; S3 callers continue to receive the same bucket value.
     s3_conf->client_conf.bucket = s3_uri.get_bucket();
-    if (s3_conf->client_conf.bucket.empty()) {
-        s3_conf->client_conf.bucket = s3_conf->bucket;
-    }
     s3_conf->prefix = "";
 
     // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html
@@ -862,8 +951,6 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
                     .ak = info.ak(),
                     .sk = info.sk(),
                     .token = {},
-                    .token_expiration_time_ms = 0,
-                    .azure_auth_type = {},
                     .bucket = info.bucket(),
                     .provider = io::ObjStorageProvider::AWS,
                     .use_virtual_addressing =
@@ -913,6 +1000,9 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
         LOG_FATAL("unknown provider type {}, info {}", info.provider(), ret.to_string());
     }
     ret.client_conf.provider = type;
+    if (type == io::ObjStorageProvider::AZURE) {
+        import_legacy_azure_shared_key(&ret.client_conf);
+    }
     return ret;
 }
 
@@ -926,8 +1016,6 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
                     .ak = param.ak,
                     .sk = param.sk,
                     .token = param.token,
-                    .token_expiration_time_ms = 0,
-                    .azure_auth_type = {},
                     .bucket = param.bucket,
                     .provider = io::ObjStorageProvider::AWS,
                     .max_connections = param.max_conn,
@@ -981,6 +1069,9 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
         __builtin_unreachable();
     }
     ret.client_conf.provider = type;
+    if (type == io::ObjStorageProvider::AZURE) {
+        import_legacy_azure_shared_key(&ret.client_conf);
+    }
     return ret;
 }
 

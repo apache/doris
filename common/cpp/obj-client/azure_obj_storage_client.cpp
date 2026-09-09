@@ -47,8 +47,8 @@ doris::ObjStoragePath with_object_key(const doris::ObjStoragePath& opts, std::st
 
 std::string to_lower_ascii(std::string_view input) {
     std::string lowered(input);
-    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    std::ranges::transform(lowered, lowered.begin(),
+                           [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     return lowered;
 }
 
@@ -514,16 +514,12 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
 
 std::string AzureObjStorageClient::generate_presigned_url(const ObjStoragePath& opts,
                                                           int64_t expiration_secs) {
-    // A vended SAS is already a signed URL.  It cannot be extended without an
-    // account key, so return the SDK URL unchanged and let the caller observe
-    // the token's original expiry rather than manufacturing an empty key.
-    if (_credential == nullptr && _client->GetUrl().find('?') != std::string::npos) {
-        return _client->GetBlockBlobClient(opts.key).GetUrl();
-    }
-    // Entra ID authorizes requests through the SDK pipeline but cannot sign a
-    // Blob SAS URL. Do not manufacture a signature from empty SharedKey
-    // material; callers must use the authenticated client path instead.
+    // A vended SAS may authorize an entire container. Returning the SDK URL would expose that
+    // credential without reducing its scope or lifetime. OAuth2 user-delegation SAS signing is
+    // not implemented. Preserve the string API's failure signal, which callers must not publish.
     if (_credential == nullptr) {
+        LOG(WARNING) << "Azure presigned URL generation requires a SharedKey credential; "
+                        "signing is not supported for SAS or OAuth2 credentials";
         return {};
     }
     Azure::Storage::Sas::BlobSasBuilder sas_builder;
@@ -535,12 +531,7 @@ std::string AzureObjStorageClient::generate_presigned_url(const ObjStoragePath& 
     sas_builder.Protocol = Azure::Storage::Sas::SasProtocol::HttpsOnly;
     sas_builder.SetPermissions(Azure::Storage::Sas::BlobSasPermissions::Read);
 
-    auto credential = _credential;
-    if (credential == nullptr) {
-        credential = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(_config.ak,
-                                                                                  _config.sk);
-    }
-    std::string sasToken = sas_builder.GenerateSasToken(*credential);
+    std::string sasToken = sas_builder.GenerateSasToken(*_credential);
 
     auto sasURL =
             fmt::format(SAS_TOKEN_URL_TEMPLATE, _config.endpoint, opts.bucket, opts.key, sasToken);
@@ -562,10 +553,12 @@ ObjStorageResponse AzureObjStorageClient::check_versioning(const std::string& /*
     return ObjStorageResponse::OK();
 }
 
-ObjStorageResponse AzureObjStorageClient::abort_multipart_upload(const ObjStoragePath& opts,
-                                                                 const std::string& upload_id) {
-    // delete uncommitted blobs
-    // https://learn.microsoft.com/en-us/rest/api/storageservices/delete-blob?tabs=microsoft-entra-id#remarks
-    return delete_object(opts);
+ObjStorageResponse AzureObjStorageClient::abort_multipart_upload(const ObjStoragePath& /*opts*/,
+                                                                 const std::string& /*upload_id*/) {
+    // Azure has no server-side multipart session to abort. Blocks are isolated by upload UUID;
+    // deleting their blob would also remove any previously committed data or another writer's
+    // blocks. Leave uncommitted blocks to service garbage collection instead. This is idempotent
+    // abandonment, not a claim that the service has immediately reclaimed the staged blocks.
+    return ObjStorageResponse::OK();
 }
 } // namespace doris
