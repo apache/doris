@@ -1039,10 +1039,33 @@ VariantRef ColumnVariantV2::get_value_ref(size_t row) const {
 }
 
 int ColumnVariantV2::compare_at(size_t n, size_t m, const IColumn& rhs,
-                                int /*nan_direction_hint*/) const {
-    const auto& right = assert_cast<const ColumnVariantV2&>(rhs);
+                                int nan_direction_hint) const {
+    const auto& right = assert_cast<const ColumnVariantV2&, TypeCheckOnRelease::DISABLE>(rhs);
     DCHECK_LT(n, size());
     DCHECK_LT(m, right.size());
+
+    if (is_typed() && right.is_typed() &&
+        (_typed_type == right._typed_type || _typed_type->equals(*right._typed_type))) {
+        const PrimitiveType type = _typed_type->get_primitive_type();
+        // IPv4 and IPv6 typed values use their textual representation in Variant, whose lexical
+        // ordering differs from the native address ordering.
+        if (type != TYPE_IPV4 && type != TYPE_IPV6) {
+            const auto& left_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column());
+            const auto& right_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                            right.typed_column());
+            if (left_nullable.is_null_at(n)) {
+                return right_nullable.is_null_at(m) ? 0 : -1;
+            }
+            if (right_nullable.is_null_at(m)) {
+                return 1;
+            }
+            return left_nullable.get_nested_column().compare_at(
+                    n, m, right_nullable.get_nested_column(), nan_direction_hint);
+        }
+    }
+
     int result = 0;
     visit_variant_v2_values(
             *this, n, n + 1, {}, [](size_t) { DCHECK(false); },
@@ -1054,6 +1077,30 @@ int ColumnVariantV2::compare_at(size_t n, size_t m, const IColumn& rhs,
                         });
             });
     return result;
+}
+
+void ColumnVariantV2::compare_internal(size_t rhs_row_id, const IColumn& rhs,
+                                       int nan_direction_hint, int direction,
+                                       std::vector<uint8_t>& cmp_res,
+                                       uint8_t* __restrict filter) const {
+    const auto& right = assert_cast<const ColumnVariantV2&, TypeCheckOnRelease::DISABLE>(rhs);
+    if (is_typed() && right.is_typed() &&
+        (_typed_type == right._typed_type || _typed_type->equals(*right._typed_type))) {
+        const PrimitiveType type = _typed_type->get_primitive_type();
+        // ColumnVector::compare_internal does not provide Variant's canonical NaN ordering, while
+        // IP typed values use a textual Variant ordering that differs from native address order.
+        if (type != TYPE_FLOAT && type != TYPE_DOUBLE && type != TYPE_IPV4 && type != TYPE_IPV6) {
+            const auto& left_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column());
+            const auto& right_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                            right.typed_column());
+            left_nullable.compare_internal(rhs_row_id, right_nullable, -1, direction, cmp_res,
+                                           filter);
+            return;
+        }
+    }
+    IColumn::compare_internal(rhs_row_id, rhs, nan_direction_hint, direction, cmp_res, filter);
 }
 
 Field ColumnVariantV2::operator[](size_t row) const {
@@ -1570,6 +1617,20 @@ void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
         plan.write(const_cast<char*>(keys[row].data) + keys[row].size, cell_size);
         keys[row].size += cell_size;
     }
+}
+
+void ColumnVariantV2::serialize_with_nullable(StringRef* keys, size_t num_rows, bool has_null,
+                                              const uint8_t* __restrict null_map) const {
+    if (has_null) {
+        IColumn::serialize_with_nullable(keys, num_rows, has_null, null_map);
+        return;
+    }
+    // Keep the nullable prefix while reusing the column's batch serialization.
+    for (size_t row = 0; row < num_rows; ++row) {
+        *(const_cast<char*>(keys[row].data) + keys[row].size) = 0;
+        keys[row].size += sizeof(UInt8);
+    }
+    serialize(keys, num_rows);
 }
 
 void ColumnVariantV2::deserialize(StringRef* keys, size_t num_rows) {

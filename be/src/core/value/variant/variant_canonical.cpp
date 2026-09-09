@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/compiler_util.h"
 #include "common/exception.h"
 #include "core/uint128.h"
 #include "core/value/variant/variant_field.h"
@@ -540,7 +541,7 @@ void update_bytes(Sink& sink, StringRef bytes) {
 }
 
 template <typename Sink>
-void hash_normalized_scalar(const NormalizedValue& normalized, Sink& sink) {
+ALWAYS_INLINE void hash_normalized_scalar(const NormalizedValue& normalized, Sink& sink) {
     switch (normalized.kind) {
     case CanonicalKind::NULL_VALUE:
         return;
@@ -1055,7 +1056,7 @@ void write_metadata(const std::vector<StringRef>& keys, uint8_t width, char*& ou
 } // namespace
 
 struct VariantScalarAdapter {
-    static NormalizedValue normalize(const VariantScalarRef& value) {
+    ALWAYS_INLINE static NormalizedValue normalize(const VariantScalarRef& value) {
         switch (value._physical_id) {
         case VariantPrimitiveId::NULL_VALUE:
             return normalized_kind(CanonicalKind::NULL_VALUE);

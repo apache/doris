@@ -199,6 +199,9 @@ public:
     VariantRef get_value_ref(size_t row) const;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const override;
+    void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                          int direction, std::vector<uint8_t>& cmp_res,
+                          uint8_t* __restrict filter) const override;
 
     Field operator[](size_t row) const override;
     void get(size_t row, Field& result) const override;
@@ -222,6 +225,8 @@ public:
     size_t deserialize_impl(const char* pos) override;
     size_t get_max_row_byte_size() const override;
     void serialize(StringRef* keys, size_t num_rows) const override;
+    void serialize_with_nullable(StringRef* keys, size_t num_rows, bool has_null,
+                                 const uint8_t* __restrict null_map) const override;
     void deserialize(StringRef* keys, size_t num_rows) override;
 
     void update_hash_with_value(size_t row, SipHash& hash) const override;
