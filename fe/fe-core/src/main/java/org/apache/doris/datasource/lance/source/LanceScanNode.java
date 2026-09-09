@@ -366,11 +366,12 @@ public class LanceScanNode extends FileQueryScanNode {
             throw new UserException("No committed Lance FTS index exists for column '"
                     + fullText.getColumn() + "' at dataset version " + metadata.getVersion());
         }
+        // A matching index with no visible coverage is a valid empty INDEX_ONLY result.
+        // Unknown coverage still throws in planIndexSegments; STRICT checks uncovered fragments below.
         IndexSegmentSplitPlan plan = planIndexSegments(
                 metadata, matchingSegments, visibleFragments, true)
-                .orElseThrow(() -> new UserException("Lance FTS index for column '"
-                        + fullText.getColumn() + "' has no visible indexed fragments at dataset version "
-                        + metadata.getVersion()));
+                .orElseGet(() -> new IndexSegmentSplitPlan(
+                        metadata.getDatasetUri(), metadata.getVersion(), 0));
         plannedIndexSegments = plan.splitCount();
         plannedIndexFragments = plan.indexSegmentFragmentCount();
         plannedUnindexedFragments = plannedFragments - plannedIndexFragments;

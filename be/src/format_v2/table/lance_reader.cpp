@@ -1003,7 +1003,7 @@ Status LanceTableReader::_configure_full_text_search(LanceScanner* scanner,
     if (lance_scanner_set_fts_index_segments(scanner, segment_uuids.data(), segment_count) != 0) {
         return lance_error("set Lance FTS scanner index segments");
     }
-    if (lance_scanner_set_limit(scanner, full_text.top_k + full_text.offset) != 0) {
+    if (lance_scanner_set_limit(scanner, full_text.top_k) != 0) {
         return lance_error("set Lance FTS scanner candidate limit");
     }
     COUNTER_UPDATE(_planned_index_segment_count, static_cast<int64_t>(segment_count));
