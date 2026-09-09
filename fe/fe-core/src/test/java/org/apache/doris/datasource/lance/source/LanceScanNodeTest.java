@@ -433,9 +433,9 @@ public class LanceScanNodeTest {
                 Collections.singletonMap("vector", 9),
                 Arrays.asList(
                         new LanceIndexSegmentInfo(l2Segment, "a_l2", Collections.singletonList(9),
-                                Arrays.asList(1L, 2L), "L2"),
+                                Arrays.asList(1L, 2L), IndexType.VECTOR, "L2"),
                         new LanceIndexSegmentInfo(cosineSegment, "z_cosine", Collections.singletonList(9),
-                                Arrays.asList(1L, 2L), "COSINE")),
+                                Arrays.asList(1L, 2L), IndexType.VECTOR, "COSINE")),
                 Collections.emptyMap());
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);
@@ -458,9 +458,9 @@ public class LanceScanNodeTest {
                 Collections.singletonMap("vector", 9),
                 Arrays.asList(
                         new LanceIndexSegmentInfo(cosineSegment, "z_cosine", Collections.singletonList(9),
-                                Arrays.asList(1L, 2L), "COSINE"),
+                                Arrays.asList(1L, 2L), IndexType.VECTOR, "COSINE"),
                         new LanceIndexSegmentInfo(l2Segment, "a_l2", Collections.singletonList(9),
-                                Arrays.asList(1L, 2L), "L2")),
+                                Arrays.asList(1L, 2L), IndexType.VECTOR, "L2")),
                 Collections.emptyMap());
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);
@@ -487,11 +487,11 @@ public class LanceScanNodeTest {
                 Collections.singletonMap("vector", 9),
                 Arrays.asList(
                         new LanceIndexSegmentInfo(laterSegment, "z_l2", Collections.singletonList(9),
-                                Arrays.asList(1L, 2L, 3L), "L2"),
+                                Arrays.asList(1L, 2L, 3L), IndexType.VECTOR, "L2"),
                         new LanceIndexSegmentInfo(firstSegment, "a_l2", Collections.singletonList(9),
-                                Collections.singletonList(1L), "L2"),
+                                Collections.singletonList(1L), IndexType.VECTOR, "L2"),
                         new LanceIndexSegmentInfo(secondSegment, "a_l2", Collections.singletonList(9),
-                                Collections.singletonList(2L), "L2")),
+                                Collections.singletonList(2L), IndexType.VECTOR, "L2")),
                 Collections.emptyMap());
 
         List<Split> splits = newSearchNode(metadata, vectorSearchRequest(5, 0)).getSplits(2);
@@ -513,7 +513,7 @@ public class LanceScanNodeTest {
                 Collections.singletonMap("vector", 9),
                 Collections.singletonList(
                         new LanceIndexSegmentInfo(l2Segment, "l2", Collections.singletonList(9),
-                                Collections.singletonList(1L), "L2")),
+                                Collections.singletonList(1L), IndexType.VECTOR, "L2")),
                 Collections.emptyMap());
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.DEFAULT);
@@ -536,9 +536,9 @@ public class LanceScanNodeTest {
                 Collections.singletonMap("vector", 9),
                 Arrays.asList(
                         new LanceIndexSegmentInfo(incompleteSegment, "a_incomplete",
-                                Collections.singletonList(9), null, "COSINE"),
+                                Collections.singletonList(9), null, IndexType.VECTOR, "COSINE"),
                         new LanceIndexSegmentInfo(cosineSegment, "z_cosine", Collections.singletonList(9),
-                                Arrays.asList(1L, 2L), "COSINE")),
+                                Arrays.asList(1L, 2L), IndexType.VECTOR, "COSINE")),
                 Collections.emptyMap());
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);

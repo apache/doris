@@ -26,12 +26,11 @@ suite("test_lance_vector_search_index_matrix", "p0,external") {
      * returns the *right* rows, and it costs roughly 190KB of committed binary per cell.
      *
      * This suite is the breadth tier. doris.vs_index_matrix is a single 64-row table with one
-     * vector column per remaining cell, each carrying exactly one index. One column per cell,
-     * never several indexes on one column, because only the first index built on a column is
-     * reachable: Lance answers the other one with a silent brute-force scan, and Doris gets
-     * there differently but ends up the same, since LanceScanNode.selectIndexSegments keeps
-     * only the segments of the first index it finds for the column's field id and
-     * metricMatches then rejects the query whose metric that index does not carry.
+     * vector column per remaining cell, each carrying exactly one index. Keeping one index per
+     * column here isolates every type x metric x algorithm cell; the separate
+     * vs_ivf_flat_f32_multi_metric fixture covers deterministic same-column multi-index
+     * selection. Doris groups physical segments by logical index name, then chooses the first
+     * lexicographic group that matches the requested metric and can safely plan indexed splits.
      *
      * What this proves: Doris plans an indexed split for the cell, and a refined indexed
      * search returns exactly the rows an exhaustive scan returns. That is the same equality

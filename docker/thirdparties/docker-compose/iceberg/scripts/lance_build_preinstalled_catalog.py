@@ -385,6 +385,15 @@ VECTOR_TABLES = {
     },
 }
 
+# This fixture intentionally has two named IVF_FLAT indexes on the same vector column. The L2
+# index is created first so a cosine vector_search must prove Doris continues to the later cosine
+# group instead of silently falling back to fragment search.
+MULTI_METRIC_TABLE = "vs_ivf_flat_f32_multi_metric"
+MULTI_METRIC_SPEC = {
+    "index_type": "IVF_FLAT", "params": {}, "exact": True,
+    "metric": "cosine", "profile": DIRECTIONAL,
+}
+
 
 # ---------------------------------------------------------------------------
 # Breadth tier
@@ -970,6 +979,27 @@ def build(root: Path, all_types_source: Path) -> None:
             index_file_version="V3",
             **spec["params"],
         )
+    multi_metric_location = create_vector_table(
+        namespace, MULTI_METRIC_TABLE, MULTI_METRIC_SPEC)
+    multi_metric_dataset = lance.dataset(multi_metric_location)
+    multi_metric_dataset.create_index(
+        "embedding",
+        "IVF_FLAT",
+        name="a_l2",
+        metric="l2",
+        num_partitions=NUM_PARTITIONS,
+        sample_rate=256,
+        index_file_version="V3",
+    )
+    multi_metric_dataset.create_index(
+        "embedding",
+        "IVF_FLAT",
+        name="z_cosine",
+        metric="cosine",
+        num_partitions=NUM_PARTITIONS,
+        sample_rate=256,
+        index_file_version="V3",
+    )
     create_breadth_table(namespace)
     create_nested_index_table(namespace)
     compact_manifest(root)
@@ -1664,7 +1694,8 @@ def check_catalog(root: Path) -> None:
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     tables = namespace.list_tables(ListTablesRequest(id=[NAMESPACE]))
     expected_tables = sorted(
-        [*VECTOR_TABLES, BREADTH_TABLE, NESTED_TABLE, FTS_TABLE, FTS_PARTIAL_TABLE]
+        [*VECTOR_TABLES, MULTI_METRIC_TABLE, BREADTH_TABLE, NESTED_TABLE, FTS_TABLE,
+         FTS_PARTIAL_TABLE]
     )
     assert sorted(tables.tables) == expected_tables, (
         f"unexpected {NAMESPACE} tables: {tables.tables}"
@@ -1709,6 +1740,23 @@ def check_catalog(root: Path) -> None:
         if search.get("ef"):
             check_ef_discriminator(
                 table_name, dataset, spec, spec.get("ef_discriminator", False))
+
+    multi_metric = namespace.describe_table(
+        DescribeTableRequest(id=[NAMESPACE, MULTI_METRIC_TABLE])
+    )
+    multi_metric_dataset = lance.dataset(multi_metric.location)
+    multi_metric_indices = {index["name"]: index for index in multi_metric_dataset.list_indices()}
+    assert set(multi_metric_indices) == {"a_l2", "z_cosine"}, (
+        f"{MULTI_METRIC_TABLE}: expected L2 and cosine indexes, got {multi_metric_indices}"
+    )
+    for index_name, metric in (("a_l2", "l2"), ("z_cosine", "cosine")):
+        index = multi_metric_indices[index_name]
+        assert index["type"] == "IVF_FLAT", (
+            f"{MULTI_METRIC_TABLE}.{index_name}: type {index['type']}"
+        )
+        assert index_metric_of(multi_metric_dataset, index_name) == {metric}, (
+            f"{MULTI_METRIC_TABLE}.{index_name}: unexpected metric metadata"
+        )
 
     breadth = namespace.describe_table(DescribeTableRequest(id=[NAMESPACE, BREADTH_TABLE]))
     assert Path(breadth.location.removeprefix("file://")).is_dir(), (
