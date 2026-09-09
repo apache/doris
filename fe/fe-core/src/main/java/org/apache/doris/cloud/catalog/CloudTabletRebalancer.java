@@ -545,14 +545,18 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 return;
             }
 
-            statRouteInfo();
-            migrateTabletsForSmoothUpgrade();
-            statRouteInfo();
+            try {
+                statRouteInfo();
+                migrateTabletsForSmoothUpgrade();
+                statRouteInfo();
 
-            indexBalanced = true;
-            tableBalanced = true;
+                indexBalanced = true;
+                tableBalanced = true;
 
-            performBalancing();
+                performBalancing();
+            } finally {
+                releaseSchedulingIndexes();
+            }
 
             checkDecommissionState(clusterToBes);
             inited = true;
@@ -669,6 +673,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 globalBalance();
             }
         }
+    }
+
+    private void releaseSchedulingIndexes() {
+        // These indexes are no longer used after balancing. Replace their top-level maps instead of clearing
+        // every entry so the complete tablet membership graphs can become collectible without an O(N) traversal.
+        partitionToTablets = new ConcurrentHashMap<>();
+        futurePartitionToTablets = new ConcurrentHashMap<>();
+        beToTabletsInTable = new ConcurrentHashMap<>();
+        futureBeToTabletsInTable = new ConcurrentHashMap<>();
     }
 
     private boolean balanceAllPartitionsByPhase(ActiveSchedulePhase phase) {
@@ -1150,18 +1163,16 @@ public class CloudTabletRebalancer extends MasterDaemon {
         globalBeToTablets.computeIfAbsent(be, globalTabletSetFactory).add(tabletId);
 
         // table
-        beToTabletsInTable.putIfAbsent(tableId, new ConcurrentHashMap<Long, Set<Long>>());
-        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfTable = beToTabletsInTable.get(tableId);
-        beToTabletsOfTable.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        beToTabletsOfTable.get(be).add(tabletId);
+        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfTable =
+                beToTabletsInTable.computeIfAbsent(tableId, ignored -> new ConcurrentHashMap<>());
+        beToTabletsOfTable.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
 
         // partition
-        partToTablets.putIfAbsent(partId, new ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>());
-        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets = partToTablets.get(partId);
-        indexToTablets.putIfAbsent(indexId, new ConcurrentHashMap<Long, Set<Long>>());
-        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfIndex = indexToTablets.get(indexId);
-        beToTabletsOfIndex.putIfAbsent(be, ConcurrentHashMap.newKeySet());
-        beToTabletsOfIndex.get(be).add(tabletId);
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets =
+                partToTablets.computeIfAbsent(partId, ignored -> new ConcurrentHashMap<>());
+        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfIndex =
+                indexToTablets.computeIfAbsent(indexId, ignored -> new ConcurrentHashMap<>());
+        beToTabletsOfIndex.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
     }
 
     private Function<Long, Set<Long>> newGlobalTabletSetFactory(Map<Long, Set<Long>> previousBeToTablets) {

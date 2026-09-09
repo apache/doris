@@ -32,6 +32,7 @@ import java.util.TreeSet;
 public class LanceStorageOptionsTest {
 
     private static final String S3_URI = "s3://warehouse/table.lance";
+    private static final String OSS_URI = "oss://warehouse/table.lance";
 
     /**
      * Parsed by Doris exactly as a real catalog would, so these fixtures also have to satisfy its
@@ -60,13 +61,23 @@ public class LanceStorageOptionsTest {
         return createAll(minioProperties());
     }
 
+    private static Map<String, String> ossProperties() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fs.oss.support", "true");
+        properties.put("oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com");
+        properties.put("oss.region", "cn-hangzhou");
+        properties.put("oss.access_key", "oss-ak");
+        properties.put("oss.secret_key", "oss-sk");
+        return properties;
+    }
+
     @Test
     public void testCatalogPropertiesMapToTheCanonicalS3Spelling() {
         Map<String, String> properties = minioProperties();
         properties.put("s3.session_token", "token");
 
         Map<String, String> options =
-                LanceStorageOptions.forUri(S3_URI, createAll(properties));
+                LanceStorageOptions.fromDorisStorageProperties(S3_URI, createAll(properties));
         Assertions.assertEquals("ak", options.get("aws_access_key_id"));
         Assertions.assertEquals("sk", options.get("aws_secret_access_key"));
         Assertions.assertEquals("token", options.get("aws_session_token"));
@@ -91,13 +102,110 @@ public class LanceStorageOptionsTest {
         properties.put("s3.region", "us-east-1");
 
         Map<String, String> options =
-                LanceStorageOptions.forUri(S3_URI, createAll(properties));
+                LanceStorageOptions.fromDorisStorageProperties(S3_URI, createAll(properties));
         Assertions.assertNull(options.get("aws_access_key_id"));
         Assertions.assertNull(options.get("aws_secret_access_key"));
         Assertions.assertNull(options.get("aws_session_token"));
         // allow_http only makes sense for a plain-HTTP endpoint.
         Assertions.assertNull(options.get("allow_http"));
         Assertions.assertEquals("https://s3.amazonaws.com", options.get("aws_endpoint"));
+    }
+
+    @Test
+    public void testOssCatalogPropertiesMapToThePublicSpelling() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.session_token", "oss-token");
+
+        Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(
+                OSS_URI, createAll(properties));
+
+        Assertions.assertEquals("https://oss-cn-hangzhou.aliyuncs.com",
+                options.get("oss_endpoint"));
+        Assertions.assertEquals("oss-ak", options.get("oss_access_key_id"));
+        Assertions.assertEquals("oss-sk", options.get("oss_secret_access_key"));
+        Assertions.assertEquals("cn-hangzhou", options.get("oss_region"));
+        Assertions.assertEquals("oss-token", options.get("oss_security_token"));
+        // Stated rather than implied, so the host environment cannot decide it; see
+        // testOssVirtualHostAddressingIsStatedExplicitly.
+        Assertions.assertEquals("virtual", options.get("addressing_style"));
+        Assertions.assertEquals(
+                new TreeSet<>(Arrays.asList("oss_endpoint", "oss_access_key_id",
+                        "oss_secret_access_key", "oss_region", "oss_security_token",
+                        "addressing_style", "allow_anonymous")),
+                new TreeSet<>(options.keySet()));
+        Assertions.assertEquals("false", options.get("allow_anonymous"));
+    }
+
+    @Test
+    public void testOssAnonymousAccessEmitsNoCredentials() {
+        Map<String, String> properties = ossProperties();
+        properties.remove("oss.access_key");
+        properties.remove("oss.secret_key");
+
+        Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(
+                OSS_URI, createAll(properties));
+
+        Assertions.assertEquals("https://oss-cn-hangzhou.aliyuncs.com",
+                options.get("oss_endpoint"));
+        Assertions.assertEquals("cn-hangzhou", options.get("oss_region"));
+        Assertions.assertNull(options.get("oss_access_key_id"));
+        Assertions.assertNull(options.get("oss_secret_access_key"));
+        Assertions.assertNull(options.get("oss_security_token"));
+    }
+
+    @Test
+    public void testVendedOssOptionsSupersedeTheCatalog() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.session_token", "static-token");
+        Map<String, String> vended = new HashMap<>();
+        vended.put("endpoint", "https://oss-cn-shanghai.aliyuncs.com");
+        vended.put("access_key_id", "vended-ak");
+        vended.put("access_key_secret", "vended-sk");
+        vended.put("region", "cn-shanghai");
+        vended.put("security_token", "vended-token");
+
+        Map<String, String> merged = LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                OSS_URI, createAll(properties), vended);
+
+        Assertions.assertEquals("https://oss-cn-shanghai.aliyuncs.com",
+                merged.get("oss_endpoint"));
+        Assertions.assertEquals("vended-ak", merged.get("oss_access_key_id"));
+        Assertions.assertEquals("vended-sk", merged.get("oss_secret_access_key"));
+        Assertions.assertEquals("cn-shanghai", merged.get("oss_region"));
+        Assertions.assertEquals("vended-token", merged.get("oss_security_token"));
+        for (String alias : vended.keySet()) {
+            Assertions.assertNull(merged.get(alias), alias + " must not survive beside its twin");
+        }
+    }
+
+    @Test
+    public void testOssAliasesCollapseAndConflictsAreRejected() {
+        // Carries a whole credential: a lone secret is a one-sided pair, which reconciliation
+        // now rejects on its own account, and that is not what this case is about.
+        Map<String, String> agreeing = new HashMap<>();
+        agreeing.put("access_key_id", "ak");
+        agreeing.put("access_key_secret", "same");
+        agreeing.put("oss_secret_access_key", "same");
+        Assertions.assertEquals("same", LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                OSS_URI, Collections.emptyList(), agreeing).get("oss_secret_access_key"));
+
+        Map<String, String> conflicting = new HashMap<>();
+        conflicting.put("endpoint", "https://one.example.com");
+        conflicting.put("oss_endpoint", "https://another.example.com");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions
+                .fromDorisAndVendedStorageOptions(OSS_URI, Collections.emptyList(), conflicting));
+    }
+
+    @Test
+    public void testUnknownVendedOssOptionsPassThrough() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("unknown_provider_option", "value");
+
+        Map<String, String> merged = LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                OSS_URI, Collections.emptyList(), vended);
+
+        Assertions.assertEquals("value", merged.get("unknown_provider_option"));
+        Assertions.assertEquals("true", merged.get("allow_anonymous"));
     }
 
     /**
@@ -116,7 +224,7 @@ public class LanceStorageOptionsTest {
         vended.put("virtual_hosted_style_request", "true");
 
         Map<String, String> merged =
-                LanceStorageOptions.forVendedTable(S3_URI, minioCatalog(), vended);
+                LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI, minioCatalog(), vended);
 
         Assertions.assertEquals("vended-ak", merged.get("aws_access_key_id"));
         Assertions.assertEquals("vended-sk", merged.get("aws_secret_access_key"));
@@ -139,12 +247,43 @@ public class LanceStorageOptionsTest {
             vended.put(alias, "http://127.0.0.1:9000");
 
             Map<String, String> merged =
-                    LanceStorageOptions.forVendedTable(S3_URI, minioCatalog(), vended);
+                    LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI, minioCatalog(), vended);
             long endpoints = merged.keySet().stream().filter(k -> k.contains("endpoint")).count();
             Assertions.assertEquals(1, endpoints, alias + " left a competing entry");
             Assertions.assertEquals("http://127.0.0.1:9000", merged.get("aws_endpoint"),
                     alias + " did not win");
         }
+    }
+
+    @Test
+    public void testS3AllowHttpIsInferredAfterVendedEndpointWins() {
+        Map<String, String> httpsEndpoint = Collections.singletonMap(
+                "endpoint", "https://s3.example.com");
+        Map<String, String> httpsOptions = LanceStorageOptions
+                .fromDorisAndVendedStorageOptions(S3_URI, minioCatalog(), httpsEndpoint);
+        Assertions.assertEquals("https://s3.example.com", httpsOptions.get("aws_endpoint"));
+        Assertions.assertNull(httpsOptions.get("allow_http"));
+
+        Map<String, String> explicitFalse = new HashMap<>();
+        explicitFalse.put("endpoint", "http://127.0.0.1:9000");
+        explicitFalse.put("allow_http", "false");
+        Map<String, String> explicitOptions = LanceStorageOptions
+                .fromDorisAndVendedStorageOptions(S3_URI, minioCatalog(), explicitFalse);
+        Assertions.assertEquals("false", explicitOptions.get("allow_http"));
+    }
+
+    @Test
+    public void testNormalizationDoesNotInferProviderOptions() {
+        Map<String, String> s3 = LanceS3StorageProvider.INSTANCE
+                .normalizeDorisStorageOptions(minioCatalog());
+        Assertions.assertEquals("http://minio:9000", s3.get("aws_endpoint"));
+        Assertions.assertFalse(s3.containsKey("allow_http"));
+
+        Map<String, String> oss = LanceOssStorageProvider.INSTANCE
+                .normalizeDorisStorageOptions(createAll(ossProperties()));
+        Assertions.assertEquals("oss-ak", oss.get("oss_access_key_id"));
+        Assertions.assertFalse(oss.containsKey("skip_signature"));
+        Assertions.assertFalse(oss.containsKey("allow_anonymous"));
     }
 
     /**
@@ -160,11 +299,11 @@ public class LanceStorageOptionsTest {
         Map<String, String> vended = new HashMap<>();
         vended.put("token", "vended-token");
 
-        Map<String, String> onS3 = LanceStorageOptions.forVendedTable(S3_URI, catalog, vended);
+        Map<String, String> onS3 = LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI, catalog, vended);
         Assertions.assertEquals("vended-token", onS3.get("aws_session_token"));
         Assertions.assertNull(onS3.get("token"));
 
-        Map<String, String> onAzure = LanceStorageOptions.forVendedTable(
+        Map<String, String> onAzure = LanceStorageOptions.fromDorisAndVendedStorageOptions(
                 "az://container/table.lance", catalog, vended);
         Assertions.assertEquals("vended-token", onAzure.get("token"));
         Assertions.assertNull(onAzure.get("aws_session_token"));
@@ -172,9 +311,8 @@ public class LanceStorageOptionsTest {
 
     /**
      * The regression that motivated all of this: object_store's Azure parser reads
-     * {@code endpoint} but not {@code aws_endpoint}, and Lance's OSS provider requires
-     * {@code endpoint} and reads {@code access_key_id}. Rewriting those onto the S3 spellings
-     * leaves the dataset unreachable, so a non-S3 dataset must come through untouched.
+     * {@code endpoint} but not {@code aws_endpoint}. Rewriting it onto the S3 spelling leaves the
+     * dataset unreachable, so a provider with no Doris adapter must come through untouched.
      */
     @Test
     public void testNonS3DatasetsAreNeverRewritten() {
@@ -184,10 +322,10 @@ public class LanceStorageOptionsTest {
         vended.put("secret_access_key", "vended-sk");
 
         for (String uri : new String[] {"az://container/table.lance", "abfss://fs@acct/table",
-                "oss://bucket/table.lance", "gs://bucket/table.lance", "cos://bucket/table",
+                "gs://bucket/table.lance", "cos://bucket/table",
                 "file:///tmp/table.lance"}) {
             Map<String, String> merged =
-                    LanceStorageOptions.forVendedTable(uri, minioCatalog(), vended);
+                    LanceStorageOptions.fromDorisAndVendedStorageOptions(uri, minioCatalog(), vended);
             Assertions.assertEquals(vended, merged,
                     uri + " must reach Lance exactly as the namespace wrote it");
         }
@@ -202,17 +340,18 @@ public class LanceStorageOptionsTest {
     public void testCatalogWithoutAnS3UrlGetsNoS3Options() {
         for (String uri : new String[] {"file:///warehouse/lance", "", null}) {
             Assertions.assertTrue(
-                    LanceStorageOptions.forUri(uri, minioCatalog()).isEmpty(),
+                    LanceStorageOptions.fromDorisStorageProperties(uri, minioCatalog()).isEmpty(),
                     "expected no options for " + uri);
         }
     }
 
-    /** Doris has no Lance vocabulary for a non-S3 provider yet, so it contributes none. */
+    /** A provider never receives another provider's static configuration. */
     @Test
     public void testCatalogPropertiesAreNotAppliedToANonS3Dataset() {
-        Map<String, String> merged = LanceStorageOptions.forUri(
+        Map<String, String> merged = LanceStorageOptions.fromDorisStorageProperties(
                 "oss://bucket/table.lance", minioCatalog());
-        Assertions.assertTrue(merged.isEmpty(), "S3 credentials must not leak onto another provider");
+        Assertions.assertEquals(Collections.singletonMap("allow_anonymous", "true"), merged,
+                "S3 credentials must not leak onto another provider");
     }
 
     /**
@@ -225,7 +364,7 @@ public class LanceStorageOptionsTest {
         Assertions.assertTrue(catalog.size() > 1,
                 "expected Doris to add its default non-S3 entry ahead of the S3 one");
         Assertions.assertEquals("ak",
-                LanceStorageOptions.forUri(S3_URI, catalog).get("aws_access_key_id"));
+                LanceStorageOptions.fromDorisStorageProperties(S3_URI, catalog).get("aws_access_key_id"));
     }
 
     @Test
@@ -238,18 +377,18 @@ public class LanceStorageOptionsTest {
         vended.put("deliberately_empty", "");
 
         Map<String, String> merged =
-                LanceStorageOptions.forVendedTable(S3_URI, Collections.emptyList(), vended);
+                LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI, Collections.emptyList(), vended);
         Assertions.assertEquals(vended, merged);
     }
 
     @Test
     public void testAbsentVendedOptionsLeaveCatalogOptionsIntact() {
         Map<String, String> catalogOptions =
-                LanceStorageOptions.forUri(S3_URI, minioCatalog());
+                LanceStorageOptions.fromDorisStorageProperties(S3_URI, minioCatalog());
         Assertions.assertEquals(catalogOptions,
-                LanceStorageOptions.forUri(S3_URI, minioCatalog()));
+                LanceStorageOptions.fromDorisStorageProperties(S3_URI, minioCatalog()));
         Assertions.assertEquals(catalogOptions,
-                LanceStorageOptions.forVendedTable(S3_URI, minioCatalog(), new HashMap<>()));
+                LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI, minioCatalog(), new HashMap<>()));
     }
 
     /** A namespace contradicting itself is not something to resolve by coin toss. */
@@ -259,14 +398,14 @@ public class LanceStorageOptionsTest {
         vended.put("access_key_id", "one");
         vended.put("aws_access_key_id", "another");
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> LanceStorageOptions.forVendedTable(S3_URI, minioCatalog(), vended));
+                () -> LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI, minioCatalog(), vended));
 
         // Agreeing on the value is not a conflict.
         Map<String, String> agreeing = new HashMap<>();
         agreeing.put("access_key_id", "same");
         agreeing.put("aws_access_key_id", "same");
         Assertions.assertEquals("same", LanceStorageOptions
-                .forVendedTable(S3_URI, minioCatalog(), agreeing).get("aws_access_key_id"));
+                .fromDorisAndVendedStorageOptions(S3_URI, minioCatalog(), agreeing).get("aws_access_key_id"));
     }
 
     /**
@@ -279,7 +418,7 @@ public class LanceStorageOptionsTest {
         properties.put("s3.access_key", "ak\0ignored");
 
         IllegalArgumentException thrown = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> LanceStorageOptions.forUri(S3_URI, createAll(properties)));
+                () -> LanceStorageOptions.fromDorisStorageProperties(S3_URI, createAll(properties)));
         // The message has to say which side to fix - the catalog, not the namespace.
         Assertions.assertTrue(thrown.getMessage().contains("Doris storage configuration"),
                 "unexpected message: " + thrown.getMessage());
@@ -294,21 +433,332 @@ public class LanceStorageOptionsTest {
         Map<String, String> withNulKey = new HashMap<>();
         withNulKey.put("bucket\0ignored", "other-bucket");
         Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions
-                .forVendedTable(S3_URI, Collections.emptyList(), withNulKey));
+                .fromDorisAndVendedStorageOptions(S3_URI, Collections.emptyList(), withNulKey));
 
         Map<String, String> withNulValue = new HashMap<>();
         withNulValue.put("aws_region", "us-east-1\0ignored");
         Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions
-                .forVendedTable(S3_URI, Collections.emptyList(), withNulValue));
+                .fromDorisAndVendedStorageOptions(S3_URI, Collections.emptyList(), withNulValue));
 
         Map<String, String> withNullValue = new HashMap<>();
         withNullValue.put("aws_region", null);
         Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions
-                .forVendedTable(S3_URI, Collections.emptyList(), withNullValue));
+                .fromDorisAndVendedStorageOptions(S3_URI, Collections.emptyList(), withNullValue));
 
         Map<String, String> withNullKey = new HashMap<>();
         withNullKey.put(null, "value");
         Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions
-                .forVendedTable(S3_URI, Collections.emptyList(), withNullKey));
+                .fromDorisAndVendedStorageOptions(S3_URI, Collections.emptyList(), withNullKey));
+    }
+
+    /**
+     * A catalog can be absent entirely - a Lance table reached purely through vended options has no
+     * Doris storage properties behind it. The provider has to answer with no options rather than
+     * fail, so that {@link LanceStorageOptions#fromDorisAndVendedStorageOptions} still has a map to merge onto.
+     */
+    @Test
+    public void testOssDatasetWithoutACatalogInfersAnonymousAccess() {
+        Assertions.assertEquals(Collections.singletonMap("allow_anonymous", "true"),
+                LanceStorageOptions.fromDorisStorageProperties(OSS_URI, null));
+    }
+
+    /**
+     * {@link LanceStorageOptions#fromDorisAndVendedStorageOptions} screens out a null vended map before it reaches a
+     * provider, but the interface still admits one and the sibling providers all tolerate it. Pin
+     * that down directly, since no public entry point can reach it.
+     */
+    @Test
+    public void testOssNormalizeVendedToleratesNoVendedOptions() {
+        Assertions.assertTrue(
+                LanceOssStorageProvider.INSTANCE.normalizeVendedStorageOptions(null).isEmpty());
+    }
+
+    /**
+     * Doris reads a blank key pair as anonymous access. OpenDAL only skips signing when it is told
+     * to, so the Lance-native flag has to be emitted rather than merely leaving credentials out.
+     */
+    @Test
+    public void testOssAnonymousModeIsForwardedToOpenDal() {
+        Map<String, String> properties = ossProperties();
+        properties.remove("oss.access_key");
+        properties.remove("oss.secret_key");
+
+        Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(OSS_URI, createAll(properties));
+
+        Assertions.assertEquals("true", options.get("allow_anonymous"));
+        Assertions.assertNull(options.get("oss_access_key_id"));
+        Assertions.assertNull(options.get("oss_secret_access_key"));
+    }
+
+    @Test
+    public void testOssCredentialedModeRequiresSigning() {
+        Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(
+                OSS_URI, createAll(ossProperties()));
+
+        Assertions.assertEquals("false", options.get("allow_anonymous"));
+    }
+
+    /**
+     * Doris models path-style addressing as a property with a default, so both answers are stated
+     * rather than only the non-default one - see
+     * {@link #testOssVirtualHostAddressingIsStatedExplicitly} for why absence is not neutral here.
+     */
+    @Test
+    public void testOssPathStyleAddressingIsForwarded() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.use_path_style", "true");
+
+        Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(OSS_URI, createAll(properties));
+
+        Assertions.assertEquals("path", options.get("addressing_style"));
+    }
+
+    /**
+     * Lance snapshots the host's {@code OSS_} and {@code AWS_} environment variables into the same
+     * config map before storage options are applied, so the default has to be stated rather than
+     * left implicit - otherwise an exported OSS_ADDRESSING_STYLE would outrank the catalog.
+     */
+    @Test
+    public void testOssVirtualHostAddressingIsStatedExplicitly() {
+        Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(
+                OSS_URI, createAll(ossProperties()));
+
+        Assertions.assertEquals("virtual", options.get("addressing_style"));
+    }
+
+    /**
+     * Doris accepts a whitespace-only key pair as "both set", so the emitted credentials and the
+     * signing choice have to agree: whatever this provider treats as a usable credential must
+     * suppress anonymous access, or OpenDAL sends the request unsigned.
+     */
+    @Test
+    public void testWhitespaceOssCredentialsAreNotAlsoCalledAnonymous() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.access_key", " ");
+        properties.put("oss.secret_key", " ");
+
+        Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(OSS_URI, createAll(properties));
+
+        Assertions.assertNotEquals(
+                options.containsKey("oss_access_key_id"),
+                Boolean.parseBoolean(options.get("allow_anonymous")),
+                "a credential and allow_anonymous=true must never both be emitted");
+    }
+
+    /**
+     * The case that makes this matter: an anonymous catalog whose namespace vends real credentials.
+     * OpenDAL's OSS signer returns the request unsigned whenever anonymous access is enabled, no
+     * matter what credentials sit beside it. Leaving the flag on would silently unsign every FE
+     * metadata read and BE scan that the vended credentials were supposed to authorize.
+     */
+    @Test
+    public void testVendedOssCredentialsClearStaticAnonymousMode() {
+        Map<String, String> properties = ossProperties();
+        properties.remove("oss.access_key");
+        properties.remove("oss.secret_key");
+        Assertions.assertEquals("true",
+                LanceStorageOptions.fromDorisStorageProperties(OSS_URI, createAll(properties))
+                        .get("allow_anonymous"),
+                "precondition: the static half alone is anonymous");
+
+        Map<String, String> vended = new HashMap<>();
+        vended.put("access_key_id", "vended-ak");
+        vended.put("access_key_secret", "vended-sk");
+
+        Map<String, String> merged = LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                OSS_URI, createAll(properties), vended);
+
+        Assertions.assertEquals("false", merged.get("allow_anonymous"));
+        Assertions.assertEquals("vended-ak", merged.get("oss_access_key_id"));
+        Assertions.assertEquals("vended-sk", merged.get("oss_secret_access_key"));
+    }
+
+    /**
+     * A namespace vending a whole credential has all of it carried through, token included, and the
+     * signing flag inferred from it. Options merge key by key, so a namespace is expected to vend
+     * the credential it wants used in full - what the catalog holds is not combined with it.
+     */
+    @Test
+    public void testVendedOssTokenSurvivesWithItsOwnPair() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.session_token", "static-token");
+        Map<String, String> vended = new HashMap<>();
+        vended.put("access_key_id", "vended-ak");
+        vended.put("access_key_secret", "vended-sk");
+        vended.put("security_token", "vended-token");
+
+        Map<String, String> merged = LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                OSS_URI, createAll(properties), vended);
+
+        Assertions.assertEquals("vended-token", merged.get("oss_security_token"));
+        Assertions.assertEquals("false", merged.get("allow_anonymous"));
+    }
+
+    /**
+     * A namespace asking for anonymous access has just described this table, which outranks a
+     * credential the catalog holds for something else. Signing with it would 403 on a bucket the
+     * catalog's account cannot read.
+     */
+    @Test
+    public void testVendedAnonymousModeConflictsWithStaticOssCredentials() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("allow_anonymous", "true");
+
+        // The catalog's credentials are not cleared to make room for it: a namespace asking for
+        // anonymous access to a catalog that holds a credential is a contradiction, and saying so
+        // beats silently picking one of the two.
+        IllegalArgumentException thrown = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                        OSS_URI, createAll(ossProperties()), vended));
+        Assertions.assertTrue(thrown.getMessage().contains("Conflicting OSS authentication"),
+                "unexpected message: " + thrown.getMessage());
+    }
+
+    @Test
+    public void testOssAnonymousAliasesCollapseAndConflict() {
+        Map<String, String> agreeing = new HashMap<>();
+        agreeing.put("allow_anonymous", "true");
+        agreeing.put("skip_signature", "true");
+        Assertions.assertEquals("true", LanceStorageOptions
+                .fromDorisAndVendedStorageOptions(OSS_URI, Collections.emptyList(), agreeing)
+                .get("allow_anonymous"));
+
+        Map<String, String> conflicting = new HashMap<>();
+        conflicting.put("allow_anonymous", "true");
+        conflicting.put("skip_signature", "false");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions
+                .fromDorisAndVendedStorageOptions(
+                        OSS_URI, Collections.emptyList(), conflicting));
+    }
+
+    @Test
+    public void testOssAnonymousConflictsWithSigningConfiguration() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("skip_signature", "true");
+        vended.put("access_key_id", "ak");
+        vended.put("access_key_secret", "sk");
+
+        IllegalArgumentException thrown = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                        OSS_URI, Collections.emptyList(), vended));
+        Assertions.assertTrue(thrown.getMessage().contains("Conflicting OSS authentication"),
+                "unexpected message: " + thrown.getMessage());
+    }
+
+    @Test
+    public void testOssExplicitSigningChoiceWinsAndInferenceIsIdempotent() {
+        Map<String, String> vended = Collections.singletonMap("skip_signature", "false");
+        Map<String, String> explicit = LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                OSS_URI, Collections.emptyList(), vended);
+        Assertions.assertEquals("false", explicit.get("allow_anonymous"));
+        Assertions.assertFalse(explicit.containsKey("skip_signature"));
+
+        Map<String, String> inferred = LanceStorageOptions.fromDorisStorageProperties(
+                OSS_URI, createAll(ossProperties()));
+        Assertions.assertEquals(inferred, LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                OSS_URI, Collections.emptyList(), inferred));
+    }
+
+    /**
+     * Blank is not a credential. OpenDAL would otherwise build a signer from empty strings and
+     * sign every request with them, while nothing says the access is anonymous.
+     */
+    @Test
+    public void testVendedEmptyOssCredentialsFallBackToAnonymous() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.session_token", "static-token");
+        Map<String, String> vended = new HashMap<>();
+        vended.put("access_key_id", "");
+        vended.put("access_key_secret", "");
+
+        Map<String, String> merged = LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                OSS_URI, createAll(properties), vended);
+
+        // The blanks themselves survive - the merge overlays key by key and does not judge values.
+        // What matters is that they are not mistaken for a credential: inference reads them as
+        // absent, so the request is marked anonymous rather than signed with empty strings.
+        Assertions.assertEquals("true", merged.get("allow_anonymous"));
+        Assertions.assertEquals("", merged.get("oss_access_key_id"));
+    }
+
+    /**
+     * Absence is not neutral: Lance and OpenDAL may otherwise resolve authentication from their
+     * environment. Doris states whether the final normalized configuration should be signed.
+     */
+    @Test
+    public void testOssAnonymousModeIsStatedEitherWay() {
+        Assertions.assertEquals("false",
+                LanceStorageOptions.fromDorisStorageProperties(OSS_URI, createAll(ossProperties()))
+                        .get("allow_anonymous"));
+
+        Map<String, String> anonymous = ossProperties();
+        anonymous.remove("oss.access_key");
+        anonymous.remove("oss.secret_key");
+        Assertions.assertEquals("true",
+                LanceStorageOptions.fromDorisStorageProperties(OSS_URI, createAll(anonymous))
+                        .get("allow_anonymous"));
+    }
+
+    /**
+     * OpenDAL lower-cases every config key before deserializing, so a credential vended in upper
+     * case still reaches the store. Left unrecognized here it would not count as signing
+     * configuration, and the anonymous flag would be inferred as true beside it - the store would
+     * then load the credential and skip signing anyway, sending every request unsigned.
+     */
+    @Test
+    public void testVendedOssOptionsAreRecognizedRegardlessOfCase() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("ACCESS_KEY_ID", "vended-ak");
+        vended.put("Access_Key_Secret", "vended-sk");
+
+        Map<String, String> merged = LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                OSS_URI, Collections.emptyList(), vended);
+
+        Assertions.assertEquals("vended-ak", merged.get("oss_access_key_id"));
+        Assertions.assertEquals("vended-sk", merged.get("oss_secret_access_key"));
+        Assertions.assertEquals("false", merged.get("allow_anonymous"));
+    }
+
+    /**
+     * The signing flag is read with OpenDAL's boolean grammar, not Java's. Judging {@code on} by
+     * Boolean.parseBoolean would call it "not anonymous" and let it through beside a credential,
+     * while the store reads it as anonymous and stops signing.
+     */
+    @Test
+    public void testVendedOssAnonymousFlagUsesTheStoresBooleanGrammar() {
+        for (String spelling : new String[] {"true", "on", "ON"}) {
+            Map<String, String> vended = new HashMap<>();
+            vended.put("allow_anonymous", spelling);
+            IllegalArgumentException thrown = Assertions.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                            OSS_URI, createAll(ossProperties()), vended),
+                    "'" + spelling + "' should conflict with configured credentials");
+            Assertions.assertTrue(thrown.getMessage().contains("Conflicting OSS authentication"),
+                    "unexpected message: " + thrown.getMessage());
+        }
+        // off/false are the store's own spellings for "sign", and agree with a credential
+        for (String spelling : new String[] {"false", "off"}) {
+            Map<String, String> vended = new HashMap<>();
+            vended.put("allow_anonymous", spelling);
+            Assertions.assertEquals(spelling, LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                    OSS_URI, createAll(ossProperties()), vended).get("allow_anonymous"));
+        }
+    }
+
+    /** A value OpenDAL cannot parse is refused here, not several layers down in the operator build. */
+    @Test
+    public void testVendedOssAnonymousFlagRejectsAnUnparsableValue() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("allow_anonymous", "yes");
+
+        IllegalArgumentException thrown = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                        OSS_URI, Collections.emptyList(), vended));
+        Assertions.assertTrue(thrown.getMessage().contains("Unrecognized value"),
+                "unexpected message: " + thrown.getMessage());
     }
 }

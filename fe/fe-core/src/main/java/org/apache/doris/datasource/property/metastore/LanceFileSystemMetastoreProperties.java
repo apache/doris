@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import org.apache.arrow.memory.BufferAllocator;
@@ -37,7 +38,7 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
     @ConnectorProperty(
             names = {WAREHOUSE},
             required = false,
-            description = "The local, file, or S3 warehouse containing Lance datasets."
+            description = "The local, file, S3, or OSS warehouse containing Lance datasets."
     )
     private String warehouse;
 
@@ -77,6 +78,7 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
             throw new IllegalArgumentException(
                     "Missing required property 'warehouse' for Lance filesystem catalog");
         }
+        rejectOssHdfs();
         validateWarehouse(warehouse);
         for (String key : origProps.keySet()) {
             if (key.startsWith("lance.rest.")) {
@@ -102,9 +104,36 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
             return;
         }
         String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
-        if (!"file".equals(scheme) && !"s3".equals(scheme)) {
+        if (!"file".equals(scheme) && !"s3".equals(scheme) && !"oss".equals(scheme)) {
             throw new IllegalArgumentException("Unsupported Lance filesystem warehouse scheme '" + scheme
-                    + "'; first phase supports local/file and s3");
+                    + "'; supported schemes are local/file, s3, and oss");
+        }
+        // An object-store root names its bucket in the authority. Lance reads that authority as the
+        // bucket and fails deep inside the store when it is absent, so reject the no-authority form
+        // here where the message can still name the property.
+        if (("s3".equals(scheme) || "oss".equals(scheme)) && StringUtils.isBlank(uri.getAuthority())) {
+            throw new IllegalArgumentException(
+                    "Lance " + scheme + " warehouse must name a bucket, as in " + scheme
+                            + "://bucket/path, but was: " + warehouse);
         }
     }
+
+    /**
+     * Doris routes an OSS-HDFS configuration to {@code OSSHdfsProperties}, which the Lance OSS
+     * provider cannot read - it accepts only {@code OSSProperties} - so the namespace would be
+     * handed no endpoint and no credentials and could not open at all.
+     *
+     * <p>Checks every property rather than only the warehouse: {@code OSSHdfsProperties.guessIsMe}
+     * selects on the endpoint, so {@code oss://bucket/path} with an {@code oss.endpoint} ending in
+     * the OSS-HDFS suffix routes there just the same, with a clean-looking warehouse.
+     */
+    private void rejectOssHdfs() {
+        if (OSSHdfsProperties.guessIsMe(origProps)) {
+            throw new IllegalArgumentException(
+                    "OSS-HDFS is not supported by the Lance catalog. Doris reads this form through "
+                            + "its HDFS-compatible properties, which carry no Lance OSS storage "
+                            + "options.");
+        }
+    }
+
 }
