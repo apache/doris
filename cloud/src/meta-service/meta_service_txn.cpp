@@ -4658,6 +4658,19 @@ void MetaServiceImpl::get_prepare_txn_by_coordinator(
 
     do {
         err = txn->get(begin_info_key, end_info_key, &it, true);
+        TEST_SYNC_POINT_CALLBACK("get_prepare_txn_by_coordinator::range_get", &err);
+        if (err == TxnErrorCode::TXN_TOO_OLD) {
+            stats.get_bytes += txn->get_bytes();
+            stats.get_counter += txn->num_get_keys();
+            txn.reset();
+            err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                msg = "failed to create txn";
+                code = cast_as<ErrCategory::CREATE>(err);
+                return;
+            }
+            err = txn->get(begin_info_key, end_info_key, &it, true);
+        }
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             ss << "failed to get txn info. err=" << err;

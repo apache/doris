@@ -2871,6 +2871,11 @@ TEST(MetaServiceTest, AbortTxnWithCoordinatorTest) {
 
 TEST(MetaServiceTest, GetPrepareTxnByCoordinatorTest) {
     auto meta_service = get_meta_service();
+    const bool use_detailed_metrics = config::use_detailed_metrics;
+    config::use_detailed_metrics = true;
+    DORIS_CLOUD_DEFER {
+        config::use_detailed_metrics = use_detailed_metrics;
+    };
 
     const int64_t db_id = 888;
     const int64_t table_id = 999;
@@ -2924,6 +2929,63 @@ TEST(MetaServiceTest, GetPrepareTxnByCoordinatorTest) {
 
         ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
         ASSERT_EQ(resp.txn_infos_size(), 5);
+    }
+
+    // Resume an expired scan at the failed page without losing or duplicating transactions.
+    for (int failed_page : {1, 3, 5, 6}) {
+        const auto get_counter_before =
+                g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_counter.get({mock_instance});
+        const auto get_bytes_before =
+                g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_bytes.get({mock_instance});
+        auto sp = SyncPoint::get_instance();
+        DORIS_CLOUD_DEFER {
+            sp->disable_processing();
+            sp->clear_all_call_backs();
+        };
+        int pages = 0;
+        int reads = 0;
+        sp->set_call_back("memkv::Transaction::get", [&](auto&& args) {
+            *try_any_cast<int*>(args[0]) = 1;
+            ++reads;
+        });
+        sp->set_call_back("get_prepare_txn_by_coordinator::range_get", [&](auto&& args) {
+            if (++pages == failed_page) {
+                *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+            }
+        });
+        sp->enable_processing();
+
+        brpc::Controller cntl;
+        GetPrepareTxnByCoordinatorRequest req;
+        GetPrepareTxnByCoordinatorResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_id(coordinator_id);
+        req.set_ip(host);
+        meta_service->get_prepare_txn_by_coordinator(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &resp, nullptr);
+
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        // MemTxnKv needs an empty page after the five full pages to finish the scan.
+        ASSERT_EQ(pages, 6);
+        ASSERT_EQ(reads, 7);
+        ASSERT_EQ(resp.txn_infos_size(), txn_ids.size());
+        int64_t expected_get_counter = 0;
+        int64_t expected_get_bytes = 0;
+        for (int i = 0; i < resp.txn_infos_size(); ++i) {
+            EXPECT_EQ(resp.txn_infos(i).txn_id(), txn_ids[i]);
+            const auto bytes = txn_info_key({mock_instance, db_id, txn_ids[i]}).size() +
+                               resp.txn_infos(i).ByteSizeLong();
+            // The injected error follows a successful read, so that page is counted twice.
+            const int read_count = i + 1 == failed_page ? 2 : 1;
+            expected_get_counter += read_count;
+            expected_get_bytes += read_count * bytes;
+        }
+        EXPECT_EQ(g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_counter.get({mock_instance}) -
+                          get_counter_before,
+                  expected_get_counter);
+        EXPECT_EQ(g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_bytes.get({mock_instance}) -
+                          get_bytes_before,
+                  expected_get_bytes);
     }
 
     // Test 2: Get prepared transactions with start_time filter
