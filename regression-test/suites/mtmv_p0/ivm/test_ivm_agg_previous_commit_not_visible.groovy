@@ -29,6 +29,9 @@ suite("test_ivm_agg_previous_commit_not_visible", "nonConcurrent") {
     def blockVisible = "DatabaseTransactionMgr.finishTransaction.block_visible"
     def mvName = "ivm_prev_commit_mv"
     def baseName = "ivm_prev_commit_t"
+    // Id of the newest task of this MV; refreshed before every REFRESH so the wait
+    // below can tell the task just submitted apart from its predecessors.
+    def prevTaskId = ""
 
     def disableDebugPoints = {
         GetDebugPoint().disableDebugPointForAllFEs(blockVisible)
@@ -37,24 +40,44 @@ suite("test_ivm_agg_previous_commit_not_visible", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllFEs(blockVisible, [value: mvName])
     }
 
-    def latestTask = {
-        // Let the newly submitted refresh task row appear so the poll below cannot
-        // latch onto the previous (already terminal) task of the same MV.
-        Thread.sleep(2000)
+    // The newest task of the MV before a refresh is submitted. tasks() transiently misses
+    // a task that just finished: AbstractJob.onTaskSuccess() removes it from the job's
+    // running list before MTMVTask.after() appends it to the MV history, and while that
+    // window is open the newest row of the MV is its previous task. Remembering the id
+    // and ignoring it while polling keeps the wait from latching onto that task's already
+    // terminal status.
+    def newestTaskId = {
+        def taskResult = sql_return_maparray("""
+            SELECT TaskId FROM tasks('type'='mv')
+            WHERE MvDatabaseName = '${context.dbName}'
+              AND MvName = '${mvName}'
+            ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
+        """)
+        return taskResult.isEmpty() ? "" : taskResult[0].TaskId.toString()
+    }
+
+    def latestTask = { String excludeTaskId ->
         def taskResult
         Awaitility.await().atMost(180, SECONDS).pollInterval(2, SECONDS).until({
             taskResult = sql_return_maparray("""
-                SELECT Status, RefreshMode, IvmFallbackReason, ErrorMsg
+                SELECT TaskId, Status, RefreshMode, IvmFallbackReason, ErrorMsg
                 FROM tasks('type'='mv')
                 WHERE MvDatabaseName = '${context.dbName}'
                   AND MvName = '${mvName}'
                 ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
             """)
             return !taskResult.isEmpty()
+                    && taskResult[0].TaskId.toString() != excludeTaskId
                     && taskResult[0].Status.toString() != 'PENDING'
                     && taskResult[0].Status.toString() != 'RUNNING'
         })
         return taskResult[0]
+    }
+
+    def waitTaskSuccess = { String excludeTaskId ->
+        def task = latestTask(excludeTaskId)
+        assertEquals("SUCCESS", task.Status.toString())
+        return task
     }
 
     try {
@@ -90,8 +113,9 @@ suite("test_ivm_agg_previous_commit_not_visible", "nonConcurrent") {
 
         // Initial INCREMENTAL refresh (no debug point): consumes the historical binlog
         // and establishes the baseline snapshot.
+        prevTaskId = newestTaskId()
         sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
-        waitingMTMVTaskFinishedByMvName(mvName)
+        waitTaskSuccess(prevTaskId)
         order_qt_prev_commit_baseline """
             SELECT k1, cnt, sum_v1 FROM ${mvName} ORDER BY k1
         """
@@ -105,9 +129,10 @@ suite("test_ivm_agg_previous_commit_not_visible", "nonConcurrent") {
         // publish and the task still reports SUCCESS (committed mode). The refresh task
         // runs in an internal ConnectContext that clones the global session variables,
         // so shorten insert_visible_timeout_ms globally for the wait.
+        prevTaskId = newestTaskId()
         setGlobalVarTemporary([insert_visible_timeout_ms: 3000], {
             sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
-            waitingMTMVTaskFinishedByMvName(mvName)
+            waitTaskSuccess(prevTaskId)
         })
         order_qt_prev_commit_after_blocked_refresh """
             SELECT k1, cnt, sum_v1 FROM ${mvName} ORDER BY k1
@@ -124,8 +149,9 @@ suite("test_ivm_agg_previous_commit_not_visible", "nonConcurrent") {
         // txn on the MV is still not visible. The aggregate delta would join stale old
         // MV rows, so the refresh must fail instead of corrupting the MV.
         sql """INSERT INTO ${baseName} VALUES (4, 40)"""
+        prevTaskId = newestTaskId()
         sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
-        def failedTask = latestTask()
+        def failedTask = latestTask(prevTaskId)
         assertEquals("FAILED", failedTask.Status.toString())
         assertTrue(failedTask.ErrorMsg.toString().contains("MV_COMMIT_NOT_VISIBLE"))
         assertTrue(failedTask.ErrorMsg.toString().contains("not visible yet"))
@@ -137,9 +163,10 @@ suite("test_ivm_agg_previous_commit_not_visible", "nonConcurrent") {
         // so it is not stopped by the guard. But the debug point is still on, so its own
         // write txn can not turn VISIBLE either: the task reports SUCCESS (committed
         // mode) while readers still see none of the new data.
+        prevTaskId = newestTaskId()
         setGlobalVarTemporary([insert_visible_timeout_ms: 3000], {
             sql """REFRESH MATERIALIZED VIEW ${mvName} COMPLETE"""
-            waitingMTMVTaskFinishedByMvName(mvName)
+            waitTaskSuccess(prevTaskId)
         })
         def completeStillInvisibleRows = sql """SELECT COUNT(*) FROM ${mvName} WHERE k1 >= 3"""
         assertEquals("0", completeStillInvisibleRows.get(0).get(0).toString())
@@ -149,8 +176,9 @@ suite("test_ivm_agg_previous_commit_not_visible", "nonConcurrent") {
         // just like after a stuck incremental: readers must never see MV state computed
         // on top of rows that are committed but not visible.
         sql """INSERT INTO ${baseName} VALUES (5, 50)"""
+        prevTaskId = newestTaskId()
         sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
-        def failedAfterCompleteTask = latestTask()
+        def failedAfterCompleteTask = latestTask(prevTaskId)
         assertEquals("FAILED", failedAfterCompleteTask.Status.toString())
         assertTrue(failedAfterCompleteTask.ErrorMsg.toString().contains("MV_COMMIT_NOT_VISIBLE"))
         def stillInvisibleRows = sql """SELECT COUNT(*) FROM ${mvName} WHERE k1 >= 3"""
@@ -174,8 +202,9 @@ suite("test_ivm_agg_previous_commit_not_visible", "nonConcurrent") {
 
         // (5,50) was inserted after the stuck COMPLETE, so it needs one more successful
         // INCREMENTAL refresh; the guard is clear now that the stuck txns have published.
+        prevTaskId = newestTaskId()
         sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
-        waitingMTMVTaskFinishedByMvName(mvName)
+        waitTaskSuccess(prevTaskId)
         order_qt_prev_commit_converged """
             SELECT k1, cnt, sum_v1 FROM ${mvName} ORDER BY k1
         """
