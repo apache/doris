@@ -571,7 +571,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         boolean containsCount = false;
         boolean containsCountStar = false;
-        boolean countHasCastArgument = false;
         Set<SlotReference> checkNullSlots = new HashSet<>();
         Set<Expression> expressionAfterProject = new HashSet<>();
 
@@ -594,13 +593,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     if (arg0 instanceof SlotReference) {
                         checkNullSlots.add((SlotReference) arg0);
                         expressionAfterProject.add(arg0);
-                    } else if (arg0 instanceof Cast) {
-                        countHasCastArgument = true;
-                        Expression child0 = arg0.child(0);
-                        if (child0 instanceof SlotReference) {
-                            checkNullSlots.add((SlotReference) child0);
-                            expressionAfterProject.add(arg0);
-                        }
+                    } else if (isFailureFreeCastOverSlot(arg0)) {
+                        checkNullSlots.add((SlotReference) arg0.child(0));
+                        expressionAfterProject.add(arg0);
                     }
                 }
             }
@@ -622,28 +617,21 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
         }
 
-        // TODO: refactor this to process slot reference or expression together
-        boolean onlyContainsSlotOrNumericCastSlot = aggregateFunctions.stream()
-                .map(ExpressionTrait::getArguments)
-                .flatMap(List::stream)
-                .allMatch(argument -> {
-                    if (argument instanceof SlotReference) {
-                        return true;
-                    }
-                    if (argument instanceof Cast) {
-                        return argument.child(0) instanceof SlotReference
-                                && argument.getDataType().isNumericType()
-                                && argument.child(0).getDataType().isNumericType();
-                    }
-                    return false;
-                });
-        if (!onlyContainsSlotOrNumericCastSlot) {
+        // Storage-layer aggregation operates on source column values. A skipped cast must neither
+        // introduce NULL nor report a conversion error. MIN/MAX also requires order preservation.
+        boolean onlyContainsSupportedArgument = aggregateFunctions.stream()
+                .allMatch(function -> function.getArguments().stream()
+                        .allMatch(argument -> isSupportedStorageLayerAggregateArgument(function, argument)));
+        if (!onlyContainsSupportedArgument) {
             return canNotPush;
         }
 
         // we already normalize the arguments to slotReference
-        List<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
-                .flatMap(aggregateFunction -> aggregateFunction.getArguments().stream())
+        List<AggregateFunction> aggregateFunctionsWithArguments = aggregateFunctions.stream()
+                .filter(aggregateFunction -> !aggregateFunction.getArguments().isEmpty())
+                .collect(ImmutableList.toImmutableList());
+        List<Expression> argumentsOfAggregateFunction = aggregateFunctionsWithArguments.stream()
+                .map(aggregateFunction -> aggregateFunction.getArguments().get(0))
                 .collect(ImmutableList.toImmutableList());
 
         if (project != null) {
@@ -664,17 +652,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     if (needCheckSlotNull) {
                         checkNullSlots.add((SlotReference) argument);
                     }
-                } else if (argument instanceof Cast) {
-                    boolean castMatch = argument.child(0) instanceof SlotReference
-                            && argument.getDataType().isNumericType()
-                            && argument.child(0).getDataType().isNumericType();
-                    if (!castMatch) {
-                        return canNotPush;
-                    } else {
-                        if (needCheckSlotNull) {
-                            countHasCastArgument = true;
-                            checkNullSlots.add((SlotReference) argument.child(0));
-                        }
+                } else if (isSupportedStorageLayerAggregateArgument(
+                        aggregateFunctionsWithArguments.get(i), argument)) {
+                    if (needCheckSlotNull) {
+                        checkNullSlots.add((SlotReference) argument.child(0));
                     }
                 } else {
                     return canNotPush;
@@ -683,25 +664,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             argumentsOfAggregateFunction = processedExpressions;
         }
 
-        // File aggregate metadata can describe COUNT(*) or COUNT(file_column), but it cannot
-        // describe the CAST wrapped around a COUNT argument. Dropping that CAST is incorrect even
-        // when the source column is NOT NULL. For example, a non-null DOUBLE value outside the INT
-        // range becomes NULL for CAST(double_col AS INT), so COUNT(CAST(double_col AS INT)) must
-        // exclude it while a footer-level COUNT(double_col) would include it. Keep OLAP's existing
-        // storage-layer behavior unchanged, and make external files evaluate the CAST normally.
-        if (logicalScan instanceof LogicalFileScan && countHasCastArgument) {
-            return canNotPush;
-        }
-
-        // File footers and OLAP zone maps retain only source endpoints. Casts that introduce NULL
-        // can discard a valid interior value. Check the cast independently of source nullability
-        // so safe widening casts over nullable columns remain eligible. Floating sources may have
+        // File footers and OLAP zone maps retain only source endpoints. Floating sources may have
         // NaNs omitted by file statistics; DOUBLE/DECIMAL-to-FLOAT can also underflow to signed
-        // zero and change the MIN/MAX representative even without introducing NULL.
+        // zero and change the MIN/MAX representative even when the cast cannot fail.
         if ((functionClasses.contains(Min.class) || functionClasses.contains(Max.class))
                 && argumentsOfAggregateFunction.stream().anyMatch(argument -> argument instanceof Cast
-                        && (Cast.castNullable(false, argument.child(0).getDataType(), argument.getDataType())
-                                || argument.child(0).getDataType().isFloatLikeType()
+                        && (argument.child(0).getDataType().isFloatLikeType()
                                 || (argument.child(0).getDataType().isDecimalLikeType()
                                         && argument.getDataType().isFloatType())))) {
             return canNotPush;
@@ -807,6 +775,35 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         } else {
             return canNotPush;
         }
+    }
+
+    private boolean isSupportedStorageLayerAggregateArgument(
+            AggregateFunction aggregateFunction, Expression argument) {
+        if (argument instanceof SlotReference) {
+            return true;
+        }
+        if (!isFailureFreeCastOverSlot(argument)) {
+            return false;
+        }
+        // TRY_CAST is always nullable at the expression level, but a failure-free conversion only
+        // propagates input NULL. The source-slot nullability is checked separately below.
+        if (aggregateFunction instanceof Count) {
+            return true;
+        }
+        // Failure freedom is insufficient for MIN/MAX. For example, INT to STRING changes the
+        // ordering. Keep the existing numeric-to-numeric domain and the floating guards above.
+        return argument.getDataType().isNumericType()
+                && argument.child(0).getDataType().isNumericType();
+    }
+
+    private boolean isFailureFreeCastOverSlot(Expression argument) {
+        if (!(argument instanceof Cast) || !(argument.child(0) instanceof SlotReference)) {
+            return false;
+        }
+        // A non-strict nested cast may only null an element, so COUNT could sometimes be pushed
+        // down in that mode. Reject possibly failing conversions conservatively: strict CAST may
+        // report an error and TRY_CAST may turn it into a top-level NULL.
+        return !((Cast) argument).mayFailOnNonNullInput();
     }
 
     private boolean enablePushDownNoGroupAgg() {

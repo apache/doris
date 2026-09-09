@@ -768,6 +768,10 @@ public class CastTest {
         Assertions.assertFalse(Cast.mayFailOnNonNullInput(DoubleType.INSTANCE, BooleanType.INSTANCE));
         Assertions.assertFalse(Cast.mayFailOnNonNullInput(DateType.INSTANCE, StringType.INSTANCE));
         Assertions.assertFalse(Cast.mayFailOnNonNullInput(VarcharType.SYSTEM_DEFAULT, StringType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(
+                DecimalV3Type.createDecimalV3Type(3, 2), DecimalV3Type.createDecimalV3Type(4, 2)));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(
+                DecimalV3Type.createDecimalV3Type(3, 2), DecimalV3Type.createDecimalV3Type(4, 1)));
 
         Assertions.assertTrue(Cast.mayFailOnNonNullInput(BigIntType.INSTANCE, IntegerType.INSTANCE));
         Assertions.assertTrue(Cast.mayFailOnNonNullInput(DoubleType.INSTANCE, IntegerType.INSTANCE));
@@ -775,6 +779,8 @@ public class CastTest {
         Assertions.assertTrue(Cast.mayFailOnNonNullInput(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX));
         Assertions.assertTrue(Cast.mayFailOnNonNullInput(JsonType.INSTANCE, StringType.INSTANCE));
         Assertions.assertTrue(Cast.mayFailOnNonNullInput(VariantType.INSTANCE, StringType.INSTANCE));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(
+                DecimalV3Type.createDecimalV3Type(3, 2), DecimalV3Type.createDecimalV3Type(2, 1)));
 
         Cast safeCast = new Cast(new SlotReference("slot", IntegerType.INSTANCE, true), BigIntType.INSTANCE);
         Assertions.assertTrue(safeCast.nullable());

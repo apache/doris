@@ -316,6 +316,16 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
 
+        // BE's DECIMALV3 cast can only overflow when the target has fewer integral digits, or
+        // when equal integral ranges require rounding to a smaller scale at the boundary.
+        if (sourceType instanceof DecimalV3Type && targetType instanceof DecimalV3Type) {
+            DecimalV3Type sourceDecimal = (DecimalV3Type) sourceType;
+            DecimalV3Type targetDecimal = (DecimalV3Type) targetType;
+            return sourceDecimal.getRange() > targetDecimal.getRange()
+                    || (sourceDecimal.getRange() == targetDecimal.getRange()
+                            && sourceDecimal.getScale() > targetDecimal.getScale());
+        }
+
         // BE casts to a character type through to_string_batch for these source types.
         // JSON and VARIANT take separate paths and are intentionally left conservative.
         boolean concreteNumber = (sourceType.isIntegralType() && sourceType.width() > 0)

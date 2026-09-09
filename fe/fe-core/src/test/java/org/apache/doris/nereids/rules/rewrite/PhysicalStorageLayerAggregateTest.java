@@ -34,6 +34,8 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.TryCast;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -48,12 +50,15 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -65,6 +70,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSupported {
@@ -151,6 +157,37 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
                         physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT
                                 && agg.getCountArgumentExprIds().equals(
                                         ImmutableList.of(fileScan.getOutput().get(0).getExprId())))));
+    }
+
+    @Test
+    public void testFileCountCastNullabilityControlsStorageLayerAggregate() {
+        LogicalFileScan fileScan = newNullableFileCountAggregate().child();
+        List<Cast> unsafeCasts = ImmutableList.of(
+                new Cast(fileScan.getOutput().get(0), TinyIntType.INSTANCE),
+                new TryCast(fileScan.getOutput().get(0), TinyIntType.INSTANCE));
+        for (Cast cast : unsafeCasts) {
+            LogicalAggregate<LogicalFileScan> aggregate = new LogicalAggregate<>(
+                    Collections.emptyList(), ImmutableList.of(new Alias(new Count(cast), "count")),
+                    true, Optional.empty(), fileScan);
+            PlanChecker.from(MemoTestUtils.createCascadesContext(aggregate))
+                    .applyImplementation(storageLayerAggregateWithoutProjectForFileScan())
+                    .nonMatch(physicalStorageLayerAggregate());
+        }
+
+        List<Cast> safeCasts = ImmutableList.of(
+                new Cast(fileScan.getOutput().get(0), BigIntType.INSTANCE),
+                new TryCast(fileScan.getOutput().get(0), BigIntType.INSTANCE),
+                new Cast(fileScan.getOutput().get(0), StringType.INSTANCE),
+                new TryCast(fileScan.getOutput().get(0), StringType.INSTANCE));
+        for (Cast cast : safeCasts) {
+            LogicalAggregate<LogicalFileScan> aggregate = new LogicalAggregate<>(
+                    Collections.emptyList(), ImmutableList.of(new Alias(new Count(cast), "count")),
+                    true, Optional.empty(), fileScan);
+            PlanChecker.from(MemoTestUtils.createCascadesContext(aggregate))
+                    .applyImplementation(storageLayerAggregateWithoutProjectForFileScan())
+                    .matches(logicalAggregate(
+                            physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT)));
+        }
     }
 
     @Test
@@ -400,6 +437,178 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         PlanChecker.from(context)
                 .applyImplementation(countOnIndex())
                 .matches(logicalAggregate(logicalProject(logicalFilter(logicalOlapScan()))));
+    }
+
+    @Test
+    public void testCastThatMayProduceNullDoesNotUseStorageLayerAggregate() {
+        LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(2, "cast_aggregate", 0);
+        Cast cast = new Cast(olapScan.getOutput().get(0), TinyIntType.INSTANCE);
+        TryCast tryCast = new TryCast(olapScan.getOutput().get(0), TinyIntType.INSTANCE);
+        Cast stringCast = new Cast(olapScan.getOutput().get(1), TinyIntType.INSTANCE);
+        TryCast stringTryCast = new TryCast(olapScan.getOutput().get(1), TinyIntType.INSTANCE);
+        List<AggregateFunction> castAggregates = ImmutableList.of(
+                new Count(cast), new Count(tryCast), new Min(cast), new Max(tryCast),
+                new Count(stringCast), new Count(stringTryCast));
+
+        for (AggregateFunction function : castAggregates) {
+            LogicalAggregate<LogicalOlapScan> aggregate = new LogicalAggregate<>(
+                    Collections.emptyList(), ImmutableList.of(new Alias(function, "aggregate")),
+                    true, Optional.empty(), olapScan);
+
+            PlanChecker.from(MemoTestUtils.createCascadesContext(aggregate))
+                    .applyImplementation(storageLayerAggregateWithoutProject())
+                    .nonMatch(physicalStorageLayerAggregate());
+        }
+    }
+
+    @Test
+    public void testSafeCastAggregateUsesStorageLayerAggregate() {
+        LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(3, "safe_cast_aggregate", 0);
+        Cast cast = new Cast(olapScan.getOutput().get(0), BigIntType.INSTANCE);
+        TryCast tryCast = new TryCast(olapScan.getOutput().get(0), BigIntType.INSTANCE);
+        List<AggregateFunction> castAggregates = ImmutableList.of(
+                new Count(cast), new Count(tryCast), new Min(cast), new Max(tryCast));
+
+        for (AggregateFunction function : castAggregates) {
+            LogicalAggregate<LogicalOlapScan> aggregate = new LogicalAggregate<>(
+                    Collections.emptyList(), ImmutableList.of(new Alias(function, "aggregate")),
+                    true, Optional.empty(), olapScan);
+
+            PlanChecker.from(MemoTestUtils.createCascadesContext(aggregate))
+                    .applyImplementation(storageLayerAggregateWithoutProject())
+                    .matches(logicalAggregate(physicalStorageLayerAggregate()));
+        }
+    }
+
+    @Test
+    public void testCountAllowsNullPreservingNonNumericCast() {
+        LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(4, "safe_non_numeric_count", 0);
+        List<Cast> safeCasts = ImmutableList.of(
+                new Cast(olapScan.getOutput().get(0), StringType.INSTANCE),
+                new TryCast(olapScan.getOutput().get(0), StringType.INSTANCE));
+
+        for (Cast cast : safeCasts) {
+            LogicalAggregate<LogicalOlapScan> aggregate = new LogicalAggregate<>(
+                    Collections.emptyList(), ImmutableList.of(new Alias(new Count(cast), "count")),
+                    true, Optional.empty(), olapScan);
+
+            PlanChecker.from(MemoTestUtils.createCascadesContext(aggregate))
+                    .applyImplementation(storageLayerAggregateWithoutProject())
+                    .matches(logicalAggregate(
+                            physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT)));
+        }
+    }
+
+    @Test
+    public void testMinMaxRejectsNullPreservingNonNumericCast() {
+        LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(5, "non_order_preserving_cast", 0);
+        Cast cast = new Cast(olapScan.getOutput().get(0), StringType.INSTANCE);
+        TryCast tryCast = new TryCast(olapScan.getOutput().get(0), StringType.INSTANCE);
+        List<AggregateFunction> castAggregates = ImmutableList.of(
+                new Min(cast), new Max(cast), new Min(tryCast), new Max(tryCast));
+
+        for (AggregateFunction function : castAggregates) {
+            LogicalAggregate<LogicalOlapScan> aggregate = new LogicalAggregate<>(
+                    Collections.emptyList(), ImmutableList.of(new Alias(function, "aggregate")),
+                    true, Optional.empty(), olapScan);
+
+            PlanChecker.from(MemoTestUtils.createCascadesContext(aggregate))
+                    .applyImplementation(storageLayerAggregateWithoutProject())
+                    .nonMatch(physicalStorageLayerAggregate());
+        }
+    }
+
+    @Test
+    public void testProjectedCastThatMayProduceNullDoesNotUseStorageLayerAggregate() {
+        LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(3, "projected_cast_count", 0);
+        LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
+                ImmutableList.of(new Alias(
+                        new Cast(olapScan.getOutput().get(0), TinyIntType.INSTANCE), "cast_value")),
+                olapScan);
+        LogicalAggregate<LogicalProject<LogicalOlapScan>> aggregate = new LogicalAggregate<>(
+                Collections.emptyList(),
+                ImmutableList.of(new Alias(new Count(project.getOutput().get(0)), "count")),
+                true, Optional.empty(), project);
+
+        PlanChecker.from(MemoTestUtils.createCascadesContext(aggregate))
+                .applyImplementation(storageLayerAggregateWithProject())
+                .nonMatch(physicalStorageLayerAggregate());
+    }
+
+    @Test
+    public void testProjectedNullPreservingNonNumericCastCountUsesStorageLayerAggregate() {
+        LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(4, "projected_safe_cast_count", 0);
+        List<Cast> safeCasts = ImmutableList.of(
+                new Cast(olapScan.getOutput().get(0), StringType.INSTANCE),
+                new TryCast(olapScan.getOutput().get(0), StringType.INSTANCE));
+        for (Cast cast : safeCasts) {
+            LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
+                    ImmutableList.of(new Alias(cast, "cast_value")), olapScan);
+            LogicalAggregate<LogicalProject<LogicalOlapScan>> aggregate = new LogicalAggregate<>(
+                    Collections.emptyList(),
+                    ImmutableList.of(new Alias(new Count(project.getOutput().get(0)), "count")),
+                    true, Optional.empty(), project);
+
+            PlanChecker.from(MemoTestUtils.createCascadesContext(aggregate))
+                    .applyImplementation(storageLayerAggregateWithProject())
+                    .matches(logicalAggregate(logicalProject(physicalStorageLayerAggregate())));
+        }
+    }
+
+    @Test
+    public void testNestedCountCastPushdown() {
+        for (boolean failingConversion : new boolean[] {false, true}) {
+            DataType sourceType = ArrayType.of(failingConversion ? StringType.INSTANCE : IntegerType.INSTANCE);
+            DataType targetType = ArrayType.of(failingConversion ? IntegerType.INSTANCE : BigIntType.INSTANCE);
+            LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(
+                    failingConversion ? 6 : 7, "nested_cast_count", 0);
+            olapScan.getTable().getFullSchema().get(0).setType(sourceType.toCatalogDataType());
+            olapScan.getTable().getFullSchema().get(0).setIsAllowNull(false);
+            LogicalFileScan fileScan = newFileScan(sourceType.toCatalogDataType(), false);
+
+            for (LogicalRelation scan : ImmutableList.of(olapScan, fileScan)) {
+                for (boolean projected : new boolean[] {false, true}) {
+                    for (boolean strict : new boolean[] {false, true}) {
+                        checkNestedCountCast(scan, targetType, false, projected, strict, !failingConversion);
+                        checkNestedCountCast(scan, targetType, true, projected, strict, !failingConversion);
+                    }
+                }
+            }
+        }
+    }
+
+    private void checkNestedCountCast(LogicalRelation scan, DataType targetType, boolean tryCast,
+            boolean projected, boolean strict, boolean expectedPushdown) {
+        Expression argument = tryCast
+                ? new TryCast(scan.getOutput().get(0), targetType)
+                : new Cast(scan.getOutput().get(0), targetType);
+        Plan child = scan;
+        RuleType ruleType = scan instanceof LogicalFileScan
+                ? RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT_FOR_FILE_SCAN
+                : RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT;
+        if (projected) {
+            Alias alias = new Alias(argument, "cast_value");
+            child = new LogicalProject<>(ImmutableList.of(alias), scan);
+            argument = alias.toSlot();
+            ruleType = scan instanceof LogicalFileScan
+                    ? RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT_FOR_FILE_SCAN
+                    : RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT;
+        }
+        LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(Collections.emptyList(),
+                ImmutableList.of(new Alias(new Count(argument), "count")), true, Optional.empty(), child);
+        CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
+        context.getConnectContext().getSessionVariable().enableStrictCast = strict;
+        RuleType selectedRuleType = ruleType;
+        Rule rule = new AggregateStrategies().buildRules().stream()
+                .filter(candidate -> candidate.getRuleType() == selectedRuleType).findFirst().get();
+        PlanChecker checker = PlanChecker.from(context).applyImplementation(rule);
+        if (expectedPushdown) {
+            checker.matches(projected
+                    ? logicalAggregate(logicalProject(physicalStorageLayerAggregate()))
+                    : logicalAggregate(physicalStorageLayerAggregate()));
+        } else {
+            checker.nonMatch(physicalStorageLayerAggregate());
+        }
     }
 
     @Test
