@@ -153,16 +153,14 @@ LanceSessionManager& LanceSessionManager::instance() {
 LanceSessionManager::LanceSessionManager(Config config) : _config(std::move(config)) {
     LOG(INFO) << "Creating BE-wide Lance session manager: lance_index_cache_size_bytes="
               << _config.lance_index_cache_size_bytes
-              << ", lance_metadata_cache_size_bytes="
-              << _config.lance_metadata_cache_size_bytes
+              << ", lance_metadata_cache_size_bytes=" << _config.lance_metadata_cache_size_bytes
               << ", enable_lance_data_cache=" << _config.enable_lance_data_cache
               << ", lance_data_cache_path=" << _config.lance_data_cache_path
               << ", lance_data_cache_disk_capacity_bytes="
               << _config.lance_data_cache_disk_capacity_bytes
               << ", lance_data_cache_read_block_size_bytes="
               << _config.lance_data_cache_read_block_size_bytes
-              << ", foyer_memory_capacity_bytes="
-              << _config.lance_data_cache_read_block_size_bytes;
+              << ", foyer_memory_capacity_bytes=" << _config.lance_data_cache_read_block_size_bytes;
 }
 
 LanceSessionManager::~LanceSessionManager() {
@@ -189,9 +187,9 @@ Status LanceSessionManager::_initialize() {
                 static_cast<uint64_t>(_config.lance_metadata_cache_size_bytes),
                 &data_cache_options);
     } else {
-        _session = lance_session_new(
-                static_cast<uint64_t>(_config.lance_index_cache_size_bytes),
-                static_cast<uint64_t>(_config.lance_metadata_cache_size_bytes));
+        _session =
+                lance_session_new(static_cast<uint64_t>(_config.lance_index_cache_size_bytes),
+                                  static_cast<uint64_t>(_config.lance_metadata_cache_size_bytes));
     }
     if (_session == nullptr) {
         return lance_error("create shared Lance session");
