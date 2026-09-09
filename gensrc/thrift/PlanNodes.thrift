@@ -44,7 +44,7 @@ enum TPlanNodeType {
   OLAP_REWRITE_NODE = 15, // deprecated
   KUDU_SCAN_NODE = 16, // Deprecated
   BROKER_SCAN_NODE = 17,
-  EMPTY_SET_NODE = 18, 
+  EMPTY_SET_NODE = 18,
   UNION_NODE = 19,
   ES_SCAN_NODE = 20,
   ES_HTTP_SCAN_NODE = 21,
@@ -229,7 +229,7 @@ struct TBrokerScanRangeParams {
 
     // If partition_ids is set, data that doesn't in this partition will be filtered.
     8: optional list<i64> partition_ids
-    
+
     // This is the mapping of dest slot id and src slot id in load expr
     // It excludes the slot id which has the transform expr
     9: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
@@ -258,7 +258,7 @@ struct TEsScanRange {
   1: required list<Types.TNetworkAddress> es_hosts  //  es hosts is used by be scan node to connect to es
   // has to set index and type here, could not set it in scannode
   // because on scan node maybe scan an es alias then it contains one or more indices
-  2: required string index   
+  2: required string index
   3: optional string type
   4: required i32 shard_id
 }
@@ -266,7 +266,7 @@ struct TEsScanRange {
 struct TFileTextScanRangeParams {
     1: optional string column_separator;
     2: optional string line_delimiter;
-    3: optional string collection_delimiter;// array ,map ,struct delimiter 
+    3: optional string collection_delimiter;// array ,map ,struct delimiter
     4: optional string mapkv_delimiter;
     5: optional i8 enclose;
     6: optional i8 escape;
@@ -323,10 +323,10 @@ struct TIcebergDeleteFileDesc {
     2: optional i64 position_lower_bound;
     3: optional i64 position_upper_bound;
     4: optional list<i32> field_ids;
-    // Iceberg file type, 0: data, 1: position delete, 2: equality delete, 3: deletion vector. 
+    // Iceberg file type, 0: data, 1: position delete, 2: equality delete, 3: deletion vector.
     5: optional i32 content;
     // 6 & 7 : iceberg v3 deletion vector.
-    // The content_offset and content_size_in_bytes fields are used to reference a specific blob for direct access to a deletion vector. 
+    // The content_offset and content_size_in_bytes fields are used to reference a specific blob for direct access to a deletion vector.
     6: optional i64 content_offset;
     7: optional i64 content_size_in_bytes;
     8: optional TFileFormatType file_format;
@@ -352,7 +352,7 @@ struct TIcebergFileDesc {
     7: optional i64 row_count;
     8: optional i32 partition_spec_id;
     9: optional string partition_data_json;
-    // Only for format_version >= 3, the starting _row_id to assign to rows added by ADDED data files. 
+    // Only for format_version >= 3, the starting _row_id to assign to rows added by ADDED data files.
     10: optional i64 first_row_id;
     // Only for format_version >= 3, the sequence number which last updated this file.
     11: optional i64 last_updated_sequence_number;
@@ -411,8 +411,8 @@ struct TTrinoConnectorFileDesc {
 }
 
 struct TMaxComputeFileDesc {
-    1: optional string partition_spec // deprecated 
-    2: optional string session_id 
+    1: optional string partition_spec // deprecated
+    2: optional string session_id
     3: optional string table_batch_read_session
     // for mc network configuration
     4: optional i32 connect_timeout
@@ -557,7 +557,7 @@ struct TFileScanRangeParams {
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
     21: optional Types.TUniqueId load_id
     // Deprecated, hive text talbe is a special format, not a serde type
-    22: optional TTextSerdeType  text_serde_type 
+    22: optional TTextSerdeType  text_serde_type
     // used by flexible partial update
     23: optional string sequence_map_col
     // table from FE, used for jni scanner
@@ -644,7 +644,7 @@ struct TFileScanRange {
     // If file_scan_params in TExecPlanFragmentParams is set in TExecPlanFragmentParams
     // will use that field, otherwise, use this field.
     // file_scan_params in TExecPlanFragmentParams will always be set in query request,
-    // and TFileScanRangeParams here is used for some other request such as fetch table schema for tvf. 
+    // and TFileScanRangeParams here is used for some other request such as fetch table schema for tvf.
     2: optional TFileScanRangeParams params
     3: optional TSplitSource split_source
 }
@@ -1293,7 +1293,7 @@ struct TGroupJoinNode {
   20: required list<Exprs.TExpr> grouping_exprs
   // 被融合进 GroupJoin 的聚合函数。每个 item 自己携带 input side，
   // BE 不需要维护 aggregate function list 和 side list 的下标对齐关系。
-  21: required list<TGroupJoinAggFunction> aggregate_functions
+  21: optional list<TGroupJoinAggFunction> aggregate_functions
   // drain 阶段如何输出聚合列。FINAL_RESULT 是 inner partitioned GroupJoin 的主路径，
   // 因为 hash join shuffle 已经保证每个 group key 在一个 BE instance 内是完整的。
   22: required TGroupJoinAggOutputMode agg_output_mode
@@ -1338,7 +1338,7 @@ struct TMaterializationNode {
     // Separate list of expr for fetch data
     4: optional list<Exprs.TExpr> fetch_expr_lists
     // Fetch schema
-    5: optional list<list<Descriptors.TColumn>> column_descs_lists; 
+    5: optional list<list<Descriptors.TColumn>> column_descs_lists;
     // Add column in tuple offset
     6: optional list<list<i32>> slot_locs_lists; // [[1, 2], [4, 5]]
     // Whether fetch row store
@@ -1346,7 +1346,7 @@ struct TMaterializationNode {
     // Whethe to clear id map
     8: optional bool gc_id_map
     // 与 slot_locs_lists 类型 不过它代表的是 当前slot 在 表中的位置（第几列）
-    9: optional list<list<i32>> column_idxs_lists; 
+    9: optional list<list<i32>> column_idxs_lists;
 }
 
 struct TPreAggregationNode {
@@ -1367,8 +1367,8 @@ struct TSortNode {
   // This is the number of rows to skip before returning results
   3: optional i64 offset
 
-  // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.           
-  6: optional bool is_default_limit                                              
+  // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.
+  6: optional bool is_default_limit
   7: optional bool use_topn_opt // Deprecated
   8: optional bool merge_by_exchange
   9: optional bool is_analytic_sort
@@ -1584,7 +1584,7 @@ struct TBackendResourceProfile {
 
 // The maximum reservation for this plan node in bytes. MAX_INT64 means effectively
 // unlimited.
-2: required i64 max_reservation = 12188490189880;  // no max reservation limit 
+2: required i64 max_reservation = 12188490189880;  // no max reservation limit
 
 // The spillable buffer size in bytes to use for this node, chosen by the planner.
 // Set iff the node uses spillable buffers.
@@ -1621,13 +1621,13 @@ enum TRuntimeFilterType {
   BITMAP = 16
 }
 
-// generate min-max runtime filter for non-equal condition or equal condition. 
+// generate min-max runtime filter for non-equal condition or equal condition.
 enum TMinMaxRuntimeFilterType {
   // only min is valid, RF generated according to condition: n < col_A
   MIN = 1,
   // only max is valid, RF generated according to condition: m > col_A
   MAX = 2,
-  // both min/max are valid, 
+  // both min/max are valid,
   // support hash join condition: col_A = col_B
   // support other join condition: n < col_A and col_A < m
   MIN_MAX = 4
@@ -1649,9 +1649,9 @@ struct TPartitionTargetExprMonotonicity {
 
 struct TTopnFilterDesc {
   // topn node id
-  1: required i32 source_node_id 
+  1: required i32 source_node_id
   2: required bool is_asc
-  3: required bool null_first 
+  3: required bool null_first
   // scan node id -> expr on scan node
   4: required map<Types.TPlanNodeId, Exprs.TExpr> target_node_id_to_target_expr
 }
@@ -1698,12 +1698,12 @@ struct TRuntimeFilterDesc {
   11: optional bool bitmap_filter_not_in
 
   12: optional bool opt_remote_rf; // Deprecated
-  
+
   // for min/max rf
   13: optional TMinMaxRuntimeFilterType min_max_type;
 
   // true, if bloom filter size is calculated by ndv
-  // if bloom_filter_size_calculated_by_ndv=false, BE could calculate filter size according to the actural row count, and 
+  // if bloom_filter_size_calculated_by_ndv=false, BE could calculate filter size according to the actural row count, and
   // ignore bloom_filter_size_bytes
   14: optional bool bloom_filter_size_calculated_by_ndv;
 
@@ -1711,7 +1711,7 @@ struct TRuntimeFilterDesc {
   15: optional bool null_aware;
 
   16: optional bool sync_filter_size; // Deprecated
-  
+
   17: optional bool build_bf_by_runtime_size;
 
   // Per-filter wait time in ms. When set, overrides query-level runtime_filter_wait_time_ms.
@@ -1775,9 +1775,9 @@ struct TPlanNode {
   14: optional TMergeNode merge_node
   15: optional TExchangeNode exchange_node
   17: optional TMySQLScanNode mysql_scan_node
-  18: optional TOlapScanNode olap_scan_node  
-  19: optional TCsvScanNode csv_scan_node  
-  20: optional TBrokerScanNode broker_scan_node  
+  18: optional TOlapScanNode olap_scan_node
+  19: optional TCsvScanNode csv_scan_node
+  20: optional TBrokerScanNode broker_scan_node
   21: optional TPreAggregationNode pre_agg_node
   22: optional TSchemaScanNode schema_scan_node
   23: optional TMergeJoinNode merge_join_node
