@@ -444,6 +444,14 @@ NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
 NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
 
+# Google Cloud C++ OAuth2 authentication library. Only the auth/common REST
+# components are built; the Google Cloud Storage SDK is intentionally excluded.
+GOOGLE_CLOUD_CPP_DOWNLOAD="https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v2.45.0.tar.gz"
+GOOGLE_CLOUD_CPP_FALLBACK_DOWNLOAD="https://codeload.github.com/googleapis/google-cloud-cpp/tar.gz/refs/tags/v2.45.0"
+GOOGLE_CLOUD_CPP_NAME="google-cloud-cpp-2.45.0.tar.gz"
+GOOGLE_CLOUD_CPP_SOURCE="google-cloud-cpp-2.45.0"
+GOOGLE_CLOUD_CPP_MD5SUM="3cc131764cd9009c20407d7b67afcf6e"
+
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
 LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
@@ -635,6 +643,7 @@ export TP_ARCHIVES=(
     'XSIMD'
     'SIMDJSON'
     'NLOHMANN_JSON'
+    'GOOGLE_CLOUD_CPP'
     'LIBBACKTRACE'
     'SSE2NEON'
     'XXHASH'
