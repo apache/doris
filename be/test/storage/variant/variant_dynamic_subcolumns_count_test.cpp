@@ -26,7 +26,6 @@
 
 #include "common/config.h"
 #include "core/data_type/data_type_variant_v2.h"
-#include "cpp/sync_point.h"
 #include "exprs/vcast_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
@@ -45,31 +44,6 @@ class VariantDynamicSubcolumnsCountTest
         : public IndexStorageTestFixture,
           public testing::WithParamInterface<std::tuple<int, int, bool, int>> {
 protected:
-    void SetUp() override {
-        IndexStorageTestFixture::SetUp();
-        auto* sync = SyncPoint::get_instance();
-        _sync_was_enabled = sync->get_enable();
-        // Only replace the FE RPC. The actual compaction still selects and applies the policy.
-        sync->set_call_back("Compaction::fetch_latest_tablet_schema", [this](auto&& args) {
-            *try_any_cast<TabletSchemaSPtr*>(args[0]) = tablet()->tablet_schema();
-            auto* result = try_any_cast_ret<Status>(args);
-            result->first = Status::OK();
-            result->second = true;
-        });
-        sync->enable_processing();
-    }
-
-    void TearDown() override {
-        auto* sync = SyncPoint::get_instance();
-        sync->clear_call_back("Compaction::fetch_latest_tablet_schema");
-        if (!_sync_was_enabled) {
-            sync->disable_processing();
-        }
-        IndexStorageTestFixture::TearDown();
-    }
-
-    bool _sync_was_enabled = false;
-
     // seed, sparse statistics budget, external metadata, compaction mode
     int seed() const { return std::get<0>(GetParam()); }
     int stats_limit() const { return std::get<1>(GetParam()); }
@@ -398,10 +372,17 @@ protected:
             auto compacted = compact_rowsets_and_reload(
                     full ? IndexCompactionKind::FULL : IndexCompactionKind::CUMULATIVE, inputs);
             ASSERT_TRUE(compacted.has_value()) << compacted.error();
+            const auto newest_input = std::ranges::max_element(inputs, {}, [](const auto& rowset) {
+                return rowset->tablet_schema()->schema_version();
+            });
             EXPECT_EQ(compacted.value()->tablet_schema()->schema_version(),
-                      target->schema_version());
-            ASSERT_NO_FATAL_FAILURE(
-                    check_stats(compacted.value(), compacted_values, counts[step], false));
+                      (*newest_input)->tablet_schema()->schema_version());
+            ASSERT_NO_FATAL_FAILURE(check_stats(compacted.value(), compacted_values,
+                                                (*newest_input)
+                                                        ->tablet_schema()
+                                                        ->column_by_uid(2)
+                                                        .variant_max_subcolumns_count(),
+                                                false));
             contents.emplace(compacted.value()->rowset_id().to_string(), compacted_values);
             for (const auto& input : inputs) {
                 contents.erase(input->rowset_id().to_string());
@@ -536,7 +517,7 @@ TEST_P(VariantDynamicSubcolumnsCountTest, SparseOnlyOldPathSurvivesUnlimitedComp
     ASSERT_NO_FATAL_FAILURE(check_values({compacted.value()}, expected));
 }
 
-TEST_P(VariantDynamicSubcolumnsCountTest, OrderedControlThenExactCompactionLayout) {
+TEST_P(VariantDynamicSubcolumnsCountTest, OrderedCompactionPreservesOldLayoutAfterPropertyChange) {
     const auto was_ordered = config::enable_ordered_data_compaction;
     const auto min_size = config::ordered_data_compaction_min_segment_size;
     const auto was_vertical = config::enable_vertical_compaction;
@@ -584,33 +565,23 @@ TEST_P(VariantDynamicSubcolumnsCountTest, OrderedControlThenExactCompactionLayou
         inputs.push_back(written.value());
     }
     // Identical old schemas and disjoint keys really qualify for the link shortcut.
-    // Afterwards every setting change must rewrite even with ordered compaction enabled.
+    // Changes outside these inputs must not disable the existing link shortcut.
     for (int count : {1, 3, 2, 0, 1}) {
         SCOPED_TRACE(testing::Message() << "count=" << count << " mode=" << mode());
-        const bool changed = options.variant_columns[0].max_subcolumns_count != count;
         set_count(options, count);
         CumulativeCompaction compaction(*storage_engine(), tablet());
         compaction._input_rowsets = inputs;
         ASSERT_TRUE(compaction.CompactionMixin::execute_compact().ok());
-        EXPECT_EQ(compaction._is_ordered_data_compaction, !changed);
+        EXPECT_TRUE(compaction._is_ordered_data_compaction);
         auto output = compaction._output_rowset;
         ASSERT_NE(output, nullptr);
         ASSERT_NO_FATAL_FAILURE(check_values({output}, expected));
-        ASSERT_NO_FATAL_FAILURE(check_stats(output, expected, count, false));
+        ASSERT_NO_FATAL_FAILURE(check_stats(output, expected, 1, false));
         auto probe = probe_rowset(output);
         ASSERT_TRUE(probe.has_value()) << probe.error();
-        // A rewrite of these ten rows fits one segment; linked control retains two.
-        ASSERT_EQ(probe->segments.size(), changed ? 1 : 2);
-        std::set<std::string> paths = {"z"};
-        if (count == 0 || count >= 2) {
-            paths.insert("row");
-        }
-        if (count == 0 || count >= 3) {
-            paths.insert("m");
-        }
-        if (count == 0) {
-            paths.insert("a");
-        }
+        // Linking retains both old segments and their original path budget.
+        ASSERT_EQ(probe->segments.size(), 2);
+        const std::set<std::string> paths = {"z"};
         for (const auto& segment : probe->segments) {
             std::set<std::string> actual;
             size_t sparse_entries = 0;
@@ -691,14 +662,10 @@ TEST_P(VariantDynamicSubcolumnsCountTest, MixedPathTypesAndProjectedReads) {
         set_count(options, count);
         auto compacted = compact_rowsets_and_reload(IndexCompactionKind::CUMULATIVE, inputs);
         ASSERT_TRUE(compacted.has_value()) << compacted.error();
+        // The newest actual input was written with count=0; no new rowset is written here.
         EXPECT_EQ(
                 compacted.value()->tablet_schema()->column_by_uid(2).variant_max_subcolumns_count(),
-                count);
-        if (count == 0 || count == 1) {
-            auto probe = probe_rowset(compacted.value());
-            ASSERT_TRUE(probe.has_value()) << probe.error();
-            EXPECT_EQ(has_variant_layout(probe.value(), 2, "a"), count == 0);
-        }
+                0);
         inputs = {compacted.value()};
         ASSERT_NO_FATAL_FAILURE(verify());
     }
