@@ -98,6 +98,39 @@ suite("test_iceberg_hadoop_catalog_kerberos", "p0,external,kerberos,external_doc
           'partition_val2'
         );
     """
+    sql """
+        insert into ${test_tbl_name} values (
+          '2024-05-27 12:34:56',
+          false,
+          456,
+          4567890123456,
+          45.67,
+          89.012,
+          45678.9012,
+          'another example',
+          '2024-05-27',
+          '2024-05-27 14:00:00',
+          'partition_val1',
+          'partition_val2'
+        );
+    """
+
+    def snapshotsBeforeExpire = sql """
+        select snapshot_id from ${test_tbl_name}\$snapshots order by committed_at
+    """
+    assert snapshotsBeforeExpire.size() == 2
+
+    // The action must reuse the catalog's Kerberos identity while committing new metadata.
+    sql """
+        alter table ${catalog_name}.${database_name}.${test_tbl_name}
+        execute expire_snapshots("retain_last" = "1")
+    """
+
+    def snapshotsAfterExpire = sql """
+        select snapshot_id from ${test_tbl_name}\$snapshots order by committed_at
+    """
+    assert snapshotsAfterExpire.size() == 1
+
     def dataResult = sql """select count(1) from ${test_tbl_name} """
-    assert dataResult.get(0).get(0) == 1
+    assert dataResult.get(0).get(0) == 2
 }
