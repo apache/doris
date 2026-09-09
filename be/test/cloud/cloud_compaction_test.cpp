@@ -21,6 +21,7 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -41,6 +42,7 @@
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/defer_op.h"
+#include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 
@@ -222,6 +224,57 @@ static RowsetSharedPtr create_rowset(Version version, int num_segments, bool ove
         return nullptr;
     }
     return rowset;
+}
+
+TEST_F(CloudCompactionTest, cumulative_global_lock_failure_keeps_thread_count_balanced) {
+    ASSERT_TRUE(ThreadPoolBuilder("CumuCompactionTaskThreadPoolTest")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&_engine._cumu_compaction_thread_pool)
+                        .ok());
+
+    auto tablet_meta = std::make_shared<TabletMeta>(*_tablet_meta);
+    tablet_meta->_tablet_id = 12000;
+    auto tablet = std::make_shared<CloudTablet>(_engine, tablet_meta);
+    std::vector<RowsetSharedPtr> rowsets;
+    for (int64_t version = 0; version < 6; ++version) {
+        auto rowset = create_rowset(Version(version, version), 1, false, 41);
+        ASSERT_NE(rowset, nullptr);
+        rowsets.push_back(std::move(rowset));
+    }
+    {
+        std::unique_lock lock(tablet->get_header_lock());
+        tablet->add_rowsets(rowsets, false, lock, false);
+    }
+    tablet->set_cumulative_layer_point(0);
+    tablet->_approximate_num_rowsets = rowsets.size();
+    tablet->_approximate_cumu_num_rowsets = rowsets.size();
+    tablet->_approximate_cumu_num_deltas = rowsets.size();
+    tablet->last_sync_time_s = 1;
+
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->enable_processing();
+    sync_point->set_call_back("CloudMetaMgr::prepare_tablet_job", [](auto&& outcome) {
+        auto* response = try_any_cast<cloud::StartTabletJobResponse*>(outcome[1]);
+        response->mutable_status()->set_code(cloud::JOB_TABLET_BUSY);
+        response->mutable_status()->set_msg("injected global lock failure");
+        auto* result = try_any_cast_ret<Status>(outcome);
+        result->first = Status::InternalError("injected global lock failure");
+        result->second = true;
+    });
+    Defer clear_sync_point {[&] {
+        sync_point->clear_all_call_backs();
+        sync_point->disable_processing();
+    }};
+
+    ASSERT_EQ(_engine._cumu_compaction_thread_pool_used_threads, 0);
+    ASSERT_EQ(_engine.submit_compaction_task(tablet, CompactionType::CUMULATIVE_COMPACTION),
+              Status::OK());
+    ASSERT_TRUE(_engine._cumu_compaction_thread_pool->wait_for(std::chrono::seconds(5)));
+
+    EXPECT_EQ(_engine._cumu_compaction_thread_pool_used_threads, 0);
+    EXPECT_EQ(_engine._cumu_compaction_thread_pool_small_tasks_running, 0);
+    EXPECT_FALSE(_engine.has_cumu_compaction(tablet->tablet_id()));
 }
 
 static RowsetSharedPtr create_delete_rowset(Version version) {
