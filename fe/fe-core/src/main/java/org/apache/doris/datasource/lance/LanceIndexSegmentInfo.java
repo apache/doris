@@ -17,27 +17,32 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.lance.index.IndexType;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Immutable metadata for one physical segment of a logical Lance vector index. */
+/** Immutable metadata for one physical segment of a logical Lance search index. */
 public final class LanceIndexSegmentInfo {
     private final UUID uuid;
     private final String indexName;
     private final List<Integer> fieldIds;
     private final List<Long> fragmentIds;
+    private final IndexType indexType;
     private final String metric;
 
     public LanceIndexSegmentInfo(UUID uuid, String indexName, List<Integer> fieldIds,
-            List<Long> fragmentIds, String metric) {
+            List<Long> fragmentIds, IndexType indexType, String metric) {
         this.uuid = uuid;
         this.indexName = indexName;
         this.fieldIds = Collections.unmodifiableList(new ArrayList<>(fieldIds));
         this.fragmentIds = fragmentIds == null
                 ? null : Collections.unmodifiableList(new ArrayList<>(fragmentIds));
+        this.indexType = Objects.requireNonNull(indexType, "indexType must not be null");
         this.metric = metric;
     }
 
@@ -56,14 +61,26 @@ public final class LanceIndexSegmentInfo {
     /**
      * Returns the fragment bitmap recorded in the manifest.
      *
-     * <p>Legacy index segments may not have a bitmap. Callers must not infer coverage from the
-     * segment's dataset version in that case.
+     * <p>Index segments without a fragment bitmap have unknown coverage. Callers must not infer
+     * coverage from the segment's dataset version in that case.
      */
     public Optional<List<Long>> getFragmentIds() {
         return Optional.ofNullable(fragmentIds);
     }
 
-    /** Returns the normalized Lance metric name, or an empty optional for legacy metadata. */
+    public IndexType getIndexType() {
+        return indexType;
+    }
+
+    public boolean isVectorIndex() {
+        return indexType.getValue() >= IndexType.VECTOR.getValue();
+    }
+
+    public boolean isFullTextIndex() {
+        return indexType == IndexType.INVERTED;
+    }
+
+    /** Returns the normalized Lance metric name when the index metadata supplies one. */
     public Optional<String> getMetric() {
         return Optional.ofNullable(metric);
     }

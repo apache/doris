@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.TableGener
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.table.FullTextSearch;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
@@ -116,6 +117,7 @@ import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.tablefunction.FullTextSearchTableValuedFunction;
 import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
 import com.google.common.base.Joiner;
@@ -1788,7 +1790,8 @@ public class BindExpression implements AnalysisRuleFactory {
         TableValuedFunction tableValuedFunction = (TableValuedFunction) bindResult.first;
         LogicalTVFRelation relation = new LogicalTVFRelation(
                 unboundTVFRelation.getRelationId(), tableValuedFunction, ImmutableList.of());
-        if (!(tableValuedFunction instanceof VectorSearch)) {
+        if (!(tableValuedFunction instanceof VectorSearch)
+                && !(tableValuedFunction instanceof FullTextSearch)) {
             return relation;
         }
 
@@ -1796,17 +1799,31 @@ public class BindExpression implements AnalysisRuleFactory {
         // relation with a Doris TopN to merge them into the snapshot-wide result. The predicate
         // pushdown rules move an outer WHERE below this synthetic TopN, where it is evaluated as
         // a Doris scan residual after each fragment's Lance search and before the global TopN.
-        VectorSearchTableValuedFunction vectorSearch =
-                (VectorSearchTableValuedFunction) tableValuedFunction.getCatalogFunction();
-        Slot distance = relation.getOutput().stream()
-                .filter(slot -> slot.getName().equalsIgnoreCase(
-                        VectorSearchTableValuedFunction.DISTANCE_COLUMN))
+        if (tableValuedFunction instanceof VectorSearch) {
+            VectorSearchTableValuedFunction vectorSearch =
+                    (VectorSearchTableValuedFunction) tableValuedFunction.getCatalogFunction();
+            Slot distance = requireSearchResultSlot(
+                    relation, VectorSearchTableValuedFunction.DISTANCE_COLUMN,
+                    VectorSearchTableValuedFunction.NAME);
+            return new LogicalTopN<>(ImmutableList.of(new OrderKey(distance, true, false)),
+                    vectorSearch.getTopK(), vectorSearch.getOffset(), relation);
+        }
+        FullTextSearchTableValuedFunction fullTextSearch =
+                (FullTextSearchTableValuedFunction) tableValuedFunction.getCatalogFunction();
+        Slot score = requireSearchResultSlot(
+                relation, FullTextSearchTableValuedFunction.SCORE_COLUMN,
+                FullTextSearchTableValuedFunction.NAME);
+        return new LogicalTopN<>(ImmutableList.of(new OrderKey(score, false, false)),
+                fullTextSearch.getTopK(), fullTextSearch.getOffset(), relation);
+    }
+
+    private Slot requireSearchResultSlot(
+            LogicalTVFRelation relation, String column, String functionName) {
+        return relation.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase(column))
                 .findFirst()
-                .orElseThrow(() -> new AnalysisException("vector_search() output is missing '"
-                        + VectorSearchTableValuedFunction.DISTANCE_COLUMN + "'"));
-        OrderKey distanceAscending = new OrderKey(distance, true, false);
-        return new LogicalTopN<>(ImmutableList.of(distanceAscending),
-                vectorSearch.getTopK(), vectorSearch.getOffset(), relation);
+                .orElseThrow(() -> new AnalysisException(functionName + "() output is missing '"
+                        + column + "'"));
     }
 
     private void checkIfOutputAliasNameDuplicatedForGroupBy(Collection<Expression> expressions,
