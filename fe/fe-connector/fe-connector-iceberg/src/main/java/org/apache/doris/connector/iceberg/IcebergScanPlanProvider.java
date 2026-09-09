@@ -35,6 +35,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.TFileFormatType;
@@ -1961,13 +1962,23 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         // Non-Azure scans can legitimately use both HDFS and object-store files. Keep their existing
         // aggregate carrier; JNI metadata retains its serialized FileIO and the all-manifests resolver.
+        Map<String, String> vendedToken = extractVendedToken(table, restVendedCredentialsEnabled());
+        List<StorageProperties> storages = new ArrayList<>(storage().getStorageProperties());
+        if (!vendedToken.isEmpty()
+                && storages.stream().anyMatch(properties -> properties.type() == FileSystemType.AZURE)) {
+            // Replace the Azure authentication group before exporting (and validating) an expired
+            // static SAS. Other providers retain their legacy per-key backend overlay, not whole
+            // binding replacement: a new S3 credential need not repeat every static S3 option.
+            StorageProperties azure = storage().resolveStorageProperties(vendedToken).stream()
+                    .filter(properties -> properties.type() == FileSystemType.AZURE).findFirst()
+                    .orElseThrow(() -> new DorisConnectorException("Resolved Azure storage binding is missing"));
+            storages.replaceAll(properties -> properties.type() == FileSystemType.AZURE ? azure : properties);
+        }
         Map<String, String> backendProperties = new HashMap<>();
-        for (StorageProperties properties : IcebergCatalogFactory.selectEffectiveStorages(
-                storage().getStorageProperties())) {
+        for (StorageProperties properties : IcebergCatalogFactory.selectEffectiveStorages(storages)) {
             properties.toBackendProperties().ifPresent(backend -> backendProperties.putAll(backend.toMap()));
         }
-        backendProperties.putAll(storage().vendStorageCredentials(
-                extractVendedToken(table, restVendedCredentialsEnabled())));
+        backendProperties.putAll(storage().vendStorageCredentials(vendedToken));
         return backendProperties;
     }
 

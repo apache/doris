@@ -125,6 +125,40 @@ class IcebergNativeStorageAccessIntegrationTest {
         Assertions.assertTrue(range.getProperties().isEmpty(), "credentials belong to the shared scan binding");
     }
 
+    @Test
+    void allManifestsEntryReplacesExpiredStaticSasBeforeExportingCredentials() {
+        IcebergScanPlanProvider provider = provider(tableWithData(2));
+        IcebergTableHandle allManifests = IcebergTableHandle.forSystemTable(
+                "db", "t", "all_manifests", -1L, null, -1L);
+
+        Map<String, String> nodeProperties = provider.getScanNodeProperties(
+                session, allManifests, Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals("jni", nodeProperties.get(ScanNodePropertyKeys.FILE_FORMAT_TYPE));
+        // The all-manifests resolver still consumes these until the serialized FileIO replacement
+        // has been verified. Selecting fresh credentials must precede any static expiry validation.
+        assertFreshNativeAzure(backendProperties(nodeProperties));
+    }
+
+    @Test
+    void allManifestsAzureRefreshRetainsTheIndependentHdfsBinding() {
+        Map<String, String> catalogProperties = new LinkedHashMap<>(CATALOG_PROPERTIES);
+        catalogProperties.put("fs.defaultFS", "hdfs://namenode:8020");
+        catalogProperties.put("hadoop.username", "metadata-reader");
+        IcebergScanPlanProvider provider = provider(tableWithData(2), catalogProperties);
+        IcebergTableHandle allManifests = IcebergTableHandle.forSystemTable(
+                "db", "t", "all_manifests", -1L, null, -1L);
+
+        Map<String, String> backend = backendProperties(provider.getScanNodeProperties(
+                session, allManifests, Collections.emptyList(), Optional.empty()));
+
+        Assertions.assertEquals("hdfs://namenode:8020", backend.get("fs.defaultFS"));
+        Assertions.assertEquals("metadata-reader", backend.get("hadoop.username"));
+        Map<String, String> azure = new LinkedHashMap<>(backend);
+        azure.keySet().removeIf(key -> !key.equals("provider") && !key.startsWith("AZURE_"));
+        assertFreshNativeAzure(azure);
+    }
+
     @ParameterizedTest
     @CsvSource({"PARQUET,2,1", "PUFFIN,3,3"})
     void dataAndPositionDeleteScansShareNativeCredentialsAndReader(
@@ -237,12 +271,16 @@ class IcebergNativeStorageAccessIntegrationTest {
     }
 
     private IcebergScanPlanProvider provider(Table table) {
-        StorageAdapter expired = StorageAdapter.ofProvider("AZURE", CATALOG_PROPERTIES);
+        return provider(table, CATALOG_PROPERTIES);
+    }
+
+    private IcebergScanPlanProvider provider(Table table, Map<String, String> catalogProperties) {
+        StorageAdapter expired = StorageAdapter.ofProvider("AZURE", catalogProperties);
         Assertions.assertThrows(StoragePropertiesException.class, expired::getBackendConfigProperties,
                 "the static credential must actually be expired, not a prebuilt fake backend map");
         DefaultConnectorContext context = new DefaultConnectorContext("azure_test", 1L,
                 () -> new ExecutionAuthenticator() {}, () -> Map.of(StorageTypeId.AZURE, expired),
-                () -> CATALOG_PROPERTIES);
+                () -> catalogProperties);
 
         // A real BaseTable is frozen through TableOperations by the statement scope. Supplying the
         // vended FileIO there, rather than only overriding Table.io(), keeps that actual path intact.
@@ -254,7 +292,7 @@ class IcebergNativeStorageAccessIntegrationTest {
         Catalog remoteCatalog = Mockito.mock(Catalog.class);
         Mockito.when(remoteCatalog.loadTable(TABLE_ID)).thenReturn(authorizedTable);
 
-        return new IcebergScanPlanProvider(IcebergCatalogProperties.of(CATALOG_PROPERTIES),
+        return new IcebergScanPlanProvider(IcebergCatalogProperties.of(catalogProperties),
                 new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(remoteCatalog), context);
     }
 

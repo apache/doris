@@ -64,10 +64,9 @@ final class IcebergSysTableFileIOResolver {
         ADLSFileIO fileIO = new ADLSFileIO();
         fileIO.initialize(fileIOProperties);
         try {
-            // Iceberg's parser cannot be used here: CatalogUtil.loadFileIO() loads implementations
-            // with CatalogUtil's parent classloader, which cannot see classes bundled only in this
-            // JNI extension. ManifestListReadTask has no public FileIO replacement API, so update
-            // its private final field before the task is published to the scanner thread.
+            // Keep this compatibility path until all planners serialize the selected credentials
+            // in the task's FileIO. ManifestListReadTask has no public FileIO replacement API, so
+            // update its private final field before the task is published to the scanner thread.
             Field ioField = task.getClass().getDeclaredField(TASK_FILE_IO_FIELD);
             ioField.setAccessible(true);
             ioField.set(task, fileIO);

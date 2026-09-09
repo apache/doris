@@ -96,6 +96,13 @@ under the License.
             <artifactId>auth</artifactId>
             <scope>provided</scope>
         </dependency>
+        <!-- Scanner/SerializationUtil tests need the Hadoop API that the BE parent loader
+             supplies at runtime. Keep it out of the scanner's packaged dependency closure. -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
