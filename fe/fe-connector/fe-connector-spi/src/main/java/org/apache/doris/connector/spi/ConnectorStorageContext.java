@@ -294,6 +294,28 @@ public interface ConnectorStorageContext {
     }
 
     /**
+     * Captures one request's effective typed storage bindings. Provider-owned vended authentication
+     * replaces the matching static authentication group before it is accessed; unrelated storage
+     * bindings remain available. This uses the same binding contract as
+     * {@link #newStorageAccessResolver(Map)}, without selecting a data URI or emitting backend credentials.
+     * A connector can consume the selected provider's {@link StorageProperties#toIcebergFileIOProperties()}
+     * directly, without translating a backend credential map back into a FileIO dialect.
+     *
+     * <p>The returned list is immutable and request-local, not a cache across credential generations.
+     * Access-time credential checks still belong to the properties' consumer-facing views. The default
+     * supports static bindings only and explicitly rejects vended credentials rather than ignoring them.
+     *
+     * @param rawVendedCredentials raw request credentials; null/empty selects static bindings
+     * @return the effective typed storage bindings for this request
+     */
+    default List<StorageProperties> resolveStorageProperties(Map<String, String> rawVendedCredentials) {
+        if (rawVendedCredentials == null || rawVendedCredentials.isEmpty()) {
+            return List.copyOf(getStorageProperties());
+        }
+        throw new UnsupportedOperationException("Vended storage binding is unavailable for this catalog");
+    }
+
+    /**
      * Returns the engine's {@link FileSystem} for this catalog — a scheme-routing handle backed by the
      * catalog's parsed {@link #getStorageProperties() storage properties} and the registered fe-filesystem
      * providers (hdfs/s3/oss/cos/obs/azure/http/local/broker). A connector uses it to list, read, and write

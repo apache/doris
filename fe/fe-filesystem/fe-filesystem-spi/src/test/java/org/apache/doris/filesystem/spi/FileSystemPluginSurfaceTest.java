@@ -72,7 +72,7 @@ public class FileSystemPluginSurfaceTest {
             version.load(in);
         }
         // Provider-owned Iceberg FileIO properties extend the shared storage API.
-        Assertions.assertEquals("5.0", version.getProperty("api.version"));
+        Assertions.assertEquals("6.0", version.getProperty("api.version"));
     }
 
     /** The types a filesystem plugin implements or calls. Everything reachable on them is the contract. */

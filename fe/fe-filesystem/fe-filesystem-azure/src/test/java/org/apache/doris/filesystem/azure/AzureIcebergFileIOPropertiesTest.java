@@ -38,6 +38,39 @@ import java.util.stream.Stream;
 
 class AzureIcebergFileIOPropertiesTest {
     @Test
+    void defaultIcebergFileIODoesNotAccessAnUnusedExpiredHadoopSas() {
+        AzureFileSystemProperties storage = AzureFileSystemProperties.of(Map.of(
+                "azure.account_name", "account", "azure.sas_token", "sig=expired-static-test-signature",
+                "azure.sas_expiry_ms", "1"));
+
+        Assertions.assertTrue(storage.toIcebergHadoopProperties().isEmpty());
+        Assertions.assertThrows(StoragePropertiesException.class, storage::toHadoopConfigurationMap,
+                "real Hadoop consumers must retain their original expiry validation");
+        Assertions.assertThrows(StoragePropertiesException.class, storage::toIcebergFileIOProperties,
+                "the selected FileIO credential still must be checked before access");
+    }
+
+    @Test
+    void expiredSasExposesOnlyCustomFileIOConnectionsWithoutAccessingAuthentication() {
+        AzureFileSystemProperties storage = AzureFileSystemProperties.of(Map.of(
+                "azure.account_name", "account", "azure.sas_token", "sig=expired-static-test-signature",
+                "azure.sas_expiry_ms", "1",
+                "azure.endpoint", "http://account.dfs.core.windows.net:10000/proxy%2Fpath"));
+
+        Map<String, String> connections = storage.toIcebergFileIOConnectionProperties();
+
+        Assertions.assertEquals(Map.of(
+                "adls.connection-string.account.dfs.core.windows.net",
+                "http://account.blob.core.windows.net:10000/proxy%2Fpath",
+                "adls.connection-string.account.blob.core.windows.net",
+                "http://account.blob.core.windows.net:10000/proxy%2Fpath"), connections);
+        Assertions.assertThrows(UnsupportedOperationException.class, () -> connections.put("io-impl", "other"));
+        StoragePropertiesException failure = Assertions.assertThrows(StoragePropertiesException.class,
+                storage::toIcebergFileIOProperties);
+        Assertions.assertEquals("Azure SAS credential is expired", failure.getMessage());
+    }
+
+    @Test
     void legacySharedKeyEmitsOnlyOfficialFileIOCredentialsAndEndpoints() {
         AzureFileSystemProperties storage = AzureFileSystemProperties.of(Map.of(
                 "AZURE_ACCOUNT_NAME", "account", "AZURE_ACCOUNT_KEY", "test-key",
@@ -53,6 +86,14 @@ class AzureIcebergFileIOPropertiesTest {
                 "adls.connection-string.account.blob.core.windows.net",
                 "http://account.blob.core.windows.net:10000/proxy%2Fpath"), output);
         Assertions.assertThrows(UnsupportedOperationException.class, () -> output.put("io-impl", "other"));
+        Assertions.assertEquals(Map.of(
+                "adls.connection-string.account.dfs.core.windows.net",
+                "http://account.blob.core.windows.net:10000/proxy%2Fpath",
+                "adls.connection-string.account.blob.core.windows.net",
+                "http://account.blob.core.windows.net:10000/proxy%2Fpath"),
+                storage.toIcebergFileIOConnectionProperties());
+        Assertions.assertEquals(storage.toHadoopConfigurationMap(),
+                storage.toIcebergHadoopProperties().orElseThrow().toHadoopConfigurationMap());
     }
 
     @ParameterizedTest
@@ -166,6 +207,8 @@ class AzureIcebergFileIOPropertiesTest {
         Assertions.assertEquals(nativeProperties, storage.toMap());
         Assertions.assertEquals("OAUTH2", nativeProperties.get("AZURE_AUTH_TYPE"));
         Assertions.assertEquals(hadoopProperties, storage.toHadoopConfigurationMap());
+        Assertions.assertEquals(hadoopProperties,
+                storage.toIcebergHadoopProperties().orElseThrow().toHadoopConfigurationMap());
         Assertions.assertEquals("test-client-secret",
                 hadoopProperties.get("fs.azure.account.oauth2.client.secret." + host));
     }
@@ -195,6 +238,10 @@ class AzureIcebergFileIOPropertiesTest {
         Assertions.assertNull(error.getCause());
         Assertions.assertFalse(error.getMessage().contains("private-material"));
         Assertions.assertFalse(error.getMessage().contains("https://"));
+        StoragePropertiesException connectionError = Assertions.assertThrows(StoragePropertiesException.class,
+                storage::toIcebergFileIOConnectionProperties);
+        Assertions.assertEquals(error.getMessage(), connectionError.getMessage());
+        Assertions.assertNull(connectionError.getCause());
     }
 
     private static Stream<Map<String, String>> invalidFileIOConnections() {

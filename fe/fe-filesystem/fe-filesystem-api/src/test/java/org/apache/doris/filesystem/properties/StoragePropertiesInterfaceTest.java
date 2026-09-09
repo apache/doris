@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 
 class StoragePropertiesInterfaceTest {
 
@@ -68,6 +69,33 @@ class StoragePropertiesInterfaceTest {
 
         Assertions.assertEquals(Collections.emptyMap(), output);
         Assertions.assertThrows(UnsupportedOperationException.class, () -> output.put("io-impl", "other"));
+    }
+
+    @Test
+    void fileIOConnectionPropertiesDefaultIsEmptyAndImmutable() {
+        StorageProperties properties = new TestProperties();
+
+        Map<String, String> output = properties.toIcebergFileIOConnectionProperties();
+
+        Assertions.assertEquals(Collections.emptyMap(), output);
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> output.put("adls.connection-string.account", "https://example.org"));
+    }
+
+    @Test
+    void defaultIcebergHadoopViewPreservesOtherProvidersConfigurationAndIdentity() {
+        HadoopStorageProperties hadoop = () -> Map.of("fs.defaultFS", "hdfs://namenode:8020");
+        StorageProperties properties = new TestProperties() {
+            @Override
+            public Optional<HadoopStorageProperties> toHadoopProperties() {
+                return Optional.of(hadoop);
+            }
+        };
+
+        Assertions.assertSame(hadoop, properties.toIcebergHadoopProperties().orElseThrow());
+        Assertions.assertEquals(Map.of("fs.defaultFS", "hdfs://namenode:8020"),
+                properties.toIcebergHadoopProperties().orElseThrow().toHadoopConfigurationMap());
+        Assertions.assertTrue(new TestProperties().toIcebergHadoopProperties().isEmpty());
     }
 
     @Test

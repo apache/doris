@@ -92,9 +92,14 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
     @Override
     public Optional<AzureFileSystemProperties> bindVended(
             Map<String, String> credentials, Map<String, String> catalogProperties) {
-        return AzureVendedSas.parse(credentials).map(sas -> AzureFileSystemProperties.withVendedSas(
-                sas, credentials, supportsExplicit(catalogProperties) || supportsGuess(catalogProperties)
-                        ? catalogProperties : Map.of()));
+        Optional<AzureVendedSas> sas = AzureVendedSas.parse(credentials);
+        Map<String, String> connectionDefaults = supportsExplicit(catalogProperties) || supportsGuess(catalogProperties)
+                ? catalogProperties : Map.of();
+        if (sas.isPresent()) {
+            return Optional.of(AzureFileSystemProperties.withVendedSas(sas.get(), credentials, connectionDefaults));
+        }
+        return AzureFileIOSharedKey.parse(credentials)
+                .map(sharedKey -> AzureFileSystemProperties.withFileIOSharedKey(sharedKey, connectionDefaults));
     }
 
     @Override

@@ -100,6 +100,33 @@ public interface StorageProperties {
     }
 
     /**
+     * Hadoop configuration needed by Iceberg's default REST FileIO selection. Unlike a
+     * filesystem-backed catalog or an explicitly selected Hadoop/custom FileIO, that path
+     * may use a native FileIO whose credentials must be selected from the load response first.
+     * Providers can omit an unused Hadoop view without accessing an obsolete credential.
+     * The default preserves every other provider's existing Hadoop configuration.
+     *
+     * <p>This does not affect native data readers, ordinary Hadoop consumers or credential
+     * validity checks when the selected FileIO configuration is emitted.</p>
+     */
+    default Optional<HadoopStorageProperties> toIcebergHadoopProperties() {
+        return toHadoopProperties();
+    }
+
+    /**
+     * Connection-only properties for the official Iceberg FileIO, without authentication or
+     * FileIO selection. A response may replace an obsolete credential while retaining the
+     * provider's endpoint, so this view must not access credentials or validate their expiry.
+     * Implementations must still validate connection fields and reject embedded credentials.
+     *
+     * <p>This performs no I/O and returns an immutable map. The default contributes nothing;
+     * credential emission and access validation remain in {@link #toIcebergFileIOProperties()}.</p>
+     */
+    default Map<String, String> toIcebergFileIOConnectionProperties() {
+        return Collections.emptyMap();
+    }
+
+    /**
      * Storage authentication and connection properties for the official Iceberg FileIO.
      * This is a separate consumer dialect from the native backend and Hadoop maps. The
      * provider owns translation; no Iceberg or SDK objects cross the plugin boundary.

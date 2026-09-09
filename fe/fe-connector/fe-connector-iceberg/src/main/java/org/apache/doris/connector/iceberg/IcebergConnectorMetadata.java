@@ -1025,7 +1025,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to create Iceberg table "
                     + request.getDbName() + "." + request.getTableName()
-                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
+                    + ": " + IcebergPostSuccessFileIOInitializationException.find(e)
+                            .map(Throwable::getMessage).orElseGet(() -> ExceptionUtils.getRootCauseMessage(e)), e);
         }
     }
 

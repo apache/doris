@@ -62,6 +62,7 @@ org.apache.doris.connector.spi.ConnectorStorageContext#newStorageAccessResolver(
 org.apache.doris.connector.spi.ConnectorStorageContext#newStorageUriNormalizer(java.util.Map):java.util.function.UnaryOperator
 org.apache.doris.connector.spi.ConnectorStorageContext#normalizeStorageUri(java.lang.String):java.lang.String
 org.apache.doris.connector.spi.ConnectorStorageContext#normalizeStorageUri(java.lang.String,java.util.Map):java.lang.String
+org.apache.doris.connector.spi.ConnectorStorageContext#resolveStorageProperties(java.util.Map):java.util.List
 org.apache.doris.connector.spi.ConnectorStorageContext#testBackendStorageConnectivity(int,java.util.Map):void
 org.apache.doris.connector.spi.ConnectorStorageContext#vendStorageCredentials(java.util.Map):java.util.Map
 org.apache.doris.connector.spi.ConnectorTableSchema#equals(java.lang.Object):boolean
@@ -164,7 +165,9 @@ org.apache.doris.filesystem.properties.FileSystemProperties#resolveBackendProper
 org.apache.doris.filesystem.properties.FileSystemProperties#storageFamilyName():java.lang.String
 org.apache.doris.filesystem.properties.FileSystemProperties#toBackendProperties():java.util.Optional
 org.apache.doris.filesystem.properties.FileSystemProperties#toHadoopProperties():java.util.Optional
+org.apache.doris.filesystem.properties.FileSystemProperties#toIcebergFileIOConnectionProperties():java.util.Map
 org.apache.doris.filesystem.properties.FileSystemProperties#toIcebergFileIOProperties():java.util.Map
+org.apache.doris.filesystem.properties.FileSystemProperties#toIcebergHadoopProperties():java.util.Optional
 org.apache.doris.filesystem.properties.FileSystemProperties#type():org.apache.doris.filesystem.FileSystemType
 org.apache.doris.filesystem.properties.FileSystemProperties#validate():void
 org.apache.doris.filesystem.properties.FileSystemProperties#validateAndGetUri(java.util.Map):java.lang.String
@@ -177,7 +180,9 @@ org.apache.doris.filesystem.properties.StorageProperties#providerName():java.lan
 org.apache.doris.filesystem.properties.StorageProperties#rawProperties():java.util.Map
 org.apache.doris.filesystem.properties.StorageProperties#toBackendProperties():java.util.Optional
 org.apache.doris.filesystem.properties.StorageProperties#toHadoopProperties():java.util.Optional
+org.apache.doris.filesystem.properties.StorageProperties#toIcebergFileIOConnectionProperties():java.util.Map
 org.apache.doris.filesystem.properties.StorageProperties#toIcebergFileIOProperties():java.util.Map
+org.apache.doris.filesystem.properties.StorageProperties#toIcebergHadoopProperties():java.util.Optional
 org.apache.doris.filesystem.properties.StorageProperties#type():org.apache.doris.filesystem.FileSystemType
 org.apache.doris.filesystem.properties.StorageProperties#validate():void
 org.apache.doris.filesystem.properties.StorageProperties#validateForAccess():void

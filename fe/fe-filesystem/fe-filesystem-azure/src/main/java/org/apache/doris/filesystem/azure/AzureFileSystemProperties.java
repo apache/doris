@@ -226,6 +226,40 @@ public final class AzureFileSystemProperties
         return props;
     }
 
+    static AzureFileSystemProperties withFileIOSharedKey(AzureFileIOSharedKey sharedKey,
+            Map<String, String> catalogProperties) {
+        AzureFileSystemProperties props = new AzureFileSystemProperties(sharedKey, catalogProperties);
+        props.validate();
+        return props;
+    }
+
+    private AzureFileSystemProperties(AzureFileIOSharedKey sharedKey, Map<String, String> catalogProperties) {
+        this.clock = Clock.systemUTC();
+        // The FileIO's complete SharedKey group replaces every static authentication dialect.
+        // Reuse only the typed connection defaults, never an intermediate backend credential map.
+        Map<String, String> connection = connectionProperties(catalogProperties);
+        ConnectorPropertiesUtils.bindConnectorProperties(this, connection);
+        this.explicitEndpoint = StringUtils.isNotBlank(endpoint);
+        this.authType = AzureAuthType.SHARED_KEY;
+        this.azureAuthType = authType.propertyValue();
+        if (StringUtils.isNotBlank(accountName) && !accountName.equalsIgnoreCase(sharedKey.accountName())) {
+            throw new StoragePropertiesException("Azure FileIO SharedKey account does not match the catalog account");
+        }
+        this.accountName = sharedKey.accountName();
+        this.accountKey = sharedKey.accountKey();
+        this.accountHost = resolveAccountHostModel();
+        if (StringUtils.isNotBlank(endpoint)
+                && AzureBlobEndpointSignals.isAzureBlobEndpoint(endpoint, catalogProperties)
+                && !accountName.equalsIgnoreCase(accountHost.accountName())) {
+            throw new StoragePropertiesException("Azure FileIO SharedKey account does not match the catalog endpoint");
+        }
+        this.endpoint = formatAzureEndpoint(endpoint, accountHost);
+        this.sasCredential = null;
+        connection.putAll(sharedKey.properties());
+        this.rawProperties = Collections.unmodifiableMap(new HashMap<>(connection));
+        this.matchedProperties = this.rawProperties;
+    }
+
     private AzureFileSystemProperties(AzureVendedSas sas, Map<String, String> credentials,
             Map<String, String> catalogProperties) {
         this.clock = Clock.systemUTC();
@@ -403,18 +437,20 @@ public final class AzureFileSystemProperties
     }
 
     @Override
-    public Map<String, String> toIcebergFileIOProperties() {
-        validateForAccess();
-        if (isOauth2Auth()) {
-            // Iceberg's ADLSFileIO cannot construct this per-catalog client-secret identity.
-            // Its Hadoop FileIO consumes our separate Hadoop view; native BE auth is unchanged.
-            return Map.of("io-impl", "org.apache.iceberg.hadoop.HadoopFileIO");
-        }
+    public Optional<HadoopStorageProperties> toIcebergHadoopProperties() {
+        // Default REST metadata uses ADLSFileIO for SAS, after choosing the current load's
+        // credentials. Eagerly materializing its old ABFS config would reject an expired
+        // static SAS before a fresh vended credential can replace it.
+        return authType == AzureAuthType.SAS ? Optional.empty() : toHadoopProperties();
+    }
+
+    @Override
+    public Map<String, String> toIcebergFileIOConnectionProperties() {
         if (accountHost == null) {
             throw new StoragePropertiesException("Azure Iceberg FileIO requires an account name or endpoint");
         }
         // The SDK applies endpoint() after credentials; a SAS in its query would replace the
-        // already validated credential. Never let the endpoint become a second auth source.
+        // selected credential. Never let the endpoint become a second auth source.
         URI fileIOEndpoint = URI.create(endpoint);
         if (fileIOEndpoint.getRawUserInfo() != null || fileIOEndpoint.getRawQuery() != null
                 || fileIOEndpoint.getRawFragment() != null) {
@@ -423,6 +459,22 @@ public final class AzureFileSystemProperties
         }
 
         Map<String, String> properties = new HashMap<>();
+        // Iceberg's connection-string property is an endpoint URL, not an SDK connection string.
+        for (String host : new String[] {accountHost.dfsHost(), accountHost.blobHost()}) {
+            properties.put("adls.connection-string." + host, endpoint);
+        }
+        return Collections.unmodifiableMap(properties);
+    }
+
+    @Override
+    public Map<String, String> toIcebergFileIOProperties() {
+        validateForAccess();
+        if (isOauth2Auth()) {
+            // Iceberg's ADLSFileIO cannot construct this per-catalog client-secret identity.
+            // Its Hadoop FileIO consumes our separate Hadoop view; native BE auth is unchanged.
+            return Map.of("io-impl", "org.apache.iceberg.hadoop.HadoopFileIO");
+        }
+        Map<String, String> properties = new HashMap<>(toIcebergFileIOConnectionProperties());
         switch (authType) {
             case SHARED_KEY:
                 properties.put("adls.auth.shared-key.account.name", accountName);
@@ -439,10 +491,6 @@ public final class AzureFileSystemProperties
                 break;
             default:
                 throw new IllegalStateException("Unhandled Azure auth type: " + authType);
-        }
-        // Iceberg's connection-string property is an endpoint URL, not an SDK connection string.
-        for (String host : new String[] {accountHost.dfsHost(), accountHost.blobHost()}) {
-            properties.put("adls.connection-string." + host, endpoint);
         }
         return Collections.unmodifiableMap(properties);
     }

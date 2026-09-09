@@ -76,8 +76,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // The shared storage API now exposes provider-owned Iceberg FileIO properties.
-        Assertions.assertEquals("9.0", version.getProperty("api.version"));
+        // Request-local typed binding and the Iceberg metadata Hadoop view extend the storage contract.
+        Assertions.assertEquals("10.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

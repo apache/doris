@@ -100,15 +100,15 @@ public class PluginApiVersionWiringTest {
     }
 
     @Test
-    public void connectorPluginWithoutTheFileIOPropertiesContractIsRefused() throws IOException {
+    public void connectorPluginWithoutResolvedStoragePropertiesIsRefused() throws IOException {
         ApiVersionGate gate = ApiVersionGate.forFamily("connector", ConnectorProvider.class);
-        Assertions.assertEquals("9.0", gate.getExpectedVersion());
+        Assertions.assertEquals("10.0", gate.getExpectedVersion());
         ConnectorPluginManager manager = new ConnectorPluginManager();
 
-        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("8.0")));
+        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("9.0")));
 
         Assertions.assertFalse(manager.getRegisteredTypes().contains("version_probe"),
-                "a plugin from before the FileIO properties contract must not be admitted");
+                "a plugin from before request-local typed storage binding must not be admitted");
     }
 
     @Test
@@ -147,15 +147,15 @@ public class PluginApiVersionWiringTest {
     }
 
     @Test
-    public void filesystemPluginWithoutTheFileIOPropertiesContractIsRefused() throws IOException {
+    public void filesystemPluginWithoutTheIcebergMetadataHadoopViewIsRefused() throws IOException {
         ApiVersionGate gate = ApiVersionGate.forFamily("filesystem", FileSystemProvider.class);
-        Assertions.assertEquals("5.0", gate.getExpectedVersion());
+        Assertions.assertEquals("6.0", gate.getExpectedVersion());
         FileSystemPluginManager manager = new FileSystemPluginManager();
 
-        manager.loadPlugins(Collections.singletonList(filesystemPluginRoot("4.0")));
+        manager.loadPlugins(Collections.singletonList(filesystemPluginRoot("5.0")));
 
         Assertions.assertFalse(providerNames(manager).contains("version_probe_fs"),
-                "a plugin from before FileIO properties must not join storage routing");
+                "a plugin from before the Iceberg metadata Hadoop view must not join storage routing");
     }
 
     @Test

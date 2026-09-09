@@ -44,6 +44,7 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
@@ -356,13 +357,19 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         // and BE creds without importing fe-core), sourcing the raw map straight from the catalog's raw
         // storage supplier -- no fe-core StorageProperties.createAll round-trip via getOrigProps(). The raw
         // supplier already merges the catalog's derived storage defaults (warehouse -> fs.defaultFS).
-        // Per-request vended replacement belongs to newStorageAccessResolver, not this catalog-level view.
+        // Per-request vended replacement belongs to the request-local resolution hooks, not this view.
         // An empty map (non-plugin ctor / credential-less warehouse) yields an empty storage list.
         Map<String, String> rawCatalogProps = rawStoragePropsSupplier.get();
         if (rawCatalogProps == null || rawCatalogProps.isEmpty()) {
             return Collections.emptyList();
         }
         return FileSystemFactory.bindAllStorageProperties(rawCatalogProps);
+    }
+
+    @Override
+    public List<StorageProperties> resolveStorageProperties(Map<String, String> rawVendedCredentials) {
+        return snapshotStorageBindings(rawVendedCredentials).values().stream()
+                .map(StorageAdapter::getSpiProperties).collect(Collectors.toUnmodifiableList());
     }
 
     @Override
@@ -479,9 +486,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         };
     }
 
-    @Override
-    public ConnectorStorageAccessResolver newStorageAccessResolver(
-            Map<String, String> rawVendedCredentials) {
+    private Map<StorageTypeId, StorageAdapter> snapshotStorageBindings(Map<String, String> rawVendedCredentials) {
         Map<String, String> rawCatalog = new HashMap<>(rawStoragePropsSupplier.get());
         Map<String, String> rawVended = rawVendedCredentials == null
                 ? Collections.emptyMap() : new HashMap<>(rawVendedCredentials);
@@ -506,7 +511,13 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
                 bindings.put(type, binding);
             }
         });
-        Map<StorageTypeId, StorageAdapter> snapshot = Collections.unmodifiableMap(bindings);
+        return Collections.unmodifiableMap(bindings);
+    }
+
+    @Override
+    public ConnectorStorageAccessResolver newStorageAccessResolver(
+            Map<String, String> rawVendedCredentials) {
+        Map<StorageTypeId, StorageAdapter> snapshot = snapshotStorageBindings(rawVendedCredentials);
         // Construction completes before publication. Every application only reads immutable bindings,
         // so properties planning and a streaming scan pump may share this request-local resolver.
         return new ConnectorStorageAccessResolver(snapshot.values().stream()
