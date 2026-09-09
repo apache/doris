@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
@@ -59,9 +60,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -117,7 +120,7 @@ public class AlterTableCommandLanceAdmissionTest {
 
     /**
      * The 3A LanceFixture, extended for admission: remote/local names, the snapshot loader
-     * entry point, a real job manager behind the Env mock, and a mocked id allocator.
+     * entry point, real catalog/job managers behind the Env mock, and a mocked id allocator.
      */
     private static class LanceFixture implements AutoCloseable {
         private final MockedStatic<Env> mockedEnv;
@@ -133,7 +136,7 @@ public class AlterTableCommandLanceAdmissionTest {
         LanceFixture(boolean restCatalog) throws Exception {
             mockedEnv = Mockito.mockStatic(Env.class);
             env = Mockito.mock(Env.class);
-            catalogMgr = Mockito.mock(CatalogMgr.class);
+            catalogMgr = new CatalogMgr();
             AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
             catalog = Mockito.mock(LanceExternalCatalog.class);
             database = Mockito.mock(LanceExternalDatabase.class);
@@ -148,12 +151,12 @@ public class AlterTableCommandLanceAdmissionTest {
                     Mockito.eq(CTL), Mockito.eq(DB), Mockito.eq(TBL),
                     Mockito.eq(PrivPredicate.ALTER))).thenReturn(true);
             Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
-            Mockito.when(catalogMgr.getCatalogOrException(Mockito.eq(CTL), Mockito.any()))
-                    .thenReturn(catalog);
+            registerCatalog();
             Mockito.doReturn(database).when(catalog).getDbOrDdlException(DB);
             Mockito.doReturn(table).when(database).getTableOrDdlException(TBL);
             Mockito.when(catalog.isRestCatalogConfigured()).thenReturn(restCatalog);
             Mockito.when(catalog.getId()).thenReturn(CATALOG_ID);
+            Mockito.when(catalog.getProperties()).thenReturn(Collections.emptyMap());
             Mockito.when(database.getRemoteName()).thenReturn(REMOTE_DB);
             Mockito.when(database.getFullName()).thenReturn(DB);
             Mockito.when(table.getRemoteName()).thenReturn(REMOTE_TBL);
@@ -174,6 +177,16 @@ public class AlterTableCommandLanceAdmissionTest {
                 return null;
             });
             Mockito.when(table.getType()).thenReturn(TableIf.TableType.LANCE_EXTERNAL_TABLE);
+        }
+
+        @SuppressWarnings("unchecked")
+        private void registerCatalog() throws ReflectiveOperationException {
+            Field idToCatalog = CatalogMgr.class.getDeclaredField("idToCatalog");
+            idToCatalog.setAccessible(true);
+            ((Map<Long, CatalogIf>) idToCatalog.get(catalogMgr)).put(CATALOG_ID, catalog);
+            Field nameToCatalog = CatalogMgr.class.getDeclaredField("nameToCatalog");
+            nameToCatalog.setAccessible(true);
+            ((Map<String, CatalogIf>) nameToCatalog.get(catalogMgr)).put(CTL, catalog);
         }
 
         void respondWithSnapshot(List<LanceLogicalIndex> logical, List<PhysicalIndexInfo> physical)

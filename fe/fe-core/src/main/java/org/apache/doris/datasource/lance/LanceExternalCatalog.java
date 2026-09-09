@@ -93,6 +93,18 @@ public class LanceExternalCatalog extends ExternalCatalog {
     private transient Map<String, String> namespaceStorageOptions = Collections.emptyMap();
     private transient Object namespaceLock = new Object();
 
+    // Local admission epoch; accessed only under CatalogMgr's lock. It need not survive restart,
+    // because no admission snapshot survives restart. Bump before even a tentative identity ALTER.
+    private transient long indexTargetVersion;
+
+    public long getIndexTargetVersion() {
+        return indexTargetVersion;
+    }
+
+    public void advanceIndexTargetVersion() {
+        indexTargetVersion++;
+    }
+
     public LanceExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment) {
         super(catalogId, name, InitCatalogLog.Type.LANCE, comment);

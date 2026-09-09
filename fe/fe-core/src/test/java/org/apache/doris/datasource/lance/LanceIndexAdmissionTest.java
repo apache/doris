@@ -26,6 +26,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.lance.LanceIndexAdmissionSnapshot.PhysicalIndexInfo;
 import org.apache.doris.datasource.lance.job.LanceIndexFenceKey;
 import org.apache.doris.datasource.lance.job.LanceIndexJob;
@@ -46,6 +48,7 @@ import org.lance.schema.LanceField;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -89,7 +92,7 @@ public class LanceIndexAdmissionTest {
     private long originalGlobalQuota;
 
     @BeforeEach
-    public void setUp() {
+    public void setUp() throws Exception {
         mockedEnv = Mockito.mockStatic(Env.class);
         env = Mockito.mock(Env.class);
         manager = new TestManager();
@@ -100,6 +103,14 @@ public class LanceIndexAdmissionTest {
 
         catalog = Mockito.mock(LanceExternalCatalog.class);
         Mockito.when(catalog.getId()).thenReturn(CATALOG_ID);
+        Mockito.when(catalog.getProperties()).thenReturn(new HashMap<>());
+        CatalogMgr catalogMgr = new CatalogMgr();
+        Field catalogs = CatalogMgr.class.getDeclaredField("idToCatalog");
+        catalogs.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<Long, CatalogIf> registered = (Map<Long, CatalogIf>) catalogs.get(catalogMgr);
+        registered.put(CATALOG_ID, catalog);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
         database = Mockito.mock(LanceExternalDatabase.class);
         Mockito.when(database.getRemoteName()).thenReturn(REMOTE_DB);
         Mockito.when(database.getFullName()).thenReturn(DB);
@@ -471,6 +482,35 @@ public class LanceIndexAdmissionTest {
     }
 
     @Test
+    public void exposedIntegerNumericPropertiesMatch() throws Exception {
+        for (String exposedValue : new String[] {"16", "\"16\"", "\"016\"", "\"+16\""}) {
+            LanceIndexAdmissionSnapshot snapshot = snapshot(
+                    Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ",
+                            "{\"compression\":{\"num_sub_vectors\":" + exposedValue + "}}")),
+                    Collections.singletonList(physicalIndex("idx", "VECTOR")));
+            Assertions.assertNull(admitCreate(snapshot, annDef("idx", true, false), true).getJobId(),
+                    exposedValue);
+        }
+        assertNothingPersisted();
+    }
+
+    @Test
+    public void exposedNonIntegerNumericPropertiesFailClosed() throws Exception {
+        // Gson's getAsLong truncates fractions and wraps overflowing JSON numbers. Require
+        // parsed-long semantics for both numeric primitives and strings instead.
+        for (String exposedValue : new String[] {"16.9", "16.0", "1.6e1", "18446744073709551632",
+                "\"16.9\"", "\"1.6e1\"", "\"18446744073709551632\"", "true", "null"}) {
+            LanceIndexAdmissionSnapshot snapshot = snapshot(
+                    Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ",
+                            "{\"compression\":{\"num_sub_vectors\":" + exposedValue + "}}")),
+                    Collections.singletonList(physicalIndex("idx", "VECTOR")));
+            assertInvalid(() -> admitCreate(snapshot, annDef("idx", true, false), true),
+                    "index 'idx' already exists with a different definition");
+        }
+        assertNothingPersisted();
+    }
+
+    @Test
     public void exposedNonPrimitiveMetricFailsClosed() throws Exception {
         // An exposed but non-primitive metric is malformed data too: fail closed, never skip.
         LanceIndexAdmissionSnapshot nonPrimitiveMetric = snapshot(
@@ -758,6 +798,27 @@ public class LanceIndexAdmissionTest {
         Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_DISABLED, exception.getMysqlErrorCode());
         Assertions.assertTrue(exception.getDetailMessage().contains("lance_index_job_max_unresolved_global"),
                 exception.getDetailMessage());
+        assertNothingPersisted();
+    }
+
+    @Test
+    public void identityChangeDuringSnapshotRejectsCreateAndDropBeforeAllocatingId() throws Exception {
+        LanceIndexAdmission.SnapshotLoader changingLoader = (cat, dbName, tblName) -> {
+            // Emulate an identity ALTER completing during the remote metadata read.
+            cat.getProperties().put("warehouse", cat.getProperties().getOrDefault("warehouse", "") + "changed");
+            return snapshot(Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ",
+                    MATCHING_ANN_PROPERTIES_JSON)), Collections.singletonList(physicalIndex("idx", "VECTOR")));
+        };
+        Assertions.assertThrows(DdlException.class,
+                () -> LanceIndexAdmission.admitCreate(changingLoader, catalog, database, table,
+                        annDef("fresh", false, false), false));
+        Assertions.assertThrows(DdlException.class,
+                () -> LanceIndexAdmission.admitDrop(changingLoader, catalog, database, table, "idx", false));
+        Assertions.assertThrows(DdlException.class,
+                () -> LanceIndexAdmission.admitCreate(changingLoader, catalog, database, table,
+                        annDef("idx", true, false), true));
+        Assertions.assertThrows(DdlException.class,
+                () -> LanceIndexAdmission.admitDrop(changingLoader, catalog, database, table, "absent", true));
         assertNothingPersisted();
     }
 

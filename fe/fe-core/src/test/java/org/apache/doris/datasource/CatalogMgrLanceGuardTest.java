@@ -42,6 +42,13 @@ import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
@@ -89,7 +96,17 @@ public class CatalogMgrLanceGuardTest {
                 catalogName.set(invocation.getArgument(0));
                 return null;
             }).when(catalog).modifyCatalogName(Mockito.anyString());
+            AtomicLong targetVersion = new AtomicLong();
+            Mockito.when(catalog.getIndexTargetVersion()).thenAnswer(invocation -> targetVersion.get());
+            Mockito.doAnswer(invocation -> {
+                targetVersion.incrementAndGet();
+                return null;
+            }).when(catalog).advanceIndexTargetVersion();
             Mockito.when(catalog.getProperties()).thenReturn(oldProperties);
+            Mockito.doAnswer(invocation -> {
+                oldProperties.putAll(invocation.getArgument(0));
+                return null;
+            }).when(catalog).modifyCatalogProps(Mockito.anyMap());
             registerCatalog(catalogMgr, catalog);
 
             Mockito.when(env.getLanceIndexJobManager()).thenReturn(jobManager);
@@ -289,8 +306,154 @@ public class CatalogMgrLanceGuardTest {
         log.setNewProps(ImmutableMap.of("warehouse", "s3://bucket/elsewhere"));
         try (MockedStatic<Env> mockedEnv = fixture.mockCurrentEnv()) {
             // Replay must apply verbatim: the guard lives only on the master DDL path.
-            fixture.catalogMgr.replayAlterCatalogProps(log, fixture.oldProperties, true);
+            fixture.catalogMgr.replayAlterCatalogProps(log, null, true);
+            Mockito.verify(fixture.catalog).advanceIndexTargetVersion();
             Mockito.verify(fixture.catalog).modifyCatalogProps(log.getNewProps());
+        }
+    }
+
+    @Test
+    public void targetChangeAfterCaptureRejectsAdmission() throws Exception {
+        for (String key : IDENTITY_KEYS) {
+            Fixture fixture = new Fixture("filesystem");
+            try (MockedStatic<Env> mockedEnv = fixture.mockCurrentEnv()) {
+                CatalogMgr.LanceIndexTarget target = fixture.catalogMgr.captureLanceIndexTarget(fixture.catalog);
+                fixture.catalogMgr.alterCatalogProps(CATALOG_NAME,
+                        ImmutableMap.of(key, fixture.oldProperties.get(key) + "_changed"));
+                DdlException error = Assertions.assertThrows(DdlException.class,
+                        () -> fixture.catalogMgr.withLanceIndexAdmission(fixture.catalog, target, () -> {
+                            fixture.admitUnresolvedJob();
+                            return null;
+                        }));
+                Assertions.assertTrue(error.getMessage().contains("target changed"));
+                Assertions.assertEquals(0, fixture.jobManager.getJobCount());
+            }
+        }
+    }
+
+    @Test
+    public void targetChangeAndRestoreRejectsSnapshotOfIntermediateTarget() throws Exception {
+        Fixture fixture = new Fixture("filesystem");
+        try (MockedStatic<Env> mockedEnv = fixture.mockCurrentEnv()) {
+            CatalogMgr.LanceIndexTarget target = fixture.catalogMgr.captureLanceIndexTarget(fixture.catalog);
+            fixture.catalogMgr.alterCatalogProps(CATALOG_NAME, ImmutableMap.of("warehouse", "s3://bucket/B"));
+            // A lock-free snapshot loader can read B before another ALTER restores A.
+            fixture.catalogMgr.alterCatalogProps(CATALOG_NAME,
+                    ImmutableMap.of("warehouse", "s3://bucket/warehouse"));
+            Assertions.assertThrows(DdlException.class,
+                    () -> fixture.catalogMgr.withLanceIndexAdmission(fixture.catalog, target, () -> {
+                        fixture.admitUnresolvedJob();
+                        return null;
+                    }));
+            Assertions.assertEquals(0, fixture.jobManager.getJobCount());
+        }
+    }
+
+    @Test
+    public void failedIdentityAlterInvalidatesAdmissionEvenAfterRollback() throws Exception {
+        Fixture fixture = new Fixture("filesystem");
+        Map<String, String> tentative = new HashMap<>(fixture.oldProperties);
+        tentative.put("warehouse", "s3://bucket/temporary");
+        Mockito.doAnswer(invocation -> {
+            Mockito.when(fixture.catalog.getProperties()).thenReturn(tentative);
+            return null;
+        }).when(fixture.catalog).tryModifyCatalogProps(Mockito.anyMap());
+        Mockito.doThrow(new DdlException("invalid target")).when(fixture.catalog).checkProperties();
+        Mockito.doAnswer(invocation -> {
+            Mockito.when(fixture.catalog.getProperties()).thenReturn(fixture.oldProperties);
+            return null;
+        }).when(fixture.metaCacheMgr).rollbackCatalogProperties(Mockito.eq(fixture.catalog), Mockito.anyMap());
+        try (MockedStatic<Env> mockedEnv = fixture.mockCurrentEnv()) {
+            CatalogMgr.LanceIndexTarget target = fixture.catalogMgr.captureLanceIndexTarget(fixture.catalog);
+            Assertions.assertThrows(DdlException.class, () -> fixture.catalogMgr.alterCatalogProps(CATALOG_NAME,
+                    ImmutableMap.of("warehouse", "s3://bucket/temporary")));
+            Assertions.assertSame(fixture.oldProperties, fixture.catalog.getProperties());
+            Assertions.assertThrows(DdlException.class,
+                    () -> fixture.catalogMgr.withLanceIndexAdmission(fixture.catalog, target, () -> {
+                        fixture.admitUnresolvedJob();
+                        return null;
+                    }));
+            Assertions.assertEquals(0, fixture.jobManager.getJobCount());
+        }
+    }
+
+    @Test
+    public void sameTargetAndCredentialChangesPreserveAdmission() throws Exception {
+        Fixture fixture = new Fixture("filesystem");
+        try (MockedStatic<Env> mockedEnv = fixture.mockCurrentEnv()) {
+            CatalogMgr.LanceIndexTarget target = fixture.catalogMgr.captureLanceIndexTarget(fixture.catalog);
+            fixture.catalogMgr.alterCatalogProps(CATALOG_NAME,
+                    ImmutableMap.of("warehouse", "s3://bucket/warehouse", "s3.access_key", "new_key"));
+            fixture.catalogMgr.withLanceIndexAdmission(fixture.catalog, target, () -> {
+                fixture.admitUnresolvedJob();
+                return null;
+            });
+            Assertions.assertEquals(1, fixture.jobManager.getJobCount());
+        }
+    }
+
+    @Test
+    public void dropAfterCaptureRejectsAdmission() throws Exception {
+        Fixture fixture = new Fixture("filesystem");
+        try (MockedStatic<Env> mockedEnv = fixture.mockCurrentEnv()) {
+            CatalogMgr.LanceIndexTarget target = fixture.catalogMgr.captureLanceIndexTarget(fixture.catalog);
+            fixture.catalogMgr.dropCatalog(CATALOG_NAME, false);
+            Assertions.assertThrows(DdlException.class,
+                    () -> fixture.catalogMgr.withLanceIndexAdmission(fixture.catalog, target, () -> {
+                        fixture.admitUnresolvedJob();
+                        return null;
+                    }));
+            Assertions.assertEquals(0, fixture.jobManager.getJobCount());
+        }
+    }
+
+    @Test
+    public void concurrentDdlWaitsForAdmissionAndSeesItsUnresolvedJob() throws Exception {
+        // Both DDL paths must be excluded throughout the final admission transfer.
+        for (boolean drop : new boolean[] {true, false}) {
+            Fixture fixture = new Fixture("filesystem");
+            CatalogMgr.LanceIndexTarget target = fixture.catalogMgr.captureLanceIndexTarget(fixture.catalog);
+            CountDownLatch admissionEntered = new CountDownLatch(1);
+            CountDownLatch finishAdmission = new CountDownLatch(1);
+            CountDownLatch ddlStarted = new CountDownLatch(1);
+            ExecutorService executor = Executors.newFixedThreadPool(2);
+            try {
+                Future<?> admission = executor.submit(() -> {
+                    try (MockedStatic<Env> mockedEnv = fixture.mockCurrentEnv()) {
+                        return fixture.catalogMgr.withLanceIndexAdmission(fixture.catalog, target, () -> {
+                            admissionEntered.countDown();
+                            Assertions.assertTrue(finishAdmission.await(10, TimeUnit.SECONDS));
+                            fixture.admitUnresolvedJob();
+                            return null;
+                        });
+                    }
+                });
+                Assertions.assertTrue(admissionEntered.await(10, TimeUnit.SECONDS));
+                Future<DdlException> ddl = executor.submit(() -> {
+                    try (MockedStatic<Env> mockedEnv = fixture.mockCurrentEnv()) {
+                        ddlStarted.countDown();
+                        return Assertions.assertThrows(DdlException.class, () -> {
+                            if (drop) {
+                                fixture.catalogMgr.dropCatalog(CATALOG_NAME, false);
+                            } else {
+                                fixture.catalogMgr.alterCatalogProps(CATALOG_NAME,
+                                        ImmutableMap.of("warehouse", "s3://bucket/new"));
+                            }
+                        });
+                    }
+                });
+                Assertions.assertTrue(ddlStarted.await(10, TimeUnit.SECONDS));
+                Assertions.assertThrows(TimeoutException.class, () -> ddl.get(200, TimeUnit.MILLISECONDS));
+                finishAdmission.countDown();
+                admission.get(10, TimeUnit.SECONDS);
+                assertNeutralGuardMessage(ddl.get(10, TimeUnit.SECONDS));
+                Assertions.assertSame(fixture.catalog, fixture.catalogMgr.getCatalog(CATALOG_ID));
+                Assertions.assertEquals("s3://bucket/warehouse", fixture.oldProperties.get("warehouse"));
+            } finally {
+                finishAdmission.countDown();
+                executor.shutdownNow();
+                Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+            }
         }
     }
 

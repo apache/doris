@@ -23,6 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 import org.apache.doris.datasource.lance.job.LanceIndexFenceKey;
 import org.apache.doris.datasource.lance.job.LanceIndexJob;
@@ -115,6 +116,8 @@ public final class LanceIndexAdmission {
             LanceExternalDatabase db, LanceExternalTable table, IndexDefinition def, boolean ifNotExists)
             throws Exception {
         // 1. One pinned snapshot for every authoritative decision below.
+        CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
+        CatalogMgr.LanceIndexTarget target = catalogMgr.captureLanceIndexTarget(catalog);
         LanceIndexAdmissionSnapshot snapshot = loader.load(catalog, db.getRemoteName(), table.getRemoteName());
         // 2. Display/normalized names; the reserved system prefix is rejected for CREATE and
         // REPLACE exactly as for DROP (the static layer rejects it first; this is the
@@ -139,7 +142,7 @@ public final class LanceIndexAdmission {
             if (!matchesExistingDefinition(snapshot, storedName, def)) {
                 rejectInvalid("index '" + displayName + "' already exists with a different definition");
             }
-            return new Outcome(null);
+            return catalogMgr.withLanceIndexAdmission(catalog, target, () -> new Outcome(null));
         }
         // 5. Schema contract v1 from the stored column name (never the raw user spelling).
         String storedColumnName = storedColumnName(table, def.getCols().get(0));
@@ -154,28 +157,30 @@ public final class LanceIndexAdmission {
         // D7 backstop: quota values from fe.conf bypass the ADMIN SET callback, so admission
         // re-asserts positivity before any id allocation or durable transfer.
         assertPositiveQuotas();
-        // 8. Exactly one id allocation, after every preflight above has passed.
-        long jobId = Env.getCurrentEnv().getNextId();
-        String creator = ConnectContext.get().getQualifiedUser();
-        // 9. REPLACE on an existing name persists the stored display name (section 4.1) so the
-        // worker locates the case-sensitive target; a fresh REPLACE keeps the user's spelling.
-        String persistedDisplayName = (orReplace && storedName != null) ? storedName : displayName;
-        LanceIndexJob job;
-        try {
-            job = new LanceIndexJob(jobId, creator, catalog.getId(), db.getFullName(), table.getName(),
-                    LanceIndexFenceKey.PROVIDER_DIRECTORY, locator, persistedDisplayName, normalizedName,
-                    orReplace ? LanceIndexJobMutationType.REPLACE : LanceIndexJobMutationType.CREATE,
-                    ifNotExists, false, indexType, storedColumnName, propertiesJson,
-                    snapshot.getDatasetVersion(), contract);
-        } catch (IllegalArgumentException e) {
-            throw invalidAdmission(e.getMessage());
-        }
-        Env.getCurrentEnv().getLanceIndexJobManager().createJob(job,
-                Config.lance_index_job_max_unresolved_per_table,
-                Config.lance_index_job_max_unresolved_per_catalog,
-                Config.lance_index_job_max_unresolved_global);
-        // 10. The job and its fence are durable once createJob returns.
-        return new Outcome(jobId);
+        return catalogMgr.withLanceIndexAdmission(catalog, target, () -> {
+            // 8. Exactly one id allocation, after every preflight above has passed.
+            long jobId = Env.getCurrentEnv().getNextId();
+            String creator = ConnectContext.get().getQualifiedUser();
+            // 9. REPLACE on an existing name persists the stored display name (section 4.1) so the
+            // worker locates the case-sensitive target; a fresh REPLACE keeps the user's spelling.
+            String persistedDisplayName = (orReplace && storedName != null) ? storedName : displayName;
+            LanceIndexJob job;
+            try {
+                job = new LanceIndexJob(jobId, creator, catalog.getId(), db.getFullName(), table.getName(),
+                        LanceIndexFenceKey.PROVIDER_DIRECTORY, locator, persistedDisplayName, normalizedName,
+                        orReplace ? LanceIndexJobMutationType.REPLACE : LanceIndexJobMutationType.CREATE,
+                        ifNotExists, false, indexType, storedColumnName, propertiesJson,
+                        snapshot.getDatasetVersion(), contract);
+            } catch (IllegalArgumentException e) {
+                throw invalidAdmission(e.getMessage());
+            }
+            Env.getCurrentEnv().getLanceIndexJobManager().createJob(job,
+                    Config.lance_index_job_max_unresolved_per_table,
+                    Config.lance_index_job_max_unresolved_per_catalog,
+                    Config.lance_index_job_max_unresolved_global);
+            // 10. The job and its fence are durable once createJob returns.
+            return new Outcome(jobId);
+        });
     }
 
     /**
@@ -190,6 +195,8 @@ public final class LanceIndexAdmission {
     static Outcome admitDrop(SnapshotLoader loader, LanceExternalCatalog catalog,
             LanceExternalDatabase db, LanceExternalTable table, String indexName, boolean ifExists)
             throws Exception {
+        CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
+        CatalogMgr.LanceIndexTarget target = catalogMgr.captureLanceIndexTarget(catalog);
         LanceIndexAdmissionSnapshot snapshot = loader.load(catalog, db.getRemoteName(), table.getRemoteName());
         String normalizedName = LanceIndexNameNormalizer.normalize(indexName);
         LanceIndexMutationValidator.rejectIfReservedIndexName(indexName);
@@ -201,30 +208,32 @@ public final class LanceIndexAdmission {
         String storedName = LanceIndexFamilies.uniqueMatch(storedNames, normalizedName);
         if (storedName == null) {
             if (ifExists) {
-                return new Outcome(null);
+                return catalogMgr.withLanceIndexAdmission(catalog, target, () -> new Outcome(null));
             }
             rejectInvalid("index '" + indexName + "' not found");
         }
         String locator = normalizeLocator(snapshot);
         assertPositiveQuotas();
-        long jobId = Env.getCurrentEnv().getNextId();
-        String creator = ConnectContext.get().getQualifiedUser();
-        // DROP only runs past the preflight with a unique match, so the stored display name is
-        // always persisted (section 4.1); definition fields stay null on a DROP job record.
-        LanceIndexJob job;
-        try {
-            job = new LanceIndexJob(jobId, creator, catalog.getId(), db.getFullName(), table.getName(),
-                    LanceIndexFenceKey.PROVIDER_DIRECTORY, locator, storedName, normalizedName,
-                    LanceIndexJobMutationType.DROP, false, ifExists, null, null, null,
-                    snapshot.getDatasetVersion(), null);
-        } catch (IllegalArgumentException e) {
-            throw invalidAdmission(e.getMessage());
-        }
-        Env.getCurrentEnv().getLanceIndexJobManager().createJob(job,
-                Config.lance_index_job_max_unresolved_per_table,
-                Config.lance_index_job_max_unresolved_per_catalog,
-                Config.lance_index_job_max_unresolved_global);
-        return new Outcome(jobId);
+        return catalogMgr.withLanceIndexAdmission(catalog, target, () -> {
+            long jobId = Env.getCurrentEnv().getNextId();
+            String creator = ConnectContext.get().getQualifiedUser();
+            // DROP only runs past the preflight with a unique match, so the stored display name is
+            // always persisted (section 4.1); definition fields stay null on a DROP job record.
+            LanceIndexJob job;
+            try {
+                job = new LanceIndexJob(jobId, creator, catalog.getId(), db.getFullName(), table.getName(),
+                        LanceIndexFenceKey.PROVIDER_DIRECTORY, locator, storedName, normalizedName,
+                        LanceIndexJobMutationType.DROP, false, ifExists, null, null, null,
+                        snapshot.getDatasetVersion(), null);
+            } catch (IllegalArgumentException e) {
+                throw invalidAdmission(e.getMessage());
+            }
+            Env.getCurrentEnv().getLanceIndexJobManager().createJob(job,
+                    Config.lance_index_job_max_unresolved_per_table,
+                    Config.lance_index_job_max_unresolved_per_catalog,
+                    Config.lance_index_job_max_unresolved_global);
+            return new Outcome(jobId);
+        });
     }
 
     /**
@@ -319,9 +328,9 @@ public final class LanceIndexAdmission {
 
     /**
      * True when the request leaves the property unset (never compared) or the snapshot exposes
-     * no value for it (skipped); otherwise the exposed value must be numerically equal. An
-     * exposed but non-primitive or non-numeric value is malformed provider data and fails
-     * closed (design section 3.4), matching the metric comparison above.
+     * no value for it (skipped); otherwise both values must parse as equal longs. An exposed
+     * non-primitive, fractional, overflowing or otherwise unparseable value is malformed
+     * provider data and fails closed (design section 3.4), matching the metric comparison above.
      */
     private static boolean numericPropertyMatches(String requestValue, JsonObject compression,
             String exposedKey) {
@@ -336,7 +345,8 @@ public final class LanceIndexAdmission {
             return false;
         }
         try {
-            return exposed.getAsLong() == Long.parseLong(requestValue.trim());
+            // getAsLong silently truncates fractions and wraps overflowing JSON numbers.
+            return Long.parseLong(exposed.getAsString()) == Long.parseLong(requestValue.trim());
         } catch (RuntimeException e) {
             // An exposed but non-numeric value cannot corroborate equality: fail closed.
             return false;
@@ -454,8 +464,8 @@ public final class LanceIndexAdmission {
     /**
      * D7: the unresolved-job quotas are a section 9.7 enablement precondition. The ADMIN SET
      * callback validates them, but fe.conf loading bypasses callbacks, so admission asserts them
-     * again — the 3B manager's "limit <= 0 disables the layer" semantics must never be reachable
-     * through configuration.
+     * again before allocating an id. The manager independently rejects non-positive limits
+     * at the durable-transfer boundary.
      */
     private static void assertPositiveQuotas() throws AnalysisException {
         if (Config.lance_index_job_max_unresolved_per_table <= 0) {
