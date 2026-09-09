@@ -53,7 +53,7 @@ suite("test_uuid_topn_filter", "p0") {
                 String token = "uuid_topn_filter_${UUID.randomUUID()}"
                 qt_result "/* ${token} */ ${query}"
                 // TopNFilterRows belongs to the sorter itself, so it cannot prove scanner pushdown.
-                uuidCheckProfile(token, enabled ? ['RowsVectorPredFiltered'] : [],
+                checkProfileCounters(token, enabled ? ['RowsVectorPredFiltered'] : [],
                                  enabled ? [] : ['RowsVectorPredFiltered'])
             }
         }

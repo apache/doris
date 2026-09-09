@@ -65,7 +65,7 @@ suite("test_uuid_runtime_filter_merge", "p0") {
         }
         String token = "uuid_rf_merge_${UUID.randomUUID()}"
         qt_enabled "/* ${token} */ ${query}"
-        String profile = uuidCheckProfile(token, ['RF0 InputRows', 'RF0 FilterRows'], ['RowsInvertedIndexFiltered'])
+        String profile = checkProfileCounters(token, ['RF0 InputRows', 'RF0 FilterRows'], ['RowsInvertedIndexFiltered'])
         String effectiveType = type == 'IN_OR_BLOOM_FILTER'
                 ? "IN_OR_BLOOM_FILTER(${spec[1] == 4 ? 'BLOOM_FILTER' : 'IN_FILTER'})"
                 : (type == 'IN' ? 'IN_FILTER' : (type == 'MIN_MAX' ? 'MINMAX_FILTER' : type))

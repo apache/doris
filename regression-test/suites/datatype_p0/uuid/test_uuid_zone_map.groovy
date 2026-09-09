@@ -41,14 +41,14 @@ suite("test_uuid_zone_map", "p0") {
         String token = "uuid_zone_${UUID.randomUUID()}"
         qt_native """/* ${token} */ SELECT COUNT(*),MIN(u),MAX(u) FROM uuid_zone_map
                      WHERE u ${comparison} CAST('80000000-0000-0000-0000-000000000000' AS UUID)"""
-        uuidCheckProfile(token, ['RowsStatsFiltered'], ['RowsBloomFilterFiltered', 'RowsInvertedIndexFiltered', 'RowsKeyRangeFiltered'])
+        checkProfileCounters(token, ['RowsStatsFiltered'], ['RowsBloomFilterFiltered', 'RowsInvertedIndexFiltered', 'RowsKeyRangeFiltered'])
         String baseline = "uuid_zone_baseline_${UUID.randomUUID()}"
         qt_reference """/* ${baseline} */ SELECT COUNT(*),MIN(u),MAX(u) FROM uuid_zone_map
                         WHERE CONCAT(CAST(u AS STRING),'') ${comparison} '80000000-0000-0000-0000-000000000000'"""
-        uuidCheckProfile(baseline, [], ['RowsStatsFiltered'])
+        checkProfileCounters(baseline, [], ['RowsStatsFiltered'])
     }
     String nullToken = "uuid_zone_null_${UUID.randomUUID()}"
     qt_null "/* ${nullToken} */ SELECT COUNT(*) FROM uuid_zone_map WHERE u IS NULL"
-    uuidCheckProfile(nullToken, ['RowsStatsFiltered'], ['RowsBloomFilterFiltered','RowsInvertedIndexFiltered'])
+    checkProfileCounters(nullToken, ['RowsStatsFiltered'], ['RowsBloomFilterFiltered','RowsInvertedIndexFiltered'])
 
 }

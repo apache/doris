@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.suite.Suite
 import java.util.regex.Pattern
 
-// Execution-path assertions for UUID regression suites. SQL result expectations stay in .out.
+// Execution-path assertions for regression suites. SQL result expectations stay in .out.
 // A unique SQL comment binds the complete profile to the exact query under test. Only positive
 // versus zero is asserted: merged profiles may contain both summary and per-instance counters.
-Suite.metaClass.uuidCheckProfile = { String token, List<String> positive, List<String> zero ->
+// Disable result caches for the query so BE execution counters are available.
+Suite.metaClass.checkProfileCounters = { String token, List<String> positive, List<String> zero ->
     Suite suite = delegate as Suite
     List<String> names = (positive + zero).unique()
     String profile = new ProfileAction(suite.context).getProfileBySql(token, names)
@@ -31,11 +31,11 @@ Suite.metaClass.uuidCheckProfile = { String token, List<String> positive, List<S
         def matches = (profile =~ /(?m)^\s*-\s*${Pattern.quote(name)}:\s*([0-9,.]+)/)
         List<BigDecimal> values = matches.collect { new BigDecimal(it[1].replace(',', '')) }
         if (values.isEmpty()) {
-            throw new IllegalStateException("Missing UUID profile counter ${name}: ${profile}")
+            throw new IllegalStateException("Missing profile counter ${name}: ${profile}")
         }
         boolean active = values.any { it > 0 }
         if (active != positive.contains(name)) {
-            throw new IllegalStateException("UUID ${token}: ${name} expected "
+            throw new IllegalStateException("Query ${token}: ${name} expected "
                     + (positive.contains(name) ? 'positive' : 'zero') + ", got ${values}: ${profile}")
         }
     }

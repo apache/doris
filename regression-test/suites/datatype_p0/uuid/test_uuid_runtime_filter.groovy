@@ -56,7 +56,7 @@ suite("test_uuid_runtime_filter", "p0") {
         }
         String token = "uuid_runtime_filter_${UUID.randomUUID()}"
         qt_enabled "/* ${token} */ ${query}"
-        uuidCheckProfile(token, ['RF0 InputRows', 'RF0 FilterRows'], ['RowsInvertedIndexFiltered'])
+        checkProfileCounters(token, ['RF0 InputRows', 'RF0 FilterRows'], ['RowsInvertedIndexFiltered'])
     }
 
 }

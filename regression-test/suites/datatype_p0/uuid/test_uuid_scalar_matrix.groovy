@@ -17,14 +17,15 @@
 
 // All constant/column masks, with FE folding, BE folding and folding disabled.
 suite("test_uuid_scalar_matrix", "p0") {
+    def matrix = this.evaluate(new File(context.file.parentFile, "uuid_matrix.groovy"))
     sql "DROP TABLE IF EXISTS uuid_matrix_scalar"
-    sql """CREATE TABLE uuid_matrix_scalar (${uuidMatrixSchema()})
+    sql """CREATE TABLE uuid_matrix_scalar (${matrix.schema()})
            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"""
-    sql "INSERT INTO uuid_matrix_scalar VALUES ${uuidMatrixValues()}"
+    sql "INSERT INTO uuid_matrix_scalar VALUES ${matrix.values()}"
 
     sql "DROP TABLE IF EXISTS uuid_matrix_scalar_notnull"
     sql """CREATE TABLE uuid_matrix_scalar_notnull (${
-           uuidMatrixSchema().replace('u UUID,','u UUID NOT NULL,')
+           matrix.schema().replace('u UUID,','u UUID NOT NULL,')
                              .replace('v UUID,','v UUID NOT NULL,')
                              .replace('w UUID,','w UUID NOT NULL,')})
            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"""
@@ -33,24 +34,24 @@ suite("test_uuid_scalar_matrix", "p0") {
            IFNULL(w,CAST(REPEAT('0',32) AS UUID)),flag,idx,num,a,a2,flags,m,st FROM uuid_matrix_scalar"""
     for (boolean nullable : [true,false]) {
         String table = nullable ? 'uuid_matrix_scalar' : 'uuid_matrix_scalar_notnull'
-        uuidRunMatrix("unary_${nullable ? 'nullable' : 'notnull'}", table, ['u'], { u ->
+        matrix.run(delegate, "unary_${nullable ? 'nullable' : 'notnull'}", table, ['u'], { u ->
             [version: "UUID_VERSION(${u})", is_null: "${u} IS NULL", is_not_null: "${u} IS NOT NULL",
              json_value: "TO_JSON(${u})", string_value: "CAST(${u} AS STRING)"]
         })
-        uuidRunMatrix("binary_${nullable ? 'nullable' : 'notnull'}", table, ['u','v'], { u,v ->
+        matrix.run(delegate, "binary_${nullable ? 'nullable' : 'notnull'}", table, ['u','v'], { u,v ->
             [eq: "${u} = ${v}", ne: "${u} != ${v}", lt: "${u} < ${v}", le: "${u} <= ${v}",
              gt: "${u} > ${v}", ge: "${u} >= ${v}", null_safe_eq: "${u} <=> ${v}",
              null_if: "NULLIF(${u},${v})", if_null: "IFNULL(${u},${v})", nvl_value: "NVL(${u},${v})",
              coalesce_value: "COALESCE(${u},${v})", greatest_value: "GREATEST(${u},${v})", least_value: "LEAST(${u},${v})"]
         })
-        uuidRunMatrix("ternary_${nullable ? 'nullable' : 'notnull'}", table, ['u','v','w'], { u,v,w ->
+        matrix.run(delegate, "ternary_${nullable ? 'nullable' : 'notnull'}", table, ['u','v','w'], { u,v,w ->
             [in_values: "${u} IN (${v},${w})", not_in_values: "${u} NOT IN (${v},${w})",
              between_values: "${u} BETWEEN ${v} AND ${w}", not_between_values: "${u} NOT BETWEEN ${v} AND ${w}",
              simple_case: "CASE ${u} WHEN ${v} THEN ${w} ELSE ${u} END",
              coalesce_value: "COALESCE(${u},${v},${w})", greatest_value: "GREATEST(${u},${v},${w})",
              least_value: "LEAST(${u},${v},${w})"]
         })
-        uuidRunMatrix("conditional_${nullable ? 'nullable' : 'notnull'}", table, ['flag','u','v'], { flag,u,v ->
+        matrix.run(delegate, "conditional_${nullable ? 'nullable' : 'notnull'}", table, ['flag','u','v'], { flag,u,v ->
             [if_value: "IF(${flag},${u},${v})", searched_case: "CASE WHEN ${flag} THEN ${u} ELSE ${v} END",
              and_value: "${flag} AND (${u} = ${v})", or_value: "${flag} OR (${u} = ${v})",
              not_value: "NOT (${flag} AND (${u} = ${v}))"]
