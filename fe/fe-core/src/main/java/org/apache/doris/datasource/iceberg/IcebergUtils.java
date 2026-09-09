@@ -117,6 +117,7 @@ import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.mapping.MappedField;
 import org.apache.iceberg.mapping.MappedFields;
+import org.apache.iceberg.mapping.MappingUtil;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.transforms.Transforms;
@@ -2333,8 +2334,13 @@ public class IcebergUtils {
             extractMappingsFromNameMapping(mapping.asMappedFields(), result);
             return Optional.of(result);
         } catch (Exception e) {
+            // Keep ID-less files readable by current names when a malformed property cannot provide
+            // authoritative aliases; Optional.empty() must remain reserved for an absent property.
             LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
-            return Optional.empty();
+            Map<Integer, List<String>> fallback = new HashMap<>();
+            extractMappingsFromNameMapping(
+                    MappingUtil.create(icebergTable.schema()).asMappedFields(), fallback);
+            return Optional.of(fallback);
         }
     }
 

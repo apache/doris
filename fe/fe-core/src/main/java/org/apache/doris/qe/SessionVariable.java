@@ -3835,6 +3835,9 @@ public class SessionVariable implements Serializable, Writable {
         this.useSerialExchange = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.enableExprZonemapFilter = Config.pull_request_id % 2 == 0;
+        // Fuzzy sessions must exercise the production-default V2 path consistently. Dedicated
+        // compatibility cases can still select the legacy scanner explicitly after initialization.
+        this.enableFileScannerV2 = true;
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();

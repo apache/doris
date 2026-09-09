@@ -204,6 +204,7 @@ public class SessionVariablesTest extends TestWithFeService {
         VariableMgr.VarAttr varAttr = field.getAnnotation(VariableMgr.VarAttr.class);
         Assertions.assertFalse(varAttr.fuzzy());
 
+        sessionVar.enableFileScannerV2 = false;
         sessionVar.initFuzzyModeVariables();
         Assertions.assertTrue(sessionVar.enableFileScannerV2);
     }
