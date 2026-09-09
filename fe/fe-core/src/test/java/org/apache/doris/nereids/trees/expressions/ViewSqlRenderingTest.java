@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression.SqlRenderMode;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
@@ -74,6 +76,13 @@ class ViewSqlRenderingTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void testLambdaSyntax() {
+        Lambda lambda = new Lambda(ImmutableList.of("x"), new UnboundSlot("x"));
+        Assertions.assertEquals("x -> x", lambda.toSql(SqlRenderMode.FOR_VIEW));
+        new NereidsParser().parseExpression("array_map(" + lambda.toSql(SqlRenderMode.FOR_VIEW) + ", [1, 2])");
     }
 
     @Test
