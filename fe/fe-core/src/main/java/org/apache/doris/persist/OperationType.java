@@ -424,6 +424,7 @@ public class OperationType {
 
     // lance index job 500 ~ 509
     public static final short OP_LANCE_INDEX_JOB_UPSERT = 500;
+    public static final short OP_LANCE_INDEX_JOB_REMOVE = 501;
 
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
