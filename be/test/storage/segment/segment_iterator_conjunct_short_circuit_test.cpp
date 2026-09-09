@@ -61,6 +61,7 @@ namespace {
 class BitmapEvalExpr : public VExpr {
 public:
     explicit BitmapEvalExpr(std::vector<uint32_t> rows) : _rows(std::move(rows)) {
+        set_node_type(TExprNodeType::MATCH_PRED);
         _data_type = std::make_shared<DataTypeUInt8>();
     }
 

@@ -69,6 +69,7 @@ namespace {
 class CapturingExpr : public VExpr {
 public:
     explicit CapturingExpr(SegmentIterator* iter) : _iter(iter) {
+        set_node_type(TExprNodeType::MATCH_PRED);
         _data_type = std::make_shared<DataTypeUInt8>();
     }
 
@@ -117,6 +118,7 @@ public:
     CandidateRestrictedBitmapExpr(SegmentIterator* iter, std::initializer_list<uint32_t> true_rows,
                                   std::initializer_list<uint32_t> null_rows)
             : _iter(iter) {
+        set_node_type(TExprNodeType::MATCH_PRED);
         _data_type = make_nullable(std::make_shared<DataTypeUInt8>());
         for (uint32_t row : true_rows) {
             _true_rows.add(row);
@@ -236,7 +238,7 @@ std::shared_ptr<Segment> make_stub_segment(uint32_t num_rows,
     return seg;
 }
 
-VExprContextSPtr make_capturing_ctx(const std::shared_ptr<CapturingExpr>& expr) {
+VExprContextSPtr make_capturing_ctx(const VExprSPtr& expr) {
     auto ctx = std::make_shared<VExprContext>(expr);
     std::vector<std::unique_ptr<IndexIterator>> index_iters;
     std::vector<IndexFieldNameAndTypePair> storage_types;
@@ -485,6 +487,47 @@ TEST_F(SegmentIteratorCandidatePushdownTest,
     EXPECT_TRUE(false_b->evaluated()) << "AND must evaluate FALSE B after nullable A";
     EXPECT_TRUE(result->get_data_bitmap()->contains(0))
             << "NOT(NULL AND FALSE) must preserve candidate row 0";
+}
+
+// Index expression results are consumed progressively. A selective expression
+// must engage candidate pushdown for the next conjunct even when column-level
+// pruning left the bitmap above the threshold.
+TEST_F(SegmentIteratorCandidatePushdownTest, expression_conjunct_crosses_threshold) {
+    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    _iter->_row_bitmap.addRange(0, 100);
+    auto selective_expr = std::make_shared<CandidateRestrictedBitmapExpr>(
+            _iter.get(), std::initializer_list<uint32_t> {0, 1, 2, 3, 4},
+            std::initializer_list<uint32_t> {});
+    _iter->_common_expr_ctxs_push_down = {make_capturing_ctx(selective_expr),
+                                          make_capturing_ctx(_expr)};
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    ASSERT_TRUE(_expr->captured());
+    ASSERT_TRUE(_expr->captured_candidate_copy().has_value());
+    EXPECT_EQ(*_expr->captured_candidate_copy(), _iter->_row_bitmap);
+    EXPECT_EQ(_expr->captured_candidate_copy()->cardinality(), 5);
+    EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+}
+
+// The final filtering conjunct can cross the threshold too; projections should
+// evaluate against its surviving rows without filtering those rows themselves.
+TEST_F(SegmentIteratorCandidatePushdownTest, last_conjunct_engages_candidate_for_projection) {
+    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    _iter->_row_bitmap.addRange(0, 100);
+    auto selective_expr = std::make_shared<CandidateRestrictedBitmapExpr>(
+            _iter.get(), std::initializer_list<uint32_t> {0, 1, 2, 3, 4},
+            std::initializer_list<uint32_t> {});
+    _iter->_common_expr_ctxs_push_down = {make_capturing_ctx(selective_expr)};
+    _iter->_virtual_column_exprs[0] = make_capturing_ctx(_expr);
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    ASSERT_TRUE(_expr->captured());
+    ASSERT_TRUE(_expr->captured_candidate_copy().has_value());
+    EXPECT_EQ(*_expr->captured_candidate_copy(), _iter->_row_bitmap);
+    EXPECT_EQ(_iter->_row_bitmap.cardinality(), 5);
+    EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
 }
 
 // A non-finite configured ratio must never engage the pushdown (the multiply
