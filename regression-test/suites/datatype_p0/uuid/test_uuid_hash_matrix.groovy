@@ -16,19 +16,20 @@
 // under the License.
 
 suite("test_uuid_hash_matrix", "p0") {
+    def matrix = this.evaluate(new File(context.file.parentFile, "uuid_matrix.groovy"))
     sql "DROP TABLE IF EXISTS uuid_matrix_hash"
-    sql """CREATE TABLE uuid_matrix_hash (${uuidMatrixSchema()})
+    sql """CREATE TABLE uuid_matrix_hash (${matrix.schema()})
            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"""
-    sql "INSERT INTO uuid_matrix_hash VALUES ${uuidMatrixValues()}"
+    sql "INSERT INTO uuid_matrix_hash VALUES ${matrix.values()}"
 
     // These signatures coerce UUID to its canonical string representation in FE.
-    uuidRunMatrix('unary', 'uuid_matrix_hash', ['u'], { u ->
+    matrix.run(delegate, 'unary', 'uuid_matrix_hash', ['u'], { u ->
         [murmur32: "MURMUR_HASH3_32(${u})", murmur64: "MURMUR_HASH3_64(${u})",
          xx32: "XXHASH_32(${u})", xx64: "XXHASH_64(${u})", crc_value: "CRC32(${u})",
          md5_value: "MD5(${u})", length_value: "LENGTH(${u})", hex_value: "HEX(${u})", valid_text: "IS_UUID(${u})", as_int: "UUID_TO_INT(${u})",
          int_roundtrip: "CAST(INT_TO_UUID(UUID_TO_INT(${u})) AS UUID)"]
     })
-    uuidRunMatrix('binary', 'uuid_matrix_hash', ['u','v'], { u,v ->
+    matrix.run(delegate, 'binary', 'uuid_matrix_hash', ['u','v'], { u,v ->
         [murmur32: "MURMUR_HASH3_32(${u},${v})", murmur64: "MURMUR_HASH3_64(${u},${v})",
          xx32: "XXHASH_32(${u},${v})", xx64: "XXHASH_64(${u},${v})"]
     })

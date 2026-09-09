@@ -43,7 +43,7 @@ suite("test_uuid_bloom_filter", "p0") {
     String baseline = "uuid_bloom_baseline_${UUID.randomUUID()}"
     qt_baseline """/* ${baseline} */ SELECT id,u FROM uuid_bloom_filter
                    WHERE CONCAT(CAST(u AS STRING),'') = '${value}' ORDER BY id"""
-    uuidCheckProfile(baseline, [], ['RowsBloomFilterFiltered'])
+    checkProfileCounters(baseline, [], ['RowsBloomFilterFiltered'])
     for (boolean compact : [false, true]) {
         if (compact && !isCloudMode()) {
             trigger_and_wait_compaction('uuid_bloom_filter', 'full')
@@ -53,7 +53,7 @@ suite("test_uuid_bloom_filter", "p0") {
                                  "u IN (CAST('${value}' AS UUID), CAST('80000000000000000000000000000001' AS UUID))"]) {
             String token = "uuid_bloom_${UUID.randomUUID()}"
             qt_index "/* ${token} */ SELECT id,u FROM uuid_bloom_filter WHERE ${predicate} ORDER BY id"
-            uuidCheckProfile(token, ['RowsBloomFilterFiltered'], ['RowsInvertedIndexFiltered', 'RowsKeyRangeFiltered'])
+            checkProfileCounters(token, ['RowsBloomFilterFiltered'], ['RowsInvertedIndexFiltered', 'RowsKeyRangeFiltered'])
         }
     }
 }

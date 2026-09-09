@@ -60,13 +60,13 @@ suite("test_uuid_inverted_index", "p0") {
                 String rangeToken = "uuid_index_range_${UUID.randomUUID()}"
                 qt_range """/* ${rangeToken} */ SELECT id,u FROM uuid_index_paths
                             WHERE u >= '80000000-0000-0000-0000-000000000000' ORDER BY id"""
-                uuidCheckProfile(rangeToken, enabled ? ['RowsInvertedIndexFiltered'] : [],
+                checkProfileCounters(rangeToken, enabled ? ['RowsInvertedIndexFiltered'] : [],
                                  enabled ? [] : ['RowsInvertedIndexFiltered'])
                 for (String predicate : ["u = CAST('80000000000000000000000000000000' AS UUID)",
                                          "u IN (CAST('80000000000000000000000000000000' AS UUID), CAST(REPEAT('f',32) AS UUID))"]) {
                     String scalarToken = "uuid_index_scalar_${UUID.randomUUID()}"
                     qt_scalar "/* ${scalarToken} */ SELECT id,u FROM uuid_index_paths WHERE ${predicate} ORDER BY id"
-                    uuidCheckProfile(scalarToken, enabled ? ['RowsInvertedIndexFiltered'] : [],
+                    checkProfileCounters(scalarToken, enabled ? ['RowsInvertedIndexFiltered'] : [],
                                      enabled ? [] : ['RowsInvertedIndexFiltered'])
                 }
                 // Negated/range/OR predicates must preserve SQL NULL semantics in the bitmap.
@@ -78,7 +78,7 @@ suite("test_uuid_inverted_index", "p0") {
                                          "u < CAST('80000000000000000000000000000000' AS UUID) OR u IS NULL"]) {
                     String token = "uuid_index_boundary_${UUID.randomUUID()}"
                     qt_boundaries "/* ${token} */ SELECT id,u FROM uuid_index_paths WHERE ${predicate} ORDER BY id"
-                    uuidCheckProfile(token, enabled ? ['RowsInvertedIndexFiltered'] : [],
+                    checkProfileCounters(token, enabled ? ['RowsInvertedIndexFiltered'] : [],
                                      enabled ? [] : ['RowsInvertedIndexFiltered'])
                 }
                 // NULL poisons NOT IN; an empty result here does not prove index filtering.
@@ -87,11 +87,11 @@ suite("test_uuid_inverted_index", "p0") {
                 String arrayToken = "uuid_index_array_${UUID.randomUUID()}"
                 qt_array """/* ${arrayToken} */ SELECT id,a FROM uuid_index_paths
                             WHERE ARRAY_CONTAINS(a,CAST('80000000000000000000000000000000' AS UUID)) ORDER BY id"""
-                uuidCheckProfile(arrayToken, enabled ? ['RowsInvertedIndexFiltered'] : [],
+                checkProfileCounters(arrayToken, enabled ? ['RowsInvertedIndexFiltered'] : [],
                                  enabled ? [] : ['RowsInvertedIndexFiltered'])
                 String nullToken = "uuid_index_null_${UUID.randomUUID()}"
                 qt_nulls "/* ${nullToken} */ SELECT id FROM uuid_index_paths WHERE u IS NULL ORDER BY id"
-                uuidCheckProfile(nullToken, enabled ? ['RowsInvertedIndexFiltered'] : [],
+                checkProfileCounters(nullToken, enabled ? ['RowsInvertedIndexFiltered'] : [],
                                  enabled ? [] : ['RowsInvertedIndexFiltered'])
             }
         }

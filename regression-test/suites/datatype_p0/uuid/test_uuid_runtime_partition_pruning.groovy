@@ -58,7 +58,7 @@ suite("test_uuid_runtime_partition_pruning", "p0") {
         sql "SET enable_runtime_filter_partition_prune = ${enabled}"
         String token = "uuid_rf_partition_${UUID.randomUUID()}"
         qt_result "/* ${token} */ ${query}"
-        uuidCheckProfile(token, enabled ? ['PartitionsPrunedByRuntimeFilter'] : [], enabled ? [] : ['PartitionsPrunedByRuntimeFilter'])
+        checkProfileCounters(token, enabled ? ['PartitionsPrunedByRuntimeFilter'] : [], enabled ? [] : ['PartitionsPrunedByRuntimeFilter'])
     }
 
 }

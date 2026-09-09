@@ -55,7 +55,7 @@ suite("test_uuid_runtime_bucket_pruning", "p0") {
         sql "SET enable_runtime_filter_bucket_prune = ${enabled}"
         String token = "uuid_rf_bucket_${UUID.randomUUID()}"
         qt_result "/* ${token} */ ${query}"
-        uuidCheckProfile(token, enabled ? ['BucketsPrunedByRuntimeFilter'] : [], enabled ? [] : ['BucketsPrunedByRuntimeFilter'])
+        checkProfileCounters(token, enabled ? ['BucketsPrunedByRuntimeFilter'] : [], enabled ? [] : ['BucketsPrunedByRuntimeFilter'])
     }
 
 }
