@@ -5439,6 +5439,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizePropagatedToReader) {
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
+    RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto scan_params = make_local_parquet_scan_params();
     io::FileReaderStats file_reader_stats;
@@ -5453,7 +5454,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizePropagatedToReader) {
                                     .scan_params = &scan_params,
                                     .io_ctx = io_ctx,
                                     .runtime_state = &state,
-                                    .scanner_profile = nullptr,
+                                    .scanner_profile = &profile,
                             })
                         .ok());
 
@@ -5495,6 +5496,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizeUnknownFallsBackToStat) {
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
+    RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto scan_params = make_local_parquet_scan_params();
     io::FileReaderStats file_reader_stats;
@@ -5509,7 +5511,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizeUnknownFallsBackToStat) {
                                     .scan_params = &scan_params,
                                     .io_ctx = io_ctx,
                                     .runtime_state = &state,
-                                    .scanner_profile = nullptr,
+                                    .scanner_profile = &profile,
                             })
                         .ok());
 
