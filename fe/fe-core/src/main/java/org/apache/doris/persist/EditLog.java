@@ -65,6 +65,7 @@ import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.datasource.lance.job.LanceIndexJob;
+import org.apache.doris.datasource.lance.job.LanceIndexJobRemoveOperation;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
@@ -1450,6 +1451,11 @@ public class EditLog {
                     env.getLanceIndexJobManager().replayUpsertJob(job);
                     break;
                 }
+                case OperationType.OP_LANCE_INDEX_JOB_REMOVE: {
+                    LanceIndexJobRemoveOperation op = (LanceIndexJobRemoveOperation) journal.getData();
+                    env.getLanceIndexJobManager().replayRemoveJob(op.getJobIds());
+                    break;
+                }
                 case OperationType.OP_BEGIN_SNAPSHOT: {
                     // SnapshotState info = (SnapshotState) journal.getData();
                     // TODO: implement
@@ -2371,6 +2377,10 @@ public class EditLog {
 
     public void logLanceIndexJob(LanceIndexJob job) {
         logEdit(OperationType.OP_LANCE_INDEX_JOB_UPSERT, job);
+    }
+
+    public void logLanceIndexJobRemove(LanceIndexJobRemoveOperation op) {
+        logEdit(OperationType.OP_LANCE_INDEX_JOB_REMOVE, op);
     }
 
     public void logCatalogLog(short id, CatalogLog log) {
