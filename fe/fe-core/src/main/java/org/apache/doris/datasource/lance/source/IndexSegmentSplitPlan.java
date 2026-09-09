@@ -64,12 +64,6 @@ final class IndexSegmentSplitPlan {
                 datasetUri, version, indexSegmentUuid, fragmentIds, physicalRows));
     }
 
-    // Ordinary scans use segment coverage only to group fragments. No UUID is sent to Lance.
-    void addIndexSegmentFragmentGroup(List<Long> fragmentIds, long physicalRows) {
-        indexSegmentFragmentIds.addAll(fragmentIds);
-        addFragmentGroup(fragmentIds, physicalRows);
-    }
-
     // Manifest order and row-based split weights are shared by ordinary scans and fallbacks.
     // An empty index coverage set groups all fragments; vector fallbacks use a group size of 1.
     void addUncoveredFragments(Iterable<LanceFragmentInfo> fragments, int fragmentsPerSplit) {
@@ -99,7 +93,7 @@ final class IndexSegmentSplitPlan {
         splits.add(LanceSplit.forFragments(datasetUri, version, fragmentIds, physicalRows));
     }
 
-    /** Subdivides ordinary fragment groups to provide work for the available backends. */
+    /** Subdivides fragment-only groups for available backends; assigned segments stay intact. */
     List<Split> buildFragmentSplits(int numBackends, Map<Long, LanceFragmentInfo> visibleFragments) {
         int targetSplits = Math.min(numBackends, visibleFragments.size());
         if (splits.size() >= targetSplits) {
