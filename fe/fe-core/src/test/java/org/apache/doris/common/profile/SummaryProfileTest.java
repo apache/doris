@@ -131,4 +131,50 @@ public class SummaryProfileTest {
                 SummaryProfile.EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME));
         Assertions.assertEquals(28, profile.getExternalCatalogMetaTimeMs());
     }
+
+    @Test
+    public void testOptimizeTimeFallbackWhenPreMvSkipped() {
+        SummaryProfile profile = new SummaryProfile();
+        profile.setQueryBeginTime(1);
+        profile.setParseSqlStartTime(3);
+        profile.setParseSqlFinishTime(6);
+        profile.setNereidsLockTableStartTime(8);
+        profile.setNereidsLockTableFinishTime(10);
+        profile.setNereidsAnalysisTime(15);
+        profile.setNereidsRewriteTime(21);
+        profile.setNereidsOptimizeTime(36);
+        profile.setNereidsTranslateTime(45);
+        profile.setNereidsDistributeTime(55);
+        profile.setQueryPlanFinishTime(66);
+
+        profile.update(ImmutableMap.of());
+        RuntimeProfile executionSummary = profile.getExecutionSummary();
+
+        Assertions.assertEquals("N/A", executionSummary.getInfoString(SummaryProfile.NEREIDS_PRE_REWRITE_BY_MV_TIME));
+        Assertions.assertEquals("15ms", executionSummary.getInfoString(SummaryProfile.NEREIDS_OPTIMIZE_TIME));
+        Assertions.assertEquals(15, profile.getNereidsOptimizeTimeMs());
+    }
+
+    @Test
+    public void testPreMvAttemptedButEmpty() {
+        SummaryProfile profile = new SummaryProfile();
+        profile.setQueryBeginTime(1);
+        profile.setParseSqlStartTime(3);
+        profile.setParseSqlFinishTime(6);
+        profile.setNereidsLockTableStartTime(8);
+        profile.setNereidsLockTableFinishTime(10);
+        profile.setNereidsAnalysisTime(15);
+        profile.setNereidsRewriteTime(21);
+        profile.setNereidsCollectTablePartitionFinishTime(28);
+        profile.setNereidsPreRewriteByMvFinishTime(58);
+        profile.setNereidsOptimizeTime(60);
+        profile.setNereidsTranslateTime(65);
+
+        profile.update(ImmutableMap.of());
+        RuntimeProfile executionSummary = profile.getExecutionSummary();
+
+        Assertions.assertEquals("30ms", executionSummary.getInfoString(SummaryProfile.NEREIDS_PRE_REWRITE_BY_MV_TIME));
+        Assertions.assertEquals("2ms", executionSummary.getInfoString(SummaryProfile.NEREIDS_OPTIMIZE_TIME));
+        Assertions.assertEquals(32, profile.getNereidsOptimizeTimeMs());
+    }
 }
