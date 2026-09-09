@@ -307,8 +307,17 @@ public class OlapTableStreamWrapper extends OlapTable {
     public List<Long> filterConsumedPartitionIds(List<Long> partitionIds) {
         if (hasCloudReadStates()) {
             return partitionIds.stream()
-                    .filter(id -> cloudReadStates.get(id).getOffsetState()
-                            == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                    .filter(id -> {
+                        Cloud.TableStreamPartitionReadStatePB state = cloudReadStates.get(id);
+                        // A partition empty at stream creation is recorded as CONSUMED with the
+                        // sentinel offset -1 (CloudInternalCatalog: emptyPartition -> commit_tso=-1).
+                        // Such a partition has no real consumption baseline; exclude it so snapshot
+                        // rebuild does not fall back to the live TSO and leak post-snapshot rows.
+                        // Mirrors the non-cloud hasConsumedData() offset > 0 guard.
+                        return state.getOffsetState()
+                                == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED
+                                && state.hasOffsetTso() && state.getOffsetTso() > 0;
+                    })
                     .collect(ImmutableList.toImmutableList());
         }
         return partitionIds.stream()
