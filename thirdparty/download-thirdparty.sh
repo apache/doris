@@ -718,25 +718,18 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
-# Apply Doris lance-c patches.
+# Apply Doris lance-c patches as one chain to the pinned release archive.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.9" ]]; then
-        cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
-        if [[ ! -f "${PATCHED_MARK}" ]]; then
+    cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        # PR #79 requires the Lance v11 APIs introduced by PR #77.
+        for lance_patch in pr-73 pr-74 pr-75-pr-78 pr-77 pr-79; do
             patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-                -p1 <"${TP_PATCH_DIR}/lance-c-0.1.9-pr-73.patch"
-            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-                -p1 <"${TP_PATCH_DIR}/lance-c-0.1.9-pr-74.patch"
-            touch "${PATCHED_MARK}"
-        fi
-        # Also update source trees that already have PR #73 and PR #74 applied.
-        if [[ ! -f "${PATCHED_MARK}_pr_75_pr_78" ]]; then
-            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-                -p1 <"${TP_PATCH_DIR}/lance-c-0.1.9-pr-75-pr-78.patch"
-            touch "${PATCHED_MARK}_pr_75_pr_78"
-        fi
-        cd -
+                -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-${lance_patch}.patch"
+        done
+        touch "${PATCHED_MARK}"
     fi
+    cd -
     echo "Finished patching ${LANCE_C_SOURCE}"
 fi
 

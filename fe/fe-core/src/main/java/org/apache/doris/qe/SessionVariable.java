@@ -2581,9 +2581,9 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.INVISIBLE, fuzzy = false,
             checker = "checkLanceFragmentsPerSplit", description = {
                     "普通 Lance 扫描的调试参数。默认 0 自动划分；正数强制按指定 fragment 数分组，"
-                            + "跳过索引分组和补足 BE 数量的逻辑。不影响 vector/FTS 查询。",
+                            + "跳过标量索引 segment 扫描和补足 BE 数量的逻辑。不影响 vector/FTS 查询。",
                     "Debug override for ordinary Lance scans. Default 0 uses automatic splitting; "
-                            + "a positive value groups that many fragments per split, bypassing index grouping "
+                            + "a positive value groups that many fragments per split, bypassing scalar segment scans "
                             + "and minimum BE parallelism. Does not affect vector/FTS queries."})
     public int lanceFragmentsPerSplit = 0;
 
