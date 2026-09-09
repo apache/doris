@@ -549,6 +549,8 @@ supportedOtherStatement
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
     | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
+    | RESOLVE LANCE INDEX JOB jobId=INTEGER_VALUE AS FORCE_RELEASE COMMENT comment=STRING_LITERAL
+        #resolveLanceIndexJob
     ;
 
 onTablesClause
@@ -2154,6 +2156,7 @@ nonReserved
     | FILE
     | FILTER
     | FIRST
+    | FORCE_RELEASE
     | FORMAT
     | FREE
     | FRONTENDS
@@ -2314,6 +2317,7 @@ nonReserved
     | REPLAYER
     | REPOSITORIES
     | REPOSITORY
+    | RESOLVE
     | RESOURCE
     | RESOURCES
     | RESTORE
