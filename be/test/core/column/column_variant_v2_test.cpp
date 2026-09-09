@@ -2791,6 +2791,41 @@ TEST(ColumnVariantV2Test, MixedEncodedTypedInsertAndGatherPreserveCanonicalRows)
     expect_canonical_rows_equal(*typed, *encoded);
 }
 
+TEST(ColumnVariantV2Test, NullableBatchSerializationMatchesRowSerialization) {
+    constexpr std::array<int32_t, 3> VALUES {42, 0, -7};
+    constexpr std::array<uint8_t, 3> NULLS {0, 1, 0};
+    auto typed = typed_int32(VALUES, NULLS);
+    auto encoded = ColumnVariantV2::create();
+    insert_encoded_field(*encoded, encoded_integer(42, 4));
+    insert_encoded_field(*encoded, encode_json("null"));
+    insert_encoded_field(*encoded, encoded_integer(-7, 4));
+    for (const auto* column : {typed.get(), encoded.get()}) {
+        for (const bool has_null : {false, true}) {
+            std::array<std::string, 3> buffers;
+            std::array<StringRef, 3> keys;
+            for (size_t row = 0; row < 3; ++row) {
+                buffers[row].assign(8 + column->get_max_row_byte_size(), '\0');
+                buffers[row][0] = 'x';
+                keys[row] = {buffers[row].data(), 1};
+            }
+            constexpr std::array<uint8_t, 3> NO_NULLS {0, 0, 0};
+            column->serialize_with_nullable(keys.data(), 3, has_null,
+                                            has_null ? NULLS.data() : NO_NULLS.data());
+            for (size_t row = 0; row < 3; ++row) {
+                std::string expected = "x";
+                const bool is_null = has_null && NULLS[row];
+                expected.push_back(is_null ? 1 : 0);
+                if (!is_null) {
+                    std::string cell(column->serialize_size_at(row), '\0');
+                    column->serialize_impl(cell.data(), row);
+                    expected += cell;
+                }
+                EXPECT_EQ(std::string(keys[row].data, keys[row].size), expected);
+            }
+        }
+    }
+}
+
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- exhaustive E/T adapter matrix.
 TEST(ColumnVariantV2Test, TypedCanonicalHashCrcAndArenaMatchEncoded) {
     constexpr std::array<int32_t, 3> VALUES {42, 0, -7};
@@ -3149,18 +3184,57 @@ TEST(ColumnVariantV2Test, ETCrossCheckTemporalClassMatrix) {
                                    ntz_representations[2], 0);
 }
 
+TEST(ColumnVariantV2Test, TypedNaNOrderingIgnoresNullDirectionHint) {
+    auto typed = ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnFloat64>({1.0, std::numeric_limits<double>::quiet_NaN()}, {0, 0}),
+            std::make_shared<DataTypeFloat64>());
+    auto encoded = ColumnVariantV2::create();
+    encoded->insert_range_from(*typed, 0, typed->size());
+    for (int hint : {-1, 1}) {
+        for (size_t left = 0; left < typed->size(); ++left) {
+            for (size_t right = 0; right < typed->size(); ++right) {
+                EXPECT_EQ(typed->compare_at(left, right, *typed, hint),
+                          encoded->compare_at(left, right, *encoded, hint));
+            }
+        }
+    }
+}
+
 TEST(ColumnVariantV2Test, TypedPhysicalInterfacesStayUnsupportedAndOrderingWorks) {
-    constexpr std::array<int32_t, 3> VALUES {2, 1, 3};
-    constexpr std::array<uint8_t, 3> NULLS {0, 0, 0};
+    constexpr std::array<int32_t, 4> VALUES {2, 99, 1, 3};
+    constexpr std::array<uint8_t, 4> NULLS {0, 1, 0, 0};
     auto typed = typed_int32(VALUES, NULLS);
     expect_not_implemented([&] { static_cast<void>(typed->get_data_at(0)); },
                            "intentionally unsupported");
+    auto encoded = ColumnVariantV2::create();
+    encoded->insert_range_from(*typed, 0, typed->size());
+    for (size_t left = 0; left < typed->size(); ++left) {
+        for (size_t right = 0; right < typed->size(); ++right) {
+            for (int nan_direction_hint : {-1, 1}) {
+                EXPECT_EQ(typed->compare_at(left, right, *typed, nan_direction_hint),
+                          encoded->compare_at(left, right, *encoded, nan_direction_hint));
+            }
+        }
+    }
+    for (size_t right = 0; right < typed->size(); ++right) {
+        for (int direction : {-1, 1}) {
+            std::vector<uint8_t> typed_cmp(typed->size(), 0);
+            std::vector<uint8_t> encoded_cmp(encoded->size(), 0);
+            IColumn::Filter typed_filter(typed->size(), 0);
+            IColumn::Filter encoded_filter(encoded->size(), 0);
+            typed->compare_internal(right, *typed, 1, direction, typed_cmp, typed_filter.data());
+            encoded->compare_internal(right, *encoded, 1, direction, encoded_cmp,
+                                      encoded_filter.data());
+            EXPECT_EQ(typed_cmp, encoded_cmp);
+            EXPECT_EQ(typed_filter, encoded_filter);
+        }
+    }
     HybridSorter sorter;
     IColumn::Permutation result;
     typed->get_permutation(false, 0, 0, sorter, result);
-    EXPECT_EQ(std::vector(result.begin(), result.end()), (std::vector<size_t> {1, 0, 2}));
+    EXPECT_EQ(std::vector(result.begin(), result.end()), (std::vector<size_t> {1, 2, 0, 3}));
     typed->get_permutation(true, 2, 0, sorter, result);
-    EXPECT_EQ(std::vector(result.begin(), result.begin() + 2), (std::vector<size_t> {2, 0}));
+    EXPECT_EQ(std::vector(result.begin(), result.begin() + 2), (std::vector<size_t> {3, 0}));
     expect_not_implemented([&] { typed->replace_column_data(*typed, 0); },
                            "intentionally unsupported");
     EXPECT_TRUE(typed->is_typed());
