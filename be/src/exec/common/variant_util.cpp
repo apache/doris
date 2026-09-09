@@ -1432,7 +1432,10 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                      paths_set_info);
 
         // 4. append subcolumns
-        if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {
+        // Sparse input paths need output columns even when the new budget is unlimited.
+        // Sparse-only paths lack type entries but are removed from sparse by sub_path_set.
+        if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty() ||
+            !extended_info.sparse_paths.empty()) {
             get_compaction_subcolumns_from_subpaths(paths_set_info, column, target,
                                                     extended_info.path_to_data_types,
                                                     extended_info.sparse_paths, output_schema);
