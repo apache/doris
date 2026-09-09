@@ -24,18 +24,13 @@ import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.FileScanTask;
-import org.apache.iceberg.MetadataTableType;
-import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
-import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -1099,13 +1094,11 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
-    public void listPartitionsDegradesToEmptyWhenPartitionSourceColumnDropped() {
+    public void listPartitionsRetainsHistoricalSpecWhenPartitionSourceColumnDropped() {
         // Partition-evolution regression (external_table_p0/iceberg/test_iceberg_partition_evolution): a
         // HISTORICAL spec references a source column that was later DROPPED, while the CURRENT spec stays
-        // partitioned on a surviving column. Building the PARTITIONS metadata table unifies the partition type
-        // across ALL specs, so iceberg throws ValidationException ("Cannot find source column for partition
-        // field: ...") for the orphaned field. listPartitions is display/enforcement metadata only (never the
-        // read set), so it must degrade to an empty (UNPARTITIONED) list instead of failing the whole query.
+        // partitioned on a surviving column. Iceberg 1.11 resolves the historical spec against its own schema,
+        // so listPartitions must retain both old and current partitions instead of failing or degrading to empty.
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db1"));
@@ -1136,20 +1129,9 @@ public class IcebergPartitionUtilsTest {
                 "current spec must stay partitioned so listPartitions reaches the metadata scan, not the "
                         + "unpartitioned early-return (otherwise this test would pass vacuously)");
 
-        // Precondition — prove the raw iceberg partition-metadata scan genuinely throws ValidationException here
-        // (guards against a future iceberg that tolerates the dangling spec, which would make this test vacuous).
-        Assertions.assertThrows(ValidationException.class, () -> {
-            Table partitionsTable = MetadataTableUtils.createMetadataTableInstance(
-                    evolved, MetadataTableType.PARTITIONS);
-            try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().planFiles()) {
-                tasks.forEach(t -> { });
-            }
-        });
-
-        // The fix: listPartitions swallows exactly that failure and reports UNPARTITIONED (empty), so a
-        // full-table select on such a table is not blocked by uncomputable display metadata. MUTATION:
-        // rethrowing (or removing the catch) -> this throws instead of returning empty -> red.
-        Assertions.assertTrue(IcebergPartitionUtils.listPartitions(evolved).isEmpty());
+        // Iceberg 1.11 resolves each historical spec with its own schema, so both old and current partitions
+        // remain visible after the old source column is dropped instead of degrading to UNPARTITIONED.
+        Assertions.assertEquals(2, IcebergPartitionUtils.listPartitions(evolved).size());
     }
 
     @Test

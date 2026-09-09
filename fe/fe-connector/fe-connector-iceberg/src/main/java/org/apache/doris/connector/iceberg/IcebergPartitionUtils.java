@@ -502,8 +502,6 @@ final class IcebergPartitionUtils {
     private static final String DAY = "day";
     private static final String HOUR = "hour";
 
-    // Iceberg partition field id starts at PARTITION_DATA_ID_START (org.apache.iceberg.PartitionSpec).
-    private static final int PARTITION_DATA_ID_START = 1000;
     // Master IcebergUtils.UNKNOWN_SNAPSHOT_ID: an empty table / a null last_updated_snapshot_id row.
     private static final long UNKNOWN_SNAPSHOT_ID = -1;
 
@@ -805,11 +803,9 @@ final class IcebergPartitionUtils {
         for (int i = 0; i < partitionSpec.fields().size(); ++i) {
             PartitionField partitionField = partitionSpec.fields().get(i);
             Class<?> fieldClass = partitionSpec.javaClasses()[i];
-            int fieldId = partitionField.fieldId();
-            // Iceberg partition field id starts at PARTITION_DATA_ID_START, so the index into partitionData is
-            // fieldId - PARTITION_DATA_ID_START.
-            int index = fieldId - PARTITION_DATA_ID_START;
-            Object o = partitionData.get(index, fieldClass);
+            // A spec's partition struct is compact even when evolved field IDs have gaps, so index by the
+            // field's position in this spec rather than by its table-global partition field ID.
+            Object o = partitionData.get(i, fieldClass);
             String fieldValue = o == null ? null : o.toString();
             sb.append(partitionField.name()).append("=").append(fieldValue).append("/");
             // Resolve the partition field's SOURCE column name (case-preserved), matching the generic

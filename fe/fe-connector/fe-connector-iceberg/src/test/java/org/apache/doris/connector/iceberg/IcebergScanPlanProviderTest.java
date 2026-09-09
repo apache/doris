@@ -45,6 +45,7 @@ import org.apache.doris.thrift.schema.external.TFieldPtr;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
@@ -63,6 +64,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
@@ -76,12 +78,14 @@ import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.SerializationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -107,6 +111,9 @@ import java.util.function.UnaryOperator;
  */
 public class IcebergScanPlanProviderTest {
 
+    @TempDir
+    Path tempDir;
+
     private static final Schema SCHEMA = new Schema(
             Types.NestedField.required(1, "id", Types.IntegerType.get()),
             Types.NestedField.optional(2, "name", Types.StringType.get()));
@@ -126,6 +133,15 @@ public class IcebergScanPlanProviderTest {
         catalog.initialize("test", Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db1"));
         return catalog.createTable(TableIdentifier.of("db1", name), schema, spec, null, props);
+    }
+
+    private Table createPersistedTable(String name, Schema schema, PartitionSpec spec, Map<String, String> props) {
+        return new HadoopTables(new Configuration()).create(
+                schema, spec, props, tempDir.resolve(name).toUri().toString());
+    }
+
+    private static Table reloadPersistedTable(Table table) {
+        return new HadoopTables(new Configuration()).load(table.location());
     }
 
     private static DataFile dataFile(PartitionSpec spec, String path, long sizeBytes, List<Long> splitOffsets,
@@ -315,11 +331,13 @@ public class IcebergScanPlanProviderTest {
 
     @Test
     public void planScanMissingManifestListHasStableTableError() {
-        Table table = createTable("missing_manifest_list", SCHEMA, PartitionSpec.unpartitioned());
+        Table table = createPersistedTable(
+                "missing_manifest_list", SCHEMA, PartitionSpec.unpartitioned(), Collections.emptyMap());
         table.newAppend().appendFile(dataFile(table.spec(),
                 "s3://b/db/missing_manifest_list/f1.parquet", 1024, null, null)).commit();
         table.io().deleteFile(table.currentSnapshot().manifestListLocation());
-        IcebergScanPlanProvider provider = providerOver(table);
+        // Iceberg 1.11 caches parsed manifests on Snapshot; reload from metadata to exercise the missing file.
+        IcebergScanPlanProvider provider = providerOver(reloadPersistedTable(table));
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> provider.planScan(emptySession(), ConnectorScanRequest.builder(
@@ -330,11 +348,13 @@ public class IcebergScanPlanProviderTest {
 
     @Test
     public void streamingMissingManifestListHasStableTableError() {
-        Table table = createTable("missing_stream_manifest", SCHEMA, PartitionSpec.unpartitioned());
+        Table table = createPersistedTable(
+                "missing_stream_manifest", SCHEMA, PartitionSpec.unpartitioned(), Collections.emptyMap());
         table.newAppend().appendFile(dataFile(table.spec(),
                 "s3://b/db/missing_stream_manifest/f1.parquet", 1024, null, null)).commit();
         table.io().deleteFile(table.currentSnapshot().manifestListLocation());
-        IcebergScanPlanProvider provider = providerOver(table);
+        // Iceberg 1.11 caches parsed manifests on Snapshot; reload from metadata to exercise the missing file.
+        IcebergScanPlanProvider provider = providerOver(reloadPersistedTable(table));
         IcebergTableHandle handle = new IcebergTableHandle("db1", "missing_stream_manifest");
 
         DorisConnectorException estimate = Assertions.assertThrows(DorisConnectorException.class,
@@ -1648,11 +1668,18 @@ public class IcebergScanPlanProviderTest {
                 .withFileSizeInBytes(100)
                 .withRecordCount(1)
                 .build();
-        Table table = tableWithPositionDelete(deleteFile);
+        Table table = createPersistedTable(
+                "missing_position_delete_manifest", SCHEMA, PartitionSpec.unpartitioned(), Collections.emptyMap());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 512, null, null))
+                .commit();
+        table.newRowDelta().addDeletes(deleteFile).commit();
         table.io().deleteFile(table.currentSnapshot().manifestListLocation());
+        // Iceberg 1.11 caches parsed manifests on Snapshot; reload from metadata to exercise the missing file.
+        Table reloaded = reloadPersistedTable(table);
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> planPositionDeletes(table, Collections.emptyList()));
+                () -> planPositionDeletes(reloaded, Collections.emptyList()));
         Assertions.assertTrue(ex.getMessage().contains(
                 "Metadata not found in metadata location for table db1.t1"), ex.getMessage());
     }
@@ -1830,6 +1857,52 @@ public class IcebergScanPlanProviderTest {
                 .build());
         Assertions.assertEquals(1, pinned.size());
         Assertions.assertTrue(pinned.get(0).getPath().get().endsWith("f1.parquet"));
+    }
+
+    @Test
+    public void planScanHistoricalPredicateSurvivesColumnRename() {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false);
+    }
+
+    @Test
+    public void planScanHistoricalPredicateSurvivesColumnDrop() {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(true);
+    }
+
+    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn) {
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(1, "x", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "y", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "part", Types.IntegerType.get()));
+        Table table = createTable(
+                "historical_predicate_after_" + (dropColumn ? "drop" : "rename"),
+                historicalSchema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newFastAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/historical.parquet", 1024, null, null))
+                .commit();
+        long historicalSnapshotId = table.currentSnapshot().snapshotId();
+        int historicalSchemaId = table.currentSnapshot().schemaId();
+
+        if (dropColumn) {
+            table.updateSchema().deleteColumn("x").commit();
+        } else {
+            table.updateSchema().renameColumn("x", "renamed_x").commit();
+        }
+        table.newFastAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/current.parquet", 1024, null, null))
+                .commit();
+
+        IcebergTableHandle historicalHandle = new IcebergTableHandle("db1", "t1")
+                .withSnapshot(historicalSnapshotId, null, historicalSchemaId);
+        List<ConnectorScanRange> ranges = providerOver(table).planScan(
+                emptySession(), ConnectorScanRequest.builder(historicalHandle, Collections.emptyList())
+                        .filter(Optional.of(eqInt("x", 1)))
+                        .build());
+
+        // Historical predicates must remain bound to the snapshot schema after later schema evolution.
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertTrue(ranges.get(0).getPath().get().endsWith("historical.parquet"));
     }
 
     @Test
