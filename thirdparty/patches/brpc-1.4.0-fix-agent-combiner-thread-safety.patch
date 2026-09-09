@@ -27,7 +27,7 @@ index 6a6ab80..65ed9a1 100644
      inline void load(T* out) {
          *out = _value.load(butil::memory_order_relaxed);
      }
-@@ -153,24 +153,26 @@ private:
+@@ -153,24 +153,37 @@ private:
  };
  
  template <typename ResultTp, typename ElementTp, typename BinaryOp>
@@ -47,11 +47,13 @@ index 6a6ab80..65ed9a1 100644
 -        Agent() : combiner(NULL) {}
  
 +    struct Agent : public butil::LinkNode<Agent> {
++        Agent() : _has_combiner(false) {}
++
          ~Agent() {
 -            if (combiner) {
 -                combiner->commit_and_erase(this);
 -                combiner = NULL;
-+            self_shared_type c = combiner.lock();
++            self_shared_type c = lock_combiner();
 +            if (NULL != c) {
 +                c->commit_and_erase(this);
              }
@@ -60,10 +62,20 @@ index 6a6ab80..65ed9a1 100644
 -        void reset(const ElementTp& val, self_type* c) {
 +
 +        void reset(const ElementTp& val, const self_shared_type& c) {
-             combiner = c;
+-            combiner = c;
++            {
++                butil::AutoLock guard(_combiner_lock);
++                if (NULL != c) {
++                    combiner = c;
++                    _has_combiner.store(true, butil::memory_order_release);
++                } else {
++                    _has_combiner.store(false, butil::memory_order_release);
++                    combiner.reset();
++                }
++            }
              element.store(val);
          }
-@@ -181,11 +183,11 @@ friend class GlobalValue<self_type>;
+@@ -181,11 +194,11 @@ friend class GlobalValue<self_type>;
          //       void operator()(GlobalValue<Combiner> & global_value,
          //                       ElementTp & local_value) const {
          //           if (test_for_merging(local_value)) {
@@ -77,7 +89,7 @@ index 6a6ab80..65ed9a1 100644
          //               // *g and local_value are not changed provided
          //               // merge_global is called from the thread owning
          //               // the agent.
-@@ -200,16 +202,23 @@ friend class GlobalValue<self_type>;
+@@ -200,16 +213,34 @@ friend class GlobalValue<self_type>;
          //           ...
          //       }
          //   };
@@ -90,7 +102,7 @@ index 6a6ab80..65ed9a1 100644
 -            element.merge_global(op, g);
 +        void merge_global(const Op &op, self_shared_type c = NULL) {
 +            if (NULL == c) {
-+                c = combiner.lock();
++                c = lock_combiner();
 +            }
 +            if (NULL != c) {
 +                GlobalValue<self_type> g(this, c.get());
@@ -101,12 +113,23 @@ index 6a6ab80..65ed9a1 100644
 -        self_type *combiner;
          ElementContainer<ElementTp> element;
 +    private:
-+    friend class AgentCombiner<ResultTp, ElementTp, BinaryOp>;
++        friend class AgentCombiner<ResultTp, ElementTp, BinaryOp>;
++        self_shared_type lock_combiner() const {
++            butil::AutoLock guard(_combiner_lock);
++            return combiner.lock();
++        }
++
++        bool has_combiner() const {
++            return _has_combiner.load(butil::memory_order_acquire);
++        }
++        // Serialize the same weak_ptr while keeping the update path lock-free.
++        mutable butil::Lock _combiner_lock;
++        butil::atomic<bool> _has_combiner;
 +        self_weak_type combiner;
      };
  
      typedef detail::AgentGroup<Agent> AgentGroup;
-@@ -231,7 +240,7 @@ friend class GlobalValue<self_type>;
+@@ -231,7 +262,7 @@ friend class GlobalValue<self_type>;
              _id = -1;
          }
      }
@@ -115,7 +138,7 @@ index 6a6ab80..65ed9a1 100644
      // [Threadsafe] May be called from anywhere
      ResultTp combine_agents() const {
          ElementTp tls_value;
-@@ -245,10 +254,10 @@ friend class GlobalValue<self_type>;
+@@ -245,10 +276,10 @@ friend class GlobalValue<self_type>;
          return ret;
      }
  
@@ -130,7 +153,7 @@ index 6a6ab80..65ed9a1 100644
  
      // [Threadsafe] May be called from anywhere.
      ResultTp reset_all_agents() {
-@@ -265,7 +274,7 @@ friend class GlobalValue<self_type>;
+@@ -265,7 +296,7 @@ friend class GlobalValue<self_type>;
      }
  
      // Always called from the thread owning the agent.
@@ -139,7 +162,7 @@ index 6a6ab80..65ed9a1 100644
          if (NULL == agent) {
              return;
          }
-@@ -279,7 +288,7 @@ friend class GlobalValue<self_type>;
+@@ -279,7 +310,7 @@ friend class GlobalValue<self_type>;
      }
  
      // Always called from the thread owning the agent
@@ -148,7 +171,7 @@ index 6a6ab80..65ed9a1 100644
          if (NULL == agent) {
              return;
          }
-@@ -290,7 +299,7 @@ friend class GlobalValue<self_type>;
+@@ -290,7 +321,7 @@ friend class GlobalValue<self_type>;
      }
  
      // We need this function to be as fast as possible.
@@ -157,12 +180,12 @@ index 6a6ab80..65ed9a1 100644
          Agent* agent = AgentGroup::get_tls_agent(_id);
          if (!agent) {
              // Create the agent
-@@ -300,10 +309,10 @@ friend class GlobalValue<self_type>;
+@@ -300,10 +331,10 @@ friend class GlobalValue<self_type>;
                  return NULL;
              }
          }
 -        if (agent->combiner) {
-+        if (!agent->combiner.expired()) {
++        if (agent->has_combiner()) {
              return agent;
          }
 -        agent->reset(_element_identity, this);
@@ -170,7 +193,7 @@ index 6a6ab80..65ed9a1 100644
          // TODO: Is uniqueness-checking necessary here?
          {
              butil::AutoLock guard(_lock);
-@@ -317,8 +326,7 @@ friend class GlobalValue<self_type>;
+@@ -317,8 +348,7 @@ friend class GlobalValue<self_type>;
          // reseting agents is must because the agent object may be reused.
          // Set element to be default-constructed so that if it's non-pod,
          // internal allocations should be released.

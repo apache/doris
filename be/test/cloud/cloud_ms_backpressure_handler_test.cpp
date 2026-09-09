@@ -320,23 +320,26 @@ TEST_F(TableRpcQpsRegistryTest, CleanupThreadRunsIndependently) {
 }
 
 TEST_F(TableRpcQpsRegistryTest, ConcurrentRecordAndCleanup) {
-    TableRpcQpsRegistry registry(std::chrono::hours(1), std::chrono::milliseconds(0));
+    for (int round = 0; round < 20; ++round) {
+        SCOPED_TRACE(round);
+        TableRpcQpsRegistry registry(std::chrono::hours(1), std::chrono::milliseconds(0));
 
-    std::thread recorder([&registry]() {
-        for (int i = 0; i < 10000; ++i) {
-            registry.record(LoadRelatedRpc::PREPARE_ROWSET, i % 100);
-        }
-    });
-    std::thread cleaner([&registry]() {
-        for (int i = 0; i < 1000; ++i) {
-            registry.cleanup_inactive_tables();
-        }
-    });
-    recorder.join();
-    cleaner.join();
+        std::thread recorder([&registry]() {
+            for (int i = 0; i < 10000; ++i) {
+                registry.record(LoadRelatedRpc::PREPARE_ROWSET, i % 100);
+            }
+        });
+        std::thread cleaner([&registry]() {
+            for (int i = 0; i < 1000; ++i) {
+                registry.cleanup_inactive_tables();
+            }
+        });
+        recorder.join();
+        cleaner.join();
 
-    registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
-    EXPECT_GE(registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET), 1);
+        registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+        EXPECT_GE(registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET), 1);
+    }
 }
 
 // ============== TableRpcThrottler Tests ==============
