@@ -16,11 +16,10 @@
 // under the License.
 
 suite("test_variant_empty_index_file", "p0") {
-    def tableName = "test_variant_empty_index_file"
-    sql """ drop table if exists ${tableName} """
+    sql """ drop table if exists test_variant_empty_index_file """
     // create table
     sql """
-        CREATE TABLE IF NOT EXISTS ${tableName}
+        CREATE TABLE IF NOT EXISTS test_variant_empty_index_file
         (   
             `id`   bigint NOT NULL,
             `v`    variant NULL,
@@ -35,10 +34,10 @@ suite("test_variant_empty_index_file", "p0") {
     """
 
     sql """ set enable_memtable_on_sink_node = true """
-    sql """ insert into ${tableName} values (1, NULL) """
-    qt_sql9 "select * from ${tableName}"
+    sql """ insert into test_variant_empty_index_file values (1, NULL) """
+    qt_sql9 "select * from test_variant_empty_index_file order by id"
     sql "sync"
-    def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+    def tablets = sql_return_maparray """ show tablets from test_variant_empty_index_file; """
 
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -53,10 +52,9 @@ suite("test_variant_empty_index_file", "p0") {
     assertEquals("E-6004", parseJson(out.trim()).status)
     assertTrue(out.contains(" is empty"))
 
-    try {
-        sql """ select /*+ SET_VAR(enable_match_without_inverted_index = 0) */  * from ${tableName} where v match 'abcd';  """
-    } catch (Exception e) {
-        log.info(e.getMessage());
-        assertTrue(e.getMessage().contains("VARIANT root column does not support MATCH predicates"))
+    test {
+        sql """ select /*+ SET_VAR(enable_match_without_inverted_index = 0) */
+                    * from test_variant_empty_index_file where v match 'abcd' """
+        exception "VARIANT root column does not support MATCH predicates"
     }
 }

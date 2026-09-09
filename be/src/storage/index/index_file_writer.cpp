@@ -27,7 +27,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/packed_file_writer.h"
-#include "io/fs/s3_file_writer.h"
 #include "io/fs/stream_sink_file_writer.h"
 #include "storage/index/ann/ann_index_files.h"
 #include "storage/index/index_file_reader.h"
@@ -535,9 +534,7 @@ Status IndexFileWriter::begin_close() {
     }
     if (_indices_dirs.empty()) {
         // An empty file must still be created even if there are no indexes to write
-        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
-            dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr ||
-            dynamic_cast<io::PackedFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+        if (_idx_v2_writer != nullptr && _idx_v2_writer->state() != io::FileWriter::State::CLOSED) {
             return _idx_v2_writer->close(true);
         }
         return Status::OK();
@@ -583,9 +580,7 @@ Status IndexFileWriter::finish_close() {
     }
     if (_indices_dirs.empty()) {
         // An empty file must still be created even if there are no indexes to write
-        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
-            dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr ||
-            dynamic_cast<io::PackedFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+        if (_idx_v2_writer != nullptr && _idx_v2_writer->state() != io::FileWriter::State::CLOSED) {
             return _idx_v2_writer->close(false);
         }
         return Status::OK();

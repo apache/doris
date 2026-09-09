@@ -20,6 +20,7 @@
 
 #include "exec/sink/load_stream_stub.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/stream_sink_file_writer.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
@@ -30,7 +31,7 @@ namespace doris {
 constexpr int64_t LOAD_ID_LO = 1;
 constexpr int64_t LOAD_ID_HI = 2;
 constexpr int64_t NUM_STREAM = 3;
-constexpr static std::string_view tmp_dir = "./ut_dir/tmp";
+constexpr static std::string_view tmp_dir = "./ut_dir/empty_index_file";
 class EmptyIndexFileTest : public testing::TestWithParam<InvertedIndexStorageFormatPB> {
     struct WriteState {
         size_t bytes_appended = 0;
@@ -74,6 +75,53 @@ public:
     ~EmptyIndexFileTest() override = default;
 
 protected:
+    // Deliberately implements only FileWriter, so closing cannot depend on a concrete type.
+    class RecordingFileWriter final : public io::FileWriter {
+    public:
+        Status close(bool non_block = false) override {
+            close_calls.push_back(non_block);
+            EXPECT_NE(_state, State::CLOSED);
+            if (non_block) {
+                EXPECT_EQ(_state, State::OPENED);
+                RETURN_IF_ERROR(begin_status);
+                _state = close_synchronously ? State::CLOSED : State::ASYNC_CLOSING;
+                return Status::OK();
+            }
+            EXPECT_EQ(_state, State::ASYNC_CLOSING);
+            _state = State::CLOSED;
+            return finish_status;
+        }
+
+        Status appendv(const Slice* data, size_t data_cnt) override {
+            ++append_calls;
+            for (size_t i = 0; i < data_cnt; ++i) {
+                _bytes_appended += data[i].size;
+            }
+            return Status::OK();
+        }
+
+        const io::Path& path() const override { return _path; }
+        size_t bytes_appended() const override { return _bytes_appended; }
+        State state() const override { return _state; }
+
+        std::vector<bool> close_calls;
+        int append_calls = 0;
+        bool close_synchronously = false;
+        Status begin_status = Status::OK();
+        Status finish_status = Status::OK();
+
+    private:
+        io::Path _path {"recording_0.idx"};
+        size_t _bytes_appended = 0;
+        State _state = State::OPENED;
+    };
+
+    auto make_index_writer(io::FileWriterPtr file_writer, InvertedIndexStorageFormatPB format) {
+        return std::make_unique<segment_v2::IndexFileWriter>(
+                io::global_local_filesystem(), std::string(tmp_dir) + "/empty_0", "empty", 0,
+                format, std::move(file_writer), false);
+    }
+
     void SetUp() override {
         _load_id.set_hi(LOAD_ID_HI);
         _load_id.set_lo(LOAD_ID_LO);
@@ -101,20 +149,117 @@ protected:
 };
 
 TEST_P(EmptyIndexFileTest, PreservesZeroByteFileWhenNoLogicalIndexes) {
-    io::FileWriterPtr file_writer = std::make_unique<io::StreamSinkFileWriter>(_streams);
-    auto fs = io::global_local_filesystem();
-    std::string index_path = "/tmp/empty_index_file_test";
-    std::string rowset_id = "1234567890";
-    int64_t seg_id = 1234567890;
-    auto index_file_writer = std::make_unique<segment_v2::IndexFileWriter>(
-            fs, index_path, rowset_id, seg_id, GetParam(), std::move(file_writer), false);
-    EXPECT_TRUE(index_file_writer->begin_close().ok());
-    EXPECT_TRUE(index_file_writer->finish_close().ok());
+    auto file_writer = std::make_unique<io::StreamSinkFileWriter>(_streams);
+    file_writer->init(_load_id, 1, 2, 3, 0, FileType::INVERTED_INDEX_FILE);
+    auto* stream_writer = file_writer.get();
+    auto index_file_writer = make_index_writer(std::move(file_writer), GetParam());
+    ASSERT_TRUE(index_file_writer->begin_close().ok());
+    EXPECT_EQ(stream_writer->state(), io::FileWriter::State::ASYNC_CLOSING);
+    ASSERT_TRUE(index_file_writer->finish_close().ok());
+    EXPECT_EQ(stream_writer->state(), io::FileWriter::State::CLOSED);
+    // Finishing an already closed empty file must not send another EOS.
+    ASSERT_TRUE(index_file_writer->finish_close().ok());
+    index_file_writer.reset();
     for (const auto& state : _write_states) {
         EXPECT_EQ(state->bytes_appended, 0);
         EXPECT_EQ(state->data_calls, 0);
         EXPECT_EQ(state->eos_calls, 1);
     }
+}
+
+TEST_P(EmptyIndexFileTest, ClosesOpaqueWriterWithoutAppending) {
+    auto file_writer = std::make_unique<RecordingFileWriter>();
+    auto* recording = file_writer.get();
+    auto index_writer = make_index_writer(std::move(file_writer), GetParam());
+    ASSERT_TRUE(index_writer->_indices_dirs.empty());
+
+    ASSERT_TRUE(index_writer->begin_close().ok());
+    EXPECT_EQ(recording->close_calls, (std::vector<bool> {true}));
+    EXPECT_EQ(recording->state(), io::FileWriter::State::ASYNC_CLOSING);
+    ASSERT_TRUE(index_writer->finish_close().ok());
+    EXPECT_EQ(recording->close_calls, (std::vector<bool> {true, false}));
+    EXPECT_EQ(recording->state(), io::FileWriter::State::CLOSED);
+    ASSERT_TRUE(index_writer->finish_close().ok());
+    EXPECT_EQ(recording->close_calls, (std::vector<bool> {true, false}));
+    EXPECT_EQ(recording->append_calls, 0);
+    EXPECT_EQ(recording->bytes_appended(), 0);
+}
+
+TEST_P(EmptyIndexFileTest, SkipsAlreadyClosedWriter) {
+    auto file_writer = std::make_unique<RecordingFileWriter>();
+    auto* recording = file_writer.get();
+    ASSERT_TRUE(recording->close(true).ok());
+    ASSERT_TRUE(recording->close(false).ok());
+    recording->close_calls.clear();
+    auto index_writer = make_index_writer(std::move(file_writer), GetParam());
+    ASSERT_TRUE(index_writer->begin_close().ok());
+    ASSERT_TRUE(index_writer->finish_close().ok());
+    EXPECT_TRUE(recording->close_calls.empty());
+}
+
+TEST_P(EmptyIndexFileTest, SkipsFinishWhenBeginClosesSynchronously) {
+    auto file_writer = std::make_unique<RecordingFileWriter>();
+    auto* recording = file_writer.get();
+    recording->close_synchronously = true;
+    auto index_writer = make_index_writer(std::move(file_writer), GetParam());
+    ASSERT_TRUE(index_writer->begin_close().ok());
+    EXPECT_EQ(recording->state(), io::FileWriter::State::CLOSED);
+    ASSERT_TRUE(index_writer->finish_close().ok());
+    EXPECT_EQ(recording->close_calls, (std::vector<bool> {true}));
+}
+
+TEST_P(EmptyIndexFileTest, PropagatesBeginCloseError) {
+    auto file_writer = std::make_unique<RecordingFileWriter>();
+    auto* recording = file_writer.get();
+    recording->begin_status = Status::IOError("begin close failed");
+    auto index_writer = make_index_writer(std::move(file_writer), GetParam());
+    auto st = index_writer->begin_close();
+    EXPECT_EQ(st.to_string(), recording->begin_status.to_string());
+    EXPECT_EQ(recording->close_calls, (std::vector<bool> {true}));
+}
+
+TEST_P(EmptyIndexFileTest, PropagatesFinishCloseError) {
+    auto file_writer = std::make_unique<RecordingFileWriter>();
+    auto* recording = file_writer.get();
+    recording->finish_status = Status::IOError("finish close failed");
+    auto index_writer = make_index_writer(std::move(file_writer), GetParam());
+    ASSERT_TRUE(index_writer->begin_close().ok());
+    auto st = index_writer->finish_close();
+    EXPECT_EQ(st.to_string(), recording->finish_status.to_string());
+    EXPECT_EQ(recording->close_calls, (std::vector<bool> {true, false}));
+}
+
+TEST_P(EmptyIndexFileTest, AllowsNullWriter) {
+    for (auto format : {InvertedIndexStorageFormatPB::V1, GetParam()}) {
+        auto index_writer = make_index_writer(nullptr, format);
+        ASSERT_TRUE(index_writer->begin_close().ok());
+        ASSERT_TRUE(index_writer->finish_close().ok());
+    }
+}
+
+TEST_P(EmptyIndexFileTest, PreservesLocalEmptyFileAfterDestruction) {
+    auto fs = io::global_local_filesystem();
+    const auto path = std::string(tmp_dir) + "/empty_0.idx";
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(fs->create_file(path, &file_writer).ok());
+    auto* local_writer = file_writer.get();
+    bool exists = false;
+    ASSERT_TRUE(fs->exists(path, &exists).ok());
+    ASSERT_TRUE(exists); // O_CREAT alone does not guarantee persistence after destruction.
+    auto index_writer = make_index_writer(std::move(file_writer), GetParam());
+    ASSERT_TRUE(index_writer->begin_close().ok());
+    EXPECT_EQ(local_writer->state(), io::FileWriter::State::ASYNC_CLOSING);
+    ASSERT_TRUE(index_writer->finish_close().ok());
+    EXPECT_EQ(local_writer->state(), io::FileWriter::State::CLOSED);
+    EXPECT_EQ(local_writer->bytes_appended(), 0);
+    index_writer.reset();
+
+    ASSERT_TRUE(fs->exists(path, &exists).ok());
+    ASSERT_TRUE(exists);
+    int64_t file_size = -1;
+    ASSERT_TRUE(fs->file_size(path, &file_size).ok());
+    EXPECT_EQ(file_size, 0);
+    // TearDown removes this test's directory, including the empty index file.
 }
 
 INSTANTIATE_TEST_SUITE_P(LegacyCompoundFormats, EmptyIndexFileTest,
