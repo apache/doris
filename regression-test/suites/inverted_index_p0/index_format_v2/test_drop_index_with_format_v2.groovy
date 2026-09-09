@@ -93,5 +93,6 @@ suite("test_drop_index_with_format_v2", "inverted_index_format_v2"){
     // drop index
     sql """ DROP INDEX index_score on ${tableName}; """
     wait_for_latest_op_on_table_finish(tableName, timeout)
-    check_nested_index_file(ip, port, tablet_id, 7, 0, "V2")
+    // Dropping the last index closes and preserves an empty V2 index file.
+    check_nested_index_file(ip, port, tablet_id, 7, 0, "V2", "E-6004")
 }

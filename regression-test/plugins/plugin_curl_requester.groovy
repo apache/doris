@@ -287,13 +287,17 @@ Suite.metaClass.be_report_task = { String ip, int port ->
 logger.info("Added 'be_report_task' function to Suite")
 
 // check nested index file api
-Suite.metaClass.check_nested_index_file = { ip, port, tablet_id, expected_rowsets_count, expected_indices_count, format ->
+Suite.metaClass.check_nested_index_file = { ip, port, tablet_id, expected_rowsets_count, expected_indices_count, format, expected_error = "E-6003" ->
     def (code, out, err) = http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet_id))
     logger.info("Run show_nested_index_file_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
-    // only when the expected_indices_count is 0, the tablet may not have the index file.
+    // A closed empty file must report an error from the index reader, not a successful listing.
+    if (expected_error == "E-6004") {
+        assertEquals(500, code)
+    }
+    // With no indices, the index file may be absent or explicitly closed as an empty file.
     if (code == 500 && expected_indices_count == 0) {
-        assertEquals("E-6003", parseJson(out.trim()).status)
-        assertTrue(parseJson(out.trim()).msg.contains("not found"))
+        assertEquals(expected_error, parseJson(out.trim()).status)
+        assertTrue(parseJson(out.trim()).msg.contains(expected_error == "E-6004" ? " is empty" : "not found"))
         return
     }
     assertTrue(code == 0)
