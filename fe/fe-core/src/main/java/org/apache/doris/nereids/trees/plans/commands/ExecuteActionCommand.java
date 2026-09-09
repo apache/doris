@@ -104,7 +104,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
             }
 
             action.validate(tableNameInfo, ctx.getCurrentUserIdentity());
-            ResultSet resultSet = action.execute(table);
+            ResultSet resultSet = executeAuthenticated(action, (ExternalTable) table);
             logRefreshTable(table, System.currentTimeMillis());
             if (resultSet != null) {
                 executor.sendResultSet(resultSet);
@@ -144,6 +144,23 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
         return whereCondition;
     }
 
+    private ResultSet executeAuthenticated(ExecuteAction action, ExternalTable table) throws Exception {
+        try {
+            // Iceberg tables retain filesystem configuration, not the caller's UGI, so loading the table and
+            // committing its metadata must stay within one catalog authentication scope.
+            return table.getCatalog().getExecutionAuthenticator().execute(() -> {
+                try {
+                    return action.execute(table);
+                } catch (UserException e) {
+                    // Hadoop doAs obscures checked exceptions, so carry this one across as a runtime exception.
+                    throw new AuthenticatedActionException(e);
+                }
+            });
+        } catch (AuthenticatedActionException e) {
+            throw e.getUserException();
+        }
+    }
+
     /**
      * Log refresh table to make follow fe metadata cache refresh.
      *
@@ -162,6 +179,19 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
         } else {
             // support more table in future
             throw new UserException("Unsupported table type: " + table.getClass().getName() + " for refresh table");
+        }
+    }
+
+    private static final class AuthenticatedActionException extends RuntimeException {
+        private final UserException userException;
+
+        private AuthenticatedActionException(UserException userException) {
+            super(userException);
+            this.userException = userException;
+        }
+
+        private UserException getUserException() {
+            return userException;
         }
     }
 }
