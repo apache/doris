@@ -57,7 +57,6 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "io/io_common.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "storage/compaction/cumulative_compaction.h"
@@ -297,9 +296,7 @@ Status Compaction::merge_input_rowsets() {
     RowsetWriterContext ctx;
     // Propagate input rowset readers into the rowset writer context before the writer is created.
     // Variant nested-group compaction uses this metadata to enable the streaming writer path.
-    if (!_variant_write_policy_changed) {
-        ctx.input_rs_readers = input_rs_readers;
-    }
+    ctx.input_rs_readers = input_rs_readers;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
     // write merged rows to output rowset
@@ -520,82 +517,6 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     return Status::OK();
 }
 
-Status Compaction::prepare_compaction_schema() {
-    std::vector<RowsetMetaSharedPtr> rowset_metas;
-    rowset_metas.reserve(_input_rowsets.size());
-    for (const auto& rowset : _input_rowsets) {
-        rowset_metas.push_back(rowset->rowset_meta());
-    }
-    _cur_tablet_schema = BaseTablet::tablet_schema_with_merged_max_schema_version(rowset_metas);
-    if (_cur_tablet_schema->num_variant_columns() == 0 || is_index_change_compaction()) {
-        return Status::OK();
-    }
-
-    // tablet_schema() snapshots the BE's max_version_schema under the metadata lock.
-    // Loads propagate new schemas here, including rowsets outside this compaction's inputs.
-    auto latest = _tablet->tablet_schema();
-    if (latest->schema_version() < _cur_tablet_schema->schema_version()) {
-        latest = _cur_tablet_schema;
-    }
-    // Index-only ALTERs also change the write policy. In particular, field_pattern
-    // indexes are not part of the parent ColumnPB and may be absent from every input.
-    const auto latest_indexes = latest->inverted_indexes();
-    for (const auto& rowset : _input_rowsets) {
-        const auto input_indexes = rowset->tablet_schema()->inverted_indexes();
-        if (!std::ranges::equal(latest_indexes, input_indexes,
-                                [](const TabletIndex* target, const TabletIndex* input) {
-                                    return target->index_id() == input->index_id() &&
-                                           target->index_name() == input->index_name() &&
-                                           target->col_unique_ids() == input->col_unique_ids() &&
-                                           target->get_index_suffix() ==
-                                                   input->get_index_suffix() &&
-                                           target->properties() == input->properties();
-                                })) {
-            _variant_write_policy_changed = true;
-            break;
-        }
-    }
-    for (const auto& column : latest->columns()) {
-        if (!column->is_variant_type() || column->is_extracted_column()) {
-            continue;
-        }
-        ColumnPB target_pb;
-        column->to_schema_pb(&target_pb);
-        const auto target_policy = target_pb.SerializeAsString();
-        for (const auto& rowset : _input_rowsets) {
-            const auto& input_schema = rowset->tablet_schema();
-            if (!input_schema->has_column_unique_id(column->unique_id())) {
-                _variant_write_policy_changed = true;
-                _variant_templates_changed = true;
-                break;
-            }
-            ColumnPB input_pb;
-            input_schema->column_by_uid(column->unique_id()).to_schema_pb(&input_pb);
-            if (input_pb.SerializeAsString() != target_policy) {
-                _variant_write_policy_changed = true;
-            }
-            if (!std::equal(input_pb.children_columns().begin(), input_pb.children_columns().end(),
-                            target_pb.children_columns().begin(),
-                            target_pb.children_columns().end(),
-                            [](const ColumnPB& left, const ColumnPB& right) {
-                                return left.SerializeAsString() == right.SerializeAsString();
-                            })) {
-                _variant_templates_changed = true;
-            }
-        }
-    }
-    if (_variant_write_policy_changed) {
-        _cur_tablet_schema = latest->copy_without_variant_extracted_columns();
-        // Reassemble complete values and let the normal V2 writer apply the new template
-        // before choosing materialized/sparse paths and rebuilding their indexes.
-        _enable_vertical_compact_variant_subcolumns = false;
-        _enable_inverted_index_compaction = false;
-        LOG(INFO) << "apply current Variant write policy in compaction, tablet="
-                  << _tablet->tablet_id() << ", schema_version=" << latest->schema_version();
-    }
-    return Status::OK();
-}
-
 Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     for (auto& rowset : _input_rowsets) {
         const auto& rowset_meta = rowset->rowset_meta();
@@ -632,12 +553,10 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
 
     _newest_write_timestamp = _input_rowsets.back()->newest_write_timestamp();
 
-    if (!_variant_write_policy_changed) {
-        std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
-        std::ranges::transform(_input_rowsets, rowset_metas.begin(),
-                               [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
-        _cur_tablet_schema = BaseTablet::tablet_schema_with_merged_max_schema_version(rowset_metas);
-    }
+    std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
+    std::ranges::transform(_input_rowsets, rowset_metas.begin(),
+                           [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
+    _cur_tablet_schema = BaseTablet::tablet_schema_with_merged_max_schema_version(rowset_metas);
 
     // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
@@ -650,9 +569,6 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
 }
 
 bool CompactionMixin::handle_ordered_data_compaction() {
-    if (_variant_write_policy_changed) {
-        return false;
-    }
     if (config::is_cloud_mode()) {
         return false;
     }
@@ -772,13 +688,31 @@ bool CompactionMixin::handle_ordered_data_compaction() {
 }
 
 Status CompactionMixin::execute_compact() {
-    RETURN_IF_ERROR(prepare_compaction_schema());
     int64_t profile_start_time_ms = UnixMillis();
     uint32_t checksum_before;
     uint32_t checksum_after;
-    // A template conversion intentionally changes values; byte checksums are not invariant.
-    bool enable_compaction_checksum =
-            config::enable_compaction_checksum && !_variant_templates_changed;
+    bool enable_compaction_checksum = config::enable_compaction_checksum;
+    // Template changes can convert values during the existing merge path, so byte
+    // checksums are not comparable across inputs with different Variant templates.
+    if (enable_compaction_checksum) {
+        const auto& reference = _input_rowsets.front()->tablet_schema();
+        for (const auto& rowset : _input_rowsets) {
+            const auto& schema = rowset->tablet_schema();
+            if (std::ranges::any_of(reference->columns(), [&](const auto& column) {
+                    if (!column->is_variant_type() || column->is_extracted_column()) {
+                        return false;
+                    }
+                    return !schema->has_column_unique_id(column->unique_id()) ||
+                           !std::ranges::equal(
+                                   column->get_sub_columns(),
+                                   schema->column_by_uid(column->unique_id()).get_sub_columns(),
+                                   [](const auto& lhs, const auto& rhs) { return *lhs == *rhs; });
+                })) {
+                enable_compaction_checksum = false;
+                break;
+            }
+        }
+    }
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_before);
@@ -2113,12 +2047,9 @@ Status Compaction::check_correctness() {
                 _tablet->tablet_id(), _input_row_num, _stats.merged_rows, _stats.filtered_rows,
                 _output_rowset->num_rows());
     }
-    // Template conversion can change non-null counts and move paths into/out of typed storage.
-    // Count-only layout changes must still preserve the original path statistics.
-    if (!_variant_templates_changed) {
-        RETURN_IF_ERROR(variant_util::VariantCompactionUtil::check_path_stats(
-                _input_rowsets, _output_rowset, _tablet));
-    }
+    // 2. check variant column path stats
+    RETURN_IF_ERROR(variant_util::VariantCompactionUtil::check_path_stats(_input_rowsets,
+                                                                          _output_rowset, _tablet));
     return Status::OK();
 }
 
@@ -2173,11 +2104,11 @@ Status CloudCompactionMixin::build_basic_info() {
     _newest_write_timestamp = _input_rowsets.back()->newest_write_timestamp();
 
     std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
-    std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
-                   [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
+    std::ranges::transform(_input_rowsets, rowset_metas.begin(),
+                           [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     if (is_index_change_compaction()) {
         RETURN_IF_ERROR(rebuild_tablet_schema());
-    } else if (!_variant_write_policy_changed) {
+    } else {
         _cur_tablet_schema = BaseTablet::tablet_schema_with_merged_max_schema_version(rowset_metas);
     }
 
@@ -2229,7 +2160,6 @@ bool CloudCompactionMixin::should_apply_cumulative_compaction_result(
 
 Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     OlapStopWatch watch;
-    RETURN_IF_ERROR(prepare_compaction_schema());
 
     RETURN_IF_ERROR(build_basic_info());
 
