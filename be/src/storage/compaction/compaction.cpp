@@ -57,7 +57,6 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "io/io_common.h"
-#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
@@ -95,11 +94,9 @@
 #include "storage/task/engine_checksum_task.h"
 #include "storage/txn/txn_manager.h"
 #include "storage/utils.h"
-#include "util/client_cache.h"
 #include "util/debug_points.h"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
-#include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -300,7 +297,7 @@ Status Compaction::merge_input_rowsets() {
     RowsetWriterContext ctx;
     // Propagate input rowset readers into the rowset writer context before the writer is created.
     // Variant nested-group compaction uses this metadata to enable the streaming writer path.
-    if (!_variant_properties_changed) {
+    if (!_variant_write_policy_changed) {
         ctx.input_rs_readers = input_rs_readers;
     }
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
@@ -523,28 +520,6 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     return Status::OK();
 }
 
-Status Compaction::fetch_latest_tablet_schema(TabletSchemaSPtr* schema) {
-    TEST_SYNC_POINT_RETURN_WITH_VALUE("Compaction::fetch_latest_tablet_schema", Status::OK(),
-                                      schema);
-    auto master = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
-    TGetTabletSchemaResult response;
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master.hostname, master.port, [&](FrontendServiceConnection& client) {
-                client->getTabletSchema(response, _tablet->tablet_id());
-            }));
-    RETURN_IF_ERROR(Status::create(response.status));
-    if (!response.__isset.schema_version || !response.__isset.columns ||
-        !response.__isset.indexes || response.columns.empty()) {
-        return Status::InternalError("Incomplete schema for tablet {}", _tablet->tablet_id());
-    }
-    auto latest = std::make_shared<TabletSchema>();
-    latest->update_tablet_columns(**schema, response.columns);
-    latest->update_indexes_from_thrift(response.indexes);
-    latest->set_schema_version(response.schema_version);
-    *schema = std::move(latest);
-    return Status::OK();
-}
-
 Status Compaction::prepare_compaction_schema() {
     std::vector<RowsetMetaSharedPtr> rowset_metas;
     rowset_metas.reserve(_input_rowsets.size());
@@ -556,13 +531,29 @@ Status Compaction::prepare_compaction_schema() {
         return Status::OK();
     }
 
+    // tablet_schema() snapshots the BE's max_version_schema under the metadata lock.
+    // Loads propagate new schemas here, including rowsets outside this compaction's inputs.
     auto latest = _tablet->tablet_schema();
-    RETURN_IF_ERROR(fetch_latest_tablet_schema(&latest));
     if (latest->schema_version() < _cur_tablet_schema->schema_version()) {
-        return Status::InternalError(
-                "FE schema version {} is older than input schema {} for tablet {}",
-                latest->schema_version(), _cur_tablet_schema->schema_version(),
-                _tablet->tablet_id());
+        latest = _cur_tablet_schema;
+    }
+    // Index-only ALTERs also change the write policy. In particular, field_pattern
+    // indexes are not part of the parent ColumnPB and may be absent from every input.
+    const auto latest_indexes = latest->inverted_indexes();
+    for (const auto& rowset : _input_rowsets) {
+        const auto input_indexes = rowset->tablet_schema()->inverted_indexes();
+        if (!std::ranges::equal(latest_indexes, input_indexes,
+                                [](const TabletIndex* target, const TabletIndex* input) {
+                                    return target->index_id() == input->index_id() &&
+                                           target->index_name() == input->index_name() &&
+                                           target->col_unique_ids() == input->col_unique_ids() &&
+                                           target->get_index_suffix() ==
+                                                   input->get_index_suffix() &&
+                                           target->properties() == input->properties();
+                                })) {
+            _variant_write_policy_changed = true;
+            break;
+        }
     }
     for (const auto& column : latest->columns()) {
         if (!column->is_variant_type() || column->is_extracted_column()) {
@@ -574,14 +565,14 @@ Status Compaction::prepare_compaction_schema() {
         for (const auto& rowset : _input_rowsets) {
             const auto& input_schema = rowset->tablet_schema();
             if (!input_schema->has_column_unique_id(column->unique_id())) {
-                _variant_properties_changed = true;
+                _variant_write_policy_changed = true;
                 _variant_templates_changed = true;
                 break;
             }
             ColumnPB input_pb;
             input_schema->column_by_uid(column->unique_id()).to_schema_pb(&input_pb);
             if (input_pb.SerializeAsString() != target_policy) {
-                _variant_properties_changed = true;
+                _variant_write_policy_changed = true;
             }
             if (!std::equal(input_pb.children_columns().begin(), input_pb.children_columns().end(),
                             target_pb.children_columns().begin(),
@@ -593,7 +584,7 @@ Status Compaction::prepare_compaction_schema() {
             }
         }
     }
-    if (_variant_properties_changed) {
+    if (_variant_write_policy_changed) {
         _cur_tablet_schema = latest->copy_without_variant_extracted_columns();
         // Reassemble complete values and let the normal V2 writer apply the new template
         // before choosing materialized/sparse paths and rebuilding their indexes.
@@ -641,7 +632,7 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
 
     _newest_write_timestamp = _input_rowsets.back()->newest_write_timestamp();
 
-    if (!_variant_properties_changed) {
+    if (!_variant_write_policy_changed) {
         std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
         std::ranges::transform(_input_rowsets, rowset_metas.begin(),
                                [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
@@ -659,7 +650,7 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
 }
 
 bool CompactionMixin::handle_ordered_data_compaction() {
-    if (_variant_properties_changed) {
+    if (_variant_write_policy_changed) {
         return false;
     }
     if (config::is_cloud_mode()) {
@@ -2186,7 +2177,7 @@ Status CloudCompactionMixin::build_basic_info() {
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     if (is_index_change_compaction()) {
         RETURN_IF_ERROR(rebuild_tablet_schema());
-    } else if (!_variant_properties_changed) {
+    } else if (!_variant_write_policy_changed) {
         _cur_tablet_schema = BaseTablet::tablet_schema_with_merged_max_schema_version(rowset_metas);
     }
 

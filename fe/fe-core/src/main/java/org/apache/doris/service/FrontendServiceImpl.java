@@ -32,16 +32,12 @@ import org.apache.doris.binlog.BinlogLagInfo;
 import org.apache.doris.catalog.AutoIncrementGenerator;
 import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Index;
-import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -171,7 +167,6 @@ import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TCertBasedAuth;
 import org.apache.doris.thrift.TCheckAuthRequest;
 import org.apache.doris.thrift.TCheckAuthResult;
-import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TColumnInfo;
@@ -233,7 +228,6 @@ import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
-import org.apache.doris.thrift.TGetTabletSchemaResult;
 import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
@@ -3745,51 +3739,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
             result.setStatus(status);
-        }
-        return result;
-    }
-
-    @Override
-    public TGetTabletSchemaResult getTabletSchema(long tabletId) {
-        TGetTabletSchemaResult result = new TGetTabletSchemaResult();
-        if (!Env.getCurrentEnv().isMaster()) {
-            result.setStatus(new TStatus(TStatusCode.NOT_MASTER));
-            return result;
-        }
-        try {
-            TabletMeta meta = Env.getCurrentInvertedIndex().getTabletMeta(tabletId);
-            if (meta == null) {
-                throw new MetaNotFoundException("Tablet does not exist: " + tabletId);
-            }
-            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(meta.getDbId());
-            OlapTable table = (OlapTable) db.getTableOrMetaException(meta.getTableId(), Table.TableType.OLAP);
-            table.readLock();
-            try {
-                MaterializedIndexMeta index = table.getIndexMetaByIndexId(meta.getIndexId());
-                if (index == null) {
-                    throw new MetaNotFoundException("Tablet index does not exist: " + tabletId);
-                }
-                result.setSchemaVersion(index.getSchemaVersion());
-                result.setColumns(Lists.newArrayList());
-                for (Column column : index.getSchema()) {
-                    TColumn thriftColumn = ColumnToThrift.toThrift(column);
-                    ColumnToThrift.setIndexFlag(thriftColumn, table);
-                    result.addToColumns(thriftColumn);
-                }
-                result.setIndexes(Lists.newArrayList());
-                List<Index> indexes = index.getIndexes();
-                if (indexes.isEmpty() && meta.getIndexId() == table.getBaseIndexId()) {
-                    indexes = table.getIndexes();
-                }
-                for (Index secondaryIndex : indexes) {
-                    result.addToIndexes(IndexToThriftConvertor.toThrift(secondaryIndex, table.getBaseSchema()));
-                }
-            } finally {
-                table.readUnlock();
-            }
-            result.setStatus(new TStatus(TStatusCode.OK));
-        } catch (MetaNotFoundException e) {
-            result.setStatus(new TStatus(TStatusCode.NOT_FOUND).setErrorMsgs(Lists.newArrayList(e.getMessage())));
         }
         return result;
     }

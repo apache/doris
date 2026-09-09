@@ -1020,6 +1020,28 @@ public class SchemaChangeHandler extends AlterHandler {
                     // variant property-only change (e.g. variant_doc_materialization_min_rows)
                     if (col.getDataType() == PrimitiveType.VARIANT
                             && modColumn.getDataType() == PrimitiveType.VARIANT) {
+                        for (Index index : olapTable.getIndexes()) {
+                            String fieldPattern = index.getInvertedIndexFieldPattern();
+                            if (fieldPattern.isEmpty() || index.getColumns().stream()
+                                    .noneMatch(name -> name.equalsIgnoreCase(modColumn.getName()))) {
+                                continue;
+                            }
+                            Column field = modColumn.getChildren() == null ? null
+                                    : modColumn.getChildren().stream()
+                                            .filter(child -> child.getName().equals(fieldPattern))
+                                            .findFirst().orElse(null);
+                            if (field == null) {
+                                throw new DdlException("Can not remove variant schema template " + fieldPattern
+                                        + " referenced by index " + index.getIndexName());
+                            }
+                            // Reuse ordinary index type/parser checks for the template's storage type.
+                            IndexDefinition definition = new IndexDefinition(index.getIndexName(), false,
+                                    index.getColumns(), index.getIndexType().name(), index.getProperties(),
+                                    index.getComment());
+                            definition.checkColumn(field, olapTable.getKeysType(),
+                                    olapTable.getEnableUniqueKeyMergeOnWrite(),
+                                    olapTable.getInvertedIndexFileStorageFormat());
+                        }
                         // Compaction reuses the hidden row-store cells. A template conversion
                         // would change the column-store values without updating those cells.
                         if (olapTable.storeRowColumn()

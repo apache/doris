@@ -1285,14 +1285,6 @@ struct TGetBinlogResult {
     6: optional Types.TNetworkAddress master_address
 }
 
-// Current FE schema snapshot used when compaction applies Variant write policies.
-struct TGetTabletSchemaResult {
-    1: required Status.TStatus status
-    2: optional i32 schema_version
-    3: optional list<Descriptors.TColumn> columns
-    4: optional list<Descriptors.TOlapTableIndex> indexes
-}
-
 struct TGetTabletReplicaInfosRequest {
     1: required list<i64> tablet_ids
     2: optional i64 warm_up_job_id
@@ -2055,8 +2047,6 @@ service FrontendService {
     TCheckAuthResult checkAuth(1: TCheckAuthRequest request)
 
     TQueryStatsResult getQueryStats(1: TGetQueryStatsRequest request)
-
-    TGetTabletSchemaResult getTabletSchema(1: i64 tabletId)
 
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 
