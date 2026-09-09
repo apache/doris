@@ -338,6 +338,7 @@ import org.apache.doris.nereids.DorisParser.ReplaceContext;
 import org.apache.doris.nereids.DorisParser.ReplacePartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.ReplacePartitionFieldClauseContext;
 import org.apache.doris.nereids.DorisParser.ReplaceTableClauseContext;
+import org.apache.doris.nereids.DorisParser.ResolveLanceIndexJobContext;
 import org.apache.doris.nereids.DorisParser.ResumeMTMVContext;
 import org.apache.doris.nereids.DorisParser.RoleMappingRuleClauseContext;
 import org.apache.doris.nereids.DorisParser.RollupDefContext;
@@ -790,6 +791,7 @@ import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.ResolveLanceIndexJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
@@ -7040,6 +7042,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowLanceIndexJob(ShowLanceIndexJobContext ctx) {
         long jobId = Long.parseLong(ctx.jobId.getText());
         return new ShowLanceIndexJobCommand(jobId);
+    }
+
+    @Override
+    public LogicalPlan visitResolveLanceIndexJob(ResolveLanceIndexJobContext ctx) {
+        long jobId = Long.parseLong(ctx.jobId.getText());
+        String comment = stripQuotes(ctx.comment.getText());
+        return new ResolveLanceIndexJobCommand(jobId, comment);
     }
 
     @Override
