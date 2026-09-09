@@ -168,6 +168,16 @@ public enum ConnectorCapability {
      */
     SUPPORTS_STORAGE_PREDICATE_PRUNING,
     /**
+     * Indicates that the connector can materialize a partitioned table's selected partition view directly from
+     * a connector predicate during Nereids partition pruning. The engine defers eager full partition
+     * materialization for such tables and asks the connector for the filtered view instead; when the connector
+     * cannot apply a predicate it must retain its existing full-list fallback.
+     *
+     * <p><b>Scope: per-table only.</b> A heterogeneous connector such as Hive can support this for plain HMS
+     * tables while delegating sibling table formats to connectors with different partition semantics.</p>
+     */
+    SUPPORTS_CONNECTOR_PARTITION_PRUNING,
+    /**
      * Indicates the connector's external metadata (schema / partitions / snapshot) can be pre-warmed
      * asynchronously by the planner before it takes the internal read lock, rather than loaded lazily
      * during binding.

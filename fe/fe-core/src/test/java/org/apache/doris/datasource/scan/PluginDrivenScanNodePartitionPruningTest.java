@@ -119,6 +119,17 @@ public class PluginDrivenScanNodePartitionPruningTest {
     }
 
     @Test
+    public void testPrunedToZeroWithUnknownTotalStillShortCircuits() {
+        SelectedPartitions emptyPruned = new SelectedPartitions(
+                SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM, Collections.emptyMap(), true, true);
+
+        List<String> result = PluginDrivenScanNode.resolveRequiredPartitions(emptyPruned);
+
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.isEmpty());
+    }
+
+    @Test
     public void testPrunedToZeroWithIgnoreShortCircuitScansAll() {
         // A predicate-driven connector (paimon: ConnectorScanPlanProvider.ignorePartitionPruneShortCircuit()
         // == true) must NOT short-circuit a genuine prune-to-zero. With the master-parity isNull=false a
