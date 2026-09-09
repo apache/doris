@@ -79,8 +79,8 @@ class ExecuteActionCommandTest {
         Mockito.when(tableName.getDb()).thenReturn("db");
         Mockito.when(tableName.getTbl()).thenReturn("tbl");
         Mockito.when(catalogMgr.getCatalog("iceberg")).thenReturn(catalog);
-        Mockito.when(catalog.getDbNullable("db")).thenReturn(database);
-        Mockito.when(database.getTableNullable("tbl")).thenReturn(table);
+        Mockito.doReturn(database).when(catalog).getDbNullable("db");
+        Mockito.doReturn(table).when(database).getTableNullable("tbl");
         Mockito.when(table.getCatalog()).thenReturn(externalCatalog);
         Mockito.when(table.getDbName()).thenReturn("db");
         Mockito.when(table.getName()).thenReturn("tbl");
@@ -156,8 +156,8 @@ class ExecuteActionCommandTest {
         Mockito.when(tableName.getDb()).thenReturn("test_db");
         Mockito.when(tableName.getTbl()).thenReturn("test_table");
         Mockito.when(catalogMgr.getCatalog("iceberg_catalog")).thenReturn(commandCatalog);
-        Mockito.when(commandCatalog.getDbNullable("test_db")).thenReturn(database);
-        Mockito.when(database.getTableNullable("test_table")).thenReturn(table);
+        Mockito.doReturn(database).when(commandCatalog).getDbNullable("test_db");
+        Mockito.doReturn(table).when(database).getTableNullable("test_table");
         Mockito.when(table.getCatalog()).thenReturn(externalCatalog);
         Mockito.when(externalCatalog.getId()).thenReturn(1L);
         Mockito.when(table.getDbName()).thenReturn("test_db");
