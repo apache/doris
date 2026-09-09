@@ -21,9 +21,15 @@ import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnResponse;
@@ -33,16 +39,19 @@ import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnStateChangeCallback;
 
 import com.google.common.collect.Lists;
@@ -621,6 +630,128 @@ public class CloudGlobalTransactionMgrTest {
             long result = masterTransMgr.getNextTransactionId();
             Assertions.assertEquals(1000, result);
         }
+    }
+
+    @Test
+    public void testVisibleRetryRefreshesAllTablePartitions() throws Exception {
+        CloudPartition first = addCloudPartition(1000);
+        CloudPartition second = addCloudPartition(2000);
+        CommitTxnResponse response = visibleRetry(List.of(first.getTableId(), second.getTableId(), first.getTableId()));
+        int batchSize = Config.cloud_get_version_task_batch_size;
+        Config.cloud_get_version_task_batch_size = 1;
+        try (MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+            versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenAnswer(invocation -> {
+                Cloud.GetVersionRequest request = invocation.getArgument(0);
+                Assertions.assertFalse(request.getIsTableVersion());
+                Assertions.assertEquals(1, request.getPartitionIdsCount());
+                return partitionVersion(4);
+            });
+            masterTransMgr.afterCommitTxnResp(response, null, List.of());
+            Assertions.assertEquals(4, first.getCachedVisibleVersion());
+            Assertions.assertEquals(4, second.getCachedVisibleVersion());
+            Assertions.assertEquals(40, first.getVisibleVersionTime());
+            Assertions.assertEquals(400, first.getTso());
+            // Current versions must not become the original transaction's BE promotion outcome.
+            Assertions.assertEquals(0, response.getVersionsCount());
+            versions.verify(() -> VersionHelper.getVersionFromMeta(Mockito.any()), Mockito.times(2));
+        } finally {
+            Config.cloud_get_version_task_batch_size = batchSize;
+        }
+    }
+
+    @Test
+    public void testIncompleteCommitDoesNotRefreshPartitionVersions() throws Exception {
+        CloudPartition partition = addCloudPartition(1000);
+        CommitTxnResponse response = visibleRetry(List.of(partition.getTableId()));
+        try (MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+            masterTransMgr.afterCommitTxnResp(response.toBuilder().setTxnInfo(response.getTxnInfo().toBuilder()
+                    .setStatus(Cloud.TxnStatusPB.TXN_STATUS_COMMITTED)).build(), null, List.of());
+            masterTransMgr.afterCommitTxnResp(response.toBuilder().setIsLazyCommit(true)
+                    .setIsLazyCommitIncomplete(true).build(), null, List.of());
+            Assertions.assertEquals(2, partition.getCachedVisibleVersion());
+            versions.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    public void testVisibleRetrySkipsDroppedTable() throws Exception {
+        try (MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+            masterTransMgr.afterCommitTxnResp(visibleRetry(List.of(1000L)), null, List.of());
+            versions.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    public void testMowVisiblePrecheckRefreshesPartitionVersions() throws Exception {
+        CloudPartition partition = addCloudPartition(1000);
+        TxnInfoPB txnInfo = visibleRetry(List.of(partition.getTableId())).getTxnInfo();
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(proxy.getTxn(Mockito.any())).thenReturn(Cloud.GetTxnResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                .setTxnInfo(txnInfo).build());
+        try (MockedStatic<MetaServiceProxy> proxyMock = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+            proxyMock.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenReturn(partitionVersion(4));
+            Method check = CloudGlobalTransactionMgr.class.getDeclaredMethod("checkTransactionStateBeforeCommit",
+                    long.class, long.class);
+            check.setAccessible(true);
+            Assertions.assertEquals(false, check.invoke(masterTransMgr, txnInfo.getDbId(), txnInfo.getTxnId()));
+            Assertions.assertEquals(4, partition.getCachedVisibleVersion());
+        }
+    }
+
+    @Test
+    public void testRefreshFailurePreservesCommitCallbacks() throws Exception {
+        CloudPartition partition = addCloudPartition(1000);
+        CommitTxnResponse retry = visibleRetry(List.of(partition.getTableId()));
+        CommitTxnResponse response = retry.toBuilder()
+                .setTxnInfo(retry.getTxnInfo().toBuilder().setListenerId(42)).build();
+        TxnStateChangeCallback callback = Mockito.mock(TxnStateChangeCallback.class);
+        Mockito.when(callback.getId()).thenReturn(42L);
+        masterTransMgr.getCallbackFactory().addCallback(callback);
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(proxy.commitTxn(Mockito.any())).thenReturn(response);
+        Table table = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(partition.getTableId());
+        try (MockedStatic<MetaServiceProxy> proxyMock = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+            proxyMock.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any()))
+                    .thenThrow(new RpcException("MS", "unavailable"));
+            UserException error = Assertions.assertThrows(UserException.class,
+                    () -> masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1,
+                            List.of(table), response.getTxnInfo().getTxnId(), null, null));
+            Assertions.assertTrue(error.getMessage().contains("already visible"));
+            Assertions.assertEquals(2, partition.getCachedVisibleVersion());
+            Mockito.verify(callback).afterCommitted(Mockito.argThat(state ->
+                    state.getTransactionStatus() == TransactionStatus.VISIBLE), Mockito.eq(true));
+            Mockito.verify(callback).afterVisible(Mockito.argThat(state ->
+                    state.getTransactionStatus() == TransactionStatus.VISIBLE), Mockito.eq(true));
+        }
+    }
+
+    private CloudPartition addCloudPartition(long tableId) throws Exception {
+        OlapTable table = new OlapTable(tableId, "version_cache_" + tableId, List.of(), KeysType.DUP_KEYS,
+                new PartitionInfo(), new RandomDistributionInfo(1));
+        CloudPartition partition = new CloudPartition(tableId + 1, "p1", new MaterializedIndex(),
+                new RandomDistributionInfo(1), CatalogTestUtil.testDbId1, tableId);
+        partition.setCachedVisibleVersion(2, 20, 200);
+        table.addPartition(partition);
+        masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1).registerTable(table);
+        return partition;
+    }
+
+    private CommitTxnResponse visibleRetry(List<Long> tableIds) {
+        return CommitTxnResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                .setTxnInfo(buildTxnInfo(100).toBuilder().clearTableIds().addAllTableIds(tableIds)
+                        .setStatus(Cloud.TxnStatusPB.TXN_STATUS_VISIBLE).setCommitTso(300)).build();
+    }
+
+    private Cloud.GetVersionResponse partitionVersion(long version) {
+        return Cloud.GetVersionResponse.newBuilder().addVersions(version)
+                .addVersionUpdateTimeMs(version * 10).addCommitTsos(version * 100).build();
     }
 
     private TxnInfoPB buildTxnInfo(long transactionId) {
