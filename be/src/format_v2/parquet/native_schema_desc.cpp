@@ -880,7 +880,9 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         ans.first = DataTypeFactory::instance().create_data_type(
                 TYPE_DATETIMEV2, nullable, 0, logicalType.TIMESTAMP.unit.__isset.MILLIS ? 3 : 6);
     } else if (logicalType.__isset.UUID) {
-        ans.first = DataTypeFactory::instance().create_data_type(TYPE_UUID, nullable);
+        // Iceberg catalogs can explicitly request the UUID's 16-byte VARBINARY carrier.
+        ans.first = DataTypeFactory::instance().create_data_type(
+                _enable_mapping_varbinary ? TYPE_VARBINARY : TYPE_UUID, nullable, -1, -1, 16);
     } else if (logicalType.__isset.FLOAT16) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, nullable);
     } else {
