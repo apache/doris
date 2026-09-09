@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
@@ -46,6 +47,8 @@ public class WeeksSub extends ScalarFunction implements BinaryExpression, Explic
     // without loss, we handle it by ComputeSignatureForDateArithmetic.
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD,
+                    IntegerType.INSTANCE),
+            FunctionSignature.ret(TimeStampNsType.INSTANCE).args(TimeStampNsType.INSTANCE,
                     IntegerType.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(TimeStampTzType.WILDCARD).args(TimeStampTzType.WILDCARD,

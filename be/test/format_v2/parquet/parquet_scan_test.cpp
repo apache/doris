@@ -26,6 +26,7 @@
 #include <parquet/encoding.h>
 
 #include <bit>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -3403,6 +3404,53 @@ TEST_F(ParquetScanTest, PredicateOnlyPlainStringNullPredicatesUseDefinitionLevel
         EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
         conjunct->close();
     }
+}
+
+TEST_F(ParquetScanTest, PyArrow3DictionaryNullCountFixturePreservesIsNullRows) {
+    const char* source_root = std::getenv("ROOT");
+    ASSERT_NE(source_root, nullptr);
+    const auto fixture_path =
+            std::filesystem::path(source_root) /
+            "be/test/format_v2/parquet/test_data/pyarrow-3.0.0-dictionary-null-count.parquet";
+    ASSERT_TRUE(std::filesystem::copy_file(fixture_path, _file_path));
+
+    const auto fixture_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    const auto fixture_metadata = fixture_reader->metadata();
+    ASSERT_EQ(fixture_metadata->created_by(), "parquet-cpp version 1.5.1-SNAPSHOT");
+    const auto fixture_statistics = fixture_metadata->RowGroup(0)->ColumnChunk(0)->statistics();
+    ASSERT_NE(fixture_statistics, nullptr);
+    ASSERT_EQ(fixture_statistics->null_count(), 0);
+
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    auto conjunct = create_string_null_conjunct(0, true);
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    request->conjuncts.push_back(conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    ColumnInt32::Container actual;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        const auto& ids = int32_data_column(*block.get_by_position(1).column).get_data();
+        actual.insert(actual.end(), ids.begin(), ids.end());
+    }
+    EXPECT_EQ(actual, (ColumnInt32::Container {0, 3, 6, 9, 12}));
+    conjunct->close();
 }
 
 TEST_F(ParquetScanTest, PredicateOnlyDictionaryIntNullPredicatesUseDefinitionLevels) {

@@ -425,6 +425,18 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                               return process_adjust_rate_limiter((RS*)s, c);
                           },
                   .role = HttpRole::RECYCLER}},
+                {"analyze_snapshot_retained",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_analyze_snapshot_retained((RS*)s, c);
+                          },
+                  .role = HttpRole::RECYCLER}},
+                {"get_snapshot_retained_analysis",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_get_snapshot_retained_analysis((RS*)s, c);
+                          },
+                  .role = HttpRole::RECYCLER}},
 
                 // Shared APIs
                 {"show_config",
@@ -861,6 +873,26 @@ HttpResponse process_adjust_rate_limiter(RecyclerServiceImpl*, brpc::Controller*
         return http_json_reply(MetaServiceCode::UNDEFINED_ERR, "adjust failed");
     }
     return http_json_reply(MetaServiceCode::OK, "");
+}
+
+HttpResponse process_analyze_snapshot_retained(RecyclerServiceImpl* service,
+                                               brpc::Controller* cntl) {
+    auto [code, message, result] =
+            service->recycler()->snapshot_manager()->analyze_snapshot_retained(
+                    cntl->request_attachment().to_string());
+    return http_json_reply(code, message,
+                           result.empty() ? std::nullopt : std::optional<std::string>(result));
+}
+
+HttpResponse process_get_snapshot_retained_analysis(RecyclerServiceImpl* service,
+                                                    brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    auto [code, message, result] =
+            service->recycler()->snapshot_manager()->get_snapshot_retained_analysis(
+                    cntl->request_attachment().to_string(), http_query(uri, "instance_id"),
+                    http_query(uri, "analysis_id"));
+    return http_json_reply(code, message,
+                           result.empty() ? std::nullopt : std::optional<std::string>(result));
 }
 
 HttpResponse process_show_config(MetaServiceImpl*, brpc::Controller* cntl) {

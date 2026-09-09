@@ -288,9 +288,11 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     // same) already exist, then just return true(an duplicate request). But if
     // tablet_id exist but with different schema_hash, return an error(report task will
     // eventually trigger its deletion).
+    bool tablet_exists = false;
     {
         SCOPED_TIMER(ADD_TIMER(profile, "GetTabletUnlocked"));
-        if (_get_tablet_unlocked(tablet_id) != nullptr) {
+        tablet_exists = _get_tablet_unlocked(tablet_id) != nullptr;
+        if (tablet_exists && !is_colocated_row_binlog) {
             LOG(INFO) << "success to create tablet. tablet already exist. tablet_id=" << tablet_id;
             return Status::OK();
         }
@@ -331,6 +333,24 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         }
     }
 
+    auto persist_row_binlog_pair = [&]() {
+        CHECK(is_colocated_row_binlog);
+        std::lock_guard base_tablet_wlock(base_tablet->get_header_lock());
+        CHECK(base_tablet->tablet_meta()->binlog_tablet_id() == 0 ||
+              base_tablet->tablet_meta()->binlog_tablet_id() == tablet_id)
+                << "base tablet " << base_tablet->tablet_id()
+                << " is already paired with row-binlog tablet "
+                << base_tablet->tablet_meta()->binlog_tablet_id() << ", new row-binlog tablet "
+                << tablet_id;
+        base_tablet->tablet_meta()->set_binlog_tablet_id(tablet_id);
+        base_tablet->save_meta();
+    };
+    if (tablet_exists) {
+        persist_row_binlog_pair();
+        LOG(INFO) << "success to create tablet. tablet already exist. tablet_id=" << tablet_id;
+        return Status::OK();
+    }
+
     TabletSharedPtr tablet = _internal_create_tablet_unlocked(
             request, is_schema_change_or_atomic_restore, is_colocated_row_binlog, base_tablet.get(),
             stores, profile);
@@ -338,6 +358,9 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         return Status::Error<CE_CMD_PARAMS_ERROR>("fail to create tablet. tablet_id={}",
                                                   request.tablet_id);
+    }
+    if (is_colocated_row_binlog) {
+        persist_row_binlog_pair();
     }
 
     LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id

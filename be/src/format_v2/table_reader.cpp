@@ -955,6 +955,14 @@ Status TableReader::init(TableReadOptions&& options) {
                                                                 TUnit::UNIT, table_profile, 1);
         _profile.parse_delete_file_time = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "ParseDeleteFileTime", table_profile, 1);
+        _profile.equality_delete_index_cache_hit_count =
+                ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "EqualityDeleteIndexCacheHitCount",
+                                             TUnit::UNIT, table_profile, 1);
+        _profile.equality_delete_index_cache_miss_count =
+                ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "EqualityDeleteIndexCacheMissCount",
+                                             TUnit::UNIT, table_profile, 1);
+        _profile.equality_delete_hash_index_memory = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "EqualityDeleteHashIndexMemory", TUnit::BYTES, table_profile, 1);
         _profile.decoded_dv_cache_hit_count =
                 ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "DeletionVectorDecodedCacheHitCount",
                                              TUnit::UNIT, table_profile, 1);
@@ -1162,6 +1170,8 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
         }
     }
     RETURN_IF_ERROR(customize_file_scan_request(refreshed_request.get()));
+    RETURN_IF_ERROR(
+            refreshed_mapper->reconcile_scan_request_after_customization(refreshed_request.get()));
     if (_file_scan_request == nullptr ||
         !same_physical_scan_layout(*refreshed_request, *_file_scan_request)) {
         // A reader cannot reinterpret columns already materialized with another block layout.

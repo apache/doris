@@ -915,6 +915,15 @@ public class StmtExecutor {
                 if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                     throw new UserException("Forward master command is not supported for prepare statement");
                 }
+                if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
+                    // The master returns a query result as MySQL wire packets in
+                    // TMasterOpResult.queryResultBufList, which only ConnectProcessor.finalizeCommand()
+                    // can replay and which cannot be converted to Arrow batches. Refuse here, before
+                    // the RPC, rather than let the master build a result set this FE would discard
+                    // and answer the client with a synthesized empty success.
+                    throw new UserException("Forwarding a query to the master FE is not supported on an"
+                            + " Arrow Flight SQL connection. Connect to the master FE to run this query.");
+                }
                 if (isProxy) {
                     // This is already a stmt forwarded from other FE.
                     // If we goes here, means we can't find a valid Master FE(some error happens).
@@ -2111,6 +2120,11 @@ public class StmtExecutor {
                             if (microSecond > 0) {
                                 serializer.writeInt4((int) microSecond);
                             }
+                            break;
+                        case TIMESTAMP_NS:
+                            // MySQL temporal binary values cannot carry nanoseconds. The metadata advertises
+                            // MYSQL_TYPE_STRING, so encode the result as length-encoded text.
+                            serializer.writeLenEncodedString(item);
                             break;
                         default:
                             serializer.writeLenEncodedString(item);

@@ -1224,7 +1224,7 @@ public class Config extends ConfigBase {
     public static int streaming_pg_max_identifier_length = 63;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static int streaming_cdc_fetch_splits_batch_size = 100;
+    public static int streaming_cdc_fetch_splits_batch_size = 16;
 
     /**
      * the max timeout of get kafka meta.
@@ -2007,8 +2007,10 @@ public class Config extends ConfigBase {
     /**
      * Max data version of backends serialize block.
      */
+    public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
+
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 13;
+    public static int max_be_exec_version = TIMESTAMP_NS_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
@@ -3343,8 +3345,20 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_warm_up_timeout_second = 86400 * 30; // 30 days
 
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true,
+            callback = PositiveCloudWarmUpSchedulerIntervalConfHandler.class)
     public static int cloud_warm_up_job_scheduler_interval_millisecond = 1000; // 1 seconds
+
+    public static class PositiveCloudWarmUpSchedulerIntervalConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsedValue = Integer.parseInt(value.trim());
+            if (parsedValue <= 0) {
+                throw new ConfigException(field.getName() + " must be greater than 0");
+            }
+            field.setInt(null, parsedValue);
+        }
+    }
 
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
