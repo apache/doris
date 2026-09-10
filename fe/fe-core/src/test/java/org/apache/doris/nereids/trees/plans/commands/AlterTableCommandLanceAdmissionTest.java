@@ -320,6 +320,8 @@ public class AlterTableCommandLanceAdmissionTest {
                     .loadTableIndexAdmissionSnapshot(Mockito.anyString(), Mockito.anyString());
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
             Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
+            Assertions.assertEquals(0, fixture.manager.getJobCount());
+            Assertions.assertTrue(fixture.manager.editLog.isEmpty());
         }
     }
 
@@ -333,6 +335,8 @@ public class AlterTableCommandLanceAdmissionTest {
                             "CREATE OR REPLACE INDEX idx ON " + CTL + "." + DB + "." + TBL
                                     + " (c) USING BTREE"));
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
+            Assertions.assertEquals(0, fixture.manager.getJobCount());
+            Assertions.assertTrue(fixture.manager.editLog.isEmpty());
         }
     }
 
@@ -347,6 +351,8 @@ public class AlterTableCommandLanceAdmissionTest {
                     runAndGetMessage(fixture.executor,
                             "DROP INDEX IF EXISTS idx ON " + CTL + "." + DB + "." + TBL));
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
+            Assertions.assertEquals(0, fixture.manager.getJobCount());
+            Assertions.assertTrue(fixture.manager.editLog.isEmpty());
         }
     }
 

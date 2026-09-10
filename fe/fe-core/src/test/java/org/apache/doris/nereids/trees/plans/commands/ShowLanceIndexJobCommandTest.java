@@ -47,6 +47,7 @@ import org.apache.doris.qe.ShowResultSet;
 import mockit.Expectations;
 import mockit.Mocked;
 import mockit.Verifications;
+import mockit.VerificationsInOrder;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -201,6 +202,41 @@ public class ShowLanceIndexJobCommandTest {
         AnalysisException e = Assertions.assertThrows(AnalysisException.class,
                 () -> new ShowLanceIndexJobCommand(42L).doRun(connectContext, null));
         Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_JOB_NOT_FOUND, e.getMysqlErrorCode());
+    }
+
+    @Test
+    public void testOrphanNonAdminMatchesMissingResponse() {
+        expectEnv(null);
+        AnalysisException missing = Assertions.assertThrows(AnalysisException.class,
+                () -> new ShowLanceIndexJobCommand(42L).doRun(connectContext, null));
+        Assertions.assertTrue(missing.getMessage().contains("Lance index job not found: 42"));
+
+        // Catalog deleted: a non-ADMIN caller gets the byte-identical response as for a
+        // missing job, so the persisted catalog id behind a job is never disclosed.
+        expectEnv(newJob(42L));
+        new Expectations() {
+            {
+                catalogMgr.getCatalog(10L);
+                minTimes = 0;
+                result = null;
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = false;
+            }
+        };
+        AnalysisException orphan = Assertions.assertThrows(AnalysisException.class,
+                () -> new ShowLanceIndexJobCommand(42L).doRun(connectContext, null));
+        Assertions.assertEquals(missing.getMessage(), orphan.getMessage());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_JOB_NOT_FOUND, orphan.getMysqlErrorCode());
+        // The job record was loaded and the ADMIN check actually ran, so the orphan branch
+        // (not the missing branch) produced the response above.
+        new Verifications() {
+            {
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                times = 1;
+            }
+        };
     }
 
     @Test
@@ -372,6 +408,23 @@ public class ShowLanceIndexJobCommandTest {
             {
                 accessControllerManager.checkTblPriv(proxyCtx, "lance_ctl", "db1", "tbl1", PrivPredicate.SHOW);
                 times = 1;
+            }
+        };
+    }
+
+    @Test
+    public void testJobLoadsBeforeTargetAuthorization() throws Exception {
+        expectEnv(newJob(42L));
+        expectResolvableCatalog(true);
+
+        new ShowLanceIndexJobCommand(42L).doRun(connectContext, null);
+
+        // The record is loaded first; authorization then runs against its persisted target.
+        new VerificationsInOrder() {
+            {
+                lanceIndexJobManager.getJob(42L);
+                accessControllerManager.checkTblPriv(connectContext, "lance_ctl", "db1", "tbl1",
+                        PrivPredicate.SHOW);
             }
         };
     }

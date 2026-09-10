@@ -332,6 +332,36 @@ public class ShowLanceIndexJobsCommandTest {
     }
 
     @Test
+    public void testHalfOrphanTableMissingHiddenFromNonAdmin() throws Exception {
+        // Pairs with testHalfOrphanTableMissingIsAdminOnly: the same unresolvable persisted
+        // table is invisible to a non-ADMIN user - omitted entirely, no count leak.
+        LanceIndexJob halfOrphan = newJob(4L, 10L, "db1", "gone_tbl", "idx1");
+        expectEnv(Collections.singletonList(halfOrphan));
+        new Expectations() {
+            {
+                catalogMgr.getCatalog(10L);
+                minTimes = 0;
+                result = catalog;
+
+                catalog.getDbNullable("db1");
+                minTimes = 0;
+                result = database;
+
+                database.getTableNullable("gone_tbl");
+                minTimes = 0;
+                result = null;
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = false;
+            }
+        };
+
+        ShowLanceIndexJobsCommand command = new ShowLanceIndexJobsCommand(null, null);
+        Assertions.assertTrue(command.doRun(connectContext, null).getResultRows().isEmpty());
+    }
+
+    @Test
     public void testFromAndWhereFilters() throws Exception {
         LanceIndexJob match = newJob(1L, 10L, "db1", "tbl1", "idx1");
         LanceIndexJob otherTable = newJob(2L, 10L, "db1", "tbl2", "idx2");
@@ -502,6 +532,18 @@ public class ShowLanceIndexJobsCommandTest {
                 new StringLiteral("tbl%"));
         ShowLanceIndexJobsCommand command = new ShowLanceIndexJobsCommand(null, where);
         Assertions.assertThrows(AnalysisException.class, () -> command.doRun(connectContext, null));
+    }
+
+    @Test
+    public void testReversedLiteralPredicateRejected() {
+        // WHERE "tbl" = TableName parses as EqualTo(StringLiteral, UnboundSlot); the narrowed
+        // grammar requires the slot on the left, so the reversed shape gets the WHERE hint.
+        Expression where = new EqualTo(new StringLiteral("tbl1"),
+                new UnboundSlot(Lists.newArrayList("TableName")));
+        ShowLanceIndexJobsCommand command = new ShowLanceIndexJobsCommand(null, where);
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                () -> command.doRun(connectContext, null));
+        Assertions.assertTrue(e.getMessage().contains("Where clause should looks like"));
     }
 
     @Test
