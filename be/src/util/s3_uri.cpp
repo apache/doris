@@ -21,6 +21,7 @@
 #include <absl/strings/match.h>
 #include <absl/strings/str_split.h>
 
+#include <algorithm>
 #include <charconv>
 #include <string_view>
 #include <vector>
@@ -46,15 +47,84 @@ const std::string S3URI::_FRAGMENT_DELIM = "#";
 /// _key:    path/to/file.txt
 bool S3URI::is_azure_endpoint(std::string_view authority) {
     auto host = absl::AsciiStrToLower(authority.substr(0, authority.find(':')));
-    for (const auto* suffix :
-         {".blob.core.windows.net", ".dfs.core.windows.net", ".blob.core.chinacloudapi.cn",
-          ".dfs.core.chinacloudapi.cn", ".blob.core.usgovcloudapi.net",
-          ".dfs.core.usgovcloudapi.net", ".blob.core.cloudapi.de", ".dfs.core.cloudapi.de"}) {
-        if (host.ends_with(suffix) && host.size() > std::char_traits<char>::length(suffix)) {
-            return true;
-        }
+    static constexpr std::string_view suffixes[] = {
+            ".blob.core.windows.net",       ".dfs.core.windows.net",
+            ".blob.core.chinacloudapi.cn",  ".dfs.core.chinacloudapi.cn",
+            ".blob.core.usgovcloudapi.net", ".dfs.core.usgovcloudapi.net",
+            ".blob.core.cloudapi.de",       ".dfs.core.cloudapi.de"};
+    return std::ranges::any_of(suffixes, [&host](std::string_view suffix) {
+        return host.ends_with(suffix) && host.size() > suffix.size();
+    });
+}
+
+Status S3URI::_parsing_error(std::string_view message, bool azure_provider) const {
+    if (azure_provider || _is_azure) {
+        return Status::InvalidArgument("{}", message);
     }
-    return false;
+    // The first HTTP parse may precede provider selection. Never echo a
+    // signed query, including for malformed or custom Azure endpoints.
+    const auto safe_location = std::string_view(_location).substr(0, _location.find_first_of("?#"));
+    return Status::InvalidArgument("{}: {}", message, safe_location);
+}
+
+Status S3URI::_parse_authority(const std::string& scheme, const std::string& rest,
+                               bool azure_provider) {
+    if (scheme == _SCHEME_S3) {
+        // has scheme, eg: s3://bucket1/path/to/file.txt
+        std::vector<std::string> authority_split =
+                absl::StrSplit(rest, absl::MaxSplits(_PATH_DELIM, 1));
+        if (authority_split.empty() || authority_split[0].empty()) {
+            return _parsing_error("Invalid S3 URI", azure_provider);
+        }
+        _bucket = authority_split[0];
+        // support s3://bucket1
+        _key = authority_split.size() == 1 ? "/" : authority_split[1];
+    } else if (absl::EqualsIgnoreCase(scheme, _SCHEME_ABFS) ||
+               absl::EqualsIgnoreCase(scheme, _SCHEME_ABFSS) ||
+               absl::EqualsIgnoreCase(scheme, _SCHEME_WASB) ||
+               absl::EqualsIgnoreCase(scheme, _SCHEME_WASBS)) {
+        // Azure Data Lake paths use container@account-host as the
+        // authority. Keep the account host so the native Azure client
+        // can derive its endpoint without consulting Hadoop settings.
+        _is_azure = true;
+        std::vector<std::string> authority_split =
+                absl::StrSplit(rest, absl::MaxSplits(_PATH_DELIM, 1));
+        if (authority_split.empty() || authority_split[0].empty()) {
+            return _parsing_error("Invalid Azure URI", azure_provider);
+        }
+        const auto at = authority_split[0].find('@');
+        if (at == std::string::npos || at == 0 || at + 1 == authority_split[0].size() ||
+            authority_split[0].find('@', at + 1) != std::string::npos) {
+            return _parsing_error("Invalid Azure URI authority", azure_provider);
+        }
+        _bucket = authority_split[0].substr(0, at);
+        _endpoint = authority_split[0].substr(at + 1);
+        if (_endpoint.empty()) {
+            return _parsing_error("Invalid Azure URI authority", azure_provider);
+        }
+        const auto dot = _endpoint.find('.');
+        _account = dot == std::string::npos ? _endpoint : _endpoint.substr(0, dot);
+        _key = authority_split.size() == 1 ? "/" : authority_split[1];
+    } else if (absl::EqualsIgnoreCase(scheme, _SCHEME_HTTP) ||
+               absl::EqualsIgnoreCase(scheme, _SCHEME_HTTPS)) {
+        // has scheme, eg: http(s)://host/bucket1/path/to/file.txt
+        std::vector<std::string> authority_split =
+                absl::StrSplit(rest, absl::MaxSplits(_PATH_DELIM, 2));
+        _is_azure = is_azure_endpoint(authority_split[0]);
+        if (authority_split.size() != 3 || authority_split[0].empty() ||
+            authority_split[1].empty()) {
+            return _parsing_error("Invalid S3 HTTP URI", azure_provider);
+        }
+        // authority_split[0] is host, authority_split[1] is bucket.
+        _endpoint = authority_split[0];
+        const auto dot = _endpoint.find('.');
+        _account = dot == std::string::npos ? _endpoint : _endpoint.substr(0, dot);
+        _bucket = authority_split[1];
+        _key = authority_split[2];
+    } else {
+        return _parsing_error("Invalid S3 URI", azure_provider);
+    }
+    return Status::OK();
 }
 
 Status S3URI::parse(bool azure_provider) {
@@ -70,87 +140,18 @@ Status S3URI::parse(bool azure_provider) {
     _account.clear();
     _is_azure = false;
 
-    const auto parsing_error = [this, azure_provider](std::string_view message) {
-        if (azure_provider || _is_azure) {
-            return Status::InvalidArgument("{}", message);
-        }
-        // The first HTTP parse may precede provider selection. Never echo a
-        // signed query, including for malformed or custom Azure endpoints.
-        const auto safe_location =
-                std::string_view(_location).substr(0, _location.find_first_of("?#"));
-        return Status::InvalidArgument("{}: {}", message, safe_location);
-    };
-
     std::vector<std::string> scheme_split =
             absl::StrSplit(_location, absl::MaxSplits(_SCHEME_DELIM, 1));
-    std::string rest;
     if (scheme_split.size() == 2) {
         const std::string& scheme = scheme_split[0];
         _scheme = absl::AsciiStrToLower(scheme);
-        if (scheme == _SCHEME_S3) {
-            // has scheme, eg: s3://bucket1/path/to/file.txt
-            rest = scheme_split[1];
-            std::vector<std::string> authority_split =
-                    absl::StrSplit(rest, absl::MaxSplits(_PATH_DELIM, 1));
-            if (authority_split.empty() || authority_split[0].empty()) {
-                return parsing_error("Invalid S3 URI");
-            }
-            _bucket = authority_split[0];
-            // support s3://bucket1
-            _key = authority_split.size() == 1 ? "/" : authority_split[1];
-        } else if (absl::EqualsIgnoreCase(scheme, _SCHEME_ABFS) ||
-                   absl::EqualsIgnoreCase(scheme, _SCHEME_ABFSS) ||
-                   absl::EqualsIgnoreCase(scheme, _SCHEME_WASB) ||
-                   absl::EqualsIgnoreCase(scheme, _SCHEME_WASBS)) {
-            // Azure Data Lake paths use container@account-host as the
-            // authority.  Keep the account host so the native Azure client
-            // can derive its endpoint without consulting Hadoop settings.
-            _is_azure = true;
-            rest = scheme_split[1];
-            std::vector<std::string> authority_split =
-                    absl::StrSplit(rest, absl::MaxSplits(_PATH_DELIM, 1));
-            if (authority_split.empty() || authority_split[0].empty()) {
-                return parsing_error("Invalid Azure URI");
-            }
-            const auto at = authority_split[0].find('@');
-            if (at == std::string::npos || at == 0 || at + 1 == authority_split[0].size() ||
-                authority_split[0].find('@', at + 1) != std::string::npos) {
-                return parsing_error("Invalid Azure URI authority");
-            }
-            _bucket = authority_split[0].substr(0, at);
-            _endpoint = authority_split[0].substr(at + 1);
-            if (_endpoint.empty()) {
-                return parsing_error("Invalid Azure URI authority");
-            }
-            const auto dot = _endpoint.find('.');
-            _account = dot == std::string::npos ? _endpoint : _endpoint.substr(0, dot);
-            _key = authority_split.size() == 1 ? "/" : authority_split[1];
-        } else if (absl::EqualsIgnoreCase(scheme, _SCHEME_HTTP) ||
-                   absl::EqualsIgnoreCase(scheme, _SCHEME_HTTPS)) {
-            // has scheme, eg: http(s)://host/bucket1/path/to/file.txt
-            rest = scheme_split[1];
-            std::vector<std::string> authority_split =
-                    absl::StrSplit(rest, absl::MaxSplits(_PATH_DELIM, 2));
-            _is_azure = is_azure_endpoint(authority_split[0]);
-            if (authority_split.size() != 3 || authority_split[0].empty() ||
-                authority_split[1].empty()) {
-                return parsing_error("Invalid S3 HTTP URI");
-            }
-            // authority_split[0] is host, authority_split[1] is bucket.
-            _endpoint = authority_split[0];
-            const auto dot = _endpoint.find('.');
-            _account = dot == std::string::npos ? _endpoint : _endpoint.substr(0, dot);
-            _bucket = authority_split[1];
-            _key = authority_split[2];
-        } else {
-            return parsing_error("Invalid S3 URI");
-        }
+        RETURN_IF_ERROR(_parse_authority(scheme, scheme_split[1], azure_provider));
     } else if (scheme_split.size() == 1) {
         // no scheme, eg: path/to/file.txt
         _bucket = ""; // unknown
         _key = _location;
     } else {
-        return parsing_error("Invalid S3 URI");
+        return _parsing_error("Invalid S3 URI", azure_provider);
     }
     const bool azure_uri =
             (_is_azure || azure_provider) && !_scheme.empty() && _scheme != _SCHEME_S3;
@@ -158,7 +159,7 @@ Status S3URI::parse(bool azure_provider) {
         absl::StripAsciiWhitespace(&_key);
     }
     if (_key.empty()) {
-        return parsing_error("Invalid S3 key");
+        return _parsing_error("Invalid S3 key", azure_provider);
     }
     // Strip query and fragment if they exist
     std::vector<std::string> _query_split = absl::StrSplit(_key, _QUERY_DELIM);

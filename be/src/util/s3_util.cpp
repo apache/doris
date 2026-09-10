@@ -319,109 +319,122 @@ void import_legacy_azure_shared_key(S3ClientConf* conf) {
     conf->cred_provider_type = CredProviderType::Default;
 }
 
+Status convert_legacy_azure_properties(const StringCaseMap<std::string>& properties,
+                                       S3ClientConf* client_conf) {
+    auto& client = *client_conf;
+    // Compatibility is deliberately limited to the old SharedKey map. An
+    // incomplete native map must not be mistaken for that old protocol.
+    for (const auto& [key, value] : properties) {
+        const auto lower = to_lower(key);
+        if (lower.starts_with("azure") || lower.starts_with("fs.azure.") ||
+            (lower == "aws_token" && !value.empty())) {
+            return Status::InvalidArgument("Azure native credentials require AZURE_AUTH_TYPE");
+        }
+    }
+    if (!has_property(properties, {S3_ENDPOINT}) || !has_property(properties, {S3_AK}) ||
+        !has_property(properties, {S3_SK})) {
+        return Status::InvalidArgument("Azure native credentials require AZURE_AUTH_TYPE");
+    }
+    client.endpoint = *find_property(properties, {S3_ENDPOINT});
+    client.ak = *find_property(properties, {S3_AK});
+    client.sk = *find_property(properties, {S3_SK});
+    import_legacy_azure_shared_key(&client);
+    for (const auto& [name, target] :
+         {std::pair {S3_MAX_CONN_SIZE, &client.max_connections},
+          std::pair {S3_REQUEST_TIMEOUT_MS, &client.request_timeout_ms},
+          std::pair {S3_CONN_TIMEOUT_MS, &client.connect_timeout_ms}}) {
+        if (const auto* value = find_property(properties, {name}); value != nullptr) {
+            if (!to_int(*value, *target)) {
+                return Status::InvalidArgument("invalid Azure connection option {}", name);
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status convert_native_azure_properties(const StringCaseMap<std::string>& properties,
+                                       const S3URI& uri, const std::string& auth_type,
+                                       S3ClientConf* client_conf) {
+    auto& client = *client_conf;
+    for (const auto& [key, value] : properties) {
+        const auto lower = to_lower(key);
+        if (lower.starts_with("aws_") || lower.starts_with("azure.")) {
+            return Status::InvalidArgument(
+                    "Azure native credentials cannot use AWS or catalog property aliases");
+        }
+    }
+    // Older FE versions attach a Hadoop configuration view for OneLake to
+    // this map. Ignore those extra keys; they must never supply or override
+    // any native authentication field. FE routing separates the two views.
+    auto& credential = client.azure_credentials;
+    if (auth_type == "SHARED_KEY") {
+        credential.type = AzureCredentialType::SHARED_KEY;
+    } else if (auth_type == "SAS") {
+        credential.type = AzureCredentialType::SAS;
+    } else if (auth_type == "OAUTH2") {
+        credential.type = AzureCredentialType::OAUTH2;
+    } else {
+        return Status::InvalidArgument("unsupported AZURE_AUTH_TYPE in native credentials");
+    }
+    auto set = [&](const char* key, std::string* target) {
+        if (const auto* value = find_property(properties, {key}); value != nullptr) {
+            *target = *value;
+        }
+    };
+    set(AZURE_ENDPOINT, &client.endpoint);
+    set(AZURE_ACCOUNT_NAME, &credential.account_name);
+    set(AZURE_ACCOUNT_KEY, &credential.account_key);
+    set(AZURE_SAS_TOKEN, &credential.sas_token);
+    set(AZURE_CLIENT_ID, &credential.oauth_client_id);
+    set(AZURE_CLIENT_SECRET, &credential.oauth_client_secret);
+    set(AZURE_TENANT_ID, &credential.oauth_tenant_id);
+    set(AZURE_OAUTH_SERVER_URI, &credential.oauth_server_uri);
+    if (const auto* expiry = find_property(properties, {AZURE_SAS_EXPIRY_MS}); expiry != nullptr) {
+        if (!to_int64(*expiry, credential.sas_expiration_time_ms) ||
+            credential.sas_expiration_time_ms <= 0) {
+            return Status::InvalidArgument("invalid Azure SAS expiry value");
+        }
+    }
+    if (client.endpoint.empty() || credential.account_name.empty()) {
+        return Status::InvalidArgument(
+                "Azure native credentials require endpoint and account name");
+    }
+    if (credential.type == AzureCredentialType::SHARED_KEY && credential.account_key.empty()) {
+        return Status::InvalidArgument("Azure native SharedKey requires an account key");
+    }
+    // Existing Azure SharedKey catalogs also contain S3-spelled locations.
+    // This explicit compatibility case carries no account in its URI;
+    // SAS/OAuth2 native data locations must carry their Azure authority.
+    if (uri.get_scheme().empty() ||
+        (uri.get_scheme() == "s3" && credential.type != AzureCredentialType::SHARED_KEY)) {
+        return Status::InvalidArgument("Azure native credentials require an Azure data URI");
+    }
+    if (client.endpoint.find_first_of("?#@\r\n") != std::string::npos) {
+        return Status::InvalidArgument(
+                "Azure endpoint must not contain credentials, query or fragment");
+    }
+    client.endpoint = normalize_azure_endpoint(client.endpoint);
+    if (!client.endpoint.starts_with("https://") && !client.endpoint.starts_with("http://")) {
+        return Status::InvalidArgument("Azure endpoint must use HTTP or HTTPS");
+    }
+    // A container property may constrain legacy callers, but is never a
+    // fallback location. Every native data URI identifies its container.
+    if (const auto* container = find_property(properties, {AZURE_CONTAINER});
+        container != nullptr && *container != uri.get_bucket()) {
+        return Status::InvalidArgument("Azure URI container conflicts with the storage binding");
+    }
+    return Status::OK();
+}
+
 Status convert_azure_properties(const StringCaseMap<std::string>& properties, const S3URI& uri,
                                 S3Conf* conf) {
     auto& client = conf->client_conf;
     client.provider = io::ObjStorageProvider::AZURE;
     const auto* auth_type = find_property(properties, {AZURE_AUTH_TYPE});
     if (auth_type == nullptr) {
-        // Compatibility is deliberately limited to the old SharedKey map. An
-        // incomplete native map must not be mistaken for that old protocol.
-        for (const auto& [key, value] : properties) {
-            const auto lower = to_lower(key);
-            if (lower.starts_with("azure") || lower.starts_with("fs.azure.") ||
-                (lower == "aws_token" && !value.empty())) {
-                return Status::InvalidArgument("Azure native credentials require AZURE_AUTH_TYPE");
-            }
-        }
-        if (!has_property(properties, {S3_ENDPOINT}) || !has_property(properties, {S3_AK}) ||
-            !has_property(properties, {S3_SK})) {
-            return Status::InvalidArgument("Azure native credentials require AZURE_AUTH_TYPE");
-        }
-        client.endpoint = *find_property(properties, {S3_ENDPOINT});
-        client.ak = *find_property(properties, {S3_AK});
-        client.sk = *find_property(properties, {S3_SK});
-        import_legacy_azure_shared_key(&client);
-        for (const auto& [name, target] :
-             {std::pair {S3_MAX_CONN_SIZE, &client.max_connections},
-              std::pair {S3_REQUEST_TIMEOUT_MS, &client.request_timeout_ms},
-              std::pair {S3_CONN_TIMEOUT_MS, &client.connect_timeout_ms}}) {
-            if (const auto* value = find_property(properties, {name}); value != nullptr) {
-                if (!to_int(*value, *target)) {
-                    return Status::InvalidArgument("invalid Azure connection option {}", name);
-                }
-            }
-        }
+        RETURN_IF_ERROR(convert_legacy_azure_properties(properties, &client));
     } else {
-        for (const auto& [key, value] : properties) {
-            const auto lower = to_lower(key);
-            if (lower.starts_with("aws_") || lower.starts_with("azure.")) {
-                return Status::InvalidArgument(
-                        "Azure native credentials cannot use AWS or catalog property aliases");
-            }
-        }
-        // Older FE versions attach a Hadoop configuration view for OneLake to
-        // this map. Ignore those extra keys; they must never supply or override
-        // any native authentication field. FE routing separates the two views.
-        auto& credential = client.azure_credentials;
-        if (*auth_type == "SHARED_KEY") {
-            credential.type = AzureCredentialType::SHARED_KEY;
-        } else if (*auth_type == "SAS") {
-            credential.type = AzureCredentialType::SAS;
-        } else if (*auth_type == "OAUTH2") {
-            credential.type = AzureCredentialType::OAUTH2;
-        } else {
-            return Status::InvalidArgument("unsupported AZURE_AUTH_TYPE in native credentials");
-        }
-        auto set = [&](const char* key, std::string* target) {
-            if (const auto* value = find_property(properties, {key}); value != nullptr) {
-                *target = *value;
-            }
-        };
-        set(AZURE_ENDPOINT, &client.endpoint);
-        set(AZURE_ACCOUNT_NAME, &credential.account_name);
-        set(AZURE_ACCOUNT_KEY, &credential.account_key);
-        set(AZURE_SAS_TOKEN, &credential.sas_token);
-        set(AZURE_CLIENT_ID, &credential.oauth_client_id);
-        set(AZURE_CLIENT_SECRET, &credential.oauth_client_secret);
-        set(AZURE_TENANT_ID, &credential.oauth_tenant_id);
-        set(AZURE_OAUTH_SERVER_URI, &credential.oauth_server_uri);
-        if (const auto* expiry = find_property(properties, {AZURE_SAS_EXPIRY_MS});
-            expiry != nullptr) {
-            if (!to_int64(*expiry, credential.sas_expiration_time_ms) ||
-                credential.sas_expiration_time_ms <= 0) {
-                return Status::InvalidArgument("invalid Azure SAS expiry value");
-            }
-        }
-        if (client.endpoint.empty() || credential.account_name.empty()) {
-            return Status::InvalidArgument(
-                    "Azure native credentials require endpoint and account name");
-        }
-        if (credential.type == AzureCredentialType::SHARED_KEY && credential.account_key.empty()) {
-            return Status::InvalidArgument("Azure native SharedKey requires an account key");
-        }
-        // Existing Azure SharedKey catalogs also contain S3-spelled locations.
-        // This explicit compatibility case carries no account in its URI;
-        // SAS/OAuth2 native data locations must carry their Azure authority.
-        if (uri.get_scheme().empty() ||
-            (uri.get_scheme() == "s3" && credential.type != AzureCredentialType::SHARED_KEY)) {
-            return Status::InvalidArgument("Azure native credentials require an Azure data URI");
-        }
-        if (client.endpoint.find_first_of("?#@\r\n") != std::string::npos) {
-            return Status::InvalidArgument(
-                    "Azure endpoint must not contain credentials, query or fragment");
-        }
-        client.endpoint = normalize_azure_endpoint(client.endpoint);
-        if (!client.endpoint.starts_with("https://") && !client.endpoint.starts_with("http://")) {
-            return Status::InvalidArgument("Azure endpoint must use HTTP or HTTPS");
-        }
-        // A container property may constrain legacy callers, but is never a
-        // fallback location. Every native data URI identifies its container.
-        if (const auto* container = find_property(properties, {AZURE_CONTAINER});
-            container != nullptr && *container != uri.get_bucket()) {
-            return Status::InvalidArgument(
-                    "Azure URI container conflicts with the storage binding");
-        }
+        RETURN_IF_ERROR(convert_native_azure_properties(properties, uri, *auth_type, &client));
     }
     if (uri.get_bucket().empty()) {
         return Status::InvalidArgument("Azure data URI requires a container");
@@ -642,34 +655,40 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3Cl
     {
         std::lock_guard l(_lock);
         if (is_azure) {
-            const auto now_ms = azure_client_time_millis();
-            _prune_azure_clients(now_ms);
-            if (azure_expiry_ms > 0 && azure_expiry_ms <= now_ms) {
-                return ResultError(Status::InvalidArgument("Azure SAS credential is expired"));
-            }
-            // A concurrent creator may have published the same identity while
-            // SDK construction ran outside the lock. Reuse that client.
-            auto it = _azure_cache.find(s3_conf);
-            if (it != _azure_cache.end()) {
-                it->second.last_access = ++_azure_cache_clock;
-                return it->second.client;
-            }
-            if (_azure_cache.size() >= _azure_cache_capacity) {
-                auto oldest = std::min_element(_azure_cache.begin(), _azure_cache.end(),
-                                               [](const auto& left, const auto& right) {
-                                                   return left.second.last_access <
-                                                          right.second.last_access;
-                                               });
-                _azure_cache.erase(oldest);
-            }
-            auto [inserted, _] = _azure_cache.emplace(
-                    s3_conf, AzureCachedClient {std::move(obj_client), azure_expiry_ms,
-                                                ++_azure_cache_clock});
-            return inserted->second.client;
+            return _publish_azure_client(s3_conf, obj_client, azure_expiry_ms);
         }
         auto [it, _] = _cache.emplace(s3_conf, std::move(obj_client));
         return it->second;
     }
+}
+
+Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_publish_azure_client(
+        const S3ClientConf& s3_conf, std::shared_ptr<io::ObjStorageClient>& obj_client,
+        int64_t azure_expiry_ms) {
+    const auto now_ms = azure_client_time_millis();
+    _prune_azure_clients(now_ms);
+    if (azure_expiry_ms > 0 && azure_expiry_ms <= now_ms) {
+        return ResultError(Status::InvalidArgument("Azure SAS credential is expired"));
+    }
+    // A concurrent creator may have published the same identity while
+    // SDK construction ran outside the lock. Reuse that client.
+    auto it = _azure_cache.find(s3_conf);
+    if (it != _azure_cache.end()) {
+        it->second.last_access = ++_azure_cache_clock;
+        return it->second.client;
+    }
+    if (_azure_cache.size() >= _azure_cache_capacity) {
+        auto oldest =
+                std::ranges::min_element(_azure_cache, [](const auto& left, const auto& right) {
+                    return left.second.last_access < right.second.last_access;
+                });
+        _azure_cache.erase(oldest);
+    }
+    auto [inserted, _] =
+            _azure_cache.emplace(s3_conf, AzureCachedClient {.client = std::move(obj_client),
+                                                             .expiry_ms = azure_expiry_ms,
+                                                             .last_access = ++_azure_cache_clock});
+    return inserted->second.client;
 }
 
 Status S3ClientFactory::validate_credentials_for_access(const S3ClientConf& conf) {

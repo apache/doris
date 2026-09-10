@@ -159,6 +159,11 @@ private:
     // Caller holds _lock. Eviction releases only the cache's shared ownership;
     // readers and writers keep their own client references.
     void _prune_azure_clients(int64_t now_ms);
+    // Caller holds _lock. Keep a losing candidate owned by create so that its
+    // destruction happens after unlocking, as for a failed expiry recheck.
+    Result<std::shared_ptr<io::ObjStorageClient>> _publish_azure_client(
+            const S3ClientConf& s3_conf, std::shared_ptr<io::ObjStorageClient>& obj_client,
+            int64_t azure_expiry_ms);
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;

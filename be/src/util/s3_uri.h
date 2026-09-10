@@ -62,6 +62,10 @@ public:
     std::string to_string() const;
 
 private:
+    Status _parse_authority(const std::string& scheme, const std::string& rest,
+                            bool azure_provider);
+    Status _parsing_error(std::string_view message, bool azure_provider) const;
+
     static const std::string _SCHEME_S3;
     static const std::string _SCHEME_ABFS;
     static const std::string _SCHEME_ABFSS;
