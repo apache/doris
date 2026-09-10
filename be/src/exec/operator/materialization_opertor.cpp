@@ -493,6 +493,8 @@ Status MaterializationSharedState::init_multi_requests(
     PMultiGetRequestV2 multi_get_request;
     // Initialize the base struct of PMultiGetRequestV2
     multi_get_request.set_be_exec_version(state->be_exec_version());
+    multi_get_request.set_parallel_batch_rows(
+            state->query_options().rowid_fetch_parallel_batch_rows);
     multi_get_request.set_wg_id(state->get_query_ctx()->workload_group()->id());
     multi_get_request.set_file_cache_remote_only_on_miss(
             config::is_cloud_mode() &&

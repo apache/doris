@@ -519,6 +519,8 @@ struct TQueryOptions {
   // Fall back to RE2 when Hyperscan cannot compile a regular expression.
   231: optional bool enable_hyperscan_fallback = true;
   232: optional bool enable_runtime_filter_bucket_prune = true;
+  // Segment groups per parallel internal-table rowid fetch task; <= 0 means serial.
+  233: optional i32 rowid_fetch_parallel_batch_rows = 0;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

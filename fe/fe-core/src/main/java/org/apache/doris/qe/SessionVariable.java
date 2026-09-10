@@ -87,6 +87,7 @@ import java.util.function.BiConsumer;
  * System variable.
  **/
 public class SessionVariable implements Serializable, Writable {
+    public static final String ROWID_FETCH_PARALLEL_BATCH_ROWS = "rowid_fetch_parallel_batch_rows";
     public static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final List<Field> affectQueryResultFields;
@@ -2347,6 +2348,12 @@ public class SessionVariable implements Serializable, Writable {
             description = "When enabled, TopN lazy materialization phase-2 reads go remote-only on "
                     + "file-cache miss and do not write the missed range back to file cache.")
     public boolean enableTopnLazyMatPhase2NoWriteFileCache = false;
+
+    @VarAttrDef.VarAttr(name = ROWID_FETCH_PARALLEL_BATCH_ROWS, needForward = true,
+            description = "Maximum segment groups per bthread task for internal-table rowid fetch. "
+                    + "Values > 0 enable parallel column-store reads; values <= 0 use serial reads. "
+                    + "Row-store reads remain serial.")
+    public int rowidFetchParallelBatchRows = 0;
 
     // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
     @VarAttrDef.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, description = "Set wether to use file cache. "
@@ -5620,6 +5627,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
         tResult.setDisableFileCache(disableFileCache);
         tResult.setEnableTopnLazyMatPhase2NoWriteFileCache(enableTopnLazyMatPhase2NoWriteFileCache);
+        tResult.setRowidFetchParallelBatchRows(rowidFetchParallelBatchRows);
 
         tResult.setEnablePreferCachedRowset(getEnablePreferCachedRowset());
         tResult.setQueryFreshnessToleranceMs(getQueryFreshnessToleranceMs());

@@ -83,6 +83,10 @@ public:
 private:
     struct ExternalFetchStatistics;
 
+    static Status read_internal_segment_groups(
+            size_t group_count, int batch_groups, int concurrency, bool fetch_row_store,
+            const std::function<Status(size_t, size_t)>& read_groups);
+
     static Status read_doris_format_row(
             const std::shared_ptr<IdFileMap>& id_file_map,
             const std::shared_ptr<FileMapping>& file_mapping, const std::vector<uint32_t>& row_id,
@@ -98,7 +102,7 @@ private:
             std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
             OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
             int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
-            io::FileCacheMissPolicy file_cache_miss_policy);
+            io::FileCacheMissPolicy file_cache_miss_policy, int parallel_batch_rows = 0);
 
     static Status read_batch_external_row(
             const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
