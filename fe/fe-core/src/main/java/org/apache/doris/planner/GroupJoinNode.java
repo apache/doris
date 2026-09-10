@@ -82,8 +82,25 @@ public class GroupJoinNode extends PlanNode {
         children.add(rightChild);
     }
 
+    /**
+     * Tuples a parent node consumes from this node.
+     * <p>
+     * When the generic final-projection attach hung a projection on this node (see
+     * setMaterializedTupleDesc), what the parent sees is the post-projection tuple in
+     * PlanNode.outputTupleDesc, not the raw tuple the BE operator materializes into:
+     * attaching a projection re-binds the projected expressions' ExprIds to the slots of the
+     * projection tuple (PlanTranslatorContext.createSlotDesc), so every expression a parent
+     * later translates refers to that tuple. Returning materializedTupleDesc here made those
+     * parents describe their input with the pre-projection tuple, and the BE rejected the
+     * plan with "VSlotRef have invalid slot id" (e.g. a SelectNode inserted above a fused
+     * GROUP JOIN that already carries projections). Without an attached projection the
+     * materialized tuple is exactly what this node emits.
+     */
     @Override
     public ArrayList<TupleId> getOutputTupleIds() {
+        if (outputTupleDesc != null) {
+            return Lists.newArrayList(outputTupleDesc.getId());
+        }
         if (materializedTupleDesc != null) {
             return Lists.newArrayList(materializedTupleDesc.getId());
         }
