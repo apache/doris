@@ -428,6 +428,41 @@ size_t RleDecoder<T>::Skip(size_t to_skip) {
     return set_count;
 }
 
+template <>
+inline size_t RleDecoder<bool>::Skip(size_t to_skip) {
+    DCHECK(bit_reader_.is_initialized());
+    DCHECK_EQ(bit_width_, 1);
+
+    size_t set_count = 0;
+    while (to_skip > 0) {
+        bool result = ReadHeader();
+        DCHECK(result);
+
+        if (repeat_count_ > 0) [[likely]] {
+            size_t nskip = (repeat_count_ < to_skip) ? repeat_count_ : to_skip;
+            repeat_count_ -= nskip;
+            to_skip -= nskip;
+            if (current_value_ != 0) {
+                set_count += nskip;
+            }
+        } else {
+            DCHECK(literal_count_ > 0);
+            size_t nskip = (literal_count_ < to_skip) ? literal_count_ : to_skip;
+            literal_count_ -= nskip;
+            to_skip -= nskip;
+            while (nskip > 0) {
+                uint64_t values = 0;
+                size_t bit_count = std::min(nskip, sizeof(values) * 8);
+                bool result1 = bit_reader_.GetValue(cast_set<int>(bit_count), &values);
+                DCHECK(result1);
+                set_count += BitUtil::popcount(values);
+                nskip -= bit_count;
+            }
+        }
+    }
+    return set_count;
+}
+
 // This function buffers input values 8 at a time.  After seeing all 8 values,
 // it decides whether they should be encoded as a literal or repeated run.
 template <typename T>

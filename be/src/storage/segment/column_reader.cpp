@@ -2758,6 +2758,19 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
             if (_page.has_null) {
                 size_t already_read = 0;
                 while ((nrows_to_read - already_read) > 0) {
+                    size_t offset = total_read_count + already_read;
+                    rowid_t current_ordinal_in_page =
+                            cast_set<uint32_t>(_page.offset_in_page + _page.first_ordinal);
+                    size_t gap =
+                            rowids[offset] > current_ordinal_in_page
+                                    ? std::min<size_t>(rowids[offset] - current_ordinal_in_page,
+                                                       _page.remaining())
+                                    : 0;
+                    if (gap > 0) {
+                        _page.null_decoder.Skip(gap);
+                        _page.offset_in_page += gap;
+                    }
+
                     bool is_null = false;
                     size_t this_run = std::min(nrows_to_read - already_read, _page.remaining());
                     if (UNLIKELY(this_run == 0)) {
@@ -2765,9 +2778,8 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                     }
                     this_run = _page.null_decoder.GetNextRun(&is_null, this_run);
 
-                    size_t offset = total_read_count + already_read;
                     size_t this_read_count = 0;
-                    rowid_t current_ordinal_in_page =
+                    current_ordinal_in_page =
                             cast_set<uint32_t>(_page.offset_in_page + _page.first_ordinal);
                     for (size_t i = 0; i < this_run; ++i) {
                         if (rowids[offset + i] - current_ordinal_in_page >= this_run) {
@@ -2824,15 +2836,29 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
         if (_page.has_null) {
             size_t already_read = 0;
             while ((nrows_to_read - already_read) > 0) {
+                size_t offset = total_read_count + already_read;
+                rowid_t current_ordinal_in_page =
+                        cast_set<uint32_t>(_page.offset_in_page + _page.first_ordinal);
+                size_t gap = rowids[offset] > current_ordinal_in_page
+                                     ? std::min<size_t>(rowids[offset] - current_ordinal_in_page,
+                                                        _page.remaining())
+                                     : 0;
+                if (gap > 0) {
+                    auto origin_index = _page.data_decoder->current_index();
+                    size_t null_count = _page.null_decoder.Skip(gap);
+                    RETURN_IF_ERROR(_page.data_decoder->seek_to_position_in_page(origin_index +
+                                                                                 gap - null_count));
+                    _page.offset_in_page += gap;
+                }
+
                 bool is_null = false;
                 size_t this_run = std::min(nrows_to_read - already_read, _page.remaining());
                 if (UNLIKELY(this_run == 0)) {
                     break;
                 }
                 this_run = _page.null_decoder.GetNextRun(&is_null, this_run);
-                size_t offset = total_read_count + already_read;
                 size_t this_read_count = 0;
-                rowid_t current_ordinal_in_page =
+                current_ordinal_in_page =
                         cast_set<uint32_t>(_page.offset_in_page + _page.first_ordinal);
                 for (size_t i = 0; i < this_run; ++i) {
                     if (rowids[offset + i] - current_ordinal_in_page >= this_run) {
