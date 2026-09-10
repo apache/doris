@@ -61,7 +61,7 @@ struct AIResource {
     int32_t dimensions;
     std::string effort;
 
-    void serialize(BufferWritable& buf) const {
+    void serialize(BufferWritable& buf, bool serialize_effort) const {
         buf.write_binary(endpoint);
         buf.write_binary(provider_type);
         buf.write_binary(model_name);
@@ -72,10 +72,12 @@ struct AIResource {
         buf.write_binary(retry_delay_second);
         buf.write_binary(anthropic_version);
         buf.write_binary(dimensions);
-        buf.write_binary(effort);
+        if (serialize_effort) {
+            buf.write_binary(effort);
+        }
     }
 
-    void deserialize(BufferReadable& buf) {
+    void deserialize(BufferReadable& buf, bool deserialize_effort) {
         buf.read_binary(endpoint);
         buf.read_binary(provider_type);
         buf.read_binary(model_name);
@@ -86,7 +88,9 @@ struct AIResource {
         buf.read_binary(retry_delay_second);
         buf.read_binary(anthropic_version);
         buf.read_binary(dimensions);
-        buf.read_binary(effort);
+        if (deserialize_effort) {
+            buf.read_binary(effort);
+        }
     }
 
 private:
