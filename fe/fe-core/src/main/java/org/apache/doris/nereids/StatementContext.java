@@ -153,6 +153,9 @@ public class StatementContext implements Closeable {
 
     private boolean hasNondeterministic = false;
 
+    // Alias UDF calls disappear after expansion; retain their definition dependency.
+    private boolean hasAliasUdf = false;
+
     // hasUnknownColStats true if any column stats in the tables used by this sql is
     // unknown
     // the algorithm to derive plan when column stats are unknown is implemented in
@@ -526,6 +529,14 @@ public class StatementContext implements Closeable {
 
     public boolean hasNondeterministic() {
         return hasNondeterministic;
+    }
+
+    public void recordAliasUdf() {
+        hasAliasUdf = true;
+    }
+
+    public boolean hasAliasUdf() {
+        return hasAliasUdf;
     }
 
     public ConnectContext getConnectContext() {
