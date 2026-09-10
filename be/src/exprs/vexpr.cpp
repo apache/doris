@@ -919,6 +919,22 @@ ColumnPtr VExpr::get_result_from_const(size_t count) const {
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
+    if (!function->can_evaluate_inverted_index(children())) {
+        return Status::OK();
+    }
+
+    // A function that can only answer approximately (the gram push-down behind LIKE / REGEXP)
+    // produces a superset of candidate rows, and the caller names the single expression whose
+    // superset it will read back. Anywhere else -- an operand of a compound AND/OR/NOT, a
+    // nested child push-down, a virtual column projection -- the bitmap would be stored and
+    // never read, so building it would spend term dictionary lookups and posting reads (one
+    // remote request each on object storage) to filter nothing. Bail out before any of that;
+    // the row-level path still evaluates the predicate exactly, only the speedup is lost.
+    if (function->index_result_is_approximate() &&
+        context->approx_index_result_consumer() != this) {
+        return Status::OK();
+    }
+
     // Pre-allocate vectors based on an estimated or known size
     std::vector<segment_v2::IndexIterator*> iterators;
     std::vector<IndexFieldNameAndTypePair> data_type_with_names;
@@ -1036,9 +1052,19 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         return res;
     }
     if (!result_bitmap.is_empty()) {
-        index_context->set_index_result_for_expr(this, result_bitmap);
-        for (int column_id : column_ids) {
-            index_context->set_true_for_index_status(this, column_id);
+        if (result_bitmap.approximate()) {
+            // Approximate (superset) result: it goes only into the approximate map -- not into
+            // the exact result map (fast_execute would otherwise pass the candidate bitmap off
+            // as the function result), and it does not set the column's index status to true
+            // (the column would otherwise be judged not to need its data read, leaving nothing
+            // for the expression to re-verify against). The expression stays in the push-down
+            // list and is re-verified by the row-level path.
+            index_context->set_approx_index_result_for_expr(this, result_bitmap);
+        } else {
+            index_context->set_index_result_for_expr(this, result_bitmap);
+            for (int column_id : column_ids) {
+                index_context->set_true_for_index_status(this, column_id);
+            }
         }
     }
     return Status::OK();

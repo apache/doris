@@ -216,6 +216,21 @@ public:
         }
     }
 
+    // Validate operand roles before VExpr separates indexed fields from literals. Functions
+    // whose index semantics depend on argument order must inspect the original children here.
+    virtual bool can_evaluate_inverted_index(const VExprSPtrs& /*function_arguments*/) const {
+        return true;
+    }
+
+    // True when this function's index push-down can only ever answer with an approximate
+    // (superset) candidate set instead of the exact row set. Such a result is usable in one
+    // place only -- narrowing the candidate rows of a conjunct that stays pushed down for
+    // row-level re-verification -- so VExpr skips the push-down entirely wherever it would be
+    // computed and then dropped, rather than paying for the index reads first.
+    virtual bool index_result_is_approximate() const { return false; }
+
+    // VExpr calls this only after can_evaluate_inverted_index accepts the ordered arguments
+    // and the indexed fields have been bound to storage-compatible types and iterators.
     virtual Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
@@ -505,6 +520,14 @@ public:
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return function->close(context, scope);
+    }
+
+    bool can_evaluate_inverted_index(const VExprSPtrs& function_arguments) const override {
+        return function->can_evaluate_inverted_index(function_arguments);
+    }
+
+    bool index_result_is_approximate() const override {
+        return function->index_result_is_approximate();
     }
 
     Status evaluate_inverted_index(
