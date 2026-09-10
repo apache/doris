@@ -1039,11 +1039,7 @@ public class Memo {
             for (Pair<Long, List<Integer>> c : childrenId) {
                 Cost totalCost = cost;
                 for (int i = 0; i < children.size(); i++) {
-                    totalCost = CostCalculator.addChildCost(connectContext,
-                            groupExpression.getPlan(),
-                            totalCost,
-                            children.get(i).get(c.second.get(i)).second,
-                            i);
+                    totalCost = totalCost.add(children.get(i).get(c.second.get(i)).second);
                 }
                 if (res.isEmpty()) {
                     Preconditions.checkArgument(

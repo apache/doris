@@ -71,6 +71,10 @@ public class SqlCacheTest extends TestWithFeService {
         Env currentEnv = Env.getCurrentEnv();
         NereidsSqlCacheManager sqlCacheManager = currentEnv.getSqlCacheManager();
         Assertions.assertEquals(2, sqlCacheManager.getSqlCaches().asMap().size());
+        sqlCacheManager.getSqlCaches().asMap().values().forEach(sqlCacheContext -> {
+            Assertions.assertNotNull(sqlCacheContext.getPhysicalPlan());
+            Assertions.assertFalse(sqlCacheContext.getPhysicalPlan().isEmpty());
+        });
 
         executeNereidsSql("admin set frontend config ('sql_cache_manage_num'='1')");
         Assertions.assertEquals(1, sqlCacheManager.getSqlCaches().asMap().size());

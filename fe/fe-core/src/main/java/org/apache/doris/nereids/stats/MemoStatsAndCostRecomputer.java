@@ -331,8 +331,7 @@ public final class MemoStatsAndCostRecomputer {
                     totalCost = null;
                     break;
                 }
-                totalCost = CostCalculator.addChildCost(cascadesContext.getConnectContext(),
-                        groupExpression.getPlan(), totalCost, childBestPlan.get().first, i);
+                totalCost = totalCost.add(childBestPlan.get().first);
             }
             if (totalCost == null) {
                 continue;

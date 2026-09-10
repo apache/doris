@@ -41,6 +41,19 @@ import java.util.Optional;
 class CostModelV1Test extends SqlTestBase {
 
     @Test
+    void testAddCost() {
+        Cost planCost = Cost.of(connectContext.getSessionVariable(), 1, 2, 3);
+        Cost childCost = Cost.of(connectContext.getSessionVariable(), 4, 5, 6);
+
+        Cost totalCost = planCost.add(childCost);
+
+        Assertions.assertEquals(planCost.getValue() + childCost.getValue(), totalCost.getValue());
+        Assertions.assertEquals(5, totalCost.getCpuCost());
+        Assertions.assertEquals(7, totalCost.getMemoryCost());
+        Assertions.assertEquals(9, totalCost.getNetworkCost());
+    }
+
+    @Test
     void testMaterializingCost() {
         String sql = "select T1.id, T2.id, T2.score from T1 left join T2 "
                 + "on T1.id = T2.id";

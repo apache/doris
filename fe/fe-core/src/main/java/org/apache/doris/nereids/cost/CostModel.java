@@ -112,14 +112,6 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
     }
 
-    public static Cost addChildCost(SessionVariable sessionVariable, Cost planCost, Cost childCost) {
-        Preconditions.checkArgument(childCost instanceof Cost && planCost instanceof Cost);
-        return new Cost(sessionVariable,
-                childCost.getCpuCost() + planCost.getCpuCost(),
-                childCost.getMemoryCost() + planCost.getMemoryCost(),
-                childCost.getNetworkCost() + planCost.getNetworkCost());
-    }
-
     @Override
     public Cost visit(Plan plan, PlanContext context) {
         return Cost.zero();
