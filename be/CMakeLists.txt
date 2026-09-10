@@ -739,7 +739,8 @@ if (GLIBC_COMPATIBILITY)
         glibc-compatibility-explicit
         glibc-compatibility
         -lm
-        lance_c)
+        lance_c
+        paimon_c)
 endif()
 
 if (NOT OS_MACOSX)
