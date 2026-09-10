@@ -32,6 +32,7 @@ import com.google.common.collect.Lists;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -70,7 +71,7 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
+    protected List<List<String>> executeAction(TableIf table) throws UserException {
         Table icebergTable = getWritableIcebergTable(table);
         Long sourceSnapshotId = namedArguments.getLong(SNAPSHOT_ID);
 
@@ -85,11 +86,11 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
 
             // invalid iceberg catalog table cache.
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
-            return Lists.newArrayList(
+            return Collections.singletonList(Lists.newArrayList(
                     String.valueOf(sourceSnapshotId),
                     String.valueOf(currentSnapshot.snapshotId()
                     )
-            );
+            ));
 
         } catch (Exception e) {
             throw new UserException("Failed to cherry-pick snapshot " + sourceSnapshotId + ": " + e.getMessage(), e);

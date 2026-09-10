@@ -34,6 +34,7 @@ import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -66,13 +67,13 @@ public class IcebergRewriteManifestsAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
+    protected List<List<String>> executeAction(TableIf table) throws UserException {
         Table icebergTable = getWritableIcebergTable(table);
         try {
             Snapshot current = icebergTable.currentSnapshot();
             if (current == null) {
                 // No current snapshot means the table is empty, no manifests to rewrite
-                return Lists.newArrayList("0", "0");
+                return Collections.singletonList(Lists.newArrayList("0", "0"));
             }
 
             // Get optional spec_id parameter
@@ -85,7 +86,7 @@ public class IcebergRewriteManifestsAction extends BaseIcebergAction {
                     (ExternalTable) table,
                     specId);
 
-            return result.toStringList();
+            return Collections.singletonList(result.toStringList());
         } catch (Exception e) {
             LOG.warn("Failed to rewrite manifests for table: {}", table.getName(), e);
             throw new UserException("Rewrite manifests failed: " + e.getMessage(), e);
