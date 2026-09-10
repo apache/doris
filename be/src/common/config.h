@@ -1379,6 +1379,60 @@ DECLARE_String(inverted_index_query_cache_limit);
 // it affects only writers created after the transition and never changes query/cache semantics.
 // Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
 
+// Whether LIKE/REGEXP tries to compile a constant pattern into a gram boolean query pushed down
+// to a gram-family inverted index (master switch). Turning it off behaves as if the index did
+// not exist -- it only gives up the speedup, it never changes query results.
+//
+// A pattern is compiled against the gram scheme the segment itself carries, read back from the
+// core metadata of the physical index the query is about to read, so the scheme can never
+// disagree with the one the writer used -- a policy that was dropped and recreated with different
+// properties does not affect segments already written.
+DECLARE_mBool(enable_gram_index_regexp);
+
+// Cost gate for the gram boolean query, in basis points (1/10000) of a segment's rows: give up
+// pruning once the candidate set is larger than that share. 0 disables the gate, 10000 or more can
+// never fire. This is a COST switch, never a semantic one -- a gram index only produces a superset
+// of the candidate rows and the expression above re-verifies each of them, so giving up means the
+// query returns the whole docid range of the segment and prunes nothing. It can therefore only
+// cost speed, never correctness, whatever value it is set to.
+//
+// The unit is basis points rather than percent because the useful range is far below one percent.
+// Pruning only pays when the surviving candidates are sparse enough that whole pages of the column
+// can be skipped: with B rows per remote read unit and candidates spread uniformly, the fraction of
+// units still touched is 1 - (1 - C/N)^B, which is already ~1 by C/N = 1%. Measured on a 34.46M row
+// httplogs table against remote object storage, cold-read speedup by candidate count was 14.1x at
+// 2 candidates, 5.5x at 128, 1.5x at 25K, 1.2x at 46K, and turned into a regression from 56K
+// upwards, bottoming out at 0.70x. 15 bp (0.15%) is the largest share that admitted no regression
+// in that sweep while keeping every double-digit win.
+DECLARE_mInt32(gram_index_max_candidate_ratio_bp);
+
+// Row floor below which the candidate ratio gate above is not applied at all. A small segment's
+// entire gram index is a few KB and one or two requests, so giving up there saves nothing
+// measurable while throwing away the pruning the index really does deliver; the ratio only starts
+// to mean something at a size where the skipped index IO can outweigh the rows it stops
+// eliminating. The default is one Roaring container's worth of rows (65536). 0 applies the ratio
+// at every segment size.
+DECLARE_mInt32(gram_index_candidate_ratio_min_rows);
+
+// Adaptive gram density: solve the boundary rate from each segment's own bytes instead of
+// taking the rate configured on the tokenizer.
+//
+// A configured rate cannot mean the same thing on two columns. Measured at a nominal 0.25 the
+// realised grams per byte were 0.204 on log text, 0.287 on URL paths and 0.182 on agent
+// traces, and the coverage it bought ranged from 91.7% of 12-byte literals to 98.9% -- under
+// serving one column while overpaying on another, in every posting list. Solving instead
+// makes the promise the constant and the rate the variable.
+DECLARE_mBool(enable_gram_index_adaptive_density);
+// The promise the solve keeps, not a tuning pair: literals of at least this many bytes are
+// findable, for this share of the column's own windows of that length. Both are dimensionless
+// and the same on every dataset; what varies is the density they resolve to.
+DECLARE_mInt32(gram_index_min_literal_bytes);
+DECLARE_mInt32(gram_index_density_coverage_permille);
+// How much of a segment is held back to solve on. The sample is buffered rather than
+// tokenized, so this is a transient memory cost and a bound on how long the write path waits
+// before it can cut anything; the histogram behind the solve is a fixed 256 KB regardless.
+DECLARE_mInt64(gram_index_density_sample_bytes);
+
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
 
