@@ -1902,6 +1902,63 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
     EXPECT_TRUE(reader.close().ok());
 }
 
+// Verifies sliced scalar arrays are compacted before Doris reads rows from offset zero.
+TEST(LanceTableReaderTypeTest, ReadsSlicedDurationAndJsonValues) {
+    const auto json_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
+    const auto duration_type = arrow::duration(arrow::TimeUnit::MILLI);
+    const auto schema = arrow::schema({
+            arrow::field("duration", duration_type),
+            arrow::field("json_value", arrow::utf8())->WithMetadata(json_extension_metadata),
+    });
+
+    arrow::DurationBuilder duration_builder(duration_type, arrow::default_memory_pool());
+    ASSERT_TRUE(duration_builder.Append(111).ok());
+    ASSERT_TRUE(duration_builder.Append(222).ok());
+    ASSERT_TRUE(duration_builder.AppendNull().ok());
+    ASSERT_TRUE(duration_builder.Append(444).ok());
+    std::shared_ptr<arrow::DurationArray> durations;
+    ASSERT_TRUE(duration_builder.Finish(&durations).ok());
+
+    arrow::StringBuilder json_builder;
+    ASSERT_TRUE(json_builder.Append(R"({"sentinel":true})").ok());
+    ASSERT_TRUE(json_builder.Append(R"({"row":1})").ok());
+    ASSERT_TRUE(json_builder.Append(R"({"row":2})").ok());
+    ASSERT_TRUE(json_builder.Append(R"({"tail":true})").ok());
+    std::shared_ptr<arrow::StringArray> json_values;
+    ASSERT_TRUE(json_builder.Finish(&json_values).ok());
+
+    const auto record_batch =
+            arrow::RecordBatch::Make(schema, 2, {durations->Slice(1, 2), json_values->Slice(1, 2)});
+    const Columns columns {
+            projected_column("duration", TYPE_BIGINT, true),
+            projected_column("json_value", TYPE_JSONB, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_sliced_scalars");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_EQ(2, rows);
+
+    const auto& duration = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& duration_values = assert_cast<const ColumnInt64&>(duration.get_nested_column());
+    EXPECT_EQ((ColumnUInt8::Container {0, 1}), duration.get_null_map_data());
+    EXPECT_EQ(222, duration_values.get_data()[0]);
+
+    const auto& json = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_EQ((ColumnUInt8::Container {0, 0}), json.get_null_map_data());
+    EXPECT_EQ(R"({"row":1})", columns[1].type->to_string(json, 0));
+    EXPECT_EQ(R"({"row":2})", columns[1].type->to_string(json, 1));
+    EXPECT_TRUE(reader.close().ok());
+}
+
 // Verifies BFloat16 special values retain their exact Float32 bit patterns.
 TEST(LanceTableReaderTypeTest, ConvertsBFloat16SpecialValuesExactly) {
     const auto metadata =
@@ -2092,6 +2149,44 @@ TEST(LanceTableReaderTypeTest, NormalizesVisibleBFloat16ValuesInSlicedMap) {
     EXPECT_FLOAT_EQ(3.0F, floats->Value(0));
     EXPECT_FLOAT_EQ(4.0F, floats->Value(1));
     EXPECT_FLOAT_EQ(5.0F, floats->Value(2));
+
+    const auto schema = arrow::schema({arrow::field("values", map_type)});
+    const auto record_batch = arrow::RecordBatch::Make(schema, 1, {input});
+    const auto doris_map_type = make_nullable(
+            std::make_shared<DataTypeMap>(nullable_type(TYPE_STRING), nullable_type(TYPE_FLOAT)));
+    const Columns columns {projected_column("values", doris_map_type)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_sliced_map");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_EQ(1, rows);
+
+    const auto& nullable_map = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& materialized_map = assert_cast<const ColumnMap&>(nullable_map.get_nested_column());
+    EXPECT_EQ((ColumnArray::Offsets64 {3}), materialized_map.get_offsets());
+    const auto& materialized_keys = assert_cast<const ColumnNullable&>(materialized_map.get_keys());
+    const auto& key_values =
+            assert_cast<const ColumnString&>(materialized_keys.get_nested_column());
+    const auto& materialized_items =
+            assert_cast<const ColumnNullable&>(materialized_map.get_values());
+    const auto& item_values =
+            assert_cast<const ColumnFloat32&>(materialized_items.get_nested_column());
+    ASSERT_EQ(3, key_values.size());
+    ASSERT_EQ(3, item_values.size());
+    EXPECT_EQ("k2", key_values.get_data_at(0).to_string());
+    EXPECT_EQ("k3", key_values.get_data_at(1).to_string());
+    EXPECT_EQ("k4", key_values.get_data_at(2).to_string());
+    EXPECT_FLOAT_EQ(3.0F, item_values.get_data()[0]);
+    EXPECT_FLOAT_EQ(4.0F, item_values.get_data()[1]);
+    EXPECT_FLOAT_EQ(5.0F, item_values.get_data()[2]);
+    EXPECT_TRUE(reader.close().ok());
 }
 
 // Verifies the Lance JSON extension reads LargeBinary values and nulls through JSON SerDe.

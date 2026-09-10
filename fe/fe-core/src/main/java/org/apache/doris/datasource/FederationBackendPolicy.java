@@ -156,13 +156,25 @@ public class FederationBackendPolicy {
     }
 
     public void init(List<String> preLocations) throws UserException {
+        init(preLocations, Collections.emptyList());
+    }
+
+    /** Initialize the policy with exactly one eligible backend. */
+    public void initWithBackendId(long backendId) throws UserException {
+        init(Collections.emptyList(), Collections.singletonList(backendId));
+    }
+
+    /** Build the standard external-scan policy with optional location and backend-ID constraints. */
+    private void init(List<String> preLocations, List<Long> requiredBackendIds)
+            throws UserException {
         // scan node is used for query
         BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder();
         builder.needQueryAvailable()
                 .needLoadAvailable()
                 .preferComputeNode(Config.prefer_compute_node_for_external_table)
                 .assignExpectBeNum(Config.min_backend_num_for_external_table)
-                .addPreLocations(preLocations);
+                .addPreLocations(preLocations)
+                .addRequiredBackendIds(requiredBackendIds);
         init(builder.build());
     }
 

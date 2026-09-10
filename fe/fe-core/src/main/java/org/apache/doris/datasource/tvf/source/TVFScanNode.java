@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.tvf.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -39,7 +38,6 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -83,21 +81,16 @@ public class TVFScanNode extends FileQueryScanNode {
 
     @Override
     protected void initBackendPolicy() throws UserException {
-        List<String> preferLocations = new ArrayList<>();
         if (tableValuedFunction instanceof LocalTableValuedFunction) {
-            // For local tvf, the backend was specified by backendId
-            Long backendId = ((LocalTableValuedFunction) tableValuedFunction).getBackendId();
+            long backendId =
+                    ((LocalTableValuedFunction) tableValuedFunction).getBackendIdForExecution();
             if (backendId != -1) {
-                // User has specified the backend, only use that backend
-                // Otherwise, use all backends for shared storage.
-                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                if (backend == null) {
-                    throw new UserException("Backend " + backendId + " does not exist");
-                }
-                preferLocations.add(backend.getHost());
+                backendPolicy.initWithBackendId(backendId);
+                numNodes = backendPolicy.numBackends();
+                return;
             }
         }
-        backendPolicy.init(preferLocations);
+        backendPolicy.init();
         numNodes = backendPolicy.numBackends();
     }
 
