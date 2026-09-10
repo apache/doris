@@ -306,9 +306,10 @@ void import_legacy_azure_shared_key(S3ClientConf* conf) {
     // Keep the established SharedKey endpoint normalization at the legacy
     // boundary. Native endpoints and object keys retain their internal slashes.
     conf->endpoint = normalize_http_uri(conf->endpoint);
-    conf->azure_credentials = {.type = AzureCredentialType::SHARED_KEY,
-                               .account_name = std::move(conf->ak),
-                               .account_key = std::move(conf->sk)};
+    conf->azure_credentials = {};
+    conf->azure_credentials.type = AzureCredentialType::SHARED_KEY;
+    conf->azure_credentials.account_name = std::move(conf->ak);
+    conf->azure_credentials.account_key = std::move(conf->sk);
     conf->ak.clear();
     conf->sk.clear();
     conf->token.clear();
@@ -951,6 +952,7 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
                     .ak = info.ak(),
                     .sk = info.sk(),
                     .token = {},
+                    .azure_credentials = {},
                     .bucket = info.bucket(),
                     .provider = io::ObjStorageProvider::AWS,
                     .use_virtual_addressing =
@@ -1016,6 +1018,7 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
                     .ak = param.ak,
                     .sk = param.sk,
                     .token = param.token,
+                    .azure_credentials = {},
                     .bucket = param.bucket,
                     .provider = io::ObjStorageProvider::AWS,
                     .max_connections = param.max_conn,
