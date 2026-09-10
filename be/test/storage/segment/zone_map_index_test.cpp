@@ -946,6 +946,53 @@ TEST_F(ColumnZoneMapTest, DoubleFiniteExtremesRoundTrip) {
     EXPECT_EQ(pzm.max_value.get<TYPE_DOUBLE>(), std::numeric_limits<double>::max());
 }
 
+TEST_F(ColumnZoneMapTest, LegacyFloatZoneMapWithoutHasNanDegradesToPassAll) {
+    // A float or double zone map written before has_nan existed says nothing about NaN, and its
+    // bounds were produced by a comparison that never picks a NaN. Since Doris sorts NaN above
+    // every other value, trusting such bounds drops NaN rows from `>` and `>=`.
+    auto legacy_pb = [](double min_value, double max_value) {
+        ZoneMapPB pb;
+        pb.set_min(std::to_string(min_value));
+        pb.set_max(std::to_string(max_value));
+        pb.set_has_null(false);
+        pb.set_has_not_null(true);
+        pb.set_pass_all(false);
+        // Deliberately no set_has_nan / set_has_positive_inf / set_has_negative_inf.
+        return pb;
+    };
+
+    for (const auto primitive_type : {TYPE_FLOAT, TYPE_DOUBLE}) {
+        for (bool nullable : {false, true}) {
+            auto data_type = DataTypeFactory::instance().create_data_type(primitive_type, nullable);
+            ZoneMap zm;
+            ASSERT_TRUE(ZoneMap::from_proto(legacy_pb(1.0, 2.0), data_type, zm).ok());
+            EXPECT_TRUE(zm.pass_all) << "type=" << primitive_type << ", nullable=" << nullable;
+            // The null flags stay usable, so IS NULL and IS NOT NULL keep pruning.
+            EXPECT_TRUE(zm.has_not_null);
+            EXPECT_FALSE(zm.has_null);
+
+            // The same zone map from a writer that does report the flag keeps its bounds.
+            auto pb = legacy_pb(1.0, 2.0);
+            pb.set_has_nan(false);
+            ZoneMap current;
+            ASSERT_TRUE(ZoneMap::from_proto(pb, data_type, current).ok());
+            EXPECT_FALSE(current.pass_all) << "type=" << primitive_type;
+        }
+    }
+
+    // Non-floating columns never carried the flag and are unaffected.
+    auto int_type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    ZoneMapPB int_pb;
+    int_pb.set_min("1");
+    int_pb.set_max("9");
+    int_pb.set_has_null(false);
+    int_pb.set_has_not_null(true);
+    int_pb.set_pass_all(false);
+    ZoneMap int_zm;
+    ASSERT_TRUE(ZoneMap::from_proto(int_pb, int_type, int_zm).ok());
+    EXPECT_FALSE(int_zm.pass_all);
+}
+
 TEST_F(ColumnZoneMapTest, LegacyUnparsableDoubleBoundDegradesToPassAll) {
     auto make_zone_map = [](const std::string& min, const std::string& max) {
         ZoneMapPB pb;
@@ -954,6 +1001,9 @@ TEST_F(ColumnZoneMapTest, LegacyUnparsableDoubleBoundDegradesToPassAll) {
         pb.set_has_null(false);
         pb.set_has_not_null(true);
         pb.set_pass_all(false);
+        // The current writer always reports this flag; leaving it out would mark the zone map as
+        // pre-NaN-tracking legacy metadata, which is a different test.
+        pb.set_has_nan(false);
         return pb;
     };
     // 16g renderings of ±DBL_MAX, both of which read back as ∓inf.
@@ -1016,8 +1066,8 @@ void test_every_value_combination(const std::string& test_dir) {
     };
 
     auto fs = io::global_local_filesystem();
-    auto column = create_float_column < is_double ? FieldType::OLAP_FIELD_TYPE_DOUBLE
-                                                  : FieldType::OLAP_FIELD_TYPE_FLOAT > (0, true);
+    auto column = create_float_column<is_double ? FieldType::OLAP_FIELD_TYPE_DOUBLE
+                                                : FieldType::OLAP_FIELD_TYPE_FLOAT>(0, true);
     const TabletColumn* field = &(*column);
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(Type, false);
 
@@ -1094,6 +1144,9 @@ TEST_F(ColumnZoneMapTest, ReversedBoundsDegradeToPassAll) {
         pb.set_has_null(false);
         pb.set_has_not_null(true);
         pb.set_pass_all(false);
+        // The current writer always reports this flag; leaving it out would mark the zone map as
+        // pre-NaN-tracking legacy metadata, which is a different test.
+        pb.set_has_nan(false);
         return pb;
     };
     // What a page of only NaN leaves behind before 4.0: bounds that never moved off the values
