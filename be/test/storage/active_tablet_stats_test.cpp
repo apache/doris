@@ -26,6 +26,7 @@
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -89,8 +90,7 @@ private:
     }
 };
 
-// A tablet that already has a committed baseline, i.e. one the collector will emit
-// candidates for rather than skip as first-seen.
+// A tablet with a committed baseline at a fixed time for deterministic report windows.
 std::shared_ptr<StatsTestTablet> make_baselined_tablet(int64_t tablet_id, int64_t baseline_ms) {
     auto tablet = std::make_shared<StatsTestTablet>(tablet_id);
     tablet->last_reported_time_ms.store(baseline_ms);
@@ -131,22 +131,44 @@ TEST(ActiveTabletStatsTest, TakesIndependentTopListsByRate) {
     EXPECT_TRUE(collector.truncated());
 }
 
-// A tablet seen for the first time (no baseline yet) must not be reported: without a
-// previous timestamp there is no window to normalise its delta by.
-TEST(ActiveTabletStatsTest, FirstRoundOnlyEstablishesBaseline) {
+// Construction establishes the zero-counter baseline, so the first report includes all
+// activity since construction and normalizes it by the actual elapsed window.
+TEST(ActiveTabletStatsTest, FirstRoundReportsActivitySinceConstruction) {
+    const int64_t before_ms = UnixMillis();
     auto tablet = std::make_shared<StatsTestTablet>(101);
+    const int64_t baseline_ms = tablet->last_reported_time_ms.load();
+    EXPECT_GE(baseline_ms, before_ms);
+    EXPECT_LE(baseline_ms, UnixMillis());
+    ASSERT_GT(baseline_ms, 0);
+    EXPECT_EQ(tablet->last_reported_scan_count.load(), 0);
+    EXPECT_EQ(tablet->last_reported_flush_count.load(), 0);
+
+    const int64_t report_ms = baseline_ms + kReportIntervalMs;
     tablet->query_scan_count->increment(42);
-    tablet->last_query_scan_time_ms.store(kNowMs);
+    tablet->flush_finish_count->increment(7);
+    tablet->last_query_scan_time_ms.store(report_ms);
+    tablet->last_load_flush_time_ms.store(report_ms);
 
     ActiveTabletCollector collector;
-    collect_at(collector, tablet, kNowMs);
+    collect_at(collector, tablet, report_ms);
 
-    EXPECT_TRUE(collector.query_candidates().empty());
-    EXPECT_TRUE(collector.load_candidates().empty());
+    ASSERT_EQ(collector.query_candidates().size(), 1);
+    EXPECT_EQ(collector.query_candidates().front().delta, 42);
+    EXPECT_EQ(collector.query_candidates().front().window_ms, kReportIntervalMs);
+    ASSERT_EQ(collector.load_candidates().size(), 1);
+    EXPECT_EQ(collector.load_candidates().front().delta, 7);
+    EXPECT_EQ(collector.load_candidates().front().window_ms, kReportIntervalMs);
+    EXPECT_EQ(tablet->last_reported_time_ms.load(), baseline_ms);
 
     collector.commit();
     EXPECT_EQ(tablet->last_reported_scan_count.load(), 42);
-    EXPECT_EQ(tablet->last_reported_time_ms.load(), kNowMs);
+    EXPECT_EQ(tablet->last_reported_flush_count.load(), 7);
+    EXPECT_EQ(tablet->last_reported_time_ms.load(), report_ms);
+
+    collector.clear();
+    collect_at(collector, tablet, report_ms + kReportIntervalMs);
+    EXPECT_TRUE(collector.query_candidates().empty());
+    EXPECT_TRUE(collector.load_candidates().empty());
 }
 
 // Collection must be read-only on the baselines. The report path retries the walk up
