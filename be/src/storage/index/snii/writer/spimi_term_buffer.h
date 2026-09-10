@@ -33,10 +33,6 @@
 #include "storage/index/snii/writer/memory_reporter.h"
 #include "storage/index/snii/writer/term_posting_source.h"
 
-namespace doris::segment_v2::inverted_index {
-class CommonWordSet;
-}
-
 namespace doris::snii::writer {
 
 using StreamedTermConsumer = std::function<Status(StreamedTermPostings&&)>;
@@ -47,25 +43,15 @@ using StreamedTermConsumer = std::function<Status(StreamedTermPostings&&)>;
 
 class GlobalMemoryLimiter; // G09 process-wide build-RAM registry (see below)
 
-struct PlainTermId {
-    uint32_t value = 0;
-};
-
-struct ClassifiedPlainTerm {
-    PlainTermId id;
-    bool is_common = false;
-};
-
 // One term's posting list: docids ascending, with parallel freqs and (when
 // positions are enabled) a single FLAT positions buffer.
 //
 // positions_flat holds every position for the term in document order, partitioned
-// by freqs: doc i owns the next freqs[i] entries. This is the SAME layout the
-// accumulator stores natively, so no per-doc vector-of-vectors is ever built on
-// the build/merge hot path (that vector-of-vectors was the dominant peak-RSS
-// driver for high-df terms). doc_positions(i) returns a non-owning span view of
-// doc i's positions for consumers that want per-doc access (e.g. the prx window
-// builder, tests). positions_flat is empty when positions are disabled.
+// by freqs: doc i owns the next freqs[i] entries. This materialized convenience
+// type is used by callers and fixtures; the production accumulator stores a
+// compact byte stream and drains it through TermPostingSource. doc_positions(i)
+// borrows a span from this caller-owned representation. positions_flat is empty
+// when positions are disabled.
 struct TermPostings {
     std::string term;
     std::vector<uint32_t> docids; // absolute docids
@@ -148,29 +134,28 @@ struct TermPostings {
 // later run only covers strictly-later docids, so concatenating its postings in
 // run order during the final merge keeps docids ascending. for_each_term_sorted
 // flushes the residual buffer as a final run, then k-way merges all runs
-// materializing only ONE merged term at a time -> peak memory stays bounded by
-// the threshold (plus the widest single term), NOT by total postings. With the
-// default threshold 0 (unlimited) the path is exactly the in-memory behavior.
+// with bounded reader buffers and a replayable writer-owned posting window.
+// The postings workspace shares MemoryReporter's byte budget across spill,
+// intermediate merge, and final encoding; it does not scale with a term's df or
+// a document's frequency. Vocabulary and the input arena are accounted separately.
+// The default threshold 0 disables accumulator-triggered spill.
 //
 // Internal representation is a COMPACT TAGGED VARINT byte stream per term, held in
 // a shared SEGMENTED ARENA (CompactPostingPool), NOT per-term uint32 vectors. Each
 // term owns ONE arena chain holding a stream of per-TOKEN entries in arrival
 // order: positioned and ordinary docs-only tokens contribute
 // varint((pos << 1) | new_doc_bit); when new_doc_bit is set, a
-// zigzag-varint(docid - prev_docid) immediately follows. Statless CommonGrams are
-// deduplicated per document and store only that document delta, omitting the
-// constant new_doc tag. Frequencies are otherwise recovered as the count of
-// consecutive same-doc tokens. This drops
+// zigzag-varint(docid - prev_docid) immediately follows. Frequencies are recovered
+// as the count of consecutive same-doc tokens. This drops
 // the entire freq stream and the second (positions) chain versus a freq/prox split,
 // so the payload is ~3.4x smaller than raw uint32 docids/freqs/positions, and the
 // shared arena removes per-vector doubling slack and per-term vector headers. Each
 // positioned and ordinary docs-only tokens append straight into the chain.
-// Stateless CommonGrams keep a singleton doc id inline and backfill it only when a
-// second document arrives. The other live per-term state is the current doc id (to
+// The other live per-term state is the current doc id (to
 // detect a doc change) and the delta base.
 // The production writer drains each chain through a bounded TermPostingSource.
-// to_postings() remains only for explicit materialization in run maintenance and
-// test/finalize helpers. positions_flat stays empty (and pos is tagged as 0) when
+// Spill copies compact payload spans; out-of-order compatibility input uses a
+// bounded external sort. positions_flat stays empty (and pos is tagged as 0) when
 // positions are disabled; freq still counts.
 //
 // Duplicate vocab strings: the vocab is assumed to map each id to a DISTINCT
@@ -219,10 +204,8 @@ public:
     void add_token(uint32_t term_id, uint32_t docid, uint32_t pos, bool retain_positions);
 
     // Compatibility overload: records one token by TERM STRING. Valid ONLY on an
-    // OWNED-vocab buffer before enable_common_gram_pair_keys(); interns `term` into
-    // the internal vocabulary on first occurrence, then forwards by id. Pair-key
-    // mode must use the typed plain/gram APIs below so a physical gram and its
-    // transient pair key cannot become two ids for the same logical term. Called on
+    // OWNED-vocab buffer; interns `term` into the internal vocabulary on first
+    // occurrence, then forwards by id. Called on
     // a BORROWED-vocab buffer it is REJECTED (latches InvalidArgument, token ignored)
     // -- interning would grow the owned vocab out of step with the borrowed one and
     // corrupt the build. Interning probes a heterogeneous (string_view-keyed) set,
@@ -232,26 +215,6 @@ public:
     // reserve this for tests / legacy string-fed callers.
     void add_token(std::string_view term, uint32_t docid, uint32_t pos);
     void add_token(std::string_view term, uint32_t docid, uint32_t pos, bool retain_positions);
-
-    // SNII CommonGrams fast path. Plain terms are interned once and returned as
-    // stable ids; each gram occurrence hashes a fixed 10-byte pair of those ids
-    // instead of constructing and hashing the variable-length physical gram key.
-    PlainTermId intern_plain_term(std::string_view physical_plain_term);
-    // Production CommonGrams path. A physical-key hit proves the injectively mapped
-    // logical term was validated previously; a miss validates exactly once before
-    // materializing the vocabulary entry.
-    PlainTermId intern_plain_term(std::string_view physical_plain_term,
-                                  std::string_view logical_plain_term);
-    ClassifiedPlainTerm intern_classified_plain_term(
-            std::string_view physical_plain_term, std::string_view logical_plain_term,
-            const segment_v2::inverted_index::CommonWordSet& common_words);
-    void add_plain_token(PlainTermId term_id, uint32_t docid, uint32_t pos);
-    void add_common_gram(PlainTermId left, PlainTermId right, uint32_t docid, uint32_t pos,
-                         bool retain_positions);
-    void add_common_gram_and_plain(PlainTermId left, PlainTermId right, uint32_t docid,
-                                   uint32_t gram_pos, uint32_t plain_pos,
-                                   bool retain_gram_positions);
-    void enable_common_gram_pair_keys();
 
     // G09: joins the PROCESS-WIDE build-RAM registry. Registers this buffer's
     // current SPILLABLE arena bytes with `limiter` and forwards every
@@ -296,16 +259,9 @@ public:
     void set_forced_spill_min_arena_bytes(uint64_t bytes) { forced_spill_min_arena_bytes_ = bytes; }
     uint64_t forced_spill_min_arena_bytes() const { return forced_spill_min_arena_bytes_; }
 
-    // G09 run-file cap (config snii_spill_max_run_files_per_buffer): when a
-    // new spill would grow the accumulated run-file count past this cap, the
-    // existing runs are first MERGE-COMPACTED into one (a k-way merge of the
-    // run files back into a single fresh run; term stream byte-identical, the
-    // old files deleted) so the buffer never holds more than the cap + 1 run
-    // files. Bounds both the final k-way merge's fan-in and -- decisively --
-    // its OPEN FILE DESCRIPTORS: every run of a buffer is (re)opened
-    // simultaneously and held open for the whole merge, so unbounded run
-    // counts across ~100 concurrent writers exhausted the BE nofile rlimit
-    // ('Too many open files' at run reopen). 0 disables the cap.
+    // Historical run-file knob: spilled runs now share one append-only spool.
+    // It additionally caps active merge inputs (minimum two); budget and fd
+    // limits apply independently. Zero leaves fan-in selection to those limits.
     static constexpr size_t kDefaultMaxRunFilesPerBuffer = 64;
     void set_max_run_files(size_t cap) { max_run_files_ = cap; }
     size_t max_run_files() const { return max_run_files_; }
@@ -321,12 +277,9 @@ public:
     // this after draining to surface input-side validation errors.
     [[nodiscard]] Status status() const { return spill_status_; }
 
-    // TEST-ONLY: number of spill run files currently HELD (== 0 in pure
-    // in-memory mode). Lets tests assert that a gate-2 spill actually fired
-    // once the REAL resident size crossed the configured cap. NOTE: a G09
-    // run-cap merge-compaction (see set_max_run_files) collapses the list to
-    // ONE file, so the count is not monotonic. Not part of the production API.
-    size_t run_count_for_test() const { return run_paths_.size(); }
+    // Logical sealed runs, as opposed to physical ingestion spool files.
+    size_t run_count_for_test() const { return run_count_; }
+    size_t spill_file_count_for_test() const { return run_spool_path_.empty() ? 0 : 1; }
 
     // TEST-ONLY: the REAL resident accumulator bytes the gate-2 trigger and the
     // MemoryReporter see (resident_bytes()). Lets the G08 accounting tests assert
@@ -365,19 +318,13 @@ public:
     Status for_each_term_sorted(const StreamedTermConsumer& fn);
 
 private:
-    struct CommonGramPairCache;
-    struct CommonGramPlainTermCache;
-
     enum class PostingChainShape : uint8_t {
         kTaggedPositioned,
         kTaggedDocsOnly,
-        kStatlessDocsOnly,
     };
 
     // Compact per-term accumulator: ONE tagged-varint arena chain plus a few cursors.
-    // A statless CommonGram keeps its first distinct doc inline in cur_docid and
-    // starts a chain only when a second doc arrives. For other posting shapes, a
-    // sentinel chain head marks an empty term. ntok / ndocs bound the decode loop
+    // A sentinel chain head marks an empty term. ntok / ndocs bound the decode loop
     // and size reserves.
     // Total 28 B per live term.
     static constexpr uint32_t kNoChain = 0xFFFFFFFFU;
@@ -400,26 +347,6 @@ private:
                   "SliceWriter must stay 8 bytes to keep Term compact");
     static_assert(sizeof(Term) == 28, "Term must stay compact for high-cardinality imports");
 
-    struct TrackedTermPostings {
-        explicit TrackedTermPostings(MemoryReporter* reporter)
-                : docids_reservation(reporter == nullptr ? MemoryReporter::Reservation()
-                                                         : reporter->make_reservation()),
-                  freqs_reservation(reporter == nullptr ? MemoryReporter::Reservation()
-                                                        : reporter->make_reservation()),
-                  positions_reservation(reporter == nullptr ? MemoryReporter::Reservation()
-                                                            : reporter->make_reservation()) {}
-
-        TrackedTermPostings(const TrackedTermPostings&) = delete;
-        TrackedTermPostings& operator=(const TrackedTermPostings&) = delete;
-
-        // Reservations precede the posting vectors so physical allocations are
-        // destroyed before their charges are released.
-        MemoryReporter::Reservation docids_reservation;
-        MemoryReporter::Reservation freqs_reservation;
-        MemoryReporter::Reservation positions_reservation;
-        TermPostings postings;
-    };
-
     // The active vocabulary (term-id -> string): either the borrowed pointer or,
     // in owned mode, &owned_vocab_. Always non-null after construction.
     const std::vector<std::string>& vocab() const { return *vocab_; }
@@ -429,8 +356,6 @@ private:
     void accumulate(uint32_t term_id, uint32_t docid, uint32_t pos, bool retain_positions);
     void accumulate_without_spill_gate(uint32_t term_id, uint32_t docid, uint32_t pos,
                                        PostingChainShape shape);
-    void add_common_gram_without_spill_gate(PlainTermId left, PlainTermId right, uint32_t docid,
-                                            uint32_t pos, bool retain_positions);
 
     // Per-token gate-2 tail of accumulate(): reports the token's resident growth,
     // then spills when the unified cap / local threshold fires with a worthwhile
@@ -438,11 +363,9 @@ private:
     // limiter's advisory request flag is pending (honored here, on the owner's
     // own thread; bypasses the G08 floor but requires one allocated arena block
     // so a run is writable), or when the arena nears its hard 4 GiB offset
-    // limit. Every public add path invokes this gate once; the fused CommonGrams
-    // path invokes it after appending both the gram and its right plain token.
+    // limit. Every public add path invokes this gate once.
     void maybe_spill_after_token();
 
-    Status to_postings(std::string term, Term&& t, TrackedTermPostings* tracked) const;
     class ArenaTermPostingSource;
 
     // Returns the touched term-ids sorted by their vocab string (lexicographic).
@@ -457,14 +380,8 @@ private:
     Status drain_sorted_streamed(const StreamedTermConsumer& fn);
     // Spills the current buffer to a fresh sorted run file and clears memory.
     Status spill_to_run();
-    // G09 run-file cap enforcement (see set_max_run_files): merge-compacts the
-    // current run files into ONE fresh run (same term stream, ids ordered by
-    // the current string rank), deletes the old
-    // files and replaces run_paths_ with the compacted one. Called by
-    // spill_to_run before opening a new run once the cap is reached.
-    Status compact_runs();
     // Writes all current terms (sorted) to an already-open RunWriter, draining.
-    Status drain_to_writer(class RunWriter* w);
+    Status drain_to_writer(class EncodedRunWriter* w);
     // REAL resident accumulator bytes -- the single source of truth for the gate-2
     // spill trigger and every MemoryReporter delta. G08: sums EVERY live input-side
     // structure -- the posting arena (docs+prx payload)
@@ -481,7 +398,7 @@ private:
     // mem_reporter_ is null.
     void report_arena_delta();
     Status merge_runs_streamed(const StreamedTermConsumer& fn);
-    Status prepare_run_merge(std::function<std::string(std::string_view)>* materializer);
+    Status prepare_run_merge();
     void finish_run_merge();
     // Deletes every temp run file; called from the destructor (RAII cleanup).
     void cleanup_runs();
@@ -492,23 +409,10 @@ private:
     uint32_t append_owned_vocab_term(std::string&& term_str);
     uint32_t intern_owned_term(std::string&& term_str, size_t term_hash);
     uint32_t find_or_intern_owned_term(std::string_view term);
-    uint32_t find_or_intern_common_gram_pair(PlainTermId left, PlainTermId right, uint64_t pair);
-    uint32_t find_interned_plain_term(std::string_view term, size_t term_hash);
-    void remember_plain_term(size_t term_hash, uint32_t term_id);
     bool transient_term_less(uint32_t left_id, uint32_t right_id) const;
-    std::string materialize_transient_term(std::string_view term) const;
 
     const std::vector<std::string>* vocab_; // active vocab (borrowed or &owned_)
     std::vector<std::string> owned_vocab_;  // owned mode: interned term strings
-
-    enum class CommonWordClassification : uint8_t {
-        kUnknown,
-        kNotCommon,
-        kCommon,
-    };
-    // Stable semantic classification keyed by owned term id. Pair ids remain
-    // kUnknown; physical plain ids are classified once from their logical bytes.
-    std::vector<CommonWordClassification> common_word_classification_;
 
     // G08: running sum of the owned vocab strings' HEAP payloads (0 for SSO
     // strings -- their bytes live inside the headers owned_vocab_.capacity()
@@ -561,19 +465,7 @@ private:
     // iterator survives a mutation.
     phmap::flat_hash_set<uint32_t, OwnedVocabHash, OwnedVocabEq> intern_;
 
-    // CommonGram pair ids are already a canonical, collision-free key. Keep them
-    // out of the string-content intern table: an L0 cache miss probes this native
-    // map and materializes the 10-byte transient vocabulary key only for a new
-    // pair. The map survives ordinary spills because the persistent vocabulary
-    // and term ids do; terminal drains release it before output reservations.
-    phmap::flat_hash_map<uint64_t, uint32_t> common_gram_pair_intern_;
-
     bool has_positions_;
-    bool common_gram_pair_keys_ = false;
-    std::unique_ptr<CommonGramPairCache> common_gram_pair_cache_;
-    uint64_t common_gram_pair_cache_bytes_ = 0;
-    std::unique_ptr<CommonGramPlainTermCache> common_gram_plain_term_cache_;
-    uint64_t common_gram_plain_term_cache_bytes_ = 0;
     size_t spill_threshold_bytes_; // 0 => unlimited (no spilling)
     uint64_t total_tokens_ = 0;
 
@@ -624,12 +516,15 @@ private:
     // (so an untouched term costs no arena bytes).
     void put_varint(Term* t, uint64_t v);
 
-    std::vector<std::string> run_paths_; // spilled run temp files (deleted in dtor)
-    Status spill_status_;                // first spill / range error, at finalize
-    bool drained_ = false;               // set once finalize_sorted/for_each_term_sorted has run;
-                                         // a second drain would (spilled path) re-merge the run
-                                         // files and re-emit every term, or (in-memory path) emit
-                                         // nothing -- both wrong. Guard against the double-drain.
+    MemoryReporter::Reservation run_path_reservation_;
+    std::string run_spool_path_;
+    PostingByteBuffer run_ends_;
+    size_t run_count_ = 0;
+    Status spill_status_;  // first spill / range error, at finalize
+    bool drained_ = false; // set once finalize_sorted/for_each_term_sorted has run;
+                           // a second drain would (spilled path) re-merge the run
+                           // files and re-emit every term, or (in-memory path) emit
+                           // nothing -- both wrong. Guard against the double-drain.
 
     // Lazily-built vocab-sized map: term-id -> its lexicographic rank among all
     // vocab strings. `size() == vocab().size()` means the rank is current; a
@@ -666,12 +561,7 @@ void reset_vocab_string_materialization_count();
 uint64_t global_forced_spills();
 void reset_global_forced_spills();
 
-// G09 run-file cap seam: merge-compactions of a buffer's accumulated spill
-// runs (each collapses the whole run list into one file). Always-on relaxed
-// atomic (a compaction is rare -- at most once per cap-many spills -- so
-// contention is a non-issue, unlike the per-token seams above). Deterministic
-// on the single-threaded build path; reset between tests. Not part of the
-// production API.
+// Successful bounded run merge groups, including intermediate reductions.
 uint64_t run_compactions();
 void reset_run_compactions();
 
@@ -685,39 +575,6 @@ void reset_string_rank_rebuilds();
 uint64_t dense_rank_inversions();
 uint64_t rank_comparison_sorts();
 void reset_rank_ordering_counts();
-
-// CommonGrams pair-key terminal-ordering seam. Both counters compile out of
-// production: tests use them to prove terminal sorting/materialization takes the
-// trusted fixed-key path instead of re-running generic key validation.
-uint64_t common_gram_pair_unchecked_decode_count();
-uint64_t common_gram_trusted_plain_decode_count();
-void reset_common_gram_pair_fast_path_counts();
-
-// CommonGrams pair direct-cache seam. The counters compile out of production;
-// tests use them to prove repeated pairs bypass key encoding and the intern table.
-// Docs-only pairs additionally suppress same-document repeats, while positioned
-// pairs reuse the cached term id and still accumulate every position.
-uint64_t common_gram_pair_cache_probes();
-uint64_t common_gram_pair_cache_pair_hits();
-uint64_t common_gram_pair_cache_same_doc_hits();
-void reset_common_gram_pair_cache_counts();
-
-// Native CommonGram pair-interner seam. Normal production pair ingestion must
-// never route a transient pair key through the generic string-content table.
-uint64_t common_gram_native_pair_probes();
-uint64_t common_gram_native_pair_hits();
-uint64_t common_gram_native_pair_inserts();
-void reset_common_gram_native_pair_intern_counts();
-
-uint64_t common_gram_logical_validation_count();
-void reset_common_gram_logical_validation_count();
-
-// CommonGrams plain-term hot-cache seam: total cache probes, cache hits, and
-// fallbacks that reached the global intern table.
-uint64_t common_gram_plain_cache_probes();
-uint64_t common_gram_plain_cache_hits();
-uint64_t common_gram_plain_intern_table_probes();
-void reset_common_gram_plain_cache_counts();
 
 // Counts equality checks that must dereference owned vocabulary bytes after the
 // inline length and prefix checks. Short terms must never increment this counter.

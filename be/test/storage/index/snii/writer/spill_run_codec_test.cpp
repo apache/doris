@@ -107,14 +107,16 @@ std::vector<uint32_t> LexRank(const std::vector<std::string>& vocab) {
 Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<std::string>& vocab,
                  const std::vector<uint32_t>& string_rank, bool has_positions,
                  const std::function<void(TermPostings&&)>& fn) {
-    return merge_run_sources(run_paths, vocab, string_rank, has_positions,
-                             [&](doris::snii::writer::StreamedTermPostings&& streamed) {
-                                 TermPostings materialized;
-                                 RETURN_IF_ERROR(doris::snii::writer::materialize_streamed_term(
-                                         std::move(streamed), &materialized));
-                                 fn(std::move(materialized));
-                                 return Status::OK();
-                             });
+    return merge_run_sources(
+            run_paths, vocab, string_rank, has_positions,
+            [&](doris::snii::writer::StreamedTermPostings&& streamed) {
+                TermPostings materialized;
+                RETURN_IF_ERROR(doris::snii::writer::materialize_streamed_term(std::move(streamed),
+                                                                               &materialized));
+                fn(std::move(materialized));
+                return Status::OK();
+            },
+            nullptr, /*allow_legacy=*/true);
 }
 
 // Writes a single run from `terms` (by id) and reads it back, asserting an exact
@@ -267,7 +269,7 @@ TEST(SniiSpillRunCodec, MergeRunSourcesAccountsReadersAndReleasesOnSuccess) {
                             during_callback = reporter.current_bytes();
                             return doris::snii::writer::consume_streamed_term(std::move(streamed));
                         },
-                        {}, &reporter)
+                        &reporter, /*allow_legacy=*/true)
                         .ok());
     EXPECT_GT(during_callback, static_cast<int64_t>(encoded_input_bytes));
     EXPECT_EQ(reporter.current_bytes(), 0);
@@ -295,7 +297,7 @@ TEST(SniiSpillRunCodec, RunReaderDocidReservationFailureReleasesAllCharges) {
             [](doris::snii::writer::StreamedTermPostings&& streamed) {
                 return doris::snii::writer::consume_streamed_term(std::move(streamed));
             },
-            {}, &reporter);
+            &reporter, /*allow_legacy=*/true);
     EXPECT_TRUE(status.is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>()) << status;
     EXPECT_EQ(reporter.current_bytes(), 0);
 }
@@ -358,7 +360,8 @@ TEST(SniiSpillRunCodec, RunWriterStreamsWideTermWithinAccountedBound) {
     TempRun run;
     std::vector<uint32_t> docids(kDocs);
     std::iota(docids.begin(), docids.end(), 0U);
-    TermPostings postings = MakeTerm(std::move(docids), {});
+    // 生产 SPIMI 落盘的 postings 一定带 freqs（to_postings 总会填充），run 记录没有无频次形状。
+    TermPostings postings = MakeTerm(std::move(docids), std::vector<uint32_t>(kDocs, 1));
 
     int64_t observed = 0;
     int64_t peak = 0;
@@ -378,7 +381,7 @@ TEST(SniiSpillRunCodec, RunWriterStreamsWideTermWithinAccountedBound) {
     RunReader reader;
     ASSERT_TRUE(reader.open(run.path, /*has_positions=*/true).ok());
     EXPECT_EQ(reader.current().docids, postings.docids);
-    EXPECT_TRUE(reader.current().freqs.empty());
+    EXPECT_EQ(reader.current().freqs, postings.freqs);
     EXPECT_TRUE(reader.current().positions_flat.empty());
     ASSERT_TRUE(reader.advance().ok());
     EXPECT_TRUE(reader.exhausted());
@@ -387,7 +390,7 @@ TEST(SniiSpillRunCodec, RunWriterStreamsWideTermWithinAccountedBound) {
 TEST(SniiSpillRunCodec, RunWriterGrowsStagingBufferGeometrically) {
     constexpr uint32_t kTerms = 4096;
     TempRun run;
-    const TermPostings postings = MakeTerm({7}, {});
+    const TermPostings postings = MakeTerm({7}, {1});
 
     int64_t observed = 0;
     uint32_t positive_reservations = 0;
@@ -421,14 +424,16 @@ TEST(SniiSpillRunCodec, CompactRunsMergedPostingReservationHonorsHardLimitAndRel
         std::iota(docids.begin(), docids.end(), static_cast<uint32_t>(run) * kDocsPerRun);
         RunWriter writer;
         ASSERT_TRUE(writer.open(run == 0 ? first.path : second.path).ok());
-        ASSERT_TRUE(writer.write_term(0, MakeTerm(std::move(docids), {})).ok());
+        ASSERT_TRUE(writer.write_term(0, MakeTerm(std::move(docids),
+                                                  std::vector<uint32_t>(kDocsPerRun, 1)))
+                            .ok());
         ASSERT_TRUE(writer.close().ok());
     }
 
     MemoryReporter reporter(/*consume_release=*/nullptr, /*cap_bytes=*/80U << 10,
                             MemoryReporter::CapPolicy::kHardLimit);
     const Status status = compact_runs({first.path, second.path}, {0}, /*has_positions=*/true,
-                                       output.path, &reporter);
+                                       output.path, &reporter, /*allow_legacy=*/true);
     EXPECT_TRUE(status.is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>()) << status;
     EXPECT_EQ(reporter.current_bytes(), 0);
 }
@@ -717,10 +722,12 @@ TEST(SniiSpillRunCodec, MergeWideTermStreamsIdenticalToMaterialized) {
             MergeRuns(paths, vocab, LexRank(vocab), /*has_positions=*/true, [&](TermPostings&& tp) {
                 materialized = std::move(tp);
             }).ok());
-    ASSERT_TRUE(merge_run_sources(paths, vocab, LexRank(vocab), /*has_positions=*/true,
-                                  [&](doris::snii::writer::StreamedTermPostings&& source) {
-                                      return DrainStreamed(std::move(source), &streamed);
-                                  })
+    ASSERT_TRUE(merge_run_sources(
+                        paths, vocab, LexRank(vocab), /*has_positions=*/true,
+                        [&](doris::snii::writer::StreamedTermPostings&& source) {
+                            return DrainStreamed(std::move(source), &streamed);
+                        },
+                        nullptr, /*allow_legacy=*/true)
                         .ok());
 
     // Both paths must produce identical docids, freqs, and positions.
@@ -806,7 +813,7 @@ TEST(SniiSpillRunCodec, NPosExceedsFileIsCorruption) {
 
 // A truncated position block must fail through the source contract while every
 // unwritten slot in the value-initialized writer buffer remains deterministic.
-TEST(SniiSpillRunCodec, TruncatedPositionsFailWithoutUninitializedTail) {
+TEST(SniiSpillRunCodec, RejectsTruncatedPositionsBeforeStartingConsumer) {
     const std::vector<std::string> vocab = {"wide"};
     constexpr uint32_t kDocs = 600;
     TempRun run;
@@ -840,13 +847,12 @@ TEST(SniiSpillRunCodec, TruncatedPositionsFailWithoutUninitializedTail) {
                 Status fill_status = streamed.source->fill(kDocs, &buffer, &exhausted);
                 positions.assign(buffer.positions_flat().begin(), buffer.positions_flat().end());
                 return fill_status;
-            });
+            },
+            nullptr, /*allow_legacy=*/true);
 
     EXPECT_TRUE(status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
-    ASSERT_TRUE(source_called);
-    ASSERT_EQ(positions.size(), kDocs);
-    EXPECT_TRUE(std::all_of(positions.end() - 100, positions.end(),
-                            [](uint32_t value) { return value == 0; }));
+    EXPECT_FALSE(source_called);
+    EXPECT_TRUE(positions.empty());
 }
 
 // A truncated run file is rejected by decode (anti-corruption on bytes we read).
@@ -888,7 +894,8 @@ TEST(SniiSpillRunCodec, MergeRunSourcesRejectsUnconsumedSource) {
     const std::vector<std::string> vocab = {"wide"};
     const Status status = merge_run_sources(
             {run.path}, vocab, LexRank(vocab), /*has_positions=*/true,
-            [&](doris::snii::writer::StreamedTermPostings&&) { return Status::OK(); });
+            [&](doris::snii::writer::StreamedTermPostings&&) { return Status::OK(); }, nullptr,
+            /*allow_legacy=*/true);
     EXPECT_TRUE(status.is<doris::ErrorCode::INVALID_ARGUMENT>()) << status;
 }
 
@@ -1066,10 +1073,12 @@ TEST(SniiSpillMergeTest, MergeWideTermStreamsMatchesMaterialized) {
     ASSERT_TRUE(MergeRuns(paths, vocab, rank, /*has_positions=*/true, [&](TermPostings&& tp) {
                     materialized = std::move(tp);
                 }).ok());
-    ASSERT_TRUE(merge_run_sources(paths, vocab, rank, /*has_positions=*/true,
-                                  [&](doris::snii::writer::StreamedTermPostings&& source) {
-                                      return DrainStreamed(std::move(source), &streamed);
-                                  })
+    ASSERT_TRUE(merge_run_sources(
+                        paths, vocab, rank, /*has_positions=*/true,
+                        [&](doris::snii::writer::StreamedTermPostings&& source) {
+                            return DrainStreamed(std::move(source), &streamed);
+                        },
+                        nullptr, /*allow_legacy=*/true)
                         .ok());
     EXPECT_GE(materialized.docids.size(),
               static_cast<size_t>(doris::snii::format::kSlimDfThreshold));
@@ -1232,6 +1241,7 @@ TEST(SniiSpillMergeTest, SpillMergeEqualsInMemory) {
         // multi-token doc straddles run seams -> exercises boundary-doc coalesce).
         SpimiTermBuffer buf(&vocab, /*has_positions=*/true, /*spill_threshold_bytes=*/1);
         feed(buf);
+        runs = buf.run_count_for_test();
         ASSERT_TRUE(
                 buf.for_each_term_sorted([&](doris::snii::writer::StreamedTermPostings&& source) {
                        TermPostings postings;
@@ -1239,7 +1249,7 @@ TEST(SniiSpillMergeTest, SpillMergeEqualsInMemory) {
                        spilled.push_back(std::move(postings));
                        return Status::OK();
                    }).ok());
-        runs = buf.run_count_for_test();
+        EXPECT_EQ(buf.spill_file_count_for_test(), 0U);
     }
     EXPECT_GT(runs, 1U); // the spill path actually fired multiple runs
 

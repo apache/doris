@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <string_view>
 
 namespace doris::snii::format {
@@ -28,6 +29,18 @@ inline constexpr std::string_view kPhraseBigramTermMarker =
 
 inline bool is_phrase_bigram_term(std::string_view term) {
     return term.starts_with(kPhraseBigramTermMarker);
+}
+
+// SNII 的 term 键就是分词后的原始字节，没有任何转义。唯一的内部命名空间是上面这个以 \x1F
+// 开头的 phrase-bigram 标记：用户 term（或前缀展开的前缀）若与它重叠，查询必须绕过 SNII，
+// 否则用户词项会命中内部词项。
+inline bool term_overlaps_internal_namespace(std::string_view term) {
+    return term.starts_with(kPhraseBigramTermMarker);
+}
+
+inline bool prefix_overlaps_internal_namespace(std::string_view prefix) {
+    const size_t common = std::min(prefix.size(), kPhraseBigramTermMarker.size());
+    return prefix.substr(0, common) == kPhraseBigramTermMarker.substr(0, common);
 }
 
 } // namespace doris::snii::format

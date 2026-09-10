@@ -35,7 +35,10 @@ struct PrxFrameView {
     Slice payload;
 };
 
-Status read_prx_frame(ByteSource* source, PrxFrameView* frame);
+// verify_crc=false 只解析帧头并切出 payload、跳过 crc 比对：给"估算位置工作量"这类
+// 只读元数据的路径用，避免在真正解码之前对整个 prx 窗口多算一遍 crc32c；坏帧仍会在
+// 解码时被 crc 拦下。
+Status read_prx_frame(ByteSource* source, PrxFrameView* frame, bool verify_crc = true);
 
 } // namespace format
 } // namespace doris::snii

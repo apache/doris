@@ -1376,14 +1376,9 @@ DECLARE_Int32(inverted_index_query_cache_shards);
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
 
-// Process-wide emergency switch for CommonGrams query plans.
-DECLARE_mBool(enable_common_grams_query_plan);
 // Build-only CommonGrams kill switch. Logical index writers snapshot it at construction; changing
 // it affects only writers created after the transition and never changes query/cache semantics.
-DECLARE_mBool(enable_common_grams_index_build);
 // Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
-DECLARE_mInt32(common_grams_plan_cost_ratio_percent);
-DECLARE_mInt32(common_grams_position_verify_factor);
 
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
@@ -1396,11 +1391,6 @@ DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
-// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
-// regions. Freq serves ONLY BM25 scoring (no production caller yet), so the
-// default (false) drops the layout; scoring-config indexes always keep freq.
-// Write-side only; segments are self-describing either way.
-DECLARE_mBool(snii_positions_index_write_freq);
 // G16-h: zstd levels for SNII dict blocks / prx windows. Default 3 (the
 // all-level-3 evaluation showed level 9 buys <=6.3% index size for 17-24%
 // import CPU; see the DEFINEs in config.cpp).
@@ -1443,21 +1433,20 @@ DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
 // reclaims ONLY the posting arena -- the persistent vocab / pair-map
 // structures survive it -- so honoring below a real floor degenerates into a
 // storm of tiny runs whenever the memory over the share is dominated by
-// persistent bytes (each run then costs a file, a sort and a merge-fd for
+// persistent bytes (each run still adds framing, sorting and merge work for
 // near-zero memory relief). THIS FLOOR, not any judgement about whether the
 // overage is reachable, is what bounds forced spilling: it caps the cost at one
 // >= floor-sized run per floor of arena growth per writer. Forced spilling
 // therefore reclaims SPILLABLE memory only, never persistent memory.
 // Default 64 MiB.
 DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
-// G09 run-file cap: maximum spill-run files one SNII writer may accumulate;
-// on the next spill past the cap, the existing runs are merge-compacted into
-// a single run first (term stream unchanged). Bounds the final k-way merge's
-// fan-in and, decisively, its simultaneously-open file descriptors -- every
-// run of a buffer is reopened and held open for the whole merge, so unbounded
-// run counts across ~100 concurrent writers can exhaust the BE nofile rlimit
-// ("Too many open files" at run reopen). 0 disables the cap. Default 64.
+// Historical run-file cap, now an additional limit on active inputs per merge
+// group (minimum two). Ingestion runs share one append-only spool. Zero leaves
+// fan-in bounded by the postings workspace and fd limits. Default 64.
 DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
+// Shared hard posting-workspace budget, captured by new ingestion/compaction
+// reporters. Positive bytes; default 32 MiB. High ZSTD levels may need more.
+DECLARE_mInt64(snii_postings_workspace_bytes);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 // The kuromoji (Japanese) analyzer

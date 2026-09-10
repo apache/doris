@@ -29,43 +29,19 @@
 
 namespace doris::snii::writer {
 
-using TermKeyMaterializer = std::function<std::string(std::string_view)>;
-
-// On-disk SPIMI "run" codec for the spill / k-way-merge out-of-core build path.
+// Raw-u32 RUN compatibility codec for explicit fixtures and diagnostics. The
+// production spill/merge path uses EncodedRunWriter and StreamingRunReader
+// (encoded_spill_run.h); it never materializes an entire term in these classes.
 //
-// A RUN is a self-describing file holding a sequence of terms keyed by TERM-ID,
-// each followed by its postings, in this exact wire layout. The file is produced
-// and consumed by THIS module only (a private temp file -- the on-disk INDEX is
-// unaffected), so the format is chosen for cheap I/O: docids, freqs and positions
-// are ALL RAW fixed-width little-endian u32 BLOCKS (bulk memcpy on both ends,
-// ~10x cheaper than per-value varint -- which cost ~1.5s of encode CPU over the
-// 5M build's ~60M docids and compressed those streams poorly anyway). Decode
-// still validates every length against the file size.
-//
-//   run := record*                       (term-ids ordered by vocab string,
-//                                          strictly ascending within a run)
-//   record :=
-//     VInt term_id                       (index into the shared vocabulary)
-//     VInt shape                         (0=docs-only-statless, 1=docs+freq,
-//                                          2=positioned)
-//     VInt n_docs
-//     u32  docid * n_docs                (RAW LE absolute ascending docids)
-//     shape=1: u32 freq * n_docs         (RAW LE, each >= 1)
-//     shape=2: u32 freq * n_docs, VInt n_pos, u32 position * n_pos
-//                                        (n_pos == sum(freqs))
-//
-// Shape 0 is the CommonGrams docs-only set representation. It writes neither
-// synthetic all-one frequencies nor n_pos; run files are private temporaries,
-// so this does not change the persisted SNII index format.
-//
-// Decode is fully STREAMED: a RunReader reads a small fixed buffer at a time and
-// materializes only the CURRENT term's postings, never the whole run. The k-way
-// merge keeps one heap slot per run (each holding only its current term-id +
-// that term's postings), so peak memory is bounded by the widest single term
-// summed across the runs that contain it -- not by total postings. The merge
-// orders runs by a PRECOMPUTED integer string-rank (term-id -> its lexicographic
-// rank over the shared dense vocabulary): an integer compare that reproduces the
-// exact lexicographic order without touching a vocab string in the inner loops.
+// The former private format remains readable by the bounded merge path:
+//   run := record* (term ids ordered by vocabulary string rank)
+//   record := VInt term_id, VInt shape, VInt n_docs, u32 docid[n_docs]
+//   shape 0: docs only; no frequencies or positions
+//   shape 1: u32 frequency[n_docs]
+//   shape 2: u32 frequency[n_docs], VInt n_positions, u32 position[n_positions]
+// Fixed-width integers are little-endian. Positions are partitioned by positive
+// frequencies, whose sum equals n_positions. RunReader intentionally exposes
+// whole doc/frequency arrays for callers that request this materialized API.
 
 // Writes a sorted sequence of terms (by id) to one run file. Term-ids must be
 // handed to write_term in vocab-string ascending order (the spill caller sorts
@@ -73,14 +49,15 @@ using TermKeyMaterializer = std::function<std::string(std::string_view)>;
 // file is left for the owning SpimiTermBuffer to delete on its temp-path list.
 class RunWriter {
 public:
-    explicit RunWriter(MemoryReporter* memory_reporter = nullptr);
+    explicit RunWriter(MemoryReporter* memory_reporter = nullptr,
+                       size_t buffer_limit = 4 * 1024 * 1024);
     ~RunWriter();
 
     RunWriter(const RunWriter&) = delete;
     RunWriter& operator=(const RunWriter&) = delete;
 
-    // Opens `path` for writing (truncating). Returns IoError on failure.
-    Status open(const std::string& path);
+    // Opens `path` for writing, truncating unless append is requested.
+    Status open(const std::string& path, bool append = false);
 
     // Appends one term's postings under `term_id`. Empty freqs denotes the
     // docs-only-statless shape; otherwise freqs parallels docids. Positioned
@@ -91,6 +68,7 @@ public:
     Status close();
 
 private:
+    friend class EncodedRunWriter;
     Status flush();
     Status append_bytes(const uint8_t* data, size_t size);
     Status append_varint(uint64_t value);
@@ -99,6 +77,8 @@ private:
 
     MemoryReporter* memory_reporter_ = nullptr;
     MemoryReporter::Reservation buffer_reservation_;
+    size_t buffer_limit_;
+    uint64_t file_bytes_ = 0;
     int fd_ = -1;
     std::vector<uint8_t> buf_; // bounded staging buffer; flushed in fixed-size chunks
 };
@@ -117,7 +97,7 @@ private:
 //     (the default; behaves exactly as the old eager reader).
 //   * stream_positions(dst, n): pulls the next n positions straight from the
 //     window in 64 KiB chunks, never materializing the whole block -- used by the
-//     k-way merge source to decode directly into each writer-owned window.
+//     explicit streamed-position callers to avoid a whole positions array.
 // advance() drains any positions left unread from the previous term before the
 // next record, so a partly-streamed (or skipped) term still lands at the right
 // record boundary. The yielded byte sequence is identical either way.
@@ -209,28 +189,39 @@ private:
 // The source callback is synchronous: matching run readers remain parked on the
 // current term until the callback returns. The source fills writer-owned windows
 // directly and coalesces equal docids at run boundaries. A successful callback
-// must exhaust the source.
+// must exhaust the source. Legacy raw fixtures require allow_legacy=true; production
+// requires the encoded header and seal, including for an empty run.
 Status merge_run_sources(const std::vector<std::string>& run_paths,
                          const std::vector<std::string>& vocab,
                          const std::vector<uint32_t>& string_rank, bool has_positions,
-                         const StreamedTermConsumer& fn,
-                         TermKeyMaterializer materialize_term_key = {},
-                         MemoryReporter* memory_reporter = nullptr);
+                         const StreamedTermConsumer& fn, MemoryReporter* memory_reporter = nullptr,
+                         bool allow_legacy = false);
 
-// G09 run-file cap support: k-way merges `run_paths` into ONE new run file at
+// Production input consists of independently sealed ranges in one append-only
+// spool. `ends` stores {u64 end_offset, u32 CRC} records and shares the posting
+// workspace; no per-run path or offset array is materialized. A nonzero fan-in
+// limit adds the historical run-file knob to the budget/fd constraints.
+Status merge_spooled_run_sources(const std::string& spool, PostingByteBuffer* ends, size_t count,
+                                 const std::vector<std::string>& vocab,
+                                 const std::vector<uint32_t>& string_rank, bool has_positions,
+                                 const StreamedTermConsumer& fn, MemoryReporter* reporter,
+                                 size_t fan_in_limit);
+
+// Diagnostic/compaction interface: merges `run_paths` into one new run file at
 // `out_path`, keyed and ordered exactly like merge_run_sources (heap on
 // string_rank[term_id]; per-term postings concatenated across runs in run
 // order, boundary docs coalesced -- the same concat the final merge applies,
 // so compact-then-merge emits the identical term stream as merging the
-// originals). Positions are fully materialized for each term because the run
-// codec serializes positions_flat.
+// originals). Compact fragments are copied with bounded buffers. Multi-pass
+// groups preserve chronological run order; the final consumer coalesces boundary
+// documents while decoding. The output uses the current private encoded format.
 // Every record's term-id must index string_rank (else Corruption). On error
 // `out_path` may hold a partial file the caller must delete; the input runs
-// are never modified. Opens run_paths.size() read fds + 1 write fd for the
-// call's duration -- the caller (SpimiTermBuffer::compact_runs) bounds that
-// fan-in with its run-count cap.
+// are never modified. Active input fds are bounded by the shared workspace and
+// process fd limit; excess inputs are reduced through contiguous merge passes.
 Status compact_runs(const std::vector<std::string>& run_paths,
                     const std::vector<uint32_t>& string_rank, bool has_positions,
-                    const std::string& out_path, MemoryReporter* memory_reporter = nullptr);
+                    const std::string& out_path, MemoryReporter* memory_reporter = nullptr,
+                    bool allow_legacy = false);
 
 } // namespace doris::snii::writer

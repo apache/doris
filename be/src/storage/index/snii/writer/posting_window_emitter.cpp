@@ -18,6 +18,7 @@
 #include "storage/index/snii/writer/posting_window_emitter.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <limits>
 #include <optional>
@@ -26,18 +27,21 @@
 
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/crc32c.h"
+#include "storage/index/snii/encoding/pfor.h"
 #include "storage/index/snii/format/dict_entry.h"
 #include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/format/frq_pod.h"
 #include "storage/index/snii/format/frq_prelude.h"
 #include "storage/index/snii/io/file_writer.h"
-#include "storage/index/snii/writer/spillable_byte_buffer.h"
+#include "storage/index/snii/writer/posting_byte_buffer.h"
+#include "storage/index/snii/writer/posting_prx_encoder.h"
+#include "storage/index/snii/writer/term_posting_source.h"
 
 namespace doris::snii::writer {
 
 namespace {
 
-constexpr int kEmitterRawFrqRegion = 0;
 constexpr uint32_t kPreludeGroupSize = 64;
 
 struct PostingWindowPlan {
@@ -45,7 +49,6 @@ struct PostingWindowPlan {
     size_t doc_count = 0;
     uint64_t position_begin = 0;
     uint64_t position_count = 0;
-    uint32_t max_freq = 0;
 };
 
 bool emitter_fits_prx_window_shape(uint64_t doc_count, uint64_t position_count,
@@ -59,34 +62,6 @@ bool conservatively_fits_prx_window(uint64_t doc_count, uint64_t position_count,
                                     const format::PrxWindowLimits& limits) {
     return emitter_fits_prx_window_shape(doc_count, position_count, limits) &&
            1 + doc_count + position_count <= limits.max_uncomp_bytes / 5;
-}
-
-uint8_t window_max_norm(std::span<const uint8_t> norms, std::span<const uint32_t> docs) {
-    if (norms.empty() || docs.empty()) {
-        return 0;
-    }
-#ifdef BE_TEST
-    testing::note_window_norm_doc_visits(docs.size());
-#endif
-    uint8_t best = 0xFF;
-    for (uint32_t docid : docs) {
-        DCHECK_LT(docid, norms.size());
-        best = std::min(best, norms[docid]);
-    }
-    return best == 0xFF ? 0 : best;
-}
-
-Status build_prelude(const std::vector<format::WindowMeta>& windows, bool has_freq, bool has_prx,
-                     std::vector<uint8_t>* output) {
-    format::FrqPreludeColumns columns;
-    columns.has_freq = has_freq;
-    columns.has_prx = has_prx;
-    columns.group_size = kPreludeGroupSize;
-    columns.windows = windows;
-    ByteSink sink;
-    RETURN_IF_ERROR(format::build_frq_prelude(columns, &sink));
-    *output = sink.take();
-    return Status::OK();
 }
 
 Status checked_add(uint64_t increment, uint64_t* value) {
@@ -104,9 +79,25 @@ class WindowEmitter::Impl {
 public:
     explicit Impl(WindowEmitterOptions options)
             : options_(options),
-              dd_stager_(std::numeric_limits<uint64_t>::max(), "term_dd", options.memory_reporter),
-              freq_stager_(std::numeric_limits<uint64_t>::max(), "term_freq",
-                           options.memory_reporter) {
+              fixed_reservation_(options.memory_reporter == nullptr
+                                         ? MemoryReporter::Reservation()
+                                         : options.memory_reporter->make_postings_reservation()),
+              dd_stager_(
+                      options.memory_reporter,
+                      std::max<uint64_t>(PostingByteBuffer::kDefaultBufferBytes,
+                                         (options.memory_reporter == nullptr
+                                                  ? 32ULL << 20
+                                                  : options.memory_reporter->postings_cap_bytes()) /
+                                                 4)),
+              prelude_rows_(
+                      options.memory_reporter,
+                      std::max<uint64_t>(PostingByteBuffer::kDefaultBufferBytes,
+                                         (options.memory_reporter == nullptr
+                                                  ? 32ULL << 20
+                                                  : options.memory_reporter->postings_cap_bytes()) /
+                                                 8)),
+              prelude_directory_(options.memory_reporter),
+              prx_encoder_(options.memory_reporter) {
         if (options_.posting_out != nullptr &&
             options_.posting_out->bytes_written() >= options_.posting_region_offset) {
             prx_off_ = options_.posting_out->bytes_written() - options_.posting_region_offset;
@@ -134,7 +125,7 @@ public:
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "window emitter: null finish output");
         }
-        if (windows_.empty()) {
+        if (window_count_ == 0) {
             phase_ = Phase::kFailed;
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "window emitter: cannot finish an empty term");
@@ -184,15 +175,9 @@ private:
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "window emitter: empty posting window");
         }
-        if ((!run.freqs.empty() || options_.has_freq || options_.has_prx) &&
-            run.freqs.size() != run.docids.size()) {
+        if ((!run.freqs.empty() || options_.has_prx) && run.freqs.size() != run.docids.size()) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "window emitter: frequency shape must match documents");
-        }
-        if (options_.term_frequency_source == TermFrequencySource::kPositions &&
-            !options_.has_prx) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                    "window emitter: position-derived statistics require PRX offsets");
         }
         if (options_.has_prx) {
             if (run.position_offsets.size() != run.docids.size() + 1) {
@@ -200,12 +185,17 @@ private:
                         "window emitter: position offsets must have docs plus one entries");
             }
             if (run.position_offsets.front() > run.position_offsets.back() ||
-                run.position_offsets.back() - run.position_offsets.front() !=
-                        run.positions_flat.size()) {
+                (run.position_buffer == nullptr &&
+                 run.position_offsets.back() - run.position_offsets.front() !=
+                         run.positions_flat.size()) ||
+                (run.position_buffer != nullptr &&
+                 (!run.positions_flat.empty() ||
+                  run.position_offsets.back() > run.position_buffer->position_count()))) {
                 return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                         "window emitter: position offsets differ from the position run");
             }
-        } else if (!run.position_offsets.empty() || !run.positions_flat.empty()) {
+        } else if (!run.position_offsets.empty() || !run.positions_flat.empty() ||
+                   run.position_buffer != nullptr) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "window emitter: positions require a PRX term");
         }
@@ -222,19 +212,12 @@ private:
                     "window emitter: document frequency overflow");
         }
         stats_.df += static_cast<uint32_t>(run.docids.size());
-        switch (options_.term_frequency_source) {
-        case TermFrequencySource::kDocuments:
+        // 没有 freqs 的 docs-only 输入按每 doc 一次计入总词频；带 freqs 的输入在
+        // emit_window_impl 的逐 doc 循环里累加。
+        if (run.freqs.empty()) {
             return checked_add(run.docids.size(), &stats_.total_freq);
-        case TermFrequencySource::kPositions:
-            return checked_add(run.position_offsets.back() - run.position_offsets.front(),
-                               &stats_.total_freq);
-        case TermFrequencySource::kFrequenciesOrDocuments:
-            if (run.freqs.empty()) {
-                return checked_add(run.docids.size(), &stats_.total_freq);
-            }
-            return Status::OK();
         }
-        __builtin_unreachable();
+        return Status::OK();
     }
 
     uint64_t position_count(const PostingRunView& run, size_t begin, size_t count) const {
@@ -246,20 +229,21 @@ private:
 
     Status emit_window_impl(const PostingRunView& run) {
         RETURN_IF_ERROR(validate_run(run));
+        if (options_.memory_reporter != nullptr && fixed_reservation_.bytes() == 0) {
+            // One <=64-row prelude group and a single 256-value DD/PFOR block,
+            // including capacity overlap while their small ByteSinks grow.
+            RETURN_IF_ERROR(fixed_reservation_.set_bytes(32 * 1024));
+        }
         RETURN_IF_ERROR(accumulate_constant_stats(run));
 
-        const bool accumulate_frequencies =
-                options_.term_frequency_source == TermFrequencySource::kFrequenciesOrDocuments &&
-                !run.freqs.empty();
-        if (!options_.has_prx && !options_.has_freq && !accumulate_frequencies) {
-            RETURN_IF_ERROR(
-                    emit_planned(run, make_plan(run, 0, run.docids.size(), /*max_freq=*/0)));
+        const bool accumulate_frequencies = !run.freqs.empty();
+        if (!options_.has_prx && !accumulate_frequencies) {
+            RETURN_IF_ERROR(emit_planned(run, make_plan(run, 0, run.docids.size())));
             last_input_docid_ = run.docids.back();
             return Status::OK();
         }
 
         size_t window_begin = 0;
-        uint32_t window_max_freq = 0;
         for (size_t doc = 0; doc < run.docids.size(); ++doc) {
             const uint64_t document_positions = options_.has_prx ? position_count(run, doc, 1) : 0;
             if (options_.has_prx && (run.position_offsets[doc + 1] < run.position_offsets[doc] ||
@@ -273,34 +257,24 @@ private:
             }
             if (accumulate_frequencies) {
                 RETURN_IF_ERROR(checked_add(run.freqs[doc], &stats_.total_freq));
-                stats_.max_freq = std::max(stats_.max_freq, run.freqs[doc]);
             }
             const uint64_t candidate_docs = doc - window_begin + 1;
             const uint64_t candidate_positions = position_count(run, window_begin, candidate_docs);
             if (doc != window_begin && options_.has_prx &&
                 !emitter_fits_prx_window_shape(candidate_docs, candidate_positions,
                                                options_.prx_window_limits)) {
-                RETURN_IF_ERROR(emit_planned(
-                        run, make_plan(run, window_begin, doc - window_begin, window_max_freq)));
+                RETURN_IF_ERROR(
+                        emit_planned(run, make_plan(run, window_begin, doc - window_begin)));
                 window_begin = doc;
-                window_max_freq = 0;
-            }
-            if (options_.has_freq) {
-#ifdef BE_TEST
-                testing::note_window_freq_doc_visits();
-#endif
-                window_max_freq = std::max(window_max_freq, run.freqs[doc]);
             }
         }
-        RETURN_IF_ERROR(emit_planned(
-                run,
-                make_plan(run, window_begin, run.docids.size() - window_begin, window_max_freq)));
+        RETURN_IF_ERROR(
+                emit_planned(run, make_plan(run, window_begin, run.docids.size() - window_begin)));
         last_input_docid_ = run.docids.back();
         return Status::OK();
     }
 
-    PostingWindowPlan make_plan(const PostingRunView& run, size_t begin, size_t count,
-                                uint32_t max_freq) const {
+    PostingWindowPlan make_plan(const PostingRunView& run, size_t begin, size_t count) const {
         return {
                 .doc_begin = begin,
                 .doc_count = count,
@@ -308,7 +282,6 @@ private:
                                                              run.position_offsets.front()
                                                    : uint64_t {0},
                 .position_count = position_count(run, begin, count),
-                .max_freq = max_freq,
         };
     }
 
@@ -319,43 +292,26 @@ private:
             return Status::OK();
         }
 
-        std::vector<PostingWindowPlan> recut;
-        recut_window(run, plan, &recut);
-        for (const PostingWindowPlan& subplan : recut) {
-            outcome = format::PrxWindowBuildOutcome::kBuilt;
-            RETURN_IF_ERROR(emit_physical_window(run, subplan, &outcome));
-            if (outcome == format::PrxWindowBuildOutcome::kNeedsSplit) {
-                return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                        "window emitter: one document exceeds the PRX byte limit");
+        size_t begin = plan.doc_begin;
+        const size_t end = plan.doc_begin + plan.doc_count;
+        for (size_t doc = begin; doc <= end; ++doc) {
+            const bool cut = doc == end ||
+                             (doc != begin &&
+                              !conservatively_fits_prx_window(
+                                      doc - begin + 1, position_count(run, begin, doc - begin + 1),
+                                      options_.prx_window_limits));
+            if (cut) {
+                outcome = format::PrxWindowBuildOutcome::kBuilt;
+                RETURN_IF_ERROR(
+                        emit_physical_window(run, make_plan(run, begin, doc - begin), &outcome));
+                if (outcome == format::PrxWindowBuildOutcome::kNeedsSplit) {
+                    return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                            "window emitter: one document exceeds the PRX byte limit");
+                }
+                begin = doc;
             }
         }
         return Status::OK();
-    }
-
-    void recut_window(const PostingRunView& run, const PostingWindowPlan& input,
-                      std::vector<PostingWindowPlan>* output) const {
-        size_t window_begin = input.doc_begin;
-        uint32_t window_max_freq = 0;
-        const size_t input_end = input.doc_begin + input.doc_count;
-        for (size_t doc = input.doc_begin; doc < input_end; ++doc) {
-            const uint64_t candidate_docs = doc - window_begin + 1;
-            const uint64_t candidate_positions = position_count(run, window_begin, candidate_docs);
-            if (doc != window_begin &&
-                !conservatively_fits_prx_window(candidate_docs, candidate_positions,
-                                                options_.prx_window_limits)) {
-                output->push_back(
-                        make_plan(run, window_begin, doc - window_begin, window_max_freq));
-                window_begin = doc;
-                window_max_freq = 0;
-            }
-            if (options_.has_freq) {
-#ifdef BE_TEST
-                testing::note_window_freq_doc_visits();
-#endif
-                window_max_freq = std::max(window_max_freq, run.freqs[doc]);
-            }
-        }
-        output->push_back(make_plan(run, window_begin, input_end - window_begin, window_max_freq));
     }
 
     Status emit_physical_window(const PostingRunView& run, const PostingWindowPlan& plan,
@@ -367,54 +323,41 @@ private:
         window.last_docid = docs.back();
         window.win_base = window_base_;
         window.doc_count = static_cast<uint32_t>(docs.size());
-        window.max_freq = options_.has_freq ? plan.max_freq : 0;
-        window.max_norm = options_.has_freq ? window_max_norm(options_.encoded_norms, docs) : 0;
 
         if (options_.has_prx) {
-            const auto positions =
-                    run.positions_flat.subspan(static_cast<size_t>(plan.position_begin),
-                                               static_cast<size_t>(plan.position_count));
-            prx_scratch_.clear();
-            RETURN_IF_ERROR(format::try_build_prx_window_flat(
-                    positions, freqs, -options_.prx_zstd_level, options_.prx_window_limits,
-                    &prx_scratch_, outcome));
+            PostingPositionView positions {
+                    .flat = run.positions_flat,
+                    .buffer = run.position_buffer,
+                    .offset = run.position_buffer == nullptr ? plan.position_begin
+                                                             : run.position_offsets[plan.doc_begin],
+                    .count = plan.position_count,
+            };
+            RETURN_IF_ERROR(prx_encoder_.build(positions, freqs, -options_.prx_zstd_level,
+                                               options_.prx_window_limits, outcome));
             if (*outcome == format::PrxWindowBuildOutcome::kNeedsSplit) {
                 return Status::OK();
             }
             window.prx_off = prx_total_len_;
-            window.prx_len = prx_scratch_.size();
-            RETURN_IF_ERROR(options_.posting_out->append(prx_scratch_.view()));
+            window.prx_len = prx_encoder_.size();
+            RETURN_IF_ERROR(prx_encoder_.stream_into(options_.posting_out));
             prx_total_len_ += window.prx_len;
+            prx_encoder_.clear();
         } else {
             *outcome = format::PrxWindowBuildOutcome::kBuilt;
         }
 
-        ByteSink dd_sink;
-        format::FrqRegionMeta dd_meta;
-        window.dd_off = dd_stager_.size();
-        RETURN_IF_ERROR(format::build_dd_region(docs, window_base_, kEmitterRawFrqRegion, &dd_sink,
-                                                &dd_meta));
-        window.dd_zstd = dd_meta.zstd;
-        window.dd_disk_len = dd_meta.disk_len;
-        window.dd_uncomp_len = dd_meta.uncomp_len;
-        window.crc_dd = dd_meta.crc;
-        RETURN_IF_ERROR(dd_stager_.append_move(dd_sink.take()));
-
-        if (options_.has_freq) {
-            ByteSink freq_sink;
-            format::FrqRegionMeta freq_meta;
-            window.freq_off = freq_stager_.size();
-            RETURN_IF_ERROR(
-                    format::build_freq_region(freqs, kEmitterRawFrqRegion, &freq_sink, &freq_meta));
-            window.freq_zstd = freq_meta.zstd;
-            window.freq_disk_len = freq_meta.disk_len;
-            window.freq_uncomp_len = freq_meta.uncomp_len;
-            window.crc_freq = freq_meta.crc;
-            RETURN_IF_ERROR(freq_stager_.append_move(freq_sink.take()));
+        if (window_count_ == (1ULL << 24)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "frq_prelude: window count exceeds cap");
         }
-
-        windows_.push_back(window);
+        window.dd_off = dd_stager_.size();
+        RETURN_IF_ERROR(append_dd(docs, &window));
+        format::encode_frq_window_row(window, options_.has_prx, window_base_, &prelude_group_);
+        ++window_count_;
         window_base_ = window.last_docid;
+        if (window_count_ % kPreludeGroupSize == 0) {
+            RETURN_IF_ERROR(flush_prelude_group());
+        }
 #ifdef BE_TEST
         physical_window_counter().fetch_add(1, std::memory_order_relaxed);
 #endif
@@ -422,21 +365,41 @@ private:
     }
 
     Status finish_term_impl(format::DictEntry* entry) {
-        std::vector<uint8_t> prelude;
-        RETURN_IF_ERROR(build_prelude(windows_, options_.has_freq, options_.has_prx, &prelude));
+        RETURN_IF_ERROR(flush_prelude_group());
+        ByteSink header;
+        header.put_u8(options_.has_prx ? format::frq_prelude_flags::kHasPrx : 0);
+        header.put_varint64(window_count_);
+        header.put_varint64(kPreludeGroupSize);
+        header.put_varint64(superblock_count_);
+        header.put_varint64(prelude_directory_.size());
         entry->kind = format::DictEntryKind::kPodRef;
         entry->enc = format::DictEntryEnc::kWindowed;
         entry->has_sb = true;
-        entry->prelude_len = prelude.size();
-        entry->frq_docs_len = entry->prelude_len + dd_stager_.size();
-
+        entry->prelude_len =
+                header.size() + prelude_directory_.size() + sizeof(uint32_t) + prelude_rows_.size();
         uint64_t frq_off = 0;
         RETURN_IF_ERROR(posting_size(&frq_off));
-        RETURN_IF_ERROR(options_.posting_out->append(Slice(prelude)));
-        RETURN_IF_ERROR(dd_stager_.seal());
-        RETURN_IF_ERROR(dd_stager_.stream_into_and_release(options_.posting_out));
-        RETURN_IF_ERROR(freq_stager_.seal());
-        RETURN_IF_ERROR(freq_stager_.stream_into_and_release(options_.posting_out));
+        RETURN_IF_ERROR(options_.posting_out->append(header.view()));
+        uint32_t crc = crc32c(header.view());
+        {
+            PostingByteCursor cursor(&prelude_directory_);
+            RETURN_IF_ERROR(cursor.reset());
+            while (cursor.remaining() != 0) {
+                std::span<const uint8_t> bytes;
+                RETURN_IF_ERROR(cursor.next_span(&bytes));
+                const Slice slice(bytes.data(), bytes.size());
+                crc = crc32c_extend(crc, slice);
+                RETURN_IF_ERROR(options_.posting_out->append(slice));
+            }
+        }
+        header.clear();
+        header.put_fixed32(crc);
+        RETURN_IF_ERROR(options_.posting_out->append(header.view()));
+        RETURN_IF_ERROR(prelude_rows_.stream_into(options_.posting_out));
+        prelude_rows_.release();
+        prelude_directory_.release();
+        RETURN_IF_ERROR(dd_stager_.stream_into(options_.posting_out));
+        dd_stager_.release();
         entry->frq_off_delta = frq_off - options_.frq_base;
         uint64_t end = 0;
         RETURN_IF_ERROR(posting_size(&end));
@@ -448,16 +411,68 @@ private:
         return Status::OK();
     }
 
+    Status flush_prelude_group() {
+        if (prelude_group_.size() == 0) {
+            return Status::OK();
+        }
+        ByteSink directory_row;
+        directory_row.put_varint64(window_base_ - previous_superblock_last_);
+        directory_row.put_varint64(prelude_rows_.size());
+        directory_row.put_varint64(prelude_group_.size());
+        RETURN_IF_ERROR(
+                prelude_directory_.append({directory_row.view().data(), directory_row.size()}));
+        RETURN_IF_ERROR(
+                prelude_rows_.append({prelude_group_.view().data(), prelude_group_.size()}));
+        prelude_group_.clear();
+        previous_superblock_last_ = window_base_;
+        ++superblock_count_;
+        return Status::OK();
+    }
+
+    Status append_dd(std::span<const uint32_t> docs, format::WindowMeta* window) {
+        ByteSink block;
+        block.put_varint32(static_cast<uint32_t>(docs.size()));
+        std::array<uint32_t, format::kFrqBaseUnit> deltas {};
+        uint64_t previous = window_base_;
+        uint32_t crc = 0;
+        for (size_t offset = 0; offset < docs.size(); offset += deltas.size()) {
+            const size_t count = std::min(deltas.size(), docs.size() - offset);
+            for (size_t i = 0; i < count; ++i) {
+                const uint32_t doc = docs[offset + i];
+                if (doc < previous) {
+                    return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                            "frq: docids must be ascending and above win_base");
+                }
+                deltas[i] = static_cast<uint32_t>(doc - previous);
+                previous = doc;
+            }
+            pfor_encode(deltas.data(), count, &block);
+            crc = crc32c_extend(crc, block.view());
+            RETURN_IF_ERROR(dd_stager_.append({block.view().data(), block.size()}));
+            block.clear();
+        }
+        window->dd_zstd = false;
+        window->dd_disk_len = dd_stager_.size() - window->dd_off;
+        window->dd_uncomp_len = window->dd_disk_len;
+        window->crc_dd = crc;
+        return Status::OK();
+    }
+
 #ifdef BE_TEST
     static std::atomic<uint64_t>& finished_term_counter();
     static std::atomic<uint64_t>& physical_window_counter();
 #endif
 
     WindowEmitterOptions options_;
-    SpillableByteBuffer dd_stager_;
-    SpillableByteBuffer freq_stager_;
-    std::vector<format::WindowMeta> windows_;
-    ByteSink prx_scratch_;
+    MemoryReporter::Reservation fixed_reservation_;
+    PostingByteBuffer dd_stager_;
+    PostingByteBuffer prelude_rows_;
+    PostingByteBuffer prelude_directory_;
+    PostingPrxEncoder prx_encoder_;
+    ByteSink prelude_group_;
+    uint64_t window_count_ = 0;
+    uint64_t superblock_count_ = 0;
+    uint64_t previous_superblock_last_ = 0;
     TermAggregateStats stats_;
     std::optional<uint32_t> last_input_docid_;
     uint64_t prx_off_ = 0;
@@ -469,14 +484,6 @@ private:
 
 #ifdef BE_TEST
 namespace {
-std::atomic<uint64_t>& window_norm_doc_visit_counter() {
-    static std::atomic<uint64_t> counter {0};
-    return counter;
-}
-std::atomic<uint64_t>& window_freq_doc_visit_counter() {
-    static std::atomic<uint64_t> counter {0};
-    return counter;
-}
 std::atomic<uint64_t>& emitter_finished_term_counter() {
     static std::atomic<uint64_t> counter {0};
     return counter;
@@ -510,46 +517,6 @@ Status WindowEmitter::finish_term(format::DictEntry* entry, TermAggregateStats* 
 }
 
 namespace testing {
-
-void note_window_norm_doc_visits(uint64_t count) {
-#ifdef BE_TEST
-    window_norm_doc_visit_counter().fetch_add(count, std::memory_order_relaxed);
-#endif
-}
-
-uint64_t window_norm_doc_visits() {
-#ifdef BE_TEST
-    return window_norm_doc_visit_counter().load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-
-void reset_window_norm_doc_visits() {
-#ifdef BE_TEST
-    window_norm_doc_visit_counter().store(0, std::memory_order_relaxed);
-#endif
-}
-
-void note_window_freq_doc_visits() {
-#ifdef BE_TEST
-    window_freq_doc_visit_counter().fetch_add(1, std::memory_order_relaxed);
-#endif
-}
-
-uint64_t window_freq_doc_visits() {
-#ifdef BE_TEST
-    return window_freq_doc_visit_counter().load(std::memory_order_relaxed);
-#else
-    return 0;
-#endif
-}
-
-void reset_window_freq_doc_visits() {
-#ifdef BE_TEST
-    window_freq_doc_visit_counter().store(0, std::memory_order_relaxed);
-#endif
-}
 
 uint64_t window_emitter_finished_terms() {
 #ifdef BE_TEST
