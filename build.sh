@@ -780,6 +780,10 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-extension-spi")
     modules+=("fe-extension-loader")
     modules+=("fe-core")
+    # Hadoop as one shared library bundle for the plugins, unpacked into plugins/shared/hadoop/
+    # below. Nothing depends on it, so -am does not reach it; it has to be named here or the zip is
+    # simply never built and the deploy step below silently ships whatever an older build left.
+    modules+=("fe-hadoop-runtime")
     # Filesystem API and SPI plugin modules (loaded at runtime as plugins)
     modules+=("fe-filesystem/fe-filesystem-api")
     modules+=("fe-filesystem/fe-filesystem-spi")
@@ -1180,6 +1184,30 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/trino_plugins/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
+
+    # Shared library bundles: libraries that every plugin needing them must load from ONE place,
+    # because their classes inherit across jars and their static state (FileSystem.CACHE, the UGI
+    # login, the FileSystem service registry) is what makes two plugins agree about one cluster.
+    # SharedLibraryLayer turns this directory into the parent classloader of every filesystem and
+    # connector plugin. Deliberately at plugins/ level and not under plugins/filesystem or
+    # plugins/connector: DirectoryPluginRuntimeManager treats every direct subdirectory of those as
+    # a plugin, and would report this one as a plugin that failed to load.
+    # NOTE: plugins/shared/ is NOT added to the FE CLASSPATH - it is loaded by FE, not by the JVM
+    # launcher. See bin/start_fe.sh.
+    # Created only when there is a bundle to put in it - the mkdir below already builds the whole
+    # chain. An empty plugins/shared would occupy that name in Config.plugin_dir for nothing.
+    SHARED_LIB_DIR="${DORIS_OUTPUT}/fe/plugins/shared"
+    HADOOP_RUNTIME_ZIP="${DORIS_HOME}/fe/fe-hadoop-runtime/target/doris-fe-hadoop-runtime.zip"
+    if [[ -f "${HADOOP_RUNTIME_ZIP}" ]]; then
+        # Same rule as the plugin directories: unzip -o overwrites but never removes, so a version
+        # bump would leave both copies of every versioned jar here and the layer would bind whichever
+        # the sorted URL order reached first. Clear what the zip owns and unpack fresh.
+        rm -rf "${SHARED_LIB_DIR}/hadoop/lib"
+        rm -f "${SHARED_LIB_DIR}/hadoop"/*.jar
+        mkdir -p "${SHARED_LIB_DIR}/hadoop"
+        unzip -q -o "${HADOOP_RUNTIME_ZIP}" -d "${SHARED_LIB_DIR}/hadoop/"
+    fi
+    unset SHARED_LIB_DIR HADOOP_RUNTIME_ZIP
 
     # Deploy filesystem provider plugins as independent plugin directories
     # Each sub-directory is one storage backend loaded at runtime by FileSystemPluginManager.
