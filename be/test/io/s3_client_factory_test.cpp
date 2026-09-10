@@ -72,6 +72,14 @@ S3ClientConf make_hash_collision_conf(std::string endpoint, bool is_internal_buc
     return conf;
 }
 
+void expect_valid_azure_snapshot(const S3ClientConf& snapshot, const S3URI& own,
+                                 const S3URI& foreign) {
+    // Keep these checks nonfatal so the concurrent test always reaches the next barrier.
+    EXPECT_TRUE(snapshot.azure_credentials.validate().empty());
+    EXPECT_TRUE(S3ClientFactory::validate_azure_uri(own, snapshot).ok());
+    EXPECT_FALSE(S3ClientFactory::validate_azure_uri(foreign, snapshot).ok());
+}
+
 class CloudModeConfigGuard {
 public:
     explicit CloudModeConfigGuard(bool cloud_mode)
@@ -1085,9 +1093,7 @@ TEST_F(S3ClientFactoryTest, ConcurrentAzureRefreshKeepsUriValidationSnapshotsCon
         step.arrive_and_wait();
         auto snapshot = holder.s3_client_conf();
         EXPECT_TRUE(snapshot == shared_key || snapshot == sas);
-        EXPECT_TRUE(snapshot.azure_credentials.validate().empty());
-        EXPECT_TRUE(S3ClientFactory::validate_azure_uri(own, snapshot).ok());
-        EXPECT_FALSE(S3ClientFactory::validate_azure_uri(foreign, snapshot).ok());
+        expect_valid_azure_snapshot(snapshot, own, foreign);
         EXPECT_EQ(holder.full_s3_path("container", "path/file"),
                   "https://account.blob.core.windows.net/container/path/file");
         step.arrive_and_wait();

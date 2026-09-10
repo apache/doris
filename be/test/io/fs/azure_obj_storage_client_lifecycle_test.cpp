@@ -62,8 +62,9 @@ public:
             const Azure::Core::Credentials::TokenRequestContext&,
             const Azure::Core::Context&) const override {
         ++token_requests;
-        return {"test-access-token",
-                Azure::DateTime(std::chrono::system_clock::now() + std::chrono::hours(1))};
+        return {.Token = "test-access-token",
+                .ExpiresOn =
+                        Azure::DateTime(std::chrono::system_clock::now() + std::chrono::hours(1))};
     }
 
     mutable size_t token_requests = 0;
