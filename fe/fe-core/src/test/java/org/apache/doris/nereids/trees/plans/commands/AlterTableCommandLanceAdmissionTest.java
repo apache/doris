@@ -586,4 +586,40 @@ public class AlterTableCommandLanceAdmissionTest {
             Mockito.verify(fixture.env, Mockito.times(1)).getNextId();
         }
     }
+
+    @Test
+    public void twoIndexOpsTripTheExactlyOneOpPrecondition() throws Exception {
+        Config.enable_lance_index_mutation = true;
+        try (LanceFixture fixture = new LanceFixture(false)) {
+            // Not expressible in SQL: one statement carrying two top-level (non-alter) index
+            // operations. The command must fail its own defensive invariant before admission
+            // reads metadata or allocates anything.
+            org.apache.doris.info.TableNameInfo tbl =
+                    new org.apache.doris.info.TableNameInfo(CTL, DB, TBL);
+            org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition firstDef =
+                    new org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition("idx1", false,
+                            Collections.singletonList("c"), "BTREE", Collections.emptyMap(), "");
+            org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition secondDef =
+                    new org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition("idx2", false,
+                            Collections.singletonList("c"), "BTREE", Collections.emptyMap(), "");
+            List<org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp> ops =
+                    java.util.Arrays.asList(
+                            new org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp(
+                                    tbl, firstDef, false),
+                            new org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp(
+                                    tbl, secondDef, false));
+            AlterTableCommand command = new AlterTableCommand(tbl, ops);
+
+            IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
+                    () -> command.run(connectContext, fixture.executor));
+            Assertions.assertTrue(exception.getMessage().contains("exactly one operation"),
+                    exception.getMessage());
+            Mockito.verify(fixture.env, Mockito.never()).getNextId();
+            Mockito.verify(fixture.catalog, Mockito.never())
+                    .loadTableIndexAdmissionSnapshot(Mockito.anyString(), Mockito.anyString());
+            Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
+            Assertions.assertEquals(0, fixture.manager.getJobCount());
+            Assertions.assertTrue(fixture.manager.editLog.isEmpty());
+        }
+    }
 }

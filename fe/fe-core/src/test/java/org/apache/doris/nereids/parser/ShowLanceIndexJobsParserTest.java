@@ -18,6 +18,12 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ShowLanceIndexJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLanceIndexJobsCommand;
@@ -40,6 +46,16 @@ public class ShowLanceIndexJobsParserTest extends ParserTestBase {
     private ShowLanceIndexJobsCommand parseJobs(String sql) {
         Plan plan = parser.parseSingle(sql);
         return Assertions.assertInstanceOf(ShowLanceIndexJobsCommand.class, plan);
+    }
+
+    private static void assertEqualToPredicate(Expression where, String slotName, String literalValue) {
+        EqualTo equalTo = Assertions.assertInstanceOf(EqualTo.class, where);
+        UnboundSlot slot = Assertions.assertInstanceOf(UnboundSlot.class, equalTo.child(0));
+        Assertions.assertEquals(Arrays.asList(slotName), slot.getNameParts());
+        // The parser hands out VarcharLiteral for ordinary-length strings; assert the common
+        // string-literal base so the test states the grammar contract, not the length heuristic.
+        StringLikeLiteral literal = Assertions.assertInstanceOf(StringLikeLiteral.class, equalTo.child(1));
+        Assertions.assertEquals(literalValue, literal.getStringValue());
     }
 
     @Test
@@ -67,15 +83,45 @@ public class ShowLanceIndexJobsParserTest extends ParserTestBase {
     @Test
     public void testShowLanceIndexJobsWhere() {
         ShowLanceIndexJobsCommand command = parseJobs("SHOW LANCE INDEX JOBS WHERE TableName = \"tbl1\"");
-        Assertions.assertNotNull(command.getWhereClause());
+        assertEqualToPredicate(command.getWhereClause(), "TableName", "tbl1");
 
         command = parseJobs("SHOW LANCE INDEX JOBS WHERE State = \"PENDING\"");
-        Assertions.assertNotNull(command.getWhereClause());
+        assertEqualToPredicate(command.getWhereClause(), "State", "PENDING");
+    }
 
-        command = parseJobs("SHOW LANCE INDEX JOBS FROM ctl1.db1 "
-                + "WHERE TableName = \"tbl1\" AND State = \"PENDING\"");
+    @Test
+    public void testShowLanceIndexJobsWhereLikeParses() {
+        // The LIKE syntax parses into a Like expression; rejecting it is a command-level
+        // narrowing (ShowLanceIndexJobsCommandTest covers the rejection with hand-built
+        // expressions), so this pins the grammar side of that split.
+        ShowLanceIndexJobsCommand command = parseJobs("SHOW LANCE INDEX JOBS WHERE TableName LIKE \"t%\"");
+        Like like = Assertions.assertInstanceOf(Like.class, command.getWhereClause());
+        UnboundSlot slot = Assertions.assertInstanceOf(UnboundSlot.class, like.child(0));
+        Assertions.assertEquals(Arrays.asList("TableName"), slot.getNameParts());
+        StringLikeLiteral pattern = Assertions.assertInstanceOf(StringLikeLiteral.class, like.child(1));
+        Assertions.assertEquals("t%", pattern.getStringValue());
+    }
+
+    @Test
+    public void testShowLanceIndexJobsWhereReversedLiteralParses() {
+        // A generic boolean expression: the grammar does not order slot vs literal, the command
+        // does (the reversed shape is one of the WHERE forms the command rejects).
+        ShowLanceIndexJobsCommand command = parseJobs("SHOW LANCE INDEX JOBS WHERE \"t\" = TableName");
+        EqualTo equalTo = Assertions.assertInstanceOf(EqualTo.class, command.getWhereClause());
+        StringLikeLiteral literal = Assertions.assertInstanceOf(StringLikeLiteral.class, equalTo.child(0));
+        Assertions.assertEquals("t", literal.getStringValue());
+        UnboundSlot slot = Assertions.assertInstanceOf(UnboundSlot.class, equalTo.child(1));
+        Assertions.assertEquals(Arrays.asList("TableName"), slot.getNameParts());
+    }
+
+    @Test
+    public void testShowLanceIndexJobsInCatalogDbWithCombinedWhere() {
+        ShowLanceIndexJobsCommand command = parseJobs("SHOW LANCE INDEX JOBS IN ctl1.db1 "
+                + "WHERE TableName = \"t\" AND State = \"PENDING\"");
         Assertions.assertEquals(Arrays.asList("ctl1", "db1"), command.getNameParts());
-        Assertions.assertNotNull(command.getWhereClause());
+        And where = Assertions.assertInstanceOf(And.class, command.getWhereClause());
+        assertEqualToPredicate(where.child(0), "TableName", "t");
+        assertEqualToPredicate(where.child(1), "State", "PENDING");
     }
 
     @Test
@@ -122,5 +168,16 @@ public class ShowLanceIndexJobsParserTest extends ParserTestBase {
         Assertions.assertInstanceOf(LogicalProject.class, sink.child());
 
         Assertions.assertNotNull(parser.parseSingle("SELECT lance FROM t WHERE lance > 0"));
+    }
+
+    @Test
+    public void testLanceStaysUsableAsDatabaseAndCatalogName() {
+        // Non-reserved in qualified names too: db and catalog parts named lance parse as such,
+        // not as the LANCE token of the SHOW LANCE INDEX JOBS prefix.
+        ShowLanceIndexJobsCommand command = parseJobs("SHOW LANCE INDEX JOBS FROM lance");
+        Assertions.assertEquals(Arrays.asList("lance"), command.getNameParts());
+
+        command = parseJobs("SHOW LANCE INDEX JOBS FROM lance.lance");
+        Assertions.assertEquals(Arrays.asList("lance", "lance"), command.getNameParts());
     }
 }
