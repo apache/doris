@@ -140,6 +140,10 @@ class SwitchResourceContext;
 
 extern bthread_key_t btls_key;
 
+// Initialize btls_key exactly once before it is used by any thread context. The key has
+// process lifetime so an existing bthread context never becomes invalid while the BE is running.
+void init_thread_context_btls_key();
+
 static std::string NO_THREAD_CONTEXT_MSG =
         "Current thread not exist ThreadContext, usually after the thread is started, using "
         "SCOPED_ATTACH_TASK macro to create a ThreadContext and bind a Task.";
@@ -224,6 +228,7 @@ private:
 class ThreadLocalHandle {
 public:
     static void create_thread_local_if_not_exits() {
+        init_thread_context_btls_key();
         if (bthread_self() == 0) {
             if (!pthread_context_ptr_init) {
                 thread_context_ptr = new ThreadContext();
