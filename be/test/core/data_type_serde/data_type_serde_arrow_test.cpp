@@ -1386,4 +1386,49 @@ TEST(DataTypeSerDeArrowTest, DateTimeV2ArrowEncodingFollowsSchemaTimezone) {
     EXPECT_EQ(1783004400123456, naive_array->Value(0));
 }
 
+TEST(DataTypeSerDeArrowTest, NestedDateTimeV2PlainArrowAcceptsNaiveSchema) {
+    DateV2Value<DateTimeV2ValueType> datetime_value;
+    datetime_value.unchecked_set_time(2026, 7, 2, 15, 0, 0, 123456);
+    const auto datetime_type = std::make_shared<DataTypeDateTimeV2>(6);
+
+    const auto array_type = std::make_shared<DataTypeArray>(datetime_type);
+    auto array_column = array_type->create_column();
+    Array array_value;
+    array_value.push_back(Field::create_field<TYPE_DATETIMEV2>(datetime_value));
+    array_column->insert(Field::create_field<TYPE_ARRAY>(array_value));
+
+    const auto map_type =
+            std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(), datetime_type);
+    auto map_column = map_type->create_column();
+    Array map_keys;
+    map_keys.push_back(Field::create_field<TYPE_STRING>("event"));
+    Array map_values;
+    map_values.push_back(Field::create_field<TYPE_DATETIMEV2>(datetime_value));
+    Map map_value;
+    map_value.push_back(Field::create_field<TYPE_ARRAY>(map_keys));
+    map_value.push_back(Field::create_field<TYPE_ARRAY>(map_values));
+    map_column->insert(Field::create_field<TYPE_MAP>(map_value));
+
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {datetime_type}, Strings {"event_time"});
+    auto struct_column = struct_type->create_column();
+    Struct struct_value;
+    struct_value.push_back(Field::create_field<TYPE_DATETIMEV2>(datetime_value));
+    struct_column->insert(Field::create_field<TYPE_STRUCT>(struct_value));
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(array_column->get_ptr(), array_type, "events"));
+    block.insert(ColumnWithTypeAndName(map_column->get_ptr(), map_type, "event_map"));
+    block.insert(ColumnWithTypeAndName(struct_column->get_ptr(), struct_type, "event_struct"));
+
+    std::shared_ptr<arrow::Schema> naive_schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(block, &naive_schema, "Asia/Shanghai", true).ok());
+    std::shared_ptr<arrow::RecordBatch> naive_batch;
+    const auto status =
+            convert_to_arrow_batch(block, naive_schema, arrow::default_memory_pool(), &naive_batch,
+                                   cctz::fixed_time_zone(std::chrono::hours(8)));
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(naive_batch->ValidateFull().ok()) << naive_batch->ValidateFull();
+}
+
 } // namespace doris
