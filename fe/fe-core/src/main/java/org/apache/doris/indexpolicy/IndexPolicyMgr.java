@@ -42,6 +42,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -137,6 +138,52 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                         + tokenFilter.getProperties().get(IndexPolicy.PROP_TYPE)
                         + "', which is no longer supported");
             }
+        }
+    }
+
+    /**
+     * Decides whether {@code analyzerName} is a "gram family" analyzer: an ngram tokenizer that
+     * explicitly carries mode (sparse/auto/dense). On the BE side a gram-family analyzer produces
+     * only sparse/dense gram postings, which only the SNII storage format can read and which carry
+     * no positions (no phrase queries); the caller (currently
+     * {@code InvertedIndexUtil.checkAnalyzerName}) uses this to constrain the index properties.
+     *
+     * <p>Returns {@code Optional.empty()} when this is not a custom analyzer (null, a built-in
+     * analyzer name, not found, wrong type), when the tokenizer is not ngram, or when the ngram
+     * carries no mode (the legacy min_gram/max_gram usage). On a hit it returns the lower-cased mode
+     * value.
+     */
+    public Optional<String> resolveGramTokenizerMode(String analyzerName) {
+        if (analyzerName == null) {
+            return Optional.empty();
+        }
+        String normalizedName = normalizeKey(analyzerName);
+        if (IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)) {
+            return Optional.empty();
+        }
+
+        readLock();
+        try {
+            IndexPolicy analyzer = nameToIndexPolicy.get(normalizedName);
+            if (analyzer == null || analyzer.getType() != IndexPolicyTypeEnum.ANALYZER) {
+                return Optional.empty();
+            }
+            String tokenizerRef = analyzer.getProperties().get(IndexPolicy.PROP_TOKENIZER);
+            ResolvedAnalyzerComponent tokenizer;
+            try {
+                tokenizer = resolveAnalyzerComponentLocked(tokenizerRef, IndexPolicyTypeEnum.TOKENIZER);
+            } catch (DdlException e) {
+                // A dangling tokenizer reference (dropped, say) is not this method's problem to
+                // report; other validation paths handle it.
+                return Optional.empty();
+            }
+            if (!"ngram".equals(tokenizer.componentType)) {
+                return Optional.empty();
+            }
+            String mode = tokenizer.properties.get("mode");
+            return (mode == null || mode.isEmpty()) ? Optional.empty() : Optional.of(mode.toLowerCase());
+        } finally {
+            readUnlock();
         }
     }
 
@@ -275,6 +322,97 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             for (String filter : charFilters.split(",\\s*")) {
                 validatePolicyReference(filter, IndexPolicyTypeEnum.CHAR_FILTER);
             }
+        }
+        validateGramFamilyAnalyzerLocked(properties);
+    }
+
+    // Gram-family constraint: when the tokenizer is ngram and carries mode (sparse/auto/dense
+    // -- any value, dense included), the analyzer may not stack any char filter or token
+    // filter on top -- the gram split boundaries must be drawn entirely by the tokenizer itself
+    // (case folding and the like go through the tokenizer's own lower_case property and happen
+    // before the split), otherwise a stacked filter would transform the text or the terms
+    // around the gram boundaries and break the reproducible semantics of a sparse/dense gram
+    // index.
+    //
+    // This mirrors BE exactly. CustomAnalyzerProvider only derives a gram scheme when
+    // `char_filter_configs` and `token_filter_configs` are both empty, so an analyzer that FE
+    // let through with a char filter would be constrained here like a gram index (SNII
+    // required, support_phrase forced to false) while BE built one that can never accelerate
+    // LIKE/REGEXP -- silently degraded, with no error anywhere.
+    private void validateGramFamilyAnalyzerLocked(Map<String, String> properties) throws DdlException {
+        ResolvedAnalyzerComponent tokenizer = resolveAnalyzerComponentLocked(
+                properties.get(IndexPolicy.PROP_TOKENIZER), IndexPolicyTypeEnum.TOKENIZER);
+        if (!"ngram".equals(tokenizer.componentType)) {
+            return;
+        }
+        String gramMode = tokenizer.properties.get("mode");
+        if (gramMode == null || gramMode.isEmpty()) {
+            return;
+        }
+        String charFilterNames = properties.get(IndexPolicy.PROP_CHAR_FILTER);
+        if (charFilterNames != null && !charFilterNames.isEmpty()) {
+            throw new DdlException("char filter '" + charFilterNames
+                    + "' cannot be combined with ngram tokenizer mode=" + gramMode.toLowerCase()
+                    + " (gram-family analyzers must be tokenizer-only)");
+        }
+        String tokenFilterNames = properties.get(IndexPolicy.PROP_TOKEN_FILTER);
+        if (tokenFilterNames == null || tokenFilterNames.isEmpty()) {
+            return;
+        }
+        // Any token filter in the chain is rejected; if one of them is lowercase, prefer that
+        // more specific hint (even when it is not the first), because "use the tokenizer's own
+        // lower_case" is the only correct fix for that spelling.
+        String[] tokenFilters = tokenFilterNames.split(",\\s*");
+        for (String tokenFilterName : tokenFilters) {
+            ResolvedAnalyzerComponent tokenFilter = resolveAnalyzerComponentLocked(
+                    tokenFilterName, IndexPolicyTypeEnum.TOKEN_FILTER);
+            if ("lowercase".equals(tokenFilter.componentType)) {
+                throw new DdlException("lowercase token filter cannot be combined with ngram tokenizer mode="
+                        + gramMode.toLowerCase()
+                        + "; use the tokenizer's own lower_case=true "
+                        + "(folding must happen before gram boundaries)");
+            }
+        }
+        throw new DdlException("token filter '" + tokenFilters[0]
+                + "' cannot be combined with ngram tokenizer mode=" + gramMode.toLowerCase()
+                + " (gram-family analyzers must be tokenizer-only)");
+    }
+
+    private ResolvedAnalyzerComponent resolveAnalyzerComponentLocked(String referenceName,
+            IndexPolicyTypeEnum expectedType) throws DdlException {
+        String normalizedName = normalizeKey(referenceName);
+        boolean builtin = expectedType == IndexPolicyTypeEnum.TOKENIZER
+                ? IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName)
+                : IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(normalizedName);
+        if (builtin) {
+            return new ResolvedAnalyzerComponent(referenceName, normalizedName,
+                    Map.of(IndexPolicy.PROP_TYPE, normalizedName));
+        }
+
+        IndexPolicy policy = nameToIndexPolicy.get(normalizedName);
+        if (policy == null) {
+            throw new DdlException("Referenced " + expectedType + " policy '"
+                    + referenceName + "' does not exist");
+        }
+        if (policy.getType() != expectedType) {
+            throw new DdlException("Referenced policy '" + referenceName + "' is of type "
+                    + policy.getType() + " but expected " + expectedType);
+        }
+        return new ResolvedAnalyzerComponent(referenceName,
+                policy.getProperties().get(IndexPolicy.PROP_TYPE),
+                policy.getProperties());
+    }
+
+    private static final class ResolvedAnalyzerComponent {
+        private final String referenceName;
+        private final String componentType;
+        private final Map<String, String> properties;
+
+        private ResolvedAnalyzerComponent(String referenceName, String componentType,
+                Map<String, String> properties) {
+            this.referenceName = referenceName;
+            this.componentType = componentType;
+            this.properties = properties;
         }
     }
 
