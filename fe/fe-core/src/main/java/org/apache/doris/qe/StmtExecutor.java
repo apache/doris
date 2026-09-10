@@ -2041,29 +2041,34 @@ public class StmtExecutor {
     }
 
     public void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos) throws IOException {
-        sendResultSet(resultSet, fieldInfos, context.getMysqlChannel());
+        sendResultSet(resultSet, fieldInfos, null);
     }
 
     /**
      * Sends a FE-computed result set to the given mysql channel. Regular queries use the
      * executor's own channel; internal queries have to stream to the channel of the caller
      * that issued them, because the executor's own channel is not connected to that client.
+     *
+     * <p>A null channel means the session's own. It is resolved inside the mysql branch on
+     * purpose: a connection of any other type has no mysql channel, and asking for one throws,
+     * so a caller must be able to hand a result set over without naming a channel first.
      */
     private void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos, MysqlChannel channel)
             throws IOException {
         if (context.getConnectType().equals(ConnectType.MYSQL)) {
+            MysqlChannel targetChannel = channel == null ? context.getMysqlChannel() : channel;
             context.updateReturnRows(resultSet.getResultRows().size());
             // Send meta data.
-            sendMetaData(resultSet.getMetaData(), fieldInfos, channel);
+            sendMetaData(resultSet.getMetaData(), fieldInfos, targetChannel);
 
             // Send result set.
             if (isComStmtExecute) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Use binary protocol to set result.");
                 }
-                sendBinaryResultRow(resultSet, channel);
+                sendBinaryResultRow(resultSet, targetChannel);
             } else {
-                sendTextResultRow(resultSet, channel);
+                sendTextResultRow(resultSet, targetChannel);
             }
             context.getState().setEof();
         } else if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
