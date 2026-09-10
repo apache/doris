@@ -76,13 +76,14 @@ public:
 
     using ColumnIterator::AccessPathSplit;
 
-    Result<AccessPathSplit> split_access_paths(const TColumnAccessPaths& access_paths) const {
-        return _split_access_paths(access_paths);
+    Result<AccessPathSplit> split_access_paths(const TColumnAccessPaths& access_paths,
+                                               bool owns_offset_meta = true) const {
+        return _split_access_paths(access_paths, owns_offset_meta);
     }
 
     Status check_and_set_meta_read_mode(ReadRequirement requirement_before_access_path,
                                         const TColumnAccessPaths& access_paths) {
-        auto split = DORIS_TRY(_split_access_paths(access_paths));
+        auto split = DORIS_TRY(_split_access_paths(access_paths, /*owns_offset_meta=*/true));
         return _check_and_set_meta_read_mode(requirement_before_access_path, split);
     }
 
@@ -952,6 +953,78 @@ TEST_F(ColumnReaderTest, LegacyStructMetaComponentsRemainSentinels) {
     EXPECT_TRUE(struct_iterator.read_null_map_only());
     EXPECT_EQ(struct_iterator._sub_column_iterators[0]->read_requirement(),
               ColumnIterator::ReadRequirement::SKIP);
+}
+
+TEST_F(ColumnReaderTest, LegacyStructOffsetComponentRoutesToDataField) {
+    // An old FE emits `element_at(s, 'OFFSET')` as the legacy DATA path [s, offset] (struct field
+    // names are lowercased). Struct has no offsets, so the component must keep naming the field
+    // instead of being consumed as OFFSET_ONLY metadata that skips every field.
+    auto make_struct_iterator = [](TrackingColumnIterator** offset_field,
+                                   TrackingColumnIterator** other_field) {
+        std::vector<ColumnIteratorUPtr> sub_iterators;
+        auto offset_field_iterator = std::make_unique<TrackingColumnIterator>();
+        offset_field_iterator->set_column_name("offset");
+        *offset_field = offset_field_iterator.get();
+        sub_iterators.emplace_back(std::move(offset_field_iterator));
+        auto other_field_iterator = std::make_unique<TrackingColumnIterator>();
+        other_field_iterator->set_column_name("other");
+        *other_field = other_field_iterator.get();
+        sub_iterators.emplace_back(std::move(other_field_iterator));
+        auto struct_iterator = std::make_unique<StructFileColumnIterator>(
+                create_test_reader(), nullptr, std::move(sub_iterators));
+        struct_iterator->set_column_name("s");
+        return struct_iterator;
+    };
+
+    for (const bool explicit_legacy_version : {false, true}) {
+        SCOPED_TRACE(explicit_legacy_version ? "explicit-version-0" : "missing-version");
+        TrackingColumnIterator* offset_field = nullptr;
+        TrackingColumnIterator* other_field = nullptr;
+        auto struct_iterator = make_struct_iterator(&offset_field, &other_field);
+        auto legacy_path = create_legacy_data_access_path({"s", "offset"});
+        if (explicit_legacy_version) {
+            legacy_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+        }
+
+        auto st = struct_iterator->set_access_paths({legacy_path}, {});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_FALSE(struct_iterator->read_offset_only());
+        EXPECT_FALSE(struct_iterator->read_null_map_only());
+        ASSERT_EQ(offset_field->routed_all_access_paths.size(), 1);
+        EXPECT_TRUE(offset_field->routed_predicate_access_paths.empty());
+        EXPECT_EQ(offset_field->read_requirement(), ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        EXPECT_EQ(other_field->read_requirement(), ColumnIterator::ReadRequirement::SKIP);
+    }
+
+    // The same legacy path used as a predicate keeps the field readable in the predicate phase.
+    TrackingColumnIterator* offset_field = nullptr;
+    TrackingColumnIterator* other_field = nullptr;
+    auto struct_iterator = make_struct_iterator(&offset_field, &other_field);
+    auto legacy_path = create_legacy_data_access_path({"s", ColumnIterator::ACCESS_OFFSET});
+    auto st = struct_iterator->set_access_paths({legacy_path}, {legacy_path});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_FALSE(struct_iterator->read_offset_only());
+    ASSERT_EQ(offset_field->routed_all_access_paths.size(), 1);
+    ASSERT_EQ(offset_field->routed_predicate_access_paths.size(), 1);
+    EXPECT_EQ(offset_field->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(other_field->read_requirement(), ColumnIterator::ReadRequirement::SKIP);
+}
+
+TEST_F(ColumnReaderTest, TypedMetaOffsetPathOnStructIsRejected) {
+    std::vector<ColumnIteratorUPtr> sub_iterators;
+    auto field_iterator = std::make_unique<FileColumnIterator>(create_test_reader());
+    field_iterator->set_column_name("offset");
+    sub_iterators.emplace_back(std::move(field_iterator));
+    StructFileColumnIterator struct_iterator(create_test_reader(), nullptr,
+                                             std::move(sub_iterators));
+    struct_iterator.set_column_name("s");
+
+    TColumnAccessPaths meta_path {create_meta_access_path({"s", ColumnIterator::ACCESS_OFFSET})};
+    auto st = struct_iterator.set_access_paths(meta_path, {});
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st.to_string();
+    EXPECT_NE(st.to_string().find("OFFSET metadata is not supported"), std::string::npos)
+            << st.to_string();
 }
 
 TEST_F(ColumnReaderTest, PlaceHolderLifecycleInLazyMode) {
