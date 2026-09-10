@@ -18,11 +18,9 @@
 #include "format_v2/lance/lance_reader_helper.h"
 
 #include <arrow/array.h>
-#include <arrow/buffer_builder.h>
 #include <arrow/builder.h>
 #include <arrow/extension_type.h>
 #include <arrow/type.h>
-#include <arrow/util/bitmap_ops.h>
 #include <arrow/util/key_value_metadata.h>
 #include <fmt/format.h>
 #include <lance/lance.h>
@@ -334,29 +332,43 @@ Status convert_bfloat16_array(const std::shared_ptr<arrow::Array>& array,
     return Status::OK();
 }
 
-// Copy parent metadata into an offset-zero view with a matching validity bitmap.
-Status rebase_lance_parent_data(const std::shared_ptr<arrow::Array>& array,
-                                std::shared_ptr<arrow::ArrayData>* rebased_data) {
-    auto data = array->data()->Copy();
-    data->offset = 0;
-    data->SetNullCount(array->null_count());
-    const auto& null_bitmap = array->data()->buffers[0];
-    if (null_bitmap != nullptr) {
-        auto bitmap_result =
-                arrow::internal::CopyBitmap(arrow::default_memory_pool(), null_bitmap->data(),
-                                            array->offset(), array->length());
-        if (!bitmap_result.ok()) {
-            return Status::InternalError("copy sliced Lance validity bitmap failed: {}",
-                                         bitmap_result.status().message());
-        }
-        data->buffers[0] = std::move(bitmap_result).ValueUnsafe();
+// Materialize the visible range into an offset-zero Arrow array for Doris SerDes.
+Status compact_lance_array(const std::shared_ptr<arrow::Array>& array,
+                           std::shared_ptr<arrow::Array>* compacted) {
+    const auto validation = array->ValidateFull();
+    if (!validation.ok()) {
+        return Status::InvalidArgument("validate sliced Lance array failed: {}",
+                                       validation.message());
     }
-    *rebased_data = std::move(data);
+    auto builder_result = arrow::MakeBuilder(array->type(), arrow::default_memory_pool());
+    if (!builder_result.ok()) {
+        return Status::InternalError("create sliced Lance array builder failed: {}",
+                                     builder_result.status().message());
+    }
+    auto builder = std::move(builder_result).ValueUnsafe();
+    auto arrow_status = builder->Reserve(array->length());
+    if (!arrow_status.ok()) {
+        return Status::InternalError("reserve sliced Lance array builder failed: {}",
+                                     arrow_status.message());
+    }
+    arrow_status = builder->AppendArraySlice(*array->data(), 0, array->length());
+    if (!arrow_status.ok()) {
+        return Status::InternalError("copy sliced Lance array failed: {}", arrow_status.message());
+    }
+    arrow_status = builder->Finish(compacted);
+    if (!arrow_status.ok()) {
+        return Status::InternalError("finish sliced Lance array copy failed: {}",
+                                     arrow_status.message());
+    }
+    if ((*compacted)->offset() != 0) {
+        return Status::InternalError("compacted Lance array retained offset {}",
+                                     (*compacted)->offset());
+    }
     return Status::OK();
 }
 
-// Compact a sliced variable-offset parent and its child to the visible value interval.
-template <typename ArrayType, typename OffsetType>
+// Compact a sliced variable-offset parent and all of its visible descendants.
+template <typename ArrayType>
 Status compact_lance_offset_array(const std::shared_ptr<arrow::Array>& array,
                                   std::shared_ptr<arrow::Array>* compacted) {
     const auto offset_array = std::dynamic_pointer_cast<ArrayType>(array);
@@ -375,46 +387,19 @@ Status compact_lance_offset_array(const std::shared_ptr<arrow::Array>& array,
         *compacted = array;
         return Status::OK();
     }
-
-    arrow::TypedBufferBuilder<OffsetType> offsets_builder;
-    auto arrow_status = offsets_builder.Reserve(array->length() + 1);
-    if (!arrow_status.ok()) {
-        return Status::InternalError("reserve sliced Lance offsets failed: {}",
-                                     arrow_status.message());
-    }
-    for (int64_t index = 0; index <= array->length(); ++index) {
-        arrow_status = offsets_builder.Append(
-                static_cast<OffsetType>(offset_array->value_offset(index) - child_begin));
-        if (!arrow_status.ok()) {
-            return Status::InternalError("append sliced Lance offset failed: {}",
-                                         arrow_status.message());
-        }
-    }
-    std::shared_ptr<arrow::Buffer> offsets;
-    arrow_status = offsets_builder.Finish(&offsets);
-    if (!arrow_status.ok()) {
-        return Status::InternalError("finish sliced Lance offsets failed: {}",
-                                     arrow_status.message());
-    }
-
-    std::shared_ptr<arrow::ArrayData> rebased_data;
-    RETURN_IF_ERROR(rebase_lance_parent_data(array, &rebased_data));
-    rebased_data->buffers[1] = std::move(offsets);
-    rebased_data->child_data[0] = values->Slice(child_begin, child_end - child_begin)->data();
-    *compacted = arrow::MakeArray(std::move(rebased_data));
-    return Status::OK();
+    return compact_lance_array(array, compacted);
 }
 
-// Compact sliced nested parents so recursive normalization sees only visible child values.
-Status compact_lance_nested_array(const std::shared_ptr<arrow::Array>& array,
-                                  std::shared_ptr<arrow::Array>* compacted) {
+// Compact sliced arrays and nested children only when Doris cannot consume their current layout.
+Status compact_lance_array_if_needed(const std::shared_ptr<arrow::Array>& array,
+                                     std::shared_ptr<arrow::Array>* compacted) {
     switch (array->type_id()) {
     case arrow::Type::LIST:
-        return compact_lance_offset_array<arrow::ListArray, int32_t>(array, compacted);
+        return compact_lance_offset_array<arrow::ListArray>(array, compacted);
     case arrow::Type::LARGE_LIST:
-        return compact_lance_offset_array<arrow::LargeListArray, int64_t>(array, compacted);
+        return compact_lance_offset_array<arrow::LargeListArray>(array, compacted);
     case arrow::Type::MAP:
-        return compact_lance_offset_array<arrow::MapArray, int32_t>(array, compacted);
+        return compact_lance_offset_array<arrow::MapArray>(array, compacted);
     case arrow::Type::FIXED_SIZE_LIST: {
         const auto list = std::dynamic_pointer_cast<arrow::FixedSizeListArray>(array);
         if (list == nullptr) {
@@ -433,11 +418,7 @@ Status compact_lance_nested_array(const std::shared_ptr<arrow::Array>& array,
             *compacted = array;
             return Status::OK();
         }
-        std::shared_ptr<arrow::ArrayData> rebased_data;
-        RETURN_IF_ERROR(rebase_lance_parent_data(array, &rebased_data));
-        rebased_data->child_data[0] = values->Slice(child_begin, child_length)->data();
-        *compacted = arrow::MakeArray(std::move(rebased_data));
-        return Status::OK();
+        return compact_lance_array(array, compacted);
     }
     case arrow::Type::STRUCT: {
         const auto struct_array = std::dynamic_pointer_cast<arrow::StructArray>(array);
@@ -453,24 +434,20 @@ Status compact_lance_nested_array(const std::shared_ptr<arrow::Array>& array,
             *compacted = array;
             return Status::OK();
         }
-        std::shared_ptr<arrow::ArrayData> rebased_data;
-        RETURN_IF_ERROR(rebase_lance_parent_data(array, &rebased_data));
-        for (int child_idx = 0; child_idx < static_cast<int>(struct_array->fields().size());
-             ++child_idx) {
-            rebased_data->child_data[child_idx] = struct_array->field(child_idx)->data();
-        }
-        *compacted = arrow::MakeArray(std::move(rebased_data));
-        return Status::OK();
+        return compact_lance_array(array, compacted);
     }
     default:
-        *compacted = array;
-        return Status::OK();
+        if (array->offset() == 0) {
+            *compacted = array;
+            return Status::OK();
+        }
+        return compact_lance_array(array, compacted);
     }
 }
 
 } // namespace
 
-// Normalize nested BFloat16 arrays while preserving offsets and null bitmaps.
+// Normalize Lance extensions and materialize sliced arrays for Doris Arrow SerDes.
 Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
                                    const std::shared_ptr<arrow::Array>& array,
                                    std::shared_ptr<arrow::Array>* normalized) {
@@ -500,6 +477,10 @@ Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
         return convert_bfloat16_array(storage_array, normalized);
     }
 
+    std::shared_ptr<arrow::Array> compacted_array;
+    RETURN_IF_ERROR(compact_lance_array_if_needed(storage_array, &compacted_array));
+    storage_array = std::move(compacted_array);
+
     const auto& child_fields = storage_type->fields();
     const auto& child_data = storage_array->data()->child_data;
     if (child_fields.empty()) {
@@ -525,9 +506,6 @@ Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
         *normalized = std::move(storage_array);
         return Status::OK();
     }
-    std::shared_ptr<arrow::Array> compacted_array;
-    RETURN_IF_ERROR(compact_lance_nested_array(storage_array, &compacted_array));
-    storage_array = std::move(compacted_array);
 
     arrow::FieldVector normalized_fields;
     std::shared_ptr<arrow::ArrayData> normalized_data;

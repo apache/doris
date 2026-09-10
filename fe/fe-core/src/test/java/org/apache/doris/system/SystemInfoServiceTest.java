@@ -379,6 +379,21 @@ public class SystemInfoServiceTest {
         Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy4, 1).size());
     }
 
+    // Verifies an exact backend-ID constraint cannot fall back to another eligible backend.
+    @Test
+    public void testRequiredBackendIdsSelect() {
+        Backend selected = new Backend(10001L, "192.168.1.1", 9050);
+        Backend excluded = new Backend(10002L, "192.168.1.2", 9050);
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
+                .addRequiredBackendIds(Collections.singletonList(selected.getId()))
+                .build();
+
+        List<Backend> candidates =
+                policy.getCandidateBackends(Lists.newArrayList(selected, excluded));
+
+        Assert.assertEquals(Collections.singletonList(selected), candidates);
+    }
+
     @Test
     public void testSelectBackendIdsForReplicaCreation() throws Exception {
         addBackend(10001, "192.168.1.1", 9050);

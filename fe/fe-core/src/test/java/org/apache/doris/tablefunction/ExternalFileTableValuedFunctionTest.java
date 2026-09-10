@@ -31,7 +31,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 
@@ -125,5 +127,27 @@ public class ExternalFileTableValuedFunctionTest {
             e.printStackTrace();
             Assert.fail();
         }
+    }
+
+    // Verifies a shared-storage Lance TVF executes on the backend that provided its schema.
+    @Test
+    public void testLocalLanceExecutionUsesSchemaBackend() throws Exception {
+        LocalTableValuedFunction tvf =
+                Mockito.mock(LocalTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        setLongField(tvf, "backendId", -1L);
+        setLongField(tvf, "backendIdForRequest", 23L);
+
+        Mockito.doReturn(true).when(tvf).isLanceFormat();
+        Assert.assertEquals(23L, tvf.getBackendIdForExecution());
+
+        Mockito.doReturn(false).when(tvf).isLanceFormat();
+        Assert.assertEquals(-1L, tvf.getBackendIdForExecution());
+    }
+
+    // Sets a private long field without invoking the table function's environment-dependent constructor.
+    private static void setLongField(Object target, String fieldName, long value) throws Exception {
+        Field field = LocalTableValuedFunction.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.setLong(target, value);
     }
 }
