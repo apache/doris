@@ -170,11 +170,15 @@ LanceSessionManager::~LanceSessionManager() {
 
 Status LanceSessionManager::_initialize() {
     if (_config.enable_lance_data_cache) {
+        // Treat the configured cache mode as a process-level requirement. If an enabled
+        // data cache cannot initialize, report the failure instead of silently creating a
+        // session without it. This keeps directory/configuration/device failures visible
+        // to the operator. Disabling the cache is an explicit configuration change.
         const LanceDataCacheOptions data_cache_options {
                 .directory = _config.lance_data_cache_path.c_str(),
                 // Foyer's HybridCache requires a memory tier. Keep it at the minimum useful
-                // capacity of exactly one range-cache block; entries use WriteOnInsertion and
-                // are persisted to the disk tier immediately.
+                // capacity of exactly one range-cache block; WriteOnInsertion enqueues disk
+                // writes on insertion rather than waiting for memory-tier eviction.
                 .memory_capacity_bytes =
                         static_cast<uint64_t>(_config.lance_data_cache_read_block_size_bytes),
                 .disk_capacity_bytes =
@@ -192,7 +196,18 @@ Status LanceSessionManager::_initialize() {
                                   static_cast<uint64_t>(_config.lance_metadata_cache_size_bytes));
     }
     if (_session == nullptr) {
-        return lance_error("create shared Lance session");
+        // Capture the Lance-C error on the initializing thread before another FFI call can
+        // replace it. Keep the original cause (including Foyer's directory/I/O details) and
+        // explain how to recover from the initialization status retained by call_once below.
+        auto status = lance_error("create shared Lance session");
+        if (_config.enable_lance_data_cache) {
+            status.append(
+                    "; Check the Lance data cache configuration and storage. After fixing the "
+                    "issue, restart this BE. Alternatively, set enable_lance_data_cache=false "
+                    "in be.conf and restart this BE. Session initialization will not be retried "
+                    "in this BE process.");
+        }
+        return status;
     }
     _metrics = std::make_unique<LanceSessionMetrics>(_session, _config);
     return Status::OK();
@@ -205,6 +220,12 @@ Status LanceSessionManager::open_dataset(const char* uri, const char* const* sto
     }
     *dataset = nullptr;
 
+    // Initialize lazily on the first dataset open, not at BE startup. A failed Status is a
+    // normal return from this lambda, so call_once completes and retains that failure just
+    // like a successful initialization. All subsequent readers receive the same copied
+    // error; fixing the cache directory alone does not trigger another attempt. This is
+    // intentional: repair the cache configuration/storage (or disable the data cache), then
+    // restart the BE to recreate the process-wide manager and session.
     std::call_once(_initialize_once, [this] { _initialize_status = _initialize(); });
     RETURN_IF_ERROR(_initialize_status);
 
