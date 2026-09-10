@@ -41,17 +41,18 @@ import java.util.stream.Collectors;
  * fragments into its own fragment and setPlanRoot then rewrites the fragment ownership of the child
  * plan trees, stopping only at an exchange. It is therefore a fragment-merging node exactly like a
  * join or a set operation, and it has to translate its children inside
- * PlanTranslatorContext#enterFragmentMergeChild / #exitFragmentMergeChild.
+ * PlanTranslatorContext#forbidExchangeElision / #allowExchangeElision.
  *
  * <p>Bucketed aggregation fusion deletes the exchange between a one-phase GLOBAL aggregate and its
  * distribute -> olap scan child, and that exchange is the only thing that keeps the scan in a
  * fragment of its own. Fusing inside a fragment-merging child hands the scan over to the merging
- * parent, so two olap scans end up in the same fragment and the scan assignment rejects it with
- * "Not supported multiple scan multiple OlapTable but not contains colocate join or bucket shuffle
- * join". The recursive union is the only merging entry point that did not declare that context, so
- * its base case was fused anyway: the exchange that keeps the merge legal survived only because the
- * property enforcer happens to insert a gather exchange above that child. This test pins the
- * translator contract itself instead of relying on that non-local fact.
+ * parent, so two olap scans end up in the same fragment, which the scan assignment rejects
+ * ("Not supported multiple scan multiple OlapTable but not contains colocate join or bucket shuffle
+ * join"). The recursive union is the
+ * only merging entry point that did not declare that context, so its base case was fused anyway: the
+ * exchange that keeps the merge legal survived only because the property enforcer happens to insert
+ * a gather exchange above that child. This test pins the translator contract itself instead of
+ * relying on that non-local fact.
  */
 public class RecursiveUnionFragmentMergeContextTest extends TestWithFeService {
 

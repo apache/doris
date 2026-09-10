@@ -48,11 +48,13 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -112,16 +114,29 @@ public class PlanTranslatorContext {
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
 
     /**
-     * Depth of fragment-merging binary nodes (hash join / nested loop join /
-     * set operation) whose children are being visited right now. Bucketed fusion
-     * removes the exchange node that would otherwise keep an olap scan in its own
-     * fragment; when the fused fragment is consumed by such a node the scan gets
-     * merged into a fragment that already contains other scans, which the
-     * scan-assignment jobs reject ("Not supported multiple scan multiple
-     * OlapTable but not contains colocate join or bucket shuffle join"). The
-     * translator therefore skips bucketed fusion while inside a merge child.
+     * Depth of the fragment-merging nodes (hash join / nested loop join / set operation /
+     * recursive union) whose children are being translated right now.
+     *
+     * Such a node absorbs the fragments of its children (see {@link #mergePlanFragment}) and
+     * rewrites the fragment ownership of their plan trees, which stops only at an exchange. While
+     * its children are translated, the exchange below an operator is therefore the last thing that
+     * keeps that operator's olap scan in a fragment of its own: an optimization that elides the
+     * exchange (today the bucketed aggregation fusion) would let the scan be absorbed into the
+     * parent fragment. A fragment that holds several olap scans is rejected by the scan assignment
+     * ("Not supported multiple scan multiple OlapTable but not contains colocate join or bucket
+     * shuffle join"), and by FragmentScanAssignmentValidator at planning time.
+     *
+     * A merging node calls {@link #forbidExchangeElision()} while it translates its children, and
+     * every exchange-eliding optimization has to ask {@link #isExchangeElisionForbidden()} before
+     * it elides one.
      */
-    private int fragmentMergeChildDepth = 0;
+    private int exchangeElisionForbiddenDepth = 0;
+
+    /**
+     * Fragments translated as the child of a fragment-merging node, which that node may absorb
+     * through {@link #mergePlanFragment}.
+     */
+    private final Set<PlanFragment> mergeChildFragments = Collections.newSetFromMap(new IdentityHashMap<>());
 
     // Per-node "is there a serial operator between me and the pipeline's sink" flag.
     // Mirrors BE's any_of(operators[idx..end], is_serial_operator) check used by
@@ -351,16 +366,31 @@ public class PlanTranslatorContext {
         exprIdToColumnRef.put(exprId, columnRefExpr);
     }
 
-    public void enterFragmentMergeChild() {
-        fragmentMergeChildDepth++;
+    /**
+     * Declares that the children of a fragment-merging node are being translated, so no
+     * optimization may elide the exchange that keeps their scans in fragments of their own.
+     * Must be paired with {@link #allowExchangeElision()} in a finally block, and every child that
+     * is translated this way has to be declared through {@link #markMergeChildFragment}, which is
+     * what {@link #mergePlanFragment} requires.
+     */
+    public void forbidExchangeElision() {
+        exchangeElisionForbiddenDepth++;
     }
 
-    public void exitFragmentMergeChild() {
-        fragmentMergeChildDepth--;
+    public void allowExchangeElision() {
+        exchangeElisionForbiddenDepth--;
     }
 
-    public boolean isInFragmentMergeChild() {
-        return fragmentMergeChildDepth > 0;
+    public boolean isExchangeElisionForbidden() {
+        return exchangeElisionForbiddenDepth > 0;
+    }
+
+    /**
+     * Declares a fragment that was translated as the child of a fragment-merging node, and may
+     * therefore be absorbed by it through {@link #mergePlanFragment}.
+     */
+    public void markMergeChildFragment(PlanFragment fragment) {
+        mergeChildFragments.add(fragment);
     }
 
     /**
@@ -368,6 +398,16 @@ public class PlanTranslatorContext {
      * include runtime filter info and fragment attribute.
      */
     public void mergePlanFragment(PlanFragment srcFragment, PlanFragment targetFragment) {
+        // Absorbing a child fragment without an exchange boundary is only correct if the child was
+        // translated with exchange elision forbidden: otherwise a child that elided its own exchange
+        // has no boundary left, and its olap scan ends up in a fragment that already holds another
+        // scan (see FragmentScanAssignmentValidator). PhysicalPlanTranslator#translateMergeChild is
+        // what establishes both, so a merging node that translates its children on its own fails
+        // here instead of emitting a plan that only the scan assignment rejects.
+        Preconditions.checkState(mergeChildFragments.contains(srcFragment),
+                "merging a child fragment requires the child to be translated by"
+                        + " PhysicalPlanTranslator#translateMergeChild, which forbids exchange elision"
+                        + " while that child is translated");
         srcFragment.getTargetRuntimeFilterIds().forEach(targetFragment::setTargetRuntimeFilterIds);
         srcFragment.getBuilderRuntimeFilterIds().forEach(targetFragment::setBuilderRuntimeFilterIds);
         targetFragment.setHasColocatePlanNode(targetFragment.hasColocatePlanNode()
