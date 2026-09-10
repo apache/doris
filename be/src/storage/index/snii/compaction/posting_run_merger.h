@@ -57,10 +57,11 @@ class MergedPostingRuns final : public writer::TermPostingSource {
     };
 
 public:
+    // destination_doc_lengths 非空时，每个 (目标段, 目标 docid) 的词频按 u8 饱和累加（0..255），
+    // 合并结束后由调用方 encode 成 norms；为空表示目标不写 norms。
     MergedPostingRuns(std::vector<std::unique_ptr<SniiPostingCursor>> cursors,
-                      bool retain_positions, bool counts_as_semantic_token,
-                      std::span<const uint32_t> destination_doc_counts,
-                      std::span<uint64_t> destination_semantic_token_counts);
+                      bool retain_positions, std::span<const uint32_t> destination_doc_counts,
+                      std::span<std::vector<uint8_t>> destination_doc_lengths);
 
     Status init();
     bool empty() const;
@@ -86,9 +87,8 @@ private:
     std::vector<ActivePostingChunk> active_chunks_;
     IndexedWinnerTree<FrontierBefore> active_frontier_;
     bool retain_positions_ = true;
-    bool counts_as_semantic_token_ = false;
     std::span<const uint32_t> destination_doc_counts_;
-    std::span<uint64_t> destination_semantic_token_counts_;
+    std::span<std::vector<uint8_t>> destination_doc_lengths_;
     std::optional<uint32_t> active_destination_;
     std::optional<size_t> pending_source_;
     uint32_t previous_segment_ = 0;
