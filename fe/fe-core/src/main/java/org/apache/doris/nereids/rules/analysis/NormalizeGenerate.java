@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -46,7 +47,8 @@ public class NormalizeGenerate extends OneAnalysisRuleFactory {
                     List<Expression> subqueries = ExpressionUtils.collectToList(
                             generate.getExpressions(), SubqueryExpr.class::isInstance);
                     Map<Expression, Expression> replaceMap = new HashMap<>();
-                    ImmutableList.Builder<Alias> builder = ImmutableList.builder();
+                    ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
+                    builder.addAll(generate.child().getOutput());
                     for (Expression expr : subqueries) {
                         Alias alias = new Alias(expr);
                         builder.add(alias);
