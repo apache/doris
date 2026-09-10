@@ -20,6 +20,7 @@
 #include "common/cast_set.h"
 #include "core/string_ref.h"
 #include "core/value/bitmap_value.h"
+#include "util/unaligned.h"
 
 namespace doris {
 
@@ -56,9 +57,11 @@ public:
 
 template <>
 inline char* Helper::write_to<VecDateTimeValue>(const VecDateTimeValue& v, char* dest) {
-    *(int64_t*)dest = v.to_int64_datetime_packed();
+    // dest may be arbitrarily aligned (variable-length keys precede us), use
+    // memcpy-based unaligned stores instead of casted stores (UB).
+    unaligned_store<int64_t>(dest, v.to_int64_datetime_packed());
     dest += DATETIME_PACKED_TIME_BYTE_SIZE;
-    *(int*)dest = v.type();
+    unaligned_store<int>(dest, v.type());
     dest += DATETIME_TYPE_BYTE_SIZE;
     return dest;
 }
@@ -73,7 +76,7 @@ inline char* Helper::write_to<DecimalV2Value>(const DecimalV2Value& v, char* des
 
 template <>
 inline char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
-    *(int32_t*)dest = cast_set<int32_t>(v.size);
+    unaligned_store<int32_t>(dest, cast_set<int32_t>(v.size));
     dest += 4;
     memcpy(dest, v.data, v.size);
     dest += v.size;
@@ -82,7 +85,7 @@ inline char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
 
 template <>
 inline char* Helper::write_to<std::string>(const std::string& v, char* dest) {
-    *(uint32_t*)dest = cast_set<uint32_t>(v.size());
+    unaligned_store<uint32_t>(dest, cast_set<uint32_t>(v.size()));
     dest += 4;
     memcpy(dest, v.c_str(), v.size());
     dest += v.size();
@@ -113,9 +116,9 @@ inline int32_t Helper::serialize_size<std::string>(const std::string& v) {
 
 template <>
 inline void Helper::read_from<VecDateTimeValue>(const char** src, VecDateTimeValue* result) {
-    result->from_packed_time(*(int64_t*)(*src));
+    result->from_packed_time(unaligned_load<int64_t>(*src));
     *src += DATETIME_PACKED_TIME_BYTE_SIZE;
-    if (*(int*)(*src) == TIME_DATE) {
+    if (unaligned_load<int>(*src) == TIME_DATE) {
         result->cast_to_date();
     }
     *src += DATETIME_TYPE_BYTE_SIZE;
@@ -131,7 +134,7 @@ inline void Helper::read_from<DecimalV2Value>(const char** src, DecimalV2Value* 
 
 template <>
 inline void Helper::read_from<StringRef>(const char** src, StringRef* result) {
-    int32_t length = *(int32_t*)(*src);
+    int32_t length = unaligned_load<int32_t>(*src);
     *src += 4;
     *result = StringRef((char*)*src, length);
     *src += length;
@@ -139,7 +142,7 @@ inline void Helper::read_from<StringRef>(const char** src, StringRef* result) {
 
 template <>
 inline void Helper::read_from<std::string>(const char** src, std::string* result) {
-    int32_t length = *(int32_t*)(*src);
+    int32_t length = unaligned_load<int32_t>(*src);
     *src += 4;
     *result = std::string((char*)*src, length);
     *src += length;
@@ -215,7 +218,7 @@ public:
     //must call size() first
     void serialize(char* dest) {
         char* writer = dest;
-        *(int32_t*)writer = cast_set<int32_t>(_bitmaps.size());
+        unaligned_store<int32_t>(writer, cast_set<int32_t>(_bitmaps.size()));
         writer += 4;
         for (auto& kv : _bitmaps) {
             writer = detail::Helper::write_to(kv.first, writer);
@@ -226,7 +229,7 @@ public:
 
     void deserialize(const char* src) {
         const char* reader = src;
-        int32_t bitmaps_size = *(int32_t*)reader;
+        int32_t bitmaps_size = unaligned_load<int32_t>(reader);
         reader += 4;
         for (int32_t i = 0; i < bitmaps_size; i++) {
             T key;
@@ -302,7 +305,7 @@ public:
     //must call size() first
     void serialize(char* dest) {
         char* writer = dest;
-        *(int32_t*)writer = cast_set<int32_t>(_bitmaps.size());
+        unaligned_store<int32_t>(writer, cast_set<int32_t>(_bitmaps.size()));
         writer += 4;
         for (auto& kv : _bitmaps) {
             writer = detail::Helper::write_to(kv.first, writer);
@@ -313,7 +316,7 @@ public:
 
     void deserialize(const char* src) {
         const char* reader = src;
-        int32_t bitmaps_size = *(int32_t*)reader;
+        int32_t bitmaps_size = unaligned_load<int32_t>(reader);
         reader += 4;
         for (int32_t i = 0; i < bitmaps_size; i++) {
             std::string key;
