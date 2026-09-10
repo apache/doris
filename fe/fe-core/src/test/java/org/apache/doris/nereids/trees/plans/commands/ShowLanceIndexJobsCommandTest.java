@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShowResultSet;
@@ -398,6 +399,27 @@ public class ShowLanceIndexJobsCommandTest {
         ShowLanceIndexJobsCommand command = new ShowLanceIndexJobsCommand(
                 Lists.newArrayList("lance_ctl", "db1"), where);
         ShowResultSet resultSet = command.doRun(connectContext, null);
+        Assertions.assertEquals(1, resultSet.getResultRows().size());
+        Assertions.assertEquals("1", resultSet.getResultRows().get(0).get(colIndex(resultSet, "JobId")));
+    }
+
+    @Test
+    public void testVarcharLiteralPredicateAccepted() throws Exception {
+        // The parser hands the command a VarcharLiteral (not a StringLiteral) for
+        // ordinary-length strings, so the real SQL WHERE shape must be accepted: no
+        // WHERE hint, and both the TableName and State values filter correctly.
+        LanceIndexJob match = newJob(1L, 10L, "db1", "tbl1", "idx1");
+        LanceIndexJob otherTable = newJob(2L, 10L, "db1", "tbl2", "idx2");
+        LanceIndexJob otherState = newJob(3L, 10L, "db1", "tbl1", "idx3");
+        otherState.setMutationState(LanceIndexJobMutationState.RUNNING);
+        expectEnv(Arrays.asList(match, otherTable, otherState));
+        expectResolvableCatalog(true);
+
+        Expression where = new And(
+                new EqualTo(new UnboundSlot(Lists.newArrayList("TableName")), new VarcharLiteral("tbl1", 4)),
+                new EqualTo(new UnboundSlot(Lists.newArrayList("State")), new VarcharLiteral("PENDING", 7)));
+        ShowLanceIndexJobsCommand command = new ShowLanceIndexJobsCommand(null, where);
+        ShowResultSet resultSet = Assertions.assertDoesNotThrow(() -> command.doRun(connectContext, null));
         Assertions.assertEquals(1, resultSet.getResultRows().size());
         Assertions.assertEquals("1", resultSet.getResultRows().get(0).get(colIndex(resultSet, "JobId")));
     }
