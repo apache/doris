@@ -1108,6 +1108,12 @@ Status Segment::new_index_iterator(const TabletColumn& tablet_column, const Tabl
         Status iter_status = reader->new_index_iterator(_index_file_reader, index_meta, rowset_id,
                                                         _segment_id, _num_rows, iter);
         if (!iter_status.ok()) {
+            // A template index can outlive the indexed physical type in historical segments.
+            // JSONB and other unsupported extracted types must use the ordinary scan path.
+            if (tablet_column.is_extracted_column() &&
+                iter_status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) {
+                return Status::OK();
+            }
             if (need_binding_diagnostic) {
                 const auto diagnostic = fmt::format(
                         "[VariantSearchBinding] phase=index_iterator_create result=reject "
