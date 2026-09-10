@@ -17,8 +17,11 @@
 
 #pragma once
 
+#include <bit>
+#include <cstdint>
 #include <type_traits>
 
+#include "common/compare.h"
 #include "common/compiler_util.h"
 #include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
@@ -51,6 +54,29 @@ struct fixed_len_to_uint32_v2 {
             } else {
                 return uint32_t(HashCRC32<T>()(value));
             }
+        }
+    }
+};
+
+// Same as fixed_len_to_uint32_v2 except that FLOAT / DOUBLE values are hashed after
+// NormalizeFloat (-0.0 -> +0.0, every NaN -> quiet NaN) from their bit pattern, so a filter
+// built from one representation accepts the other one, exactly as Doris equality does.
+// Selected by RuntimeFilterParams::normalize_float_keys (be_exec_version >=
+// NORMALIZE_FLOAT_HASH_KEY_VERSION); older versions keep v2 so mixed-version producers and
+// consumers agree.
+struct fixed_len_to_uint32_v3 {
+    template <typename T>
+    uint32_t operator()(const T& value) {
+        if constexpr (std::is_same_v<T, float>) {
+            float normalized = value;
+            NormalizeFloat(normalized);
+            return uint32_t(HashCRC32<uint32_t>()(std::bit_cast<uint32_t>(normalized)));
+        } else if constexpr (std::is_same_v<T, double>) {
+            double normalized = value;
+            NormalizeFloat(normalized);
+            return uint32_t(HashCRC32<uint64_t>()(std::bit_cast<uint64_t>(normalized)));
+        } else {
+            return fixed_len_to_uint32_v2()(value);
         }
     }
 };

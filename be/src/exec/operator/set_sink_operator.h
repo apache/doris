@@ -51,6 +51,11 @@ private:
     friend class SetSinkOperatorX<is_intersect>;
 
     MutableBlock _mutable_block;
+    // Normalized copies of the float build keys hashed instead of the `build_col_idx` columns,
+    // so the result rows copied out of `build_block` keep their stored -0.0 / NaN payload.
+    // The set hash table stores keys by value (or in its arena), so they are only needed while
+    // the table is built.
+    std::vector<ColumnPtr> _key_columns_holder;
     // every child has its result expr list
     VExprContextSPtrs _child_exprs;
 

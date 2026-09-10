@@ -25,8 +25,12 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <bit>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -34,6 +38,8 @@
 
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
@@ -119,6 +125,44 @@ public:
     };
 
     // NOLINTNEXTLINE(readability-function-*)
+    // A float key must not change the shape of the probe block: with an empty build side the
+    // outer-join shortcut appends the build-side NULL columns right after the probe slots.
+    void run_outer_join_float_key_empty_build_side(TJoinOp::type join_op) {
+        auto sink_block = ColumnHelper::create_block<DataTypeFloat64>({});
+        sink_block.insert(ColumnHelper::create_nullable_column_with_name<DataTypeString>({}, {}));
+
+        auto probe_block = ColumnHelper::create_block<DataTypeFloat64>({-0.0, 1.0, 2.5});
+        probe_block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"a", "b", "c"}));
+
+        Block output_block;
+        std::vector<Block> build_blocks = {sink_block};
+        std::vector<Block> probe_blocks = {probe_block};
+        run_test({join_op}, {TPrimitiveType::DOUBLE, TPrimitiveType::STRING}, {false, false},
+                 {false, true}, build_blocks, probe_blocks, output_block);
+
+        ASSERT_EQ(output_block.rows(), 3);
+        ASSERT_EQ(output_block.columns(), 4);
+        auto sorted_block = sort_block_by_columns(output_block);
+        // FULL OUTER converts the probe columns to nullable.
+        const auto& probe_key = assert_cast<const ColumnFloat64&>(
+                                        *remove_nullable(sorted_block.get_by_position(0).column))
+                                        .get_data();
+        EXPECT_TRUE(std::signbit(probe_key[0]));
+        check_column_values(
+                *sorted_block.get_by_position(1).column,
+                {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
+                 Field::create_field<TYPE_STRING>("c")});
+        for (size_t col = 2; col < 4; ++col) {
+            EXPECT_TRUE(sorted_block.get_by_position(col).column->is_nullable());
+            EXPECT_EQ(sorted_block.get_by_position(col).column->size(), 3);
+            for (size_t row = 0; row < 3; ++row) {
+                EXPECT_TRUE(assert_cast<const ColumnNullable&>(
+                                    *sorted_block.get_by_position(col).column)
+                                    .is_null_at(row));
+            }
+        }
+    }
+
     void run_test(const JoinParams& join_params, const std::vector<TPrimitiveType::type>& key_types,
                   const std::vector<bool>& left_keys_nullable,
                   const std::vector<bool>& right_keys_nullable, std::vector<Block>& build_blocks,
@@ -345,6 +389,54 @@ TEST_F(HashJoinProbeOperatorTest, InnerJoin) {
     check_column_values(
             *sorted_block.get_by_position(3).column,
             {Field::create_field<TYPE_STRING>("c"), Field::create_field<TYPE_STRING>("d")});
+}
+
+// -0.0 and +0.0 (and all NaN payloads) are equal, so they must join even though their bit
+// patterns differ. The keys are hashed from a normalized copy, so the output still carries
+// the stored values of both sides.
+TEST_F(HashJoinProbeOperatorTest, InnerJoinFloatSpecialValueKeys) {
+    const auto quiet_nan = std::numeric_limits<double>::quiet_NaN();
+    const auto payload_nan = std::bit_cast<double>(std::bit_cast<uint64_t>(quiet_nan) | 0x1234ULL);
+    auto sink_block = ColumnHelper::create_block<DataTypeFloat64>({-0.0, 1.0, payload_nan});
+    auto probe_block =
+            ColumnHelper::create_block<DataTypeFloat64>({0.0, -0.0, 1.0, quiet_nan, 2.0});
+
+    Block output_block;
+    std::vector<Block> build_blocks = {sink_block};
+    std::vector<Block> probe_blocks = {probe_block};
+    run_test({TJoinOp::INNER_JOIN}, {TPrimitiveType::DOUBLE}, {false}, {false}, build_blocks,
+             probe_blocks, output_block);
+
+    ASSERT_EQ(output_block.rows(), 4);
+    ASSERT_EQ(output_block.columns(), 2);
+    auto count_bits = [&](size_t col, double expected) {
+        const auto& data =
+                assert_cast<const ColumnFloat64&>(*output_block.get_by_position(col).column)
+                        .get_data();
+        size_t rows = 0;
+        for (const auto value : data) {
+            rows += std::bit_cast<uint64_t>(value) == std::bit_cast<uint64_t>(expected);
+        }
+        return rows;
+    };
+    // probe side (column 0): +0.0 and -0.0 both matched the build -0.0, 1.0 matched 1.0,
+    // quiet NaN matched the payload NaN; 2.0 did not match.
+    EXPECT_EQ(count_bits(0, 0.0), 1);
+    EXPECT_EQ(count_bits(0, -0.0), 1);
+    EXPECT_EQ(count_bits(0, 1.0), 1);
+    EXPECT_EQ(count_bits(0, quiet_nan), 1);
+    // build side (column 1): the stored -0.0 and payload NaN are emitted as stored.
+    EXPECT_EQ(count_bits(1, -0.0), 2);
+    EXPECT_EQ(count_bits(1, 1.0), 1);
+    EXPECT_EQ(count_bits(1, payload_nan), 1);
+}
+
+TEST_F(HashJoinProbeOperatorTest, LeftOuterJoinFloatKeyEmptyBuildSide) {
+    run_outer_join_float_key_empty_build_side(TJoinOp::LEFT_OUTER_JOIN);
+}
+
+TEST_F(HashJoinProbeOperatorTest, FullOuterJoinFloatKeyEmptyBuildSide) {
+    run_outer_join_float_key_empty_build_side(TJoinOp::FULL_OUTER_JOIN);
 }
 
 TEST_F(HashJoinProbeOperatorTest, InnerJoinEmptyBuildSide) {
