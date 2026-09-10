@@ -170,8 +170,9 @@ public class HudiScanNode extends HiveScanNode {
 
     @Override
     protected String getHiveParquetTimeZone() {
-        // Hudi preserves its legacy session-timezone contract in both native and JNI readers.
-        return "";
+        // Hudi's legacy contract decodes INT96 with the session zone, so a versioned new plan must
+        // send that zone explicitly instead of relying on the old plan's missing-field fallback.
+        return sessionVariable.getTimeZone();
     }
 
     @Override

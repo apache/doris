@@ -34,6 +34,8 @@
 #include <cctz/time_zone.h>
 #include <glog/logging.h>
 
+#include <array>
+#include <cstring>
 #include <ctime>
 #include <memory>
 #include <utility>
@@ -60,6 +62,19 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace {
+
+int hex_value(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
 
 bool contains_extension_type(const std::shared_ptr<arrow::DataType>& type) {
     if (type->id() == arrow::Type::EXTENSION) {
@@ -242,6 +257,48 @@ Status wrap_extension_arrays(const std::shared_ptr<arrow::DataType>& target_type
 }
 
 } // namespace
+
+Status parse_iceberg_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* bytes) {
+    if (uuid.size == 16) {
+        std::memcpy(bytes->data(), uuid.data, bytes->size());
+        return Status::OK();
+    }
+    if (uuid.size != 32 && uuid.size != 36) {
+        return Status::InvalidArgument("Invalid UUID string length: {}", uuid.size);
+    }
+
+    int hex_count = 0;
+    int high_nibble = -1;
+    int byte_index = 0;
+    for (size_t i = 0; i < uuid.size; ++i) {
+        char c = uuid.data[i];
+        if (uuid.size == 36 && (i == 8 || i == 13 || i == 18 || i == 23)) {
+            if (c != '-') {
+                return Status::InvalidArgument("Invalid UUID string format");
+            }
+            continue;
+        }
+        if (c == '-') {
+            return Status::InvalidArgument("Invalid UUID string format");
+        }
+
+        int value = hex_value(c);
+        if (value < 0) {
+            return Status::InvalidArgument("Invalid UUID string format");
+        }
+        if (hex_count % 2 == 0) {
+            high_nibble = value;
+        } else {
+            (*bytes)[byte_index++] = static_cast<uint8_t>((high_nibble << 4) | value);
+        }
+        ++hex_count;
+    }
+
+    if (hex_count != 32 || byte_index != 16) {
+        return Status::InvalidArgument("Invalid UUID string format");
+    }
+    return Status::OK();
+}
 
 Status ArrowWriteConverter::write_plain_arrow_column(const std::shared_ptr<const IDataType>& type,
                                                      const DataTypeSerDe& serde,

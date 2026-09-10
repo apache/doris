@@ -35,6 +35,8 @@ import java.util.regex.Matcher;
 
 public class FileFormatUtils {
 
+    public static final int PARQUET_TIMESTAMP_SEMANTICS_VERSION = 1;
+
     public static String parseHiveParquetTimeZone(String value) throws DdlException {
         String timeZone = value.trim();
         if (timeZone.isEmpty()) {
