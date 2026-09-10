@@ -3085,20 +3085,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"强制使用 jni 方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
 
-<<<<<<< HEAD
-=======
-    @VariableMgr.VarAttr(name = ENABLE_PAIMON_CPP_READER,
-            fuzzy = true,
-            description = {"Paimon 非原生文件读取使用 paimon-cpp", "Use paimon-cpp for non-native Paimon reads"})
-    private boolean enablePaimonCppReader = false;
-
     @VariableMgr.VarAttr(name = ENABLE_PAIMON_RUST_READER,
             fuzzy = true,
             description = {"Paimon 非原生文件读取使用 paimon-rust,优先级高于 paimon-cpp",
                     "Use paimon-rust for non-native Paimon reads, higher priority than paimon-cpp"})
     private boolean enablePaimonRustReader = false;
 
->>>>>>> [feat][paimon] support paimon rust
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
             description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
@@ -4017,12 +4009,8 @@ public class SessionVariable implements Serializable, Writable {
 
         // jni
         this.forceJniScanner = random.nextBoolean();
-<<<<<<< HEAD
-=======
-        this.enablePaimonCppReader = random.nextBoolean();
         this.enablePaimonRustReader = random.nextBoolean();
 
->>>>>>> [feat][paimon] support paimon rust
         // statistics
         this.fetchHiveRowCountSync = random.nextBoolean();
 
@@ -6613,17 +6601,10 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
-<<<<<<< HEAD
-=======
-    public boolean isEnablePaimonCppReader() {
-        return enablePaimonCppReader;
-    }
-
     public boolean isEnablePaimonRustReader() {
         return enablePaimonRustReader;
     }
 
->>>>>>> [feat][paimon] support paimon rust
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -6647,17 +6628,10 @@ public class SessionVariable implements Serializable, Writable {
         forceJniScanner = force;
     }
 
-<<<<<<< HEAD
-=======
-    public void setEnablePaimonCppReader(boolean enable) {
-        enablePaimonCppReader = enable;
-    }
-
     public void setEnablePaimonRustReader(boolean enable) {
         enablePaimonRustReader = enable;
     }
 
->>>>>>> [feat][paimon] support paimon rust
     public boolean isEnableCountPushDownForExternalTable() {
         return enableCountPushDownForExternalTable;
     }
