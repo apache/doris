@@ -119,6 +119,17 @@ public class PaimonUtilTest {
     }
 
     @Test
+    public void testPaimonBinaryAlwaysMapsToVarbinary() {
+        Type binary = PaimonUtil.paimonTypeToDorisType(DataTypes.BINARY(16), false, false);
+        Assert.assertTrue(binary.isVarbinaryType());
+        Assert.assertEquals(16, binary.getLength());
+
+        Type varbinary = PaimonUtil.paimonTypeToDorisType(DataTypes.VARBINARY(32), false, false);
+        Assert.assertTrue(varbinary.isVarbinaryType());
+        Assert.assertEquals(32, varbinary.getLength());
+    }
+
+    @Test
     public void testVariantMapsToComputeV2() {
         Type type = PaimonUtil.paimonTypeToDorisType(
                 new org.apache.paimon.types.VariantType(), true, true);

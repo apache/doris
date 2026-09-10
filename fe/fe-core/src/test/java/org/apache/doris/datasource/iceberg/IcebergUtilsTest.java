@@ -129,6 +129,17 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testIcebergBinaryAlwaysMapsToVarbinary() {
+        Type binary = IcebergUtils.icebergTypeToDorisType(Types.BinaryType.get(), false, false);
+        Assert.assertTrue(binary.isVarbinaryType());
+        Assert.assertEquals(ScalarType.MAX_VARBINARY_LENGTH, ((ScalarType) binary).getLength());
+
+        Type uuid = IcebergUtils.icebergTypeToDorisType(Types.UUIDType.get(), false, false);
+        Assert.assertTrue(uuid.isVarbinaryType());
+        Assert.assertEquals(16, ((ScalarType) uuid).getLength());
+    }
+
+    @Test
     public void testSnapshotCacheFreezesSharedTableOperations() {
         Schema originalSchema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()));

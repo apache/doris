@@ -234,10 +234,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("Lance format is supported only by local() and s3() TVFs");
         }
 
-        // Parse enable_mapping_varbinary property
-        String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
-        fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
+        // Consume the obsolete option for compatibility. Binary mapping stays enabled so an old
+        // BE participating in a rolling upgrade also builds a VARBINARY source schema.
+        getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "true");
 
         // Parse enable_mapping_timestamp_tz property
         String enableMappingTimestampTzStr = getOrDefaultAndRemove(copiedProps,
@@ -564,7 +563,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
-        // table function fetch schema, whether to enable mapping varbinary
+        // Keep the field set for old BEs participating in a rolling upgrade.
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
         fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
         fileScanRangeParams.setParquetTimestampSemanticsVersion(
