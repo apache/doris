@@ -78,7 +78,6 @@ import org.apache.doris.nereids.analyzer.UnboundBaseExternalTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -703,9 +702,6 @@ public class StmtExecutor {
             try {
                 executeByNereids(queryId);
             } catch (NereidsException | ParseException e) {
-                if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
-                    MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
-                }
                 // COMPUTE_GROUPS_NO_ALIVE_BE, planner can't get alive be, need retry
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
                     LOG.debug("planner failed with cloud compute group error, need retry. {}",
@@ -1879,14 +1875,6 @@ public class StmtExecutor {
         sendResultSet(new ShowResultSet(metaData, oneColumnPerLine(result)));
     }
 
-    public void handleReplayStmt(String result) throws IOException {
-        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
-                .addColumn(new Column("Plan Replayer dump url",
-                        ScalarType.createVarchar(20)))
-                .build();
-        sendResultSet(new ShowResultSet(metaData, oneColumnPerLine(result)));
-    }
-
     private static List<List<String>> oneColumnPerLine(String text) {
         return Arrays.stream(text.split("\n"))
                 .map(line -> Lists.newArrayList(line))
@@ -2171,9 +2159,6 @@ public class StmtExecutor {
                 sessionVariable.setVarOnce(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, "false");
                 return generateHttpStreamNereidsPlan(queryId);
             } catch (NereidsException | ParseException e) {
-                if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
-                    MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
-                }
                 // try to fall back to legacy planner
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("nereids cannot process statement\n{}\n because of {}",
