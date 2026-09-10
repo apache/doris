@@ -54,6 +54,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
@@ -754,15 +755,10 @@ public abstract class ConnectProcessor {
         // set compute group
         ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.getQualifiedUser()));
 
-        // Propagate the client's CLIENT_DEPRECATE_EOF capability to the proxy channel.
-        // This ensures the master generates packets matching the original client's protocol.
-        if (request.isSetClientDeprecatedEOF() && request.isClientDeprecatedEOF()) {
-            ctx.getMysqlChannel().setClientDeprecatedEOF();
-        }
-
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
         try {
+            restoreForwardedMysqlContext(ctx, request);
             // 0 for compatibility.
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
             executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
@@ -848,6 +844,7 @@ public abstract class ConnectProcessor {
             ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
         }
         result.setPacket(getResultPacket());
+        result.setClientDeprecatedEofApplied(ctx.getMysqlChannel().clientDeprecatedEOF());
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);
@@ -881,6 +878,24 @@ public abstract class ConnectProcessor {
             }
         }
         return result;
+    }
+
+    static void restoreForwardedMysqlContext(ConnectContext context, TMasterOpRequest request) {
+        int flags = request.isSetMysqlCapability() ? request.getMysqlCapability()
+                : MysqlCapability.DEFAULT_CAPABILITY.getFlags()
+                        & ~MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+        if (request.isSetClientDeprecatedEOF() && request.isClientDeprecatedEOF()) {
+            flags |= MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+        }
+        MysqlCapability capability = new MysqlCapability(flags);
+        context.setCapability(capability);
+        context.getMysqlChannel().getSerializer().setCapability(capability);
+        if (capability.isDeprecatedEOF()) {
+            context.getMysqlChannel().setClientDeprecatedEOF();
+        }
+        // Old followers do not carry the cursor flag. Keep their existing behavior; they must
+        // be upgraded to preserve cursor intent. Do not reject their ordinary prepared statements.
+        context.setCursorFetchRequested(request.isSetCursorFetchRequested() && request.isCursorFetchRequested());
     }
 
     static void restoreForwardedSessionContext(ConnectContext context, TMasterOpRequest request) {

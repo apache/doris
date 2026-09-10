@@ -259,7 +259,11 @@ public class HiveConnector implements Connector {
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider(ConnectorTableHandle handle) {
         if (handle instanceof HiveTableHandle) {
-            return getScanPlanProvider();
+            ConnectorScanPlanProvider provider = getScanPlanProvider();
+            if (provider instanceof HiveScanPlanProvider) {
+                ((HiveScanPlanProvider) provider).recordPruningProfile((HiveTableHandle) handle);
+            }
+            return provider;
         }
         return resolveSiblingOwner(handle).getScanPlanProvider(handle);
     }

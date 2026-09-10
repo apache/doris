@@ -26,7 +26,6 @@ import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.parser.CaseInsensitiveStream;
 import org.apache.doris.nereids.parser.ParseErrorListener;
 
-import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.atn.PredictionMode;
@@ -77,7 +76,7 @@ public final class DorisSqlParser {
 
     /** Build a freshly configured lexer for advanced callers that want to walk tokens directly. */
     public DorisLexer newLexer(String sql) {
-        DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        DorisLexer lexer = new DorisLexer(CaseInsensitiveStream.fromString(sql));
         lexer.isNoBackslashEscapes = noBackslashEscapes;
         return lexer;
     }

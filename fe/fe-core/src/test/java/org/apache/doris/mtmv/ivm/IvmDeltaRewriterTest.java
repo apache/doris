@@ -69,7 +69,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
             ConnectContext connectContext, IvmRewriteResult rewriteResult) {
         ensureStatementContext(connectContext);
         Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
-                sinkChild, rewriteResult, IvmRewriteContext.incremental(mtmv, false), connectContext);
+                sinkChild, rewriteResult, IvmRewriteContext.incremental(mtmv), connectContext);
         Assertions.assertNotNull(rewritten);
         return new IvmIncrRefreshManager().buildInsertCommand(
                 (org.apache.doris.nereids.trees.plans.logical.LogicalPlan) rewritten, mtmv);
@@ -97,8 +97,13 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
             mtmv.setMvProperties(ImmutableMap.of(
                     PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, excludedTriggerTables));
         }
-        return new IvmDeltaRewriter().generateIncrRefreshPlan(normalizedPlan, rewriteResult,
-                IvmRewriteContext.incremental(mtmv, includeExhaustedStreams), connectContext);
+        // includeExhaustedStreams is an EXPLAIN REFRESH ... ALL option; exercising it through
+        // the explain-kind context keeps the factory surface aligned with the semantics.
+        IvmRewriteContext context = includeExhaustedStreams
+                ? IvmRewriteContext.incrementalExplain(mtmv, true)
+                : IvmRewriteContext.incremental(mtmv);
+        return new IvmDeltaRewriter().generateIncrRefreshPlan(normalizedPlan, rewriteResult, context,
+                connectContext);
     }
 
     private LogicalJoin<LogicalOlapScan, LogicalOlapScan> crossJoin(
@@ -220,7 +225,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
         Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
                 bundle.normalizedPlan, bundle.rewriteResult,
-                IvmRewriteContext.incremental(mtmv, false), bundle.connectContext);
+                IvmRewriteContext.incremental(mtmv), bundle.connectContext);
 
         new CheckAfterRewrite().checkTreeAllSlotReferenceFromChildren(rewritten);
     }
@@ -245,7 +250,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         PlanBundle bundle = normalizePlan(buildScanPlan(scan).child());
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
-                bundle.normalizedPlan, bundle.rewriteResult, IvmRewriteContext.incremental(mtmv, false),
+                bundle.normalizedPlan, bundle.rewriteResult, IvmRewriteContext.incremental(mtmv),
                 bundle.connectContext);
 
         Assertions.assertInstanceOf(LogicalProject.class, rewritten);

@@ -952,15 +952,7 @@ public class ExpressionUtils {
      * infer notNulls slot from predicate
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
-        Set<Slot> targetSlots = new HashSet<>();
-        for (Expression predicate : predicates) {
-            for (Slot slot : predicate.getInputSlots()) {
-                if (!(slot instanceof MarkJoinSlotReference)) {
-                    targetSlots.add(slot);
-                }
-            }
-        }
-        return inferNotNullSlots(predicates, targetSlots, cascadesContext);
+        return inferNotNullSlots(predicates, collectNotNullInferenceTargetSlots(predicates), cascadesContext);
     }
 
     /**
@@ -968,6 +960,11 @@ public class ExpressionUtils {
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, Set<Slot> targetSlots,
             CascadesContext cascadesContext) {
+        return inferNotNullSlots(predicates, targetSlots, cascadesContext, ExpressionUtils::isFalseOrNull);
+    }
+
+    private static Set<Slot> inferNotNullSlots(Set<Expression> predicates, Set<Slot> targetSlots,
+            CascadesContext cascadesContext, Predicate<Expression> nullInputResultPredicate) {
         ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(targetSlots.size());
         Set<Slot> inputSlots = new HashSet<>();
         for (Expression predicate : predicates) {
@@ -986,7 +983,7 @@ public class ExpressionUtils {
             }
             inputSlots = mergedInputSlots.get();
             for (Slot slot : candidateSlots) {
-                if (isNullRejecting(predicate, slot, cascadesContext)) {
+                if (matchesWhenSlotIsNull(predicate, slot, cascadesContext, nullInputResultPredicate)) {
                     notNullSlots.add(slot);
                 }
             }
@@ -994,14 +991,27 @@ public class ExpressionUtils {
         return notNullSlots.build();
     }
 
-    private static boolean isNullRejecting(Expression predicate, Slot slot, CascadesContext cascadesContext) {
+    private static Set<Slot> collectNotNullInferenceTargetSlots(Set<Expression> expressions) {
+        Set<Slot> targetSlots = new HashSet<>();
+        for (Expression expression : expressions) {
+            for (Slot slot : expression.getInputSlots()) {
+                if (!(slot instanceof MarkJoinSlotReference)) {
+                    targetSlots.add(slot);
+                }
+            }
+        }
+        return targetSlots;
+    }
+
+    private static boolean matchesWhenSlotIsNull(Expression expression, Slot slot, CascadesContext cascadesContext,
+            Predicate<Expression> nullInputResultPredicate) {
         Map<Expression, Expression> replaceMap = new HashMap<>();
         Literal nullLiteral = new NullLiteral(slot.getDataType());
         replaceMap.put(slot, nullLiteral);
         Expression evalExpr = FoldConstantRule.evaluate(
-                ExpressionUtils.replace(predicate, replaceMap),
+                ExpressionUtils.replace(expression, replaceMap),
                 new ExpressionRewriteContext(cascadesContext));
-        return evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr);
+        return nullInputResultPredicate.apply(evalExpr);
     }
 
     private static Optional<Set<Slot>> mergeInputSlotsWithinLimit(Set<Slot> inputSlots, Set<Slot> predicateInputSlots) {
@@ -1020,8 +1030,28 @@ public class ExpressionUtils {
      * infer notNulls slot from predicate
      */
     public static Set<Expression> inferNotNull(Set<Expression> predicates, CascadesContext cascadesContext) {
-        ImmutableSet.Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size());
-        for (Slot slot : inferNotNullSlots(predicates, cascadesContext)) {
+        return buildNotNullPredicates(inferNotNullSlots(predicates, cascadesContext));
+    }
+
+    /**
+     * Infer not-null predicates for an aggregate that ignores rows with SQL NULL arguments.
+     *
+     * <p>The caller must first establish the aggregate's null-input contract. Even for a
+     * null-ignoring aggregate, a row can only be discarded when its argument evaluates to SQL
+     * NULL. FALSE is null-rejecting as a filter predicate, but it is a valid aggregate argument
+     * and must be kept.
+     */
+    public static Set<Expression> inferNotNullForNullIgnoringAggregate(
+            Set<Expression> arguments, CascadesContext cascadesContext) {
+        Set<Slot> targetSlots = collectNotNullInferenceTargetSlots(arguments);
+        Set<Slot> notNullSlots = inferNotNullSlots(
+                arguments, targetSlots, cascadesContext, Expression::isNullLiteral);
+        return buildNotNullPredicates(notNullSlots);
+    }
+
+    private static Set<Expression> buildNotNullPredicates(Set<Slot> notNullSlots) {
+        ImmutableSet.Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(notNullSlots.size());
+        for (Slot slot : notNullSlots) {
             newPredicates.add(new Not(new IsNull(slot), false));
         }
         return newPredicates.build();

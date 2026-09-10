@@ -211,6 +211,12 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public Long getNextTransactionId() throws UserException;
 
+    /**
+     * Return the transaction ID upper bound expected by {@link #isPreviousTransactionsFinished}.
+     * This is a read-only operation and must not allocate a transaction ID.
+     */
+    public long getTransactionIdWatermark() throws UserException;
+
     public void readFields(DataInput in) throws IOException;
 
     public void replayUpsertTransactionState(TransactionState transactionState) throws Exception;

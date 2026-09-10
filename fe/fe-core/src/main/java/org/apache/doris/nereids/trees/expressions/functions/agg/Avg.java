@@ -48,7 +48,7 @@ import java.util.List;
  */
 public class Avg extends NullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecision, SupportWindowAnalytic,
-        NeedSessionVarGuard {
+        NeedSessionVarGuard, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
