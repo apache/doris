@@ -243,12 +243,12 @@ TFileScanRangeParams build_iceberg_delete_scan_range_params(
     return params;
 }
 
-TFileRangeDesc build_iceberg_delete_file_range(const std::string& path) {
+TFileRangeDesc build_iceberg_delete_file_range(const std::string& path, int64_t file_size) {
     TFileRangeDesc range;
     range.path = path;
     range.start_offset = 0;
     range.size = -1;
-    range.file_size = -1;
+    range.file_size = file_size;
     return range;
 }
 
@@ -283,7 +283,8 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
         return Status::InvalidArgument("invalid position delete reader options");
     }
 
-    TFileRangeDesc delete_range = build_iceberg_delete_file_range(delete_file.path);
+    TFileRangeDesc delete_range = build_iceberg_delete_file_range(
+            delete_file.path, delete_file.__isset.file_size ? delete_file.file_size : -1);
     if (options.fs_name != nullptr && !options.fs_name->empty()) {
         delete_range.__set_fs_name(*options.fs_name);
     }
@@ -362,7 +363,8 @@ Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
     DBUG_EXECUTE_IF("IcebergDeleteFileReader.read_deletion_vector.should_stop",
                     { return Status::EndOfFile("stop read."); });
 
-    TFileRangeDesc delete_range = build_iceberg_delete_file_range(delete_file.path);
+    TFileRangeDesc delete_range = build_iceberg_delete_file_range(
+            delete_file.path, delete_file.__isset.file_size ? delete_file.file_size : -1);
     if (options.fs_name != nullptr && !options.fs_name->empty()) {
         delete_range.__set_fs_name(*options.fs_name);
     }
