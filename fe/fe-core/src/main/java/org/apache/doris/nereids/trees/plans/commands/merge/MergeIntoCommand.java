@@ -33,7 +33,6 @@ import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
@@ -49,7 +48,6 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -60,7 +58,6 @@ import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -186,7 +183,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
     }
 
     /**
-     * generate target right outer join source.
+     * generate target (inner | right outer) join source, see {@link MergeUtils#buildMergeJoin}.
      */
     private LogicalPlan generateBasePlan() {
         LogicalPlan plan = LogicalPlanBuilderAssistant.withCheckPolicy(
@@ -198,9 +195,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
         if (targetAlias.isPresent()) {
             plan = new LogicalSubQueryAlias<>(targetAlias.get(), plan);
         }
-        return new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
-                ImmutableList.of(), ImmutableList.of(onClause),
-                source, plan, JoinReorderContext.EMPTY);
+        return MergeUtils.buildMergeJoin(plan, source, onClause, !notMatchedClauses.isEmpty());
     }
 
     /**
