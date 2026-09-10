@@ -47,9 +47,8 @@ public abstract class FileFormatProperties {
     protected TFileFormatType fileFormatType;
 
     protected TFileCompressType compressionType;
-    // Default: false, mapping BINARY types to STRING for compatibility
-    // When enabled, BINARY types map to VARBINARY
-    public boolean enableMappingVarbinary = false;
+    // Keep this true for the rolling-upgrade Thrift field consumed by older BEs.
+    public boolean enableMappingVarbinary = true;
     public boolean enableMappingTimestampTz = false;
 
     public FileFormatProperties(TFileFormatType fileFormatType, String formatName) {

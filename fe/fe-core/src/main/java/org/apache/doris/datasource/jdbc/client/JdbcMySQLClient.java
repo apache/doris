@@ -355,8 +355,7 @@ public class JdbcMySQLClient extends JdbcClient {
             case "LONGBLOB":
             case "BINARY":
             case "VARBINARY":
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
-                        : ScalarType.createStringType();
+                return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             case "BIT":
                 if (fieldSchema.requiredColumnSize() == 1) {
                     return Type.BOOLEAN;

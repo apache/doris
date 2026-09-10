@@ -1344,6 +1344,16 @@ TEST(DataTypeSerDeArrowTest, ConvertDateTimeV2ToNaiveArrowType) {
     EXPECT_TRUE(timestamp_type->timezone().empty());
 }
 
+TEST(DataTypeSerDeArrowTest, CanonicalizeUtcTimezoneForArrow) {
+    const auto timestamptz_type = std::make_shared<DataTypeTimeStampTz>(6);
+    std::shared_ptr<arrow::DataType> arrow_type;
+
+    auto status = convert_to_arrow_type(timestamptz_type, &arrow_type, "Z", true);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ("UTC", timestamp_type->timezone());
+}
+
 TEST(DataTypeSerDeArrowTest, DateTimeV2ArrowEncodingFollowsSchemaTimezone) {
     auto datetime_column = ColumnVector<TYPE_DATETIMEV2>::create();
     DateV2Value<DateTimeV2ValueType> datetime_value;

@@ -41,9 +41,6 @@ public class JdbcClientConfig implements Cloneable {
     private int connectionPoolMaxWaitTime;
     private int connectionPoolMaxLifeTime;
     private boolean connectionPoolKeepAlive;
-    // Whether to enable mapping BINARY to doris VARBINARY
-    // default: false, mapping to doris string type
-    private boolean enableMappingVarbinary;
     // default: false, mapping to doris datetime type
     private boolean enableMappingTimestampTz;
 
@@ -68,8 +65,6 @@ public class JdbcClientConfig implements Cloneable {
         this.includeDatabaseMap = Maps.newHashMap();
         this.excludeDatabaseMap = Maps.newHashMap();
         this.customizedProperties = Maps.newHashMap();
-        this.enableMappingVarbinary = Boolean.parseBoolean(
-                JdbcResource.getDefaultPropertyValue(CatalogProperty.ENABLE_MAPPING_VARBINARY));
         this.enableMappingTimestampTz = Boolean.parseBoolean(
                 JdbcResource.getDefaultPropertyValue(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ));
     }
@@ -237,13 +232,14 @@ public class JdbcClientConfig implements Cloneable {
         return this;
     }
 
+    @Deprecated
     public JdbcClientConfig setEnableMappingVarbinary(boolean enableMappingVarbinary) {
-        this.enableMappingVarbinary = enableMappingVarbinary;
         return this;
     }
 
+    @Deprecated
     public boolean isEnableMappingVarbinary() {
-        return enableMappingVarbinary;
+        return true;
     }
 
     public JdbcClientConfig setEnableMappingTimestampTz(boolean enableMappingTimestampTz) {

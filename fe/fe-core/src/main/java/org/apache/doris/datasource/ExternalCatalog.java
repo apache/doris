@@ -274,9 +274,9 @@ public abstract class ExternalCatalog
         // set default value to true, no matter is replaying or not.
         // After 4.0, all external catalogs will use meta cache by default.
         catalogProperty.addProperty(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
-        if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_VARBINARY, "").isEmpty()) {
-            catalogProperty.setEnableMappingVarbinary(false);
-        }
+        // Persist the binary-safe value so an older FE can still plan compatible scans after a
+        // rollback or during a rolling upgrade, even though new code no longer exposes a switch.
+        catalogProperty.setEnableMappingVarbinary(true);
         if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "").isEmpty()) {
             catalogProperty.setEnableMappingTimestampTz(false);
         }
