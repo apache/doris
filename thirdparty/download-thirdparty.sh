@@ -723,8 +723,8 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         # Apply the merged PRs first; the latest PR #73 and #79 both require Lance v11.
-        # This order keeps the upstream patches unchanged, including Cargo.lock.
-        for lance_patch in pr-74 pr-75-pr-78 pr-77 pr-73 pr-79; do
+        # PR #80 explicitly initializes OpenDAL for statically linked C/C++ callers.
+        for lance_patch in pr-74 pr-75-pr-78 pr-77 pr-73 pr-79 pr-80; do
             patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
                 -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-${lance_patch}.patch"
         done
