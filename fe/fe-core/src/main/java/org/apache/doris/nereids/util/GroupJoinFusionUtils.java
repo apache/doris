@@ -25,8 +25,12 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.plans.AggMode;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
@@ -70,10 +74,11 @@ public final class GroupJoinFusionUtils {
      * <p>
      * Returns null when the shape is not eligible (not an INNER/CROSS hash join, mark join,
      * broadcast join, residual non-equi conjuncts, null-safe equal conjuncts, aggregates
-     * reading both sides, aggregates with an internal ORDER BY, an intermediate Project that
-     * computes columns, or intermediate project slots) or when the group-by keys cannot be
-     * mapped one-to-one onto the conjuncts. Session-level gates (enable_group_join_fusion,
-     * enable_spill) are checked by the callers, not here.
+     * reading both sides, aggregates with an internal ORDER BY, an aggregate that is not the
+     * final one-phase node (GLOBAL + INPUT_TO_RESULT, per function and node), an intermediate
+     * Project that computes columns, or intermediate project slots) or when the group-by keys
+     * cannot be mapped one-to-one onto the conjuncts. Session-level gates
+     * (enable_group_join_fusion, enable_spill) are checked by the callers, not here.
      *
      * @param project the Project between the aggregate and the join, or null when the aggregate
      *        directly consumes the join. Only a pure passthrough project (each output is a bare
@@ -102,6 +107,37 @@ public final class GroupJoinFusionUtils {
         if (groupByExprs.isEmpty() || hashJoinConjuncts.isEmpty()
                 || groupByExprs.size() != hashJoinConjuncts.size()) {
             return null;
+        }
+        // Phase gate: only the final one-phase aggregate is fusable. The fused GroupJoin node
+        // materializes FINAL_RESULT and finalizes per-key aggregate state directly, so an
+        // aggregate that is a partial/LOCAL buffer producer or a DISTINCT/multi-phase
+        // intermediate node must stay on the ordinary HashJoinNode + AggregationNode path.
+        // This is observable when two-phase aggregation is forced (agg_phase=2): the LOCAL
+        // (INPUT_TO_BUFFER) phase sits directly above the join when no exchange is inserted
+        // between them, and fusing it hard-codes FINAL_RESULT with finalize-on evaluators
+        // while the merge-finalize aggregate above still consumes the partial buffer - BE then
+        // aborts with "Aggregate function count result type check failed: Column type String
+        // is not compatible with data type BIGINT". Requiring every output aggregate function's
+        // own param to equal the node param also guards split shapes where the node-level label
+        // alone lies (e.g. GLOBAL/INPUT_TO_RESULT node label with per-function DISTINCT_* or
+        // buffer params), so the gate is per-function, not just node-level.
+        if (!(aggregate instanceof PhysicalHashAggregate)) {
+            return null;
+        }
+        AggregateParam nodeParam = ((PhysicalHashAggregate<?>) aggregate).getAggregateParam();
+        if (nodeParam.aggPhase != AggPhase.GLOBAL || nodeParam.aggMode != AggMode.INPUT_TO_RESULT) {
+            return null;
+        }
+        for (Expression outputExpr : aggregate.getOutputExpressions()) {
+            for (AggregateExpression aggExpr : outputExpr
+                    .collect(AggregateExpression.class::isInstance).stream()
+                    .map(AggregateExpression.class::cast)
+                    .collect(java.util.stream.Collectors.toList())) {
+                AggregateParam perFunctionParam = aggExpr.getAggregateParam();
+                if (!perFunctionParam.equals(nodeParam)) {
+                    return null;
+                }
+            }
         }
         // The fused operator evaluates aggregates over the probe/build rows of the join
         // children, so every group-by key and aggregate argument must be a column one of the
