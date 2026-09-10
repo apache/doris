@@ -91,7 +91,12 @@ class UuidMatrix {
                     String query = options.aggregate
                         ? "SELECT ${projection} FROM ${table}${predicate}${grouping}"
                         : "SELECT id,${projection} FROM ${table}${lateral}${predicate} ORDER BY ${orderBy}"
-                    suite.quickTest("${group}_${mode}_${shape}_${sample}", query)
+                    String tag = "${group}_${mode}_${shape}_${sample}"
+                    if (options.rowConverter != null) {
+                        suite.quickRunTest(tag, query, false, options.rowConverter)
+                    } else {
+                        suite.quickTest(tag, query)
+                    }
                 }
             }
         }
