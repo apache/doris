@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -32,7 +33,9 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -114,7 +117,7 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                     return null;
                 }
                 List<OrderKey> pushedOrderKeys = getPushedOrderKeys(groupBySlots,
-                        join.left().getOutputSet(), topN.getOrderKeys());
+                        join.left(), topN.getOrderKeys());
                 if (!pushedOrderKeys.isEmpty()) {
                     LogicalTopN<Plan> left = topN.withLimitOrderKeyAndChild(
                             childLimit, 0, pushedOrderKeys,
@@ -129,7 +132,7 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                     return null;
                 }
                 List<OrderKey> pushedOrderKeys = getPushedOrderKeys(groupBySlots,
-                        join.right().getOutputSet(), topN.getOrderKeys());
+                        join.right(), topN.getOrderKeys());
                 if (!pushedOrderKeys.isEmpty()) {
                     LogicalTopN<Plan> right = topN.withLimitOrderKeyAndChild(
                             childLimit, 0, pushedOrderKeys,
@@ -142,14 +145,14 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                 Plan leftChild = join.left();
                 Plan rightChild = join.right();
                 List<OrderKey> leftPushedOrderKeys = getPushedOrderKeys(groupBySlots,
-                        join.left().getOutputSet(), topN.getOrderKeys());
+                        join.left(), topN.getOrderKeys());
                 if (!(join.left() instanceof TopN) && !leftPushedOrderKeys.isEmpty()) {
                     leftChild = topN.withLimitOrderKeyAndChild(
                             childLimit, 0, leftPushedOrderKeys,
                             PlanUtils.distinct(join.left()));
                 }
                 List<OrderKey> rightPushedOrderKeys = getPushedOrderKeys(groupBySlots,
-                        join.right().getOutputSet(), topN.getOrderKeys());
+                        join.right(), topN.getOrderKeys());
                 if (!(join.right() instanceof TopN) && !rightPushedOrderKeys.isEmpty()) {
                     rightChild = topN.withLimitOrderKeyAndChild(
                             childLimit, 0, rightPushedOrderKeys,
@@ -170,8 +173,9 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
     /**
      * return pushed order-keys. If top-n distinct cannot be pushed, return empty list.
      */
-    private List<OrderKey> getPushedOrderKeys(Set<Slot> groupBySlots, Set<Slot> joinChildSlot,
+    List<OrderKey> getPushedOrderKeys(Set<Slot> groupBySlots, Plan joinChild,
             List<OrderKey> orderKeys) {
+        Set<Slot> joinChildSlot = joinChild.getOutputSet();
         // NOTICE: Currently, we have implemented strict restrictions to ensure that the distinct columns is
         //   a superset of the output from the corresponding child of the join operator. In the future, we can relax
         //   this restriction and only require that there is overlap between the output of the corresponding child of
@@ -197,6 +201,31 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                 notFound = true;
             }
         }
-        return pushedOrderKeys.build();
+        List<OrderKey> pushedOrderKeyList = pushedOrderKeys.build();
+        if (pushedOrderKeyList.size() == orderKeys.size()
+                || isOrderKeyPrefixUniqueAfterDistinct(joinChild, pushedOrderKeyList)) {
+            return pushedOrderKeyList;
+        }
+        return ImmutableList.of();
+    }
+
+    /**
+     * A partial order-key prefix is safe for a hard limit only when it uniquely orders the rows produced by
+     * {@link PlanUtils#distinct(Plan)}. This is true when a leading part of the prefix either is already a
+     * non-null unique key, covers every child output, or functionally determines every remaining child output.
+     */
+    private boolean isOrderKeyPrefixUniqueAfterDistinct(Plan joinChild, List<OrderKey> orderKeyPrefix) {
+        Set<Slot> childOutput = joinChild.getOutputSet();
+        DataTrait childTrait = joinChild.getLogicalProperties().getTrait();
+        Set<Slot> prefixSlots = new HashSet<>();
+        for (OrderKey orderKey : orderKeyPrefix) {
+            prefixSlots.add((Slot) orderKey.getExpr());
+            if (prefixSlots.containsAll(childOutput) || childTrait.isUniqueAndNotNull(prefixSlots)
+                    || childOutput.stream().allMatch(slot -> prefixSlots.contains(slot)
+                            || childTrait.isDependent(prefixSlots, ImmutableSet.of(slot)))) {
+                return true;
+            }
+        }
+        return false;
     }
 }
