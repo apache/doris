@@ -50,6 +50,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
@@ -397,6 +399,27 @@ public class AIResourceTest {
         aiResource.setProperties(ImmutableMap.copyOf(properties));
 
         Assertions.assertFalse(aiResource.toThrift().isSetEffort());
+    }
+
+    @Test
+    public void testClearEffortOnModifyAndPersistence() throws Exception {
+        Map<String, String> properties = new HashMap<>(aiProperties);
+        properties.put(AIProperties.EFFORT, "high");
+
+        AIResource aiResource = new AIResource("clear-effort-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(properties));
+        aiResource.modifyProperties(ImmutableMap.of(AIProperties.EFFORT, ""));
+
+        Assertions.assertNull(aiResource.getProperty(AIProperties.EFFORT));
+        Assertions.assertFalse(aiResource.toThrift().isSetEffort());
+
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        aiResource.write(new DataOutputStream(bytes));
+        AIResource restoredResource = (AIResource) Resource.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+
+        Assertions.assertNull(restoredResource.getProperty(AIProperties.EFFORT));
+        Assertions.assertFalse(restoredResource.toThrift().isSetEffort());
     }
 
     @Test
