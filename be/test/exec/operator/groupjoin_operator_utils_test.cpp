@@ -23,6 +23,7 @@
 #include <variant>
 #include <vector>
 
+#include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -54,6 +55,37 @@ size_t count_hash_table_entries(GroupJoinSharedState* shared_state) {
                           return count;
                       }},
             shared_state->data_variants->method_variant);
+}
+
+TEST(GroupJoinOperatorUtilsTest, SharedMemoryUsageTracksGrowthWithoutDoubleCounting) {
+    RuntimeProfile profile("GroupJoinSink");
+    auto* counter = profile.AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES);
+    GroupJoinSharedState shared_state;
+    shared_state.memory_used_counter = counter;
+    ASSERT_OK(init_int32_groupjoin_state(&shared_state));
+
+    auto keys = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4});
+    ColumnRawPtrs key_columns {keys.get()};
+    std::vector<AggregateDataPtr> places(keys->size());
+    ASSERT_OK(groupjoin::add_build_counts_by_key(&shared_state, *shared_state.arena, key_columns,
+                                                 static_cast<uint32_t>(keys->size()), nullptr, {},
+                                                 places.data()));
+    shared_state.update_memory_usage();
+    const auto build_bytes = counter->current_value();
+    EXPECT_GT(build_bytes, 0);
+    EXPECT_GT(build_bytes, shared_state.arena->size());
+    EXPECT_EQ(counter->value(), build_bytes);
+
+    // Probe uses the same storage and counter; taking another snapshot must not add it twice.
+    shared_state.update_memory_usage();
+    EXPECT_EQ(counter->current_value(), build_bytes);
+    EXPECT_EQ(counter->value(), build_bytes);
+
+    // Aggregate states may allocate additional arena chunks during probe.
+    shared_state.arena->alloc(1024 * 1024);
+    shared_state.update_memory_usage();
+    EXPECT_GT(counter->current_value(), build_bytes);
+    EXPECT_EQ(counter->value(), counter->current_value());
 }
 
 TEST(GroupJoinOperatorUtilsTest, ExtractKeyColumnsBuildsCombinedNullMap) {
