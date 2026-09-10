@@ -19,9 +19,13 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
+#include "bthread/countdown_event.h"
+#include "common/exception.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 
@@ -211,6 +215,111 @@ TEST_F(SubmitExternalScanTasksTest, ThrownExceptionReachesTheCaller) {
     });
     EXPECT_FALSE(result.ok());
     EXPECT_NE(result.to_string().find("scanner threw"), std::string::npos);
+}
+
+class ParallelRowIdFetchTest : public RowIdStorageReaderTest {
+protected:
+    static Status read_groups(size_t count, int batch, int concurrency, bool row_store,
+                              const std::function<Status(size_t, size_t)>& read) {
+        return RowIdStorageReader::read_internal_segment_groups(count, batch, concurrency,
+                                                                row_store, read);
+    }
+};
+
+TEST_F(ParallelRowIdFetchTest, CoversEveryGroupIncludingPartialLastTask) {
+    std::vector<int> visits(7, 0);
+    std::atomic<int> tasks = 0;
+    auto status = read_groups(7, 2, 3, false, [&](size_t begin, size_t end) {
+        EXPECT_LE(end - begin, 2);
+        for (size_t i = begin; i < end; ++i) {
+            ++visits[i];
+        }
+        ++tasks;
+        return Status::OK();
+    });
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(tasks, 4);
+    EXPECT_EQ(visits, std::vector<int>(7, 1));
+}
+
+TEST_F(ParallelRowIdFetchTest, SerialFallbacksReadOneRange) {
+    auto check_serial = [&](int batch, int concurrency, bool row_store) {
+        int calls = 0;
+        auto status = read_groups(5, batch, concurrency, row_store, [&](size_t begin, size_t end) {
+            EXPECT_EQ(begin, 0);
+            EXPECT_EQ(end, 5);
+            ++calls;
+            return Status::OK();
+        });
+        EXPECT_TRUE(status.ok()) << status;
+        EXPECT_EQ(calls, 1);
+    };
+    check_serial(0, 8, false);
+    check_serial(-1, 8, false);
+    check_serial(5, 8, false);
+    check_serial(100, 8, false);
+    check_serial(1, 1, false);
+    check_serial(1, 0, false);
+    check_serial(1, -1, false);
+    check_serial(1, 8, true);
+}
+
+TEST_F(ParallelRowIdFetchTest, EmptyRequestDoesNotRead) {
+    ASSERT_TRUE(read_groups(0, 1, 8, false, [](size_t, size_t) {
+                    ADD_FAILURE() << "Empty request must not schedule a read";
+                    return Status::OK();
+                }).ok());
+}
+
+TEST_F(ParallelRowIdFetchTest, RunsConcurrentlyWithinLimit) {
+    bthread::CountdownEvent first_pair(2);
+    std::atomic<int> active = 0;
+    std::atomic<int> peak = 0;
+    auto status = read_groups(8, 1, 2, false, [&](size_t begin, size_t) {
+        const int running = ++active;
+        int previous = peak.load();
+        while (previous < running && !peak.compare_exchange_weak(previous, running)) {
+        }
+        if (begin < 2) {
+            first_pair.signal();
+            first_pair.wait();
+        }
+        --active;
+        return Status::OK();
+    });
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(peak, 2);
+    EXPECT_EQ(active, 0);
+}
+
+TEST_F(ParallelRowIdFetchTest, WaitsForStartedTasksOnError) {
+    bthread::CountdownEvent both_started(2);
+    std::atomic<bool> other_finished = false;
+    auto status = read_groups(2, 1, 2, false, [&](size_t begin, size_t) {
+        both_started.signal();
+        both_started.wait();
+        if (begin == 0) {
+            return Status::InternalError("internal rowid read failed");
+        }
+        other_finished = true;
+        return Status::OK();
+    });
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("internal rowid read failed"), std::string::npos);
+    EXPECT_TRUE(other_finished);
+}
+
+TEST_F(ParallelRowIdFetchTest, ExceptionsReachCallerWithoutHanging) {
+    for (bool doris_exception : {false, true}) {
+        auto status = read_groups(3, 1, 2, false, [&](size_t, size_t) -> Status {
+            if (doris_exception) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "parallel read exception");
+            }
+            throw std::runtime_error("parallel read exception");
+        });
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("parallel read exception"), std::string::npos);
+    }
 }
 
 } // namespace doris

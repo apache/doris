@@ -28,13 +28,17 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <exception>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/signal_handler.h"
@@ -50,6 +54,7 @@
 #include "runtime/exec_env.h"      // ExecEnv
 #include "runtime/fragment_mgr.h"  // FragmentMgr
 #include "runtime/runtime_state.h" // RuntimeState
+#include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "semaphore"
 #include "storage/olap_common.h"
@@ -259,7 +264,8 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                         RETURN_IF_ERROR(read_batch_doris_format_row(
                                 request_block_desc, id_file_map, slots, tquery_id, result_blocks[i],
                                 stats, &acquire_tablet_ms, &acquire_rowsets_ms,
-                                &acquire_segments_ms, &lookup_row_data_ms, file_cache_miss_policy));
+                                &acquire_segments_ms, &lookup_row_data_ms, file_cache_miss_policy,
+                                request.parallel_batch_rows()));
                     } else {
                         RETURN_IF_ERROR(read_batch_external_row(
                                 request.wg_id(), request_block_desc, id_file_map, slots,
@@ -315,30 +321,46 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
     return Status::OK();
 }
 
+Status RowIdStorageReader::read_internal_segment_groups(
+        size_t group_count, int batch_groups, int concurrency, bool fetch_row_store,
+        const std::function<Status(size_t, size_t)>& read_groups) {
+    if (group_count == 0) {
+        return Status::OK();
+    }
+    auto read_range = [&](size_t begin, size_t end) -> Status {
+        Status status;
+        // A thrown exception must not escape bthread_fork_join: it would skip completion
+        // accounting and leave the RPC waiting for a task that can never finish.
+        try {
+            ASSIGN_STATUS_IF_CATCH_EXCEPTION(status = read_groups(begin, end), status);
+        } catch (const std::exception& e) {
+            status = Status::InternalError("Row id fetch failed because {}", e.what());
+        }
+        return status;
+    };
+    if (fetch_row_store || batch_groups <= 0 || concurrency <= 1 ||
+        std::cmp_less_equal(group_count, batch_groups)) {
+        return read_range(0, group_count);
+    }
+    const auto groups_per_task = static_cast<size_t>(batch_groups);
+    std::vector<std::function<Status()>> tasks;
+    tasks.reserve(1 + (group_count - 1) / groups_per_task);
+    for (size_t begin = 0; begin < group_count; begin += groups_per_task) {
+        tasks.emplace_back([&, begin] {
+            return read_range(begin, std::min(begin + groups_per_task, group_count));
+        });
+    }
+    return cloud::bthread_fork_join(tasks, concurrency);
+}
+
 Status RowIdStorageReader::read_batch_doris_format_row(
         const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
         std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
         OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
         int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
-        io::FileCacheMissPolicy file_cache_miss_policy) {
+        io::FileCacheMissPolicy file_cache_miss_policy, int parallel_batch_rows) {
     if (result_block.is_empty_column()) [[likely]] {
         result_block = Block(slots, request_block_desc.row_id_size());
-    }
-    TabletSchema full_read_schema;
-    for (const ColumnPB& column_pb : request_block_desc.column_descs()) {
-        full_read_schema.append_column(TabletColumn(column_pb));
-    }
-
-    std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
-    std::unordered_map<SegKey, SegItem, HashOfSegKey> seg_map;
-    std::string row_store_buffer;
-    RowStoreReadStruct row_store_read_struct(row_store_buffer);
-    if (request_block_desc.fetch_row_store()) {
-        for (int i = 0; i < request_block_desc.slots_size(); ++i) {
-            row_store_read_struct.serdes.emplace_back(slots[i].get_data_type_ptr()->get_serde());
-            row_store_read_struct.col_uid_to_idx[slots[i].col_unique_id()] = i;
-            row_store_read_struct.default_values.emplace_back(slots[i].col_default_value());
-        }
     }
 
     // Phase 1: Group all row_ids by their (tablet_id, rowset_id, segment_id) key.
@@ -376,34 +398,96 @@ Status RowIdStorageReader::read_batch_doris_format_row(
     // Phase 2: For each segment, sort row_ids ascending (required by ColumnIterator),
     // deduplicate, then read all rows in a single batch call.
     std::vector<Block> scan_blocks(scan_batches.size());
-    for (size_t batch_idx = 0; batch_idx < scan_batches.size(); ++batch_idx) {
-        auto& scan_batch = scan_batches[batch_idx];
-        auto& row_ids_with_positions = scan_batch.row_ids_with_positions;
-        std::sort(row_ids_with_positions.begin(), row_ids_with_positions.end(),
-                  [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
-
-        // Column iterators read rowids monotonically. Deduplicate consecutive identical row_ids
-        // (different file_ids may map to the same row), then scatter rows back to their original
-        // request positions.
-        std::vector<uint32_t> row_ids;
-        row_ids.reserve(row_ids_with_positions.size());
-
-        // Also builds the scatter map: row_id_block_idx[original_request_idx] ->
-        // (batch_idx, deduplicated_position_in_batch).
-        for (const auto& [row_id, result_idx] : row_ids_with_positions) {
-            if (row_ids.empty() || row_ids.back() != row_id) {
-                row_ids.emplace_back(row_id);
-            }
-            row_id_block_idx[result_idx] = std::make_pair(batch_idx, row_ids.size() - 1);
+    std::mutex stats_mutex;
+    auto read_groups = [&](size_t begin, size_t end) -> Status {
+        SCOPED_INIT_THREAD_CONTEXT();
+        // Serial reads and bthread-start failures run on the already-attached RPC
+        // thread. Only a new worker needs a task attachment; nesting one would
+        // detach the RPC's memory tracker before scattering/serializing its result.
+        std::optional<AttachTask> task_context;
+        if (!thread_context()->is_attach_task()) {
+            task_context.emplace(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
         }
+        signal::set_signal_task_id(query_id);
+        OlapReaderStatistics local_stats;
+        int64_t local_acquire_tablet_ms = 0;
+        int64_t local_acquire_rowsets_ms = 0;
+        int64_t local_acquire_segments_ms = 0;
+        int64_t local_lookup_row_data_ms = 0;
+        // Readers retain pointers into the schema, slots and statistics. Keep all of
+        // these task-local and alive until the task's iterator cache is destroyed.
+        TabletSchema full_read_schema;
+        for (const auto& column_pb : request_block_desc.column_descs()) {
+            full_read_schema.append_column(TabletColumn(column_pb));
+        }
+        std::vector<SlotDescriptor> local_slots;
+        local_slots.reserve(request_block_desc.slots_size());
+        for (const auto& pslot : request_block_desc.slots()) {
+            local_slots.push_back(SlotDescriptor(pslot));
+        }
+        std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
+        std::unordered_map<SegKey, SegItem, HashOfSegKey> seg_map;
+        std::string row_store_buffer;
+        RowStoreReadStruct row_store_read_struct(row_store_buffer);
+        if (request_block_desc.fetch_row_store()) {
+            for (int i = 0; i < local_slots.size(); ++i) {
+                row_store_read_struct.serdes.emplace_back(
+                        local_slots[i].get_data_type_ptr()->get_serde());
+                row_store_read_struct.col_uid_to_idx[local_slots[i].col_unique_id()] = i;
+                row_store_read_struct.default_values.emplace_back(
+                        local_slots[i].col_default_value());
+            }
+        }
+        for (size_t batch_idx = begin; batch_idx < end; ++batch_idx) {
+            auto& scan_batch = scan_batches[batch_idx];
+            auto& row_ids_with_positions = scan_batch.row_ids_with_positions;
+            std::ranges::sort(row_ids_with_positions, [](const auto& lhs, const auto& rhs) {
+                return lhs.first < rhs.first;
+            });
 
-        scan_blocks[batch_idx] = Block(slots, row_ids.size());
-        RETURN_IF_ERROR(read_doris_format_row(
-                id_file_map, scan_batch.file_mapping, row_ids, slots, full_read_schema,
-                row_store_read_struct, stats, acquire_tablet_ms, acquire_rowsets_ms,
-                acquire_segments_ms, lookup_row_data_ms, seg_map, iterator_map,
-                file_cache_miss_policy, scan_blocks[batch_idx]));
-    }
+            // Column iterators read rowids monotonically. Deduplicate consecutive identical row_ids
+            // (different file_ids may map to the same row), then scatter rows back to their original
+            // request positions.
+            std::vector<uint32_t> row_ids;
+            row_ids.reserve(row_ids_with_positions.size());
+
+            // Also builds the scatter map: row_id_block_idx[original_request_idx] ->
+            // (batch_idx, deduplicated_position_in_batch).
+            for (const auto& [row_id, result_idx] : row_ids_with_positions) {
+                if (row_ids.empty() || row_ids.back() != row_id) {
+                    row_ids.emplace_back(row_id);
+                }
+                row_id_block_idx[result_idx] = std::make_pair(batch_idx, row_ids.size() - 1);
+            }
+
+            scan_blocks[batch_idx] = Block(local_slots, row_ids.size());
+            RETURN_IF_ERROR(read_doris_format_row(
+                    id_file_map, scan_batch.file_mapping, row_ids, local_slots, full_read_schema,
+                    row_store_read_struct, local_stats, &local_acquire_tablet_ms,
+                    &local_acquire_rowsets_ms, &local_acquire_segments_ms,
+                    &local_lookup_row_data_ms, seg_map, iterator_map, file_cache_miss_policy,
+                    scan_blocks[batch_idx]));
+        }
+        // Tasks write disjoint scan blocks and scatter-map entries; only the shared
+        // statistics need synchronization. No storage reads occur under this lock.
+        std::lock_guard lock(stats_mutex);
+        stats.io_ns += local_stats.io_ns;
+        stats.compressed_bytes_read += local_stats.compressed_bytes_read;
+        stats.decompress_ns += local_stats.decompress_ns;
+        stats.uncompressed_bytes_read += local_stats.uncompressed_bytes_read;
+        stats.bytes_read += local_stats.bytes_read;
+        stats.total_pages_num += local_stats.total_pages_num;
+        stats.cached_pages_num += local_stats.cached_pages_num;
+        stats.file_cache_stats.merge_from(local_stats.file_cache_stats);
+        *acquire_tablet_ms += local_acquire_tablet_ms;
+        *acquire_rowsets_ms += local_acquire_rowsets_ms;
+        *acquire_segments_ms += local_acquire_segments_ms;
+        *lookup_row_data_ms += local_lookup_row_data_ms;
+        return Status::OK();
+    };
+    RETURN_IF_ERROR(read_internal_segment_groups(
+            scan_batches.size(), parallel_batch_rows, config::rowid_fetch_parallel_max_concurrency,
+            request_block_desc.fetch_row_store(), read_groups));
 
     scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
 

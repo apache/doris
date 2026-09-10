@@ -69,6 +69,8 @@ DECLARE_Int64(tablet_cache_shards);
 DECLARE_mInt32(tablet_sync_interval_s);
 // parallelism for scanner init where may issue RPCs to sync rowset meta from MS
 DECLARE_mInt32(init_scanner_sync_rowsets_parallelism);
+// Maximum concurrent bthreads per internal rowid fetch request. Values <= 1 read serially.
+DECLARE_mInt32(rowid_fetch_parallel_max_concurrency);
 DECLARE_mInt32(sync_rowsets_slow_threshold_ms);
 
 // Cloud compaction config
