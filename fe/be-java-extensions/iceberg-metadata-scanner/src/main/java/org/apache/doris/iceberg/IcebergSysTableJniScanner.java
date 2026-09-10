@@ -137,8 +137,9 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 StructLike row = reader.next();
                 for (int i = 0; i < requiredFieldCount; i++) {
                     // Read positionally: FE (IcebergScanPlanProvider.doPlanSystemTableScan) projects the
-                    // metadata-table scan to exactly the BE-requested fields, in required_fields order, so the
-                    // i-th projected row field is the i-th required field. Do NOT index via scanTask.schema():
+                    // metadata-table scan with the BE-requested fields first, in required_fields order, so the
+                    // i-th projected row field is the i-th required field; any internal dependencies follow.
+                    // Do NOT index via scanTask.schema():
                     // for a metadata StaticDataTask, schema() returns the FULL table schema while rows() yields a
                     // narrowed StructProjection, so a full-schema ordinal overruns the projected row (upstream
                     // #65262 -- reverting this to a by-name/schema() lookup reintroduces ArrayIndexOutOfBounds).
