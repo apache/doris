@@ -541,7 +541,7 @@ void update_bytes(Sink& sink, StringRef bytes) {
 }
 
 template <typename Sink>
-ALWAYS_INLINE void hash_normalized_scalar(const NormalizedValue& normalized, Sink& sink) {
+ALWAYS_INLINE inline void hash_normalized_scalar(const NormalizedValue& normalized, Sink& sink) {
     switch (normalized.kind) {
     case CanonicalKind::NULL_VALUE:
         return;
