@@ -72,4 +72,16 @@ suite("test_generated_column_declared_type") {
         SELECT *, c + 0.25 AS expected_d, CAST(d AS INT) AS expected_e, e + 0.5 AS expected_f
         FROM test_generated_numeric_chain
     """
+    streamLoad {
+        table 'test_generated_numeric_chain'
+        set 'column_separator', ','
+        set 'columns', 'id, raw, x = raw / 3.0'
+        file 'gen_col_data.csv'
+        time 10000
+    }
+    sql "sync"
+    order_qt_numeric_stream_load """
+        SELECT *, c + 0.25 AS expected_d, CAST(d AS INT) AS expected_e, e + 0.5 AS expected_f
+        FROM test_generated_numeric_chain
+    """
 }
