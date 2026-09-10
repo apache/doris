@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageAccess;
+import org.apache.doris.connector.spi.ConnectorStorageAccessResolver;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -77,6 +78,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -824,7 +826,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         int formatVersion = schemaContext.getFormatVersion();
         tSink.setFormatVersion(formatVersion);
         List<TIcebergRewritableDeleteFileSet> sets =
-                buildRewritableDeleteFileSets(formatVersion, rewritableDeletes);
+                buildRewritableDeleteFileSets(formatVersion, rewritableDeletes, location);
         if (!sets.isEmpty()) {
             tSink.setRewritableDeleteFileSets(sets);
         }
@@ -894,7 +896,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setDeleteType(TFileContent.POSITION_DELETES);
         tSink.setPartitionSpecIdForDelete(partitionSpec.specId());
         List<TIcebergRewritableDeleteFileSet> sets =
-                buildRewritableDeleteFileSets(formatVersion, rewritableDeletes);
+                buildRewritableDeleteFileSets(formatVersion, rewritableDeletes, location);
         if (!sets.isEmpty()) {
             tSink.setRewritableDeleteFileSets(sets);
         }
@@ -910,12 +912,18 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      * {@code IcebergRewritableDeletePlanner} (which keys on the same raw {@code originalPath}).
      */
     private static List<TIcebergRewritableDeleteFileSet> buildRewritableDeleteFileSets(
-            int formatVersion, Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes) {
+            int formatVersion, Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes,
+            LocationFields location) {
         if (formatVersion < 3 || rewritableDeletes == null || rewritableDeletes.isEmpty()) {
             return Collections.emptyList();
         }
         List<TIcebergRewritableDeleteFileSet> sets = new ArrayList<>(rewritableDeletes.size());
         for (Map.Entry<String, List<TIcebergDeleteFileDesc>> entry : rewritableDeletes.entrySet()) {
+            // BE reopens old delete files with this sink's write credentials, not the scan's credentials.
+            // The map key is only a raw data-file association and must not be normalized or scope-checked.
+            for (TIcebergDeleteFileDesc deleteFile : entry.getValue()) {
+                location.validateOpenedLocation.accept(deleteFile.getPath());
+            }
             TIcebergRewritableDeleteFileSet set = new TIcebergRewritableDeleteFileSet();
             set.setReferencedDataFilePath(entry.getKey());
             set.setDeleteFiles(entry.getValue());
@@ -951,17 +959,26 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      * dialects consume this one result; they must not merge another catalog-wide credential map into it.
      */
     private LocationFields resolveLocationFields(Table table, String rawLocation) {
-        Map<String, String> vendedToken = IcebergScanPlanProvider.extractNativeVendedToken(
-                table, IcebergScanPlanProvider.restVendedCredentialsEnabled(properties));
+        IcebergScanPlanProvider.NativeStorageCredentials credentials =
+                IcebergScanPlanProvider.extractNativeStorageCredentials(
+                        table, IcebergScanPlanProvider.restVendedCredentialsEnabled(properties));
         ConnectorStorageContext storageContext = context == null ? ConnectorStorageContext.NOOP : storage();
-        ConnectorStorageAccess access = storageContext.newStorageAccessResolver(vendedToken).apply(rawLocation);
+        ConnectorStorageAccessResolver resolver = storageContext.newStorageAccessResolver(credentials.properties());
+        ConnectorStorageAccess access = resolver.apply(rawLocation);
+        // A new output directory can belong to another store while old delete files remain in Azure.
+        Consumer<String> validateOpenedLocation = rawUri -> credentials.validateAzureLocation(resolver, rawUri);
+        if ("azure".equalsIgnoreCase(access.getProviderName())) {
+            validateOpenedLocation = rawUri -> credentials.validateLocation(resolver, rawUri);
+            // BE creates children of this directory, not an object whose key is the directory itself.
+            validateOpenedLocation.accept(rawLocation.endsWith("/") ? rawLocation : rawLocation + "/");
+        }
         TFileType fileType = TFileType.valueOf(access.getBackendFileType());
         // A broker sink must carry the catalog's live broker addresses. Native/HDFS/local writes never
         // consult that registry; contexts without storage resolution fail at the SPI boundary above.
         List<TNetworkAddress> brokerAddresses = fileType == TFileType.FILE_BROKER
                 ? resolveBrokerAddresses() : Collections.emptyList();
         return new LocationFields(rawLocation, access.getNormalizedUri(), fileType,
-                access.getBackendProperties(), brokerAddresses);
+                access.getBackendProperties(), brokerAddresses, validateOpenedLocation);
     }
 
     /**
@@ -991,14 +1008,17 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         private final TFileType fileType;
         private final Map<String, String> backendProperties;
         private final List<TNetworkAddress> brokerAddresses;
+        private final Consumer<String> validateOpenedLocation;
 
         LocationFields(String rawLocation, String outputPath, TFileType fileType,
-                Map<String, String> backendProperties, List<TNetworkAddress> brokerAddresses) {
+                Map<String, String> backendProperties, List<TNetworkAddress> brokerAddresses,
+                Consumer<String> validateOpenedLocation) {
             this.rawLocation = rawLocation;
             this.outputPath = outputPath;
             this.fileType = fileType;
             this.backendProperties = backendProperties;
             this.brokerAddresses = brokerAddresses;
+            this.validateOpenedLocation = validateOpenedLocation;
         }
     }
 

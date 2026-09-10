@@ -112,6 +112,28 @@ class DefaultConnectorContextStorageAccessTest {
     }
 
     @Test
+    void prefixMatchingUsesTheCapturedProviderWithoutAccessingExpiredCredentials() {
+        AtomicInteger reads = new AtomicInteger();
+        Map<String, String> catalog = new HashMap<>(Map.of("azure.account_name", "account",
+                "azure.sas_token", "sig=expired", "azure.sas_expiry_ms", "1"));
+        DefaultConnectorContext context = new DefaultConnectorContext("c", 1L,
+                () -> new ExecutionAuthenticator() {}, Collections::emptyMap, () -> {
+                    reads.incrementAndGet();
+                    return catalog;
+                });
+        ConnectorStorageAccessResolver resolver = context.newStorageAccessResolver(Collections.emptyMap());
+        catalog.put("azure.account_name", "changed");
+
+        Assertions.assertTrue(resolver.matchesLocationPrefix(PATH,
+                "https://account.blob.core.windows.net/container/table/"));
+        Assertions.assertFalse(resolver.matchesLocationPrefix(PATH,
+                "abfss://container@account.dfs.core.windows.net/other/"));
+        Assertions.assertEquals(1, reads.get(), "matching must not rebind a new catalog generation");
+        Assertions.assertThrows(StoragePropertiesException.class, () -> resolver.apply(PATH),
+                "only actual credential access checks the expired SAS");
+    }
+
+    @Test
     void vendedReplacementDoesNotBindMalformedStaticAuthenticationOrReadAnotherGeneration() {
         Map<String, String> catalog = Map.of("azure.account_name", "account",
                 "azure.auth_type", "OAuth2", "azure.oauth2_client_secret", "incomplete-old-identity");

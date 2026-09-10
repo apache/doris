@@ -52,6 +52,7 @@ org.apache.doris.connector.spi.ConnectorStorageAccessResolver#andThen(java.util.
 org.apache.doris.connector.spi.ConnectorStorageAccessResolver#apply(java.lang.String):org.apache.doris.connector.spi.ConnectorStorageAccess
 org.apache.doris.connector.spi.ConnectorStorageAccessResolver#compose(java.util.function.Function):java.util.function.Function
 org.apache.doris.connector.spi.ConnectorStorageAccessResolver#hasProvider(java.lang.String):boolean
+org.apache.doris.connector.spi.ConnectorStorageAccessResolver#matchesLocationPrefix(java.lang.String,java.lang.String):boolean
 org.apache.doris.connector.spi.ConnectorStorageContext#cleanupEmptyManagedLocation(java.lang.String,java.util.List):void
 org.apache.doris.connector.spi.ConnectorStorageContext#getBackendFileType(java.lang.String,java.util.Map):java.lang.String
 org.apache.doris.connector.spi.ConnectorStorageContext#getBackendStorageProperties():java.util.Map
@@ -159,6 +160,7 @@ org.apache.doris.filesystem.properties.FileSystemProperties#isSyntheticDefault()
 org.apache.doris.filesystem.properties.FileSystemProperties#kind():org.apache.doris.filesystem.properties.StorageKind
 org.apache.doris.filesystem.properties.FileSystemProperties#legacyCacheSchemes():java.util.Set
 org.apache.doris.filesystem.properties.FileSystemProperties#matchedProperties():java.util.Map
+org.apache.doris.filesystem.properties.FileSystemProperties#matchesLocationPrefix(java.lang.String,java.lang.String):boolean
 org.apache.doris.filesystem.properties.FileSystemProperties#providerName():java.lang.String
 org.apache.doris.filesystem.properties.FileSystemProperties#rawProperties():java.util.Map
 org.apache.doris.filesystem.properties.FileSystemProperties#resolveBackendProperties(java.lang.String):java.util.Optional
@@ -176,6 +178,7 @@ org.apache.doris.filesystem.properties.FileSystemProperties#validateForAccess():
 org.apache.doris.filesystem.properties.StorageProperties#isSyntheticDefault():boolean
 org.apache.doris.filesystem.properties.StorageProperties#kind():org.apache.doris.filesystem.properties.StorageKind
 org.apache.doris.filesystem.properties.StorageProperties#matchedProperties():java.util.Map
+org.apache.doris.filesystem.properties.StorageProperties#matchesLocationPrefix(java.lang.String,java.lang.String):boolean
 org.apache.doris.filesystem.properties.StorageProperties#providerName():java.lang.String
 org.apache.doris.filesystem.properties.StorageProperties#rawProperties():java.util.Map
 org.apache.doris.filesystem.properties.StorageProperties#toBackendProperties():java.util.Optional

@@ -24,6 +24,7 @@ import org.apache.doris.connector.iceberg.IcebergScanPlanProvider;
 import org.apache.doris.connector.iceberg.IcebergTableHandle;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
@@ -68,11 +69,14 @@ import org.mockito.AdditionalAnswers;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /** Real scan planning and engine/provider binding; only the remote catalog response is substituted. */
 class IcebergNativeStorageAccessIntegrationTest {
@@ -129,6 +133,139 @@ class IcebergNativeStorageAccessIntegrationTest {
         Assertions.assertEquals(Optional.of("FILE_S3"), range.getBackendFileType());
         Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, populate(range).getFormatType());
         Assertions.assertTrue(range.getProperties().isEmpty(), "credentials belong to the shared scan binding");
+    }
+
+    @Test
+    void scanRejectsDataOutsideItsSingleAzureCredentialPrefix() {
+        IcebergScanPlanProvider provider = provider(tableWithData(2), CATALOG_PROPERTIES, VENDED,
+                List.of(StorageCredential.create(TABLE_ROOT + "/other/", VENDED)));
+
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(session, ConnectorScanRequest.builder(HANDLE, COLUMNS).build()));
+
+        Assertions.assertTrue(error.getMessage().contains("outside the Azure storage credential prefix"));
+        Assertions.assertFalse(error.getMessage().contains(TOKEN));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            TABLE_ROOT + "/data/",
+            "wasbs://container@account.blob.core.windows.net/table/data/",
+            "https://account.blob.core.windows.net/container/table/data/"
+    })
+    void dataPrefixDoesNotNeedToCoverTheMetadataRoot(String prefix) {
+        IcebergScanPlanProvider provider = provider(tableWithData(2), CATALOG_PROPERTIES, VENDED,
+                List.of(StorageCredential.create(prefix, VENDED)));
+
+        Map<String, String> before = backendProperties(provider.getScanNodeProperties(
+                session, HANDLE, COLUMNS, Optional.empty()));
+        List<ConnectorScanRange> ranges = provider.planScan(session,
+                ConnectorScanRequest.builder(HANDLE, COLUMNS).build());
+
+        assertFreshNativeAzure(before);
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(Optional.of(DATA_PATH), ranges.get(0).getPath());
+        Assertions.assertEquals(Optional.of("FILE_S3"), ranges.get(0).getBackendFileType());
+        Assertions.assertEquals(before, backendProperties(provider.getScanNodeProperties(
+                session, HANDLE, COLUMNS, Optional.empty())),
+                "revalidating the cached binding must not treat the metadata root as an opened object");
+    }
+
+    @Test
+    void changingTheFutureWriteLocationDoesNotBypassOldAzureFileScopes() {
+        Table table = tableWithData(2);
+        table.updateProperties().set(TableProperties.WRITE_DATA_LOCATION, "s3://bucket/new-data").commit();
+        IcebergScanPlanProvider provider = provider(table, mixedCatalogProperties(), VENDED,
+                List.of(StorageCredential.create(TABLE_ROOT + "/other/", VENDED)));
+
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(session, ConnectorScanRequest.builder(HANDLE, COLUMNS).build()));
+
+        Assertions.assertTrue(error.getMessage().contains("outside the Azure storage credential prefix"));
+    }
+
+    @Test
+    void scopedHistoricalAzureFilesKeepLegacyPlanningAfterTheWriteLocationChanges() throws IOException {
+        Table table = tableWithData(2);
+        table.updateProperties().set(TableProperties.WRITE_DATA_LOCATION, "s3://bucket/new-data").commit();
+
+        assertMatchesUnscopedPlanning(table, VENDED, TABLE_ROOT + "/data/", DATA_PATH);
+    }
+
+    @Test
+    void actualS3FilesIgnoreTheAzureCredentialPrefixAndKeepLegacyPlanning() throws IOException {
+        String dataPath = "s3://bucket/new-data/file.parquet";
+        Table table = tableWithData(2, dataPath);
+        table.updateProperties().set(TableProperties.WRITE_DATA_LOCATION, "s3://bucket/new-data").commit();
+        Map<String, String> fileIoProperties = new LinkedHashMap<>(VENDED);
+        // The legacy normalizer consumes FileIO's vended map, not unrelated static bindings.
+        // Keep both providers present without changing that existing planner contract.
+        fileIoProperties.putAll(Map.of("s3.endpoint", "https://s3.us-west-2.amazonaws.com",
+                "s3.region", "us-west-2", "s3.access-key-id", "s3-test-access",
+                "s3.secret-access-key", "s3-test-secret"));
+
+        assertMatchesUnscopedPlanning(table, fileIoProperties, TABLE_ROOT + "/other/", dataPath);
+    }
+
+    @Test
+    void eachStatementKeepsThePrefixFromItsOwnCredentialGeneration() {
+        List<StorageCredential> credentials = new ArrayList<>(List.of(
+                StorageCredential.create(TABLE_ROOT + "/data/", VENDED)));
+        IcebergScanPlanProvider provider = provider(tableWithData(2), CATALOG_PROPERTIES, VENDED, credentials);
+        assertFreshNativeAzure(backendProperties(provider.getScanNodeProperties(
+                session, HANDLE, COLUMNS, Optional.empty())));
+        credentials.set(0, StorageCredential.create(TABLE_ROOT + "/other/", VENDED));
+        ConnectorScanRequest request = ConnectorScanRequest.builder(HANDLE, COLUMNS).build();
+
+        Assertions.assertEquals(1, provider.planScan(session, request).size());
+        ConnectorStatementScopeImpl nextScope = new ConnectorStatementScopeImpl();
+        try {
+            ConnectorSession nextSession = new TestSession(nextScope);
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> provider.planScan(nextSession, request));
+            Assertions.assertTrue(error.getMessage().contains("outside the Azure storage credential prefix"));
+            Assertions.assertEquals(1, provider.planScan(session, request).size(),
+                    "a new request must not replace a previously captured prefix");
+        } finally {
+            nextScope.closeAll();
+        }
+    }
+
+    @Test
+    void mixedStorageScansKeepCredentialsAndPrefixInTheSameStatementGeneration() {
+        Table table = tableWithData(2);
+        table.updateProperties().set(TableProperties.WRITE_DATA_LOCATION, "s3://bucket/new-data").commit();
+        Map<String, String> fileIoProperties = new LinkedHashMap<>(VENDED);
+        fileIoProperties.putAll(Map.of("s3.endpoint", "https://s3.us-west-2.amazonaws.com",
+                "s3.region", "us-west-2", "s3.access_key", "s3-test-access", "s3.secret_key", "s3-test-secret"));
+        List<StorageCredential> credentials = new ArrayList<>(List.of(
+                StorageCredential.create(TABLE_ROOT + "/data/", VENDED)));
+        IcebergScanPlanProvider provider = provider(table, mixedCatalogProperties(), fileIoProperties, credentials);
+        Map<String, String> originalBackend = backendProperties(provider.getScanNodeProperties(
+                session, HANDLE, COLUMNS, Optional.empty()));
+        Assertions.assertEquals(TOKEN, originalBackend.get("AZURE_SAS_TOKEN"));
+        String nextToken = "sig=next-scope-signature&se=2100-01-01T00:00:00Z";
+        Map<String, String> nextCredentials = new LinkedHashMap<>(VENDED);
+        nextCredentials.put("adls.sas-token.account.dfs.core.windows.net", nextToken);
+        credentials.set(0, StorageCredential.create(TABLE_ROOT + "/other/", nextCredentials));
+
+        Assertions.assertEquals(originalBackend, backendProperties(provider.getScanNodeProperties(
+                session, HANDLE, COLUMNS, Optional.empty())), "the old prefix must not be paired with a new token");
+        ConnectorScanRequest request = ConnectorScanRequest.builder(HANDLE, COLUMNS).build();
+        Assertions.assertEquals(1, provider.planScan(session, request).size());
+        ConnectorStatementScopeImpl nextScope = new ConnectorStatementScopeImpl();
+        try {
+            ConnectorSession nextSession = new TestSession(nextScope);
+            Assertions.assertEquals(nextToken, backendProperties(provider.getScanNodeProperties(
+                    nextSession, HANDLE, COLUMNS, Optional.empty())).get("AZURE_SAS_TOKEN"));
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> provider.planScan(nextSession, request));
+            Assertions.assertTrue(error.getMessage().contains("outside the Azure storage credential prefix"));
+            Assertions.assertEquals(originalBackend, backendProperties(provider.getScanNodeProperties(
+                    session, HANDLE, COLUMNS, Optional.empty())));
+        } finally {
+            nextScope.closeAll();
+        }
     }
 
     @ParameterizedTest
@@ -302,6 +439,33 @@ class IcebergNativeStorageAccessIntegrationTest {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource({"PARQUET,2,false", "PARQUET,2,true", "PUFFIN,3,false", "PUFFIN,3,true"})
+    void dataAndPositionDeleteScansRejectDeleteFilesOutsideTheCredentialPrefix(
+            FileFormat format, int version, boolean positionDeletes) {
+        Table table = tableWithData(version);
+        FileMetadata.Builder delete = FileMetadata.deleteFileBuilder(table.spec())
+                .ofPositionDeletes().withPath(TABLE_ROOT + "/delete/outside." + format.name().toLowerCase(Locale.ROOT))
+                .withFormat(format).withFileSizeInBytes(256L).withRecordCount(4L);
+        if (format == FileFormat.PUFFIN) {
+            delete.withReferencedDataFile(DATA_PATH).withContentOffset(16L).withContentSizeInBytes(64L);
+        }
+        table.newRowDelta().addDeletes(delete.build()).commit();
+        IcebergScanPlanProvider provider = provider(table, CATALOG_PROPERTIES, VENDED,
+                List.of(StorageCredential.create(TABLE_ROOT + "/data/", VENDED)));
+        IcebergTableHandle handle = positionDeletes
+                ? IcebergTableHandle.forSystemTable("db", "t", "position_deletes", -1L, null, -1L) : HANDLE;
+        List<ConnectorColumnHandle> columns = positionDeletes ? Collections.emptyList() : COLUMNS;
+
+        assertFreshNativeAzure(backendProperties(provider.getScanNodeProperties(
+                session, handle, columns, Optional.empty())));
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(session, ConnectorScanRequest.builder(handle, columns).build()));
+
+        Assertions.assertTrue(error.getMessage().contains("outside the Azure storage credential prefix"));
+        Assertions.assertFalse(error.getMessage().contains(TOKEN));
+    }
+
     @Test
     void hdfsDataCanBePlannedWhenOnlyIcebergFileIoCanAccessTheMetadataRoot() {
         String dataPath = "hdfs://namenode:8020/table/data.parquet";
@@ -336,16 +500,71 @@ class IcebergNativeStorageAccessIntegrationTest {
     }
 
     private Table tableWithData(int formatVersion) {
+        return tableWithData(formatVersion, DATA_PATH);
+    }
+
+    private Table tableWithData(int formatVersion, String dataPath) {
         Table table = catalog.createTable(TABLE_ID, SCHEMA, PartitionSpec.unpartitioned(), TABLE_ROOT,
                 Map.of(TableProperties.FORMAT_VERSION, Integer.toString(formatVersion),
                         TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
         table.newAppend().appendFile(DataFiles.builder(table.spec())
-                .withPath(DATA_PATH)
+                .withPath(dataPath)
                 .withFormat(FileFormat.PARQUET)
                 .withFileSizeInBytes(512L)
                 .withRecordCount(10L)
                 .build()).commit();
         return table;
+    }
+
+    private static Map<String, String> mixedCatalogProperties() {
+        Map<String, String> properties = new LinkedHashMap<>(CATALOG_PROPERTIES);
+        properties.remove("azure.sas_token");
+        properties.remove("azure.sas_expiry_ms");
+        properties.put("azure.account_key", "azure-test-key");
+        properties.put("azure.endpoint", "https://account.blob.core.windows.net");
+        properties.putAll(Map.of("s3.endpoint", "https://s3.us-west-2.amazonaws.com",
+                "s3.region", "us-west-2", "s3.access_key", "s3-test-access", "s3.secret_key", "s3-test-secret"));
+        return properties;
+    }
+
+    private void assertMatchesUnscopedPlanning(Table table, Map<String, String> fileIoProperties,
+            String azurePrefix, String expectedPath) throws IOException {
+        Map<String, String> catalogProperties = mixedCatalogProperties();
+        IcebergScanPlanProvider baseline = provider(table, catalogProperties, fileIoProperties, Collections.emptyList());
+        IcebergScanPlanProvider scoped = provider(table, catalogProperties, fileIoProperties,
+                List.of(StorageCredential.create(azurePrefix, VENDED)));
+        ConnectorStatementScopeImpl baselineScope = new ConnectorStatementScopeImpl();
+        try {
+            ConnectorSession baselineSession = new TestSession(baselineScope);
+            Map<String, String> baselineBackend = backendProperties(baseline.getScanNodeProperties(
+                    baselineSession, HANDLE, COLUMNS, Optional.empty()));
+            Map<String, String> scopedBackend = backendProperties(scoped.getScanNodeProperties(
+                    session, HANDLE, COLUMNS, Optional.empty()));
+            ConnectorScanRequest request = ConnectorScanRequest.builder(HANDLE, COLUMNS).build();
+            List<ConnectorScanRange> baselineRanges = baseline.planScan(baselineSession, request);
+            List<ConnectorScanRange> scopedRanges = scoped.planScan(session, request);
+
+            Assertions.assertEquals("s3-test-access", baselineBackend.get("AWS_ACCESS_KEY"));
+            Assertions.assertEquals("https://account.blob.core.windows.net", baselineBackend.get("AZURE_ENDPOINT"));
+            Assertions.assertEquals(TOKEN, baselineBackend.get("AZURE_SAS_TOKEN"));
+            Assertions.assertEquals(baselineBackend, scopedBackend);
+            Assertions.assertEquals(1, baselineRanges.size());
+            Assertions.assertEquals(1, scopedRanges.size());
+            ConnectorScanRange baselineRange = baselineRanges.get(0);
+            ConnectorScanRange scopedRange = scopedRanges.get(0);
+            Assertions.assertEquals(Optional.of(expectedPath), baselineRange.getPath());
+            Assertions.assertEquals(baselineRange.getPath(), scopedRange.getPath());
+            Assertions.assertTrue(baselineRange.getBackendFileType().isEmpty(), "keep legacy per-file routing");
+            Assertions.assertEquals(baselineRange.getBackendFileType(), scopedRange.getBackendFileType());
+            Assertions.assertEquals(baselineRange.getStart(), scopedRange.getStart());
+            Assertions.assertEquals(baselineRange.getLength(), scopedRange.getLength());
+            Assertions.assertEquals(baselineRange.getFileSize(), scopedRange.getFileSize());
+            Assertions.assertEquals(baselineRange.getProperties(), scopedRange.getProperties());
+            Assertions.assertEquals(populate(baselineRange), populate(scopedRange),
+                    "scope protection must not change the legacy range payload; no cloud IO runs in this fixture");
+        } finally {
+            baselineScope.closeAll();
+        }
     }
 
     private IcebergScanPlanProvider provider(Table table) {
@@ -358,11 +577,13 @@ class IcebergNativeStorageAccessIntegrationTest {
 
     private IcebergScanPlanProvider provider(Table table, Map<String, String> catalogProperties,
             Map<String, String> fileIoProperties, List<StorageCredential> credentials) {
-        StorageAdapter expired = StorageAdapter.ofProvider("AZURE", catalogProperties);
-        Assertions.assertThrows(StoragePropertiesException.class, expired::getBackendConfigProperties,
-                "the static credential must actually be expired, not a prebuilt fake backend map");
+        StorageAdapter staticAzure = StorageAdapter.ofProvider("AZURE", catalogProperties);
+        if (catalogProperties.containsKey("azure.sas_expiry_ms")) {
+            Assertions.assertThrows(StoragePropertiesException.class, staticAzure::getBackendConfigProperties,
+                    "the static credential must actually be expired, not a prebuilt fake backend map");
+        }
         DefaultConnectorContext context = new DefaultConnectorContext("azure_test", 1L,
-                () -> new ExecutionAuthenticator() {}, () -> Map.of(StorageTypeId.AZURE, expired),
+                () -> new ExecutionAuthenticator() {}, () -> Map.of(StorageTypeId.AZURE, staticAzure),
                 () -> catalogProperties);
 
         // A real BaseTable is frozen through TableOperations by the statement scope. Supplying the
@@ -399,6 +620,9 @@ class IcebergNativeStorageAccessIntegrationTest {
         Assertions.assertEquals("https://account.blob.core.windows.net", backend.get("AZURE_ENDPOINT"));
         Assertions.assertEquals(TOKEN, backend.get("AZURE_SAS_TOKEN"));
         Assertions.assertEquals("4102444800000", backend.get("AZURE_SAS_EXPIRY_MS"));
+        Assertions.assertEquals(Set.of("provider", "AZURE_AUTH_TYPE", "AZURE_ACCOUNT_NAME", "AZURE_ENDPOINT",
+                "AZURE_SAS_TOKEN", "AZURE_SAS_EXPIRY_MS"), backend.keySet(),
+                "credential scope stays in the FE request, outside the native backend dialect");
         Assertions.assertTrue(backend.keySet().stream()
                 .allMatch(key -> key.equals("provider") || key.startsWith("AZURE_")));
         Assertions.assertFalse(backend.containsKey("AZURE_CONTAINER"));

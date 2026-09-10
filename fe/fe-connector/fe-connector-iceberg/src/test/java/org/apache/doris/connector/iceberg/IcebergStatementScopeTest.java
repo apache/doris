@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageAccess;
+import org.apache.doris.connector.spi.ConnectorStorageAccessResolver;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 
@@ -74,7 +75,8 @@ public class IcebergStatementScopeTest {
         ConnectorStorageAccess access = new ConnectorStorageAccess("AZURE", location,
                 BackendStorageKind.NATIVE, "FILE_S3", Collections.singletonMap("provider", "azure"));
         return new IcebergScanPlanProvider.ReadStorageAccess(
-                access, location, ignored -> access, Collections.emptyMap());
+                access, location, new ConnectorStorageAccessResolver(Collections.singleton("AZURE"), ignored -> access),
+                new IcebergScanPlanProvider.NativeStorageCredentials(Collections.emptyMap(), null));
     }
 
     @Test

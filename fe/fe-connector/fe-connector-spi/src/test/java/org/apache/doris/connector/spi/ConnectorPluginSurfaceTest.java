@@ -77,7 +77,7 @@ public class ConnectorPluginSurfaceTest {
             version.load(in);
         }
         // Request-local typed binding and the Iceberg metadata Hadoop view extend the storage contract.
-        Assertions.assertEquals("10.0", version.getProperty("api.version"));
+        Assertions.assertEquals("11.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

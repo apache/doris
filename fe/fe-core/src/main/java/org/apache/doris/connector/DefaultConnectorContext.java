@@ -537,6 +537,12 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
             return new ConnectorStorageAccess(adapter.getSpiProperties().providerName(), normalized,
                     view.backendKind(), adapter.getBackendFileType(view.backendKind()).name(),
                     adapter.getBackendConfigProperties(view));
+        }, (rawLocation, rawPrefix) -> {
+            StorageAdapter adapter = LocationPath.ofAdapters(rawLocation, snapshot).getStorageAdapter();
+            if (adapter == null) {
+                throw new IllegalStateException("Storage prefix matching requires a provider binding");
+            }
+            return adapter.getSpiProperties().matchesLocationPrefix(rawLocation, rawPrefix);
         });
     }
 

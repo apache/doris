@@ -3652,10 +3652,11 @@ public class IcebergScanPlanProviderTest {
         StorageCredential second = StorageCredential.create(AZURE_DATA_LOCATION + "/b", azureRawCredentials());
         table.setIo(new VendedFileIO(Collections.emptyMap(), Arrays.asList(first, second)));
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
-                () -> IcebergScanPlanProvider.extractNativeVendedToken(table, true));
+                () -> IcebergScanPlanProvider.extractNativeStorageCredentials(table, true));
         Assertions.assertEquals("Multiple scoped Azure storage credentials are not supported", failure.getMessage());
         table.setIo(new VendedFileIO(Collections.emptyMap(), Arrays.asList(first, first)));
-        Assertions.assertEquals(azureRawCredentials(), IcebergScanPlanProvider.extractNativeVendedToken(table, true));
+        Assertions.assertEquals(azureRawCredentials(),
+                IcebergScanPlanProvider.extractNativeStorageCredentials(table, true).properties());
     }
 
     @Test
@@ -3671,7 +3672,7 @@ public class IcebergScanPlanProviderTest {
         table.setIo(new VendedFileIO(fileIoProperties,
                 List.of(StorageCredential.create(AZURE_DATA_LOCATION, rawScoped))));
 
-        Map<String, String> extracted = IcebergScanPlanProvider.extractNativeVendedToken(table, true);
+        Map<String, String> extracted = IcebergScanPlanProvider.extractNativeStorageCredentials(table, true).properties();
 
         Map<String, String> expected = new HashMap<>(azureFileIoConnections());
         expected.putAll(rawScoped);
@@ -3692,7 +3693,7 @@ public class IcebergScanPlanProviderTest {
         table.setIo(new VendedFileIO(fileIoProperties,
                 List.of(StorageCredential.create(AZURE_DATA_LOCATION, rawScoped))));
 
-        Map<String, String> extracted = IcebergScanPlanProvider.extractNativeVendedToken(table, true);
+        Map<String, String> extracted = IcebergScanPlanProvider.extractNativeStorageCredentials(table, true).properties();
 
         Map<String, String> expected = new HashMap<>(azureFileIoConnections());
         expected.putAll(rawScoped);
@@ -3712,7 +3713,7 @@ public class IcebergScanPlanProviderTest {
 
         Map<String, String> expected = new HashMap<>(fileIoProperties);
         expected.putAll(connectionOnly);
-        Assertions.assertEquals(expected, IcebergScanPlanProvider.extractNativeVendedToken(table, true),
+        Assertions.assertEquals(expected, IcebergScanPlanProvider.extractNativeStorageCredentials(table, true).properties(),
                 "an adls connection property is not a replacement authentication group");
     }
 
@@ -3728,12 +3729,12 @@ public class IcebergScanPlanProviderTest {
 
         Map<String, String> expected = new HashMap<>(azureFileIoConnections());
         expected.putAll(rawScoped);
-        Assertions.assertEquals(expected, IcebergScanPlanProvider.extractNativeVendedToken(table, true));
+        Assertions.assertEquals(expected, IcebergScanPlanProvider.extractNativeStorageCredentials(table, true).properties());
 
         StorageCredential second = StorageCredential.create(AZURE_DATA_LOCATION + "/other", rawScoped);
         table.setIo(new VendedFileIO(fileIoProperties, List.of(first, second)));
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
-                () -> IcebergScanPlanProvider.extractNativeVendedToken(table, true));
+                () -> IcebergScanPlanProvider.extractNativeStorageCredentials(table, true));
         Assertions.assertEquals("Multiple scoped Azure storage credentials are not supported", failure.getMessage());
     }
 
@@ -3771,7 +3772,7 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals("ep", token.get("s3.endpoint"));
         Assertions.assertEquals("ak", token.get("s3.access-key-id"));
         Assertions.assertEquals("retained-test-secret", token.get("s3.secret-access-key"));
-        Assertions.assertEquals(token, IcebergScanPlanProvider.extractNativeVendedToken(table, true),
+        Assertions.assertEquals(token, IcebergScanPlanProvider.extractNativeStorageCredentials(table, true).properties(),
                 "Azure authentication-group replacement must not change the non-Azure per-key merge");
     }
 

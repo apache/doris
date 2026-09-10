@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.azure;
 
 import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
@@ -631,6 +632,26 @@ public final class AzureFileSystemProperties
                 ? path : parsed.scheme() + path.substring(delimiter);
     }
 
+    @Override
+    public boolean matchesLocationPrefix(String rawLocation, String rawPrefix) {
+        AzureUri location = parseAndValidateUri(rawLocation);
+        AzureUri prefix = parseAndValidateUri(rawPrefix);
+        // Legacy SharedKey s3:// locations take their account from this binding. Native Azure
+        // authorities compare by Blob host so DFS/Blob spelling does not change storage identity.
+        AzureAccountHost locationHost = scopeAccountHost(location);
+        AzureAccountHost prefixHost = scopeAccountHost(prefix);
+        return locationHost.blobHost().equalsIgnoreCase(prefixHost.blobHost())
+                && location.container().equals(prefix.container())
+                && (prefix.key().isEmpty()
+                        || Location.of(location.key()).startsWith(Location.of(prefix.key())));
+    }
+
+    private AzureAccountHost scopeAccountHost(AzureUri uri) {
+        // parseAndValidateUri has already checked the exact HTTP origin. A custom endpoint's
+        // hostname is a transport address, not an account; its identity belongs to this binding.
+        return accountInAuthority(uri) ? uri.accountHost().orElse(accountHost) : accountHost;
+    }
+
     private AzureUri parseAndValidateUri(String path) {
         if (StringUtils.isBlank(path)) {
             throw new StoragePropertiesException("Path cannot be null or empty");
@@ -671,9 +692,7 @@ public final class AzureFileSystemProperties
     private void validateLocationBinding(AzureUri uri) {
         // Custom HTTP endpoint hosts do not encode a storage account name. Their exact origin
         // is checked separately; treating the first DNS label as an account rejects valid proxies.
-        boolean accountInAuthority = !(uri.scheme().equals("http") || uri.scheme().equals("https"))
-                || AzureBlobEndpointSignals.isAzureBlobEndpoint(
-                        uri.accountHost().orElseThrow().blobEndpoint(), rawProperties);
+        boolean accountInAuthority = accountInAuthority(uri);
         if (accountInAuthority && StringUtils.isNotBlank(accountName) && StringUtils.isNotBlank(uri.accountName())
                 && !StringUtils.equalsIgnoreCase(accountName, uri.accountName())) {
             throw new StoragePropertiesException(
@@ -690,6 +709,12 @@ public final class AzureFileSystemProperties
             throw new StoragePropertiesException(
                     "Azure URI container does not match configured container");
         }
+    }
+
+    private boolean accountInAuthority(AzureUri uri) {
+        return !(uri.scheme().equals("http") || uri.scheme().equals("https"))
+                || AzureBlobEndpointSignals.isAzureBlobEndpoint(
+                        uri.accountHost().orElseThrow().blobEndpoint(), rawProperties);
     }
 
     @Override

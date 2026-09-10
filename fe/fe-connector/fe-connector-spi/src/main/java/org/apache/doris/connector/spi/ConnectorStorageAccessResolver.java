@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
 
 /**
@@ -33,13 +34,24 @@ import java.util.function.Function;
 public final class ConnectorStorageAccessResolver implements Function<String, ConnectorStorageAccess> {
     private final Set<String> providerNames;
     private final Function<String, ConnectorStorageAccess> resolver;
+    private final BiPredicate<String, String> locationPrefixMatcher;
 
     public ConnectorStorageAccessResolver(Set<String> providerNames,
             Function<String, ConnectorStorageAccess> resolver) {
+        this(providerNames, resolver, (rawLocation, rawPrefix) -> {
+            throw new UnsupportedOperationException("Storage prefix matching is not supported by this resolver");
+        });
+    }
+
+    public ConnectorStorageAccessResolver(Set<String> providerNames,
+            Function<String, ConnectorStorageAccess> resolver,
+            BiPredicate<String, String> locationPrefixMatcher) {
         Set<String> snapshot = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         snapshot.addAll(Objects.requireNonNull(providerNames, "providerNames is required"));
         this.providerNames = Collections.unmodifiableSet(snapshot);
         this.resolver = Objects.requireNonNull(resolver, "resolver is required");
+        this.locationPrefixMatcher = Objects.requireNonNull(locationPrefixMatcher,
+                "locationPrefixMatcher is required");
     }
 
     /** Returns whether this request has the named provider, without resolving any location. */
@@ -51,5 +63,10 @@ public final class ConnectorStorageAccessResolver implements Function<String, Co
     @Override
     public ConnectorStorageAccess apply(String rawUri) {
         return resolver.apply(rawUri);
+    }
+
+    /** Matches a location prefix through the same provider snapshot, without accessing credentials. */
+    public boolean matchesLocationPrefix(String rawLocation, String rawPrefix) {
+        return locationPrefixMatcher.test(rawLocation, rawPrefix);
     }
 }

@@ -100,15 +100,15 @@ public class PluginApiVersionWiringTest {
     }
 
     @Test
-    public void connectorPluginWithoutResolvedStoragePropertiesIsRefused() throws IOException {
+    public void connectorPluginWithoutLocationPrefixMatchingIsRefused() throws IOException {
         ApiVersionGate gate = ApiVersionGate.forFamily("connector", ConnectorProvider.class);
-        Assertions.assertEquals("10.0", gate.getExpectedVersion());
+        Assertions.assertEquals("11.0", gate.getExpectedVersion());
         ConnectorPluginManager manager = new ConnectorPluginManager();
 
-        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("9.0")));
+        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("10.0")));
 
         Assertions.assertFalse(manager.getRegisteredTypes().contains("version_probe"),
-                "a plugin from before request-local typed storage binding must not be admitted");
+                "a plugin from before provider-owned location prefix matching must not be admitted");
     }
 
     @Test
@@ -147,15 +147,15 @@ public class PluginApiVersionWiringTest {
     }
 
     @Test
-    public void filesystemPluginWithoutTheIcebergMetadataHadoopViewIsRefused() throws IOException {
+    public void filesystemPluginWithoutLocationPrefixMatchingIsRefused() throws IOException {
         ApiVersionGate gate = ApiVersionGate.forFamily("filesystem", FileSystemProvider.class);
-        Assertions.assertEquals("6.0", gate.getExpectedVersion());
+        Assertions.assertEquals("7.0", gate.getExpectedVersion());
         FileSystemPluginManager manager = new FileSystemPluginManager();
 
-        manager.loadPlugins(Collections.singletonList(filesystemPluginRoot("5.0")));
+        manager.loadPlugins(Collections.singletonList(filesystemPluginRoot("6.0")));
 
         Assertions.assertFalse(providerNames(manager).contains("version_probe_fs"),
-                "a plugin from before the Iceberg metadata Hadoop view must not join storage routing");
+                "a plugin from before provider-owned location prefix matching must not join storage routing");
     }
 
     @Test

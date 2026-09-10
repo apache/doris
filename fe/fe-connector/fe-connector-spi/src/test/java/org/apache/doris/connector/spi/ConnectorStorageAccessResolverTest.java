@@ -17,10 +17,15 @@
 
 package org.apache.doris.connector.spi;
 
+import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
+import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -100,5 +105,105 @@ public class ConnectorStorageAccessResolverTest {
 
         Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class,
                 () -> resolver.apply("s3://metadata-only-bucket/table")));
+    }
+
+    @Test
+    public void oldConstructorRejectsPrefixMatchingWithoutResolvingCredentials() {
+        ConnectorStorageAccessResolver resolver = new ConnectorStorageAccessResolver(Set.of("azure"), rawUri -> {
+            throw new AssertionError("Prefix matching must not resolve credentials");
+        });
+
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> resolver.matchesLocationPrefix("abfss://container@account.dfs.core.windows.net/data/file",
+                        "abfss://container@account.dfs.core.windows.net/data/"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void prefixMatchingPreservesRawArgumentsAndDoesNotResolveCredentials(boolean matches) {
+        String location = "ABFSS://container@account.dfs.core.windows.net/data/a%2Fb//./../http://example+file";
+        String prefix = "abfss://container@account.dfs.core.windows.net/data/a%2Fb/";
+        AtomicReference<List<String>> arguments = new AtomicReference<>();
+        ConnectorStorageAccessResolver resolver = new ConnectorStorageAccessResolver(Set.of("azure"), rawUri -> {
+            throw new AssertionError("Prefix matching must not resolve credentials");
+        }, (rawLocation, rawPrefix) -> {
+            arguments.set(List.of(rawLocation, rawPrefix));
+            return matches;
+        });
+
+        Assertions.assertEquals(matches, resolver.matchesLocationPrefix(location, prefix));
+        Assertions.assertEquals(List.of(location, prefix), arguments.get());
+    }
+
+    @Test
+    public void prefixMatchingPropagatesTheProviderFailure() {
+        IllegalArgumentException failure = new IllegalArgumentException("Invalid location prefix");
+        ConnectorStorageAccessResolver resolver = new ConnectorStorageAccessResolver(Set.of("azure"), rawUri -> {
+            throw new AssertionError("Prefix matching must not resolve credentials");
+        }, (rawLocation, rawPrefix) -> {
+            throw failure;
+        });
+
+        Assertions.assertSame(failure, Assertions.assertThrows(IllegalArgumentException.class,
+                () -> resolver.matchesLocationPrefix("abfss://container@account.dfs.core.windows.net/data/file",
+                        "invalid-prefix")));
+    }
+
+    @Test
+    public void providerLookupAndResolutionDoNotInvokeThePrefixMatcher() {
+        String uri = "s3://bucket/data/file";
+        ConnectorStorageAccess access = new ConnectorStorageAccess("s3", uri,
+                BackendStorageKind.NATIVE, "FILE_S3", Map.of("provider", "s3"));
+        ConnectorStorageAccessResolver resolver = new ConnectorStorageAccessResolver(Set.of("s3"), rawUri -> access,
+                (rawLocation, rawPrefix) -> {
+                    throw new AssertionError("Only explicit prefix checks may invoke the matcher");
+                });
+
+        Assertions.assertTrue(resolver.hasProvider("S3"));
+        Assertions.assertSame(access, resolver.apply(uri));
+    }
+
+    @Test
+    public void defaultStoragePrefixMatchingKeepsRawPathBoundaries() {
+        StorageProperties properties = new DefaultStorageProperties();
+
+        Assertions.assertTrue(properties.matchesLocationPrefix("s3://bucket/data/file", "s3://bucket/data/file"));
+        Assertions.assertTrue(properties.matchesLocationPrefix("s3://bucket/data/file", "s3://bucket/data"));
+        Assertions.assertFalse(properties.matchesLocationPrefix("s3://bucket/database/file", "s3://bucket/data"));
+        Assertions.assertFalse(properties.matchesLocationPrefix("s3://other/data/file", "s3://bucket/data"));
+        Assertions.assertFalse(properties.matchesLocationPrefix("s3://bucket/data", "s3://bucket/data/"));
+        Assertions.assertTrue(properties.matchesLocationPrefix("s3://bucket/data/../file", "s3://bucket/data/"));
+    }
+
+    private static final class DefaultStorageProperties implements StorageProperties {
+        @Override
+        public String providerName() {
+            return "S3";
+        }
+
+        @Override
+        public StorageKind kind() {
+            return StorageKind.OBJECT_STORAGE;
+        }
+
+        @Override
+        public FileSystemType type() {
+            return FileSystemType.S3;
+        }
+
+        @Override
+        public Map<String, String> rawProperties() {
+            return Map.of();
+        }
+
+        @Override
+        public Map<String, String> matchedProperties() {
+            return Map.of();
+        }
+
+        @Override
+        public void validateForAccess() {
+            throw new AssertionError("Default prefix matching must not access credentials");
+        }
     }
 }

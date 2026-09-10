@@ -1792,15 +1792,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     static final class ReadStorageAccess implements UnaryOperator<String> {
         private final ConnectorStorageAccess nodeAccess;
         private final String nodeLocation;
-        private final Function<String, ConnectorStorageAccess> resolver;
-        private final Map<String, String> vendedToken;
+        private final ConnectorStorageAccessResolver resolver;
+        private final NativeStorageCredentials credentials;
 
         ReadStorageAccess(ConnectorStorageAccess nodeAccess, String nodeLocation,
-                Function<String, ConnectorStorageAccess> resolver, Map<String, String> vendedToken) {
+                ConnectorStorageAccessResolver resolver, NativeStorageCredentials credentials) {
             this.nodeAccess = nodeAccess;
             this.nodeLocation = nodeLocation;
             this.resolver = resolver;
-            this.vendedToken = Collections.unmodifiableMap(new HashMap<>(vendedToken));
+            this.credentials = credentials;
         }
 
         boolean isAzure() {
@@ -1809,7 +1809,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
         @Override
         public String apply(String rawUri) {
-            return resolveCompatible(rawUri).getNormalizedUri();
+            ConnectorStorageAccess access = resolveCompatible(rawUri);
+            credentials.validateLocation(resolver, rawUri);
+            return access.getNormalizedUri();
         }
 
         Map<String, String> backendProperties() {
@@ -1832,20 +1834,21 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     private ReadStorageAccess readStorageAccess(ConnectorSession session, IcebergTableHandle handle, Table table) {
         Supplier<ReadStorageAccess> loader = () -> {
-            Map<String, String> vendedToken = context == null ? Collections.emptyMap()
-                    : extractNativeVendedToken(table, restVendedCredentialsEnabled());
+            NativeStorageCredentials credentials = context == null
+                    ? new NativeStorageCredentials(Collections.emptyMap(), null)
+                    : extractNativeStorageCredentials(table, restVendedCredentialsEnabled());
             if (context == null) {
-                return new ReadStorageAccess(null, null, null, vendedToken);
+                return new ReadStorageAccess(null, null, null, credentials);
             }
-            ConnectorStorageAccessResolver resolver = storage().newStorageAccessResolver(vendedToken);
+            ConnectorStorageAccessResolver resolver = storage().newStorageAccessResolver(credentials.properties());
             if (!resolver.hasProvider("azure")) {
                 // The Iceberg FileIO may own metadata on a different store from the data files. Non-Azure
                 // scans retain their existing per-file routing without requiring a BE binding for that root.
-                return new ReadStorageAccess(null, null, resolver, vendedToken);
+                return new ReadStorageAccess(null, null, resolver, credentials);
             }
             String location = readStorageLocation(table);
             ConnectorStorageAccess access = resolver.apply(location);
-            return new ReadStorageAccess(access, location, resolver, vendedToken);
+            return new ReadStorageAccess(access, location, resolver, credentials);
         };
         return IcebergStatementScope.readStorageAccess(
                 session, handle.getDbName(), handle.getTableName(), table, loader);
@@ -1867,7 +1870,20 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     private UnaryOperator<String> scanUriNormalizer(ConnectorSession session, IcebergTableHandle handle, Table table) {
         ReadStorageAccess access = readStorageAccess(session, handle, table);
-        return access.isAzure() ? access : newUriNormalizer(access.vendedToken);
+        if (access.isAzure()) {
+            return access;
+        }
+        UnaryOperator<String> normalizer = newUriNormalizer(access.credentials.properties());
+        if (access.credentials.azurePrefix == null) {
+            return normalizer;
+        }
+        // Changing the declared write location does not relocate historical data or delete files.
+        // Keep legacy routing, but apply the Azure scope to each actual Azure file independently
+        // of the provider selected for the node's declared location.
+        return rawUri -> {
+            access.credentials.validateAzureLocation(access.resolver, rawUri);
+            return normalizer.apply(rawUri);
+        };
     }
 
     private static String resolvedBackendFileType(UnaryOperator<String> normalizer) {
@@ -1931,29 +1947,56 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * refresh — the credentials are fresh because the REST catalog reloads the table per query.
      */
     static Map<String, String> extractVendedToken(Table table, boolean vendedEnabled) {
-        return extractVendedToken(table, vendedEnabled, false);
+        return extractVendedToken(table, vendedEnabled, false).properties();
     }
 
-    /** Native data readers and writers cannot flatten different Azure authentication scopes safely. */
-    static Map<String, String> extractNativeVendedToken(Table table, boolean vendedEnabled) {
+    /** Native data readers and writers retain the selected Azure scope with its authentication group. */
+    static NativeStorageCredentials extractNativeStorageCredentials(Table table, boolean vendedEnabled) {
         return extractVendedToken(table, vendedEnabled, true);
     }
 
-    private static Map<String, String> extractVendedToken(Table table, boolean vendedEnabled,
+    /** Request-local SDK scope, separate from every provider's backend/Hadoop credential dialect. */
+    static final class NativeStorageCredentials {
+        private final Map<String, String> properties;
+        private final String azurePrefix;
+
+        NativeStorageCredentials(Map<String, String> properties, String azurePrefix) {
+            this.properties = Collections.unmodifiableMap(new HashMap<>(properties));
+            this.azurePrefix = azurePrefix;
+        }
+
+        Map<String, String> properties() {
+            return properties;
+        }
+
+        void validateAzureLocation(ConnectorStorageAccessResolver resolver, String rawUri) {
+            if (azurePrefix != null && "azure".equalsIgnoreCase(resolver.apply(rawUri).getProviderName())) {
+                validateLocation(resolver, rawUri);
+            }
+        }
+
+        void validateLocation(ConnectorStorageAccessResolver resolver, String rawUri) {
+            if (azurePrefix != null && !resolver.matchesLocationPrefix(rawUri, azurePrefix)) {
+                throw new DorisConnectorException("Location is outside the Azure storage credential prefix");
+            }
+        }
+    }
+
+    private static NativeStorageCredentials extractVendedToken(Table table, boolean vendedEnabled,
             boolean validateAzureScopes) {
         if (!vendedEnabled || table == null || table.io() == null) {
-            return Collections.emptyMap();
+            return new NativeStorageCredentials(Collections.emptyMap(), null);
         }
         FileIO fileIO = table.io();
         Map<String, String> ioProps = new HashMap<>(fileIO.properties());
+        String azurePrefix = null;
         if (fileIO instanceof SupportsStorageCredentials) {
             StorageCredential azureCredential = null;
             for (StorageCredential storageCredential : ((SupportsStorageCredentials) fileIO).credentials()) {
                 if (validateAzureScopes && storageCredential.config().keySet().stream()
                         .anyMatch(key -> key.regionMatches(true, 0, "adls.", 0, 5))) {
-                    // TODO: keep StorageCredential.prefix with its authentication group end-to-end.
-                    // Until the SPI carries scoped groups, flattening distinct Azure scopes could choose the
-                    // last token for an unrelated file. Identical repeated entries are not ambiguous.
+                    // A native scan/sink has one fixed identity. Distinct scopes would require per-file
+                    // credential selection; identical repeated entries are not ambiguous.
                     if (azureCredential != null
                             && (!Objects.equals(azureCredential.prefix(), storageCredential.prefix())
                             || !azureCredential.config().equals(storageCredential.config()))) {
@@ -1967,21 +2010,25 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         // expiry. Overlay the raw scoped identity as a group, not per key, so neither
                         // those aliases nor an earlier credential generation survive into native binding.
                         ioProps.keySet().removeIf(IcebergRestFileIOProperties::isAzureAuthenticationProperty);
+                        azurePrefix = storageCredential.prefix();
                     }
                 }
                 ioProps.putAll(storageCredential.config());
             }
         }
-        return ioProps;
+        return new NativeStorageCredentials(ioProps, azurePrefix);
     }
 
-    private Map<String, String> legacyBackendProperties(Table table) {
+    private Map<String, String> legacyBackendProperties(Table table, ReadStorageAccess readAccess) {
         if (context == null) {
             return Collections.emptyMap();
         }
         // Non-Azure native scans can legitimately use both HDFS and object-store files.
         // Keep their existing aggregate carrier and per-key vended overlay.
-        Map<String, String> vendedToken = extractVendedToken(table, restVendedCredentialsEnabled());
+        // A mixed-storage scan may still open Azure files. Its captured prefix and authentication
+        // must come from the same generation even if the FileIO has since received new credentials.
+        Map<String, String> vendedToken = readAccess.credentials.azurePrefix == null
+                ? extractVendedToken(table, restVendedCredentialsEnabled()) : readAccess.credentials.properties();
         List<StorageProperties> storages = new ArrayList<>(storage().getStorageProperties());
         if (!vendedToken.isEmpty()
                 && storages.stream().anyMatch(properties -> properties.type() == FileSystemType.AZURE)) {
@@ -2122,7 +2169,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             readAccess.backendProperties().forEach(
                     (k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         } else {
-            legacyBackendProperties(table).forEach(
+            legacyBackendProperties(table, readAccess).forEach(
                     (k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         // Field-id schema dictionary (T06). Under a time-travel pin (T07, Option A): the query slots carry the

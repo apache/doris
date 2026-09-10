@@ -82,6 +82,8 @@ import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -92,6 +94,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Pins {@link IcebergWritePlanProvider#planWrite} for INSERT/OVERWRITE against legacy
@@ -875,6 +878,277 @@ public class IcebergWritePlanProviderTest {
                         error.getMessage());
                 Assertions.assertEquals(0, context.newStorageAccessResolverCount);
             }
+        }
+    }
+
+    @Test
+    public void everyWriterSinkRejectsOutputOutsideSingleAzureCredentialPrefix() {
+        String location = "abfss://container@account.dfs.core.windows.net/data/outside";
+        String prefix = "abfss://container@account.dfs.core.windows.net/data/allowed/";
+        Map<String, String> writeCredentials = Collections.singletonMap(
+                "adls.sas-token.account.dfs.core.windows.net", "sv=test&sig=write-scope");
+        Table real = unpartitionedTableWith("azure_output_scope", ImmutableMap.of(
+                "write.data.path", location, "format-version", "2"));
+        try (ResolvingFileIO fileIO = new ResolvingFileIO()) {
+            fileIO.initialize(Collections.emptyMap());
+            fileIO.setCredentials(Collections.singletonList(StorageCredential.create(prefix, writeCredentials)));
+            Table table = new BaseTable(new IcebergAuthenticatedTableOperations(
+                    ((HasTableOperations) real).operations(), fileIO), real.name());
+            for (WriteOperation operation : Arrays.asList(
+                    WriteOperation.INSERT, WriteOperation.DELETE, WriteOperation.MERGE)) {
+                RecordingConnectorContext context = new RecordingConnectorContext();
+                context.storageAccessProviderNames = Collections.singleton("AZURE");
+                context.storageAccessResolver = rawUri -> new ConnectorStorageAccess("azure", rawUri,
+                        BackendStorageKind.NATIVE, TFileType.FILE_S3.name(), ImmutableMap.of(
+                                "provider", "azure", "AZURE_AUTH_TYPE", "SAS",
+                                "AZURE_SAS_TOKEN", "sv=test&sig=write-scope"));
+                context.storageLocationPrefixMatcher = (rawLocation, rawPrefix) -> false;
+                RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+                ops.table = table;
+                IcebergWritePlanProvider provider = new IcebergWritePlanProvider(
+                        IcebergCatalogProperties.of(restVendedProps()), ops, context);
+                IcebergConnectorTransaction transaction = new IcebergConnectorTransaction(42L, ops, context);
+                TestStatementScope scope = new TestStatementScope();
+                WriteSession session = new WriteSession(transaction).withScope(scope);
+                try {
+                    DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                            () -> provider.planWrite(session,
+                                    new WriteHandle(new IcebergTableHandle("db1", "azure_output_scope"))
+                                            .writeOperation(operation)), operation.name());
+                    Assertions.assertEquals("Location is outside the Azure storage credential prefix",
+                            error.getMessage());
+                    Assertions.assertEquals(writeCredentials, context.lastStorageAccessVendedToken);
+                    Assertions.assertEquals(1, context.newStorageAccessResolverCount);
+                    Assertions.assertEquals(Collections.singletonList(location + "/"), context.prefixMatchLocations,
+                            "the sink opens children of the output directory, not an object named by the directory");
+                    Assertions.assertEquals(Collections.singletonList(prefix), context.prefixMatchPrefixes);
+                } finally {
+                    transaction.rollback();
+                    transaction.close();
+                    scope.closeAll();
+                }
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "DELETE, PUFFIN", "DELETE, PARQUET", "DELETE, ORC",
+            "UPDATE, PUFFIN", "UPDATE, PARQUET", "UPDATE, ORC",
+            "MERGE, PUFFIN", "MERGE, PARQUET", "MERGE, ORC"
+    })
+    public void rowLevelSinksRejectOldDeletesOutsideTheirWriteCredentialPrefix(
+            WriteOperation operation, FileFormat format) {
+        try (ScopedAzureWrite fixture = new ScopedAzureWrite(3, false)) {
+            String insidePath = ScopedAzureWrite.WRITE_PREFIX + "old.puffin";
+            String outsidePath = ScopedAzureWrite.ROOT + "/deletes/old." + format;
+            List<TIcebergDeleteFileDesc> oldDeletes = Arrays.asList(
+                    oldDelete(insidePath, FileFormat.PUFFIN), oldDelete(outsidePath, format));
+            fixture.supply.put(ScopedAzureWrite.REFERENCED_PATH, oldDeletes);
+
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> fixture.plan(operation));
+
+            Assertions.assertEquals("Location is outside the Azure storage credential prefix", error.getMessage());
+            fixture.assertMatchedLocations(Arrays.asList(ScopedAzureWrite.WRITE_PREFIX, insidePath, outsidePath));
+            Assertions.assertEquals(outsidePath, oldDeletes.get(1).getPath());
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"DELETE", "UPDATE", "MERGE"})
+    public void rowLevelSinksRejectOutOfScopeAzureDeletesWithS3Output(WriteOperation operation) {
+        String outputLocation = "s3://bucket/new-data";
+        try (ScopedAzureWrite fixture = new ScopedAzureWrite(3, outputLocation)) {
+            String deletePath = ScopedAzureWrite.ROOT + "/deletes/outside%2F+//old.puffin";
+            TIcebergDeleteFileDesc deleteFile = oldDelete(deletePath, FileFormat.PUFFIN);
+            fixture.supply.put(ScopedAzureWrite.REFERENCED_PATH, Collections.singletonList(deleteFile));
+            // The engine owns URI routing. Supply its exact per-location binding results here.
+            Map<String, ConnectorStorageAccess> accesses = ImmutableMap.of(
+                    outputLocation, nativeS3Access(outputLocation),
+                    outputLocation + "/", nativeS3Access(outputLocation + "/"),
+                    deletePath, new ConnectorStorageAccess("azure", deletePath,
+                            BackendStorageKind.NATIVE, TFileType.FILE_S3.name(), fixture.backend));
+            fixture.context.storageAccessProviderNames = Set.of("AZURE", "S3");
+            fixture.context.storageAccessResolver = accesses::get;
+
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> fixture.plan(operation));
+
+            Assertions.assertEquals("Location is outside the Azure storage credential prefix", error.getMessage());
+            fixture.assertMatchedLocations(Collections.singletonList(deletePath));
+            Assertions.assertEquals(deletePath, deleteFile.getPath());
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"DELETE", "UPDATE", "MERGE"})
+    public void rowLevelSinksPreserveOldS3DeletesWhenAzureScopeIsBound(WriteOperation operation) {
+        String outputLocation = "s3://bucket/new-data";
+        try (ScopedAzureWrite fixture = new ScopedAzureWrite(3, outputLocation)) {
+            String deletePath = "s3://bucket/old-deletes/file%2F+//old.puffin";
+            TIcebergDeleteFileDesc deleteFile = oldDelete(deletePath, FileFormat.PUFFIN);
+            fixture.supply.put(ScopedAzureWrite.REFERENCED_PATH, Collections.singletonList(deleteFile));
+            ConnectorStorageAccess outputAccess = nativeS3Access(outputLocation);
+            Map<String, ConnectorStorageAccess> accesses = ImmutableMap.of(
+                    outputLocation, outputAccess,
+                    outputLocation + "/", nativeS3Access(outputLocation + "/"),
+                    deletePath, nativeS3Access(deletePath));
+            fixture.context.storageAccessProviderNames = Set.of("AZURE", "S3");
+            fixture.context.storageAccessResolver = accesses::get;
+
+            TDataSink sink = fixture.plan(operation).getDataSink();
+            List<TIcebergRewritableDeleteFileSet> sets = operation == WriteOperation.DELETE
+                    ? sink.getIcebergDeleteSink().getRewritableDeleteFileSets()
+                    : sink.getIcebergMergeSink().getRewritableDeleteFileSets();
+
+            Assertions.assertEquals(1, sets.size());
+            Assertions.assertEquals(ScopedAzureWrite.REFERENCED_PATH, sets.get(0).getReferencedDataFilePath());
+            Assertions.assertEquals(Collections.singletonList(deleteFile), sets.get(0).getDeleteFiles());
+            Assertions.assertEquals(deletePath, sets.get(0).getDeleteFiles().get(0).getPath());
+            assertResolvedStorage(sink, outputLocation, outputAccess);
+            fixture.assertMatchedLocations(Collections.emptyList());
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "DELETE, false", "DELETE, true", "UPDATE, false", "UPDATE, true", "MERGE, false", "MERGE, true"
+    })
+    public void rowLevelSinksPreserveInScopeOldDeletesAndRawAssociations(
+            WriteOperation operation, boolean trailingSlash) {
+        try (ScopedAzureWrite fixture = new ScopedAzureWrite(3, trailingSlash)) {
+            String puffinPath = ScopedAzureWrite.WRITE_PREFIX + "old%2F+//file.puffin";
+            String parquetPath = ScopedAzureWrite.WRITE_PREFIX + "old.parquet";
+            String orcPath = ScopedAzureWrite.WRITE_PREFIX + "old.orc";
+            List<TIcebergDeleteFileDesc> oldDeletes = Arrays.asList(oldDelete(puffinPath, FileFormat.PUFFIN),
+                    oldDelete(parquetPath, FileFormat.PARQUET), oldDelete(orcPath, FileFormat.ORC));
+            fixture.supply.put(ScopedAzureWrite.REFERENCED_PATH, oldDeletes);
+
+            TDataSink sink = fixture.plan(operation).getDataSink();
+            List<TIcebergRewritableDeleteFileSet> sets = operation == WriteOperation.DELETE
+                    ? sink.getIcebergDeleteSink().getRewritableDeleteFileSets()
+                    : sink.getIcebergMergeSink().getRewritableDeleteFileSets();
+            Map<String, String> backend = operation == WriteOperation.DELETE
+                    ? sink.getIcebergDeleteSink().getHadoopConfig() : sink.getIcebergMergeSink().getHadoopConfig();
+
+            Assertions.assertEquals(1, sets.size());
+            Assertions.assertEquals(ScopedAzureWrite.REFERENCED_PATH, sets.get(0).getReferencedDataFilePath());
+            Assertions.assertEquals(oldDeletes, sets.get(0).getDeleteFiles());
+            Assertions.assertEquals(puffinPath, sets.get(0).getDeleteFiles().get(0).getPath());
+            Assertions.assertEquals(fixture.backend, backend, "prefix stays local and never enters the sink map");
+            fixture.assertMatchedLocations(Arrays.asList(
+                    ScopedAzureWrite.WRITE_PREFIX, puffinPath, parquetPath, orcPath));
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"INSERT, 3", "OVERWRITE, 3", "REWRITE, 3", "DELETE, 2", "UPDATE, 2", "MERGE, 2"})
+    public void sinksDoNotCheckDeleteSupplyTheyNeverOpen(WriteOperation operation, int formatVersion) {
+        try (ScopedAzureWrite fixture = new ScopedAzureWrite(formatVersion, false)) {
+            fixture.supply.put(ScopedAzureWrite.REFERENCED_PATH,
+                    dvDescs(ScopedAzureWrite.ROOT + "/deletes/outside.puffin", 16L, 64L));
+
+            TDataSink sink = fixture.plan(operation).getDataSink();
+
+            if (operation == WriteOperation.DELETE) {
+                Assertions.assertFalse(sink.getIcebergDeleteSink().isSetRewritableDeleteFileSets());
+            } else if (operation == WriteOperation.UPDATE || operation == WriteOperation.MERGE) {
+                Assertions.assertFalse(sink.getIcebergMergeSink().isSetRewritableDeleteFileSets());
+            } else {
+                Assertions.assertTrue(sink.isSetIcebergTableSink());
+            }
+            fixture.assertMatchedLocations(Collections.singletonList(ScopedAzureWrite.WRITE_PREFIX));
+        }
+    }
+
+    private static ConnectorStorageAccess nativeS3Access(String rawUri) {
+        return new ConnectorStorageAccess("s3", rawUri, BackendStorageKind.NATIVE, TFileType.FILE_S3.name(),
+                ImmutableMap.of("provider", "s3", "AWS_ENDPOINT", "https://s3.us-west-2.amazonaws.com",
+                        "AWS_REGION", "us-west-2", "AWS_ACCESS_KEY", "scope-s3-access",
+                        "AWS_SECRET_KEY", "scope-s3-secret"));
+    }
+
+    private static TIcebergDeleteFileDesc oldDelete(String path, FileFormat format) {
+        if (format == FileFormat.PUFFIN) {
+            return dvDescs(path, 16L, 64L).get(0);
+        }
+        return new TIcebergDeleteFileDesc().setPath(path).setContent(1).setFileFormat(
+                format == FileFormat.PARQUET ? TFileFormatType.FORMAT_PARQUET : TFileFormatType.FORMAT_ORC);
+    }
+
+    private static final class ScopedAzureWrite implements AutoCloseable {
+        private static final String ROOT = "abfss://container@account.dfs.core.windows.net/table";
+        private static final String WRITE_PREFIX = ROOT + "/write/";
+        private static final String REFERENCED_PATH =
+                "ABFSS://container@ACCOUNT.dfs.core.windows.net/table/data/file%2F+//part.parquet";
+        private final Map<String, String> writeCredentials = Collections.singletonMap(
+                "adls.sas-token.account.dfs.core.windows.net", "sv=test&sig=write-scope");
+        private final Map<String, String> backend = ImmutableMap.of(
+                "provider", "azure", "AZURE_AUTH_TYPE", "SAS", "AZURE_SAS_TOKEN", "sv=test&sig=write-scope");
+        private final ResolvingFileIO readIO = new ResolvingFileIO();
+        private final ResolvingFileIO writeIO = new ResolvingFileIO();
+        private final RecordingConnectorContext context = new RecordingConnectorContext();
+        private final TestStatementScope scope = new TestStatementScope();
+        private final IcebergWritePlanProvider provider;
+        private final IcebergConnectorTransaction transaction;
+        private final WriteSession session;
+        private final Map<String, List<TIcebergDeleteFileDesc>> supply;
+
+        ScopedAzureWrite(int formatVersion, boolean trailingSlash) {
+            this(formatVersion, trailingSlash ? WRITE_PREFIX : ROOT + "/write");
+        }
+
+        ScopedAzureWrite(int formatVersion, String outputLocation) {
+            Table real = unpartitionedTableWith("azure_rewritable_scope", ImmutableMap.of(
+                    "write.data.path", outputLocation,
+                    "format-version", Integer.toString(formatVersion)));
+            readIO.initialize(Collections.emptyMap());
+            readIO.setCredentials(Collections.singletonList(StorageCredential.create(ROOT + "/",
+                    Collections.singletonMap("adls.sas-token.account.dfs.core.windows.net", "sv=test&sig=read-scope"))));
+            writeIO.initialize(Collections.emptyMap());
+            writeIO.setCredentials(Collections.singletonList(StorageCredential.create(WRITE_PREFIX, writeCredentials)));
+            Table readTable = new BaseTable(new IcebergAuthenticatedTableOperations(
+                    ((HasTableOperations) real).operations(), readIO), real.name());
+            Table writeTable = new BaseTable(new IcebergAuthenticatedTableOperations(
+                    ((HasTableOperations) real).operations(), writeIO), real.name());
+            context.storageAccessProviderNames = Collections.singleton("AZURE");
+            context.storageAccessResolver = rawUri -> new ConnectorStorageAccess("azure", rawUri,
+                    BackendStorageKind.NATIVE, TFileType.FILE_S3.name(), backend);
+            context.storageLocationPrefixMatcher = (rawLocation, rawPrefix) ->
+                    rawLocation.startsWith(WRITE_PREFIX) && WRITE_PREFIX.equals(rawPrefix);
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ops.table = writeTable;
+            provider = new IcebergWritePlanProvider(
+                    IcebergCatalogProperties.of(restVendedProps()), ops, context);
+            transaction = new IcebergConnectorTransaction(42L, ops, context);
+            session = new WriteSession(transaction).withScope(scope);
+            // The scan's broader read generation must not authorize the sink's old-DV read.
+            IcebergStatementScope.sharedTable(session, "db1", "azure_rewritable_scope", () -> readTable);
+            supply = IcebergStatementScope.rewritableDeleteSupply(session);
+        }
+
+        ConnectorSinkPlan plan(WriteOperation operation) {
+            return provider.planWrite(session, new WriteHandle(new IcebergTableHandle("db1", "azure_rewritable_scope"))
+                    .writeOperation(operation).overwrite(operation == WriteOperation.OVERWRITE));
+        }
+
+        void assertMatchedLocations(List<String> locations) {
+            Assertions.assertEquals(writeCredentials, context.lastStorageAccessVendedToken);
+            Assertions.assertEquals(1, context.newStorageAccessResolverCount);
+            Assertions.assertEquals(locations, context.prefixMatchLocations);
+            Assertions.assertEquals(Collections.nCopies(locations.size(), WRITE_PREFIX), context.prefixMatchPrefixes);
+            Assertions.assertEquals(Collections.singleton(REFERENCED_PATH), supply.keySet(),
+                    "raw data-file association keys are neither opened nor normalized by the writer");
+        }
+
+        @Override
+        public void close() {
+            transaction.rollback();
+            transaction.close();
+            scope.closeAll();
+            writeIO.close();
+            readIO.close();
         }
     }
 
@@ -2293,7 +2567,7 @@ public class IcebergWritePlanProviderTest {
     }
 
     /** Minimal {@link FileIO} whose {@link #properties()} yields a known (non-empty) vended token map, so
-     * {@link IcebergScanPlanProvider#extractNativeVendedToken} returns a non-empty token through the write path
+     * {@link IcebergScanPlanProvider#extractNativeStorageCredentials} carries credentials through the write path
      * (H-1). Mirrors the scan test's equivalent double; the read/write file methods are never exercised. */
     private static final class PropsFileIO implements FileIO {
         private final Map<String, String> props;

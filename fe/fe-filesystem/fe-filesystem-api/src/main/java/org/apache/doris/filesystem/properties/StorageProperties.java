@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.properties;
 
 import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.Location;
 
 import java.util.Collections;
 import java.util.Map;
@@ -73,6 +74,16 @@ public interface StorageProperties {
      * or mutate the binding. Invalid credentials must fail explicitly without exposing secrets.</p>
      */
     default void validateForAccess() {
+    }
+
+    /**
+     * Returns whether a location is equal to or below a credential's location prefix.
+     * Providers own storage identity and object-name interpretation; equivalent URI spellings
+     * may require provider-specific parsing. This is local validation only, without credential
+     * access, I/O or path normalization. A directory caller must supply its child-path prefix.
+     */
+    default boolean matchesLocationPrefix(String rawLocation, String rawPrefix) {
+        return Location.of(rawLocation).startsWith(Location.of(rawPrefix));
     }
 
     /**
