@@ -422,10 +422,17 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         }
     }
 
-    private static RuntimeException catalogGenerationMoved(NameMapping nameMapping) {
-        return new RuntimeException(String.format(
+    private static CatalogGenerationChangedException catalogGenerationMoved(NameMapping nameMapping) {
+        return new CatalogGenerationChangedException(String.format(
                 "Catalog %d was reset while acquiring iceberg table %s.%s, please retry.",
                 nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName()));
+    }
+
+    /** Signals that writable acquisition must restart before any metadata mutation begins. */
+    public static final class CatalogGenerationChangedException extends RuntimeException {
+        public CatalogGenerationChangedException(String message) {
+            super(message);
+        }
     }
 
     MetaCacheSizeEstimate prepareTableForCachePublication(
