@@ -89,9 +89,13 @@ Status append_timestamptz_from_utc_epoch_micros(ColumnTimeStampTz::Container& da
     TimestampTzValue timestamp_tz;
     timestamp_tz.from_unixtime(epoch_seconds, UTC);
     timestamp_tz.set_microsecond(static_cast<uint32_t>(micros_of_second));
+    // `from_unixtime()` splits the instant with cctz (proleptic Gregorian, so year 0 exists) and
+    // narrows the civil year into a `uint16_t`. This is the exact range check for the target
+    // type: a year below 0 wraps above 9999 and a year of 10000 exceeds it, so both are rejected
+    // here, as is the proleptic-only 0000-02-29, which Doris's calendar does not have.
     if (!timestamp_tz.is_valid_date()) {
         return Status::DataQualityError(
-                "Decoded TIMESTAMPTZ is outside the Doris 0001-9999 range: micros={}",
+                "Decoded TIMESTAMPTZ is outside the Doris 0000-9999 range: micros={}",
                 timestamp_micros);
     }
     data.push_back(timestamp_tz);

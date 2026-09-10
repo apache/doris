@@ -486,10 +486,26 @@ bool set_date_zone_map(const ::orc::ColumnStatistics& statistics, segment_v2::Zo
         !date_statistics->hasMaximum()) {
         return false;
     }
-    auto& date_dict = date_day_offset_dict::get();
-    return set_validated_zone_map(
-            Field::create_field<TYPE_DATEV2>(date_dict[date_statistics->getMinimum()]),
-            Field::create_field<TYPE_DATEV2>(date_dict[date_statistics->getMaximum()]), zone_map);
+    // ORC DATE statistics are proleptic-Gregorian day ordinals, the same domain the row decoder
+    // (DataTypeDateV2SerDe::read_column_from_orc) interprets. Converting them through
+    // `date_day_offset_dict` instead would put the year-zero window one day off the rows and let a
+    // pushed-down MIN/MAX report a value no row holds. A bound with no Doris DATE disables the
+    // statistics, so MIN/MAX falls back to scanning rows.
+    const auto to_date = [](int64_t epoch_days) -> std::optional<DateV2Value<DateV2ValueType>> {
+        const int64_t daynr = epoch_days_to_daynr(epoch_days);
+        DateV2Value<DateV2ValueType> value;
+        if (daynr == 0 || !value.get_date_from_daynr(static_cast<uint64_t>(daynr))) {
+            return std::nullopt;
+        }
+        return value;
+    };
+    const auto min_value = to_date(date_statistics->getMinimum());
+    const auto max_value = to_date(date_statistics->getMaximum());
+    if (!min_value.has_value() || !max_value.has_value()) {
+        return false;
+    }
+    return set_validated_zone_map(Field::create_field<TYPE_DATEV2>(*min_value),
+                                  Field::create_field<TYPE_DATEV2>(*max_value), zone_map);
 }
 
 std::optional<DateV2Value<DateTimeV2ValueType>> datetime_v2_from_orc_millis(
@@ -2247,8 +2263,15 @@ Status OrcReader::_decode_column_into_block(const ::orc::StructVectorBatch& stru
     const auto* selected_type = _state->selected_type->getSubtype(selected_batch_idx);
     DORIS_CHECK(selected_type != nullptr);
     auto column = file_block->get_by_position(block_position.value()).column->assert_mutable();
-    RETURN_IF_ERROR(_decode_column(*type, *selected_type, *struct_batch.fields[selected_batch_idx],
-                                   column, rows, selected_rows));
+    auto status = _decode_column(*type, *selected_type, *struct_batch.fields[selected_batch_idx],
+                                 column, rows, selected_rows);
+    if (!status.ok()) {
+        // The decoders work on a bare value buffer and cannot name the column themselves; without
+        // this the user only learns that some DATE/TIMESTAMP in some file is unrepresentable.
+        return status.prepend(fmt::format(
+                "Failed to decode ORC column '{}': ",
+                _state->root_type->getFieldName(static_cast<uint64_t>(file_column_id.value()))));
+    }
     file_block->replace_by_position(block_position.value(), std::move(column));
     return Status::OK();
 }

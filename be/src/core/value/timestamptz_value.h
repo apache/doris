@@ -35,8 +35,9 @@ struct CastParameters;
 
 // TIMESTAMPTZ can be understood as a DATETIME type with timezone conversion functionality.
 // Doris automatically handles timezone conversions internally.
-// The storage format of TIMESTAMPTZ is the same as DATETIMEV2, both are 8-byte integers
-// representing microseconds from 0001-01-01 00:00:00.000000 to 9999-12-31 23:59:59.999999.
+// The storage format of TIMESTAMPTZ is the same as DATETIMEV2: both are 8-byte packed civil
+// values spanning 0000-01-01 00:00:00.000000 (`MIN_DATETIME_V2`, also the default) to
+// 9999-12-31 23:59:59.999999. Year 0 is inside the domain, so readers must not floor at year 1.
 // TIMESTAMPTZ does not store timezone information; conversions are performed during read and write
 // operations according to the specified timezone.
 // This requires that both reading and writing operations need a timezone parameter.
