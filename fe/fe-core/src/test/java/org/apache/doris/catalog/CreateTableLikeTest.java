@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
@@ -72,8 +74,10 @@ public class CreateTableLikeTest extends TestWithFeService {
                 Assertions.assertEquals(source.getSessionVariables(), target.getSessionVariables());
                 Assertions.assertEquals(source.getGeneratedColumnInfo().getExpr().getType(),
                         target.getGeneratedColumnInfo().getExpr().getType());
-                Assertions.assertEquals(source.getGeneratedColumnInfo().getExpr().toSql(),
-                        target.getGeneratedColumnInfo().getExpr().toSql());
+                Assertions.assertEquals(source.getGeneratedColumnInfo().getExpr()
+                                .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE),
+                        target.getGeneratedColumnInfo().getExpr()
+                                .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                 Assertions.assertSame(original, connectContext.getSessionVariable());
                 Assertions.assertEquals(!decimal256, original.enableDecimal256);
             }
