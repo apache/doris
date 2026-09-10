@@ -70,7 +70,8 @@ public:
     Status submit_calc_delete_bitmap_task();
     Status wait_calc_delete_bitmap();
 
-    // abandon current memtable and wait for all pending-flushing memtables to be destructed.
+    // Abandon the current memtable and cancel queued flush tasks.
+    // Wait for running tasks before releasing their resources.
     // mem_consumption() should be 0 after this function returns.
     Status cancel();
     virtual Status cancel_with_status(const Status& st);
@@ -104,6 +105,8 @@ public:
             google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_info);
 
 protected:
+    Status _get_load_cancel_status() const;
+
     virtual void _init_profile(RuntimeProfile* profile);
 
     Status init();
