@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -55,6 +56,10 @@ public class PlanContext {
 
     public SessionVariable getSessionVariable() {
         return connectContext.getSessionVariable();
+    }
+
+    public CostWeight getCostWeight() {
+        return getStatementContext().getCostWeight();
     }
 
     public boolean isBroadcastJoin() {
