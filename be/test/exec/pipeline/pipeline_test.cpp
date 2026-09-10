@@ -27,6 +27,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/exchange/local_exchange_sink_operator.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/operator/exchange_source_operator.h"
 #include "exec/operator/hashjoin_build_sink.h"
@@ -47,6 +48,49 @@
 namespace doris {
 
 static void empty_function(RuntimeState*, Status*) {}
+
+class PipelineTaskCountTestOperator final : public OperatorXBase {
+public:
+    explicit PipelineTaskCountTestOperator(int operator_id)
+            : OperatorXBase(nullptr, operator_id, operator_id) {}
+
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
+        return Status::OK();
+    }
+
+    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
+        return Status::OK();
+    }
+};
+
+class PipelineTaskCountTestSinkOperator final : public DataSinkOperatorXBase {
+public:
+    PipelineTaskCountTestSinkOperator(int operator_id, std::vector<int> dest_ids)
+            : DataSinkOperatorXBase(operator_id, operator_id, dest_ids) {}
+
+    Status sink_impl(RuntimeState* state, Block* block, bool eos) override { return Status::OK(); }
+
+    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override {
+        return Status::OK();
+    }
+
+    std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
+};
+
+static PipelinePtr create_pipeline_for_task_count_test(int pipeline_id, int num_tasks,
+                                                       int operator_id) {
+    auto pipeline = std::make_shared<Pipeline>(pipeline_id, num_tasks, num_tasks);
+    OperatorPtr op = std::make_shared<PipelineTaskCountTestOperator>(operator_id);
+    EXPECT_TRUE(pipeline->add_operator(op, 0).ok());
+    return pipeline;
+}
+
+static void set_sink_for_task_count_test(const PipelinePtr& pipeline, int sink_id,
+                                         std::vector<int> dest_ids) {
+    DataSinkOperatorPtr sink =
+            std::make_shared<PipelineTaskCountTestSinkOperator>(sink_id, std::move(dest_ids));
+    EXPECT_TRUE(pipeline->set_sink(sink).ok());
+}
 
 class PipelineTest : public testing::Test {
 public:
@@ -1290,6 +1334,48 @@ TEST_F(PipelineTest, QueryTaskProgressCountersSurviveReset) {
     ASSERT_NE(ctrl2, nullptr);
     EXPECT_EQ(ctrl2->get_total_task_num(), 0);
     EXPECT_EQ(ctrl2->get_finished_task_num(), 0);
+}
+
+TEST(PipelineTaskCountTest, ValidatePairedPipelineTaskCount) {
+    auto destination = create_pipeline_for_task_count_test(0, 3, 10);
+    set_sink_for_task_count_test(destination, -100, {1000});
+    auto matching_sink = create_pipeline_for_task_count_test(1, 3, 11);
+    set_sink_for_task_count_test(matching_sink, -1, {10});
+
+    EXPECT_TRUE(validate_paired_pipeline_task_count({destination, matching_sink}).ok());
+
+    auto mismatched_sink = create_pipeline_for_task_count_test(2, 1, 12);
+    set_sink_for_task_count_test(mismatched_sink, -2, {10});
+    auto status = validate_paired_pipeline_task_count({destination, mismatched_sink});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("pipeline id 2, task count 1"), std::string::npos);
+    EXPECT_NE(status.to_string().find("pipeline id 0, task count 3"), std::string::npos);
+}
+
+TEST(PipelineTaskCountTest, AllowLocalExchangeTaskCountMismatch) {
+    auto destination = create_pipeline_for_task_count_test(0, 3, 10);
+    set_sink_for_task_count_test(destination, -100, {1000});
+    auto local_exchange_sink = create_pipeline_for_task_count_test(1, 1, 11);
+    DataSinkOperatorPtr sink = std::make_shared<LocalExchangeSinkOperatorX>(
+            -1, 10, 3, std::vector<TExpr> {}, std::map<int, int> {});
+    EXPECT_TRUE(local_exchange_sink->set_sink(sink).ok());
+
+    EXPECT_TRUE(validate_paired_pipeline_task_count({destination, local_exchange_sink}).ok());
+}
+
+TEST(PipelineTaskCountTest, ValidateEverySinkDestination) {
+    auto first_destination = create_pipeline_for_task_count_test(0, 3, 10);
+    set_sink_for_task_count_test(first_destination, -100, {1000});
+    auto second_destination = create_pipeline_for_task_count_test(1, 1, 20);
+    set_sink_for_task_count_test(second_destination, -200, {2000});
+    auto multi_destination_sink = create_pipeline_for_task_count_test(2, 3, 30);
+    set_sink_for_task_count_test(multi_destination_sink, -1, {10, 20});
+
+    auto status = validate_paired_pipeline_task_count(
+            {first_destination, second_destination, multi_destination_sink});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("operator id 20"), std::string::npos);
+    EXPECT_NE(status.to_string().find("pipeline id 1, task count 1"), std::string::npos);
 }
 
 } // namespace doris
