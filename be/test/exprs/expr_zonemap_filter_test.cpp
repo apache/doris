@@ -2070,7 +2070,8 @@ TEST(ExprZonemapFilterTest, SlotSlotGuardsCoverNullAndMissingStatistics) {
     segment_v2::ZoneMap all_null_zonemap;
     all_null_zonemap.has_null = true;
     all_null_zonemap.has_not_null = false;
-    auto left_all_null = make_two_slot_context(all_null_zonemap, make_int_zonemap(1, 9), type, type);
+    auto left_all_null =
+            make_two_slot_context(all_null_zonemap, make_int_zonemap(1, 9), type, type);
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
               less.evaluate_zonemap_filter(left_all_null, {left, right}));
     EXPECT_EQ(0, left_all_null.stats.unusable_zonemap_eval_count);
