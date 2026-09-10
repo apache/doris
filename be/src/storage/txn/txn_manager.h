@@ -42,7 +42,7 @@
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/time.h"
