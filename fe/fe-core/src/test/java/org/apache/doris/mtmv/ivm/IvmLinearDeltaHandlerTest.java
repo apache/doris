@@ -129,7 +129,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     private InsertIntoTableCommand buildIncrementalInsertCommand(Plan sinkChild, MTMV mtmv) {
         PlanBundle bundle = normalizePlan(sinkChild);
         Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
-                bundle.normalizedPlan, bundle.rewriteResult, IvmRewriteContext.incremental(mtmv, false),
+                bundle.normalizedPlan, bundle.rewriteResult, IvmRewriteContext.incremental(mtmv),
                 bundle.connectContext);
         Assertions.assertNotNull(rewritten);
         return new IvmIncrRefreshManager().buildInsertCommand((org.apache.doris.nereids.trees.plans.logical.LogicalPlan) rewritten,

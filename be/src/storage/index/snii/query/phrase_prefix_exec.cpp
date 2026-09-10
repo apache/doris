@@ -27,9 +27,6 @@
 #include <vector>
 
 #include "common/check.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_grams_query_cost.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/dict_entry.h"
@@ -625,95 +622,6 @@ Status execute_resolved_phrase_prefix_terms(
     if (docids != nullptr) {
         *docids = std::move(final_matches);
     }
-    return Status::OK();
-}
-
-namespace {
-template <typename Index>
-std::vector<ResolvedQueryTerm> copy_resolved_terms(const std::vector<ResolvedQueryTerm>& resolved,
-                                                   const std::vector<Index>& indices) {
-    std::vector<ResolvedQueryTerm> result;
-    result.reserve(indices.size());
-    for (size_t index : indices) {
-        DORIS_CHECK_LT(index, resolved.size());
-        result.push_back(resolved[index]);
-    }
-    return result;
-}
-
-} // namespace
-Status execute_hybrid_phrase_prefix_plan(
-        const LogicalIndexReader& idx, const HybridPrefixPlanArtifact& artifact,
-        const std::vector<std::string>& batch_terms, const std::vector<ResolvedQueryTerm>& resolved,
-        const std::vector<ResolvedQueryTerm>& plain_tail_terms, std::vector<uint32_t>* docids,
-        format::PrxDecodeContext* decode_context, CommonGramsPlanningTimer& planning_timer,
-        bool* candidate_intersection_empty) {
-    DORIS_CHECK(idx.common_grams_posting_policy() == format::CommonGramsPostingPolicy::kHybridV1);
-    DORIS_CHECK(docids != nullptr);
-    DORIS_CHECK(candidate_intersection_empty != nullptr);
-    docids->clear();
-    *candidate_intersection_empty = false;
-
-    const HybridPositionedCover& plain_tail_cover = artifact.plain_tail_cover;
-    const uint32_t plain_tail_position_offset = artifact.plain_tail_position_offset;
-    HybridPrefixCandidateSet leading_candidates;
-    RETURN_IF_ERROR(build_hybrid_leading_candidates(idx, plain_tail_cover.candidate_prefilter,
-                                                    batch_terms, resolved, &leading_candidates));
-    if (leading_candidates.active && leading_candidates.docs.empty()) {
-        planning_timer.finish();
-        *candidate_intersection_empty = true;
-        return Status::OK();
-    }
-
-    if (!artifact.maps_tail_to_gram) {
-        DORIS_CHECK(leading_candidates.active);
-        DORIS_CHECK(artifact.mapped_tail_split.positioned_indices.empty());
-        DORIS_CHECK(artifact.mapped_tail_split.docs_only_indices.empty());
-        planning_timer.finish();
-        RETURN_IF_ERROR(execute_resolved_phrase_prefix_terms(
-                idx,
-                copy_resolved_phrase_plan(plain_tail_cover.verification, batch_terms, resolved),
-                plain_tail_terms, plain_tail_position_offset, docids, decode_context, nullptr,
-                &leading_candidates.docs));
-        *candidate_intersection_empty = docids->empty();
-        return Status::OK();
-    }
-
-    const HybridPrefixMappedTails& split = artifact.mapped_tail_split;
-    DORIS_CHECK(!split.positioned_indices.empty() || !split.docs_only_indices.empty());
-    DORIS_CHECK(leading_candidates.active || !split.docs_only_indices.empty());
-    std::vector<uint32_t> docs_only_tail_candidates;
-    if (!split.docs_only_indices.empty()) {
-        RETURN_IF_ERROR(build_hybrid_docs_only_tail_candidates(
-                idx, resolved, split.docs_only_indices, leading_candidates,
-                &docs_only_tail_candidates));
-    }
-    planning_timer.finish();
-
-    if (!split.positioned_indices.empty()) {
-        DORIS_CHECK(artifact.positioned_tail_verification.has_value());
-        std::vector<uint32_t> positioned_docs;
-        RETURN_IF_ERROR(execute_resolved_phrase_prefix_terms(
-                idx,
-                copy_resolved_phrase_plan(*artifact.positioned_tail_verification, batch_terms,
-                                          resolved),
-                copy_resolved_terms(resolved, split.positioned_indices),
-                plain_tail_position_offset - 1, &positioned_docs, decode_context, nullptr,
-                leading_candidates.active ? &leading_candidates.docs : nullptr));
-        internal::union_sorted_into(docids, positioned_docs);
-    }
-
-    if (!split.docs_only_indices.empty() && !docs_only_tail_candidates.empty()) {
-        std::vector<uint32_t> docs_only_docs;
-        RETURN_IF_ERROR(execute_resolved_phrase_prefix_terms(
-                idx,
-                copy_resolved_phrase_plan(plain_tail_cover.verification, batch_terms, resolved),
-                copy_resolved_terms(plain_tail_terms, split.docs_only_ordinals),
-                plain_tail_position_offset, &docs_only_docs, decode_context, nullptr,
-                &docs_only_tail_candidates));
-        internal::union_sorted_into(docids, docs_only_docs);
-    }
-    *candidate_intersection_empty = docids->empty();
     return Status::OK();
 }
 

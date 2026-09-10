@@ -43,7 +43,6 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_storage_format.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
@@ -111,13 +110,9 @@ public:
         // the prx region compresses at snii_prx_zstd_level_direct_load;
         // compaction / schema change / ADD INDEX keep snii_prx_zstd_level.
         bool is_direct_load = false;
-        // Present only for a CommonGrams writer that has a complete immutable
-        // capability identity. These are semantic BM25 inputs; physical TTF is
-        // still derived from every emitted unigram and gram posting.
+        // 每 doc 一字节的 BM25 norms；为空表示该索引不写 norms（keyword / 不带位置）。
+        // 非空时长度必须等于 doc_count，且 posting 会保留 freq 区供打分读取。
         std::vector<uint8_t> encoded_norms;
-        std::optional<inverted_index::CommonGramsSegmentMetadata> common_grams_metadata;
-        snii::format::CommonGramsPostingPolicy common_grams_posting_policy =
-                snii::format::CommonGramsPostingPolicy::kNone;
     };
     Status add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
                           std::vector<uint32_t> null_docids,
@@ -130,7 +125,7 @@ public:
     // term buffer), the caller pushes pre-merged, lexicographically sorted
     // terms through *session and seals the index with (*session)->finish().
     // Write parameters resolve through the SAME helper as add_snii_index
-    // (write_freq / zstd levels / dict block size), always at the COMPACTION
+    // (zstd levels / dict block size), always at the COMPACTION
     // prx tier (a merge is never a direct load). CommonGrams T3 callers transfer
     // a precharged destination norm vector and a validated static metadata seed;
     // the streamed session late-binds semantic token_count before finish. Only ONE
@@ -143,12 +138,11 @@ public:
             doris::snii::format::IndexConfig index_config,
             std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
             doris::snii::writer::SniiStreamedIndexSession** session);
+    // write_norms=true 的会话在 finish 之前必须通过 set_encoded_norms 交付 norms
+    // （compaction 在合并 postings 的同一趟里重建它们）。
     Status add_snii_index_streamed(
             const TabletIndex* index_meta, uint32_t doc_count,
-            doris::snii::writer::TrackedNullDocids null_docids,
-            doris::snii::writer::TrackedEncodedNorms encoded_norms,
-            std::optional<inverted_index::CommonGramsSegmentMetadata> common_grams_metadata,
-            doris::snii::format::CommonGramsPostingPolicy common_grams_posting_policy,
+            doris::snii::writer::TrackedNullDocids null_docids, bool write_norms,
             doris::snii::format::IndexConfig index_config,
             std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
             doris::snii::writer::SniiStreamedIndexSession** session);

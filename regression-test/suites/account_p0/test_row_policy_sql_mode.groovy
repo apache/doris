@@ -1,0 +1,104 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// What a row policy means must not depend on the sql_mode of whoever wrote it.
+//
+// Two bits of sql_mode change what SQL text means - PIPES_AS_CONCAT turns || from OR into string
+// concatenation, NO_BACKSLASH_ESCAPES changes how a string literal decodes - and sql_mode is a session
+// variable any account may set with no privilege at all. A policy's predicate is re-read under one fixed
+// mode every time a query it restricts is planned, on the thread of the very user it restricts, so reading
+// it under the creator's mode when the statement was accepted meant a policy could be shown as one
+// predicate and enforced as another, or accepted and then fail on every query it governed.
+suite("test_row_policy_sql_mode") {
+    def dbName = context.config.getDbNameByFile(context.file)
+    def user = 'row_policy_sql_mode_user'
+    def tokens = context.config.jdbcUrl.split('/')
+    def url = tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
+
+    sql "DROP TABLE IF EXISTS row_policy_sql_mode_tbl"
+    sql """
+        CREATE TABLE row_policy_sql_mode_tbl (region varchar(8), path varchar(64))
+        DISTRIBUTED BY HASH(region) BUCKETS 1 PROPERTIES("replication_num" = "1")
+    """
+    sql """INSERT INTO row_policy_sql_mode_tbl VALUES ('cn', 'a'), ('us', 'b'), ('de', 'c')"""
+
+    sql "DROP USER IF EXISTS ${user}"
+    sql "CREATE USER ${user} IDENTIFIED BY '123abc!@#'"
+    sql "GRANT SELECT_PRIV ON ${dbName}.row_policy_sql_mode_tbl TO ${user}"
+
+    def cloudMode = isCloudMode()
+    if (cloudMode) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        sql """GRANT USAGE_PRIV ON CLUSTER `${clusters[0][0]}` TO ${user}"""
+    }
+
+    def dropPolicy = { name ->
+        sql "DROP ROW POLICY IF EXISTS ${name} ON ${dbName}.row_policy_sql_mode_tbl FOR ${user}"
+    }
+
+    dropPolicy "p_pipes"
+    dropPolicy "p_escapes"
+
+    // || in a policy is OR, whatever the creator's session made it mean. Under PIPES_AS_CONCAT the same
+    // text reads as region = ('cn' || region) = 'us' - a comparison against a concatenation, which filters
+    // something else entirely - and the query is planned with the OR either way.
+    sql "SET sql_mode = 'PIPES_AS_CONCAT'"
+    sql """
+        CREATE ROW POLICY p_pipes ON ${dbName}.row_policy_sql_mode_tbl
+        AS PERMISSIVE TO ${user} USING (region = 'cn' || region = 'us')
+    """
+    sql "SET sql_mode = DEFAULT"
+
+    // SHOW ROW POLICY has to render what the query is filtered by, not what the creator's session read.
+    // It renders the parsed predicate, and a compound one renders in the diagnostic form OR[a,b] rather
+    // than infix - see CompoundPredicate#computeToSql - so what is pinned here is the reading and not the
+    // spelling: an OR of the two conditions, which is how every query this policy restricts is filtered,
+    // and not the comparison against a concatenation that PIPES_AS_CONCAT would have read the same text as.
+    def shown = sql "SHOW ROW POLICY FOR ${user}"
+    def predicate = shown.find { it[0] == 'p_pipes' }[6].toString()
+    def rendersOr = predicate.toUpperCase().contains("OR[") || predicate.toUpperCase().contains(" OR ")
+    assertTrue(rendersOr && predicate.contains("region = 'cn'") && predicate.contains("region = 'us'"),
+            "SHOW ROW POLICY renders a predicate the query is not filtered by: ${predicate}")
+
+    // The rows, not how many of them: a filter admitting the wrong two rows is the failure this case is
+    // about, and a count is green for it. The table holds cn/us/de and the policy admits the first two.
+    def filtered = connect(user, '123abc!@#', url) {
+        sql "SELECT * FROM row_policy_sql_mode_tbl ORDER BY region"
+    }
+    assertEquals([['cn', 'a'], ['us', 'b']], filtered.collect { row -> [row[0].toString(), row[1].toString()] },
+            "the restricted user did not read exactly the rows the OR admits")
+
+    dropPolicy "p_pipes"
+
+    // Text only the creator's mode can read is refused where it is written. 'C:\' is a complete string
+    // literal under NO_BACKSLASH_ESCAPES and an unterminated one without it: accepting it would store a
+    // policy that parses on no query at all, and every statement touching the table would fail from then on
+    // for every user it applies to.
+    sql "SET sql_mode = 'NO_BACKSLASH_ESCAPES'"
+    test {
+        sql """
+            CREATE ROW POLICY p_escapes ON ${dbName}.row_policy_sql_mode_tbl
+            AS PERMISSIVE TO ${user} USING (path <> 'C:\\')
+        """
+        exception "sql_mode"
+    }
+    sql "SET sql_mode = DEFAULT"
+
+    assertTrue(sql("SHOW ROW POLICY FOR ${user}").every { it[0] != 'p_escapes' },
+            "a policy that can be read on no query was stored anyway")
+}

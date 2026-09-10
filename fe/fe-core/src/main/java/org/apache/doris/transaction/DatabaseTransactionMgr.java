@@ -124,6 +124,14 @@ public class DatabaseTransactionMgr {
     // the max number of txn that can be remove per round.
     // set it to avoid holding lock too long when removing too many txns per round.
     private static final int MAX_REMOVE_TXN_PER_ROUND = 10000;
+
+    // Test hook: when enabled with the MV table name as the debug point's "value" param,
+    // finishTransaction returns without turning transactions that write that MV table
+    // VISIBLE, so IVM regression tests can hold a refresh txn in COMMITTED while other
+    // tables keep publishing normally.
+    public static final String DEBUG_POINT_FINISH_TRANSACTION_BLOCK_VISIBLE =
+            "DatabaseTransactionMgr.finishTransaction.block_visible";
+
     // ConfigBase replaces the array on every update, so its identity is the cache version.
     private static volatile String[] cachedResourceGroupSuccQuorumConfig;
     private static volatile Map<String, Integer> cachedResourceGroupSuccQuorum = Map.of();
@@ -1257,6 +1265,11 @@ public class DatabaseTransactionMgr {
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
+        }
+        String blockedTableName = DebugPointUtil.getDebugParamOrDefault(
+                DEBUG_POINT_FINISH_TRANSACTION_BLOCK_VISIBLE, "");
+        if (!blockedTableName.isEmpty() && transactionWritesTableNamed(db, tableIdList, blockedTableName)) {
+            return;
         }
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
         if (!MetaLockUtils.tryWriteLockTablesIfExist(tableList, 10, TimeUnit.SECONDS)) {
@@ -3255,5 +3268,15 @@ public class DatabaseTransactionMgr {
             }
             ((BaseTableStream) tableIf).unprotectedUpdateStreamUpdate(info.getUpdate(), ts);
         }
+    }
+
+    private static boolean transactionWritesTableNamed(Database db, List<Long> tableIdList, String tableName) {
+        for (Long tableId : tableIdList) {
+            Table table = db.getTableNullable(tableId);
+            if (table != null && table.getName().equals(tableName)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
+import org.apache.doris.service.arrowflight.auth2.FlightRemoteIpServerStreamTracer;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TStatusCode;
@@ -57,7 +58,7 @@ public class FlightSqlConnectContext extends ConnectContext {
 
     @Override
     public String getClientIP() {
-        return flightSqlChannel.getRemoteHostPortString();
+        return getRemoteHostPortString();
     }
 
     @Override
@@ -90,7 +91,11 @@ public class FlightSqlConnectContext extends ConnectContext {
 
     @Override
     public String getRemoteHostPortString() {
-        return getFlightSqlChannel().getRemoteHostPortString();
+        // An Arrow Flight SQL session has no MysqlChannel. The client address is captured when the
+        // bearer token is issued (FlightRemoteIpServerStreamTracer) and kept on the context. There is
+        // no stable peer port to report: every gRPC call of a session may arrive on its own connection.
+        return Strings.isNullOrEmpty(getRemoteIP())
+                ? FlightRemoteIpServerStreamTracer.UNKNOWN_REMOTE_IP : getRemoteIP();
     }
 
     @Override
