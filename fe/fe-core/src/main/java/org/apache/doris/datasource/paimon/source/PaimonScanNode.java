@@ -188,6 +188,12 @@ public class PaimonScanNode extends FileQueryScanNode {
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
 
+    @Override
+    protected String getHiveParquetTimeZone() {
+        // Paimon schema history owns TIMESTAMP/LOCAL_ZONED_TIMESTAMP semantics, including HMS tables.
+        return "";
+    }
+
     public PaimonScanNode(PlanNodeId id,
                           TupleDescriptor desc,
                           boolean needCheckColumnPriv,

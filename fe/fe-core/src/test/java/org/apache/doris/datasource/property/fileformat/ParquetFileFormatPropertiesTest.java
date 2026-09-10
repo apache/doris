@@ -47,7 +47,7 @@ public class ParquetFileFormatPropertiesTest {
 
         Assert.assertEquals(TParquetCompressionType.SNAPPY, parquetFileFormatProperties.getParquetCompressionType());
         Assert.assertEquals(false, parquetFileFormatProperties.isParquetDisableDictionary());
-        Assert.assertTrue(parquetFileFormatProperties.isEnableInt96Timestamps());
+        Assert.assertFalse(parquetFileFormatProperties.isEnableInt96Timestamps());
     }
 
     @Test
@@ -104,6 +104,20 @@ public class ParquetFileFormatPropertiesTest {
         properties.put("enable_int96_timestamps", "false");
         parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
         Assert.assertFalse(parquetFileFormatProperties.isEnableInt96Timestamps());
+    }
+
+    @Test
+    public void testEnableInt96TimestampsRejectsInvalidBoolean() {
+        for (String value : new String[] {"yes", "1", " true"}) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put("enable_int96_timestamps", value);
+            try {
+                parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
+                Assert.fail("Expected invalid boolean value to be rejected: " + value);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("enable_int96_timestamps"));
+            }
+        }
     }
 
     @Test

@@ -565,13 +565,15 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
                             const std::set<uint64_t>& column_ids,
                             const std::set<uint64_t>& filter_column_ids,
                             const std::string& page_cache_file_key,
-                            const ParquetReaderCompat& compat, bool enable_strict_mode) {
+                            const ParquetReaderCompat& compat, bool enable_strict_mode,
+                            std::optional<const cctz::time_zone*> int96_timezone_override) {
     size_t total_rows = row_group.num_rows;
     if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
         std::unique_ptr<ColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                element_reader, max_buf_size, col_offsets, state, true, column_ids,
-                               filter_column_ids, page_cache_file_key, compat, enable_strict_mode));
+                               filter_column_ids, page_cache_file_key, compat, enable_strict_mode,
+                               int96_timezone_override));
         auto array_reader = ArrayColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
         element_reader->set_column_in_nested();
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
@@ -587,7 +589,7 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
             RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                    key_reader, max_buf_size, col_offsets, state, true, column_ids,
                                    filter_column_ids, page_cache_file_key, compat,
-                                   enable_strict_mode));
+                                   enable_strict_mode, int96_timezone_override));
         } else {
             auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
                                                                    io_ctx, &field->children[0]);
@@ -600,7 +602,7 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
             RETURN_IF_ERROR(create(file, &field->children[1], row_group, row_ranges, ctz, io_ctx,
                                    value_reader, max_buf_size, col_offsets, state, true, column_ids,
                                    filter_column_ids, page_cache_file_key, compat,
-                                   enable_strict_mode));
+                                   enable_strict_mode, int96_timezone_override));
         } else {
             auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
                                                                    io_ctx, &field->children[1]);
@@ -624,7 +626,8 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
                 RETURN_IF_ERROR(create(file, &child, row_group, row_ranges, ctz, io_ctx,
                                        child_reader, max_buf_size, col_offsets, state,
                                        in_collection, column_ids, filter_column_ids,
-                                       page_cache_file_key, compat, enable_strict_mode));
+                                       page_cache_file_key, compat, enable_strict_mode,
+                                       int96_timezone_override));
                 child_readers[child.name] = std::move(child_reader);
                 // Record the first non-SkippingReader
                 if (non_skip_reader_idx == -1) {
@@ -644,7 +647,7 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
             RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                    child_reader, max_buf_size, col_offsets, state, in_collection,
                                    column_ids, filter_column_ids, page_cache_file_key, compat,
-                                   enable_strict_mode));
+                                   enable_strict_mode, int96_timezone_override));
             child_reader->set_column_in_nested();
             child_readers[field->children[0].name] = std::move(child_reader);
         }
@@ -669,10 +672,17 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
             return Status::Corruption("Parquet physical column {} has no chunk metadata",
                                       physical_index);
         }
+        // INT96 has no logical timezone annotation. An engaged override, including nullptr,
+        // carries the explicit catalog decision; callers that omit it retain the legacy session
+        // timezone behavior used by the V1/native reader path.
+        const cctz::time_zone* scalar_timezone =
+                field->physical_type == tparquet::Type::INT96 && int96_timezone_override.has_value()
+                        ? *int96_timezone_override
+                        : ctz;
         if (in_collection) {
             if (offset_index == nullptr) {
                 auto scalar_reader = ScalarColumnReader<true, false>::create_unique(
-                        row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
+                        row_ranges, total_rows, chunk, offset_index, scalar_timezone, io_ctx);
 
                 RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state,
                                                     page_cache_file_key, compat,
@@ -681,7 +691,7 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
                 reader.reset(scalar_reader.release());
             } else {
                 auto scalar_reader = ScalarColumnReader<true, true>::create_unique(
-                        row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
+                        row_ranges, total_rows, chunk, offset_index, scalar_timezone, io_ctx);
 
                 RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state,
                                                     page_cache_file_key, compat,
@@ -692,7 +702,7 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
         } else {
             if (offset_index == nullptr) {
                 auto scalar_reader = ScalarColumnReader<false, false>::create_unique(
-                        row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
+                        row_ranges, total_rows, chunk, offset_index, scalar_timezone, io_ctx);
 
                 RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state,
                                                     page_cache_file_key, compat,
@@ -701,7 +711,7 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
                 reader.reset(scalar_reader.release());
             } else {
                 auto scalar_reader = ScalarColumnReader<false, true>::create_unique(
-                        row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
+                        row_ranges, total_rows, chunk, offset_index, scalar_timezone, io_ctx);
 
                 RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state,
                                                     page_cache_file_key, compat,
