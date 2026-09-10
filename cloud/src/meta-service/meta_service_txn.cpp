@@ -4665,7 +4665,8 @@ void MetaServiceImpl::get_prepare_txn_by_coordinator(
                                                 : txn_info_key({instance_id, 0, 0});
     std::string end_key = scan_by_running_key ? txn_running_key({instance_id, INT64_MAX, INT64_MAX})
                                               : txn_info_key({instance_id, INT64_MAX, INT64_MAX});
-    LOG(INFO) << "begin_key:" << hex(begin_key) << " end_key:" << hex(end_key);
+    LOG(INFO) << "begin_key:" << hex(begin_key) << " end_key:" << hex(end_key)
+              << " scan_by_running_key=" << scan_by_running_key;
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -4714,6 +4715,7 @@ void MetaServiceImpl::get_prepare_txn_by_coordinator(
             return ret;
         }
         std::vector<std::string> info_keys;
+        info_keys.reserve(scan_by_running_key ? it->size() : 0);
         while (it->has_next()) {
             auto [key, value] = it->next();
             if (scan_by_running_key) {
