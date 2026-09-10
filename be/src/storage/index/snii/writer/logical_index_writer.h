@@ -106,8 +106,8 @@ struct SniiIndexInput {
     // Per-doc 1-byte encoded norm (length doc_count); only consumed when the
     // config has scoring. May be empty otherwise.
     std::vector<uint8_t> encoded_norms;
-    // 流式合并会话：norms 在 finish 之前才交付（与 postings 同一趟重建），先用它声明
-    // "这个索引会有 norms"，让 writer 在 finalize 时校验长度。
+    // Streaming merge sessions declare norms up front but supply them only before finish,
+    // after rebuilding them alongside postings. The writer validates their size at finalize.
     bool write_norms = false;
     // G16-h: zstd levels for the dict-block whole-block compression and the
     // .prx window auto mode (both default 3 == the historical constants).

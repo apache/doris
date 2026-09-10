@@ -25,9 +25,9 @@
 
 namespace doris::snii::query::internal {
 
-// SNII 的 term 键就是分词后的原始字节：没有转义、没有版本、没有"物理键 / 逻辑键"之分。
-// 唯一的例外是 \x1F 开头的内部命名空间（phrase-bigram 标记）：用户 term 若与之重叠，
-// 整条查询以 INVERTED_INDEX_BYPASS 绕过 SNII，由上层走非索引路径。
+// SNII term keys are raw analyzed bytes, without escaping, versioning, or a physical/logical
+// key distinction. The sole exception is the internal phrase-bigram namespace starting with
+// \x1F: overlapping user terms return INVERTED_INDEX_BYPASS for execution without the index.
 inline Status check_term_outside_internal_namespace(std::string_view term) {
     if (format::term_overlaps_internal_namespace(term)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(

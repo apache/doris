@@ -68,8 +68,8 @@ enum class SectionType : uint8_t {
 enum class IndexConfig : uint8_t {
     kDocsOnly = 0,      // docid only: term/match filtering
     kDocsPositions = 1, // docid+positions: MATCH_PHRASE; BM25 tf = position count
-    // 2 曾是 kDocsPositionsScoring（CommonGrams 时代的打分 tier），已删除：打分能力由
-    // norms region 是否存在决定（见 CoreMetadata::section_refs.norms），reader 拒绝值 2。
+    // Value 2 was kDocsPositionsScoring, the removed CommonGrams scoring tier. Scoring now
+    // depends on the norms region (CoreMetadata::section_refs.norms); readers reject value 2.
     kPositionsOffsets = 3, // reserved (highlight/RAG), not implemented in this release
 };
 

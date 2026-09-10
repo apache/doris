@@ -77,9 +77,9 @@ message SniiCoreMetadataPB {
     optional uint32 index_config = 1;
     optional SniiStatsPB stats = 2;
     optional SniiSectionRefsPB section_refs = 3;
-    // 字段 4/5 曾是 CommonGrams 元数据（功能已删除）。字段号保留、类型降级成不透明
-    // 字节 / 整数：reader 只用它们识别"这段是用 CommonGrams 写出来的"并拒绝读取（墓碑），
-    // 不再解析内容。旧 reader（生产 4.1.7 系）本来就忽略这两个字段。
+    // Fields 4/5 belonged to the removed CommonGrams feature. Keep their numbers as opaque
+    // bytes/integers so readers can identify and reject CommonGrams segments without parsing
+    // the contents. Older production 4.1.7-series readers already ignore these fields.
     optional bytes legacy_common_grams = 4;
     optional uint32 legacy_common_grams_posting_policy = 5;
 }

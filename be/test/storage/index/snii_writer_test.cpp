@@ -96,8 +96,8 @@ void init_failure_index_meta(doris::TabletIndex* index_meta, int64_t index_id) {
     index_meta->init_from_pb(index_pb);
 }
 
-// 分词过程中抛 INVERTED_INDEX_ANALYZER_ERROR 的分析器：模拟任何 token filter 的运行期失败
-// （以前由某个词元过滤器的 UTF-8 校验扮演这个角色）。
+// An analyzer that throws INVERTED_INDEX_ANALYZER_ERROR to simulate a token filter's runtime
+// failure. Previously, a token filter's UTF-8 validation provided this failure path.
 class ThrowingTokenStream final : public lucene::analysis::TokenStream {
 public:
     lucene::analysis::Token* next(lucene::analysis::Token*) override {

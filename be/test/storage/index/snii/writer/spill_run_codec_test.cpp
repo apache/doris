@@ -358,7 +358,7 @@ TEST(SniiSpillRunCodec, RunWriterStreamsWideTermWithinAccountedBound) {
     TempRun run;
     std::vector<uint32_t> docids(kDocs);
     std::iota(docids.begin(), docids.end(), 0U);
-    // 生产 SPIMI 落盘的 postings 一定带 freqs（to_postings 总会填充），run 记录没有无频次形状。
+    // SPIMI spill postings always contain freqs populated by to_postings; run records require them.
     TermPostings postings = MakeTerm(std::move(docids), std::vector<uint32_t>(kDocs, 1));
 
     int64_t observed = 0;
