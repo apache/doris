@@ -421,9 +421,12 @@ public:
     // ActiveTabletCollector::commit().
     std::atomic<int64_t> last_reported_scan_count {0};
     std::atomic<int64_t> last_reported_flush_count {0};
-    // Wall clock of that commit. The delta window is per-tablet (a tablet cut by the
-    // topN cap is not committed, so its next delta spans several intervals), so
-    // consumers must normalise delta by this window instead of comparing raw counts.
+    // Wall clock of that commit. Shared by every tablet in a round, because commit() is
+    // all-or-nothing: a dropped report (5 retries exhausted, or handle_report() returning
+    // false) advances no baseline at all, so the next round's delta spans several
+    // intervals. Backends also report on independent phases. FE compares entries across
+    // backends and across rounds, so it must normalise delta by this window rather than
+    // compare raw counts.
     std::atomic<int64_t> last_reported_time_ms {0};
     std::atomic<int64_t> published_count = 0;
     std::atomic<int64_t> read_block_count = 0;

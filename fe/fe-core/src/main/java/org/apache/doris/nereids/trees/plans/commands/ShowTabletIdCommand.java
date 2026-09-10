@@ -80,7 +80,7 @@ public class ShowTabletIdCommand extends ShowCommand {
         builder.addColumn(new Column("IsSync", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("Order", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("QueryHits", ScalarType.createVarchar(30)));
-        builder.addColumn(new Column("AccessCount", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("WindowAccessCount", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("LastAccessTime", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("IsRowBinlog", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("DetailCmd", ScalarType.createVarchar(30)));

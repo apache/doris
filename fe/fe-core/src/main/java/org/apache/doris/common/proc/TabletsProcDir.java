@@ -64,7 +64,7 @@ public class TabletsProcDir implements ProcDirInterface {
                 .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
                 .add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State")
                 .add("LstConsistencyCheckTime").add("CheckVersion")
-                .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("AccessCount")
+                .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("WindowAccessCount")
                 .add("LastAccessTime").add("PathHash").add("Path")
                 .add("MetaUrl").add("CompactionStatus")
                 .add("CooldownReplicaId").add("CooldownMetaId").add("IsRowBinlog");
@@ -149,7 +149,7 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1); // visible version count
                     tabletInfo.add(-1); // total version count
                     tabletInfo.add(0L); // query hits
-                    tabletInfo.add(0L); // query AccessCount
+                    tabletInfo.add(0L); // query WindowAccessCount
                     tabletInfo.add(0L); // query LastAccessTime
                     tabletInfo.add(-1); // path hash
                     tabletInfo.add(FeConstants.null_string); // path

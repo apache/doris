@@ -122,29 +122,24 @@ void increase_report_version() {
     s_report_version.fetch_add(1, std::memory_order_relaxed);
 }
 
-static std::vector<TActiveTabletStat> to_thrift_query(
-        const std::vector<ActiveTabletCandidate>& candidates) {
-    std::vector<TActiveTabletStat> result;
-    result.reserve(candidates.size());
-    for (const auto& candidate : candidates) {
-        auto& stat = result.emplace_back();
-        stat.__set_tablet_id(candidate.tablet_id);
-        stat.__set_scan_count_delta(candidate.delta);
-        stat.__set_last_query_time_ms(candidate.last_time_ms);
-        stat.__set_delta_window_ms(candidate.window_ms);
-    }
-    return result;
-}
+enum class ActiveDim { QUERY, LOAD };
 
-static std::vector<TActiveTabletStat> to_thrift_load(
-        const std::vector<ActiveTabletCandidate>& candidates) {
+// The two top-N lists differ only in which pair of thrift fields carries the dimension;
+// tablet_id and delta_window_ms are common, so they are written once here.
+template <ActiveDim Dim>
+std::vector<TActiveTabletStat> to_thrift(const std::vector<ActiveTabletCandidate>& candidates) {
     std::vector<TActiveTabletStat> result;
     result.reserve(candidates.size());
     for (const auto& candidate : candidates) {
         auto& stat = result.emplace_back();
         stat.__set_tablet_id(candidate.tablet_id);
-        stat.__set_load_count_delta(candidate.delta);
-        stat.__set_last_load_time_ms(candidate.last_time_ms);
+        if constexpr (Dim == ActiveDim::QUERY) {
+            stat.__set_scan_count_delta(candidate.delta);
+            stat.__set_last_query_time_ms(candidate.last_time_ms);
+        } else {
+            stat.__set_load_count_delta(candidate.delta);
+            stat.__set_last_load_time_ms(candidate.last_time_ms);
+        }
         stat.__set_delta_window_ms(candidate.window_ms);
     }
     return result;
@@ -1258,9 +1253,8 @@ void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_in
     request.__isset.resource = true;
 
     active.take_top_n();
-    request.__set_top_query_tablets(to_thrift_query(active.query_candidates()));
-    request.__set_top_load_tablets(to_thrift_load(active.load_candidates()));
-    request.__set_active_tablets_truncated(active.truncated());
+    request.__set_top_query_tablets(to_thrift<ActiveDim::QUERY>(active.query_candidates()));
+    request.__set_top_load_tablets(to_thrift<ActiveDim::LOAD>(active.load_candidates()));
     if (active.truncated()) {
         report_active_tablet_truncated << 1;
     }
@@ -1315,9 +1309,8 @@ void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* clust
     request.__set_num_tablets(total_num_tablets);
 
     active.take_top_n();
-    request.__set_top_query_tablets(to_thrift_query(active.query_candidates()));
-    request.__set_top_load_tablets(to_thrift_load(active.load_candidates()));
-    request.__set_active_tablets_truncated(active.truncated());
+    request.__set_top_query_tablets(to_thrift<ActiveDim::QUERY>(active.query_candidates()));
+    request.__set_top_load_tablets(to_thrift<ActiveDim::LOAD>(active.load_candidates()));
     if (active.truncated()) {
         report_active_tablet_truncated << 1;
     }
