@@ -3404,9 +3404,25 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 "GroupJoin fusion requires all aggregate inputs to be join-child outputs, got: %s",
                 aggregate.getInputSlots());
 
-        // Visit children right-to-left (right = build, left = probe)
-        PlanFragment rightFragment = join.child(1).accept(this, context);
-        PlanFragment leftFragment = join.child(0).accept(this, context);
+        // Visit children right-to-left (right = build, left = probe).
+        // connectGroupJoinNode merges both child fragments into this one, exactly like
+        // connectJoinNode does for a plain hash join, so the children must be translated under
+        // the same fragment-merge context. Without it a child aggregate could take the
+        // bucketed-aggregation path (shouldUseBucketedFusion), which drops the exchange that
+        // keeps its olap scan in its own fragment and leaves two olap scans inside the
+        // GroupJoin fragment: the scan-assignment job then rejects the fragment with
+        // "Not supported multiple scan multiple OlapTable but not contains colocate join or
+        // bucket shuffle join". The GroupJoin would also lose the hash distribution its
+        // PARTITIONED input relies on, since that exchange is what enforces it.
+        context.enterFragmentMergeChild();
+        PlanFragment rightFragment;
+        PlanFragment leftFragment;
+        try {
+            rightFragment = join.child(1).accept(this, context);
+            leftFragment = join.child(0).accept(this, context);
+        } finally {
+            context.exitFragmentMergeChild();
+        }
         PlanNode leftPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightPlanRoot = rightFragment.getPlanRoot();
 
