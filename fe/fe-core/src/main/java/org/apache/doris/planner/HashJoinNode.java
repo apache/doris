@@ -338,7 +338,11 @@ public class HashJoinNode extends JoinNodeBase {
                     ? LocalExchangeTypeRequire.requirePassthrough()
                     : LocalExchangeTypeRequire.noRequire();
             buildSideRequire = buildChildSerial
-                    ? LocalExchangeTypeRequire.requirePassToOne()
+                    ? (translatorContext.getConnectContext() == null
+                            || translatorContext.getConnectContext().getSessionVariable()
+                                    .enableShareHashTableForBroadcastJoin
+                            ? LocalExchangeTypeRequire.requirePassToOne()
+                            : LocalExchangeTypeRequire.requireBroadcast())
                     : LocalExchangeTypeRequire.noRequire();
             // For serial or force-passthrough probe: output is PASSTHROUGH.
             // For a non-serial probe without the flag: propagate the probe's distribution.
