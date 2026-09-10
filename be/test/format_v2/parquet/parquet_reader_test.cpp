@@ -74,7 +74,9 @@
 #include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Types_types.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
@@ -1699,8 +1701,8 @@ protected:
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
             bool is_immutable = false, bool enable_mapping_varbinary = false,
-            std::string fs_name = {}, int64_t mtime = 0,
-            std::string hive_parquet_time_zone = {}) const {
+            std::string fs_name = {}, int64_t mtime = 0, std::string hive_parquet_time_zone = {},
+            bool preserve_binary_uuid = false) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1714,7 +1716,7 @@ protected:
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
                 global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-                std::move(hive_parquet_time_zone));
+                std::move(hive_parquet_time_zone), preserve_binary_uuid);
     }
 
     std::filesystem::path _test_dir;
@@ -1722,6 +1724,13 @@ protected:
 };
 
 TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
+    // Keep all 32 schema entries resident even if they land in the same cache shard.
+    FileMetaCache metadata_cache(1024);
+    auto* env = ExecEnv::GetInstance();
+    auto* previous_cache = env->_file_meta_cache;
+    env->_file_meta_cache = &metadata_cache;
+    Defer restore_cache {[&] { env->_file_meta_cache = previous_cache; }};
+    int64_t file_version = 0;
     const std::array<uint8_t, 16> bytes {0,    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                                          0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
     for (bool dictionary : {false, true}) {
@@ -1760,52 +1769,69 @@ TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
                 }
                 writer->Close();
                 ASSERT_TRUE(out->Close().ok());
+                ++file_version;
                 for (bool mapping : {false, true}) {
-                    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-                    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false,
-                                                mapping);
-                    reader->set_batch_size(2);
-                    ASSERT_TRUE(reader->init(&state).ok());
-                    std::vector<format::ColumnDefinition> schema;
-                    ASSERT_TRUE(reader->get_schema(&schema).ok());
-                    ASSERT_EQ(schema.size(), 1);
-                    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(),
-                              mapping ? TYPE_VARBINARY : TYPE_UUID);
-                    auto request = std::make_shared<format::FileScanRequest>();
-                    request->non_predicate_columns = {field_projection(0)};
-                    request->local_positions.emplace(format::LocalColumnId(0),
-                                                     format::LocalIndex(0));
-                    ASSERT_TRUE(reader->open(request).ok());
-                    size_t total = 0;
-                    bool eof = false;
-                    while (!eof) {
-                        Block block = build_file_block(schema);
-                        size_t rows = 0;
-                        auto status = reader->get_block(&block, &rows, &eof);
-                        ASSERT_TRUE(status.ok()) << status;
-                        const auto& column = assert_cast<const ColumnNullable&>(
-                                *block.get_by_position(0).column);
-                        for (size_t row = 0; row < rows; ++row) {
-                            const bool expected_null = optional && (total + row) % 4 == 1;
-                            EXPECT_EQ(column.is_null_at(row), expected_null);
-                            if (expected_null) {
-                                continue;
-                            }
+                    for (int repeat = 0; repeat < 2; ++repeat) {
+                        for (bool preserve_binary_uuid : {false, true}) {
+                            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                            RuntimeProfile profile("uuid_mapping_cache");
+                            auto reader = create_reader(0, -1, &profile, false, nullptr,
+                                                        std::nullopt, false, mapping, {},
+                                                        file_version, {}, preserve_binary_uuid);
+                            reader->set_batch_size(2);
+                            ASSERT_TRUE(reader->init(&state).ok());
+                            EXPECT_EQ(profile.get_counter("FileFooterHitCache")->value(), repeat);
+                            EXPECT_EQ(profile.get_counter("FileFooterReadCalls")->value(),
+                                      1 - repeat);
+                            std::vector<format::ColumnDefinition> schema;
+                            ASSERT_TRUE(reader->get_schema(&schema).ok());
+                            ASSERT_EQ(schema.size(), 1);
+                            auto expected_type = preserve_binary_uuid ? TYPE_STRING : TYPE_UUID;
                             if (mapping) {
-                                const auto value = column.get_nested_column().get_data_at(row);
-                                EXPECT_EQ(value.size, bytes.size());
-                                EXPECT_EQ(value.to_string(),
-                                          std::string(reinterpret_cast<const char*>(bytes.data()),
-                                                      bytes.size()));
-                            } else {
-                                EXPECT_EQ(remove_nullable(schema[0].type)
-                                                  ->to_string(column.get_nested_column(), row),
-                                          "00112233-4455-6677-8899-aabbccddeeff");
+                                expected_type = TYPE_VARBINARY;
                             }
+                            EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(),
+                                      expected_type);
+                            auto request = std::make_shared<format::FileScanRequest>();
+                            request->non_predicate_columns = {field_projection(0)};
+                            request->local_positions.emplace(format::LocalColumnId(0),
+                                                             format::LocalIndex(0));
+                            ASSERT_TRUE(reader->open(request).ok());
+                            size_t total = 0;
+                            bool eof = false;
+                            while (!eof) {
+                                Block block = build_file_block(schema);
+                                size_t rows = 0;
+                                auto status = reader->get_block(&block, &rows, &eof);
+                                ASSERT_TRUE(status.ok()) << status;
+                                const auto& column = assert_cast<const ColumnNullable&>(
+                                        *block.get_by_position(0).column);
+                                for (size_t row = 0; row < rows; ++row) {
+                                    const bool expected_null = optional && (total + row) % 4 == 1;
+                                    EXPECT_EQ(column.is_null_at(row), expected_null);
+                                    if (expected_null) {
+                                        continue;
+                                    }
+                                    if (mapping || preserve_binary_uuid) {
+                                        const auto value =
+                                                column.get_nested_column().get_data_at(row);
+                                        EXPECT_EQ(value.size, bytes.size());
+                                        EXPECT_EQ(value.to_string(),
+                                                  std::string(reinterpret_cast<const char*>(
+                                                                      bytes.data()),
+                                                              bytes.size()));
+                                    } else {
+                                        EXPECT_EQ(remove_nullable(schema[0].type)
+                                                          ->to_string(column.get_nested_column(),
+                                                                      row),
+                                                  "00112233-4455-6677-8899-aabbccddeeff");
+                                    }
+                                }
+                                total += rows;
+                            }
+                            EXPECT_EQ(total, 8);
                         }
-                        total += rows;
                     }
-                    EXPECT_EQ(total, 8);
                 }
             }
         }
