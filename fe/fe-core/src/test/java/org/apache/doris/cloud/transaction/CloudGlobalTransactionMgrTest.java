@@ -93,6 +93,30 @@ public class CloudGlobalTransactionMgrTest {
     }
 
     @Test
+    public void testStrictRecoveryRequiresExplicitMsCapability() throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            CheckTxnConflictResponse.Builder response = CheckTxnConflictResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                    .setFinished(true);
+            Mockito.when(proxy.checkTxnConflict(Mockito.any())).thenReturn(response.build());
+            Assertions.assertThrows(UserException.class,
+                    () -> masterTransMgr.isPreviousTransactionsFinishedForTsoRecovery(1000));
+            Mockito.when(proxy.checkTxnConflict(Mockito.any())).thenReturn(
+                    response.setStrictRecoveryCheckApplied(true).build());
+            Assertions.assertTrue(masterTransMgr.isPreviousTransactionsFinishedForTsoRecovery(1000));
+            ArgumentCaptor<Cloud.CheckTxnConflictRequest> capture =
+                    ArgumentCaptor.forClass(Cloud.CheckTxnConflictRequest.class);
+            Mockito.verify(proxy, Mockito.times(2)).checkTxnConflict(capture.capture());
+            Assertions.assertTrue(capture.getValue().getStrictRecoveryCheck());
+            Assertions.assertEquals(1000, capture.getValue().getEndTxnId());
+            Assertions.assertFalse(capture.getValue().hasDbId());
+            Assertions.assertEquals(0, capture.getValue().getTableIdsCount());
+        }
+    }
+
+    @Test
     public void testBeginTransaction() throws Exception {
         AtomicLong id = new AtomicLong(1000);
         MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);

@@ -17,8 +17,11 @@
 
 package org.apache.doris.service.arrowflight;
 
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.service.arrowflight.sessions.FlightSessionsManager;
@@ -27,6 +30,8 @@ import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectContext;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightProducer.CallContext;
 import org.apache.arrow.flight.FlightProducer.StreamListener;
+import org.apache.arrow.flight.FlightRuntimeException;
+import org.apache.arrow.flight.FlightStatusCode;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.Result;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementRequest;
@@ -45,6 +50,22 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class DorisFlightSqlProducerTest {
 
     private boolean prevRunningUnitTest;
+
+    @Test
+    public void testWindowNotReadyHasRetryableFlightStatusAndStableBusinessCode() {
+        QueryState state = new QueryState();
+        IncrWindowNotReadyException error = new IncrWindowNotReadyException(2000, 100, 1000);
+        state.setError(error.getMysqlErrorCode(), error.getDetailMessage());
+        FlightRuntimeException result = DorisFlightSqlProducer.queryFailure(state, state.getErrorMessage(), error);
+        Assertions.assertEquals(FlightStatusCode.UNAVAILABLE, result.status().code());
+        Assertions.assertEquals(Integer.toString(ErrorCode.ERR_INCR_WINDOW_NOT_READY.getCode()),
+                result.status().metadata().get("doris-error-code"));
+        Assertions.assertTrue(result.status().description().contains("requestedEndTimestampMs=2000"));
+        Assertions.assertTrue(result.status().description().contains("retryAfterMs=1000"));
+        state.setError(ErrorCode.ERR_UNKNOWN_ERROR, "other failure");
+        Assertions.assertEquals(FlightStatusCode.INTERNAL,
+                DorisFlightSqlProducer.queryFailure(state, "other failure", error).status().code());
+    }
 
     @BeforeEach
     public void setUp() {

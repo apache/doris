@@ -145,6 +145,11 @@ public interface GlobalTransactionMgrIface extends Writable {
     public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
             Map<Long, Set<Long>> backendPartitions) throws UserException;
 
+    /** Instance-wide, timeout-independent check of the exclusive recovery transaction bound. */
+    default boolean isPreviousTransactionsFinishedForTsoRecovery(long endTransactionId) throws UserException {
+        throw new UserException("Strict TSO recovery is only supported in cloud mode");
+    }
+
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList)
             throws AnalysisException;
 

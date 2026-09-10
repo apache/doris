@@ -48,6 +48,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
@@ -729,7 +730,15 @@ public class StmtExecutor {
                     throw new UserException(e.getMessage());
                 }
                 LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                context.getState().setError(e.getMessage());
+                // Planning wraps the window rejection in NereidsException/AnalysisException.
+                // NereidsException(Exception) keeps its wrapped exception outside Throwable.cause.
+                Throwable cause = e instanceof NereidsException
+                        ? Util.getRootCause(((NereidsException) e).getException()) : e;
+                if (cause instanceof IncrWindowNotReadyException) {
+                    context.getState().setError(ErrorCode.ERR_INCR_WINDOW_NOT_READY, e.getMessage());
+                } else {
+                    context.getState().setError(e.getMessage());
+                }
                 return;
             } catch (Exception e) {
                 LOG.warn("Nereids execute failed. {}", context.getQueryIdentifier(), e);

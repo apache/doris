@@ -4729,7 +4729,9 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
                                          CheckTxnConflictResponse* response,
                                          ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(check_txn_conflict, get);
-    if (!request->has_db_id() || !request->has_end_txn_id() || (request->table_ids_size() <= 0)) {
+    const bool strict_recovery = request->strict_recovery_check();
+    if (!request->has_end_txn_id() || (strict_recovery && request->end_txn_id() <= 0) ||
+        (!strict_recovery && (!request->has_db_id() || request->table_ids_size() <= 0))) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid db id, end txn id or table_ids.";
         return;
@@ -4749,6 +4751,14 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
 
     std::string begin_running_key = txn_running_key({instance_id, db_id, 0});
     std::string end_running_key = txn_running_key({instance_id, db_id, request->end_txn_id()});
+    if (strict_recovery) {
+        // Database and transaction IDs are non-negative. Include the entire instance and apply
+        // the exclusive transaction bound after decoding each key (keys sort by database first).
+        begin_running_key = txn_running_key({instance_id, 0, 0});
+        end_running_key = txn_running_key({instance_id, INT64_MAX, INT64_MAX});
+        end_running_key.push_back('\x00');
+        response->set_strict_recovery_check_applied(true);
+    }
     LOG(INFO) << "begin_running_key:" << hex(begin_running_key)
               << " end_running_key:" << hex(end_running_key);
 
@@ -4785,6 +4795,27 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
         while (it->has_next()) {
             total_iteration_cnt++;
             auto [k, v] = it->next();
+            if (strict_recovery) {
+                std::string_view encoded_key = k;
+                encoded_key.remove_prefix(1);
+                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> fields;
+                if (decode_key(&encoded_key, &fields) != 0 || fields.size() != 5 ||
+                    !std::holds_alternative<int64_t>(std::get<0>(fields[4]))) {
+                    code = MetaServiceCode::UNDEFINED_ERR;
+                    msg = "failed to decode running transaction key during TSO recovery";
+                    return;
+                }
+                if (std::get<int64_t>(std::get<0>(fields[4])) < request->end_txn_id()) {
+                    // A running key is removed atomically with real VISIBLE/ABORTED. In
+                    // particular an expired COMMITTED lazy transaction must still block.
+                    response->set_finished(false);
+                    return;
+                }
+                if (!it->has_next()) {
+                    begin_running_key = k;
+                }
+                continue;
+            }
             LOG(INFO) << "check watermark conflict range_get txn_run_key=" << hex(k);
             TxnRunningPB running_pb;
             if (!running_pb.ParseFromArray(v.data(), v.size())) {

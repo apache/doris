@@ -2781,6 +2781,81 @@ TEST(MetaServiceTest, GetCurrentMaxTxnIdTest) {
     ASSERT_GE(max_txn_id_res.current_max_txn_id(), begin_txn_res.txn_id());
 }
 
+TEST(MetaServiceTest, StrictTsoRecoveryChecksAllDatabasesAndExpiredLazyTransactions) {
+    auto meta_service = get_meta_service();
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    TxnRunningPB running;
+    running.set_timeout_time(1); // Expired is not terminal for a persisted COMMITTED lazy txn.
+    running.add_table_ids(777);
+    txn->put(txn_running_key({mock_instance, 1, 100}), running.SerializeAsString());
+    txn->put(txn_running_key({mock_instance, 2, 150}), running.SerializeAsString());
+    txn->put(txn_running_key({"another_instance", 1, 1}), running.SerializeAsString());
+    const auto blocking_key = txn_running_key({mock_instance, 999, 50});
+    txn->put(blocking_key, running.SerializeAsString());
+    TxnInfoPB info;
+    info.set_db_id(999);
+    info.set_txn_id(50);
+    info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
+    const auto info_key = txn_info_key({mock_instance, 999, 50});
+    txn->put(info_key, info.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    brpc::Controller cntl;
+    CheckTxnConflictRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_end_txn_id(100);
+    request.set_strict_recovery_check(true);
+    CheckTxnConflictResponse response;
+    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(response.strict_recovery_check_applied());
+    ASSERT_FALSE(response.finished());
+
+    // The legacy table-scoped check still skips expired transactions; its result cannot recover TSO.
+    CheckTxnConflictRequest legacy = request;
+    legacy.clear_strict_recovery_check();
+    legacy.set_db_id(999);
+    legacy.add_table_ids(777);
+    response.Clear();
+    meta_service->check_txn_conflict(&cntl, &legacy, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(response.finished());
+    ASSERT_FALSE(response.has_strict_recovery_check_applied());
+
+    // Real publication removes the running key in the same KV transaction as the terminal state.
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+    txn->put(info_key, info.SerializeAsString());
+    txn->remove(blocking_key);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    response.Clear();
+    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(response.strict_recovery_check_applied());
+    ASSERT_TRUE(
+            response.finished()); // IDs equal to or above the fixed exclusive bound are ignored.
+}
+
+TEST(MetaServiceTest, StrictTsoRecoveryRejectsMalformedRunningKeys) {
+    auto meta_service = get_meta_service();
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key = txn_running_key({mock_instance, 1, 1});
+    key.push_back('\xff');
+    txn->put(key, "");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    brpc::Controller cntl;
+    CheckTxnConflictRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_end_txn_id(100);
+    request.set_strict_recovery_check(true);
+    CheckTxnConflictResponse response;
+    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    ASSERT_NE(response.status().code(), MetaServiceCode::OK);
+    ASSERT_FALSE(response.finished());
+}
+
 TEST(MetaServiceTest, CreateMetaSyncPointTest) {
     auto meta_service = get_meta_service();
     const std::string cloud_unique_id = "test_cloud_unique_id";

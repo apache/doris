@@ -22,9 +22,12 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.journal.Journal;
+import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -36,10 +39,17 @@ import org.mockito.Mockito;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Unit tests for TSOService class.
@@ -251,7 +261,7 @@ public class TSOServiceTest {
     @Test
     public void testReplayWindowEndTSOUpdatesServiceState() {
         long windowEnd = 12345L;
-        tsoService.replayWindowEndTSO(new TSOTimestamp(windowEnd, 0L));
+        tsoService.replayWindowEndTSO(new TSOServiceState(windowEnd, 0L));
         Assertions.assertEquals(windowEnd, tsoService.getWindowEndTSO());
     }
 
@@ -261,7 +271,7 @@ public class TSOServiceTest {
         try {
             Config.enable_feature_binlog = true;
             long windowEnd = 12345L;
-            tsoService.replayWindowEndTSO(new TSOTimestamp(windowEnd, 0L));
+            tsoService.replayWindowEndTSO(new TSOServiceState(windowEnd, 0L));
 
             byte[] bytes = saveTSOBytes(tsoService);
             Assertions.assertTrue(bytes.length > 0);
@@ -320,7 +330,7 @@ public class TSOServiceTest {
         Mockito.when(editLog.getJournal()).thenReturn(journal);
 
         invokeWriteTimestampToBdbJe(tsoService, 123L);
-        Mockito.verify(editLog).logTSOTimestampWindowEnd(Mockito.any(TSOTimestamp.class));
+        Mockito.verify(editLog).logTSOTimestampWindowEnd(Mockito.any(TSOServiceState.class));
     }
 
     @Test
@@ -371,7 +381,7 @@ public class TSOServiceTest {
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
         long now = System.currentTimeMillis() + Config.tso_time_offset_debug_mode;
-        tsoService.replayWindowEndTSO(new TSOTimestamp(
+        tsoService.replayWindowEndTSO(new TSOServiceState(
                 now + Config.tso_clock_backward_startup_threshold_ms + 60_000, 0L));
         try {
             invokeCalibrateTimestamp(tsoService);
@@ -406,7 +416,7 @@ public class TSOServiceTest {
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
         long initialWindowEnd = 12345L;
-        tsoService.replayWindowEndTSO(new TSOTimestamp(initialWindowEnd, 0L));
+        tsoService.replayWindowEndTSO(new TSOServiceState(initialWindowEnd, 0L));
 
         invokeUpdateTimestamp(tsoService);
 
@@ -433,6 +443,152 @@ public class TSOServiceTest {
             Assertions.assertEquals(0L, (long) pairWhenDisabled.second);
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
+    @Test
+    public void testCommittedPrefixIsPublishedOnlyAfterJournalSuccess() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(editLog.getJournal()).thenReturn(Mockito.mock(Journal.class));
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        tsoService.replayWindowEndTSO(new TSOServiceState(200, 80));
+        setGlobalTimestamp(tsoService, 100, 10);
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
+        Mockito.when(txnMgr.isPreviousTransactionsFinishedForTsoRecovery(1000L)).thenReturn(true);
+        tracker.checkTransactions(txnMgr, Long.MAX_VALUE);
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            Mockito.doAnswer(invocation -> {
+                Assertions.assertEquals(80, tsoService.getStatusSnapshot().getCommittedTso());
+                Assertions.assertEquals(200, tsoService.getStatusSnapshot().getWindowEndPhysicalTime());
+                throw new RuntimeException("injected journal failure");
+            }).when(editLog).logTSOTimestampWindowEnd(Mockito.any());
+            Assertions.assertThrows(RuntimeException.class, () -> invokeWriteTimestampToBdbJe(tsoService, 300));
+            Assertions.assertEquals(80, tsoService.getStatusSnapshot().getCommittedTso());
+            Assertions.assertEquals(200, tsoService.getStatusSnapshot().getWindowEndPhysicalTime());
+            Mockito.doNothing().when(editLog).logTSOTimestampWindowEnd(Mockito.any());
+            invokeWriteTimestampToBdbJe(tsoService, 300);
+            Assertions.assertEquals(tsoService.getCurrentTSO(), tsoService.getStatusSnapshot().getCommittedTso());
+            Assertions.assertEquals(300, tsoService.getStatusSnapshot().getWindowEndPhysicalTime());
+        }
+    }
+
+    @Test
+    public void testRecoveryFreezesPrefixAndPeriodicFlushWorksWithUnchangedWindow() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        mockPersistReady();
+        long oldWindow = System.currentTimeMillis() + 60_000;
+        long oldCommitted = TSOTimestamp.composeTimestamp(oldWindow - 1000, 7);
+        tsoService.replayWindowEndTSO(new TSOServiceState(oldWindow, oldCommitted));
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            invokeCalibrateTimestamp(tsoService);
+            Assertions.assertEquals(oldCommitted, tsoService.getStatusSnapshot().getCommittedTso());
+            long pendingTso = tsoService.getCommitTSO(1, 10);
+            Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+            trackerField.setAccessible(true);
+            TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
+            GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+            Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
+            Mockito.when(txnMgr.isPreviousTransactionsFinishedForTsoRecovery(1000L)).thenReturn(true);
+            long afterRecoveryDelay = System.nanoTime()
+                    + TimeUnit.MILLISECONDS.toNanos(Config.tso_service_window_duration_ms + 1001L);
+            tracker.checkTransactions(txnMgr, afterRecoveryDelay);
+            long reservedWindow = tsoService.getWindowEndTSO();
+            Field lastPersist = TSOService.class.getDeclaredField("lastPersistNanos");
+            lastPersist.setAccessible(true);
+            lastPersist.setLong(tsoService, System.nanoTime()
+                    - TimeUnit.MILLISECONDS.toNanos(Config.tso_service_window_duration_ms + 1L));
+            invokeUpdateTimestamp(tsoService);
+            Assertions.assertEquals(reservedWindow, tsoService.getWindowEndTSO());
+            Assertions.assertEquals(pendingTso - 1, tsoService.getStatusSnapshot().getCommittedTso());
+            tsoService.transactionFinished(1, 10);
+            lastPersist.setLong(tsoService, System.nanoTime()
+                    - TimeUnit.MILLISECONDS.toNanos(Config.tso_service_window_duration_ms + 1L));
+            invokeUpdateTimestamp(tsoService);
+            Assertions.assertEquals(reservedWindow, tsoService.getWindowEndTSO());
+            Assertions.assertEquals(pendingTso, tsoService.getStatusSnapshot().getCommittedTso());
+        }
+    }
+
+    @Test
+    public void testStateImageJournalAndOldTimestampCompatibility() throws Exception {
+        long committed = TSOTimestamp.composeTimestamp(100, 17);
+        tsoService.replayWindowEndTSO(new TSOServiceState(200, committed));
+        TSOService restored = new TSOService();
+        Assertions.assertEquals(200, restored.loadTSO(
+                new DataInputStream(new ByteArrayInputStream(saveTSOBytes(tsoService))), 0));
+        Assertions.assertEquals(committed, restored.getStatusSnapshot().getCommittedTso());
+        Assertions.assertFalse(restored.getStatusSnapshot().isInitialized());
+        for (boolean legacy : new boolean[] {true, false}) {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            DataOutputStream out = new DataOutputStream(bytes);
+            out.writeShort(OperationType.OP_TSO_TIMESTAMP_WINDOW_END);
+            if (legacy) {
+                new TSOTimestamp(200, 0).write(out);
+            } else {
+                new TSOServiceState(200, committed).write(out);
+            }
+            JournalEntity entity = new JournalEntity();
+            entity.readFields(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+            TSOServiceState state = (TSOServiceState) entity.getData();
+            Assertions.assertEquals(200, state.getPhysicalTimestamp());
+            Assertions.assertEquals(legacy ? 0 : committed, state.getCommittedTso());
+        }
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        new TSOServiceState(200, committed).write(new DataOutputStream(bytes));
+        Assertions.assertEquals(200, TSOTimestamp.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))).getPhysicalTimestamp());
+    }
+
+    @Test
+    public void testAllocationAndRegistrationShareSnapshotLock() throws Exception {
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 100, 0);
+        Field lockField = TSOService.class.getDeclaredField("lock");
+        lockField.setAccessible(true);
+        ReentrantLock lock = (ReentrantLock) lockField.get(tsoService);
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        TSOTransactionTracker tracker = Mockito.spy((TSOTransactionTracker) trackerField.get(tsoService));
+        trackerField.set(tsoService, tracker);
+        CountDownLatch enteredRegistration = new CountDownLatch(1);
+        CountDownLatch releaseRegistration = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            enteredRegistration.countDown();
+            Assertions.assertTrue(releaseRegistration.await(30, TimeUnit.SECONDS));
+            return invocation.callRealMethod();
+        }).when(tracker).register(Mockito.any(), Mockito.anyLong(), Mockito.anyLong());
+        Method generate = TSOService.class.getDeclaredMethod("generateTSO", Pair.class);
+        generate.setAccessible(true);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> allocation = executor.submit(() -> {
+                try {
+                    generate.invoke(tsoService, Pair.of(1L, 10L));
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            Assertions.assertTrue(enteredRegistration.await(30, TimeUnit.SECONDS));
+            boolean snapshotLockAcquired = lock.tryLock();
+            if (snapshotLockAcquired) {
+                lock.unlock();
+            }
+            Assertions.assertFalse(snapshotLockAcquired, "snapshot must not pass an unregistered allocation");
+            releaseRegistration.countDown();
+            allocation.get(30, TimeUnit.SECONDS);
+            Assertions.assertEquals(TSOTimestamp.composeTimestamp(100, 1), tracker.getOldestPendingTso());
+        } finally {
+            releaseRegistration.countDown();
+            executor.shutdownNow();
         }
     }
 

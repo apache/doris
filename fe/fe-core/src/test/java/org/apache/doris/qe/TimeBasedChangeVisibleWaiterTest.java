@@ -23,7 +23,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.GenericPool;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -32,6 +36,11 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.service.FrontendServiceImpl;
+import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceRequest;
+import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceResult;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.tso.TSOService;
 import org.apache.doris.tso.TSOTimestamp;
@@ -66,6 +75,7 @@ public class TimeBasedChangeVisibleWaiterTest {
 
         Assertions.assertEquals(ImmutableMap.of(DB_ID, ImmutableList.of(TABLE_ID)), result.getDbToTableIds());
         Assertions.assertNull(result.getMaxEndTimestampMs());
+        Assertions.assertFalse(result.isAllEndsExplicit());
     }
 
     @Test
@@ -84,6 +94,7 @@ public class TimeBasedChangeVisibleWaiterTest {
 
         Assertions.assertEquals(ImmutableList.of(TABLE_ID), result.getDbToTableIds().get(DB_ID));
         Assertions.assertEquals(OlapScanNode.parseChangeTimestamp(endTimestamp2), result.getMaxEndTimestampMs());
+        Assertions.assertTrue(result.isAllEndsExplicit());
     }
 
     @Test
@@ -210,6 +221,114 @@ public class TimeBasedChangeVisibleWaiterTest {
                     () -> TimeBasedChangeVisibleWaiter.acquireFenceOnMaster(
                             ImmutableMap.of(DB_ID, ImmutableList.of(TABLE_ID)), null, 1000L, true));
             Assertions.assertTrue(exception.getDetailMessage().contains("check previous transactions failed"));
+        }
+    }
+
+    @Test
+    public void testHistoricalWindowDoesNotWaitForTransactionsOutsideWindow() throws Exception {
+        Env env = mockMasterEnv();
+        TSOService service = mockTsoService(env, CURRENT_TSO);
+        long committedTso = TSOTimestamp.composeTimestamp(CURRENT_PHYSICAL_TIME_MS - 1000, 17);
+        Mockito.when(service.getStatusSnapshot()).thenReturn(
+                new TSOService.TSOStatusSnapshot(true, CURRENT_TSO, CURRENT_PHYSICAL_TIME_MS + 1000, committedTso));
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(301L);
+        // A same-table write started after the historical end and remains running.
+        Mockito.when(txnMgr.isPreviousTransactionsFinished(301L, DB_ID, ImmutableList.of(TABLE_ID)))
+                .thenReturn(false);
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+                MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            mocked.when(Env::getCurrentEnv).thenReturn(env);
+            mocked.when(Env::getCurrentGlobalTransactionMgr).thenReturn(txnMgr);
+            TimeBasedChangeVisibleWaiter.ChangeReadFence fence = TimeBasedChangeVisibleWaiter.acquireFenceOnMaster(
+                    ImmutableMap.of(DB_ID, ImmutableList.of(TABLE_ID)), CURRENT_PHYSICAL_TIME_MS - 1000, 0, true, true);
+            Assertions.assertEquals(committedTso, fence.getCommittedTso());
+            Mockito.verifyNoInteractions(txnMgr);
+            // Negative control: the legacy table-wide drain cannot distinguish this later write.
+            Assertions.assertThrows(UserException.class, () -> TimeBasedChangeVisibleWaiter.acquireFenceOnMaster(
+                    ImmutableMap.of(DB_ID, ImmutableList.of(TABLE_ID)), CURRENT_PHYSICAL_TIME_MS - 1000, 0, true));
+        }
+    }
+
+    @Test
+    public void testBoundedReadRejectsUnknownOrInsufficientCommittedTso() throws Exception {
+        Env env = mockMasterEnv();
+        TSOService service = mockTsoService(env, CURRENT_TSO);
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+                MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            mocked.when(Env::getCurrentEnv).thenReturn(env);
+            mocked.when(Env::getCurrentGlobalTransactionMgr).thenReturn(txnMgr);
+            for (long committed : new long[] {0, TSOTimestamp.composeTimestamp(CURRENT_PHYSICAL_TIME_MS - 1, 17)}) {
+                Mockito.when(service.getStatusSnapshot()).thenReturn(
+                        new TSOService.TSOStatusSnapshot(true, CURRENT_TSO, CURRENT_PHYSICAL_TIME_MS + 1000, committed));
+                IncrWindowNotReadyException error = Assertions.assertThrows(IncrWindowNotReadyException.class,
+                        () -> TimeBasedChangeVisibleWaiter.acquireFenceOnMaster(
+                                ImmutableMap.of(DB_ID, ImmutableList.of(TABLE_ID)),
+                                CURRENT_PHYSICAL_TIME_MS, 1000, true, true));
+                Assertions.assertEquals(ErrorCode.ERR_INCR_WINDOW_NOT_READY, error.getMysqlErrorCode());
+                Assertions.assertEquals(committed, error.getCommittedTso());
+                Assertions.assertEquals(CURRENT_PHYSICAL_TIME_MS, error.getRequestedEndTimestampMs());
+            }
+            Mockito.verifyNoInteractions(txnMgr);
+        }
+    }
+
+    @Test
+    public void testMixedBoundedAndUnboundedRelationsRetainDrain() {
+        Plan plan = new LogicalJoin<>(JoinType.INNER_JOIN,
+                newChangeRelation(1, ImmutableMap.of(OlapScanNode.OLAP_END_TIMESTAMP, "2024-01-01 00:00:00")),
+                newChangeRelation(2, ImmutableMap.of()), null);
+        TimeBasedChangeVisibleWaiter.ChangeReadInfo info = TimeBasedChangeVisibleWaiter.collectChangeReadInfo(
+                mockContext(), plan, ImmutableMap.of(TABLE_QUALIFIER, mockOlapTable(DB_ID, TABLE_ID)));
+        Assertions.assertNotNull(info.getMaxEndTimestampMs());
+        Assertions.assertFalse(info.isAllEndsExplicit());
+    }
+
+    @Test
+    public void testMasterRpcAndFollowerPreserveWindowNotReady() throws Exception {
+        Env master = mockMasterEnv();
+        mockTsoService(master, CURRENT_TSO); // Unknown committed prefix.
+        TAcquireTimeBasedChangeReadFenceRequest request = new TAcquireTimeBasedChangeReadFenceRequest();
+        request.setDbToTableIds(ImmutableMap.of(DB_ID, ImmutableList.of(TABLE_ID)));
+        request.setEndTimestampMs(CURRENT_PHYSICAL_TIME_MS);
+        request.setTimeoutMs(1000);
+        request.setWaitForTransactions(true);
+        request.setAllEndsExplicit(true);
+        TAcquireTimeBasedChangeReadFenceResult response;
+        try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class);
+                MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            mocked.when(Env::getCurrentEnv).thenReturn(master);
+            config.when(Config::isCloudMode).thenReturn(true);
+            response = new FrontendServiceImpl(null).acquireTimeBasedChangeReadFence(request);
+        }
+        Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, response.getStatus().getStatusCode());
+        Assertions.assertTrue(response.isSetWindowNotReady());
+        Assertions.assertEquals(CURRENT_PHYSICAL_TIME_MS, response.getWindowNotReady().getRequestedEndTimestampMs());
+        Env follower = Mockito.mock(Env.class);
+        Mockito.when(follower.getMasterHost()).thenReturn("127.0.0.1");
+        Mockito.when(follower.getMasterRpcPort()).thenReturn(9020);
+        ConnectContext context = mockContext();
+        Mockito.when(context.getEnv()).thenReturn(follower);
+        FrontendService.Client client = Mockito.mock(FrontendService.Client.class);
+        Mockito.when(client.acquireTimeBasedChangeReadFence(Mockito.any())).thenReturn(response);
+        GenericPool<FrontendService.Client> originalPool = ClientPool.frontendPool;
+        GenericPool<FrontendService.Client> pool = Mockito.mock(GenericPool.class);
+        Mockito.when(pool.borrowObject(Mockito.any(), Mockito.anyInt())).thenReturn(client);
+        ClientPool.frontendPool = pool;
+        try {
+            IncrWindowNotReadyException error = Assertions.assertThrows(IncrWindowNotReadyException.class,
+                    () -> TimeBasedChangeVisibleWaiter.waitForVisible(context,
+                            newChangeRelation(1, ImmutableMap.of(OlapScanNode.OLAP_END_TIMESTAMP, "2024-01-01 00:00:00")),
+                            ImmutableMap.of(TABLE_QUALIFIER, mockOlapTable(DB_ID, TABLE_ID))));
+            Assertions.assertEquals(ErrorCode.ERR_INCR_WINDOW_NOT_READY, error.getMysqlErrorCode());
+            Assertions.assertEquals(CURRENT_PHYSICAL_TIME_MS, error.getRequestedEndTimestampMs());
+            Assertions.assertEquals(0, error.getCommittedTso());
+            Mockito.verify(pool).returnObject(Mockito.any(), Mockito.eq(client));
+        } finally {
+            ClientPool.frontendPool = originalPool;
         }
     }
 

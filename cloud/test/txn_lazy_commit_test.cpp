@@ -1281,6 +1281,16 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
     ASSERT_TRUE(commit_res.has_is_lazy_commit_incomplete());
     ASSERT_TRUE(commit_res.is_lazy_commit_incomplete());
 
+    CheckTxnConflictRequest recovery_req;
+    recovery_req.set_cloud_unique_id("test_cloud_unique_id");
+    recovery_req.set_strict_recovery_check(true);
+    recovery_req.set_end_txn_id(txn_id + 1);
+    CheckTxnConflictResponse recovery_res;
+    meta_service->check_txn_conflict(&cntl, &recovery_req, &recovery_res, nullptr);
+    ASSERT_EQ(recovery_res.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(recovery_res.strict_recovery_check_applied());
+    ASSERT_FALSE(recovery_res.finished());
+
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     check_txn_committed(txn, db_id, txn_id, label);

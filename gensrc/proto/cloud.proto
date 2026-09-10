@@ -1248,12 +1248,15 @@ message CheckTxnConflictRequest {
     repeated int64 table_ids = 4;
     optional bool ignore_timeout_txn = 5;
     optional string request_ip = 6;
+    // Check every database/table in the instance, including expired running transactions.
+    optional bool strict_recovery_check = 7 [default = false];
 }
 
 message CheckTxnConflictResponse {
     optional MetaServiceResponseStatus status = 1;
     optional bool finished = 2;
     repeated TxnInfoPB conflict_txns = 3;
+    optional bool strict_recovery_check_applied = 4;
 }
 
 message CleanTxnLabelRequest {
