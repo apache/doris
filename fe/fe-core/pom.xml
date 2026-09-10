@@ -743,6 +743,20 @@ under the License.
             <artifactId>hadoop-aws</artifactId>
         </dependency>
 
+        <!-- Compiled against directly, but reaching fe-core only as a hadoop transitive:
+             metrics-core (com.codahale.metrics) via hadoop-auth, carrying the whole metric layer -
+             MetricRepo, the MetricVisitors, HistogramMetric, CloudMetrics, SqlBlockRule. Declared
+             here so that it is not a passenger of a dependency that says nothing about it, and so
+             that dropping hadoop from the kernel does not silently take it along. It is already on
+             this classpath at this version; no jar is added to fe/lib.
+             The other such passenger, bcprov-jdk18on (org.bouncycastle.util) via hadoop-common, is
+             gone instead of declared: its single use was TableScanParams calling Strings.toLowerCase
+             on a SQL keyword, which java.lang.String does with an explicit Locale. -->
+        <dependency>
+            <groupId>io.dropwizard.metrics</groupId>
+            <artifactId>metrics-core</artifactId>
+        </dependency>
+
         <!-- Required at runtime by hadoop-aws: its S3 I/O paths use
              software.amazon.awssdk.transfer.s3.S3TransferManager / ObjectTransfer and related classes
              from this jar.  Without it the FE classloader throws NoClassDefFoundError when loading the
