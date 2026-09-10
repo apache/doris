@@ -178,7 +178,7 @@ public:
     /// cannot be accidentally overridden.
     Status init_reader(ReaderInitContext* ctx) {
         // Apply push_down_agg_type early so _open_file_reader and _do_init_reader
-        // can use it (e.g., PaimonCppReader skips full init on COUNT pushdown).
+        // can use it before format-specific initialization.
         // on_after_init_reader may reset this (e.g., Iceberg with equality deletes).
         set_push_down_agg_type(ctx->push_down_agg_type);
 

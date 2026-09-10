@@ -29,10 +29,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Field;
 
 /**
  * Regression test:
@@ -152,6 +156,34 @@ class ShortCircuitPointQueryTest extends TestWithFeService
         Assertions.assertTrue(remoteTable.storeRowColumn());
         Assertions.assertFalse(new LogicalResultSinkToShortCircuitPointQuery()
                 .scanMatchShortCircuitCondition(scan));
+    }
+
+    @Test
+    void testArrowFlightSqlConnectionDoesNotUseShortCircuit() throws Exception {
+        // The short circuit hands its rows back through PointQueryExecutor, which registers no
+        // FlightSqlEndpointsLocation and leaves no Arrow result on the BE, so GetFlightInfo used to fail
+        // with "fetch arrow flight schema failed, no FlightSqlEndpointsLocations" and drop the row.
+        // An Arrow Flight SQL connection has to plan the normal execution path. See #67368.
+        Field connectTypeField = ConnectContext.class.getDeclaredField("connectType");
+        connectTypeField.setAccessible(true);
+        ConnectType originConnectType = (ConnectType) connectTypeField.get(connectContext);
+        try {
+            connectTypeField.set(connectContext, ConnectType.ARROW_FLIGHT_SQL);
+            Plan plan = rewrite("select * from tbl_point_query where `key` = 1");
+
+            Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
+            // And the plan really is the ordinary one: tbl_point_query is empty, so it prunes to a
+            // LogicalEmptyRelation, which is exactly what the short circuit suppresses in
+            // testShortCircuitPointQueryKeepOlapScanWhenTableEmpty above.
+            Assertions.assertTrue(plan.anyMatch(p -> p instanceof LogicalEmptyRelation));
+            Assertions.assertFalse(plan.anyMatch(p -> p instanceof LogicalOlapScan));
+        } finally {
+            connectTypeField.set(connectContext, originConnectType);
+        }
+
+        // The very same statement still short circuits on a MySQL connection.
+        rewrite("select * from tbl_point_query where `key` = 1");
+        Assertions.assertTrue(connectContext.getStatementContext().isShortCircuitQuery());
     }
 
     private long getTabletId(String partitionName) throws Exception {

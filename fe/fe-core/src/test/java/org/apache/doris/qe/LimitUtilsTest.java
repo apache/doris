@@ -20,8 +20,8 @@ package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.function.Consumer;
 
@@ -35,25 +35,25 @@ public class LimitUtilsTest {
         RowBatch rowBatch = new RowBatch();
         rowBatch.setEos(false);
         // - no limit
-        Assert.assertFalse(LimitUtils.cancelIfReachLimit(rowBatch, 0, 10, cancelFunc));
-        Assert.assertFalse(rowBatch.isEos());
-        Assert.assertEquals(0, res);
+        Assertions.assertFalse(LimitUtils.cancelIfReachLimit(rowBatch, 0, 10, cancelFunc));
+        Assertions.assertFalse(rowBatch.isEos());
+        Assertions.assertEquals(0, res);
 
         // - not reach limit
-        Assert.assertFalse(LimitUtils.cancelIfReachLimit(rowBatch, 10, 1, cancelFunc));
-        Assert.assertFalse(rowBatch.isEos());
-        Assert.assertEquals(0, res);
+        Assertions.assertFalse(LimitUtils.cancelIfReachLimit(rowBatch, 10, 1, cancelFunc));
+        Assertions.assertFalse(rowBatch.isEos());
+        Assertions.assertEquals(0, res);
 
         // - reach limit
-        Assert.assertTrue(LimitUtils.cancelIfReachLimit(rowBatch, 10, 10, cancelFunc));
-        Assert.assertTrue(rowBatch.isEos());
-        Assert.assertEquals(666, res);
+        Assertions.assertTrue(LimitUtils.cancelIfReachLimit(rowBatch, 10, 10, cancelFunc));
+        Assertions.assertTrue(rowBatch.isEos());
+        Assertions.assertEquals(666, res);
 
         // - reach limit
         res = 0;
         rowBatch.setEos(false);
-        Assert.assertTrue(LimitUtils.cancelIfReachLimit(rowBatch, 10, 100, cancelFunc));
-        Assert.assertTrue(rowBatch.isEos());
-        Assert.assertEquals(666, res);
+        Assertions.assertTrue(LimitUtils.cancelIfReachLimit(rowBatch, 10, 100, cancelFunc));
+        Assertions.assertTrue(rowBatch.isEos());
+        Assertions.assertEquals(666, res);
     }
 }

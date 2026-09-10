@@ -22,8 +22,8 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerPolicyEngine;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -32,9 +32,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class RangerHiveAccessControllerTest {
     @Test
     public void testRangerAccessTypeMapping() {
-        Assert.assertEquals("select", RangerHiveAccessController.toRangerAccessType(HiveAccessType.SELECT));
-        Assert.assertEquals("update", RangerHiveAccessController.toRangerAccessType(HiveAccessType.UPDATE));
-        Assert.assertEquals(RangerPolicyEngine.ANY_ACCESS,
+        Assertions.assertEquals("select", RangerHiveAccessController.toRangerAccessType(HiveAccessType.SELECT));
+        Assertions.assertEquals("update", RangerHiveAccessController.toRangerAccessType(HiveAccessType.UPDATE));
+        Assertions.assertEquals(RangerPolicyEngine.ANY_ACCESS,
                 RangerHiveAccessController.toRangerAccessType(HiveAccessType.USE));
     }
 
@@ -56,7 +56,7 @@ public class RangerHiveAccessControllerTest {
         controller.evalRowFilterPolicies(currentUser, "catalog", "database", "table");
         controller.evalDataMaskPolicy(currentUser, "catalog", "database", "table", "column");
 
-        Assert.assertEquals("select", rowFilterRequest.getAccessType());
-        Assert.assertEquals("select", dataMaskRequest.getAccessType());
+        Assertions.assertEquals("select", rowFilterRequest.getAccessType());
+        Assertions.assertEquals("select", dataMaskRequest.getAccessType());
     }
 }

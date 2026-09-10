@@ -929,6 +929,12 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public long getTransactionIdWatermark() {
+        // The classic conflict check treats its upper bound as inclusive.
+        return this.idGenerator.getCurrentTransactionId();
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         int numTransactions = getTransactionNum();
         out.writeInt(numTransactions);

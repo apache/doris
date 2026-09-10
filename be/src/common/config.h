@@ -572,9 +572,6 @@ DECLARE_mDouble(sparse_column_compaction_threshold_percent);
 DECLARE_mBool(enable_rle_batch_put_optimization);
 DECLARE_Bool(enable_bmi2_optimizations);
 
-// If enabled, segments will be flushed column by column
-DECLARE_mBool(enable_vertical_segment_writer);
-
 // In ordered data compaction, min segment size for input rowset
 DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 
@@ -1787,8 +1784,9 @@ DECLARE_mInt64(hive_sink_max_file_size);
 /** Iceberg sink configurations **/
 DECLARE_mInt64(iceberg_sink_max_file_size);
 
-/** Paimon file system configurations **/
-DECLARE_Strings(paimon_file_system_scheme_mappings);
+/** Paimon sink configurations **/
+// Hard upper bound for Doris-managed Paimon write-buffer memory per JNI writer.
+DECLARE_mInt64(paimon_jni_writer_memory_pool_limit_bytes);
 
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.

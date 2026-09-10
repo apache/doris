@@ -20,6 +20,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
+#include "core/value/timestamp_ns_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "runtime/runtime_state.h"
 #include "util/mysql_global.h"
@@ -66,6 +67,7 @@ struct CastToString {
 
     static inline std::string from_datetimev2(const DateV2Value<DateTimeV2ValueType>& from,
                                               UInt32 scale);
+    static inline std::string from_timestamp_ns(const TimeStampNsValue& from);
     static inline std::string from_timestamptz(const TimestampTzValue& from, UInt32 scale,
                                                const cctz::time_zone* timezone = nullptr);
     static inline void push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from, UInt32 scale,
@@ -73,6 +75,7 @@ struct CastToString {
 
     static inline void push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from, UInt32 scale,
                                        BufferWritable& bw);
+    static inline void push_timestamp_ns(const TimeStampNsValue& from, BufferWritable& bw);
     static inline void push_timestamptz(const TimestampTzValue& from, UInt32 scale,
                                         BufferWritable& bw,
                                         const DataTypeSerDe::FormatOptions& options);
@@ -472,6 +475,10 @@ inline std::string CastToString::from_datetimev2(const DateV2Value<DateTimeV2Val
     return std::string(buf, pos - 1);
 }
 
+inline std::string CastToString::from_timestamp_ns(const TimeStampNsValue& from) {
+    return from.to_string();
+}
+
 inline std::string CastToString::from_timestamptz(const TimestampTzValue& from, UInt32 scale,
                                                   const cctz::time_zone* timezone) {
     cctz::time_zone tz;
@@ -496,6 +503,12 @@ inline void CastToString::push_datetimev2(const DateV2Value<DateTimeV2ValueType>
     char* pos = from.to_string(buf, scale);
     // DateTime to_string the end is /0
     bw.write(buf, pos - buf - 1);
+}
+
+inline void CastToString::push_timestamp_ns(const TimeStampNsValue& from, BufferWritable& bw) {
+    char buf[40];
+    const int32_t length = from.to_buffer(buf);
+    bw.write(buf, length);
 }
 
 inline void CastToString::push_timestamptz(const TimestampTzValue& from, UInt32 scale,

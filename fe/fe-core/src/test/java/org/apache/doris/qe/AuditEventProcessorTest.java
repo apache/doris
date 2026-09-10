@@ -25,10 +25,10 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.audit.AuditLogBuilder;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.IOException;
@@ -38,12 +38,12 @@ public class AuditEventProcessorTest {
 
     private static String runningDir = "fe/mocked/AuditProcessorTest/" + UUID.randomUUID().toString() + "/";
 
-    @BeforeClass
+    @BeforeAll
     public static void beforeClass() throws Exception {
         UtFrameUtils.createDorisCluster(runningDir);
     }
 
-    @AfterClass
+    @AfterAll
     public static void tearDown() {
         File file = new File(runningDir);
         file.delete();
@@ -66,18 +66,18 @@ public class AuditEventProcessorTest {
                 .setStmtType("SELECT")
                 .setStmt("select * from tbl1").build();
 
-        Assert.assertEquals("127.0.0.1", event.clientIp);
-        Assert.assertEquals(200000, event.scanRows);
-        Assert.assertEquals("SELECT", event.stmtType);
-        Assert.assertEquals(2000, event.queueTimeMs);
+        Assertions.assertEquals("127.0.0.1", event.clientIp);
+        Assertions.assertEquals(200000, event.scanRows);
+        Assertions.assertEquals("SELECT", event.stmtType);
+        Assertions.assertEquals(2000, event.queueTimeMs);
     }
 
     @Test
     public void testAuditLogBuilder() throws IOException {
         try (AuditLogBuilder auditLogBuilder = new AuditLogBuilder()) {
             PluginInfo pluginInfo = auditLogBuilder.getPluginInfo();
-            Assert.assertEquals(DigitalVersion.fromString("0.12.0"), pluginInfo.getVersion());
-            Assert.assertEquals(DigitalVersion.fromString("1.8.31"), pluginInfo.getJavaVersion());
+            Assertions.assertEquals(DigitalVersion.fromString("0.12.0"), pluginInfo.getVersion());
+            Assertions.assertEquals(DigitalVersion.fromString("1.8.31"), pluginInfo.getJavaVersion());
             long start = System.currentTimeMillis();
             for (int i = 0; i < 10000; i++) {
                 AuditEvent event = new AuditEvent.AuditEventBuilder().setEventType(EventType.AFTER_QUERY)

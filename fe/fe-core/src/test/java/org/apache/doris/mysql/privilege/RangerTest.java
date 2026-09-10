@@ -31,8 +31,8 @@ import org.apache.ranger.plugin.policyengine.RangerAccessResource;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collection;
 import java.util.List;
@@ -129,15 +129,17 @@ public class RangerTest {
     }
 
     // Does not have priv on ctl1.db1.tbl1.col3
-    @Test(expected = AuthorizationException.class)
+    @Test
     public void testNoAuthCol() throws AuthorizationException {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        Set<String> cols = Sets.newHashSet();
-        cols.add("col1");
-        cols.add("col3");
-        ac.checkColsPriv(ui, "ctl1", "db1", "tbl1", cols, PrivPredicate.SELECT);
+        Assertions.assertThrows(AuthorizationException.class, () -> {
+            DorisTestPlugin plugin = new DorisTestPlugin("test");
+            RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
+            UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
+            Set<String> cols = Sets.newHashSet();
+            cols.add("col1");
+            cols.add("col3");
+            ac.checkColsPriv(ui, "ctl1", "db1", "tbl1", cols, PrivPredicate.SELECT);
+        });
     }
 
     // Have priv on ctl1.db1.tbl1.col1 & col2
@@ -165,15 +167,17 @@ public class RangerTest {
     }
 
     // Does not have priv on ctl2.db2.tbl3, so when checking auth on col1 & col2, can not pass
-    @Test(expected = AuthorizationException.class)
+    @Test
     public void testUsingNoTableAuthAsColAuth() throws AuthorizationException {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        Set<String> cols = Sets.newHashSet();
-        cols.add("col1");
-        cols.add("col2");
-        ac.checkColsPriv(ui, "ctl2", "db2", "tbl3", cols, PrivPredicate.SELECT);
+        Assertions.assertThrows(AuthorizationException.class, () -> {
+            DorisTestPlugin plugin = new DorisTestPlugin("test");
+            RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
+            UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
+            Set<String> cols = Sets.newHashSet();
+            cols.add("col1");
+            cols.add("col2");
+            ac.checkColsPriv(ui, "ctl2", "db2", "tbl3", cols, PrivPredicate.SELECT);
+        });
     }
 
     // Have priv on ctl3.db3, so when checking auth on tbl1 and (tbl1.col1 & tbl1.col2), can pass
@@ -191,15 +195,17 @@ public class RangerTest {
 
 
     // Does not have priv on ctl2.db3, so when checking auth on col1 & col2, can not pass
-    @Test(expected = AuthorizationException.class)
+    @Test
     public void testNoDbAuthAsColAndTableAuth() throws AuthorizationException {
-        DorisTestPlugin plugin = new DorisTestPlugin("test");
-        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
-        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        Set<String> cols = Sets.newHashSet();
-        cols.add("col1");
-        cols.add("col2");
-        ac.checkColsPriv(ui, "ctl2", "db3", "tbl3", cols, PrivPredicate.SELECT);
+        Assertions.assertThrows(AuthorizationException.class, () -> {
+            DorisTestPlugin plugin = new DorisTestPlugin("test");
+            RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
+            UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
+            Set<String> cols = Sets.newHashSet();
+            cols.add("col1");
+            cols.add("col2");
+            ac.checkColsPriv(ui, "ctl2", "db3", "tbl3", cols, PrivPredicate.SELECT);
+        });
     }
 
     // Have priv on ctl4, so when checking auth on objs under ctl4, can pass

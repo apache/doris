@@ -38,8 +38,8 @@ import org.apache.doris.qe.SqlModeHelper;
 import com.google.common.collect.Lists;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -71,12 +71,12 @@ public class RoutineLoadJobPersistenceTest {
             job = (KafkaRoutineLoadJob) imageRoundTrip(job);
         }
 
-        Assert.assertEquals("|", job.getColumnSeparator().getSeparator());
-        Assert.assertEquals(2, job.getColumnExprDescs().descs.size());
-        Assert.assertEquals("source_col", job.getColumnExprDescs().descs.get(0).getColumnName());
-        Assert.assertEquals("mapped_col", job.getColumnExprDescs().descs.get(1).getColumnName());
-        Assert.assertNotNull(job.getPrecedingFilter());
-        Assert.assertNotNull(job.getWhereExpr());
+        Assertions.assertEquals("|", job.getColumnSeparator().getSeparator());
+        Assertions.assertEquals(2, job.getColumnExprDescs().descs.size());
+        Assertions.assertEquals("source_col", job.getColumnExprDescs().descs.get(0).getColumnName());
+        Assertions.assertEquals("mapped_col", job.getColumnExprDescs().descs.get(1).getColumnName());
+        Assertions.assertNotNull(job.getPrecedingFilter());
+        Assertions.assertNotNull(job.getWhereExpr());
     }
 
     @Test
@@ -102,19 +102,19 @@ public class RoutineLoadJobPersistenceTest {
             String propertyOnlyOrigin = job.origStmt.originStmt;
             job.replayLoadDefinition(new OriginStatement(
                     "ALTER ROUTINE LOAD FOR alter_job PROPERTIES (\"max_error_number\" = \"10\")", 0));
-            Assert.assertEquals(propertyOnlyOrigin, job.origStmt.originStmt);
+            Assertions.assertEquals(propertyOnlyOrigin, job.origStmt.originStmt);
         }
 
-        Assert.assertTrue(job.origStmt.originStmt.startsWith("CREATE ROUTINE LOAD"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("COLUMNS TERMINATED BY '|'"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("COLUMNS("));
-        Assert.assertTrue(job.origStmt.originStmt.contains("WHERE"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("PRECEDING FILTER"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("USING ANALYZER"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("PARTITION(`p1`)"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("DELETE ON"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("ORDER BY `seq_col`"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("WITH MERGE"));
+        Assertions.assertTrue(job.origStmt.originStmt.startsWith("CREATE ROUTINE LOAD"));
+        Assertions.assertTrue(job.origStmt.originStmt.contains("COLUMNS TERMINATED BY '|'"));
+        Assertions.assertTrue(job.origStmt.originStmt.contains("COLUMNS("));
+        Assertions.assertTrue(job.origStmt.originStmt.contains("WHERE"));
+        Assertions.assertTrue(job.origStmt.originStmt.contains("PRECEDING FILTER"));
+        Assertions.assertTrue(job.origStmt.originStmt.contains("USING ANALYZER"));
+        Assertions.assertTrue(job.origStmt.originStmt.contains("PARTITION(`p1`)"));
+        Assertions.assertTrue(job.origStmt.originStmt.contains("DELETE ON"));
+        Assertions.assertTrue(job.origStmt.originStmt.contains("ORDER BY `seq_col`"));
+        Assertions.assertTrue(job.origStmt.originStmt.contains("WITH MERGE"));
 
         JsonObject expectedProperties = JsonParser.parseString(job.jobPropertiesToJsonString()).getAsJsonObject();
         RoutineLoadJob restored;
@@ -124,10 +124,10 @@ public class RoutineLoadJobPersistenceTest {
         JsonObject restoredProperties = JsonParser.parseString(restored.jobPropertiesToJsonString()).getAsJsonObject();
         for (String key : Lists.newArrayList("column_separator", "precedingFilter",
                 "whereExpr", "partitions", "delete", "sequence_col", "merge_type")) {
-            Assert.assertEquals(key, expectedProperties.get(key), restoredProperties.get(key));
+            Assertions.assertEquals(expectedProperties.get(key), restoredProperties.get(key), key);
         }
-        Assert.assertTrue(restoredProperties.get("columnToColumnExpr").getAsString().contains("mapped_col="));
-        Assert.assertEquals(job.origStmt.originStmt, restored.origStmt.originStmt);
+        Assertions.assertTrue(restoredProperties.get("columnToColumnExpr").getAsString().contains("mapped_col="));
+        Assertions.assertEquals(job.origStmt.originStmt, restored.origStmt.originStmt);
     }
 
     @Test
@@ -149,9 +149,9 @@ public class RoutineLoadJobPersistenceTest {
             job = (KafkaRoutineLoadJob) imageRoundTrip(job);
         }
 
-        Assert.assertEquals("|", job.getColumnSeparator().getSeparator());
-        Assert.assertTrue(job.origStmt.originStmt.contains(" ON `order` "));
-        Assert.assertEquals(Long.toString(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES),
+        Assertions.assertEquals("|", job.getColumnSeparator().getSeparator());
+        Assertions.assertTrue(job.origStmt.originStmt.contains(" ON `order` "));
+        Assertions.assertEquals(Long.toString(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES),
                 job.sessionVariables.get(SessionVariable.SQL_MODE));
     }
 
@@ -164,13 +164,13 @@ public class RoutineLoadJobPersistenceTest {
             job = (KafkaRoutineLoadJob) imageRoundTrip(job);
             job.replayLoadDefinition(new OriginStatement(
                     "ALTER ROUTINE LOAD FOR hex_separator_job COLUMNS TERMINATED BY '\\x01'", 0));
-            Assert.assertEquals(1, job.getColumnSeparator().getSeparator().charAt(0));
-            Assert.assertEquals("\\x01", job.getColumnSeparator().getOriSeparator());
+            Assertions.assertEquals(1, job.getColumnSeparator().getSeparator().charAt(0));
+            Assertions.assertEquals("\\x01", job.getColumnSeparator().getOriSeparator());
             job = (KafkaRoutineLoadJob) imageRoundTrip(job);
         }
 
-        Assert.assertEquals(1, job.getColumnSeparator().getSeparator().charAt(0));
-        Assert.assertEquals("\\x01", job.getColumnSeparator().getOriSeparator());
+        Assertions.assertEquals(1, job.getColumnSeparator().getSeparator().charAt(0));
+        Assertions.assertEquals("\\x01", job.getColumnSeparator().getOriSeparator());
     }
 
     @Test
@@ -182,12 +182,12 @@ public class RoutineLoadJobPersistenceTest {
             job = (KafkaRoutineLoadJob) imageRoundTrip(job);
             job.replayLoadDefinition(new OriginStatement(
                     "ALTER ROUTINE LOAD FOR tab_separator_job COLUMNS TERMINATED BY '\\t'", 0));
-            Assert.assertEquals("\t", job.getColumnSeparator().getSeparator());
+            Assertions.assertEquals("\t", job.getColumnSeparator().getSeparator());
             job = (KafkaRoutineLoadJob) imageRoundTrip(job);
         }
 
-        Assert.assertEquals("\t", job.getColumnSeparator().getSeparator());
-        Assert.assertEquals("\\t", job.getColumnSeparator().getOriSeparator());
+        Assertions.assertEquals("\t", job.getColumnSeparator().getSeparator());
+        Assertions.assertEquals("\\t", job.getColumnSeparator().getOriSeparator());
     }
 
     @Test
@@ -200,10 +200,10 @@ public class RoutineLoadJobPersistenceTest {
             job.replayLoadDefinition(new OriginStatement(
                     "ALTER ROUTINE LOAD FOR backslash_literal_job WHERE text1 = 'A\\\\nB'", 0));
             String expectedWhere = getWhereSql(job);
-            Assert.assertTrue(expectedWhere.contains("\\n"));
-            Assert.assertFalse(expectedWhere.contains("\n"));
+            Assertions.assertTrue(expectedWhere.contains("\\n"));
+            Assertions.assertFalse(expectedWhere.contains("\n"));
             job = (KafkaRoutineLoadJob) imageRoundTrip(job);
-            Assert.assertEquals(expectedWhere, getWhereSql(job));
+            Assertions.assertEquals(expectedWhere, getWhereSql(job));
         }
     }
 
@@ -218,13 +218,13 @@ public class RoutineLoadJobPersistenceTest {
                     "ALTER ROUTINE LOAD FOR no_backslash_literal_job WHERE text1 = 'A\\nB'", 0),
                     SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
             String expectedWhere = getWhereSql(job);
-            Assert.assertTrue(expectedWhere.contains("\\n"));
-            Assert.assertFalse(expectedWhere.contains("\n"));
+            Assertions.assertTrue(expectedWhere.contains("\\n"));
+            Assertions.assertFalse(expectedWhere.contains("\n"));
             job = (KafkaRoutineLoadJob) imageRoundTrip(job);
-            Assert.assertEquals(expectedWhere, getWhereSql(job));
+            Assertions.assertEquals(expectedWhere, getWhereSql(job));
         }
 
-        Assert.assertEquals(Long.toString(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES),
+        Assertions.assertEquals(Long.toString(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES),
                 job.sessionVariables.get(SessionVariable.SQL_MODE));
     }
 
@@ -239,11 +239,11 @@ public class RoutineLoadJobPersistenceTest {
                     "ALTER ROUTINE LOAD FOR json_function_literal_job "
                             + "WHERE json_object('key', 'A\\\\nB') IS NOT NULL", 0));
             String expectedWhere = getWhereSql(job);
-            Assert.assertTrue(expectedWhere.contains("json_object"));
-            Assert.assertTrue(expectedWhere.contains("\\n"));
-            Assert.assertFalse(expectedWhere.contains("\n"));
+            Assertions.assertTrue(expectedWhere.contains("json_object"));
+            Assertions.assertTrue(expectedWhere.contains("\\n"));
+            Assertions.assertFalse(expectedWhere.contains("\n"));
             job = (KafkaRoutineLoadJob) imageRoundTrip(job);
-            Assert.assertEquals(expectedWhere, getWhereSql(job));
+            Assertions.assertEquals(expectedWhere, getWhereSql(job));
         }
     }
 

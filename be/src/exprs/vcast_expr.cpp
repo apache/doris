@@ -90,6 +90,9 @@ doris::Status VCastExpr::open(doris::RuntimeState* state, VExprContext* context,
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
+    if (_is_strict_cast) {
+        context->fn_context(_fn_context_index)->set_enable_strict_mode(true);
+    }
     RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));

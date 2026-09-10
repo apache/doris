@@ -20,8 +20,8 @@ package org.apache.doris.datasource;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.Map;
@@ -53,18 +53,17 @@ public class CatalogPropertyTest {
         try {
             Future<Map<StorageTypeId, StorageAdapter>> initializer =
                     executor.submit(catalogProperty::getStorageAdaptersMap);
-            Assert.assertTrue(initializationStarted.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(initializationStarted.await(5, TimeUnit.SECONDS));
 
             concurrentReader.start();
-            Assert.assertTrue(waitUntilBlockedOrTerminated(concurrentReader, 5, TimeUnit.SECONDS));
-            Assert.assertEquals("The reader must block until initialization publishes the completed map",
-                    Thread.State.BLOCKED, concurrentReader.getState());
+            Assertions.assertTrue(waitUntilBlockedOrTerminated(concurrentReader, 5, TimeUnit.SECONDS));
+            Assertions.assertEquals(Thread.State.BLOCKED, concurrentReader.getState(), "The reader must block until initialization publishes the completed map");
 
             allowInitialization.countDown();
             Map<StorageTypeId, StorageAdapter> initialized = initializer.get(5, TimeUnit.SECONDS);
             concurrentReader.join(TimeUnit.SECONDS.toMillis(5));
-            Assert.assertFalse(concurrentReader.isAlive());
-            Assert.assertSame(initialized, readerResult.get());
+            Assertions.assertFalse(concurrentReader.isAlive());
+            Assertions.assertSame(initialized, readerResult.get());
         } finally {
             allowInitialization.countDown();
             concurrentReader.interrupt();
@@ -79,7 +78,7 @@ public class CatalogPropertyTest {
         catalogProperty.setPluginDerivedStorageDefaultsSupplier(Collections::emptyMap);
 
         Map<StorageTypeId, StorageAdapter> storageAdapters = catalogProperty.getStorageAdaptersMap();
-        Assert.assertThrows(UnsupportedOperationException.class, storageAdapters::clear);
+        Assertions.assertThrows(UnsupportedOperationException.class, storageAdapters::clear);
     }
 
     private static boolean waitUntilBlockedOrTerminated(Thread thread, long timeout, TimeUnit timeUnit) {

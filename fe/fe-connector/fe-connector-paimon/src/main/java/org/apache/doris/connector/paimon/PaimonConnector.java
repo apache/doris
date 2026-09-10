@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
@@ -30,15 +31,18 @@ import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.AuthType;
 import org.apache.doris.kerberos.AuthenticationConfig;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
+import org.apache.doris.thrift.TStorageBackendType;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -465,9 +469,30 @@ public class PaimonConnector implements Connector {
                         hmsAuth, storageHadoopConfig,
                         "Failed to create Paimon catalog with HMS metastore");
             }
+            case PaimonCatalogProperties.DLF: {
+                // Legacy DLF catalogs often expose OSS only through dlf.* aliases and an oss:// warehouse.
+                // Check the resolved storage bindings here so those catalogs remain valid while non-OSS
+                // backends cannot be passed to Paimon's DLF Hive catalog.
+                if (!hasDlfCompatibleStorage(storage().getStorageProperties())) {
+                    throw new IllegalStateException("Paimon DLF metastore requires OSS storage properties.");
+                }
+                DlfMetaStoreProperties dlf = (DlfMetaStoreProperties)
+                        MetaStoreProviders.bind(catalogProps.getRaw(), storageHadoopConfig);
+                Map<String, String> dlfConf = new HashMap<>(dlf.toDlfCatalogConf());
+                dlfConf.put(PaimonCatalogFactory.DLF_CLIENT_POOL_IDENTITY,
+                        PaimonCatalogFactory.dlfClientPoolIdentity(dlfConf));
+                HiveConf hc = PaimonCatalogFactory.assembleHiveConf(null, dlfConf);
+                return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
+                        "Failed to create Paimon catalog with DLF metastore");
+            }
             default:
                 throw new IllegalArgumentException("Unknown paimon.catalog.type value: " + flavor);
         }
+    }
+
+    static boolean hasDlfCompatibleStorage(List<StorageProperties> storageProperties) {
+        return storageProperties.stream().anyMatch(storage -> "OSS".equals(storage.providerName())
+                || "OSS_HDFS".equals(storage.providerName()));
     }
 
     /**
@@ -739,6 +764,56 @@ public class PaimonConnector implements Connector {
                 LOG.warn("Failed to close Paimon catalog", e);
             }
         }
+    }
+
+    @Override
+    public ConnectorTestResult testConnection(ConnectorSession session) {
+        if (!PaimonCatalogProperties.DLF.equals(catalogProps.getFlavor())) {
+            return ConnectorTestResult.success();
+        }
+        try {
+            // Listing databases forces lazy DLF catalog creation and an authenticated metastore round-trip.
+            getMetadata(session).listDatabaseNames(session);
+        } catch (Exception e) {
+            LOG.warn("Paimon DLF connectivity test failed for catalog '{}'", context.getCatalogName(), e);
+            return ConnectorTestResult.failure(
+                    "Paimon DLF connectivity test failed: " + rootCauseMessage(e));
+        }
+
+        String warehouse = catalogProps.getRaw().get("warehouse");
+        try {
+            context.executeAuthenticated(() -> {
+                org.apache.doris.filesystem.FileSystem fileSystem = storage().getFileSystem(session);
+                if (fileSystem != null) {
+                    // A missing path is acceptable; endpoint and credential failures surface as exceptions.
+                    fileSystem.exists(Location.of(warehouse));
+                }
+                return null;
+            });
+            Map<String, String> backendProperties = new HashMap<>(storage().getBackendStorageProperties());
+            if (!backendProperties.isEmpty()) {
+                String normalizedWarehouse = storage().normalizeStorageUri(warehouse);
+                backendProperties.put("test_location", normalizedWarehouse);
+                boolean ossHdfs = storage().getStorageProperties().stream()
+                        .anyMatch(properties -> "OSS_HDFS".equals(properties.providerName()));
+                int backendType = ossHdfs
+                        ? TStorageBackendType.HDFS.getValue() : TStorageBackendType.S3.getValue();
+                storage().testBackendStorageConnectivity(backendType, backendProperties);
+            }
+        } catch (Exception e) {
+            LOG.warn("Paimon DLF storage connectivity test failed for catalog '{}'", context.getCatalogName(), e);
+            return ConnectorTestResult.failure(
+                    "Paimon DLF storage connectivity test failed: " + rootCauseMessage(e));
+        }
+        return ConnectorTestResult.success();
+    }
+
+    private static String rootCauseMessage(Throwable throwable) {
+        Throwable root = throwable;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        return StringUtils.defaultIfBlank(root.getMessage(), root.getClass().getSimpleName());
     }
 
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */

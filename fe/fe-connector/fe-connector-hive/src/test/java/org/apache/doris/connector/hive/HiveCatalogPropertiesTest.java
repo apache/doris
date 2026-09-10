@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.hms.HmsClientConfig;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -169,6 +171,15 @@ class HiveCatalogPropertiesTest {
     void malformedEventBatchSizeIsRefused() {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> HiveTestProperties.with(HiveCatalogProperties.HMS_EVENTS_BATCH_SIZE_PER_RPC, "abc"));
+    }
+
+    @Test
+    void partitionBatchSizeAcceptsSurroundingWhitespace() {
+        Map<String, String> m = HiveTestProperties.mapWith(
+                HmsClientConfig.PARTITION_BATCH_SIZE_KEY, " 5000 ");
+        HiveCatalogProperties p = HiveCatalogProperties.of(m);
+        HmsClientConfig config = new HmsClientConfig(p.getHmsClientProperties(), p.getHmsClientPoolSize());
+        Assertions.assertEquals(5000, config.getPartitionBatchSize());
     }
 
     /** Booleans never throw on either side of the migration: both spell out to {@code parseBoolean}. */

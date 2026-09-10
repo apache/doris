@@ -25,8 +25,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -73,20 +73,20 @@ public class AlterRoutineLoadOperationLogTest {
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
         AlterRoutineLoadJobOperationLog log2 = AlterRoutineLoadJobOperationLog.read(in);
-        Assert.assertEquals(1, log2.getJobProperties().size());
-        Assert.assertEquals("5", log2.getJobProperties().get(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
+        Assertions.assertEquals(1, log2.getJobProperties().size());
+        Assertions.assertEquals("5", log2.getJobProperties().get(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
         KafkaDataSourceProperties kafkaDataSourceProperties = (KafkaDataSourceProperties) log2.getDataSourceProperties();
-        Assert.assertEquals(null, kafkaDataSourceProperties.getBrokerList());
-        Assert.assertEquals(null, kafkaDataSourceProperties.getTopic());
-        Assert.assertEquals(1, kafkaDataSourceProperties.getCustomKafkaProperties().size());
-        Assert.assertEquals("mygroup", kafkaDataSourceProperties.getCustomKafkaProperties().get("group.id"));
-        Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(0),
+        Assertions.assertEquals(null, kafkaDataSourceProperties.getBrokerList());
+        Assertions.assertEquals(null, kafkaDataSourceProperties.getTopic());
+        Assertions.assertEquals(1, kafkaDataSourceProperties.getCustomKafkaProperties().size());
+        Assertions.assertEquals("mygroup", kafkaDataSourceProperties.getCustomKafkaProperties().get("group.id"));
+        Assertions.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(0),
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(0));
-        Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
+        Assertions.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(1));
-        Assert.assertEquals(originStatement.originStmt, log2.getOriginStatement().originStmt);
-        Assert.assertEquals(originStatement.idx, log2.getOriginStatement().idx);
-        Assert.assertEquals(Long.valueOf(123L), log2.getSqlMode());
+        Assertions.assertEquals(originStatement.originStmt, log2.getOriginStatement().originStmt);
+        Assertions.assertEquals(originStatement.idx, log2.getOriginStatement().idx);
+        Assertions.assertEquals(Long.valueOf(123L), log2.getSqlMode());
 
         in.close();
     }
@@ -105,11 +105,11 @@ public class AlterRoutineLoadOperationLogTest {
         try (DataInputStream in = new DataInputStream(new FileInputStream(file))) {
             AlterRoutineLoadJobOperationLog restored = AlterRoutineLoadJobOperationLog.read(in);
 
-            Assert.assertEquals(7001L, restored.getJobId());
-            Assert.assertTrue(restored.getJobProperties().isEmpty());
-            Assert.assertNull(restored.getDataSourceProperties());
-            Assert.assertNull(restored.getOriginStatement());
-            Assert.assertNull(restored.getSqlMode());
+            Assertions.assertEquals(7001L, restored.getJobId());
+            Assertions.assertTrue(restored.getJobProperties().isEmpty());
+            Assertions.assertNull(restored.getDataSourceProperties());
+            Assertions.assertNull(restored.getOriginStatement());
+            Assertions.assertNull(restored.getSqlMode());
         }
     }
 }

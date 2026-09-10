@@ -23,12 +23,14 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -43,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.ScoreRangeInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -130,14 +133,19 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         if (cachedOutput.isPresent()) {
             return cachedOutput.get();
         }
-        // RESET and DUP_KEYS SNAPSHOT are rebuilt from the base table directly (no binlog union),
-        // so use the full schema to expose hidden columns like ROW_LSN_COL. Others only need visible.
-        boolean useFullSchemaScan = readMode == StreamReadMode.RESET
-                || (readMode == StreamReadMode.SNAPSHOT
-                        && table instanceof OlapTable
-                        && ((OlapTable) table).getKeysType() == KeysType.DUP_KEYS);
-        List<Column> baseSchema = table.getBaseSchema(useFullSchemaScan);
+        // use full schema, and filter hidden columns except IVM row-id during IVM rewrite below
+        List<Column> baseSchema = table.getBaseSchema(true);
         List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema);
+
+        ConnectContext connectContext = ConnectContext.get();
+        boolean ivmRewriteEnabled = connectContext != null
+                && connectContext.getStatementContext() != null
+                && connectContext.getStatementContext().isIvmMTMVRewrite();
+        // SNAPSHOT reads on DUP tables expose the base row LSN column, so it stays accessible
+        // the same way as on the base table.
+        boolean snapshotDupTable = readMode == StreamReadMode.SNAPSHOT
+                && table instanceof OlapTable
+                && ((OlapTable) table).getKeysType() == KeysType.DUP_KEYS;
 
         ImmutableList.Builder<Slot> slots = ImmutableList.builder();
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
@@ -148,17 +156,34 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
             if (col.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
                 continue;
             }
+            // Keep visible columns, and IVM row-id / row lsn during IVM rewrite.
+            // Skip all other hidden columns. For reset, we could use get full schema of
+            // base table; otherwise, we only need to get the schema without hidden columns.
+            // DUP detail tables always carry __DORIS_ROW_LSN_COL__ (added at create time when
+            // row binlog is enabled); IVM needs it as the stable row identity. RESET/SNAPSHOT
+            // stream scans are expanded from the base table olap scan, which carries the row
+            // lsn column directly. INCREMENTAL stream scans are expanded from the row-binlog
+            // (which carries the value as __DORIS_BINLOG_LSN__), so they expose the stream lsn
+            // virtual column instead; the IVM delta rewrite maps it back to the row lsn slot.
+            boolean ivmRewriteColumn = ivmRewriteEnabled
+                    && (Column.IVM_ROW_ID_COL.equals(col.getName())
+                            || (Column.ROW_LSN_COL.equals(col.getName()) && !isIncremental()));
+            boolean snapshotDupRowLsn = snapshotDupTable && Column.ROW_LSN_COL.equals(col.getName());
+            if (!col.isVisible() && !isReset() && !ivmRewriteColumn && !snapshotDupRowLsn) {
+                continue;
+            }
             Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());
-            // For INCREMENTAL / SNAPSHOT(MOW) reads, non-key value columns are materialized from
-            // the base table row-binlog whose after/before value columns are always nullable (see
-            // Column.generateAfterValueColumn / generateBeforeValueColumn). Declare these value
-            // columns as nullable here so the stream scan output stays consistent with the plan
-            // expanded in NormalizeOlapTableStreamScan, otherwise AdjustNullable reports a
-            // not-nullable -> nullable conflict. Full base scans (RESET / SNAPSHOT(DUP)) do a full
-            // base-table scan, so keep their original nullability.
+            // INCREMENTAL reads materialize value columns from the base table row-binlog whose
+            // after/before value columns are always nullable (see Column.generateAfterValueColumn /
+            // generateBeforeValueColumn). SNAPSHOT reads scan the base table directly (DUP tables;
+            // MOW normal partitions) but may also rebuild partitions from binlog, so declaring
+            // every non-RESET value column nullable is a safe widening that keeps the stream scan
+            // output consistent with the plan expanded in NormalizeOlapTableStreamScan; otherwise
+            // AdjustNullable reports a not-nullable -> nullable conflict. RESET does a full
+            // base-table scan only, so it keeps its original nullability.
             Slot slot = cacheSlotWithSlotName.computeIfAbsent(key, k -> {
                 SlotReference slotRef = slotFromColumn.get(index);
-                boolean forceNullable = !useFullSchemaScan && !baseSchema.get(index).isKey();
+                boolean forceNullable = readMode != StreamReadMode.RESET && !baseSchema.get(index).isKey();
                 return forceNullable ? slotRef.withNullable(true) : slotRef;
             });
             slots.add(slot);
@@ -521,6 +546,30 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                 && readMode == that.readMode
                 && getTable().getStreamKeysType() == that.getTable().getStreamKeysType()
                 && Objects.equals(getTable().getOutputUpdateMap(), that.getTable().getOutputUpdateMap());
+    }
+
+    @Override
+    public LogicalPlan withPreSnapshot(Optional<OlapTableStream> stream) {
+        return withReadMode(StreamReadMode.SNAPSHOT);
+    }
+
+    @Override
+    public LogicalPlan withPostSnapshot() {
+        OlapTable baseTable = getTable().getBaseTable();
+        LogicalOlapScan scan = new LogicalOlapScan(
+                StatementScopeIdGenerator.newRelationId(),
+                baseTable,
+                qualifier,
+                ImmutableList.of(),
+                baseTable.getPartitionIds(),
+                baseTable.getBaseIndexId(),
+                PreAggStatus.unset(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                Optional.empty(),
+                ImmutableList.of());
+        return BindRelation.checkAndAddDeleteSignFilter(
+                scan, ConnectContext.get(), baseTable);
     }
 
     @Override

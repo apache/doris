@@ -31,8 +31,8 @@ import org.apache.hadoop.hive.serde2.objectinspector.primitive.JavaConstantBinar
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 // hive hll udf test
 public class HllUDFTest {
@@ -58,7 +58,7 @@ public class HllUDFTest {
         long actualCardinality = (long) evaluateLarge;
 
         double relativeError = Math.abs(actualCardinality - largeInputSize) / (double) largeInputSize;
-        Assert.assertTrue("Relative error rate should be less than 2%", relativeError <= 0.02);
+        Assertions.assertTrue(relativeError <= 0.02, "Relative error rate should be less than 2%");
     }
 
     @Test
@@ -88,7 +88,7 @@ public class HllUDFTest {
         byte[] mergedHllBytes = (byte[]) evaluator.terminate(aggBuffer);
 
         Hll mergedHll = HllUtil.deserializeToHll(mergedHllBytes);
-        Assert.assertEquals(4L, mergedHll.estimateCardinality());
+        Assertions.assertEquals(4L, mergedHll.estimateCardinality());
     }
 
     @Test
@@ -106,6 +106,6 @@ public class HllUDFTest {
         byte[] hllBytes = (byte[]) evaluator.terminate(aggBuffer);
 
         Hll hll = HllUtil.deserializeToHll(hllBytes);
-        Assert.assertEquals(2L, hll.estimateCardinality());
+        Assertions.assertEquals(2L, hll.estimateCardinality());
     }
 }

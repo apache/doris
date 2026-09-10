@@ -17,8 +17,8 @@
 
 package org.apache.doris.common;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -52,10 +52,8 @@ public class Log4jConfigTest {
             builderField.set(null, sizeBuilder);
             method.invoke(null, "info_sys_accumulated_file_size", "sys_log_delete_age");
             String sizeResult = sizeBuilder.toString();
-            Assert.assertTrue("Size strategy should use IfAccumulatedFileSize",
-                    sizeResult.contains("IfAccumulatedFileSize"));
-            Assert.assertFalse("Size strategy should not use IfLastModified",
-                    sizeResult.contains("IfLastModified"));
+            Assertions.assertTrue(sizeResult.contains("IfAccumulatedFileSize"), "Size strategy should use IfAccumulatedFileSize");
+            Assertions.assertFalse(sizeResult.contains("IfLastModified"), "Size strategy should not use IfLastModified");
 
             // Test age strategy
             Config.log_rollover_strategy = "age";
@@ -63,10 +61,8 @@ public class Log4jConfigTest {
             builderField.set(null, ageBuilder);
             method.invoke(null, "info_sys_accumulated_file_size", "sys_log_delete_age");
             String ageResult = ageBuilder.toString();
-            Assert.assertTrue("Age strategy should use IfLastModified",
-                    ageResult.contains("IfLastModified"));
-            Assert.assertFalse("Age strategy should not use IfAccumulatedFileSize",
-                    ageResult.contains("IfAccumulatedFileSize"));
+            Assertions.assertTrue(ageResult.contains("IfLastModified"), "Age strategy should use IfLastModified");
+            Assertions.assertFalse(ageResult.contains("IfAccumulatedFileSize"), "Age strategy should not use IfAccumulatedFileSize");
         } finally {
             // Restore original state
             Config.log_rollover_strategy = origStrategy;

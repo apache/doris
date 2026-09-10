@@ -19,9 +19,9 @@ package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -30,7 +30,7 @@ public class JsonFileFormatPropertiesTest {
 
     private JsonFileFormatProperties jsonFileFormatProperties;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         jsonFileFormatProperties = new JsonFileFormatProperties();
     }
@@ -40,13 +40,13 @@ public class JsonFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
 
-        Assert.assertEquals("", jsonFileFormatProperties.getJsonRoot());
-        Assert.assertEquals("", jsonFileFormatProperties.getJsonPaths());
-        Assert.assertEquals(false, jsonFileFormatProperties.isStripOuterArray());
-        Assert.assertEquals(true, jsonFileFormatProperties.isReadJsonByLine());
-        Assert.assertEquals(false, jsonFileFormatProperties.isNumAsString());
-        Assert.assertEquals(false, jsonFileFormatProperties.isFuzzyParse());
-        Assert.assertEquals(CsvFileFormatProperties.DEFAULT_LINE_DELIMITER,
+        Assertions.assertEquals("", jsonFileFormatProperties.getJsonRoot());
+        Assertions.assertEquals("", jsonFileFormatProperties.getJsonPaths());
+        Assertions.assertEquals(false, jsonFileFormatProperties.isStripOuterArray());
+        Assertions.assertEquals(true, jsonFileFormatProperties.isReadJsonByLine());
+        Assertions.assertEquals(false, jsonFileFormatProperties.isNumAsString());
+        Assertions.assertEquals(false, jsonFileFormatProperties.isFuzzyParse());
+        Assertions.assertEquals(CsvFileFormatProperties.DEFAULT_LINE_DELIMITER,
                 jsonFileFormatProperties.getLineDelimiter());
     }
 
@@ -56,7 +56,7 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_JSON_ROOT, "data.items");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals("data.items", jsonFileFormatProperties.getJsonRoot());
+        Assertions.assertEquals("data.items", jsonFileFormatProperties.getJsonRoot());
     }
 
     @Test
@@ -66,7 +66,7 @@ public class JsonFileFormatPropertiesTest {
                 "[\"$.name\", \"$.age\", \"$.city\"]");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals("[\"$.name\", \"$.age\", \"$.city\"]", jsonFileFormatProperties.getJsonPaths());
+        Assertions.assertEquals("[\"$.name\", \"$.age\", \"$.city\"]", jsonFileFormatProperties.getJsonPaths());
     }
 
     @Test
@@ -75,7 +75,7 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, "true");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(true, jsonFileFormatProperties.isStripOuterArray());
+        Assertions.assertEquals(true, jsonFileFormatProperties.isStripOuterArray());
     }
 
     @Test
@@ -84,7 +84,7 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, "false");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(false, jsonFileFormatProperties.isStripOuterArray());
+        Assertions.assertEquals(false, jsonFileFormatProperties.isStripOuterArray());
     }
 
     @Test
@@ -93,7 +93,7 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, "true");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(true, jsonFileFormatProperties.isReadJsonByLine());
+        Assertions.assertEquals(true, jsonFileFormatProperties.isReadJsonByLine());
     }
 
     @Test
@@ -102,7 +102,7 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, "false");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(false, jsonFileFormatProperties.isReadJsonByLine());
+        Assertions.assertEquals(false, jsonFileFormatProperties.isReadJsonByLine());
     }
 
     @Test
@@ -111,7 +111,7 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_NUM_AS_STRING, "true");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(true, jsonFileFormatProperties.isNumAsString());
+        Assertions.assertEquals(true, jsonFileFormatProperties.isNumAsString());
     }
 
     @Test
@@ -120,7 +120,7 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_NUM_AS_STRING, "false");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(false, jsonFileFormatProperties.isNumAsString());
+        Assertions.assertEquals(false, jsonFileFormatProperties.isNumAsString());
     }
 
     @Test
@@ -129,7 +129,7 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, "true");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(true, jsonFileFormatProperties.isFuzzyParse());
+        Assertions.assertEquals(true, jsonFileFormatProperties.isFuzzyParse());
     }
 
     @Test
@@ -138,7 +138,7 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, "false");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(false, jsonFileFormatProperties.isFuzzyParse());
+        Assertions.assertEquals(false, jsonFileFormatProperties.isFuzzyParse());
     }
 
     @Test
@@ -147,7 +147,7 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, "invalid");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(false, jsonFileFormatProperties.isFuzzyParse());
+        Assertions.assertEquals(false, jsonFileFormatProperties.isFuzzyParse());
     }
 
     @Test
@@ -162,12 +162,12 @@ public class JsonFileFormatPropertiesTest {
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
 
-        Assert.assertEquals("data.records", jsonFileFormatProperties.getJsonRoot());
-        Assert.assertEquals("[\"$.id\", \"$.name\"]", jsonFileFormatProperties.getJsonPaths());
-        Assert.assertEquals(true, jsonFileFormatProperties.isStripOuterArray());
-        Assert.assertEquals(true, jsonFileFormatProperties.isReadJsonByLine());
-        Assert.assertEquals(true, jsonFileFormatProperties.isNumAsString());
-        Assert.assertEquals(true, jsonFileFormatProperties.isFuzzyParse());
+        Assertions.assertEquals("data.records", jsonFileFormatProperties.getJsonRoot());
+        Assertions.assertEquals("[\"$.id\", \"$.name\"]", jsonFileFormatProperties.getJsonPaths());
+        Assertions.assertEquals(true, jsonFileFormatProperties.isStripOuterArray());
+        Assertions.assertEquals(true, jsonFileFormatProperties.isReadJsonByLine());
+        Assertions.assertEquals(true, jsonFileFormatProperties.isNumAsString());
+        Assertions.assertEquals(true, jsonFileFormatProperties.isFuzzyParse());
     }
 
     @Test
@@ -176,7 +176,7 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_JSON_ROOT, "data.special@#$%^&*()");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals("data.special@#$%^&*()", jsonFileFormatProperties.getJsonRoot());
+        Assertions.assertEquals("data.special@#$%^&*()", jsonFileFormatProperties.getJsonRoot());
     }
 
     @Test
@@ -186,7 +186,7 @@ public class JsonFileFormatPropertiesTest {
                 "[\"$.deeply.nested[0].array[*].field\", \"$.complex.path[?(@.type=='value')]\"]");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals("[\"$.deeply.nested[0].array[*].field\", \"$.complex.path[?(@.type=='value')]\"]",
+        Assertions.assertEquals("[\"$.deeply.nested[0].array[*].field\", \"$.complex.path[?(@.type=='value')]\"]",
                 jsonFileFormatProperties.getJsonPaths());
     }
 
@@ -196,6 +196,6 @@ public class JsonFileFormatPropertiesTest {
         properties.put(JsonFileFormatProperties.PROP_JSON_PATHS, "");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals("", jsonFileFormatProperties.getJsonPaths());
+        Assertions.assertEquals("", jsonFileFormatProperties.getJsonPaths());
     }
 }
