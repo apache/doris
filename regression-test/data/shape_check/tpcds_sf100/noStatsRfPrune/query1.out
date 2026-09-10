@@ -18,17 +18,17 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((ctr1.ctr_store_sk = ctr2.ctr_store_sk)) otherCondition=((cast(ctr1.ctr_total_return as DECIMALV3(38, 5)) > (avg(ctr_total_return) * 1.2))) build RFs:RF3 ctr_store_sk->ctr_store_sk;RF4 ctr_store_sk->s_store_sk
+------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((ctr1.ctr_store_sk = ctr2.ctr_store_sk)) otherCondition=((cast(ctr1.ctr_total_return as DECIMALV3(38, 5)) > (avg(ctr_total_return) * 1.2)))
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = ctr1.ctr_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->ctr_store_sk
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=()
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF2 RF3
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF2
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[customer]
 ------------------PhysicalProject
 --------------------filter((store.s_state = 'SD'))
-----------------------PhysicalOlapScan[store] apply RFs: RF4
+----------------------PhysicalOlapScan[store]
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------hashAgg[LOCAL]

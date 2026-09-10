@@ -42,6 +42,7 @@ import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Set;
@@ -154,17 +155,21 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         } else {
             List<ExprId> exprIds = rfContext.getTargetExprIdByFilterJoin(join);
             if (exprIds != null && !exprIds.isEmpty()) {
-                boolean isEffective = hasScanRangePruningFilter(join);
-                if (!isEffective) {
-                    for (Expression expr : join.getEqualToConjuncts()) {
-                        if (isEffectiveRuntimeFilter((EqualTo) expr, join)) {
-                            isEffective = true;
-                            break;
-                        }
+                boolean hasEffectiveRowFilter = false;
+                for (Expression expr : join.getEqualToConjuncts()) {
+                    if (isEffectiveRuntimeFilter((EqualTo) expr, join)) {
+                        hasEffectiveRowFilter = true;
+                        break;
                     }
                 }
-                if (!isEffective) {
-                    exprIds.stream().forEach(exprId -> rfContext.removeFilters(exprId, join));
+                if (!hasEffectiveRowFilter) {
+                    // Scan-range pruning is target-specific. Keep only the filters whose own target
+                    // can prune partitions or buckets instead of retaining every filter from the join.
+                    for (RuntimeFilter filter : ImmutableList.copyOf(join.getRuntimeFilters())) {
+                        if (!filter.canPruneScanRanges()) {
+                            rfContext.removeFilter(filter, filter.getTargetSlot().getExprId());
+                        }
+                    }
                 }
             }
         }
@@ -312,9 +317,4 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         return probeColumnStat.ndv > buildNdvInProbeRange * (1 + ColumnStatistic.STATS_ERROR);
     }
 
-    private boolean hasScanRangePruningFilter(PhysicalHashJoin join) {
-        // Row-level statistics cannot describe the benefit of eliminating whole partitions or
-        // buckets, so retain filters with that capability independently of row selectivity.
-        return join.getRuntimeFilters().stream().anyMatch(RuntimeFilter::canPruneScanRanges);
-    }
 }

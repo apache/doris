@@ -169,6 +169,43 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     @Test
+    public void testScanRangePruningDoesNotKeepNonPruningSiblingFilters() {
+        boolean oldEnableRuntimeFilterPrune = connectContext.getSessionVariable().isEnableRuntimeFilterPrune();
+        boolean oldEnablePartitionPrune =
+                connectContext.getSessionVariable().isEnableRuntimeFilterPartitionPrune();
+        boolean oldEnableBucketPrune =
+                connectContext.getSessionVariable().isEnableRuntimeFilterBucketPrune();
+        int oldRuntimeFilterType = connectContext.getSessionVariable().getRuntimeFilterType();
+        boolean oldExpandRuntimeFilterByInnerJoin =
+                connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin;
+        try {
+            connectContext.getSessionVariable().setEnableRuntimeFilterPrune(true);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(false);
+            connectContext.getSessionVariable().setEnableRuntimeFilterBucketPrune(true);
+            connectContext.getSessionVariable().setRuntimeFilterType(
+                    TRuntimeFilterType.IN_OR_BLOOM.getValue() | TRuntimeFilterType.MIN_MAX.getValue());
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+
+            List<RuntimeFilter> supplierFilters = getRuntimeFilters(
+                    "SELECT * FROM lineorder JOIN part ON lo_partkey = p_partkey "
+                            + "JOIN supplier ON s_suppkey = lo_partkey").get().stream()
+                    .filter(filter -> filter.getSrcExpr().toSql().equals("s_suppkey"))
+                    .collect(Collectors.toList());
+
+            Assertions.assertEquals(1, supplierFilters.size());
+            Assertions.assertEquals(TRuntimeFilterType.IN_OR_BLOOM, supplierFilters.get(0).getType());
+            Assertions.assertEquals("p_partkey", supplierFilters.get(0).getTargetSlot().getName());
+            Assertions.assertTrue(supplierFilters.get(0).canPruneBuckets());
+        } finally {
+            connectContext.getSessionVariable().setEnableRuntimeFilterPrune(oldEnableRuntimeFilterPrune);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(oldEnablePartitionPrune);
+            connectContext.getSessionVariable().setEnableRuntimeFilterBucketPrune(oldEnableBucketPrune);
+            connectContext.getSessionVariable().setRuntimeFilterType(oldRuntimeFilterType);
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = oldExpandRuntimeFilterByInnerJoin;
+        }
+    }
+
+    @Test
     public void testGenerateRuntimeFilterByIllegalSrcExpr() {
         String sql = "SELECT * FROM lineorder JOIN customer on c_custkey = c_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
