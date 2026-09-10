@@ -1727,12 +1727,8 @@ public class PaimonScanNodeTest {
     }
 
     @Test
-    public void testSetPaimonParamsUsesJniWhenCppOptionEnabled() throws Exception {
-        // Keep this as real session state because the JNI-only path need not read the option;
-        // strict mocks should not make the test depend on whether that implementation detail is consulted.
-        SessionVariable cppEnabledSession = new SessionVariable();
-        cppEnabledSession.setEnablePaimonCppReader(true);
-        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), cppEnabledSession);
+    public void testSetPaimonParamsUsesJniForLogicalSplit() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), new SessionVariable());
         PaimonSource source = Mockito.mock(PaimonSource.class);
         Table paimonTable = mockPaimonTableWithPartitionKeys(Collections.emptyList());
         Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);

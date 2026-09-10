@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TQueryOptions;
@@ -113,6 +115,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_MODE = "sql_mode";
     public static final String WORKLOAD_VARIABLE = "workload_group";
     public static final String RESOURCE_VARIABLE = "resource_group";
+    public static final String PREFERRED_BACKEND_SELECTION_KEY = "preferred_backend_selection_key";
+    public static final String BACKEND_SELECTION_MODE = "backend_selection_mode";
+    public static final String ENABLE_LOAD_BACKEND_SELECTION = "enable_load_backend_selection";
     public static final String AUTO_COMMIT = "autocommit";
     public static final String TX_ISOLATION = "tx_isolation";
     public static final String TX_READ_ONLY = "tx_read_only";
@@ -807,8 +812,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
-    public static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
-
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
@@ -1253,6 +1256,29 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "";
 
+    @VariableMgr.VarAttr(name = PREFERRED_BACKEND_SELECTION_KEY, needForward = true,
+            checker = "checkPreferredBackendSelectionKey",
+            description = {"当前会话首选的后端选择键。默认空字符串表示未提供选择偏好。",
+                    "The preferred backend selection key for the current session. The default empty string "
+                            + "means no selection preference is provided."})
+    public String preferredBackendSelectionKey = "";
+
+    @VariableMgr.VarAttr(name = BACKEND_SELECTION_MODE, needForward = true,
+            checker = "checkBackendSelectionMode",
+            setter = "setBackendSelectionMode",
+            options = {"prefer", "require", "default"},
+            description = {"可选后端选择策略的模式。默认策略为空操作，不改变副本或后端选择行为。",
+                    "Backend selection mode for optional policies. The default policy is a no-op and does "
+                            + "not change replica or backend selection behavior. `require` is available only when the "
+                            + "extension declares support. Supported values are `prefer`, `require`, and `default`."})
+    public String backendSelectionMode = "prefer";
+
+    @VariableMgr.VarAttr(name = ENABLE_LOAD_BACKEND_SELECTION, needForward = true,
+            description = {"是否允许可选后端选择策略参与导入调度。默认策略为空操作，不改变导入行为。",
+                    "Whether optional backend selection policies may participate in load scheduling. "
+                            + "The default policy is a no-op and does not change load behavior."})
+    public boolean enableLoadBackendSelection = false;
+
     // this is used to make mysql client happy
     // autocommit is actually a boolean value, but @@autocommit is type of BIGINT.
     // So we need to set convertBoolToLongMethod to make "select @@autocommit" happy.
@@ -1447,6 +1473,7 @@ public class SessionVariable implements Serializable, Writable {
         NONE,
         IGNORE_JNI,
         IGNORE_NATIVE,
+        // Deprecated compatibility value. It behaves like NONE because no C++ splits are emitted.
         IGNORE_PAIMON_CPP
     }
 
@@ -1973,7 +2000,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
     private boolean enableInferPredicate = true;
 
-    @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
+    // Forwarded to the BE as a query option and read by the MySQL result writer: when it is false
+    // the object types (HLL / BITMAP / QUANTILE_STATE) are serialized as NULL instead of their raw
+    // bytes. It therefore changes the result rows the sql cache stores, and must take part in the
+    // cache key, otherwise a session that turns it on replays the NULLs cached by a session that
+    // had it off. It only affects execution, not the plan, so it does not force forwarding.
+    @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY, affectQueryResultInExecution = true)
     private boolean returnObjectDataAsBinary = false;
 
     @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE, affectQueryResultInPlan = true)
@@ -3051,11 +3083,6 @@ public class SessionVariable implements Serializable, Writable {
             description = {"强制使用 jni 方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_PAIMON_CPP_READER,
-            fuzzy = true,
-            description = {"Paimon 非原生文件读取使用 paimon-cpp", "Use paimon-cpp for non-native Paimon reads"})
-    private boolean enablePaimonCppReader = false;
-
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
             description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
@@ -3971,8 +3998,6 @@ public class SessionVariable implements Serializable, Writable {
 
         // jni
         this.forceJniScanner = random.nextBoolean();
-        this.enablePaimonCppReader = random.nextBoolean();
-
         // statistics
         this.fetchHiveRowCountSync = random.nextBoolean();
 
@@ -4463,8 +4488,61 @@ public class SessionVariable implements Serializable, Writable {
         return resourceGroup;
     }
 
+    public String getPreferredBackendSelectionKey() {
+        return preferredBackendSelectionKey;
+    }
+
+    public String getBackendSelectionMode() {
+        return backendSelectionMode;
+    }
+
+    public boolean isEnableLoadBackendSelection() {
+        return enableLoadBackendSelection;
+    }
+
     public void setResourceGroup(String resourceGroup) {
         this.resourceGroup = resourceGroup;
+    }
+
+    public void checkPreferredBackendSelectionKey(String preferredBackendSelectionKey) {
+        if (Strings.isNullOrEmpty(preferredBackendSelectionKey)) {
+            return;
+        }
+        try {
+            FeNameFormat.checkCommonName(PREFERRED_BACKEND_SELECTION_KEY, preferredBackendSelectionKey);
+        } catch (Exception e) {
+            LOG.warn("preferred_backend_selection_key value is invalid, the invalid value is {}",
+                    preferredBackendSelectionKey, e);
+            throw new UnsupportedOperationException(
+                    "preferred_backend_selection_key value is invalid, the invalid value is "
+                            + preferredBackendSelectionKey);
+        }
+    }
+
+    public void checkBackendSelectionMode(String backendSelectionMode) {
+        String normalized = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
+        if (!"prefer".equals(normalized)
+                && !"require".equals(normalized)
+                && !"default".equals(normalized)) {
+            LOG.warn("backend_selection_mode value is invalid, the invalid value is {}",
+                    backendSelectionMode);
+            throw new UnsupportedOperationException(
+                    "backend_selection_mode value is invalid, the invalid value is "
+                            + backendSelectionMode
+                            + ", supported values are prefer, require and default");
+        }
+        if ("require".equals(normalized) && Config.isCloudMode()) {
+            throw new UnsupportedOperationException(
+                    "Required backend selection is not supported in cloud mode");
+        }
+        if ("require".equals(normalized) && !BackendSelectionManager.supportsRequiredSelection()) {
+            throw new UnsupportedOperationException(
+                    "Backend selection provider does not support required backend selection");
+        }
+    }
+
+    public void setBackendSelectionMode(String backendSelectionMode) {
+        this.backendSelectionMode = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
     }
 
     public boolean isDisableFileCache() {
@@ -5713,7 +5791,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
-        tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
@@ -6510,10 +6587,6 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
-    public boolean isEnablePaimonCppReader() {
-        return enablePaimonCppReader;
-    }
-
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -6535,10 +6608,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
-    }
-
-    public void setEnablePaimonCppReader(boolean enable) {
-        enablePaimonCppReader = enable;
     }
 
     public boolean isEnableCountPushDownForExternalTable() {

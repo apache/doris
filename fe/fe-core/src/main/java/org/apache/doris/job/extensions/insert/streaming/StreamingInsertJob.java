@@ -18,7 +18,6 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
@@ -103,6 +102,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -301,18 +301,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private List<String> createTableIfNotExists() throws Exception {
         List<String> syncTbls = new ArrayList<>();
         Map<String, String> effectiveSourceProperties = buildConvertedSourceProperties(sourceProperties);
-        // Key: source table name; Value: CreateTableCommand for the Doris target table.
-        // The two names differ when "table.<src>.target_table" is configured.
-        LinkedHashMap<String, CreateTableCommand> createTblCmds =
+        // Key: source table name; Value: CREATE TABLE command, or empty if the target already exists.
+        // The source and target table names differ when "table.<src>.target_table" is configured.
+        LinkedHashMap<String, Optional<CreateTableCommand>> createTblCmds =
                 StreamingJobUtils.generateCreateTableCmds(targetDb,
                         dataSourceType, effectiveSourceProperties, targetProperties);
-        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(targetDb);
-        Preconditions.checkNotNull(db, "target database %s does not exist", targetDb);
-        for (Map.Entry<String, CreateTableCommand> entry : createTblCmds.entrySet()) {
+        for (Map.Entry<String, Optional<CreateTableCommand>> entry : createTblCmds.entrySet()) {
             String srcTable = entry.getKey();
-            CreateTableCommand createTblCmd = entry.getValue();
-            if (!db.isTableExist(createTblCmd.getCreateTableInfo().getTableName())) {
-                createTblCmd.run(ConnectContext.get(), null);
+            if (entry.getValue().isPresent()) {
+                entry.getValue().get().run(ConnectContext.get(), null);
             }
             // Use the upstream table name so CDC monitors the correct source table.
             syncTbls.add(srcTable);

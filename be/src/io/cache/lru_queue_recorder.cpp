@@ -181,11 +181,6 @@ size_t LRUQueueRecorder::lru_log_queue_size(FileCacheType type) const {
     return _lru_log_queue_size[file_cache_type_index(type)].load(std::memory_order_relaxed);
 }
 
-void LRUQueueRecorder::update_shadow_queue_element_count_metrics() {
-    std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
-    update_shadow_queue_element_count_metrics_unlocked(lru_log_lock);
-}
-
 void LRUQueueRecorder::limit_shadow_queue_size(LRUQueue& shadow_queue,
                                                std::lock_guard<std::mutex>& lru_log_lock) {
     int64_t queue_limit = config::file_cache_background_lru_dump_tail_record_num;
@@ -199,16 +194,6 @@ void LRUQueueRecorder::limit_shadow_queue_size(LRUQueue& shadow_queue,
             return;
         }
         --queue_size;
-    }
-}
-
-void LRUQueueRecorder::update_shadow_queue_element_count_metrics_unlocked(
-        std::lock_guard<std::mutex>& lru_log_lock) {
-    for (FileCacheType type : {FileCacheType::DISPOSABLE, FileCacheType::NORMAL,
-                               FileCacheType::INDEX, FileCacheType::TTL}) {
-        size_t idx = file_cache_type_index(type);
-        _mgr->_lru_recorder_shadow_queue_element_count_metrics[idx]->set_value(
-                get_shadow_queue(type).get_elements_num(lru_log_lock));
     }
 }
 

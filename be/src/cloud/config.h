@@ -209,6 +209,9 @@ DECLARE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second);
 DECLARE_mInt64(peer_candidate_cleanup_interval_s);
 DECLARE_mInt64(peer_candidate_expiry_s);
 DECLARE_mInt32(peer_rpc_failure_eviction_threshold);
+// Address-level circuit breaker shared by peer reads across tablets.
+DECLARE_mInt32(cache_peer_read_failure_threshold);
+DECLARE_mInt32(cache_peer_read_circuit_open_seconds);
 DECLARE_mInt32(peer_all_miss_cooldown_threshold);
 DECLARE_mInt64(peer_all_miss_cooldown_duration_s);
 
@@ -236,6 +239,10 @@ DECLARE_mBool(enable_file_cache_write_cumu_compaction_index_only);
 // MS RPC rate limiting config
 // Enable host-level rate limiting for MS RPCs to prevent burst traffic
 DECLARE_mBool(enable_ms_rpc_host_level_rate_limit);
+// Evaluate and record host-level MS RPC rate limits without delaying requests.
+// Dry-run evaluation is independent of enable_ms_rpc_host_level_rate_limit.
+// When both are enabled, dry-run takes precedence and requests are not delayed.
+DECLARE_mBool(enable_ms_rpc_host_level_rate_limit_dry_run);
 
 // Per-RPC QPS limit configs (per CPU core)
 // QPS limit = config_value * num_cores
@@ -269,6 +276,10 @@ DECLARE_mInt32(ms_rpc_qps_update_packed_file_info);
 
 // Enable MS backpressure response handling (table-level adaptive throttling)
 DECLARE_mBool(enable_ms_backpressure_handling);
+// Evaluate and record table-level adaptive throttling without delaying requests.
+// Dry-run evaluation is independent of enable_ms_backpressure_handling.
+// When both are enabled, dry-run takes precedence and requests are not delayed.
+DECLARE_mBool(enable_ms_backpressure_handling_dry_run);
 
 // Time window (seconds) for computing per-table QPS via bvar::PerSecond.
 // Larger window smooths out short-term spikes; smaller window reacts faster.

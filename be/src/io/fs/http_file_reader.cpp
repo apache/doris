@@ -280,6 +280,11 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         remaining = std::min<uint64_t>(to_read, left);
     }
     size_t req_len = (remaining > READ_BUFFER_SIZE) ? remaining : READ_BUFFER_SIZE;
+    if (_size_known) {
+        // Some servers return the entire object when an otherwise valid range crosses EOF, so the
+        // advertised file size must remain a hard boundary for speculative read-ahead.
+        req_len = std::min(req_len, _file_size - offset);
+    }
 
     VLOG(2) << "Issuing HTTP GET request: offset=" << offset << " req_len=" << req_len
             << " with_range=" << _range_supported;

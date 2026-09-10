@@ -395,6 +395,27 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testIcebergVariantDefaultsMustBeNull() {
+        Types.VariantType variantType = Types.VariantType.get();
+        Schema schema = new Schema(Types.NestedField.optional(1, "payload", variantType));
+
+        Assert.assertNull(IcebergUtils.parseIcebergLiteral(null, variantType));
+        Assert.assertTrue(IcebergUtils.getSerializedInitialDefaults(schema, false).isEmpty());
+
+        IllegalArgumentException ddlException = Assert.assertThrows(IllegalArgumentException.class,
+                () -> IcebergUtils.parseIcebergLiteral("{\"source\":\"ddl\"}", variantType));
+        Assert.assertTrue(ddlException.getMessage().contains("VARIANT default values must be NULL"));
+
+        Types.NestedField malformedField = Mockito.mock(Types.NestedField.class);
+        Mockito.when(malformedField.fieldId()).thenReturn(1);
+        Mockito.when(malformedField.type()).thenReturn(variantType);
+        Mockito.when(malformedField.initialDefault()).thenReturn("non-null-variant");
+        IllegalArgumentException readException = Assert.assertThrows(IllegalArgumentException.class,
+                () -> IcebergUtils.getSerializedInitialDefault(malformedField, false));
+        Assert.assertTrue(readException.getMessage().contains("VARIANT initial-default must be NULL"));
+    }
+
+    @Test
     public void testIcebergVariantWriteCapabilityMatrix() {
         Type variant = IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false);
         Column column = new Column("payload", variant);
@@ -986,6 +1007,10 @@ public class IcebergUtilsTest {
         Mockito.when(table.snapshot(3)).thenReturn(s3);
         Snapshot s4 = mockSnapshot(4, 1);
         Mockito.when(table.snapshot(4)).thenReturn(s4);
+        Snapshot s5 = mockSnapshot(5, 2);
+        Mockito.when(table.snapshot(5)).thenReturn(s5);
+        Snapshot s6 = mockSnapshot(6, 2);
+        Mockito.when(table.snapshot(6)).thenReturn(s6);
 
         // init history for snapshots
         List<HistoryEntry> history = new ArrayList<>();
@@ -993,6 +1018,8 @@ public class IcebergUtilsTest {
         history.add(mockHistory(2, "2025-05-01 22:34:56"));
         history.add(mockHistory(3, "2025-05-02 12:34:56"));
         history.add(mockHistory(4, "2025-05-03 12:34:56"));
+        history.add(mockHistory(5, LocalDateTime.of(2025, 5, 4, 12, 34, 56, 125_000_000)));
+        history.add(mockHistory(6, LocalDateTime.of(2025, 5, 4, 12, 34, 56, 526_000_000)));
         Mockito.when(table.history()).thenReturn(history);
 
         // create some refs
@@ -1106,6 +1133,8 @@ public class IcebergUtilsTest {
         assertQuerySpecSnapshotByTimeOf(table, "2025-05-02 11:34:56", 2, 0, null);
         assertQuerySpecSnapshotByTimeOf(table, "2025-05-02 12:34:56", 3, 1, null);
         assertQuerySpecSnapshotByTimeOf(table, "2025-05-03 12:34:56", 4, 1, null);
+        assertQuerySpecSnapshotByTimeOf(table, "2025-05-04 12:34:56.125", 5, 2, null);
+        assertQuerySpecSnapshotByTimeOf(table, "2025-05-04 12:34:56.526000", 6, 2, null);
 
         // query invalid time format
         Assert.assertThrows(
@@ -1128,11 +1157,13 @@ public class IcebergUtilsTest {
     }
 
     private HistoryEntry mockHistory(long snapshotId, String time) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        return mockHistory(snapshotId, LocalDateTime.parse(time, formatter));
+    }
+
+    private HistoryEntry mockHistory(long snapshotId, LocalDateTime dateTime) {
         HistoryEntry historyEntry = Mockito.mock(HistoryEntry.class);
         Mockito.when(historyEntry.snapshotId()).thenReturn(snapshotId);
-
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        LocalDateTime dateTime = LocalDateTime.parse(time, formatter);
         long millis = dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
 
         Mockito.when(historyEntry.timestampMillis()).thenReturn(millis);

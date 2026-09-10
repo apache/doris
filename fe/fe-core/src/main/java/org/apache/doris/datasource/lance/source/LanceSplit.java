@@ -36,6 +36,9 @@ public class LanceSplit extends FileSplit {
     private final long version;
     private final List<Long> fragmentIds;
     private final List<UUID> indexSegmentUuids;
+    // Set to a nonnegative value only when this split carries a metadata COUNT(*) result so BE can
+    // synthesize that many rows instead of scanning fragments. -1 means ordinary scan.
+    private long tableLevelRowCount = -1;
 
     public static LanceSplit forFragment(
             String datasetUri, long version, long fragmentId, long physicalRows) {
@@ -45,6 +48,16 @@ public class LanceSplit extends FileSplit {
 
     public static LanceSplit wholeDatasetAtLatest(String datasetUri) {
         return new LanceSplit(datasetUri, 0, Collections.emptyList(), Collections.emptyList(), 1);
+    }
+
+    // A metadata COUNT(*) carrier pinned to the planned snapshot. Its fragment range remains valid
+    // input if BE falls back to scanning, while rowCount lets the metadata path skip that scan.
+    public static LanceSplit forCount(String datasetUri, long version, List<Long> fragmentIds,
+            long rowCount, long physicalRows) {
+        LanceSplit split = new LanceSplit(
+                datasetUri, version, fragmentIds, Collections.emptyList(), physicalRows);
+        split.tableLevelRowCount = rowCount;
+        return split;
     }
 
     public static LanceSplit forIndexSegment(String datasetUri, long version, UUID indexSegmentUuid,
@@ -110,6 +123,10 @@ public class LanceSplit extends FileSplit {
 
     public boolean hasIndexSegmentUuids() {
         return !indexSegmentUuids.isEmpty();
+    }
+
+    public long getTableLevelRowCount() {
+        return tableLevelRowCount;
     }
 
     @Override

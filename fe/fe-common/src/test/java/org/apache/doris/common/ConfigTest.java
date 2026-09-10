@@ -118,4 +118,45 @@ public class ConfigTest {
             Assert.assertTrue(e.getMessage().contains("is not mutable"));
         }
     }
+
+    @Test
+    public void testRejectDeprecatedInvertedIndexV1WithWhitespace() throws Exception {
+        String originFormat = Config.inverted_index_storage_format;
+        try {
+            ConfigBase.setMutableConfig("inverted_index_storage_format", "V2");
+            ConfigException dynamicException = Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("inverted_index_storage_format", " V1 "));
+            Assert.assertTrue(dynamicException.getMessage().contains("Inverted index V1 is deprecated"));
+            Assert.assertEquals("V2", Config.inverted_index_storage_format);
+
+            Config.inverted_index_storage_format = "V2";
+            ConfigException startupException = Assert.assertThrows(ConfigException.class,
+                    () -> InvertedIndexStorageFormatValidator.rejectStartupV1(" V1 "));
+            Assert.assertTrue(startupException.getMessage().contains("inverted_index_storage_format=V1"));
+            Assert.assertEquals("V2", Config.inverted_index_storage_format);
+        } finally {
+            Config.inverted_index_storage_format = originFormat;
+        }
+    }
+
+    @Test
+    public void testCloudWarmUpSchedulerIntervalMustBePositive() throws ConfigException {
+        int original = Config.cloud_warm_up_job_scheduler_interval_millisecond;
+        try {
+            ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "2000");
+            Assert.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+
+            ConfigException zeroException = Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "0"));
+            Assert.assertTrue(zeroException.getMessage().contains("must be greater than 0"));
+            Assert.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+
+            ConfigException negativeException = Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "-1"));
+            Assert.assertTrue(negativeException.getMessage().contains("must be greater than 0"));
+            Assert.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+        } finally {
+            Config.cloud_warm_up_job_scheduler_interval_millisecond = original;
+        }
+    }
 }

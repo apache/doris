@@ -59,6 +59,10 @@ public:
     // Returns the sleep duration in nanoseconds, or -1 when the count limit rejects the add.
     int64_t add(size_t amount);
 
+    // Reserve `amount` tokens and return the required sleep duration without sleeping.
+    // The token bucket state is updated in the same way as add().
+    int64_t reserve(size_t amount);
+
     // Return `amount` tokens to the bucket (capped at max_burst) and roll back the
     // cumulative counter. Used to reconcile a reservation with the actually consumed
     // amount, e.g. a short read at EOF.
@@ -98,6 +102,8 @@ public:
 
     int64_t add(size_t amount);
     TokenBucketRateLimiterResult add_with_config(size_t amount);
+    // Reserve on the same limiter state as add_with_config(), but do not sleep.
+    TokenBucketRateLimiterResult reserve_with_config(size_t amount);
 
     // Charge `amount` like add(), but return the limiter generation the tokens were
     // taken from, or nullptr when the count limit rejects the charge. Callers that later
@@ -117,6 +123,8 @@ public:
     size_t get_limit() const;
 
 private:
+    TokenBucketRateLimiterResult _consume_with_config(size_t amount, bool wait);
+
     mutable std::shared_mutex rate_limiter_rw_lock;
     std::shared_ptr<TokenBucketRateLimiter> rate_limiter;
     std::atomic<bool> _enabled;

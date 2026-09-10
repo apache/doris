@@ -412,8 +412,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         String fileFormat = getFileFormat(paimonSplit.getPathString());
         if (split != null) {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            // A logical DataSplit may span multiple files, so keep it intact for the JNI reader
-            // until the C++ path has a split-aware V2 adapter.
+            // A logical DataSplit may span multiple files, so keep it intact for the JNI reader.
             fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
             fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());

@@ -274,10 +274,11 @@ under the License.
             <scope>test</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
+        <!-- Must match the thrift compiler installed in thirdparty. -->
         <dependency>
             <groupId>org.apache.thrift</groupId>
             <artifactId>libthrift</artifactId>
-            <version>0.16.0</version>
+            <version>0.24.0</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
         <dependency>
@@ -412,7 +413,7 @@ under the License.
                     <thriftExecutable>${env.DORIS_THIRDPARTY}/installed/bin/thrift</thriftExecutable>
                     <thriftSourceRoot>${basedir}/src/main/resources/thrift/</thriftSourceRoot>
                     <outputDirectory>${basedir}/src/main/thrift/</outputDirectory>
-                    <generator>java:fullcamel</generator>
+                    <generator>java:fullcamel,generated_annotations=suppress</generator>
                     <skip>${skip.plugin}</skip>
                 </configuration>
                 <executions>

@@ -77,6 +77,8 @@ public class SummaryProfile {
     public static final String DISTRIBUTED_PLAN = "Distributed Plan";
     public static final String SYSTEM_MESSAGE = "System Message";
     public static final String EXECUTED_BY_FRONTEND = "Executed By Frontend";
+    public static final String QUERY_BACKEND_SELECTION = "Query Backend Selection";
+    public static final String LOAD_BACKEND_SELECTION = "Load Backend Selection";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String INIT_SCAN_NODE_TIME = "Init Scan Node Time";
@@ -217,6 +219,8 @@ public class SummaryProfile {
             TRANSACTION_COMMIT_TIME,
             SYSTEM_MESSAGE,
             EXECUTED_BY_FRONTEND,
+            QUERY_BACKEND_SELECTION,
+            LOAD_BACKEND_SELECTION,
             SPLITS_ASSIGNMENT_WEIGHT
     );
 
@@ -862,6 +866,16 @@ public class SummaryProfile {
             return this;
         }
 
+        public SummaryBuilder queryBackendSelection(String selection) {
+            map.put(QUERY_BACKEND_SELECTION, selection);
+            return this;
+        }
+
+        public SummaryBuilder loadBackendSelection(String selection) {
+            map.put(LOAD_BACKEND_SELECTION, selection);
+            return this;
+        }
+
         public SummaryBuilder sqlStatement(String val) {
             map.put(SQL_STATEMENT, val);
             return this;
@@ -932,7 +946,10 @@ public class SummaryProfile {
     }
 
     public int getNereidsOptimizeTimeMs() {
-        return getTimeMs(nereidsOptimizeFinishTime, nereidsCollectTablePartitionFinishTime);
+        long start = nereidsCollectTablePartitionFinishTime != -1
+                ? nereidsCollectTablePartitionFinishTime
+                : nereidsRewriteFinishTime;
+        return getTimeMs(nereidsOptimizeFinishTime, start);
     }
 
     public int getNereidsTranslateTimeMs() {
@@ -1033,7 +1050,12 @@ public class SummaryProfile {
     }
 
     public String getPrettyNereidsOptimizeTime() {
-        return getPrettyTime(nereidsOptimizeFinishTime, nereidsPreRewriteByMvFinishTime, TUnit.TIME_MS);
+        long start = nereidsPreRewriteByMvFinishTime != -1
+                ? nereidsPreRewriteByMvFinishTime
+                : (nereidsCollectTablePartitionFinishTime != -1
+                        ? nereidsCollectTablePartitionFinishTime
+                        : nereidsRewriteFinishTime);
+        return getPrettyTime(nereidsOptimizeFinishTime, start, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsTranslateTime() {

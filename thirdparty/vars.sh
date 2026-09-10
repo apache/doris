@@ -50,10 +50,6 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 # export REPOSITORY_URL=
 DORIS_THIRDPARTY_REPOSITORY_URL="${DORIS_THIRDPARTY_REPOSITORY_URL:-https://doris-thirdparty-repo.bj.bcebos.com/thirdparty}"
 
-DORIS_THIRDPARTY_VARS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=arrow-paimon-vars.sh
-. "${DORIS_THIRDPARTY_VARS_DIR}/arrow-paimon-vars.sh"
-
 #####################################################
 # Download url, filename and unpaced filename
 # of all thirdparties
@@ -72,10 +68,10 @@ OPENSSL_SOURCE=openssl-OpenSSL_1_1_1s
 OPENSSL_MD5SUM="7e79a7560dee77c0758baa33c61af4b4"
 
 # thrift
-THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.16.0/thrift-0.16.0.tar.gz"
-THRIFT_NAME=thrift-0.16.0.tar.gz
-THRIFT_SOURCE=thrift-0.16.0
-THRIFT_MD5SUM="44cf1b54b4ec1890576c85804acfa637"
+THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.24.0/thrift-0.24.0.tar.gz"
+THRIFT_NAME=thrift-0.24.0.tar.gz
+THRIFT_SOURCE=thrift-0.24.0
+THRIFT_MD5SUM="232e035ff80c5fb4b7243f0be3a76b02"
 
 # protobuf
 # brpc is not yet compatible with protobuf >= 22
@@ -145,7 +141,6 @@ LZO2_SOURCE=lzo-2.10
 LZO2_MD5SUM="39d3f3f9c55c87b1e5d6888e1420f4b5"
 
 # rapidjson
-# Updated to match paimon-cpp version (commit 232389d4f1012dddec4ef84861face2d2ba85709)
 RAPIDJSON_DOWNLOAD="https://github.com/miloyip/rapidjson/archive/232389d4f1012dddec4ef84861face2d2ba85709.tar.gz"
 RAPIDJSON_NAME=rapidjson-232389d4f1012dddec4ef84861face2d2ba85709.tar.gz
 RAPIDJSON_SOURCE=rapidjson-232389d4f1012dddec4ef84861face2d2ba85709
@@ -239,6 +234,12 @@ ZSTD_NAME=zstd-1.5.7.tar.gz
 ZSTD_SOURCE=zstd-1.5.7
 ZSTD_MD5SUM="780fc1896922b1bc52a4e90980cdda48"
 
+# brotli
+BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.9.tar.gz"
+BROTLI_NAME="brotli-1.0.9.tar.gz"
+BROTLI_SOURCE="brotli-1.0.9"
+BROTLI_MD5SUM="c2274f0c7af8470ad514637c35bcee7d"
+
 # flatbuffers
 FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v23.5.26.tar.gz"
 FLATBUFFERS_NAME=flatbuffers-23.5.26.tar.gz
@@ -257,6 +258,12 @@ GRPC_DOWNLOAD="https://github.com/grpc/grpc/archive/refs/tags/v1.54.3.tar.gz"
 GRPC_NAME="grpc-v1.54.3.tar.gz"
 GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
+
+# arrow
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-24.0.0.tar.gz"
+ARROW_NAME="apache-arrow-24.0.0.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-24.0.0"
+ARROW_MD5SUM="66c53bd00baa79034bd2ca167beea436"
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/releases/download/20250512.1/abseil-cpp-20250512.1.tar.gz"
@@ -346,10 +353,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.219.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.11.219.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.11.219"
-AWS_SDK_MD5SUM="80aa616efe1a3e7a9bf0dfbc44a97864"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.221.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.11.221.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.11.221"
+AWS_SDK_MD5SUM="95ea128da58829117a544b092bc39033"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -418,6 +425,13 @@ BENCHMARK_NAME=benchmark-v1.8.0.tar.gz
 BENCHMARK_SOURCE=benchmark-1.8.0
 BENCHMARK_MD5SUM="8ddf8571d3f6198d37852bcbd964f817"
 
+# xsimd
+# for arrow-24.0.0, if arrow upgrade, this version may also need to be changed
+XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/refs/tags/14.0.0.tar.gz"
+XSIMD_NAME="14.0.0.tar.gz"
+XSIMD_SOURCE=xsimd-14.0.0
+XSIMD_MD5SUM="75c0d34cf7011924ba19978076c76dc1"
+
 # simdjson
 SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.11.6.tar.gz"
 SIMDJSON_NAME=simdjson-3.11.6.tar.gz
@@ -429,6 +443,14 @@ NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10
 NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
 NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
+
+# Google Cloud C++ OAuth2 authentication library. Only the auth/common REST
+# components are built; the Google Cloud Storage SDK is intentionally excluded.
+GOOGLE_CLOUD_CPP_DOWNLOAD="https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v2.45.0.tar.gz"
+GOOGLE_CLOUD_CPP_FALLBACK_DOWNLOAD="https://codeload.github.com/googleapis/google-cloud-cpp/tar.gz/refs/tags/v2.45.0"
+GOOGLE_CLOUD_CPP_NAME="google-cloud-cpp-2.45.0.tar.gz"
+GOOGLE_CLOUD_CPP_SOURCE="google-cloud-cpp-2.45.0"
+GOOGLE_CLOUD_CPP_MD5SUM="3cc131764cd9009c20407d7b67afcf6e"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
@@ -552,10 +574,10 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.7.tar.gz"
-LANCE_C_NAME="lance-c-v0.1.7.tar.gz"
-LANCE_C_SOURCE="lance-c-0.1.7"
-LANCE_C_MD5SUM="15ef7cd20a2e1606384251cb2d41d42f"
+LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.9.tar.gz"
+LANCE_C_NAME="lance-c-v0.1.9.tar.gz"
+LANCE_C_SOURCE="lance-c-0.1.9"
+LANCE_C_MD5SUM="7138ed44e92d4bc91d5b522a6b92ed64"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -621,6 +643,7 @@ export TP_ARCHIVES=(
     'XSIMD'
     'SIMDJSON'
     'NLOHMANN_JSON'
+    'GOOGLE_CLOUD_CPP'
     'LIBBACKTRACE'
     'SSE2NEON'
     'XXHASH'
@@ -641,7 +664,6 @@ export TP_ARCHIVES=(
     'JINDOFS'
     'JUICEFS'
     'PUGIXML'
-    'PAIMON_CPP'
     'LANCE_C'
 )
 

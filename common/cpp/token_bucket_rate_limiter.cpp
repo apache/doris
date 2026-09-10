@@ -112,6 +112,14 @@ std::pair<size_t, double> TokenBucketRateLimiter::_update_remain_token(long now,
 }
 
 int64_t TokenBucketRateLimiter::add(size_t amount) {
+    int64_t sleep_time_ns = reserve(amount);
+    if (sleep_time_ns > 0) {
+        bthread_usleep(sleep_time_ns / 1000);
+    }
+    return sleep_time_ns;
+}
+
+int64_t TokenBucketRateLimiter::reserve(size_t amount) {
     // Values obtained under lock to be checked after release
     auto duration = std::chrono::steady_clock::now().time_since_epoch();
     auto time_nano_count = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
@@ -126,7 +134,6 @@ int64_t TokenBucketRateLimiter::add(size_t amount) {
     int64_t sleep_time_ns = 0;
     if (_max_speed && tokens_value < 0) {
         sleep_time_ns = static_cast<int64_t>(-tokens_value / _max_speed * NS);
-        bthread_usleep(sleep_time_ns / 1000);
     }
 
     return sleep_time_ns;
@@ -152,15 +159,25 @@ int64_t TokenBucketRateLimiterHolder::add(size_t amount) {
 }
 
 TokenBucketRateLimiterResult TokenBucketRateLimiterHolder::add_with_config(size_t amount) {
-    // Snapshot the current limiter and call add() outside the read lock: add() may
-    // sleep for a long time when throttled, and holding the read lock across the
-    // sleep would block reset() (dynamic config update) for the whole duration.
+    return _consume_with_config(amount, true);
+}
+
+TokenBucketRateLimiterResult TokenBucketRateLimiterHolder::reserve_with_config(size_t amount) {
+    return _consume_with_config(amount, false);
+}
+
+TokenBucketRateLimiterResult TokenBucketRateLimiterHolder::_consume_with_config(size_t amount,
+                                                                                bool wait) {
+    // Snapshot the current limiter and consume outside the read lock. The waiting
+    // path may sleep for a long time when throttled, and holding the read lock across
+    // the sleep would block reset() (dynamic config update) for the whole duration.
     std::shared_ptr<TokenBucketRateLimiter> limiter;
     {
         std::shared_lock read {rate_limiter_rw_lock};
         limiter = rate_limiter;
     }
-    TokenBucketRateLimiterResult result = {.sleep_duration = limiter->add(amount),
+    TokenBucketRateLimiterResult result = {.sleep_duration = wait ? limiter->add(amount)
+                                                                  : limiter->reserve(amount),
                                            .max_speed = limiter->get_max_speed(),
                                            .max_burst = limiter->get_max_burst(),
                                            .limit = limiter->get_limit()};
