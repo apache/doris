@@ -40,6 +40,7 @@ class PTabletWriterAddBlockRequest;
 class PTabletWriterAddBlockResult;
 class OpenPartitionRequest;
 class BaseTabletsChannel;
+class DeleteBitmapCancellation;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job
@@ -113,6 +114,7 @@ private:
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
     std::atomic<bool> _cancelled {false};
+    const std::shared_ptr<DeleteBitmapCancellation> _delete_bitmap_cancellation;
 
     std::shared_ptr<ResourceContext> _resource_ctx;
 

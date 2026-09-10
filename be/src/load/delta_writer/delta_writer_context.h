@@ -30,6 +30,7 @@ namespace doris {
 class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
+class DeleteBitmapCancellation;
 
 enum class WriteRequestType {
     DATA = 0,       // data write
@@ -56,6 +57,8 @@ struct WriteRequest {
     WriteRequestType write_req_type = WriteRequestType::DATA;
     std::string storage_vault_id;
     bool enable_table_memtable_backpressure = false;
+    // Shared by both bitmap phases of every writer in the load.
+    std::shared_ptr<DeleteBitmapCancellation> delete_bitmap_cancellation = nullptr;
 };
 
 struct TabletAddRowsPayload {

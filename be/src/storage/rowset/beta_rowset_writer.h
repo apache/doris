@@ -120,6 +120,8 @@ public:
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
+    void cancel_calc_delete_bitmap(const Status& st) override;
+
     Status add_block(const Block* block) override;
 
     // Declare these interface in `BaseBetaRowsetWriter`
