@@ -104,6 +104,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.SumMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
+import org.apache.doris.nereids.trees.expressions.functions.agg.UniqTheta;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
@@ -183,6 +184,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(MultiDistinctSum.class, "multi_distinct_sum"),
                 agg(MultiDistinctSum0.class, "multi_distinct_sum0"),
                 agg(Ndv.class, "approx_count_distinct", "ndv"),
+                agg(UniqTheta.class, "uniq_theta"),
                 agg(OrthogonalBitmapExprCalculate.class, "orthogonal_bitmap_expr_calculate"),
                 agg(OrthogonalBitmapExprCalculateCount.class, "orthogonal_bitmap_expr_calculate_count"),
                 agg(OrthogonalBitmapIntersect.class, "orthogonal_bitmap_intersect"),
