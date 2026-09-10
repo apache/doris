@@ -17,6 +17,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 #include "common/exception.h"
 #include "core/column/column_array.h"
 #include "core/data_type/data_type_array.h"
@@ -98,6 +100,24 @@ public:
         auto* expected = create(arguments);
         add(expected, arguments);
         EXPECT_TRUE(ColumnHelper::column_equal(result(destination), result(expected)));
+    }
+
+    void check_invalid_outputs(const Arguments& arguments, const std::string& message) {
+        auto* state = create(arguments);
+        for (bool serialize_state : {false, true}) {
+            SCOPED_TRACE(serialize_state);
+            try {
+                if (serialize_state) {
+                    serialize(state);
+                } else {
+                    result(state);
+                }
+                FAIL() << "Expected invalid state parameters to be rejected";
+            } catch (const Exception& e) {
+                EXPECT_EQ(e.code(), ErrorCode::INVALID_ARGUMENT);
+                EXPECT_NE(e.to_string().find(message), std::string::npos);
+            }
+        }
     }
 
 private:
@@ -252,6 +272,23 @@ TEST(AggregateStateParametersTest, ExponentialMovingAverage) {
     auto time = argument<DataTypeFloat64>(1);
     check_parameters("exponential_moving_average", {argument<DataTypeFloat64>(1), value, time},
                      {argument<DataTypeFloat64>(2), value, time});
+}
+
+TEST(AggregateStateParametersTest, ExponentialMovingAverageNaNOutputs) {
+    auto type = std::make_shared<DataTypeFloat64>();
+    auto function = AggregateFunctionSimpleFactory::instance().get(
+            "exponential_moving_average", {type, type, type}, nullptr, false,
+            BeExecVersionManager::get_newest_version());
+    ASSERT_NE(function, nullptr);
+    StateParameterChecks checks(function);
+    auto value = argument<DataTypeFloat64>(7);
+    auto time = argument<DataTypeFloat64>(1);
+    checks.check_invalid_outputs(
+            {argument<DataTypeFloat64>(std::numeric_limits<double>::quiet_NaN()), value, time},
+            "half decay must not be NaN");
+    for (double half_decay : {0.0, 1.0}) {
+        checks.check_compatible({argument<DataTypeFloat64>(half_decay), value, time});
+    }
 }
 
 TEST(AggregateStateParametersTest, SequenceAndWindowFunnel) {

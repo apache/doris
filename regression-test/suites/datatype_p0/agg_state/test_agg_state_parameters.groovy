@@ -28,6 +28,14 @@ suite("test_agg_state_parameters") {
         }
     }
 
+    for (def function : ["exponential_moving_average", "exponential_moving_average_state",
+                         "exponential_moving_average_combine"]) {
+        test {
+            sql "SELECT ${function}(cast('NaN' AS double), cast(7 AS double), cast(1 AS double))"
+            exception "half decay must not be NaN"
+        }
+    }
+
     // Each pair has the same AggState type but incompatible configuration values.
     def cases = [
         ["topn", "'a', 1", "'a', 3"],

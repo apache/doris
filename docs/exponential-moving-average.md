@@ -26,6 +26,9 @@ Consequently:
   aggregate is finalized.
 
 This documents the existing zero-half-decay behavior. Zero is not a distinct
-contributing configuration for aggregate-state compatibility checks. These rules
-concern zero half-decay; they do not define NaN as an empty state or change SQL
-NULL handling.
+contributing configuration for aggregate-state compatibility checks. SQL NULL
+handling is unchanged.
+
+A NaN half-decay is unsupported. Serializing an aggregate state or finalizing its
+result raises `exponential_moving_average half decay must not be NaN`. This check
+applies to the half-decay parameter, not to the input value or the computed result.

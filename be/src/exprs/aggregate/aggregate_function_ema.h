@@ -105,6 +105,7 @@ struct ExponentialMovingAverageData {
     }
 
     double get() const {
+        check_half_decay();
         if (half_decay == 0.0) {
             return 0.0;
         }
@@ -112,6 +113,7 @@ struct ExponentialMovingAverageData {
     }
 
     void write(BufferWritable& buf) const {
+        check_half_decay();
         buf.write_binary(value);
         buf.write_binary(time);
         buf.write_binary(half_decay);
@@ -121,6 +123,13 @@ struct ExponentialMovingAverageData {
         buf.read_binary(value);
         buf.read_binary(time);
         buf.read_binary(half_decay);
+    }
+
+    void check_half_decay() const {
+        if (UNLIKELY(std::isnan(half_decay))) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "exponential_moving_average half decay must not be NaN");
+        }
     }
 
     void reset() {
