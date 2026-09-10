@@ -55,6 +55,12 @@ import java.util.stream.Stream;
 public class HudiScanNodeTest {
 
     @Test
+    public void testDoesNotUseHiveParquetInt96TimeZone() {
+        HudiScanNode node = Mockito.mock(HudiScanNode.class, Answers.CALLS_REAL_METHODS);
+        Assertions.assertEquals("", node.getHiveParquetTimeZone());
+    }
+
+    @Test
     public void testCopyHudiSplitIsolatesMutableState() {
         HudiSplit source = new HudiSplit(
                 LocationPath.of("hdfs://host/table/file.parquet"),

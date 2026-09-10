@@ -140,6 +140,12 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testDoesNotUseHiveParquetInt96TimeZone() {
+        PaimonScanNode node = Mockito.mock(PaimonScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Assert.assertEquals("", node.getHiveParquetTimeZone());
+    }
+
+    @Test
     public void testVariantProjectionRequiresVariantV2Recursively() throws UserException {
         List<Type> variantTypes = Arrays.asList(
                 VariantType.COMPUTE_V2_INSTANCE,

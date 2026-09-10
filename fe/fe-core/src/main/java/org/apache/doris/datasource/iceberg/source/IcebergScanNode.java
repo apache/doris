@@ -232,6 +232,12 @@ public class IcebergScanNode extends FileQueryScanNode {
     public Map<String, List<DeleteFile>> deleteFilesByReferencedDataFile = new HashMap<>();
     public Map<String, List<TIcebergDeleteFileDesc>> deleteFilesDescByReferencedDataFile = new HashMap<>();
 
+    @Override
+    protected String getHiveParquetTimeZone() {
+        // Iceberg timestamp annotations remain authoritative when the table is discovered through HMS.
+        return "";
+    }
+
     // for test
     @VisibleForTesting
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv, ScanContext scanContext) {

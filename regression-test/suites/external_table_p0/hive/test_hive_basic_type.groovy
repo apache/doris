@@ -39,7 +39,8 @@ suite("test_hive_basic_type", "external_docker,hive,external_docker_hive,p0,exte
             sql """CREATE CATALOG ${catalog_name} PROPERTIES (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'hadoop.username' = 'hive'
+                'hadoop.username' = 'hive',
+                'hive.parquet.time-zone' = 'Asia/Shanghai'
             );"""
 
             sql """switch ${catalog_name}"""

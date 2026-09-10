@@ -139,6 +139,12 @@ public class IcebergScanNodeTest {
     @Rule
     public final TemporaryFolder temporaryFolder = new TemporaryFolder();
 
+    @Test
+    public void testDoesNotUseHiveParquetInt96TimeZone() {
+        IcebergScanNode node = Mockito.mock(IcebergScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Assert.assertEquals("", node.getHiveParquetTimeZone());
+    }
+
     @SuppressWarnings("unchecked")
     private static Optional<Map<Integer, List<String>>> extractNameMapping(
             IcebergScanNode node) throws Exception {

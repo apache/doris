@@ -31,6 +31,7 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
 import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
 import org.apache.doris.thrift.schema.external.TSchema;
 
@@ -137,6 +138,17 @@ public class PaimonUtilTest {
                 ScalarType.createTimeStampTzType(6), new DorisToPaimonTypeVisitor());
         Assert.assertTrue(timestampLtz instanceof LocalZonedTimestampType);
         Assert.assertEquals(6, ((LocalZonedTimestampType) timestampLtz).getPrecision());
+    }
+
+    @Test
+    public void testPaimonTimestampSchemaHistoryPreservesLogicalSemantics() {
+        TField timestamp = PaimonUtil.getSchemaInfo(new TimestampType(3), false, false);
+        Assert.assertTrue(timestamp.isSetTimestampIsAdjustedToUtc());
+        Assert.assertFalse(timestamp.isTimestampIsAdjustedToUtc());
+
+        TField timestampLtz = PaimonUtil.getSchemaInfo(new LocalZonedTimestampType(6), false, false);
+        Assert.assertTrue(timestampLtz.isSetTimestampIsAdjustedToUtc());
+        Assert.assertTrue(timestampLtz.isTimestampIsAdjustedToUtc());
     }
 
     @Test
