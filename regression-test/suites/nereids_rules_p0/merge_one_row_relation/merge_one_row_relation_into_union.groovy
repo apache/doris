@@ -28,4 +28,61 @@ suite("merge_one_row_relation_into_union") {
         ) u
         GROUP BY v
     """
+
+    test {
+        sql """
+            SELECT 1 AS c
+            UNION ALL
+            SELECT c FROM (SELECT 2 AS c) s GROUP BY c
+            ORDER BY c
+        """
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            assertEquals("[[1], [2]]", result.toString())
+        }
+    }
+
+    test {
+        sql """
+            SELECT 1 AS c
+            UNION ALL
+            SELECT DISTINCT c FROM (SELECT 2 AS c) s
+            ORDER BY c
+        """
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            assertEquals("[[1], [2]]", result.toString())
+        }
+    }
+
+    test {
+        sql """
+            SELECT c FROM (SELECT 2 AS c) s GROUP BY c
+            UNION ALL
+            SELECT 1 AS c
+            ORDER BY c
+        """
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            assertEquals("[[1], [2]]", result.toString())
+        }
+    }
+
+    test {
+        sql """
+            SELECT 1 AS c UNION ALL SELECT 1 AS c UNION ALL SELECT 1 AS c ORDER BY c
+        """
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            assertEquals("[[1], [1], [1]]", result.toString())
+        }
+    }
 }
