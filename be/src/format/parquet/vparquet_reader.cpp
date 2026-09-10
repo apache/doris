@@ -1403,7 +1403,7 @@ Status ParquetReader::_process_expr_zonemap_page_filter(
 
             ZoneMapEvalContext ctx;
             ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-            slot_zone_map.data_type = slot->type();
+            slot_zone_map.set_data_type_from_parquet(slot->type());
             segment_v2::ZoneMap zone_map;
             zone_map.has_null = stat->has_null[page_id];
             zone_map.has_not_null = !stat->is_all_null[page_id];
@@ -1665,7 +1665,7 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         }
         auto* slot = _tuple_descriptor->slots()[cid];
         ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-        slot_zone_map.data_type = slot->type();
+        slot_zone_map.set_data_type_from_parquet(slot->type());
         if (!_exists_in_file(slot->col_name()) || !_type_matches(cid)) {
             ctx.slots.emplace(cid, std::move(slot_zone_map));
             continue;
