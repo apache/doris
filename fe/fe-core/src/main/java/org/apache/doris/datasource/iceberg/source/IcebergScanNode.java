@@ -40,6 +40,7 @@ import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
@@ -140,6 +141,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
@@ -160,7 +162,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -1673,7 +1676,10 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public void doStartSplit() throws UserException {
         TableScan scan = createTableScan();
-        CompletableFuture.runAsync(() -> {
+        ExecutorService executor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        Closeable generationLease = IcebergUtils.retainStatementTableGenerationForAsyncPlanning(
+                source.getTargetTable());
+        AsyncPlanningTask planningTask = new AsyncPlanningTask(executor, splitAssignment, generationLease, () -> {
             AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
             try {
                 preExecutionAuthenticator.execute(
@@ -1717,7 +1723,109 @@ public class IcebergScanNode extends FileQueryScanNode {
                     }
                 }
             }
-        }, Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor());
+        });
+        splitAssignment.addCloseable(planningTask);
+        planningTask.submit();
+    }
+
+    /** Owns the planner generation until the worker actually exits, including cancellation races. */
+    @VisibleForTesting
+    static final class AsyncPlanningTask implements Runnable, Closeable {
+        private final ExecutorService executor;
+        private final SplitAssignment splitAssignment;
+        private final Closeable generationLease;
+        private final Runnable planning;
+        private boolean submitted;
+        private boolean started;
+        private boolean closeRequested;
+        private boolean finished;
+        private Thread runner;
+
+        AsyncPlanningTask(ExecutorService executor, SplitAssignment splitAssignment,
+                Closeable generationLease, Runnable planning) {
+            this.executor = Objects.requireNonNull(executor, "executor is null");
+            this.splitAssignment = Objects.requireNonNull(splitAssignment, "splitAssignment is null");
+            this.generationLease = Objects.requireNonNull(generationLease, "generationLease is null");
+            this.planning = Objects.requireNonNull(planning, "planning is null");
+        }
+
+        void submit() {
+            try {
+                synchronized (this) {
+                    if (finished) {
+                        return;
+                    }
+                    submitted = true;
+                }
+                executor.execute(this);
+            } catch (RuntimeException | Error e) {
+                finish();
+                throw e;
+            }
+        }
+
+        @Override
+        public void run() {
+            boolean cancelled;
+            synchronized (this) {
+                if (finished) {
+                    return;
+                }
+                started = true;
+                runner = Thread.currentThread();
+                cancelled = closeRequested;
+            }
+            try {
+                if (!cancelled) {
+                    planning.run();
+                }
+            } finally {
+                finish();
+            }
+        }
+
+        @Override
+        public void close() {
+            Thread threadToInterrupt = null;
+            boolean finishBeforeStart = false;
+            synchronized (this) {
+                if (finished) {
+                    return;
+                }
+                closeRequested = true;
+                if (started) {
+                    threadToInterrupt = runner;
+                } else {
+                    finishBeforeStart = true;
+                    if (submitted && executor instanceof ThreadPoolExecutor) {
+                        ((ThreadPoolExecutor) executor).remove(this);
+                    }
+                }
+            }
+            if (threadToInterrupt != null) {
+                threadToInterrupt.interrupt();
+            }
+            if (finishBeforeStart) {
+                finish();
+            }
+        }
+
+        private void finish() {
+            synchronized (this) {
+                if (finished) {
+                    return;
+                }
+                finished = true;
+                runner = null;
+            }
+            splitAssignment.removeCloseable(this);
+            try {
+                generationLease.close();
+            } catch (IOException e) {
+                splitAssignment.setException(
+                        new UserException("Failed to release Iceberg planning generation", e));
+            }
+        }
     }
 
     @VisibleForTesting

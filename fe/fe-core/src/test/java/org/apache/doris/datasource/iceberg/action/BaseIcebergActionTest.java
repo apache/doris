@@ -19,8 +19,10 @@ package org.apache.doris.datasource.iceberg.action;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache.CatalogGenerationChangedException;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache.WritableTableLease;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 
 import org.apache.iceberg.Table;
@@ -39,6 +41,7 @@ public class BaseIcebergActionTest {
     @Test
     public void testActionRetainsWritableGenerationUntilExecutionFinishes() throws Exception {
         IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergMetadataOps metadataOps = Mockito.mock(IcebergMetadataOps.class);
         Table icebergTable = Mockito.mock(Table.class);
         AtomicBoolean released = new AtomicBoolean();
         WritableTableLease lease = Mockito.mock(WritableTableLease.class);
@@ -49,7 +52,7 @@ public class BaseIcebergActionTest {
             return null;
         }).when(lease).close();
         BaseIcebergAction action = new BaseIcebergAction(
-                "test", Collections.emptyMap(), Optional.empty(), Optional.empty()) {
+                "test", Collections.emptyMap(), Optional.empty(), Optional.empty(), metadataOps) {
             @Override
             protected void registerIcebergArguments() {
             }
@@ -69,10 +72,45 @@ public class BaseIcebergActionTest {
         };
 
         try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
-            mockedUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable))
+            mockedUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable, metadataOps))
                     .thenReturn(lease);
             Assert.assertEquals(Collections.singletonList("ok"), action.executeAction(dorisTable));
             Assert.assertTrue(released.get());
+        }
+    }
+
+    @Test
+    public void testAcquisitionGenerationFenceRemainsRetryable() throws Exception {
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergMetadataOps metadataOps = Mockito.mock(IcebergMetadataOps.class);
+        CatalogGenerationChangedException generationChanged =
+                new CatalogGenerationChangedException("catalog generation changed");
+        BaseIcebergAction action = new BaseIcebergAction(
+                "test", Collections.emptyMap(), Optional.empty(), Optional.empty(), metadataOps) {
+            @Override
+            protected void registerIcebergArguments() {
+            }
+
+            @Override
+            protected List<String> executeIcebergAction(TableIf table, Table retainedTable) {
+                throw new AssertionError("action must not start after an acquisition fence failure");
+            }
+
+            @Override
+            public String getDescription() {
+                return "test action";
+            }
+        };
+
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable, metadataOps))
+                    .thenThrow(generationChanged);
+            try {
+                action.executeAction(dorisTable);
+                Assert.fail("generation fence must escape for command-level retry");
+            } catch (CatalogGenerationChangedException e) {
+                Assert.assertSame(generationChanged, e);
+            }
         }
     }
 }

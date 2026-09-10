@@ -32,7 +32,8 @@ public class HudiFsViewCacheValueTest {
 
         Assert.assertNotNull(lease);
         Assert.assertSame(view, lease.get());
-        value.evict();
+        value.releaseLoaderReference();
+        value.releaseCacheReference();
         Mockito.verify(view, Mockito.never()).close();
         Assert.assertNull(value.tryAcquire());
 
@@ -47,10 +48,15 @@ public class HudiFsViewCacheValueTest {
         HoodieTableFileSystemView view = Mockito.mock(HoodieTableFileSystemView.class);
         HudiFsViewCacheValue value = new HudiFsViewCacheValue(view);
 
-        value.evict();
+        value.releaseCacheReference();
 
+        Mockito.verify(view, Mockito.never()).close();
+        HudiFsViewCacheValue.Lease lease = value.tryAcquire();
+        Assert.assertNotNull(lease);
+        value.releaseLoaderReference();
+        Mockito.verify(view, Mockito.never()).close();
+        lease.close();
         Mockito.verify(view).close();
-        Assert.assertNull(value.tryAcquire());
     }
 
     @Test
@@ -58,6 +64,7 @@ public class HudiFsViewCacheValueTest {
         HoodieTableFileSystemView view = Mockito.mock(HoodieTableFileSystemView.class);
         HudiFsViewCacheValue value = new HudiFsViewCacheValue(view);
         HudiFsViewCacheValue.Lease firstLease = value.tryAcquire();
+        value.releaseLoaderReference();
 
         Assert.assertNotNull(firstLease);
         firstLease.close();
