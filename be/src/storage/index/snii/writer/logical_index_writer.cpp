@@ -106,6 +106,7 @@ public:
                          uint64_t prx_base)
             : writer_(writer),
               postings_(postings),
+              stop_gram_df_threshold_(writer->stop_gram_df_threshold_),
               term_has_prx_(term_has_prx),
               buffer_(buffer),
               frq_base_(frq_base),
@@ -141,7 +142,21 @@ public:
         testing::note_term_freq_scan();
 #endif
         bool exhausted = false;
-        RETURN_IF_ERROR(fill(format::kAdaptiveWindowDfThreshold, &exhausted));
+        // With stop-gram on, the first fill has to be large enough to settle the question
+        // outright. The decision is only free before a window is emitted: once posting
+        // bytes are appended to the region they cannot be taken back, so pulling
+        // threshold+1 documents up front buys an exact answer at zero wasted bytes. The
+        // buffer holds one term at a time, so the extra documents are a bounded cost.
+        const uint32_t first_fill =
+                stop_gram_df_threshold_ > 0
+                        ? std::max(format::kAdaptiveWindowDfThreshold, stop_gram_df_threshold_ + 1)
+                        : format::kAdaptiveWindowDfThreshold;
+        RETURN_IF_ERROR(fill(first_fill, &exhausted));
+        // total_docs_ is now min(first_fill, df), and first_fill > threshold, so this is
+        // true exactly when df > threshold.
+        if (stop_gram_df_threshold_ > 0 && total_docs_ > stop_gram_df_threshold_) {
+            return encode_dropped(entry, stats, exhausted);
+        }
         if (exhausted && buffer_->document_count() < format::kAdaptiveWindowDfThreshold) {
             entry->term = std::move(postings_->term);
             entry->df = total_docs_;
@@ -168,6 +183,23 @@ public:
     }
 
 private:
+    // stop-gram. Drains the source without encoding anything: the posting bytes are the
+    // saving and are deliberately not written, but the source still has to be consumed
+    // because a streaming source shares one cursor with the terms that follow, and the df
+    // has to come out exact because it is what the reader's cost gate sees. The entry
+    // that remains carries the term key and the df, which is what keeps "matches every
+    // document" distinguishable from "absent from the dictionary".
+    Status encode_dropped(DictEntry* entry, FreqStats* stats, bool exhausted) {
+        while (!exhausted) {
+            RETURN_IF_ERROR(fill(format::kAdaptiveWindowDocs, &exhausted));
+        }
+        entry->term = std::move(postings_->term);
+        entry->df = total_docs_;
+        entry->posting_dropped = true;
+        *stats = stats_;
+        return Status::OK();
+    }
+
     Status fill(uint32_t target_docs, bool* exhausted) {
         buffer_->clear_reuse();
         position_offsets_.clear();
@@ -352,6 +384,7 @@ private:
 
     LogicalIndexWriter* writer_;
     StreamedTermPostings* postings_;
+    uint32_t stop_gram_df_threshold_ = 0;
     bool term_has_prx_ = false;
     TermPostingBuffer* buffer_ = nullptr;
     uint64_t frq_base_ = 0;
@@ -401,6 +434,26 @@ FreqStats fuse_freq_stats_for_test(const std::vector<uint32_t>& freqs) {
 }
 } // namespace testing
 
+// The df above which a term enters the high-df digest, or 0 to build no digest at all.
+//
+// Two indexes get no digest, and for the same reason -- nothing would ever read it:
+//
+//   - Anything that is not gram family. The digest exists solely so the gram query's cost
+//     gate can bound a node without reading df, and no other query path consults it. An
+//     ordinary full-text index would pay its bytes and its cycles for a structure it can
+//     never use.
+//   - A segment smaller than the divisor. Its floor would have to be clamped up to 1, at
+//     which point "common" means "occurs twice" and the digest fills with terms that bound
+//     nothing useful. The reader stands down at the same size (its ceiling lands at 0 and
+//     the gate falls back), and so does stop-gram.
+uint32_t high_df_floor_for(const SniiIndexInput& in) {
+    if (!in.gram_scheme.has_value() || in.doc_count < format::kHighDfDigestDivisor) {
+        return 0;
+    }
+    return static_cast<uint32_t>(static_cast<uint64_t>(in.doc_count) /
+                                 format::kHighDfDigestDivisor);
+}
+
 LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
         : LogicalIndexWriter(in, TrackedNullDocids(std::vector<uint32_t>(in.null_docids))) {}
 
@@ -416,6 +469,9 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDoci
           terms_(in.terms),
           term_source_(in.term_source),
           encoded_norms_(in.encoded_norms),
+          gram_scheme_(in.gram_scheme),
+          stop_gram_df_threshold_(in.stop_gram_df_threshold),
+          high_df_floor_(high_df_floor_for(in)),
           target_dict_block_bytes_(in.target_dict_block_bytes != 0
                                            ? in.target_dict_block_bytes
                                            : format::kDefaultTargetDictBlockBytes),
@@ -505,6 +561,93 @@ struct LogicalIndexWriter::BlockState {
 // Out-of-line so unique_ptr<BlockState> sees the complete type (see header).
 LogicalIndexWriter::~LogicalIndexWriter() = default;
 
+// Offers one term to the high-df digest. The digest keeps the highest-df terms seen, as a
+// min-heap on df so the cheapest entry to evict is always at the front, which makes the
+// whole pass O(terms log K) time and O(K) space -- no second sort over the vocabulary.
+//
+// Terms below the floor are dropped outright: the digest exists to let a query GIVE UP
+// early, and a term rare enough to sit below the floor is one no cost gate would give up on.
+void LogicalIndexWriter::note_high_df_term(uint64_t term_hash, uint32_t df) {
+    // A zero floor means no digest for this index (see high_df_floor_for), and it has to be
+    // tested separately: `df < 0` is never true, so the comparison below would let every
+    // term through on exactly the indexes that want none.
+    if (high_df_floor_ == 0 || df < high_df_floor_) {
+        return;
+    }
+    const auto by_df = [](const HighDfEntry& lhs, const HighDfEntry& rhs) {
+        return lhs.df > rhs.df; // greater-than gives a MIN-heap on df
+    };
+    if (high_df_terms_.size() < format::kMaxHighDfDigestTerms) {
+        high_df_terms_.push_back({df, term_hash});
+        std::ranges::push_heap(high_df_terms_, by_df);
+        return;
+    }
+    if (df <= high_df_terms_.front().df) {
+        return;
+    }
+    std::ranges::pop_heap(high_df_terms_, by_df);
+    high_df_terms_.back() = {df, term_hash};
+    std::ranges::push_heap(high_df_terms_, by_df);
+}
+
+// Turns the heap into the on-disk digest: ascending by hash so the reader can binary
+// search, plus the ceiling that gives a miss its meaning.
+void LogicalIndexWriter::finish_high_df_digest(format::HighDfTerms* out) const {
+    out->term_hash.clear();
+    out->df.clear();
+    if (high_df_terms_.empty()) {
+        // Nothing reached the floor, so every term in this index is below it. That is still
+        // a usable bound, and a strong one.
+        out->df_ceiling = high_df_floor_ == 0 ? 0 : high_df_floor_ - 1;
+        return;
+    }
+
+    // The digest has to stay a rounding error against the index it describes, and the
+    // absolute cap alone does not deliver that on a small segment: there the floor is a
+    // handful of documents, most of the vocabulary clears it, and the cap fills with terms
+    // that are "common" only in the sense of appearing twice. Sized against the vocabulary
+    // as well, the digest stays proportional -- on a large index the df floor is the binding
+    // limit and this cap never engages, while on a small one it is what keeps a 45 KB digest
+    // off a 96 KB index.
+    const size_t cap = std::min(format::kMaxHighDfDigestTerms,
+                                std::max<size_t>(format::kMinHighDfDigestTerms,
+                                                 static_cast<size_t>(term_count_) /
+                                                         format::kHighDfDigestVocabularyShare));
+    std::vector<HighDfEntry> sorted(high_df_terms_);
+    if (sorted.size() > cap) {
+        // Keep the `cap` largest by df; the largest one dropped becomes the bound for
+        // everything the digest no longer holds.
+        std::ranges::nth_element(
+                sorted, sorted.begin() + static_cast<ptrdiff_t>(cap),
+                [](const HighDfEntry& lhs, const HighDfEntry& rhs) { return lhs.df > rhs.df; });
+        out->df_ceiling = sorted[cap].df;
+        sorted.resize(cap);
+    } else if (high_df_terms_.size() == format::kMaxHighDfDigestTerms) {
+        // The streaming cap truncated it, so the weakest entry kept is the best bound
+        // available for everything the heap evicted.
+        out->df_ceiling = high_df_terms_.front().df;
+    } else {
+        // Nothing above the floor was omitted at all.
+        out->df_ceiling = high_df_floor_ == 0 ? 0 : high_df_floor_ - 1;
+    }
+
+    std::ranges::sort(sorted, [](const HighDfEntry& lhs, const HighDfEntry& rhs) {
+        return lhs.term_hash < rhs.term_hash;
+    });
+    out->term_hash.reserve(sorted.size());
+    out->df.reserve(sorted.size());
+    for (const HighDfEntry& entry : sorted) {
+        // bsbf_hash collisions would put two terms at one key; keep the larger df so the
+        // digest stays an upper bound for both.
+        if (!out->term_hash.empty() && out->term_hash.back() == entry.term_hash) {
+            out->df.back() = std::max(out->df.back(), entry.df);
+            continue;
+        }
+        out->term_hash.push_back(entry.term_hash);
+        out->df.push_back(entry.df);
+    }
+}
+
 Status LogicalIndexWriter::process_term(StreamedTermPostings& tp, BlockState* st) {
     const bool term_has_prx = has_prx_ && tp.retain_positions;
 
@@ -528,6 +671,7 @@ Status LogicalIndexWriter::process_term(StreamedTermPostings& tp, BlockState* st
     term_hashes_.push_back(term_hash);
     ++term_count_;
     stats_.sum_total_term_freq += stats.total_freq;
+    note_high_df_term(term_hash, entry.df);
     st->block->add_entry(std::move(entry));
     if (st->block->estimated_bytes() >= target_dict_block_bytes_) {
         RETURN_IF_ERROR(flush_block(st->block.get(), st->block_first_term));
@@ -836,6 +980,8 @@ Status LogicalIndexWriter::finish_metadata(const SectionRefs& abs_refs, uint64_t
     core.index_config = index_config_;
     core.stats = stats_;
     core.section_refs = abs_refs;
+    core.gram_scheme = gram_scheme_;
+    finish_high_df_digest(&core.high_df_terms);
     ByteSink core_sink;
     RETURN_IF_ERROR(format::encode_core_metadata(core, &core_sink));
     out->core = core_sink.take();
