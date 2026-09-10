@@ -340,7 +340,32 @@ public final class JdbcQueryBuilder {
         return null;
     }
 
+    private static boolean isUuidValue(ConnectorExpression expr) {
+        if (expr instanceof ConnectorColumnRef) {
+            return "UUID".equals(((ConnectorColumnRef) expr).getType().getTypeName());
+        } else if (expr instanceof ConnectorLiteral) {
+            return "UUID".equals(((ConnectorLiteral) expr).getType().getTypeName());
+        } else if (expr instanceof ConnectorFunctionCall) {
+            return "UUID".equals(((ConnectorFunctionCall) expr).getReturnType().getTypeName());
+        }
+        return false;
+    }
+
     private String comparisonToSql(ConnectorComparison comp, Map<String, String> colMapping) {
+        // ClickHouse compares the low 64 bits first; Doris uses unsigned 128-bit order.
+        // Equality remains pushable, but remote range filtering would discard valid rows.
+        if (dbType == JdbcDbType.CLICKHOUSE
+                && (isUuidValue(comp.getLeft()) || isUuidValue(comp.getRight()))) {
+            switch (comp.getOperator()) {
+                case LT:
+                case LE:
+                case GT:
+                case GE:
+                    return null;
+                default:
+                    break;
+            }
+        }
         String left = expressionToSql(comp.getLeft(), colMapping);
         String right = expressionToSql(comp.getRight(), colMapping);
         if (left == null || right == null) {
@@ -432,6 +457,11 @@ public final class JdbcQueryBuilder {
     }
 
     private String betweenToSql(ConnectorBetween between, Map<String, String> colMapping) {
+        // BETWEEN also depends on UUID ordering (including its bounds).
+        if (dbType == JdbcDbType.CLICKHOUSE && (isUuidValue(between.getValue())
+                || isUuidValue(between.getLower()) || isUuidValue(between.getUpper()))) {
+            return null;
+        }
         String valueSql = expressionToSql(between.getValue(), colMapping);
         String lowerSql = expressionToSql(between.getLower(), colMapping);
         String upperSql = expressionToSql(between.getUpper(), colMapping);

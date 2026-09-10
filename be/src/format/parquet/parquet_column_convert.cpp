@@ -27,6 +27,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/value/uuid_value.h"
 
 namespace doris::parquet {
 const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
@@ -207,9 +208,30 @@ static void get_decimal_converter(const FieldSchema* field_schema, DataTypePtr s
     }
 }
 
+namespace {
+
+class UUIDStringConverter final : public PhysicalToLogicalConverter {
+public:
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        const auto from_col = remove_nullable(src_physical_col);
+        const auto src_data = get_fixed_length_physical_data(*from_col, 16);
+        auto& strings = assert_cast<ColumnString&>(*get_mutable_inner_column(src_logical_column));
+        for (size_t i = 0; i < src_data.rows; ++i) {
+            const auto value = UUIDValue::from_big_endian(
+                    reinterpret_cast<const uint8_t*>(src_data.data + i * 16));
+            const auto text = UUIDValue::to_string(value);
+            strings.insert_data(text.data(), text.size());
+        }
+        return Status::OK();
+    }
+};
+
+} // namespace
+
 std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_converter(
         const FieldSchema* field_schema, DataTypePtr src_logical_type,
-        const DataTypePtr& dst_logical_type, const cctz::time_zone* ctz, bool is_dict_filter) {
+        const DataTypePtr& dst_logical_type, const cctz::time_zone* ctz, bool is_dict_filter,
+        bool preserve_binary_uuid) {
     std::unique_ptr<ConvertParams> convert_params = std::make_unique<ConvertParams>();
     const tparquet::SchemaElement& parquet_schema = field_schema->parquet_schema;
     convert_params->init(field_schema, ctz);
@@ -238,9 +260,19 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
     } else if (is_parquet_native_type(src_logical_primitive)) {
         bool is_string_logical_type = is_string_type(src_logical_primitive);
         if (is_string_logical_type && src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-            // for FixedSizeBinary
-            physical_converter =
-                    std::make_unique<FixedSizeBinaryConverter>(parquet_schema.type_length);
+            if (parquet_schema.logicalType.__isset.UUID && !preserve_binary_uuid) {
+                // Ordinary Parquet scans expose canonical text, as in File Scanner V2.
+                // Iceberg retains its raw 16-byte STRING carrier for equality deletes/defaults.
+                if (parquet_schema.type_length != UUIDValue::BINARY_LENGTH) {
+                    physical_converter = std::make_unique<UnsupportedConverter>(src_physical_type,
+                                                                                src_logical_type);
+                } else {
+                    physical_converter = std::make_unique<UUIDStringConverter>();
+                }
+            } else {
+                physical_converter =
+                        std::make_unique<FixedSizeBinaryConverter>(parquet_schema.type_length);
+            }
         } else if (src_logical_primitive == TYPE_FLOAT &&
                    src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
                    parquet_schema.logicalType.__isset.FLOAT16) {
