@@ -164,6 +164,7 @@ public class StatementContext implements Closeable {
     // Thus hasUnknownColStats has higher priority than isDpHyp
     private boolean hasUnknownColStats = false;
 
+    private final StatementContext idGeneratorSource;
     private final IdGenerator<ExprId> exprIdGenerator;
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
@@ -380,8 +381,14 @@ public class StatementContext implements Closeable {
      * StatementContext
      */
     private StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
+        this(connectContext, originStatement, initialId, null);
+    }
+
+    private StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId,
+            StatementContext idGeneratorSource) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        this.idGeneratorSource = idGeneratorSource;
         exprIdGenerator = ExprId.createGenerator(initialId);
         if (connectContext != null && connectContext.getSessionVariable() != null) {
             if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
@@ -398,6 +405,17 @@ public class StatementContext implements Closeable {
         } else {
             this.sqlCacheContext = null;
         }
+    }
+
+    /**
+     * Create an isolated context for a temporary rewrite of the current plan.
+     *
+     * <p>The temporary context owns its mutable analysis and rewrite state. ID allocation remains in the
+     * original statement scope so nodes created while rewriting an existing plan cannot reuse its IDs.
+     */
+    public StatementContext forkForTemporaryRewrite() {
+        StatementContext generatorSource = idGeneratorSource == null ? this : idGeneratorSource;
+        return new StatementContext(connectContext, originStatement, 0, generatorSource);
     }
 
     public void setNeedLockTables(boolean needLockTables) {
@@ -662,27 +680,39 @@ public class StatementContext implements Closeable {
     }
 
     public ExprId getNextExprId() {
-        return exprIdGenerator.getNextId();
+        return idGeneratorSource == null
+                ? exprIdGenerator.getNextId()
+                : idGeneratorSource.getNextExprId();
     }
 
     public IdGenerator<ExprId> getExprIdGenerator() {
-        return exprIdGenerator;
+        return idGeneratorSource == null
+                ? exprIdGenerator
+                : idGeneratorSource.getExprIdGenerator();
     }
 
     public CTEId getNextCTEId() {
-        return cteIdGenerator.getNextId();
+        return idGeneratorSource == null
+                ? cteIdGenerator.getNextId()
+                : idGeneratorSource.getNextCTEId();
     }
 
     public ObjectId getNextObjectId() {
-        return objectIdGenerator.getNextId();
+        return idGeneratorSource == null
+                ? objectIdGenerator.getNextId()
+                : idGeneratorSource.getNextObjectId();
     }
 
     public RelationId getNextRelationId() {
-        return relationIdGenerator.getNextId();
+        return idGeneratorSource == null
+                ? relationIdGenerator.getNextId()
+                : idGeneratorSource.getNextRelationId();
     }
 
     public TableId getNextTableId() {
-        return talbeIdGenerator.getNextId();
+        return idGeneratorSource == null
+                ? talbeIdGenerator.getNextId()
+                : idGeneratorSource.getNextTableId();
     }
 
     public void setParsedStatement(StatementBase parsedStatement) {
@@ -748,7 +778,13 @@ public class StatementContext implements Closeable {
         }
     }
 
+    /**
+     * Return the statement-scoped generator used for synthesized column aliases.
+     */
     public ColumnAliasGenerator getColumnAliasGenerator() {
+        if (idGeneratorSource != null) {
+            return idGeneratorSource.getColumnAliasGenerator();
+        }
         return columnAliasGenerator == null
                 ? columnAliasGenerator = new ColumnAliasGenerator()
                 : columnAliasGenerator;
@@ -779,7 +815,9 @@ public class StatementContext implements Closeable {
     }
 
     public PlaceholderId getNextPlaceholderId() {
-        return placeHolderIdGenerator.getNextId();
+        return idGeneratorSource == null
+                ? placeHolderIdGenerator.getNextId()
+                : idGeneratorSource.getNextPlaceholderId();
     }
 
     public Map<PlaceholderId, Expression> getIdToPlaceholderRealExpr() {

@@ -27,10 +27,13 @@ import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Record plan for later mv rewrite
@@ -47,23 +50,42 @@ public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> impleme
             return plan;
         }
         // plan pre normalize
-        Plan finalPlan;
         try {
-            finalPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                    childContext -> {
-                        Rewriter.getCteChildrenRewriter(childContext,
-                                        ImmutableList.of(Rewriter.custom(RuleType.REWRITE_CTE_CHILDREN,
-                                                () -> new RewriteCteChildren(
-                                                        Rewriter.CTE_CHILDREN_REWRITE_JOBS_MV_REWRITE_USED,
-                                                        false))))
-                                .execute();
-                        return childContext.getRewritePlan();
-                    }, plan, plan, false);
-            statementContext.addTmpPlanForMvRewrite(finalPlan);
+            ConnectContext connectContext = cascadesContext.getConnectContext();
+            StatementContext originalStatementContext = connectContext.getStatementContext();
+            try (StatementContext temporaryStatementContext = statementContext.forkForTemporaryRewrite()) {
+                try {
+                    // Some rewrite utilities access the thread-local ConnectContext directly. Switch it together
+                    // with CascadesContext so every temporary CTE cache stays isolated from the main rewrite.
+                    connectContext.setStatementContext(temporaryStatementContext);
+                    CascadesContext temporaryCascadesContext = CascadesContext.initContext(
+                            temporaryStatementContext, plan,
+                            cascadesContext.getCurrentJobContext().getRequiredProperties());
+                    AtomicReference<Plan> finalPlan = new AtomicReference<>();
+                    temporaryCascadesContext.withPlanProcess(cascadesContext.showPlanProcess(),
+                            () -> finalPlan.set(MaterializedViewUtils.rewriteByRules(
+                                    temporaryCascadesContext, this::rewriteCteChildren, plan, plan, false)));
+                    cascadesContext.addPlanProcesses(temporaryCascadesContext.getPlanProcesses());
+                    statementContext.addTmpPlanForMvRewrite(finalPlan.get());
+                } finally {
+                    connectContext.setStatementContext(originalStatementContext);
+                }
+            }
         } catch (Exception e) {
             LOG.error("mv rewrite in rbo rewrite pre normalize fail, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier(), e);
         }
         return plan;
+    }
+
+    private Plan rewriteCteChildren(CascadesContext childContext) {
+        Rewriter.getCteChildrenRewriter(childContext,
+                        ImmutableList.of(Rewriter.custom(
+                                RuleType.REWRITE_CTE_CHILDREN,
+                                () -> new RewriteCteChildren(
+                                        Rewriter.CTE_CHILDREN_REWRITE_JOBS_MV_REWRITE_USED,
+                                        false))))
+                .execute();
+        return childContext.getRewritePlan();
     }
 }
