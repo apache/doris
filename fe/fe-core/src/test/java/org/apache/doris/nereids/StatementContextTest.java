@@ -26,6 +26,9 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -41,6 +44,34 @@ import java.util.Collections;
 import java.util.Optional;
 
 public class StatementContextTest {
+
+    @Test
+    public void testTemporaryRewriteContextIsolatesStateAndSharesIdNamespace() {
+        StatementContext statementContext = new StatementContext();
+        try (StatementContext temporaryContext = statementContext.forkForTemporaryRewrite()) {
+            ExprId statementExprId = statementContext.getNextExprId();
+            ExprId temporaryExprId = temporaryContext.getNextExprId();
+            RelationId statementRelationId = statementContext.getNextRelationId();
+            RelationId temporaryRelationId = temporaryContext.getNextRelationId();
+            CTEId statementCteId = statementContext.getNextCTEId();
+            CTEId temporaryCteId = temporaryContext.getNextCTEId();
+
+            org.junit.jupiter.api.Assertions.assertNotEquals(statementExprId, temporaryExprId);
+            org.junit.jupiter.api.Assertions.assertNotEquals(statementRelationId, temporaryRelationId);
+            org.junit.jupiter.api.Assertions.assertNotEquals(statementCteId, temporaryCteId);
+            org.junit.jupiter.api.Assertions.assertNotEquals(
+                    statementContext.generateColumnName(), temporaryContext.generateColumnName());
+
+            statementContext.getCteIdToConsumers().put(statementCteId, Collections.emptySet());
+            org.junit.jupiter.api.Assertions.assertTrue(temporaryContext.getCteIdToConsumers().isEmpty());
+
+            temporaryContext.getCteIdToConsumers().put(temporaryCteId, Collections.emptySet());
+            org.junit.jupiter.api.Assertions.assertFalse(
+                    statementContext.getCteIdToConsumers().containsKey(temporaryCteId));
+        } finally {
+            statementContext.close();
+        }
+    }
 
     @Test
     public void testSkipPreloadWhenSessionVariableDisabled() {
