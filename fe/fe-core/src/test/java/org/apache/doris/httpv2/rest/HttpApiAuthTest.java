@@ -23,10 +23,10 @@ import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests for HTTP API authentication and authorization.
@@ -39,13 +39,13 @@ public class HttpApiAuthTest {
 
     private boolean originalEnableAllHttpAuth;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         // Save original config
         originalEnableAllHttpAuth = Config.enable_all_http_auth;
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         // Restore original config
         Config.enable_all_http_auth = originalEnableAllHttpAuth;
@@ -64,8 +64,8 @@ public class HttpApiAuthTest {
         userIdentity.setIsAnalyzed();
         authInfo.userIdentity = userIdentity;
 
-        Assert.assertNotNull("userIdentity field should exist", authInfo.userIdentity);
-        Assert.assertEquals("root", authInfo.userIdentity.getQualifiedUser());
+        Assertions.assertNotNull(authInfo.userIdentity, "userIdentity field should exist");
+        Assertions.assertEquals("root", authInfo.userIdentity.getQualifiedUser());
     }
 
     @Test
@@ -82,7 +82,7 @@ public class HttpApiAuthTest {
             controller.checkAdminAuth(normalUser);
             // Success - no exception thrown
         } catch (UnauthorizedException e) {
-            Assert.fail("checkAdminAuth should not check privilege when enable_all_http_auth=false");
+            Assertions.fail("checkAdminAuth should not check privilege when enable_all_http_auth=false");
         }
     }
 
@@ -101,7 +101,7 @@ public class HttpApiAuthTest {
             controller.checkAdminAuth(adminUser);
             // Success - no exception thrown
         } catch (UnauthorizedException e) {
-            Assert.fail("Admin user should pass checkAdminAuth: " + e.getMessage());
+            Assertions.fail("Admin user should pass checkAdminAuth: " + e.getMessage());
         }
     }
 
@@ -118,12 +118,11 @@ public class HttpApiAuthTest {
 
         try {
             controller.checkAdminAuth(normalUser);
-            Assert.fail("Normal user should not pass checkAdminAuth");
+            Assertions.fail("Normal user should not pass checkAdminAuth");
         } catch (UnauthorizedException e) {
             // Expected exception
-            Assert.assertTrue("Error message should mention privilege",
-                    e.getMessage().toLowerCase().contains("privilege")
-                            || e.getMessage().toLowerCase().contains("permission"));
+            Assertions.assertTrue(e.getMessage().toLowerCase().contains("privilege")
+                            || e.getMessage().toLowerCase().contains("permission"), "Error message should mention privilege");
         }
     }
 
@@ -133,7 +132,7 @@ public class HttpApiAuthTest {
         TestRestController controller = new TestRestController();
 
         // This test passes if the method exists and compiles
-        Assert.assertNotNull("RestBaseController should have checkAdminAuth method", controller);
+        Assertions.assertNotNull(controller, "RestBaseController should have checkAdminAuth method");
     }
 
     /**

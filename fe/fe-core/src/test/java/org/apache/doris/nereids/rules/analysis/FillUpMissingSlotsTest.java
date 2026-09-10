@@ -356,6 +356,27 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
     }
 
     @Test
+    void testHavingLambdaLocalSlots() {
+        String mapSql = "SELECT a1, COUNT(*) AS n FROM t1 GROUP BY a1 "
+                + "HAVING map_exists((k, v) -> v > 1, map(1, COUNT(*)))";
+        Assertions.assertNotNull(PlanChecker.from(connectContext).analyze(mapSql).getPlan());
+
+        String arraySql = "SELECT a1, COUNT(*) AS n FROM t1 GROUP BY a1 "
+                + "HAVING array_match_any(array_map(x -> x > 1, array(COUNT(*))))";
+        Assertions.assertNotNull(PlanChecker.from(connectContext).analyze(arraySql).getPlan());
+
+        ExceptionChecker.expectThrowsWithMsg(
+                AnalysisException.class,
+                "HAVING expression 'a2' must appear in the GROUP BY clause"
+                        + " or be used in an aggregate function.",
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT a1, COUNT(*) AS n FROM t1 GROUP BY a1 "
+                                + "HAVING array_match_any(array_map(x -> x > 1, "
+                                + "array(COUNT(*) + a2)))"
+                ));
+    }
+
+    @Test
     void testInvalidHaving() {
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,

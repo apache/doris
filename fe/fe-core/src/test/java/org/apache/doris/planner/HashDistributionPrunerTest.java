@@ -38,8 +38,8 @@ import org.apache.doris.catalog.PrimitiveType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.map.CaseInsensitiveMap;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
 import java.util.Collection;
@@ -108,13 +108,13 @@ public class HashDistributionPrunerTest {
 
         Collection<Long> results = pruner.prune();
         // 20 = 1 * 5 * 2 * 2 * 1 (element num of each filter)
-        Assert.assertEquals(20, results.size());
+        Assertions.assertEquals(20, results.size());
 
         filters.get("SHOP_TYPE").getInPredicate().addChild(new StringLiteral("4"));
         results = pruner.prune();
         // 40 = 1 * 5 * 2 * 2 * 2 (element num of each filter)
         // 39 is because these is hash conflict
-        Assert.assertEquals(39, results.size());
+        Assertions.assertEquals(39, results.size());
 
         filters.get("SHOP_TYPE").getInPredicate().addChild(new StringLiteral("5"));
         filters.get("SHOP_TYPE").getInPredicate().addChild(new StringLiteral("6"));
@@ -122,7 +122,7 @@ public class HashDistributionPrunerTest {
         filters.get("SHOP_TYPE").getInPredicate().addChild(new StringLiteral("8"));
         results = pruner.prune();
         // 120 = 1 * 5 * 2 * 2 * 6 (element num of each filter) > 100
-        Assert.assertEquals(300, results.size());
+        Assertions.assertEquals(300, results.size());
 
         // check hash conflict
         inList4.add(new StringLiteral("4"));
@@ -148,7 +148,7 @@ public class HashDistributionPrunerTest {
             hashKey.popColumn();
         }
 
-        Assert.assertEquals(39, tablets.size());
+        Assertions.assertEquals(39, tablets.size());
     }
 
     // Identity bucketing treats each value's canonical bytes as an unsigned integer with its first
@@ -285,12 +285,12 @@ public class HashDistributionPrunerTest {
             long hashValue = hashKey.getHashValue();
             expectedTabletIds.add(tabletIds.get((int) ((hashValue & 0xffffffff) % tabletIds.size())));
         }
-        Assert.assertEquals(expectedTabletIds, Sets.newHashSet(indexResult));
+        Assertions.assertEquals(expectedTabletIds, Sets.newHashSet(indexResult));
 
         Map<String, PartitionColumnFilter> emptyFilters = new CaseInsensitiveMap();
         Collection<Long> allIndexTablets = new HashDistributionPruner(null, index, columns, emptyFilters,
                 tabletIds.size(), true).prune();
-        Assert.assertEquals(tabletIds, Lists.newArrayList(allIndexTablets));
+        Assertions.assertEquals(tabletIds, Lists.newArrayList(allIndexTablets));
     }
 
     private MaterializedIndex createMaterializedIndex(List<Long> tabletIds) {

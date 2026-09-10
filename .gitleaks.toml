@@ -25,6 +25,12 @@ regexTarget = "match"
 regexes = ['''token:\s*iceberg/paimon''']
 
 [[rules.allowlists]]
+description = "Ignore Doris internal hidden-column names; these deterministic identifiers are not credentials"
+condition = "AND"
+regexTarget = "match"
+regexes = ['''__DORIS_[A-Z0-9_]+_COL__''']
+
+[[rules.allowlists]]
 description = "Ignore the fake OIDC token fixture in AuthenticatorManagerTest"
 condition = "AND"
 regexTarget = "line"

@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -62,6 +63,7 @@ import java.util.Optional;
  */
 public class MysqlConnectProcessor extends ConnectProcessor {
     private static final Logger LOG = LogManager.getLogger(MysqlConnectProcessor.class);
+    private static final int CURSOR_TYPE_READ_ONLY = 0x01;
 
     private ByteBuffer packetBuf;
 
@@ -127,12 +129,13 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         String stmtStr = "";
         try {
             StatementContext statementContext = prepCtx.getStatementContext();
+            if (!ctx.isProxy()) {
+                // An empty buffer still identifies a zero-parameter COM_STMT_EXECUTE when forwarding.
+                ctx.setPrepareExecuteBuffer(packetBuf.duplicate());
+            }
             if (paramCount > 0) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("execute param buf: {}, array: {}", packetBuf, getHexStr(packetBuf));
-                }
-                if (!ctx.isProxy()) {
-                    ctx.setPrepareExecuteBuffer(packetBuf.duplicate());
                 }
                 byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
                 packetBuf.get(nullbitmapData);
@@ -207,8 +210,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
         // parse stmt_id, flags, params
         int stmtId = packetBuf.getInt();
-        // flag
-        packetBuf.get();
+        int flags = Byte.toUnsignedInt(packetBuf.get());
+        ctx.setCursorFetchRequested((flags & CURSOR_TYPE_READ_ONLY) != 0);
         // iteration_count always 1,
         packetBuf.getInt();
         if (LOG.isDebugEnabled()) {

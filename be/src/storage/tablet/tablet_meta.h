@@ -223,6 +223,9 @@ public:
     // used for after tablet cloned to clear stale rowset
     void clear_stale_rowset();
 
+    // Clear stale rowset metadata without changing the delete bitmap cache.
+    void clear_stale_rs_metas();
+
     void clear_rowsets();
 
     // MUST hold EXCLUSIVE `_meta_lock` in belonged Tablet
@@ -277,6 +280,8 @@ public:
         return _tablet_role == TabletRolePB::TABLET_ROLE_ROW_BINLOG;
     }
     void set_tablet_role(TabletRolePB tablet_role) { _tablet_role = tablet_role; }
+    int64_t binlog_tablet_id() const { return _binlog_tablet_id; }
+    void set_binlog_tablet_id(int64_t binlog_tablet_id) { _binlog_tablet_id = binlog_tablet_id; }
 
     void set_compaction_policy(std::string compaction_policy) {
         _compaction_policy = compaction_policy;
@@ -392,6 +397,7 @@ private:
     // binlog config
     BinlogConfig _binlog_config {};
     TabletRolePB _tablet_role = TabletRolePB::TABLET_ROLE_DATA;
+    int64_t _binlog_tablet_id = 0;
 
     // meta for compaction
     std::string _compaction_policy;

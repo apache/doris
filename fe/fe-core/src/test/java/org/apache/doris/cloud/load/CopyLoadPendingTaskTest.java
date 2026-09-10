@@ -37,7 +37,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -190,21 +190,21 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         String globPrefix = "glob:";
         // file name contains "," which is a special character in Glob
         String fileName = "1,csv";
-        Assert.assertEquals(true, matchGlob(fileName, globPrefix + "1,csv"));
-        Assert.assertEquals(true, matchGlob(fileName, globPrefix + "1\\,csv"));
-        Assert.assertEquals(false, matchGlob(fileName, globPrefix + "{1,csv}"));
-        Assert.assertEquals(true, matchGlob(fileName, globPrefix + "{1\\,csv}"));
-        Assert.assertEquals(true, matchGlob(fileName, globPrefix + "{1\\,csv,2\\,csv}"));
+        Assertions.assertEquals(true, matchGlob(fileName, globPrefix + "1,csv"));
+        Assertions.assertEquals(true, matchGlob(fileName, globPrefix + "1\\,csv"));
+        Assertions.assertEquals(false, matchGlob(fileName, globPrefix + "{1,csv}"));
+        Assertions.assertEquals(true, matchGlob(fileName, globPrefix + "{1\\,csv}"));
+        Assertions.assertEquals(true, matchGlob(fileName, globPrefix + "{1\\,csv,2\\,csv}"));
         fileName = "1?csv";
         String fileName2 = "12csv";
-        Assert.assertEquals(true, matchGlob(fileName, globPrefix + "1?csv"));
-        Assert.assertEquals(true, matchGlob(fileName2, globPrefix + "1?csv"));
-        Assert.assertEquals(true, matchGlob(fileName, globPrefix + "1\\?csv"));
-        Assert.assertEquals(false, matchGlob(fileName2, globPrefix + "1\\?csv"));
-        Assert.assertEquals(true, matchGlob(fileName, globPrefix + "{1?csv}"));
-        Assert.assertEquals(true, matchGlob(fileName2, globPrefix + "{1?csv}"));
-        Assert.assertEquals(true, matchGlob(fileName, globPrefix + "{1\\?csv}"));
-        Assert.assertEquals(false, matchGlob(fileName2, globPrefix + "{1\\?csv}"));
+        Assertions.assertEquals(true, matchGlob(fileName, globPrefix + "1?csv"));
+        Assertions.assertEquals(true, matchGlob(fileName2, globPrefix + "1?csv"));
+        Assertions.assertEquals(true, matchGlob(fileName, globPrefix + "1\\?csv"));
+        Assertions.assertEquals(false, matchGlob(fileName2, globPrefix + "1\\?csv"));
+        Assertions.assertEquals(true, matchGlob(fileName, globPrefix + "{1?csv}"));
+        Assertions.assertEquals(true, matchGlob(fileName2, globPrefix + "{1?csv}"));
+        Assertions.assertEquals(true, matchGlob(fileName, globPrefix + "{1\\?csv}"));
+        Assertions.assertEquals(false, matchGlob(fileName2, globPrefix + "{1\\?csv}"));
     }
 
     private boolean matchGlob(String file, String pattern) {
@@ -251,7 +251,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatus = new ArrayList<>();
             task.parseFileForCopyJob(stageId, tableId, "q1", pattern, sizeLimit, fileNumLimit, fileMetaSizeLimit,
                     fileStatus, objectInfo, false);
-            Assert.assertEquals(pair.second.intValue(), fileStatus.size());
+            Assertions.assertEquals(pair.second.intValue(), fileStatus.size());
         }
         // test loaded files is not empty
         do {
@@ -259,7 +259,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatus = new ArrayList<>();
             task.parseFileForCopyJob(stageId, 200, "q1", pattern, sizeLimit, fileNumLimit, fileMetaSizeLimit,
                     fileStatus, objectInfo, false);
-            Assert.assertEquals(9, fileStatus.size());
+            Assertions.assertEquals(9, fileStatus.size());
         } while (false);
         // test size limit
         do {
@@ -267,7 +267,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatus = new ArrayList<>();
             task.parseFileForCopyJob(stageId, tableId, "q1", pattern, 100, fileNumLimit, fileMetaSizeLimit, fileStatus,
                     objectInfo, false);
-            Assert.assertEquals(10, fileStatus.size()); // 4, files limit are filtered in begin_copy
+            Assertions.assertEquals(10, fileStatus.size()); // 4, files limit are filtered in begin_copy
         } while (false);
         // test file num limit
         do {
@@ -275,7 +275,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatus = new ArrayList<>();
             task.parseFileForCopyJob(stageId, tableId, "q1", pattern, sizeLimit, 6, fileMetaSizeLimit, fileStatus,
                     objectInfo, false);
-            Assert.assertEquals(10, fileStatus.size()); // 6
+            Assertions.assertEquals(10, fileStatus.size()); // 6
         } while (false);
         // test file meta size limit
         do {
@@ -283,7 +283,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatus = new ArrayList<>();
             task.parseFileForCopyJob(stageId, tableId, "q1", pattern, sizeLimit, fileNumLimit, 60, fileStatus,
                     objectInfo, false);
-            Assert.assertEquals(10, fileStatus.size()); // 2
+            Assertions.assertEquals(10, fileStatus.size()); // 2
         } while (false);
         // test size and file num limit
         do {
@@ -291,7 +291,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatus = new ArrayList<>();
             task.parseFileForCopyJob(stageId, tableId, "q1", pattern, 100, fileNumLimit, fileMetaSizeLimit, fileStatus,
                     objectInfo, false);
-            Assert.assertEquals(10, fileStatus.size()); // 4
+            Assertions.assertEquals(10, fileStatus.size()); // 4
         } while (false);
     }
 
@@ -382,8 +382,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatus = new ArrayList<>();
             task.parseFileForCopyJob(stageId, tableId, "q1", pattern, sizeLimit, fileNumLimit, fileMetaSizeLimit,
                     fileStatus, objectInfo, false);
-            Assert.assertEquals("pattern=" + pattern + " with pagination",
-                    pair.second.intValue(), fileStatus.size());
+            Assertions.assertEquals(pair.second.intValue(), fileStatus.size(), "pattern=" + pattern + " with pagination");
         }
     }
 
@@ -468,7 +467,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatus = new ArrayList<>();
             task.parseFileForCopyJob(stageId, tableId, "q1", pattern, sizeLimit, fileNumLimit, fileMetaSizeLimit,
                     fileStatus, objectInfo, false);
-            Assert.assertEquals("pattern=" + pattern, pair.second.intValue(), fileStatus.size());
+            Assertions.assertEquals(pair.second.intValue(), fileStatus.size(), "pattern=" + pattern);
         }
     }
 }

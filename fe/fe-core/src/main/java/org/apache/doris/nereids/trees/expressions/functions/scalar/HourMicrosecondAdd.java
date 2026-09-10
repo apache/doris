@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -43,6 +44,8 @@ public class HourMicrosecondAdd extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.MAX)
                     .args(DateTimeV2Type.MAX, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(TimeStampNsType.INSTANCE)
+                    .args(TimeStampNsType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(TimeStampTzType.MAX)
                     .args(TimeStampTzType.MAX, VarcharType.SYSTEM_DEFAULT)
     );
@@ -80,6 +83,9 @@ public class HourMicrosecondAdd extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
+        if (signature.returnType instanceof TimeStampNsType) {
+            return signature;
+        }
         return signature.withArgumentType(0, DateTimeV2Type.MAX).withReturnType(DateTimeV2Type.MAX);
     }
 }

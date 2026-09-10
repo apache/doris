@@ -21,8 +21,8 @@ import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.exception.JobException;
 
 import org.apache.commons.lang3.StringUtils;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -35,11 +35,11 @@ public class PostgresResourceValidatorTest {
     @Test
     public void testRejectMultibyteOverLongDatabaseName() {
         String dbName = StringUtils.repeat("库", 22);
-        Assert.assertEquals(22, dbName.length());
+        Assertions.assertEquals(22, dbName.length());
         Map<String, String> props = new HashMap<>();
         props.put(DataSourceConfigKeys.DATABASE, dbName);
-        JobException e = Assert.assertThrows(JobException.class,
+        JobException e = Assertions.assertThrows(JobException.class,
                 () -> PostgresResourceValidator.validate(props, "1", Collections.emptyList()));
-        Assert.assertTrue(e.getMessage(), e.getMessage().contains("bytes"));
+        Assertions.assertTrue(e.getMessage().contains("bytes"), e.getMessage());
     }
 }

@@ -41,10 +41,10 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Futures;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -61,7 +61,7 @@ public class CloudSchemaChangeHandlerTest {
     private String originalMetaServiceEndpoint;
     private boolean originalEnableDebugPoints;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         originalCloudTxnTabletBatchSize = Config.cloud_txn_tablet_batch_size;
         originalCloudUniqueId = Config.cloud_unique_id;
@@ -74,7 +74,7 @@ public class CloudSchemaChangeHandlerTest {
         DebugPointUtil.clearDebugPoints();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.cloud_txn_tablet_batch_size = originalCloudTxnTabletBatchSize;
         Config.cloud_unique_id = originalCloudUniqueId;
@@ -130,10 +130,10 @@ public class CloudSchemaChangeHandlerTest {
                 ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
         Mockito.verify(metaServiceProxy, Mockito.times(2)).updateTablet(updateCaptor.capture());
         List<Cloud.UpdateTabletRequest> updateRequests = updateCaptor.getAllValues();
-        Assert.assertEquals(Arrays.asList(101L, 102L),
+        Assertions.assertEquals(Arrays.asList(101L, 102L),
                 updateRequests.get(0).getTabletMetaInfosList().stream()
                         .map(Cloud.TabletMetaInfoPB::getTabletId).collect(Collectors.toList()));
-        Assert.assertEquals(Arrays.asList(103L),
+        Assertions.assertEquals(Arrays.asList(103L),
                 updateRequests.get(1).getTabletMetaInfosList().stream()
                         .map(Cloud.TabletMetaInfoPB::getTabletId).collect(Collectors.toList()));
 
@@ -144,15 +144,15 @@ public class CloudSchemaChangeHandlerTest {
                 .syncTabletMeta(addressCaptor.capture(), syncCaptor.capture());
 
         List<TNetworkAddress> addresses = addressCaptor.getAllValues();
-        Assert.assertFalse(addresses.stream().anyMatch(addr -> "be-dead".equals(addr.getHostname())));
-        Assert.assertEquals(2L, addresses.stream().filter(addr -> "be-1".equals(addr.getHostname())).count());
-        Assert.assertEquals(2L, addresses.stream().filter(addr -> "be-2".equals(addr.getHostname())).count());
+        Assertions.assertFalse(addresses.stream().anyMatch(addr -> "be-dead".equals(addr.getHostname())));
+        Assertions.assertEquals(2L, addresses.stream().filter(addr -> "be-1".equals(addr.getHostname())).count());
+        Assertions.assertEquals(2L, addresses.stream().filter(addr -> "be-2".equals(addr.getHostname())).count());
 
         List<InternalService.PSyncTabletMetaRequest> syncRequests = syncCaptor.getAllValues();
-        Assert.assertEquals(Arrays.asList(101L, 102L), syncRequests.get(0).getTabletIdsList());
-        Assert.assertEquals(Arrays.asList(101L, 102L), syncRequests.get(1).getTabletIdsList());
-        Assert.assertEquals(Arrays.asList(103L), syncRequests.get(2).getTabletIdsList());
-        Assert.assertEquals(Arrays.asList(103L), syncRequests.get(3).getTabletIdsList());
+        Assertions.assertEquals(Arrays.asList(101L, 102L), syncRequests.get(0).getTabletIdsList());
+        Assertions.assertEquals(Arrays.asList(101L, 102L), syncRequests.get(1).getTabletIdsList());
+        Assertions.assertEquals(Arrays.asList(103L), syncRequests.get(2).getTabletIdsList());
+        Assertions.assertEquals(Arrays.asList(103L), syncRequests.get(3).getTabletIdsList());
     }
 
     @Test
@@ -169,9 +169,9 @@ public class CloudSchemaChangeHandlerTest {
 
             Map<String, String> properties = new HashMap<>();
             properties.put("compaction_policy", "time_series");
-            UserException exception = Assert.assertThrows(UserException.class,
+            UserException exception = Assertions.assertThrows(UserException.class,
                     () -> handler.updateTableProperties(db, "tbl", properties));
-            Assert.assertTrue(exception.getMessage().contains("update failed"));
+            Assertions.assertTrue(exception.getMessage().contains("update failed"));
         }
     }
 
@@ -193,9 +193,9 @@ public class CloudSchemaChangeHandlerTest {
 
             Map<String, String> properties = new HashMap<>();
             properties.put("compaction_policy", "time_series");
-            UserException exception = Assert.assertThrows(UserException.class,
+            UserException exception = Assertions.assertThrows(UserException.class,
                     () -> handler.updateTableProperties(db, "tbl", properties));
-            Assert.assertTrue(exception.getMessage().contains("meta service rejected"));
+            Assertions.assertTrue(exception.getMessage().contains("meta service rejected"));
         }
     }
 
@@ -299,7 +299,7 @@ public class CloudSchemaChangeHandlerTest {
                 ArgumentCaptor.forClass(InternalService.PSyncTabletMetaRequest.class);
         Mockito.verify(backendServiceProxy, Mockito.times(1))
                 .syncTabletMeta(Mockito.argThat(addr -> "be-1".equals(addr.getHostname())), syncCaptor.capture());
-        Assert.assertEquals(Arrays.asList(101L, 102L), syncCaptor.getValue().getTabletIdsList());
+        Assertions.assertEquals(Arrays.asList(101L, 102L), syncCaptor.getValue().getTabletIdsList());
     }
 
     @Test
@@ -493,7 +493,7 @@ public class CloudSchemaChangeHandlerTest {
             Mockito.verify(env, Mockito.never()).modifyTableProperties(database, table, properties);
             Mockito.verify(table).readLock();
             Mockito.verify(table).readUnlock();
-            Assert.assertEquals("v3", properties.get(
+            Assertions.assertEquals("v3", properties.get(
                     PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT));
         } finally {
             Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;
@@ -521,7 +521,7 @@ public class CloudSchemaChangeHandlerTest {
 
             Mockito.verify(env, Mockito.never()).modifyTableProperties(database, table, properties);
             Mockito.verify(table, Mockito.never()).getPartitionInvertedIndexFileStorageFormat();
-            Assert.assertEquals("SNII", properties.get(
+            Assertions.assertEquals("SNII", properties.get(
                     PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT));
         } finally {
             Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;

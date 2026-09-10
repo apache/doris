@@ -22,9 +22,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -42,7 +42,7 @@ public class AlterViewInfoTest {
     private final String inlineViewDef = "Select a1, a2 From test_tbl Order By a1";
     private final long sqlMode = 0L;
 
-    @After
+    @AfterEach
     public void tearDown() {
         File file = new File(fileName);
         file.delete();
@@ -67,7 +67,7 @@ public class AlterViewInfoTest {
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
         AlterViewInfo readAlterViewInfo = AlterViewInfo.read(in);
-        Assert.assertEquals(alterViewInfo, readAlterViewInfo);
+        Assertions.assertEquals(alterViewInfo, readAlterViewInfo);
 
         in.close();
     }

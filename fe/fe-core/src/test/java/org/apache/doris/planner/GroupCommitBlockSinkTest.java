@@ -25,8 +25,8 @@ import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TOlapTableSink;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 
@@ -41,23 +41,23 @@ public class GroupCommitBlockSinkTest {
 
         TOlapTableLocationParam location = sink.initLocationParam(new TOlapTableSink());
 
-        Assert.assertNotNull(location.getTablets());
-        Assert.assertTrue("location should be empty placeholder", location.getTablets().isEmpty());
+        Assertions.assertNotNull(location.getTablets());
+        Assertions.assertTrue(location.getTablets().isEmpty(), "location should be empty placeholder");
         Mockito.verifyNoInteractions(dstTable);
         Mockito.verifyNoInteractions(tuple);
     }
 
     @Test
     public void testParseGroupCommit() {
-        Assert.assertEquals(TGroupCommitMode.ASYNC_MODE,
+        Assertions.assertEquals(TGroupCommitMode.ASYNC_MODE,
                 GroupCommitBlockSink.parseGroupCommit("async_mode"));
-        Assert.assertEquals(TGroupCommitMode.ASYNC_MODE,
+        Assertions.assertEquals(TGroupCommitMode.ASYNC_MODE,
                 GroupCommitBlockSink.parseGroupCommit("ASYNC_MODE"));
-        Assert.assertEquals(TGroupCommitMode.SYNC_MODE,
+        Assertions.assertEquals(TGroupCommitMode.SYNC_MODE,
                 GroupCommitBlockSink.parseGroupCommit("sync_mode"));
-        Assert.assertEquals(TGroupCommitMode.OFF_MODE,
+        Assertions.assertEquals(TGroupCommitMode.OFF_MODE,
                 GroupCommitBlockSink.parseGroupCommit("off_mode"));
-        Assert.assertNull(GroupCommitBlockSink.parseGroupCommit(null));
-        Assert.assertNull(GroupCommitBlockSink.parseGroupCommit("invalid"));
+        Assertions.assertNull(GroupCommitBlockSink.parseGroupCommit(null));
+        Assertions.assertNull(GroupCommitBlockSink.parseGroupCommit("invalid"));
     }
 }

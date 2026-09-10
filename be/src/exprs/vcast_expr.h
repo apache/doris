@@ -44,7 +44,8 @@ public:
 #ifdef BE_TEST
     VCastExpr() = default;
 #endif
-    VCastExpr(const TExprNode& node) : VExpr(node) {}
+    VCastExpr(const TExprNode& node)
+            : VExpr(node), _is_strict_cast(node.__isset.is_strict_cast && node.is_strict_cast) {}
     ~VCastExpr() override = default;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
@@ -67,8 +68,9 @@ public:
     uint64_t get_digest(uint64_t seed) const override {
         auto res = VExpr::get_digest(seed);
         if (res) {
-            return HashUtil::hash64(_target_data_type_name.data(), _target_data_type_name.size(),
-                                    res);
+            res = HashUtil::hash64(_target_data_type_name.data(), _target_data_type_name.size(),
+                                   res);
+            return HashUtil::hash64(&_is_strict_cast, sizeof(_is_strict_cast), res);
         }
         return 0;
     }
@@ -82,6 +84,8 @@ private:
     std::string _target_data_type_name;
 
     DataTypePtr _cast_param_data_type;
+
+    bool _is_strict_cast = false;
 
     static const constexpr char* function_name = "CAST";
 };

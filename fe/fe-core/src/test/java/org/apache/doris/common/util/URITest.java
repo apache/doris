@@ -19,21 +19,21 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.net.URISyntaxException;
 
 public class URITest {
     private void check(java.net.URI javaURI, URI myURI) {
-        Assert.assertEquals(javaURI.getAuthority(), myURI.getAuthority());
-        Assert.assertEquals(javaURI.getPath(), myURI.getPath());
-        Assert.assertEquals(javaURI.getHost(), myURI.getHost());
-        Assert.assertEquals(javaURI.getPort(), myURI.getPort());
-        Assert.assertEquals(javaURI.getScheme(), myURI.getScheme());
-        Assert.assertEquals(javaURI.getQuery(), myURI.getQuery());
-        Assert.assertEquals(javaURI.getFragment(), myURI.getFragment());
-        Assert.assertEquals(javaURI.getUserInfo(), myURI.getUserInfo());
+        Assertions.assertEquals(javaURI.getAuthority(), myURI.getAuthority());
+        Assertions.assertEquals(javaURI.getPath(), myURI.getPath());
+        Assertions.assertEquals(javaURI.getHost(), myURI.getHost());
+        Assertions.assertEquals(javaURI.getPort(), myURI.getPort());
+        Assertions.assertEquals(javaURI.getScheme(), myURI.getScheme());
+        Assertions.assertEquals(javaURI.getQuery(), myURI.getQuery());
+        Assertions.assertEquals(javaURI.getFragment(), myURI.getFragment());
+        Assertions.assertEquals(javaURI.getUserInfo(), myURI.getUserInfo());
     }
 
     @Test
@@ -42,33 +42,33 @@ public class URITest {
         java.net.URI javaURI1 = new java.net.URI(str1);
         URI myURI1 = URI.create(str1);
         check(javaURI1, myURI1);
-        Assert.assertEquals(myURI1.getUserName(), "username");
-        Assert.assertEquals(myURI1.getPassWord(), "password");
-        Assert.assertEquals(myURI1.getQueryMap().get("type"), "animal");
+        Assertions.assertEquals(myURI1.getUserName(), "username");
+        Assertions.assertEquals(myURI1.getPassWord(), "password");
+        Assertions.assertEquals(myURI1.getQueryMap().get("type"), "animal");
 
         String str2 = "foo://example.com/over/there/index.dtb#nose";
         java.net.URI javaURI2 = new java.net.URI(str2);
         URI myURI2 = URI.create(str2);
         check(javaURI2, myURI2);
-        Assert.assertEquals(myURI2.getFragment(), "nose");
+        Assertions.assertEquals(myURI2.getFragment(), "nose");
 
         String str3 = "foo://example.com/over/there/index.dtb?type=animal";
         java.net.URI javaURI3 = new java.net.URI(str3);
         URI myURI3 = URI.create(str3);
         check(javaURI3, myURI3);
-        Assert.assertEquals(myURI3.getQueryMap().get("type"), "animal");
+        Assertions.assertEquals(myURI3.getQueryMap().get("type"), "animal");
 
         String str4 = "foo://:password@example.com/over/there/index.dtb?type=animal";
         java.net.URI javaURI4 = new java.net.URI(str4);
         URI myURI4 = URI.create(str4);
         check(javaURI4, myURI4);
-        Assert.assertEquals(myURI4.getQueryMap().get("type"), "animal");
+        Assertions.assertEquals(myURI4.getQueryMap().get("type"), "animal");
 
         String str5 = "foo://password@example.com/over/there/index.dtb?type=animal";
         java.net.URI javaURI5 = new java.net.URI(str5);
         URI myURI5 = URI.create(str5);
         check(javaURI5, myURI5);
-        Assert.assertEquals(myURI5.getQueryMap().get("type"), "animal");
+        Assertions.assertEquals(myURI5.getQueryMap().get("type"), "animal");
 
         String str6 = "foo://example.com";
         java.net.URI javaURI6 = new java.net.URI(str6);
@@ -86,13 +86,13 @@ public class URITest {
         check(javaURI8, myURI8);
 
         URI myURI9 = URI.create("hdfs://ip:12/test/test/data/{20220131,20220201}/*");
-        Assert.assertEquals(myURI9.getScheme(), "hdfs");
-        Assert.assertEquals(myURI9.getPath(), "/test/test/data/{20220131,20220201}/*");
-        Assert.assertEquals(myURI9.getHost(), "ip");
-        Assert.assertEquals(myURI9.getPort(), 12);
-        Assert.assertEquals(myURI9.getAuthority(), "ip:12");
+        Assertions.assertEquals(myURI9.getScheme(), "hdfs");
+        Assertions.assertEquals(myURI9.getPath(), "/test/test/data/{20220131,20220201}/*");
+        Assertions.assertEquals(myURI9.getHost(), "ip");
+        Assertions.assertEquals(myURI9.getPort(), 12);
+        Assertions.assertEquals(myURI9.getAuthority(), "ip:12");
 
         URI myURI10 = URI.create("hdfs");
-        Assert.assertEquals(myURI10.getPath(), "hdfs");
+        Assertions.assertEquals(myURI10.getPath(), "hdfs");
     }
 }

@@ -115,6 +115,39 @@ suite("test_partition_cloud_inverted_index_storage_format_rollout", "p0, docker"
         assertPartitionFormat(
                 "test_cloud_partition_inverted_index_storage_format_rollout", "p_downgrade", "V2")
 
+        test {
+            sql """ALTER TABLE test_cloud_partition_inverted_index_storage_format_rollout
+                    SET ("partition.inverted_index_storage_format" = "default")"""
+            exception "does not support 'default'"
+        }
+
+        test {
+            sql """ALTER TABLE test_cloud_partition_inverted_index_storage_format_rollout
+                    SET ("partition.inverted_index_storage_format" = "V1")"""
+            exception "only supports V2, V3 and SNII"
+        }
+
+        test {
+            sql """
+                CREATE TABLE test_cloud_partition_inverted_index_storage_format_forbid_default (
+                    k DATE NOT NULL,
+                    v VARCHAR(100) NULL,
+                    INDEX idx_v (v) USING INVERTED PROPERTIES("parser" = "english")
+                ) ENGINE=OLAP
+                DUPLICATE KEY(k)
+                PARTITION BY RANGE(k) (
+                    PARTITION p_old VALUES LESS THAN ("2024-01-01")
+                )
+                DISTRIBUTED BY HASH(k) BUCKETS 1
+                PROPERTIES (
+                    "replication_num" = "1",
+                    "inverted_index_storage_format" = "V2",
+                    "partition.inverted_index_storage_format" = "default"
+                )
+            """
+            exception "does not support 'default'"
+        }
+
         sql "set enable_memtable_on_sink_node = true"
         try {
             sql """

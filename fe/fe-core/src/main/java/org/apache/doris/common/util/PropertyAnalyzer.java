@@ -223,6 +223,21 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_USE_FOR_REWRITE =
             "use_for_rewrite";
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
+    public static final String PROPERTIES_IVM_USE_FULL_KEYS = "ivm_use_full_keys";
+    /**
+     * Limits IVM incremental refresh of each configured base table to its last N
+     * partitions (by partition value). This is a lossy computation window used only
+     * by the IVM incremental refresh path: COMPLETE refresh (initial load, fallback,
+     * manual REFRESH COMPLETE) always covers the full table and stays authoritative.
+     *
+     * <p>When the window of a table is enlarged (N becomes larger) or removed, partitions
+     * that were previously ignored by the lossy window come back into the refresh range.
+     * Their stream backlog was skipped, so the ALTER marks the MV as requiring a complete
+     * baseline rebuild: the next refresh (AUTO) performs a full refresh, and a strict
+     * manual INCREMENTAL refresh is rejected until then.
+     */
+    public static final String PROPERTIES_IVM_PARTITION_WINDOW_LIMIT =
+            "ivm_partition_window_limit";
 
     public static final String ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES =
             "async_mv.query_rewrite.consistency_relaxed_tables";
@@ -416,8 +431,10 @@ public class PropertyAnalyzer {
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 try {
+                    // Cooldown timestamps are stored in milliseconds, so DATETIMEV2(6) preserves their
+                    // fractional part without imposing the narrower TIMESTAMP_NS epoch range.
                     DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(value,
-                            ScalarType.getDefaultDateType(Type.DATETIME));
+                            ScalarType.createDatetimeV2Type(6));
                     cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
                 } catch (AnalysisException e) {
                     LOG.warn("dateLiteral failed, use max cool down time", e);
@@ -1300,14 +1317,21 @@ public class PropertyAnalyzer {
             return null;
         }
 
-        Map<String, String> formatProperties = new HashMap<>();
-        formatProperties.put(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
-                properties.remove(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT));
-        TInvertedIndexFileStorageFormat format = analyzeInvertedIndexFileStorageFormat(formatProperties);
-        if (format == TInvertedIndexFileStorageFormat.V1) {
+        String formatValue = properties.remove(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+        // "default" resolves to the FE config inverted_index_storage_format, which is neither the format the
+        // table was created with nor stable across versions, so a rollout target has to be spelled out.
+        if ("default".equalsIgnoreCase(formatValue)) {
+            throw new AnalysisException("partition inverted index storage format does not support 'default', "
+                    + "please specify V2, V3 or SNII explicitly");
+        }
+        // V1 has to be caught before the table-level analyzer, which rejects it with a create-index wording.
+        if ("V1".equalsIgnoreCase(formatValue)) {
             throw new AnalysisException("partition inverted index storage format only supports V2, V3 and SNII");
         }
-        return format;
+
+        Map<String, String> formatProperties = new HashMap<>();
+        formatProperties.put(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, formatValue);
+        return analyzeInvertedIndexFileStorageFormat(formatProperties);
     }
 
     // analyze common boolean properties, such as "in_memory" = "false"
@@ -2007,10 +2031,12 @@ public class PropertyAnalyzer {
         // validate access controller properties
         // eg:
         // (
-        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerHiveAccessControllerFactory",
+        // "access_controller.class" = "ranger-hive",
         // "access_controller.properties.prop1" = "xxx",
         // "access_controller.properties.prop2" = "yyy",
         // )
+        // The name the source is published under; a factory class name still works but ties the catalog to
+        // where that source happens to live.
         // 1. get access controller class
         if (isAlter) {
             // The 'use_meta_cache' property can not be modified
