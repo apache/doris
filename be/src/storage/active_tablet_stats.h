@@ -32,8 +32,9 @@ struct ActiveTabletCandidate {
     int64_t window_ms = 1;
     int64_t last_time_ms = 0;
 
-    // Rate, not raw delta: a tablet whose baseline was not committed last round carries a
-    // delta spanning several intervals, so raw deltas are not comparable. See handoff §9.2d.
+    // Rate, not raw delta. Raw deltas are not comparable: a dropped report round commits
+    // no baseline, so the next delta covers several intervals, and backends report on
+    // independent phases.
     double rate() const {
         return static_cast<double>(delta) * 1000.0 / static_cast<double>(window_ms);
     }
@@ -48,8 +49,10 @@ public:
     void start();
     // Called once per tablet during the walk.
     void collect(const std::shared_ptr<BaseTablet>& tablet);
-    // Per-dimension nth_element by rate. No cross-dimension merging/weighting here --
-    // that is FE's job (handoff §9.2b).
+    // Per-dimension nth_element by rate. No cross-dimension merging or weighting here:
+    // query and load counts differ by one to two orders of magnitude, so ranking them
+    // against each other drops load-heavy tablets as a class. FE owns that trade-off,
+    // where the split is a mutable config instead of a be.conf restart.
     void take_top_n();
     // Advance the baselines. ONLY after handle_report() succeeded.
     void commit();

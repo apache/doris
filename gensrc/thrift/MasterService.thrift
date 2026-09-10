@@ -66,8 +66,9 @@ struct TActiveTabletStat {
     4: optional i64 last_query_time_ms
     // Last load (memtable write) time, ms since epoch
     5: optional i64 last_load_time_ms
-    // Wall-clock span this delta covers, in ms. NOT always the report interval: a tablet
-    // cut by the topN cap is not committed, so its next delta spans several intervals.
+    // Wall-clock span this delta covers, in ms. NOT always the report interval: a dropped
+    // report round commits no baseline, so the next delta spans several intervals, and
+    // backends report on independent phases.
     // Consumers MUST rank by delta/delta_window_ms, never by raw delta.
     6: optional i64 delta_window_ms
 }
@@ -145,8 +146,6 @@ struct TReportRequest {
     // Top-N tablets by load (memtable flush) count since the previous report.
     // Entries set only tablet_id / load_count_delta / last_load_time_ms / delta_window_ms.
     18: optional list<TActiveTabletStat> top_load_tablets
-    // True when either list was truncated by the topN cap.
-    19: optional bool active_tablets_truncated
 }
 
 struct TMasterResult {

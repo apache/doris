@@ -36,7 +36,8 @@ void ActiveTabletCollector::collect(const std::shared_ptr<BaseTablet>& tablet) {
     }
     const int64_t scan_cur = tablet->query_scan_count->value();
     const int64_t flush_cur = tablet->flush_finish_count->value();
-    _pending.push_back({tablet, scan_cur, flush_cur});
+    // Snapshot only -- the baselines on the tablet stay untouched until commit().
+    _pending.push_back({.tablet = tablet, .scan_count = scan_cur, .flush_count = flush_cur});
 
     const int64_t prev_ms = tablet->last_reported_time_ms.load(std::memory_order_relaxed);
     if (prev_ms == 0) {
@@ -64,8 +65,11 @@ void ActiveTabletCollector::collect(const std::shared_ptr<BaseTablet>& tablet) {
 
 void ActiveTabletCollector::take_top_n() {
     const auto truncate_to_cap = [this](std::vector<ActiveTabletCandidate>& candidates) {
-        // A negative cap would wrap to SIZE_MAX and silently disable truncation, i.e. ship the
-        // whole candidate list in the report; clamp instead.
+        // Clamp before the cast: a negative value would wrap to SIZE_MAX and silently
+        // uncap the list. <= 0 therefore means "report nothing" (feature off), never
+        // "report everything" -- an uncapped list can push the report past FE's
+        // thrift_max_message_size, and that failure is permanent: the message never
+        // gets smaller, so tablet reporting for this BE stops succeeding for good.
         const auto cap = static_cast<std::size_t>(
                 std::max(0, static_cast<int>(config::report_active_tablet_max_num)));
         if (candidates.size() > cap) {

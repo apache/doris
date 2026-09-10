@@ -53,7 +53,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                 .add("IsUserDrop")
                 .add("VisibleVersionCount").add("VersionCount").add("PathHash").add("Path")
                 .add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
-                .add("CooldownMetaId").add("QueryHits").add("AccessCount").add("LastAccessTime");
+                .add("CooldownMetaId").add("QueryHits").add("WindowAccessCount").add("LastAccessTime");
 
         if (Config.isCloudMode()) {
             builder.add("PrimaryBackendId");

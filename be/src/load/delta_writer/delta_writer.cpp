@@ -105,6 +105,10 @@ BaseDeltaWriter::~BaseDeltaWriter() {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
         _rowset_builder->tablet()->flush_bytes->increment(stat.flush_size_bytes);
         _rowset_builder->tablet()->flush_finish_count->increment(stat.flush_finish_count);
+        // Stamped here and nowhere else, so the load timestamp and the counter it
+        // accompanies always move together: a non-zero flush delta always comes with a
+        // fresh timestamp, and the active-window filter can only ever retire a stale
+        // delta, never invent one.
         _rowset_builder->tablet()->last_load_flush_time_ms.store(UnixMillis(),
                                                                  std::memory_order_relaxed);
     }
@@ -153,9 +157,6 @@ Status BaseDeltaWriter::init() {
             _rowset_builder->get_partial_update_info(), wg_sptr,
             _rowset_builder->tablet_sptr()->enable_unique_key_merge_on_write()));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
-    if (const auto& tablet = _rowset_builder->tablet(); tablet != nullptr) {
-        tablet->last_load_flush_time_ms.store(UnixMillis(), std::memory_order_relaxed);
-    }
     _is_init = true;
     return Status::OK();
 }
