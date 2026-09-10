@@ -2520,12 +2520,11 @@ public class IcebergScanNode extends FileQueryScanNode {
     private String getPartitionDataObjectJson(PartitionData partitionData, PartitionSpec partitionSpec,
             List<NestedField> outputPartitionFields) throws UserException {
         List<NestedField> partitionTypes = partitionData.getPartitionType().asNestedType().fields();
-        boolean enableMappingVarbinary = getEnableMappingVarbinary();
         for (int i = 0; i < partitionTypes.size(); i++) {
             Type type = partitionTypes.get(i).type();
             if (partitionData.get(i) != null && (type.typeId() == Type.TypeID.BINARY
                     || type.typeId() == Type.TypeID.FIXED
-                    || (type.typeId() == Type.TypeID.UUID && enableMappingVarbinary))) {
+                    || type.typeId() == Type.TypeID.UUID)) {
                 throw new UserException("Iceberg position_deletes cannot materialize non-null partition field '"
                         + partitionTypes.get(i).name() + "' of type " + type
                         + " without a binary-safe partition transport");

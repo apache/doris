@@ -49,6 +49,7 @@ public class FileFormatConstants {
     public static final String PROP_COMPRESS_TYPE = "compress_type";
     public static final String PROP_PATH_PARTITION_KEYS = "path_partition_keys";
     public static final String PROP_ENCLOSE = "enclose";
+    @Deprecated
     public static final String PROP_ENABLE_MAPPING_VARBINARY = "enable_mapping_varbinary";
     public static final String PROP_ENABLE_MAPPING_TIMESTAMP_TZ = "enable_mapping_timestamp_tz";
     public static final String PROP_HIVE_PARQUET_TIME_ZONE = "hive.parquet.time-zone";

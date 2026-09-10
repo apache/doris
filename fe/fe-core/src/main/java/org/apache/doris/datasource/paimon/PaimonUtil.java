@@ -326,11 +326,13 @@ public class PaimonUtil {
                 return ScalarType.createCharType(charLen);
             case BINARY:
                 int binaryLen = ((BinaryType) dataType).getLength();
-                return enableVarbinaryMapping ? ScalarType.createVarbinaryType(binaryLen) : Type.STRING;
+                // Binary payloads must retain their byte semantics; mapping them to STRING makes
+                // Flight clients attempt UTF-8 decoding on arbitrary bytes.
+                return ScalarType.createVarbinaryType(binaryLen);
             case VARBINARY:
                 // Paimon VarBinaryType length is in [1, 2147483647]
                 int varbinaryLen = ((VarBinaryType) dataType).getLength();
-                return enableVarbinaryMapping ? ScalarType.createVarbinaryType(varbinaryLen) : Type.STRING;
+                return ScalarType.createVarbinaryType(varbinaryLen);
             case DECIMAL:
                 DecimalType decimal = (DecimalType) dataType;
                 return ScalarType.createDecimalV3Type(decimal.getPrecision(), decimal.getScale());
