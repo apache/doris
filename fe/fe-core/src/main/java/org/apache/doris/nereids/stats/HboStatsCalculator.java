@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
-import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.Statistics;
 
 import java.util.Map;
@@ -42,10 +41,8 @@ public class HboStatsCalculator extends StatsCalculator {
     private final HboPlanStatisticsProvider hboPlanStatisticsProvider;
 
     public HboStatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
-            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
-        super(groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump,
-                cteIdToStats, context);
+        super(groupExpression, forbidUnknownColStats, cteIdToStats, context);
         this.hboPlanStatisticsProvider = Objects.requireNonNull(Env.getCurrentEnv().getHboPlanStatisticsManager()
                         .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
     }
@@ -102,4 +99,3 @@ public class HboStatsCalculator extends StatsCalculator {
         return delegateStats;
     }
 }
-

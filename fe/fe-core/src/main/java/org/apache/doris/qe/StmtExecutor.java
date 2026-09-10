@@ -86,7 +86,6 @@ import org.apache.doris.nereids.analyzer.UnboundBaseExternalTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -719,9 +718,6 @@ public class StmtExecutor {
             try {
                 executeByNereids(queryId);
             } catch (NereidsException | ParseException e) {
-                if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
-                    MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
-                }
                 // COMPUTE_GROUPS_NO_ALIVE_BE, planner can't get alive be, need retry
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
                     LOG.debug("planner failed with cloud compute group error, need retry. {}",
@@ -2194,28 +2190,6 @@ public class StmtExecutor {
         context.getState().setEof();
     }
 
-    public void handleReplayStmt(String result) throws IOException {
-        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
-                .addColumn(new Column("Plan Replayer dump url",
-                        ScalarType.createVarchar(20)))
-                .build();
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            sendMetaData(metaData);
-
-            // Send result set.
-            for (String item : result.split("\n")) {
-                serializer.reset();
-                serializer.writeLenEncodedString(item);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-        } else if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-            context.getFlightSqlChannel()
-                    .addResult(DebugUtil.printId(context.queryId()), context.getRunningQuery(), metaData, result);
-            context.setReturnResultFromLocal(true);
-        }
-        context.getState().setEof();
-    }
-
     public Data.PQueryStatistics getQueryStatisticsForAuditLog() {
         if (statisticsForAuditLog == null) {
             statisticsForAuditLog = Data.PQueryStatistics.newBuilder();
@@ -2468,9 +2442,6 @@ public class StmtExecutor {
                 sessionVariable.setVarOnce(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, "false");
                 return generateHttpStreamNereidsPlan(queryId);
             } catch (NereidsException | ParseException e) {
-                if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
-                    MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
-                }
                 // try to fall back to legacy planner
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("nereids cannot process statement\n{}\n because of {}",

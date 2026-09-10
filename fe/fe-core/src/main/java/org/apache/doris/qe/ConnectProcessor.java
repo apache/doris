@@ -67,7 +67,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
@@ -540,9 +539,6 @@ public abstract class ConnectProcessor {
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
     protected void handleQueryException(Throwable throwable, String origStmt,
             StatementBase parsedStmt, Data.PQueryStatistics statistics) throws ConnectionException {
-        if (ctx.getMinidump() != null) {
-            MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
-        }
         if (throwable instanceof SyntaxParseException) {
             // Syntax parse exception.
             Throwable e = new AnalysisException(throwable.getMessage(), throwable);

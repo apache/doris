@@ -60,7 +60,6 @@ import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
-import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -424,14 +423,16 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testPlanReplayer() {
-        String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
+    public void testReplayerIsIdentifier() {
         NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertInstanceOf(ReplayCommand.class, logicalPlan);
+        Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle("plan replayer dump select `AD``D` from t1 where a = 1"));
         Assertions.assertThrows(ParseException.class,
                 () -> nereidsParser.parseSingle("plan replayer play 'path'"));
-        // PLAY is no longer a keyword, so it is an ordinary identifier in any case.
+        // REPLAYER and PLAY are no longer keywords, so they are ordinary identifiers.
+        Assertions.assertDoesNotThrow(() -> nereidsParser.parseSingle("select replayer from replayer"));
+        Assertions.assertDoesNotThrow(() -> nereidsParser.parseSingle(
+                "select replayer.replayer as replayer from replayer"));
         Assertions.assertDoesNotThrow(() -> nereidsParser.parseSingle("select pLaY from play"));
         Assertions.assertDoesNotThrow(() -> nereidsParser.parseSingle("select play.play as play from play"));
     }
@@ -1172,11 +1173,11 @@ public class NereidsParserTest extends ParserTestBase {
 
     @Test
     public void testBlockSqlAst() {
-        String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
+        String sql = "CREATE ROW POLICY test_policy ON db1.t1 AS RESTRICTIVE TO root USING (k1 = 1)";
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
 
-        Config.block_sql_ast_names = "ReplayCommand";
+        Config.block_sql_ast_names = "CreatePolicyCommand";
         StmtExecutor.initBlockSqlAstNames();
         StmtExecutor stmtExecutor = new StmtExecutor(new ConnectContext(), "");
         try {
@@ -1186,7 +1187,7 @@ public class NereidsParserTest extends ParserTestBase {
             // do nothing
         }
 
-        Config.block_sql_ast_names = "CreatePolicyCommand, ReplayCommand";
+        Config.block_sql_ast_names = "CreateTableCommand, CreatePolicyCommand";
         StmtExecutor.initBlockSqlAstNames();
         try {
             stmtExecutor.checkSqlBlocked(logicalPlan.getClass());

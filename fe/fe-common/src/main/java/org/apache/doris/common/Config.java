@@ -2785,9 +2785,6 @@ public class Config extends ConfigBase {
             + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`")
     public static String initial_root_password = "";
 
-    @ConfField(description = "The path of the nereids trace file.")
-    public static String nereids_trace_log_dir = System.getenv("LOG_DIR") + "/nereids_trace";
-
     @ConfField(mutable = true, masterOnly = true, description = "The maximum number of snapshots assigned to an "
             + "upload task during the backup process. The default " + "value is 10.")
     public static int backup_upload_snapshot_batch_size = 10;
@@ -2964,9 +2961,6 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String spilled_profile_storage_path = System.getenv("LOG_DIR") + File.separator + "profile";
-
-    @ConfField
-    public static String spilled_minidump_storage_path = System.getenv("LOG_DIR") + File.separator + "minidump";
 
     // The max number of profiles that can be stored to storage.
     @ConfField

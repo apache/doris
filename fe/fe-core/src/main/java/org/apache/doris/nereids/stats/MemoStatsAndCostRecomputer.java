@@ -270,8 +270,6 @@ public final class MemoStatsAndCostRecomputer {
         StatsCalculator statsCalculator = new StatsCalculator(
                 groupExpression,
                 connectContext.getSessionVariable().getForbidUnknownColStats(),
-                connectContext.getTotalColumnStatisticMap(),
-                connectContext.getSessionVariable().isPlayNereidsDump(),
                 cteIdToStats,
                 cascadesContext);
         statsCalculator.estimate();

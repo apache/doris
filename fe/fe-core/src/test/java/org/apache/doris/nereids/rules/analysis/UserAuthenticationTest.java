@@ -30,7 +30,6 @@ import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -46,7 +45,6 @@ public class UserAuthenticationTest {
     private Env env = Mockito.mock(Env.class);
     private ConnectContext connectContext = Mockito.mock(ConnectContext.class);
     private AccessControllerManager accessControllerManager = Mockito.mock(AccessControllerManager.class);
-    private SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
     private TableIf table = Mockito.mock(TableIf.class);
     private DatabaseIf db = Mockito.mock(DatabaseIf.class);
     private CatalogIf catalog = Mockito.mock(CatalogIf.class);
@@ -83,8 +81,6 @@ public class UserAuthenticationTest {
         Mockito.when(db.getFullName()).thenReturn("mydb");
         Mockito.when(db.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.getName()).thenReturn("internal");
-        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
-        Mockito.when(sessionVariable.isPlayNereidsDump()).thenReturn(false);
         Mockito.when(connectContext.getEnv()).thenReturn(env);
         Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
         Mockito.when(accessControllerManager.checkTblPriv(connectContext, "internal", "mydb",
@@ -113,8 +109,6 @@ public class UserAuthenticationTest {
         Mockito.when(db.getFullName()).thenReturn("user_database");
         Mockito.when(db.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.getName()).thenReturn("internal");
-        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
-        Mockito.when(sessionVariable.isPlayNereidsDump()).thenReturn(false);
         Mockito.when(connectContext.getEnv()).thenReturn(env);
         Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
         Mockito.when(accessControllerManager.checkTblPriv(connectContext, "internal", "user_database",
@@ -139,8 +133,6 @@ public class UserAuthenticationTest {
         Mockito.when(table.getName()).thenReturn("cluster_snapshots");
         Mockito.when(table.getDatabase()).thenReturn(db);
         Mockito.when(db.getFullName()).thenReturn(InfoSchemaDb.DATABASE_NAME);
-        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
-        Mockito.when(sessionVariable.isPlayNereidsDump()).thenReturn(false);
         Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(normalUser);
 
         // Should throw AnalysisException because non-root user cannot access
@@ -159,8 +151,6 @@ public class UserAuthenticationTest {
         Mockito.when(table.getName()).thenReturn("cluster_snapshots");
         Mockito.when(table.getDatabase()).thenReturn(db);
         Mockito.when(db.getFullName()).thenReturn(InfoSchemaDb.DATABASE_NAME);
-        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
-        Mockito.when(sessionVariable.isPlayNereidsDump()).thenReturn(false);
         Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
 
         // Root user should be able to access
@@ -184,8 +174,6 @@ public class UserAuthenticationTest {
             Mockito.when(table.getName()).thenReturn("cluster_snapshots");
             Mockito.when(table.getDatabase()).thenReturn(db);
             Mockito.when(db.getFullName()).thenReturn(InfoSchemaDb.DATABASE_NAME);
-            Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
-            Mockito.when(sessionVariable.isPlayNereidsDump()).thenReturn(false);
             Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
             Mockito.when(accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN)).thenReturn(true);
             Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(adminUser);
@@ -199,8 +187,6 @@ public class UserAuthenticationTest {
     @Test
     public void testIcebergSysTableUsesSourceTablePrivilege() throws Exception {
         Mockito.when(icebergSysTable.getSourceTable()).thenReturn(icebergSourceTable);
-        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
-        Mockito.when(sessionVariable.isPlayNereidsDump()).thenReturn(false);
         Mockito.when(icebergSourceTable.getName()).thenReturn("source_tbl");
         Mockito.when(icebergSourceTable.getDatabase()).thenReturn(db);
         Mockito.when(db.getFullName()).thenReturn("test_db");

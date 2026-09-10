@@ -73,8 +73,6 @@ import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
-import org.apache.doris.statistics.model.ColumnStatistic;
-import org.apache.doris.statistics.model.Histogram;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TResultSinkType;
@@ -91,7 +89,6 @@ import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONObject;
 import org.xnio.StreamConnection;
 
 import java.io.IOException;
@@ -238,8 +235,6 @@ public class ConnectContext {
 
     private String sqlHash;
 
-    private JSONObject minidump = null;
-
     // The FE ip current connected
     private String currentConnectedFEIp = "";
     private transient String connectingFeLocalResourceGroup = "";
@@ -314,26 +309,6 @@ public class ConnectContext {
 
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
-
-    private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
-
-    public Map<String, ColumnStatistic> getTotalColumnStatisticMap() {
-        return totalColumnStatisticMap;
-    }
-
-    public void setTotalColumnStatisticMap(Map<String, ColumnStatistic> totalColumnStatisticMap) {
-        this.totalColumnStatisticMap = totalColumnStatisticMap;
-    }
-
-    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
-
-    public Map<String, Histogram> getTotalHistogramMap() {
-        return totalHistogramMap;
-    }
-
-    public void setTotalHistogramMap(Map<String, Histogram> totalHistogramMap) {
-        this.totalHistogramMap = totalHistogramMap;
-    }
 
     public SessionContext getSessionContext() {
         return sessionContext;
@@ -1268,14 +1243,6 @@ public class ConnectContext {
 
     public void setSqlHash(String sqlHash) {
         this.sqlHash = sqlHash;
-    }
-
-    public JSONObject getMinidump() {
-        return minidump;
-    }
-
-    public void setMinidump(JSONObject minidump) {
-        this.minidump = minidump;
     }
 
     public StatementContext getStatementContext() {
