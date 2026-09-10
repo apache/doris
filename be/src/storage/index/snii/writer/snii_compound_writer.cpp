@@ -51,7 +51,7 @@ Status SniiCompoundWriter::poison(Status status) {
         // SOLE owner of a staging file holding a whole faiss index or a BKD leaf
         // region, because the producer hands it over at registration. Waiting for
         // finish() to release them is not enough: after a poison, production
-        // usually never calls it. SegmentWriter::_write_inverted_index() returns
+        // usually never calls it. VerticalSegmentWriter::_write_inverted_index() returns
         // before close_inverted_index(), and SegmentCreator::flush() keeps the
         // failed writer, so the files and their descriptors would stay pinned
         // until this writer is destroyed.

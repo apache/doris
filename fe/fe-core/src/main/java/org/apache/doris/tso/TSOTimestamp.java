@@ -113,6 +113,15 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
     }
 
     /**
+     * Compose the lower boundary of a physical millisecond.
+     *
+     * @return 64-bit TSO timestamp with a zero logical counter
+     */
+    public static long composePhysicalTimestamp(long physicalTimestamp) {
+        return composeTimestamp(physicalTimestamp, 0L);
+    }
+
+    /**
      * Extract physical time (milliseconds) from TSO timestamp
      *
      * @param timestamp 64-bit TSO timestamp
