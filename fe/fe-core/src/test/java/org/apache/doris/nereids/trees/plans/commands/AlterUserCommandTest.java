@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.UserDesc;
@@ -79,8 +80,12 @@ public class AlterUserCommandTest extends TestWithFeService {
 
         //test PasswordOptions
         PasswordOptions passwordOptions02 = new PasswordOptions(PasswordOptions.UNSET, PasswordOptions.UNSET, PasswordOptions.UNSET, PasswordOptions.UNSET, PasswordOptions.UNSET, -1);
-        AlterUserInfo alterUserInfo03 = new AlterUserInfo(true, userDesc, passwordOptions02, null);
+        // ACCOUNT_LOCK is a real operation now (MySQL-compatible administrative lock): on its own (no
+        // password change riding along, non-root target) it validates as exactly that one operation
+        UserDesc lockTarget = new UserDesc(new UserIdentity("lock_target", "%"));
+        AlterUserInfo alterUserInfo03 = new AlterUserInfo(true, lockTarget, passwordOptions02, null);
         AlterUserCommand alterUserCommand03 = new AlterUserCommand(alterUserInfo03);
-        Assertions.assertThrows(AnalysisException.class, () -> alterUserCommand03.validate(), "Not support lock account now");
+        Assertions.assertDoesNotThrow(() -> alterUserCommand03.validate());
+        Assertions.assertEquals(AlterUserOpType.LOCK_ACCOUNT, alterUserInfo03.getOpType());
     }
 }
