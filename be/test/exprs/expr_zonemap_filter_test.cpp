@@ -2202,6 +2202,49 @@ TEST(ExprZonemapFilterTest, SlotSlotBailsOutWhenAFloatingNanCountIsUnknown) {
     expect_bails_out(FunctionComparison<GreaterOrEqualsOp, NameGreaterOrEquals> {}, "a >= b");
 }
 
+TEST(ExprZonemapFilterTest, SlotSlotComparesDecimalBoundsInOneDomain) {
+    // Decimal bounds are unscaled payloads, so the rule is only meaningful when both sides share a
+    // scale. The v1 Parquet reader decodes row-group bounds in the file's own logical type while
+    // _type_matches compares only primitive types, so it now leaves the zone map out when the file
+    // and table types differ; this pins the behaviour the rule needs when they agree.
+    auto decimal_type = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64, false, 18, 2);
+    auto left = make_slot(0, decimal_type);
+    auto right = make_slot(1, decimal_type);
+    FunctionComparison<LessOp, NameLess> less;
+
+    auto make_decimal_zonemap = [](int64_t unscaled_min, int64_t unscaled_max) {
+        segment_v2::ZoneMap zone_map;
+        zone_map.min_value = Field::create_field<TYPE_DECIMAL64>(Decimal64(unscaled_min));
+        zone_map.max_value = Field::create_field<TYPE_DECIMAL64>(Decimal64(unscaled_max));
+        zone_map.has_not_null = true;
+        return zone_map;
+    };
+
+    // 10.00 .. 20.00 against 0.50 .. 1.00: a < b cannot hold.
+    auto separated =
+            make_two_slot_context(make_decimal_zonemap(1000, 2000), make_decimal_zonemap(50, 100),
+                                  decimal_type, decimal_type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less.evaluate_zonemap_filter(separated, {left, right}));
+
+    // Touching at 10.00, which is what separates `lmin >= rmax` from `lmin > rmax`: a < b still
+    // cannot hold, so LT must prune while LE must not.
+    auto touching =
+            make_two_slot_context(make_decimal_zonemap(1000, 2000), make_decimal_zonemap(500, 1000),
+                                  decimal_type, decimal_type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, less.evaluate_zonemap_filter(touching, {left, right}));
+    FunctionComparison<LessOrEqualsOp, NameLessOrEquals> less_equals;
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less_equals.evaluate_zonemap_filter(touching, {left, right}));
+
+    // Overlapping in the same scale: nothing can be concluded.
+    auto overlapping =
+            make_two_slot_context(make_decimal_zonemap(1000, 2000),
+                                  make_decimal_zonemap(1500, 2500), decimal_type, decimal_type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less.evaluate_zonemap_filter(overlapping, {left, right}));
+}
+
 TEST(ExprZonemapFilterTest, ParquetSlotZoneMapMarksFloatingNanCountUnknown) {
     // The rule used to be spelled out in format_v2's add_slot_zonemap only, and the v1 Parquet
     // reader assigned data_type directly and so left the flag false. Two double columns whose
