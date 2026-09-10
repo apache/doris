@@ -231,7 +231,6 @@ public class StreamingInsertTaskAuditTest {
                     new NereidsParser().parseSingle(sql), new StatementContext());
             StmtExecutor executor = Mockito.mock(StmtExecutor.class);
             Mockito.when(executor.getParsedStmt()).thenReturn(parsedStmt);
-            Mockito.when(executor.getExternalDmlAuditBackendIds()).thenReturn(Collections.emptySet());
             Mockito.when(executor.getSummaryProfile()).thenReturn(Mockito.mock(SummaryProfile.class));
             ctx.setExecutor(executor);
 
