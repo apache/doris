@@ -483,7 +483,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         RETURN_IF_ERROR(file_sink->open());
         request.__isset.path = true;
         request.fileType = TFileType::FILE_LOCAL;
-        request.__set_file_size(ctx->body_bytes);
+        // A chunked request has no Content-Length. Preserve the unknown size so the local file
+        // reader obtains the actual size after the request body has been fully written.
+        request.__set_file_size(ctx->is_chunked_transfer ? -1
+                                                         : static_cast<int64_t>(ctx->body_bytes));
         ctx->body_sink = file_sink;
         ctx->data_saved_path = request.path;
     }
