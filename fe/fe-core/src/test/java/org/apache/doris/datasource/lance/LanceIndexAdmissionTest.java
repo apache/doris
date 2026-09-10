@@ -375,6 +375,23 @@ public class LanceIndexAdmissionTest {
     }
 
     @Test
+    public void createIfNotExistsWithMatchingScalarDefinitionIsNoOp() throws Exception {
+        // BTREE carries no user build properties, so the whitelist comparison is vacuous: the
+        // same name, algorithm and single column make the statement an immediate no-op. The
+        // stored payload is deliberately a non-object: only the scalar short-circuit can
+        // produce the no-op — any ANN-style property comparison would fail closed on it.
+        LanceIndexAdmissionSnapshot snapshot = snapshot(
+                Collections.singletonList(logicalIndex("idx", "c", "BTREE", "[]")),
+                Collections.singletonList(physicalIndex("idx", "SCALAR")));
+
+        LanceIndexAdmission.Outcome outcome = admitCreate(snapshot,
+                scalarDef("idx", "BTREE", "c", true, false), true);
+
+        Assertions.assertNull(outcome.getJobId());
+        assertNothingPersisted();
+    }
+
+    @Test
     public void createIfNotExistsWithDifferentDefinitionIsRejected() {
         LanceIndexAdmissionSnapshot snapshot = snapshot(
                 Collections.singletonList(logicalIndex("idx", "c", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
@@ -391,6 +408,20 @@ public class LanceIndexAdmissionTest {
         // M1: a BTREE request against a same-name BITMAP index must never no-op.
         LanceIndexAdmissionSnapshot snapshot = snapshot(
                 Collections.singletonList(logicalIndex("idx", "c", "BITMAP", "{}")),
+                Collections.singletonList(physicalIndex("idx", "SCALAR")));
+
+        assertInvalid(() -> admitCreate(snapshot, scalarDef("idx", "BTREE", "c", true, false), true),
+                "index 'idx' already exists with a different definition");
+        assertNothingPersisted();
+    }
+
+    @Test
+    public void sameNameMultiColumnStoredIndexIsRejected() {
+        // Lance scalar indexes can span several columns; a same-name single-column request is a
+        // definition mismatch even when the algorithm and the first column agree, never a no-op.
+        LanceIndexAdmissionSnapshot snapshot = snapshot(
+                Collections.singletonList(new LanceLogicalIndex("idx", Arrays.asList("c", "s"),
+                        "BTREE", "{}")),
                 Collections.singletonList(physicalIndex("idx", "SCALAR")));
 
         assertInvalid(() -> admitCreate(snapshot, scalarDef("idx", "BTREE", "c", true, false), true),
@@ -539,6 +570,18 @@ public class LanceIndexAdmissionTest {
                         "{\"compression\":\"unexpected\"}")),
                 Collections.singletonList(physicalIndex("idx", "VECTOR")));
         assertInvalid(() -> admitCreate(nonObjectCompression, annDef("idx", true, false), true),
+                "index 'idx' already exists with a different definition");
+        assertNothingPersisted();
+    }
+
+    @Test
+    public void unparsableSnapshotPropertiesFailClosed() {
+        // A payload that does not parse at all is malformed provider data, not "nothing exposed".
+        LanceIndexAdmissionSnapshot snapshot = snapshot(
+                Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ", "{not-json")),
+                Collections.singletonList(physicalIndex("idx", "VECTOR")));
+
+        assertInvalid(() -> admitCreate(snapshot, annDef("idx", true, false), true),
                 "index 'idx' already exists with a different definition");
         assertNothingPersisted();
     }
