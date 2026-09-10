@@ -594,6 +594,11 @@ under the License.
             <artifactId>iceberg-aws</artifactId>
             <version>${iceberg.version}</version>
         </dependency>
+        <!-- InternalParquet is loaded reflectively by Iceberg partition statistics I/O. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-parquet</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-core</artifactId>
