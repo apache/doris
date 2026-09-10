@@ -781,6 +781,12 @@ public abstract class DataType {
         return isNumericType() || isBooleanType() || isStringLikeType() || isNullType();
     }
 
+    /** Whether this type has a BE column implementation supported by hash-based array set operations. */
+    public boolean canBeUsedInArraySetOperation() {
+        return isNumericType() || isBooleanType() || isStringLikeType() || isVarBinaryType()
+                || isDateLikeType() || isTimeType() || isIPType() || isNullType();
+    }
+
     /**
      * whether the param dataType is same-like type for nested in complex type
      *  same-like type means: string-like, date-like, number type

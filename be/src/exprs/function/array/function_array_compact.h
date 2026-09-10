@@ -26,6 +26,7 @@
 #include <string>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -38,6 +39,7 @@
 #include "core/pod_array_fwd.h"
 #include "core/types.h"
 #include "exprs/function/function.h"
+#include "exprs/function/function_helpers.h"
 
 namespace doris {
 class FunctionContext;
@@ -59,9 +61,13 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
-                << "first argument for function: " << name << " should be DataTypeArray"
-                << " and arguments[0] is " << arguments[0]->get_name();
+        const auto* array_type =
+                check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[0]).get());
+        if (!array_type) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Argument for function {} must be an array, but got {}",
+                                   get_name(), arguments[0]->get_name());
+        }
         return arguments[0];
     }
 
@@ -71,16 +77,22 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
         if (!src_column_array) {
-            return Status::RuntimeError(
-                    fmt::format("unsupported types for function {}({})", get_name(),
-                                block.get_by_position(arguments[0]).type->get_name()));
+            return Status::InvalidArgument(
+                    "Argument for function {} must be an array column, but got {}", get_name(),
+                    src_column->get_name());
         }
         const auto& src_offsets = src_column_array->get_offsets();
         const auto* src_nested_column = &src_column_array->get_data();
         DCHECK(src_nested_column != nullptr);
 
-        DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
-        auto nested_type = assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
+        DataTypePtr src_column_type = remove_nullable(block.get_by_position(arguments[0]).type);
+        const auto* src_array_type = check_and_get_data_type<DataTypeArray>(src_column_type.get());
+        if (!src_array_type) {
+            return Status::InvalidArgument(
+                    "Argument type for function {} must be an array, but got {}", get_name(),
+                    src_column_type->get_name());
+        }
+        auto nested_type = src_array_type->get_nested_type();
         auto dest_column_ptr = ColumnArray::create(nested_type->create_column(),
                                                    ColumnArray::ColumnOffsets::create());
         IColumn* dest_nested_column = &dest_column_ptr->get_data();
