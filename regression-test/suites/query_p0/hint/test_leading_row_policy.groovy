@@ -68,33 +68,85 @@ suite("test_leading_row_policy") {
     """
     sql "SYNC"
 
+    // The tables are referenced by their real name, an alias would add a sub query alias node which already
+    // carries the whole plan of the table, so the cases below have to exercise the plans which are built
+    // directly on the relation, e.g. the row policy filter.
     connect(user, "${pwd}", url) {
         sql "SET enable_sql_cache = false"
         // the row policy only allows to read the rows of leading_row_policy_t1 with k = 1
         order_qt_read_table "SELECT k, v FROM leading_row_policy_t1 ORDER BY k"
-        // the leading hint only changes the join order, it must not change the rows allowed by the row policy
+        // the row policy also applies without any hint
         order_qt_join_without_hint """
             SELECT leading_row_policy_t1.k, leading_row_policy_t1.v, leading_row_policy_t2.v
             FROM leading_row_policy_t1 JOIN leading_row_policy_t2
             ON leading_row_policy_t1.k = leading_row_policy_t2.k
             ORDER BY leading_row_policy_t1.k
         """
+        // the leading hint has to be accepted, otherwise the cases below exercise nothing
+        explain {
+            sql """
+                SELECT /*+ leading(leading_row_policy_t1 leading_row_policy_t2) */
+                    leading_row_policy_t1.k, leading_row_policy_t1.v, leading_row_policy_t2.v
+                FROM leading_row_policy_t1 JOIN leading_row_policy_t2
+                ON leading_row_policy_t1.k = leading_row_policy_t2.k
+                ORDER BY leading_row_policy_t1.k
+            """
+            contains("Used: leading(leading_row_policy_t1 leading_row_policy_t2 )")
+        }
+        // a leading hint only changes the join order, it must not change the rows allowed by the row policy
         order_qt_join_with_leading """
-            SELECT /*+ leading(t1 t2) */ t1.k, t1.v, t2.v
-            FROM leading_row_policy_t1 t1 JOIN leading_row_policy_t2 t2 ON t1.k = t2.k
-            ORDER BY t1.k
+            SELECT /*+ leading(leading_row_policy_t1 leading_row_policy_t2) */
+                leading_row_policy_t1.k, leading_row_policy_t1.v, leading_row_policy_t2.v
+            FROM leading_row_policy_t1 JOIN leading_row_policy_t2
+            ON leading_row_policy_t1.k = leading_row_policy_t2.k
+            ORDER BY leading_row_policy_t1.k
         """
+        explain {
+            sql """
+                SELECT /*+ leading(leading_row_policy_t2 leading_row_policy_t1) */
+                    leading_row_policy_t1.k, leading_row_policy_t1.v, leading_row_policy_t2.v
+                FROM leading_row_policy_t1 JOIN leading_row_policy_t2
+                ON leading_row_policy_t1.k = leading_row_policy_t2.k
+                ORDER BY leading_row_policy_t1.k
+            """
+            contains("Used: leading(leading_row_policy_t2 leading_row_policy_t1 )")
+        }
         order_qt_join_with_leading_swapped """
-            SELECT /*+ leading(t2 t1) */ t1.k, t1.v, t2.v
-            FROM leading_row_policy_t1 t1 JOIN leading_row_policy_t2 t2 ON t1.k = t2.k
-            ORDER BY t1.k
+            SELECT /*+ leading(leading_row_policy_t2 leading_row_policy_t1) */
+                leading_row_policy_t1.k, leading_row_policy_t1.v, leading_row_policy_t2.v
+            FROM leading_row_policy_t1 JOIN leading_row_policy_t2
+            ON leading_row_policy_t1.k = leading_row_policy_t2.k
+            ORDER BY leading_row_policy_t1.k
         """
+        explain {
+            sql """
+                SELECT /*+ leading(leading_row_policy_t1 leading_row_policy_t2) */
+                    leading_row_policy_t1.k, leading_row_policy_t1.v, leading_row_policy_t2.v
+                FROM leading_row_policy_t1 LEFT JOIN leading_row_policy_t2
+                ON leading_row_policy_t1.k = leading_row_policy_t2.k
+                ORDER BY leading_row_policy_t1.k
+            """
+            contains("Used: leading(leading_row_policy_t1 leading_row_policy_t2 )")
+        }
         order_qt_left_join_with_leading """
-            SELECT /*+ leading(t1 t2) */ t1.k, t1.v, t2.v
-            FROM leading_row_policy_t1 t1 LEFT JOIN leading_row_policy_t2 t2 ON t1.k = t2.k
-            ORDER BY t1.k
+            SELECT /*+ leading(leading_row_policy_t1 leading_row_policy_t2) */
+                leading_row_policy_t1.k, leading_row_policy_t1.v, leading_row_policy_t2.v
+            FROM leading_row_policy_t1 LEFT JOIN leading_row_policy_t2
+            ON leading_row_policy_t1.k = leading_row_policy_t2.k
+            ORDER BY leading_row_policy_t1.k
         """
-        // the aggregate table with random distribution also has to keep the aggregation and the row policy
+        // the random distribution aggregate table needs the aggregation which merges the rows of the table,
+        // both the aggregation and the row policy are built on the relation and have to be kept as well
+        explain {
+            sql """
+                SELECT /*+ leading(leading_row_policy_agg leading_row_policy_t2) */
+                    leading_row_policy_agg.k, leading_row_policy_agg.v, leading_row_policy_t2.v
+                FROM leading_row_policy_agg JOIN leading_row_policy_t2
+                ON leading_row_policy_agg.k = leading_row_policy_t2.k
+                ORDER BY leading_row_policy_agg.k
+            """
+            contains("Used: leading(leading_row_policy_agg leading_row_policy_t2 )")
+        }
         order_qt_agg_table_without_hint """
             SELECT leading_row_policy_agg.k, leading_row_policy_agg.v, leading_row_policy_t2.v
             FROM leading_row_policy_agg JOIN leading_row_policy_t2
@@ -102,9 +154,11 @@ suite("test_leading_row_policy") {
             ORDER BY leading_row_policy_agg.k
         """
         order_qt_agg_table_with_leading """
-            SELECT /*+ leading(t1 t2) */ t1.k, t1.v, t2.v
-            FROM leading_row_policy_agg t1 JOIN leading_row_policy_t2 t2 ON t1.k = t2.k
-            ORDER BY t1.k
+            SELECT /*+ leading(leading_row_policy_agg leading_row_policy_t2) */
+                leading_row_policy_agg.k, leading_row_policy_agg.v, leading_row_policy_t2.v
+            FROM leading_row_policy_agg JOIN leading_row_policy_t2
+            ON leading_row_policy_agg.k = leading_row_policy_t2.k
+            ORDER BY leading_row_policy_agg.k
         """
     }
 }
