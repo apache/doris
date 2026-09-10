@@ -30,6 +30,8 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
+import org.apache.doris.filesystem.azure.AzureFileSystemProperties;
+import org.apache.doris.filesystem.azure.AzureFileSystemProvider;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
 import org.apache.doris.thrift.TFileFormatType;
@@ -52,6 +54,8 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.StorageCredential;
+import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -59,6 +63,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.AdditionalAnswers;
 import org.mockito.Mockito;
 
 import java.io.IOException;
@@ -123,6 +129,64 @@ class IcebergNativeStorageAccessIntegrationTest {
         Assertions.assertEquals(Optional.of("FILE_S3"), range.getBackendFileType());
         Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, populate(range).getFormatType());
         Assertions.assertTrue(range.getProperties().isEmpty(), "credentials belong to the shared scan binding");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"dfs", "blob"})
+    void scanEntryBindsScopedSasAfterProviderFileIoExpiryNormalization(String service) {
+        String host = "account." + service + ".core.windows.net";
+        Map<String, String> rawScoped = Map.of(
+                "adls.sas-token." + host, TOKEN,
+                "adls.sas-token-expires-at-ms." + host, "4102444800500");
+        AzureFileSystemProperties binding = new AzureFileSystemProvider()
+                .bindVended(rawScoped, Collections.emptyMap()).orElseThrow();
+        Map<String, String> fileIoProperties = binding.toIcebergFileIOProperties();
+        Assertions.assertEquals("4102444800000",
+                fileIoProperties.get("adls.sas-token-expires-at-ms.account.dfs.core.windows.net"));
+        Assertions.assertEquals("4102444800000",
+                fileIoProperties.get("adls.sas-token-expires-at-ms.account.blob.core.windows.net"));
+        // REST retains the original scoped credential alongside the provider-transformed FileIO
+        // properties. A per-key overlay would restore only one host to the later raw expiry.
+        IcebergScanPlanProvider provider = provider(tableWithData(2), CATALOG_PROPERTIES, fileIoProperties,
+                List.of(StorageCredential.create(TABLE_ROOT, rawScoped)));
+
+        Map<String, String> backend = backendProperties(provider.getScanNodeProperties(
+                session, HANDLE, COLUMNS, Optional.empty()));
+        assertFreshNativeAzure(backend);
+        List<ConnectorScanRange> ranges = provider.planScan(session,
+                ConnectorScanRequest.builder(HANDLE, COLUMNS).build());
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(Optional.of("FILE_S3"), ranges.get(0).getBackendFileType());
+        Assertions.assertEquals(Optional.of(DATA_PATH), ranges.get(0).getPath());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"dfs", "blob"})
+    void scanEntryDoesNotInheritFileIoExpiryAfterScopedSasRotation(String service) {
+        AzureFileSystemProperties previous = new AzureFileSystemProvider()
+                .bindVended(VENDED, Collections.emptyMap()).orElseThrow();
+        Map<String, String> fileIoProperties = previous.toIcebergFileIOProperties();
+        String rotatedToken = "si=stored-policy&sig=rotated-test-signature";
+        Map<String, String> rawScoped = Map.of(
+                "adls.sas-token.account." + service + ".core.windows.net", rotatedToken);
+        IcebergScanPlanProvider provider = provider(tableWithData(2), CATALOG_PROPERTIES, fileIoProperties,
+                List.of(StorageCredential.create(TABLE_ROOT, rawScoped)));
+
+        Map<String, String> backend = backendProperties(provider.getScanNodeProperties(
+                session, HANDLE, COLUMNS, Optional.empty()));
+
+        Assertions.assertEquals("azure", backend.get("provider"));
+        Assertions.assertEquals("SAS", backend.get("AZURE_AUTH_TYPE"));
+        Assertions.assertEquals(rotatedToken, backend.get("AZURE_SAS_TOKEN"));
+        Assertions.assertFalse(backend.containsKey("AZURE_SAS_EXPIRY_MS"),
+                "unknown expiry on the selected SAS must not inherit the previous FileIO's known expiry");
+        Assertions.assertEquals("https://account.blob.core.windows.net", backend.get("AZURE_ENDPOINT"));
+        Assertions.assertEquals("account", backend.get("AZURE_ACCOUNT_NAME"));
+        List<ConnectorScanRange> ranges = provider.planScan(session,
+                ConnectorScanRequest.builder(HANDLE, COLUMNS).build());
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(Optional.of("FILE_S3"), ranges.get(0).getBackendFileType());
     }
 
     @Test
@@ -289,6 +353,11 @@ class IcebergNativeStorageAccessIntegrationTest {
     }
 
     private IcebergScanPlanProvider provider(Table table, Map<String, String> catalogProperties) {
+        return provider(table, catalogProperties, VENDED, Collections.emptyList());
+    }
+
+    private IcebergScanPlanProvider provider(Table table, Map<String, String> catalogProperties,
+            Map<String, String> fileIoProperties, List<StorageCredential> credentials) {
         StorageAdapter expired = StorageAdapter.ofProvider("AZURE", catalogProperties);
         Assertions.assertThrows(StoragePropertiesException.class, expired::getBackendConfigProperties,
                 "the static credential must actually be expired, not a prebuilt fake backend map");
@@ -298,8 +367,11 @@ class IcebergNativeStorageAccessIntegrationTest {
 
         // A real BaseTable is frozen through TableOperations by the statement scope. Supplying the
         // vended FileIO there, rather than only overriding Table.io(), keeps that actual path intact.
-        FileIO vendedIo = Mockito.spy(table.io());
-        Mockito.doReturn(VENDED).when(vendedIo).properties();
+        FileIO vendedIo = Mockito.mock(FileIO.class, Mockito.withSettings()
+                .extraInterfaces(SupportsStorageCredentials.class)
+                .defaultAnswer(AdditionalAnswers.delegatesTo(table.io())));
+        Mockito.doReturn(fileIoProperties).when(vendedIo).properties();
+        Mockito.doReturn(credentials).when((SupportsStorageCredentials) vendedIo).credentials();
         TableOperations operations = Mockito.spy(((BaseTable) table).operations());
         Mockito.doReturn(vendedIo).when(operations).io();
         Table authorizedTable = new BaseTable(operations, table.name());

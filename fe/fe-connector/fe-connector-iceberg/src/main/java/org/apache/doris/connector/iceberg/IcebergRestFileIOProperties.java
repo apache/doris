@@ -236,7 +236,8 @@ final class IcebergRestFileIOProperties {
         return result;
     }
 
-    private static boolean isAzureAuthenticationProperty(String key) {
+    // Shared with native credential extraction: preserve one Iceberg authentication-group vocabulary.
+    static boolean isAzureAuthenticationProperty(String key) {
         return isProviderAuthenticationProperty(key) || AzureProperties.ADLS_TOKEN.equalsIgnoreCase(key);
     }
 

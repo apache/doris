@@ -3659,10 +3659,106 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void extractNativeVendedTokenReplacesNormalizedFileIoExpiryAsOneAuthenticationGroup() {
+        FakeIcebergTable table = fakeTable("t1");
+        String token = "sig=normalization-test&se=2100-01-01T00:00:00Z";
+        // Azure's provider emits the earlier of the response expiry and token.se for both hosts.
+        // The core integration test constructs this view through the real provider.
+        Map<String, String> fileIoProperties = azureFileIoAuthentication(token, "4102444800000");
+        Map<String, String> rawScoped = Map.of(
+                "adls.sas-token.account.dfs.core.windows.net", token,
+                "adls.sas-token-expires-at-ms.account.dfs.core.windows.net", "4102444800500");
+        table.setIo(new VendedFileIO(fileIoProperties,
+                List.of(StorageCredential.create(AZURE_DATA_LOCATION, rawScoped))));
+
+        Map<String, String> extracted = IcebergScanPlanProvider.extractNativeVendedToken(table, true);
+
+        Map<String, String> expected = new HashMap<>(azureFileIoConnections());
+        expected.putAll(rawScoped);
+        Assertions.assertEquals(expected, extracted,
+                "scoped authentication must not retain the provider-generated Blob expiry alias");
+    }
+
+    @Test
+    public void extractNativeVendedTokenRotatesSasWithoutInheritingOldAuthenticationOrExpiry() {
+        FakeIcebergTable table = fakeTable("t1");
+        Map<String, String> fileIoProperties = azureFileIoAuthentication(
+                "sig=previous-test&se=2100-01-01T00:00:00Z", "4102444800000");
+        fileIoProperties.put("adls.auth.shared-key.account.name", "account");
+        fileIoProperties.put("adls.auth.shared-key.account.key", "previous-test-key");
+        fileIoProperties.put("adls.token", "previous-test-bearer");
+        Map<String, String> rawScoped = Map.of(
+                "adls.sas-token.account.blob.core.windows.net", "si=policy&sig=rotated-test");
+        table.setIo(new VendedFileIO(fileIoProperties,
+                List.of(StorageCredential.create(AZURE_DATA_LOCATION, rawScoped))));
+
+        Map<String, String> extracted = IcebergScanPlanProvider.extractNativeVendedToken(table, true);
+
+        Map<String, String> expected = new HashMap<>(azureFileIoConnections());
+        expected.putAll(rawScoped);
+        Assertions.assertEquals(expected, extracted,
+                "a new SAS without expiry replaces the whole old identity, but retains connection settings");
+    }
+
+    @Test
+    public void extractNativeVendedTokenDoesNotReplaceAuthenticationWithConnectionOnlyProperties() {
+        FakeIcebergTable table = fakeTable("t1");
+        Map<String, String> fileIoProperties = azureFileIoAuthentication(
+                "sig=current-test&se=2100-01-01T00:00:00Z", "4102444800000");
+        Map<String, String> connectionOnly = Map.of(
+                "adls.connection-string.account.dfs.core.windows.net", "https://account.dfs.core.windows.net");
+        table.setIo(new VendedFileIO(fileIoProperties,
+                List.of(StorageCredential.create(AZURE_DATA_LOCATION, connectionOnly))));
+
+        Map<String, String> expected = new HashMap<>(fileIoProperties);
+        expected.putAll(connectionOnly);
+        Assertions.assertEquals(expected, IcebergScanPlanProvider.extractNativeVendedToken(table, true),
+                "an adls connection property is not a replacement authentication group");
+    }
+
+    @Test
+    public void extractNativeVendedTokenRecognizesMixedCaseAuthenticationAndScopeConflicts() {
+        FakeIcebergTable table = fakeTable("t1");
+        Map<String, String> fileIoProperties = azureFileIoAuthentication(
+                "sig=previous-test", "4102444800000");
+        Map<String, String> rawScoped = Map.of(
+                "ADLS.SAS-TOKEN.account.dfs.core.windows.net", "si=policy&sig=mixed-case-test");
+        StorageCredential first = StorageCredential.create(AZURE_DATA_LOCATION, rawScoped);
+        table.setIo(new VendedFileIO(fileIoProperties, List.of(first)));
+
+        Map<String, String> expected = new HashMap<>(azureFileIoConnections());
+        expected.putAll(rawScoped);
+        Assertions.assertEquals(expected, IcebergScanPlanProvider.extractNativeVendedToken(table, true));
+
+        StorageCredential second = StorageCredential.create(AZURE_DATA_LOCATION + "/other", rawScoped);
+        table.setIo(new VendedFileIO(fileIoProperties, List.of(first, second)));
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergScanPlanProvider.extractNativeVendedToken(table, true));
+        Assertions.assertEquals("Multiple scoped Azure storage credentials are not supported", failure.getMessage());
+    }
+
+    private static Map<String, String> azureFileIoConnections() {
+        return Map.of(
+                "adls.connection-string.account.dfs.core.windows.net", "https://account.blob.core.windows.net",
+                "adls.connection-string.account.blob.core.windows.net", "https://account.blob.core.windows.net");
+    }
+
+    private static Map<String, String> azureFileIoAuthentication(String token, String expiry) {
+        Map<String, String> properties = new HashMap<>(azureFileIoConnections());
+        for (String host : List.of("account.dfs.core.windows.net", "account.blob.core.windows.net")) {
+            properties.put("adls.sas-token." + host, token);
+            properties.put("adls.sas-token-expires-at-ms." + host, expiry);
+        }
+        return properties;
+    }
+
+    @Test
     public void extractVendedTokenMergesIoPropsAndStorageCredentials() {
         FakeIcebergTable table = fakeTable("t1");
         Map<String, String> ioProps = new HashMap<>();
         ioProps.put("s3.endpoint", "ep");
+        ioProps.put("s3.access-key-id", "old-ak");
+        ioProps.put("s3.secret-access-key", "retained-test-secret");
         StorageCredential cred =
                 StorageCredential.create("s3://b", Collections.singletonMap("s3.access-key-id", "ak"));
         table.setIo(new VendedFileIO(ioProps, Collections.singletonList(cred)));
@@ -3674,6 +3770,9 @@ public class IcebergScanPlanProviderTest {
         // s3.access-key-id absent -> red.
         Assertions.assertEquals("ep", token.get("s3.endpoint"));
         Assertions.assertEquals("ak", token.get("s3.access-key-id"));
+        Assertions.assertEquals("retained-test-secret", token.get("s3.secret-access-key"));
+        Assertions.assertEquals(token, IcebergScanPlanProvider.extractNativeVendedToken(table, true),
+                "Azure authentication-group replacement must not change the non-Azure per-key merge");
     }
 
     @Test

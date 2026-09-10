@@ -1950,7 +1950,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             StorageCredential azureCredential = null;
             for (StorageCredential storageCredential : ((SupportsStorageCredentials) fileIO).credentials()) {
                 if (validateAzureScopes && storageCredential.config().keySet().stream()
-                        .anyMatch(key -> key.startsWith("adls."))) {
+                        .anyMatch(key -> key.regionMatches(true, 0, "adls.", 0, 5))) {
                     // TODO: keep StorageCredential.prefix with its authentication group end-to-end.
                     // Until the SPI carries scoped groups, flattening distinct Azure scopes could choose the
                     // last token for an unrelated file. Identical repeated entries are not ambiguous.
@@ -1961,6 +1961,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                                 "Multiple scoped Azure storage credentials are not supported");
                     }
                     azureCredential = storageCredential;
+                    if (storageCredential.config().keySet().stream()
+                            .anyMatch(IcebergRestFileIOProperties::isAzureAuthenticationProperty)) {
+                        // FileIO may contain provider-generated DFS/Blob aliases with a normalized
+                        // expiry. Overlay the raw scoped identity as a group, not per key, so neither
+                        // those aliases nor an earlier credential generation survive into native binding.
+                        ioProps.keySet().removeIf(IcebergRestFileIOProperties::isAzureAuthenticationProperty);
+                    }
                 }
                 ioProps.putAll(storageCredential.config());
             }
