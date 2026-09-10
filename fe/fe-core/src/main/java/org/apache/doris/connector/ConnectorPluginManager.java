@@ -98,9 +98,22 @@ public class ConnectorPluginManager {
     //
     // Parent-first is a delegation ORDER, not an exclusive claim: ChildFirstClassLoader falls back
     // to the plugin's own jars for anything the parent lacks. So org.apache.hadoop.hbase.* (hudi)
-    // and org.apache.hadoop.hive.* still come from the plugin -- FE carries hive-exec:core, the
-    // plugins carry hive-metastore, and the class names do not intersect. Everything else the
-    // plugins bundle under this namespace does change provider: hadoop-common/auth/annotations/
+    // still comes from the plugin.
+    //
+    // org.apache.hadoop.hive.* reads like the same case and is the opposite one. For paimon, hive
+    // and iceberg the class names genuinely do not intersect -- FE carries hive-exec:core, they
+    // carry hive-metastore -- but that empty intersection is because they bundle no hive-exec class
+    // at all, so every org.apache.hadoop.hive.ql.* reference they make resolves to the FE's copy,
+    // here or on the fallback path. hudi does bundle one subset, hive-exec's ql/io/parquet/**
+    // unpacked into its own jar (see fe-connector-hudi/pom.xml), which this prefix shadows with
+    // the kernel's copy today; and that subset itself reaches a further 33 classes only the kernel
+    // has. Measured over the built plugin zips: paimon 15 such classes, hudi 46, hive and iceberg
+    // 3 each; the breakdown is on the hive-exec dependency in fe-core/pom.xml. fe/lib's
+    // hive-exec:core is therefore part of the plugin contract, not only of the CREATE FUNCTION
+    // one, and narrowing it to the UDF base classes needs those plugins made self-sufficient first.
+    //
+    // Everything else the plugins bundle under this namespace does change provider:
+    // hadoop-common/auth/annotations/
     // hdfs-client/aws, hadoop-shaded-guava and -protobuf, and the huaweicloud fs.obs.* classes
     // (paimon), which the FE kernel ships too. All of them are the same artifact at the same
     // version on both sides, and both versions are pinned in fe/pom.xml -- hadoop.version is
