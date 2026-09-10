@@ -24,6 +24,7 @@ import org.apache.doris.datasource.metacache.MetaCache;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
@@ -36,10 +37,72 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class ExternalCatalogDeadlockTest {
+
+    @Test
+    public void testCatalogEventUpdateShouldNotDeadlockWithSameKeyObjectLoad() throws Exception {
+        DeadlockCatalog catalog = new DeadlockCatalog();
+        assertEventUpdateDoesNotDeadlockWithSameKeyObjectLoad(
+                "catalog-event-cache", new DeadlockDatabase(catalog));
+    }
+
+    @Test
+    public void testTableEventUpdateShouldNotDeadlockWithSameKeyObjectLoad() throws Exception {
+        assertEventUpdateDoesNotDeadlockWithSameKeyObjectLoad(
+                "table-event-cache", Mockito.mock(ExternalTable.class));
+    }
+
+    private <T> void assertEventUpdateDoesNotDeadlockWithSameKeyObjectLoad(String cacheName, T eventObject)
+            throws Exception {
+        CountDownLatch loaderEntered = new CountDownLatch(1);
+        CountDownLatch allowLoaderToListNames = new CountDownLatch(1);
+        AtomicReference<MetaCache<T>> cacheReference = new AtomicReference<>();
+        AtomicReference<Throwable> backgroundFailure = new AtomicReference<>();
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        MetaCache<T> cache = new MetaCache<>(
+                cacheName,
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> Lists.newArrayList(Pair.of("remote-name", "local-name")),
+                key -> {
+                    loaderEntered.countDown();
+                    awaitLatch(allowLoaderToListNames);
+                    cacheReference.get().listNames();
+                    return Optional.empty();
+                },
+                (key, value, cause) -> { });
+        cacheReference.set(cache);
+
+        Thread queryThread = new Thread(
+                () -> runQuietly(backgroundFailure, () -> cache.getMetaObj("local-name", 1)),
+                cacheName + "-loader");
+        Thread eventThread = new Thread(
+                () -> runQuietly(backgroundFailure,
+                        () -> cache.updateCache("remote-name", "local-name", eventObject, 1)),
+                cacheName + "-event");
+        queryThread.setDaemon(true);
+        eventThread.setDaemon(true);
+
+        try {
+            queryThread.start();
+            Assertions.assertTrue(loaderEntered.await(5, TimeUnit.SECONDS));
+            eventThread.start();
+            Assertions.assertTrue(waitForBlocked(eventThread));
+            allowLoaderToListNames.countDown();
+            assertNoDeadlock(queryThread, eventThread, backgroundFailure);
+            Assertions.assertSame(eventObject, cache.tryGetMetaObj("local-name").orElse(null));
+        } finally {
+            allowLoaderToListNames.countDown();
+            refreshExecutor.shutdownNow();
+            Assertions.assertTrue(refreshExecutor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
 
     @Test
     public void testGsonPostProcessRestoresMetadataLoadEpoch() throws Exception {
@@ -96,6 +159,44 @@ public class ExternalCatalogDeadlockTest {
             assertNoDeadlock(queryThread, refreshThread, backgroundFailure);
         } finally {
             allowLoaderToTouchCatalog.countDown();
+            refreshExecutor.shutdownNow();
+            Assertions.assertTrue(refreshExecutor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testEventAdmissionRejectsDatabaseEvictedAfterLookup() throws Exception {
+        DeadlockCatalog catalog = new DeadlockCatalog();
+        DeadlockDatabase evictedDatabase = new DeadlockDatabase(catalog);
+        DeadlockDatabase replacementDatabase = new DeadlockDatabase(catalog);
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        MetaCache<ExternalDatabase<? extends ExternalTable>> cache = new MetaCache<>(
+                "database-cache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> Lists.newArrayList(),
+                key -> Optional.empty(),
+                (key, value, cause) -> { });
+        catalog.setMetaCache(cache);
+        cache.updateCache("deadlock-db", "deadlock-db", evictedDatabase, 3L);
+        ExternalDatabase<? extends ExternalTable> databaseFromEventLookup =
+                cache.tryGetMetaObj("deadlock-db").orElseThrow(AssertionError::new);
+        cache.invalidate("deadlock-db", 3L);
+        cache.updateCache("deadlock-db", "deadlock-db", replacementDatabase, 3L);
+        AtomicBoolean eventPublished = new AtomicBoolean();
+
+        try {
+            Assertions.assertFalse(catalog.executeIfDatabaseCurrent(
+                    databaseFromEventLookup, () -> {
+                        eventPublished.set(true);
+                        return true;
+                    }));
+            Assertions.assertFalse(eventPublished.get());
+            Assertions.assertSame(replacementDatabase,
+                    cache.tryGetMetaObj("deadlock-db").orElse(null));
+        } finally {
             refreshExecutor.shutdownNow();
             Assertions.assertTrue(refreshExecutor.awaitTermination(5, TimeUnit.SECONDS));
         }

@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -102,6 +103,108 @@ public class MetaCacheTest {
             Assert.assertEquals(2, loadCount.get());
         } finally {
             refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRefreshNamesDoesNotLoadAfterCallerIsInterrupted() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        AtomicInteger loadCount = new AtomicInteger();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicBoolean interruptPreserved = new AtomicBoolean();
+        MetaCache<String> cache = new MetaCache<>(
+                "databaseCache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> {
+                    loadCount.incrementAndGet();
+                    return Lists.newArrayList(Pair.of("remote", "local"));
+                },
+                key -> Optional.of(key),
+                (key, value, cause) -> { });
+
+        Thread caller = new Thread(() -> {
+            Thread.currentThread().interrupt();
+            try {
+                cache.refreshNames();
+                failure.set(new AssertionError("interrupted refresh unexpectedly loaded names"));
+            } catch (CompletionException e) {
+                if (!(e.getCause() instanceof InterruptedException)) {
+                    failure.set(e);
+                }
+                interruptPreserved.set(Thread.currentThread().isInterrupted());
+            }
+        }, "interrupted-names-refresh");
+
+        try {
+            caller.start();
+            caller.join(TimeUnit.SECONDS.toMillis(3));
+            Assert.assertFalse(caller.isAlive());
+            Assert.assertNull(failure.get());
+            Assert.assertTrue(interruptPreserved.get());
+            Assert.assertEquals(0, loadCount.get());
+        } finally {
+            refreshExecutor.shutdownNow();
+            Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testRetiredInterruptedRefreshDoesNotStartReplacementLoad() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch interruptLoad = new CountDownLatch(1);
+        AtomicInteger loadCount = new AtomicInteger();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicBoolean interruptPreserved = new AtomicBoolean();
+        MetaCache<String> cache = new MetaCache<>(
+                "databaseCache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> {
+                    int currentLoad = loadCount.incrementAndGet();
+                    if (currentLoad == 1) {
+                        loadStarted.countDown();
+                        Assert.assertTrue(interruptLoad.await(3, TimeUnit.SECONDS));
+                        throw new InterruptedException("cancelled obsolete connector load");
+                    }
+                    return Lists.newArrayList(Pair.of("remote-2", "local-2"));
+                },
+                key -> Optional.of(key),
+                (key, value, cause) -> { });
+
+        Thread caller = new Thread(() -> {
+            try {
+                cache.refreshNames();
+                failure.set(new AssertionError("interrupted refresh unexpectedly retried"));
+            } catch (CompletionException e) {
+                if (!(e.getCause() instanceof InterruptedException)) {
+                    failure.set(e);
+                }
+                interruptPreserved.set(Thread.currentThread().isInterrupted());
+            }
+        }, "retired-interrupted-names-refresh");
+
+        try {
+            caller.start();
+            Assert.assertTrue(loadStarted.await(3, TimeUnit.SECONDS));
+            cache.invalidateNames();
+            interruptLoad.countDown();
+            caller.join(TimeUnit.SECONDS.toMillis(3));
+            Assert.assertFalse(caller.isAlive());
+            Assert.assertNull(failure.get());
+            Assert.assertTrue(interruptPreserved.get());
+            Assert.assertEquals(1, loadCount.get());
+        } finally {
+            interruptLoad.countDown();
+            caller.interrupt();
+            caller.join(TimeUnit.SECONDS.toMillis(3));
+            refreshExecutor.shutdownNow();
+            Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
         }
     }
 
@@ -853,6 +956,103 @@ public class MetaCacheTest {
     }
 
     @Test
+    public void testRetiredNamesLoadErrorAlwaysPropagates() throws Exception {
+        CountDownLatch obsoleteLoadStarted = new CountDownLatch(1);
+        CountDownLatch failObsoleteLoad = new CountDownLatch(1);
+        AtomicInteger loadCount = new AtomicInteger();
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        MetaCache<String> cache = new MetaCache<>(
+                "databaseCache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> {
+                    if (loadCount.incrementAndGet() == 1) {
+                        obsoleteLoadStarted.countDown();
+                        Assert.assertTrue(failObsoleteLoad.await(3, TimeUnit.SECONDS));
+                        throw new AssertionError("obsolete load error");
+                    }
+                    return Lists.newArrayList(Pair.of("remote-2", "local-2"));
+                },
+                key -> Optional.of(key),
+                (key, value, cause) -> { });
+
+        try {
+            Future<List<String>> obsoleteOwner = caller.submit(cache::listNames);
+            Assert.assertTrue(obsoleteLoadStarted.await(3, TimeUnit.SECONDS));
+            cache.invalidateNames();
+            Assert.assertEquals(Lists.newArrayList("local-2"), cache.listNames());
+            failObsoleteLoad.countDown();
+            assertLoadError(obsoleteOwner);
+            Assert.assertEquals(2, loadCount.get());
+        } finally {
+            failObsoleteLoad.countDown();
+            caller.shutdownNow();
+            refreshExecutor.shutdownNow();
+            Assert.assertTrue(caller.awaitTermination(3, TimeUnit.SECONDS));
+            Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testInvalidateUsesObjectCacheMutationLock() throws Exception {
+        CountDownLatch updateEntered = new CountDownLatch(1);
+        CountDownLatch releaseUpdate = new CountDownLatch(1);
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService callers = Executors.newFixedThreadPool(2);
+        AtomicReference<Thread> invalidationThread = new AtomicReference<>();
+        MetaCache<String> cache = new MetaCache<>(
+                "databaseCache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> Lists.newArrayList(),
+                ignored -> { },
+                (remoteName, localName) -> { },
+                ignored -> { },
+                key -> Optional.of(key),
+                (key, value, cause) -> { },
+                () -> 0L,
+                epoch -> {
+                    updateEntered.countDown();
+                    try {
+                        Assert.assertTrue(releaseUpdate.await(3, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new CompletionException(e);
+                    }
+                    return true;
+                });
+
+        try {
+            Future<Boolean> update = callers.submit(
+                    () -> cache.updateCache("remote-1", "local-1", "meta-1", 1, 0L));
+            Assert.assertTrue(updateEntered.await(3, TimeUnit.SECONDS));
+            Future<?> invalidation = callers.submit(() -> {
+                invalidationThread.set(Thread.currentThread());
+                cache.invalidate("local-1", 1);
+            });
+            waitForBlocked(invalidationThread);
+            Assert.assertFalse(invalidation.isDone());
+            releaseUpdate.countDown();
+            Assert.assertTrue(update.get(3, TimeUnit.SECONDS));
+            invalidation.get(3, TimeUnit.SECONDS);
+            Assert.assertFalse(cache.listNames().contains("local-1"));
+            Assert.assertFalse(cache.tryGetMetaObj("local-1").isPresent());
+            Assert.assertFalse(cache.getMetaObjById(1).isPresent());
+        } finally {
+            releaseUpdate.countDown();
+            callers.shutdownNow();
+            refreshExecutor.shutdownNow();
+            Assert.assertTrue(callers.awaitTermination(3, TimeUnit.SECONDS));
+            Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     public void testUpdateCacheRejectsEventPausedAcrossReset() throws Exception {
         AtomicLong lifecycleEpoch = new AtomicLong();
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
@@ -907,6 +1107,18 @@ public class MetaCacheTest {
             Thread.sleep(10);
         }
         Assert.fail("Thread did not start waiting");
+    }
+
+    private void waitForBlocked(AtomicReference<Thread> threadReference) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        while (System.nanoTime() < deadline) {
+            Thread thread = threadReference.get();
+            if (thread != null && thread.getState() == Thread.State.BLOCKED) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        Assert.fail("Thread did not become blocked");
     }
 
     private void assertLoadError(Future<List<String>> future) throws Exception {

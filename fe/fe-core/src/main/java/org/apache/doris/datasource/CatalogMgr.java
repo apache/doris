@@ -823,8 +823,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
-        long metadataLoadEpoch = ((HMSExternalDatabase) db).acquireTableMetadataLoadEpoch();
-
         long tblId;
         tblId = Util.genIdByName(catalogName, dbName, tableName);
         // -1L means it will be dropped later, ignore
@@ -832,16 +830,21 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        db.writeLock();
-        try {
-            HMSExternalTable namedTable = ((HMSExternalDatabase) db)
-                    .buildTableForInit(tableName, tableName, tblId, hmsCatalog, (HMSExternalDatabase) db, false);
-            namedTable.setUpdateTime(updateTime);
-            if (!((HMSExternalDatabase) db).registerTableFromEvent(namedTable, metadataLoadEpoch)) {
-                throw new DdlException("External table metadata changed while processing create event");
+        HMSExternalDatabase hmsDatabase = (HMSExternalDatabase) db;
+        boolean registered = hmsCatalog.executeIfDatabaseCurrent(hmsDatabase, () -> {
+            long metadataLoadEpoch = hmsDatabase.acquireTableMetadataLoadEpoch();
+            hmsDatabase.writeLock();
+            try {
+                HMSExternalTable namedTable = hmsDatabase
+                        .buildTableForInit(tableName, tableName, tblId, hmsCatalog, hmsDatabase, false);
+                namedTable.setUpdateTime(updateTime);
+                return hmsDatabase.registerTableFromEvent(namedTable, metadataLoadEpoch);
+            } finally {
+                hmsDatabase.writeUnlock();
             }
-        } finally {
-            db.writeUnlock();
+        });
+        if (!registered) {
+            throw new DdlException("External table metadata changed while processing create event");
         }
     }
 
