@@ -174,6 +174,23 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testMalformedNameMappingFallsBackToCurrentSchemaNames() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "name", Types.StringType.get()));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(Collections.singletonMap(
+                TableProperties.DEFAULT_NAME_MAPPING, "{not valid json"));
+        Mockito.when(table.schema()).thenReturn(schema);
+
+        Optional<Map<Integer, List<String>>> mapping = IcebergUtils.getNameMapping(table);
+        Assert.assertTrue(mapping.isPresent());
+        Map<Integer, List<String>> fallback = mapping.get();
+        Assert.assertEquals(Collections.singletonList("id"), fallback.get(1));
+        Assert.assertEquals(Collections.singletonList("name"), fallback.get(2));
+    }
+
+    @Test
     public void testGetFileFormatUsesPropertiesWithoutPlanningDataFiles() {
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.properties()).thenReturn(Collections.emptyMap());
