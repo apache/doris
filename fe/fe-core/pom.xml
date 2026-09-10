@@ -709,7 +709,10 @@ under the License.
             <groupId>com.google.flatbuffers</groupId>
             <artifactId>flatbuffers-java</artifactId>
         </dependency>
-        <!-- Runtime-only: the FE half of the Hive-UDF-compat shipping contract, and the mirror of
+        <!-- Runtime-only, and load-bearing for two unrelated reasons. Both have to hold before
+             this jar can be narrowed or dropped.
+
+             (1) The FE half of the Hive-UDF-compat shipping contract, and the mirror of
              be-java-extensions/java-udf, which bundles the same base classes so BE can execute such
              UDFs. CreateFunctionCommand validates a user JAVA_UDF jar by loading its symbol class in
              a throwaway URLClassLoader parented to the FE app classloader; deriving a class resolves
@@ -719,7 +722,25 @@ under the License.
              This is a UDF-engine dependency, not a catalog one. It is declared here because it was
              previously satisfied only by accident, as a passenger inside the hive-catalog-shade
              uber-jar; no compile-time reference reveals it, so removing that jar compiled green and
-             broke CREATE FUNCTION for every hive-derived UDF at runtime. -->
+             broke CREATE FUNCTION for every hive-derived UDF at runtime.
+
+             (2) It is also the only provider of org.apache.hadoop.hive.ql.* for four connector
+             plugins. Not one of them bundles a single hive-exec class, so every such reference they
+             carry resolves to this jar through their classloader - parent-first today via
+             ConnectorPluginManager.CONNECTOR_PARENT_FIRST_PREFIXES, plain child-first fallback if
+             that prefix ever goes away, since dropping it changes the delegation order but not the
+             reachability. Measured over the built plugin zips (referenced minus self-carried, cut
+             against this artifact's class list): paimon 15 - paimon-hive's PaimonStorageHandler
+             implements ql.metadata.HiveStorageHandler, HiveCatalog.createView calls
+             ql.metadata.Table.getEmptyTable, HiveUtils uses ql.io.sarg.ConvertAstToSearchArg; hudi
+             32 - hudi-hadoop-mr's HoodieParquetInputFormatBase EXTENDS
+             ql.io.parquet.MapredParquetInputFormat, plus HoodieCombineHiveInputFormat and the ORC
+             branch of HoodieInputFormatUtils, which MORIncrementalRelation imports; hive and
+             iceberg 3 each - the bundled Aliyun DLF metastore client calls
+             ql.session.SessionState.get(). Swapping this for the 10-class
+             be-java-extensions/hive-udf-shade compiles green and breaks those paths at runtime, the
+             same shape of failure as the hive-catalog-shade removal in (1). Making the plugins
+             self-sufficient is the prerequisite for shrinking this, not a follow-up to it. -->
         <dependency>
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-exec</artifactId>

@@ -98,9 +98,20 @@ public class ConnectorPluginManager {
     //
     // Parent-first is a delegation ORDER, not an exclusive claim: ChildFirstClassLoader falls back
     // to the plugin's own jars for anything the parent lacks. So org.apache.hadoop.hbase.* (hudi)
-    // and org.apache.hadoop.hive.* still come from the plugin -- FE carries hive-exec:core, the
-    // plugins carry hive-metastore, and the class names do not intersect. Everything else the
-    // plugins bundle under this namespace does change provider: hadoop-common/auth/annotations/
+    // still comes from the plugin.
+    //
+    // org.apache.hadoop.hive.* reads like the same case and is the opposite one. The class names
+    // genuinely do not intersect -- FE carries hive-exec:core, the plugins carry hive-metastore --
+    // but that empty intersection is because NO plugin bundles a single hive-exec class, so every
+    // org.apache.hadoop.hive.ql.* reference a plugin makes resolves to the FE's copy, here or on
+    // the fallback path. Measured over the built plugin zips: paimon 15 such classes, hudi 32,
+    // hive and iceberg 3 each; the breakdown is on the hive-exec dependency in fe-core/pom.xml.
+    // fe/lib's hive-exec:core is therefore part of the plugin contract, not only of the CREATE
+    // FUNCTION one, and narrowing it to the UDF base classes needs those plugins made
+    // self-sufficient first.
+    //
+    // Everything else the plugins bundle under this namespace does change provider:
+    // hadoop-common/auth/annotations/
     // hdfs-client/aws, hadoop-shaded-guava and -protobuf, and the huaweicloud fs.obs.* classes
     // (paimon), which the FE kernel ships too. All of them are the same artifact at the same
     // version on both sides, and both versions are pinned in fe/pom.xml -- hadoop.version is
