@@ -76,6 +76,8 @@ protected:
         tablet()->update_max_version_schema(next);
     }
 
+    // Keep the ordered row-identity and complete-value oracle together despite GTest branches.
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     void check_values(const std::vector<RowsetSharedPtr>& rowsets,
                       const std::map<int, std::string>& expected) {
         const auto read_schema = tablet_schema();
@@ -86,11 +88,13 @@ protected:
         auto reopened = reload_rowsets(rowsets);
         ASSERT_TRUE(reopened.has_value()) << reopened.error();
         IndexReadOptions read_options;
+        read_options.use_variant_v2 = true;
         read_options.collect_variant_values = true;
         auto result = read_rowsets(reopened.value(), read_options);
         ASSERT_TRUE(result.has_value()) << result.error();
         ASSERT_EQ(result->rows_read, expected.size());
         ASSERT_TRUE(result->variant_values_by_uid.contains(2));
+        ASSERT_TRUE(result->variant_v2_output_uids.contains(2));
         const auto& values = result->variant_values_by_uid.at(2);
         ASSERT_EQ(values.size(), expected.size());
         std::set<int> seen;
@@ -168,6 +172,7 @@ protected:
         const int cid = column_id_by_path("v." + path);
         ASSERT_GE(cid, 0);
         IndexReadOptions options;
+        options.use_variant_v2 = true;
         options.need_ordered_result = true;
         options.return_columns = {0, static_cast<uint32_t>(cid)};
         options.collect_variant_values = true;
@@ -185,6 +190,7 @@ protected:
                   canonical_variant_values(expected));
         if (predicate.has_value()) {
             ASSERT_TRUE(result->variant_values_by_uid.contains(2));
+            ASSERT_TRUE(result->variant_v2_output_uids.contains(2));
             const auto& roots = result->variant_values_by_uid.at(2);
             ASSERT_EQ(roots.size(), 1);
             ASSERT_TRUE(roots.front().has_value());
@@ -198,6 +204,8 @@ protected:
 
     // Expected counts come from the original JSON, independently of the storage statistics.
     // Rows have monotonically increasing primary keys; segment order partitions this map.
+    // Keep each segment's physical counts and independent JSON oracle in one comparison.
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     void check_stats(const RowsetSharedPtr& rowset, const std::map<int, std::string>& expected,
                      int count, bool fresh_write) {
         EXPECT_EQ(rowset->tablet_schema()->column_by_uid(2).variant_max_subcolumns_count(), count);
@@ -235,14 +243,20 @@ protected:
                 }
             }
             for (const auto& [path, size] : materialized) {
-                // Compaction may retain an output-schema column that is all NULL in this segment.
+                // Legacy compaction can keep disjoint rows of one path in both locations.
                 const auto it = reference.find(path);
-                EXPECT_EQ(size, it == reference.end() ? 0 : it->second) << path;
-                EXPECT_FALSE(sparse.contains(path)) << "path in both physical locations=" << path;
+                const auto expected_size = it == reference.end() ? 0 : it->second;
+                EXPECT_LE(size, expected_size) << path;
+                if (fresh_write) {
+                    EXPECT_EQ(size, expected_size) << path;
+                    EXPECT_FALSE(sparse.contains(path)) << path;
+                }
             }
             for (const auto& [path, size] : sparse) {
                 ASSERT_TRUE(reference.contains(path)) << "unexpected sparse path=" << path;
-                EXPECT_EQ(size, reference.at(path)) << path;
+                EXPECT_EQ(size + (materialized.contains(path) ? materialized.at(path) : 0),
+                          reference.at(path))
+                        << path;
             }
             if (count > 0) {
                 EXPECT_LE(materialized.size(), count);
@@ -258,10 +272,12 @@ protected:
             }
             if (stats_limit() == 64) {
                 auto combined = materialized;
-                combined.insert(sparse.begin(), sparse.end());
+                for (const auto& [path, size] : sparse) {
+                    combined[path] += size;
+                }
                 std::erase_if(combined, [](const auto& entry) { return entry.second == 0; });
                 EXPECT_EQ(combined, reference);
-                if (count == 0) {
+                if (count == 0 && fresh_write) {
                     EXPECT_TRUE(sparse.empty());
                 }
             }
@@ -310,6 +326,7 @@ protected:
             if (!old_only || step == 0) {
                 for (int batch = 0, batches = 2 + random() % 3; batch < batches; ++batch) {
                     IndexRowsetSpec spec;
+                    spec.use_variant_v2 = true;
                     spec.version = version++;
                     spec.max_rows_per_segment = 3;
                     std::vector<std::string> rows;
@@ -414,6 +431,7 @@ TEST_P(VariantDynamicSubcolumnsCountTest, ExactFreshWriteLayoutAndStatistics) {
         SCOPED_TRACE(testing::Message() << "count=" << count << " stats=" << stats_limit());
         set_count(options, count);
         IndexRowsetSpec spec;
+        spec.use_variant_v2 = true;
         spec.version = version++;
         const std::vector<std::string> rows = {
                 R"({"row":0,"z":1,"m":2,"a":3})", R"({"row":1,"z":1,"m":2,"a":3})",
@@ -493,6 +511,7 @@ TEST_P(VariantDynamicSubcolumnsCountTest, SparseOnlyOldPathSurvivesUnlimitedComp
     options.variant_columns = {variant};
     ASSERT_TRUE(create_tablet(options).ok());
     IndexRowsetSpec old_spec;
+    old_spec.use_variant_v2 = true;
     old_spec.version = 0;
     old_spec.batches.push_back(IndexBatch::single_variant({R"({"row":0,"lost":"old"})"}, 0));
     auto old_rowset = write_rowset(old_spec);
@@ -503,6 +522,7 @@ TEST_P(VariantDynamicSubcolumnsCountTest, SparseOnlyOldPathSurvivesUnlimitedComp
     EXPECT_FALSE(has_variant_layout(old_probe.value(), 2, "lost"));
     set_count(options, 0);
     IndexRowsetSpec new_spec;
+    new_spec.use_variant_v2 = true;
     new_spec.version = 1;
     new_spec.batches.push_back(IndexBatch::single_variant({R"({"row":1,"fresh":7})"}, 1));
     auto new_rowset = write_rowset(new_spec);
@@ -544,6 +564,7 @@ TEST_P(VariantDynamicSubcolumnsCountTest, OrderedCompactionPreservesOldLayoutAft
     std::map<int, std::string> expected;
     for (int version = 0; version < 2; ++version) {
         IndexRowsetSpec spec;
+        spec.use_variant_v2 = true;
         spec.version = version;
         std::vector<std::string> rows;
         for (int row = 0; row < 5; ++row) {
@@ -635,6 +656,7 @@ TEST_P(VariantDynamicSubcolumnsCountTest, MixedPathTypesAndProjectedReads) {
         // Each type originates in its own segment and alternates physical/sparse storage.
         set_count(options, row % 2 == 0 ? 1 : 0);
         IndexRowsetSpec spec;
+        spec.use_variant_v2 = true;
         spec.version = row;
         spec.batches.push_back(IndexBatch::single_variant({rows[row]}, row));
         auto written = write_rowset(spec);

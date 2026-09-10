@@ -21,6 +21,7 @@
 
 #include "core/data_type/data_type_number.h"
 #include "cpp/sync_point.h"
+#include "exec/common/variant_util.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/variant/index_storage_variant_test_base.h"
@@ -287,6 +288,33 @@ TEST_F(IndexStorageVariantCompactionReadTest, VariantDocModeWritesDocValueColumn
     EXPECT_EQ(compacted_read->rows_read, 4);
 }
 
+TEST_F(IndexStorageVariantCompactionReadTest, CompletePathStatisticsStillRejectLostValues) {
+    IndexTabletOptions options;
+    options.tablet_id = 119912;
+    VariantColumnSpec variant;
+    variant.max_subcolumns_count = 0;
+    variant.max_sparse_column_statistics_size = 64;
+    options.variant_columns = {variant};
+    ASSERT_TRUE(create_tablet(options).ok());
+    IndexRowsetSpec input;
+    input.use_variant_v2 = true;
+    input.version = 0;
+    input.batches.push_back(
+            IndexBatch::single_variant({R"({"a":1})", R"({"a":2})", R"({"a":3})"}, 0));
+    auto original = write_rowset(input);
+    ASSERT_TRUE(original.has_value()) << original.error();
+    IndexRowsetSpec output;
+    output.use_variant_v2 = true;
+    output.version = 1;
+    output.batches.push_back(IndexBatch::single_variant({R"({"a":1})", R"({"a":2})", R"({})"}, 0));
+    auto missing = write_rowset(output);
+    ASSERT_TRUE(missing.has_value()) << missing.error();
+    auto status = variant_util::VariantCompactionUtil::check_path_stats({original.value()},
+                                                                        missing.value(), tablet());
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Path stats not match"), std::string::npos) << status;
+}
+
 TEST_F(IndexStorageVariantCompactionReadTest, CompactionPreservesInputVariantProperties) {
     VariantColumnSpec variant;
     variant.unique_id = 2;
@@ -305,6 +333,7 @@ TEST_F(IndexStorageVariantCompactionReadTest, CompactionPreservesInputVariantPro
     std::vector<RowsetSharedPtr> inputs;
     for (int version = 0; version < 2; ++version) {
         IndexRowsetSpec rowset;
+        rowset.use_variant_v2 = true;
         rowset.version = version;
         rowset.batches.push_back(
                 IndexBatch::single_variant({R"({"old": 7, "new": "001", "hot": 1})"}, version));
@@ -329,6 +358,7 @@ TEST_F(IndexStorageVariantCompactionReadTest, CompactionPreservesInputVariantPro
     EXPECT_EQ(compacted.value()->tablet_schema()->schema_version(),
               inputs.front()->tablet_schema()->schema_version());
     IndexReadOptions read_options;
+    read_options.use_variant_v2 = true;
     read_options.collect_variant_values = true;
     auto result = read_rowsets({compacted.value()}, read_options);
     ASSERT_TRUE(result.has_value()) << result.error();
@@ -352,6 +382,7 @@ TEST_F(IndexStorageVariantCompactionReadTest,
     std::vector<RowsetSharedPtr> inputs;
     for (int version = 0; version < 2; ++version) {
         IndexRowsetSpec rowset;
+        rowset.use_variant_v2 = true;
         rowset.version = version;
         rowset.batches.push_back(IndexBatch::single_variant({R"({"a":1,"b":2,"c":3})"}, version));
         auto written = write_rowset(rowset);
@@ -378,6 +409,7 @@ TEST_F(IndexStorageVariantCompactionReadTest,
         // The changed policy is outside the inputs; the old layout remains readable.
         EXPECT_EQ(materialized_paths, 1);
         IndexReadOptions read_options;
+        read_options.use_variant_v2 = true;
         read_options.collect_variant_values = true;
         auto read = read_rowsets({compacted.value()}, read_options);
         ASSERT_TRUE(read.has_value()) << read.error();
@@ -410,6 +442,7 @@ void IndexStorageVariantCompactionReadTest::run_numeric_index_compaction(bool ad
     std::vector<RowsetSharedPtr> inputs;
     for (int version = 0; version < 2; ++version) {
         IndexRowsetSpec rowset;
+        rowset.use_variant_v2 = true;
         rowset.version = version;
         rowset.batches.push_back(IndexBatch::single_variant(
                 {R"({"a":"001","keep":"yes"})", R"({"a":"002","keep":"no"})"}, version * 2));
@@ -430,6 +463,7 @@ void IndexStorageVariantCompactionReadTest::run_numeric_index_compaction(bool ad
     _tablet->update_max_version_schema(target);
     _tablet_schema = target;
     IndexRowsetSpec new_rowset;
+    new_rowset.use_variant_v2 = true;
     new_rowset.version = 2;
     new_rowset.batches.push_back(IndexBatch::single_variant(
             {R"({"a":"001","keep":"yes"})", R"({"a":"002","keep":"no"})"}, 4));
@@ -445,6 +479,7 @@ void IndexStorageVariantCompactionReadTest::run_numeric_index_compaction(bool ad
     ASSERT_GE(path_id, 0);
     const auto path_name = tablet_schema()->column(path_id).name();
     IndexReadOptions read_options;
+    read_options.use_variant_v2 = true;
     read_options.return_columns = {0, 1, static_cast<uint32_t>(path_id)};
     read_options.collect_variant_values = true;
     read_options.need_ordered_result = true;
@@ -494,6 +529,7 @@ TEST_P(VariantPolicySnapshotTest, InputSchemaWithInterleavedWritePreservesComple
     std::vector<RowsetSharedPtr> inputs;
     for (int version = 0; version < 2; ++version) {
         IndexRowsetSpec rowset;
+        rowset.use_variant_v2 = true;
         rowset.version = version;
         rowset.batches.push_back(IndexBatch::single_variant({original}, version));
         auto written = write_rowset(rowset);
@@ -530,6 +566,7 @@ TEST_P(VariantPolicySnapshotTest, InputSchemaWithInterleavedWritePreservesComple
                 // Advancing the tablet schema must not reinterpret the selected old inputs.
                 _tablet->update_max_version_schema(second);
                 IndexRowsetSpec rowset;
+                rowset.use_variant_v2 = true;
                 rowset.version = 2;
                 rowset.batches.push_back(IndexBatch::single_variant({original}, 2));
                 auto written = write_rowset(rowset);
@@ -540,6 +577,7 @@ TEST_P(VariantPolicySnapshotTest, InputSchemaWithInterleavedWritePreservesComple
                 EXPECT_EQ(_tablet->tablet_schema()->schema_version(), second->schema_version());
             });
     IndexReadOptions read_options;
+    read_options.use_variant_v2 = true;
     read_options.return_columns = {0, 1};
     read_options.collect_variant_values = true;
     read_options.need_ordered_result = true;
@@ -584,6 +622,7 @@ TEST_P(VariantPolicySnapshotTest, InputSchemaWithInterleavedWritePreservesComple
         const auto path_id = column_id_by_path("v.a");
         ASSERT_GE(path_id, 0);
         IndexReadOptions path_options;
+        path_options.use_variant_v2 = true;
         path_options.return_columns = {static_cast<uint32_t>(path_id)};
         path_options.collect_variant_values = true;
         auto path_read = read_rowsets(readable.value(), path_options);

@@ -689,6 +689,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 "VARIANT<PROPERTIES('variant_max_subcolumns_count'='0')>");
         for (int i = 0; i < definitions.size(); ++i) {
             alterTable("ALTER TABLE test.sc_variant_properties MODIFY COLUMN v " + definitions.get(i), connectContext);
+            jobSize++;
             Assertions.assertEquals(uniqueId, table.getColumn("v").getUniqueId());
             Assertions.assertEquals(++schemaVersion,
                     table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
@@ -705,6 +706,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             TableAddOrDropColumnsInfo restored = TableAddOrDropColumnsInfo.read(
                     new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
             Env.getCurrentEnv().getSchemaChangeHandler().replayModifyTableLightSchemaChange(restored);
+            jobSize++;
             Assertions.assertEquals(table.getColumn("v"), replayTable.getColumn("v"));
             Assertions.assertEquals(schemaVersion,
                     replayTable.getIndexMetaByIndexId(replayTable.getBaseIndexId()).getSchemaVersion());
@@ -720,6 +722,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "PROPERTIES ('replication_num'='1', 'store_row_column'='true')");
         alterTable("ALTER TABLE test.sc_variant_row_store MODIFY COLUMN v "
                 + "VARIANT<PROPERTIES('variant_max_subcolumns_count'='0')>", connectContext);
+        jobSize++;
         DdlException exception = Assertions.assertThrows(DdlException.class, () ->
                 alterTable("ALTER TABLE test.sc_variant_row_store MODIFY COLUMN v VARIANT<'a': INT>",
                         connectContext));
@@ -741,6 +744,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 "parser");
         alterTable("ALTER TABLE test.sc_variant_indexed MODIFY COLUMN v "
                 + "VARIANT<'a': STRING, PROPERTIES('variant_max_subcolumns_count'='0')>", connectContext);
+        jobSize++;
         OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
                 .getTableOrMetaException("sc_variant_indexed", Table.TableType.OLAP);
         Assertions.assertEquals(0, table.getColumn("v").getVariantMaxSubcolumnsCount());

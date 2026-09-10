@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_variant_light_properties_boundaries", "p0") {
+suite("test_variant_light_properties_boundaries", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET default_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS test_variant_policy_boundaries"
     sql """CREATE TABLE test_variant_policy_boundaries (id INT, v VARIANT,
@@ -40,7 +41,7 @@ suite("test_variant_light_properties_boundaries", "p0") {
     sql "SET enable_inverted_index_query = false"
     order_qt_mixed_scan "SELECT id FROM test_variant_policy_boundaries WHERE CAST(v['num_b'] AS INT) = 5"
     sql "SET enable_inverted_index_query = true"
-    trigger_and_wait_compaction("test_variant_policy_boundaries", "full")
+    trigger_and_wait_compaction("test_variant_policy_boundaries", "full", 300, [] as String[], true)
     order_qt_compacted "SELECT id, v, untouched FROM test_variant_policy_boundaries"
     order_qt_paths """SELECT id, v['num_a'], v['num_b'], v['arr'], v['nested'], v['keep']
         FROM test_variant_policy_boundaries"""
@@ -55,7 +56,7 @@ suite("test_variant_light_properties_boundaries", "p0") {
         VARIANT<MATCH_NAME 'num_*': INT, PROPERTIES("variant_max_subcolumns_count"="0")>"""
     sql """INSERT INTO test_variant_policy_boundaries VALUES
         (8, parse_to_variant('{"num_a":"008","num_b":"009"}'), parse_to_variant('{"s":"008"}'))"""
-    trigger_and_wait_compaction("test_variant_policy_boundaries", "full")
+    trigger_and_wait_compaction("test_variant_policy_boundaries", "full", 300, [] as String[], true)
     order_qt_exact "SELECT id, v, untouched FROM test_variant_policy_boundaries"
 
     sql "DROP TABLE IF EXISTS test_variant_policy_delete"
@@ -68,10 +69,10 @@ suite("test_variant_light_properties_boundaries", "p0") {
     sql "DELETE FROM test_variant_policy_delete WHERE id = 1"
     sql "ALTER TABLE test_variant_policy_delete MODIFY COLUMN v VARIANT<'a': INT>"
     sql """INSERT INTO test_variant_policy_delete VALUES (3, parse_to_variant('{"a":"004"}'))"""
-    trigger_and_wait_compaction("test_variant_policy_delete", "full")
+    trigger_and_wait_compaction("test_variant_policy_delete", "full", 300, [] as String[], true)
     order_qt_deleted "SELECT id, v FROM test_variant_policy_delete"
     sql """INSERT INTO test_variant_policy_delete VALUES (1, parse_to_variant('{"a":"003"}'))"""
-    trigger_and_wait_compaction("test_variant_policy_delete", "full")
+    trigger_and_wait_compaction("test_variant_policy_delete", "full", 300, [] as String[], true)
     order_qt_reinserted "SELECT id, v FROM test_variant_policy_delete"
     sql "SET default_variant_enable_doc_mode = true"
     sql "DROP TABLE IF EXISTS test_variant_policy_doc"
@@ -84,7 +85,7 @@ suite("test_variant_light_properties_boundaries", "p0") {
         (2, parse_to_variant('{"a":"bad","keep":{"x":1}}'))"""
     sql "ALTER TABLE test_variant_policy_doc MODIFY COLUMN v VARIANT<'a': INT>"
     sql """INSERT INTO test_variant_policy_doc VALUES (4, parse_to_variant('{"a":"004"}'))"""
-    trigger_and_wait_compaction("test_variant_policy_doc", "full")
+    trigger_and_wait_compaction("test_variant_policy_doc", "full", 300, [] as String[], true)
     // Doc mode preserves source JSON and applies templates to the materialized copy.
     order_qt_doc_root "SELECT id, v FROM test_variant_policy_doc"
     order_qt_doc_paths "SELECT id, v['a'], v['keep'] FROM test_variant_policy_doc"
@@ -93,8 +94,9 @@ suite("test_variant_light_properties_boundaries", "p0") {
     order_qt_doc_new_write "SELECT id, v['a'], v['keep'] FROM test_variant_policy_doc"
     sql "ALTER TABLE test_variant_policy_doc MODIFY COLUMN v VARIANT<'a': STRING>"
     sql """INSERT INTO test_variant_policy_doc VALUES (5, parse_to_variant('{"a":"005"}'))"""
-    trigger_and_wait_compaction("test_variant_policy_doc", "full")
+    trigger_and_wait_compaction("test_variant_policy_doc", "full", 300, [] as String[], true)
     order_qt_doc_changed_root "SELECT id, v FROM test_variant_policy_doc"
     order_qt_doc_changed_paths "SELECT id, v['a'], v['keep'] FROM test_variant_policy_doc"
 
+    }
 }

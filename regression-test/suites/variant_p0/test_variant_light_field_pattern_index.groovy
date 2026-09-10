@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_variant_light_field_pattern_index", "p0") {
+suite("test_variant_light_field_pattern_index", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET default_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS test_variant_light_field_pattern"
     sql """CREATE TABLE test_variant_light_field_pattern (
@@ -37,7 +38,8 @@ suite("test_variant_light_field_pattern_index", "p0") {
     }
     test {
         sql "BUILD INDEX idx_a ON test_variant_light_field_pattern"
-        exception "because it is a variant type column"
+        exception(isCloudMode() ? "Not support specify index name in cloud mode"
+                : "because it is a variant type column")
     }
     sql "DROP TABLE IF EXISTS test_variant_light_field_pattern_empty"
     sql """CREATE TABLE test_variant_light_field_pattern_empty (id INT, v VARIANT<'num_b': INT>)
@@ -67,10 +69,11 @@ suite("test_variant_light_field_pattern_index", "p0") {
         (3, parse_to_variant('{"num_a":"001","num_b":"004"}')),
         (4, parse_to_variant('{"num_a":"006","num_b":"007"}'))"""
     order_qt_mixed "SELECT id, v FROM test_variant_light_field_pattern"
-    trigger_and_wait_compaction("test_variant_light_field_pattern", "full")
+    trigger_and_wait_compaction("test_variant_light_field_pattern", "full", 300, [] as String[], true)
     order_qt_compacted "SELECT id, v FROM test_variant_light_field_pattern"
     order_qt_index "SELECT id FROM test_variant_light_field_pattern WHERE CAST(v['num_a'] AS INT)=1"
     sql "SET enable_inverted_index_query = false"
     order_qt_scan "SELECT id FROM test_variant_light_field_pattern WHERE CAST(v['num_a'] AS INT)=1"
     sql "SET enable_inverted_index_query = true"
+    }
 }

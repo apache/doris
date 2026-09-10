@@ -150,6 +150,7 @@ struct IndexRowsetSpec {
     int64_t max_rows_per_segment = 200;
     DataWriteType write_type = DataWriteType::TYPE_DIRECT;
     bool add_to_tablet = true;
+    bool use_variant_v2 = false;
     std::vector<IndexDataSourceSpec> data_sources;
     std::vector<IndexBatch> batches;
 };

@@ -297,6 +297,45 @@ TEST_F(ColumnVariantTest, test_pop_back_multiple_types) {
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nothing");
 }
 
+TEST(ColumnVariantInsertRangeTest, PreserveSparseValuesForExistingMaterializedPath) {
+    auto src = ColumnVariant::create(0, false);
+    auto dense = ColumnInt32::create();
+    dense->insert_value(5);
+    dense->insert_value(6);
+    ASSERT_TRUE(src->add_sub_column(
+            PathInData("a"), ColumnNullable::create(std::move(dense), ColumnUInt8::create(2, 0)),
+            make_nullable(std::make_shared<DataTypeInt32>())));
+    src->get_subcolumn({})->insert_many_defaults(2);
+    src->set_num_rows(2);
+    src->serialized_sparse_column->resize(2);
+    src->serialized_doc_value_column->resize(2);
+    auto original = ColumnVariant::Subcolumn(0, true);
+    original.insert(Field::create_field<TYPE_STRING>("005"));
+    original.finalize();
+    auto [keys, values] = src->get_sparse_data_paths_and_values();
+    original.serialize_to_binary_column(keys, "a", values, 0);
+    src->serialized_sparse_column_offsets()[0] = 1;
+    src->serialized_sparse_column_offsets()[1] = 1;
+    src->finalize();
+    auto dst = ColumnVariant::create(0, false);
+    dst->insert_range_from(*src, 0, 2);
+    EXPECT_EQ(dst->size(), 2);
+    ASSERT_NE(dst->get_subcolumn(PathInData("a")), nullptr);
+    EXPECT_EQ(dst->get_subcolumn(PathInData("a"))->size(), 2);
+    EXPECT_EQ(dst->serialized_sparse_column_offsets()[1], 1);
+    EXPECT_EQ(dst->get_sparse_data_paths_and_values().second->get_data_at(0),
+              values->get_data_at(0));
+
+    // Lowering the limit can send the materialized path into the sparse stream too.
+    auto limited = ColumnVariant::create(1, false);
+    ASSERT_TRUE(limited->add_sub_column(PathInData("kept"), 0));
+    limited->insert_range_from(*src, 0, 2);
+    EXPECT_EQ(limited->serialized_sparse_column_offsets()[0], 1);
+    EXPECT_EQ(limited->serialized_sparse_column_offsets()[1], 2);
+    EXPECT_EQ(limited->get_sparse_data_paths_and_values().second->get_data_at(0),
+              values->get_data_at(0));
+}
+
 TEST_F(ColumnVariantTest, basic_inset_range_from) {
     auto src = VariantUtil::construct_basic_varint_column();
     src->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);

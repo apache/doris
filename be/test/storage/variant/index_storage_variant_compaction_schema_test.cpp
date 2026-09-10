@@ -48,6 +48,19 @@ TEST(IndexStorageVariantCompactionUtilTest, GetSubpathsHonorsZeroLimitAndTieOrde
     EXPECT_TRUE(top_one.sparse_path_set.contains(StringRef("gamma")));
 }
 
+TEST(IndexStorageVariantCompactionUtilTest, TypedPathsDoNotConsumeDynamicBudgetOrAppearTwice) {
+    variant_util::PathToNoneNullValues stats {{"typed", 100}, {"dynamic", 2}, {"cold", 1}};
+    for (int limit : {0, 1, 3}) {
+        TabletSchema::PathsSetInfo paths;
+        paths.typed_path_set.try_emplace("typed");
+        variant_util::VariantCompactionUtil::get_subpaths(limit, stats, paths);
+        EXPECT_FALSE(paths.sub_path_set.contains("typed"));
+        EXPECT_FALSE(paths.sparse_path_set.contains("typed"));
+        EXPECT_TRUE(paths.sub_path_set.contains("dynamic"));
+        EXPECT_EQ(paths.sub_path_set.size(), limit == 1 ? 1 : 2);
+    }
+}
+
 TEST(IndexStorageVariantCompactionUtilTest, GetSubpathsKeepsAllPathsAtLimitAndHandlesEmptyStats) {
     variant_util::PathToNoneNullValues exact_limit {
             {"alpha", 2},
@@ -162,6 +175,8 @@ TEST_F(IndexStorageVariantCompactionSchemaTest,
     EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "beta"));
 }
 
+// Keep the unchanged-template control and removal/type-preservation assertions together.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(IndexStorageVariantCompactionSchemaTest,
        VariantTypedPathAndDynamicSubpathStaySeparatedInCompactionSchema) {
     VariantColumnSpec variant;
@@ -203,6 +218,56 @@ TEST_F(IndexStorageVariantCompactionSchemaTest,
     EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "typed_i"));
     EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "hot"));
     EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "cold"));
+
+    // Removing the template must retain the historical typed path under every budget.
+    for (int limit : {0, 1, 2}) {
+        TabletSchemaPB schema_pb;
+        tablet_schema()->to_schema_pb(&schema_pb);
+        for (auto& column : *schema_pb.mutable_column()) {
+            if (column.unique_id() == 2) {
+                column.clear_children_columns();
+                column.set_variant_max_subcolumns_count(limit);
+            }
+        }
+        auto dynamic_schema = std::make_shared<TabletSchema>();
+        dynamic_schema->init_from_pb(schema_pb);
+        ASSERT_TRUE(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+                            {rowset_result.value()}, dynamic_schema)
+                            .ok());
+        const auto* dynamic_paths = dynamic_schema->try_path_set_info(2);
+        ASSERT_NE(dynamic_paths, nullptr);
+        EXPECT_TRUE(dynamic_paths->typed_path_set.empty());
+        EXPECT_TRUE(dynamic_paths->sub_path_set.contains("typed_i") ||
+                    dynamic_paths->sparse_path_set.contains("typed_i"));
+        if (dynamic_paths->sub_path_set.contains("typed_i")) {
+            EXPECT_TRUE(schema_has_extracted_variant_path(*dynamic_schema, 2, "typed_i"));
+        }
+    }
+
+    TabletSchemaPB dynamic_pb;
+    tablet_schema()->to_schema_pb(&dynamic_pb);
+    for (auto& column : *dynamic_pb.mutable_column()) {
+        if (column.unique_id() == 2) {
+            column.clear_children_columns();
+            column.set_variant_max_subcolumns_count(0);
+        }
+    }
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(dynamic_pb);
+    IndexRowsetSpec new_rowset;
+    new_rowset.version = 1;
+    new_rowset.use_variant_v2 = true;
+    new_rowset.batches.push_back(IndexBatch::single_variant({R"({"typed_i":"new"})"}, 2));
+    auto new_result = write_rowset(new_rowset);
+    ASSERT_TRUE(new_result.has_value()) << new_result.error();
+    auto mixed_schema = std::make_shared<TabletSchema>();
+    mixed_schema->copy_from(*tablet_schema());
+    ASSERT_TRUE(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+                        {rowset_result.value(), new_result.value()}, mixed_schema)
+                        .ok());
+    const int cid = mixed_schema->field_index(PathInData("v.typed_i"));
+    ASSERT_GE(cid, 0);
+    EXPECT_EQ(mixed_schema->column(cid).type(), FieldType::OLAP_FIELD_TYPE_JSONB);
 }
 
 } // namespace doris::index_storage_test

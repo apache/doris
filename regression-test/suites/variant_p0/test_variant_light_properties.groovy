@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_variant_light_properties", "p0") {
+suite("test_variant_light_properties", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET default_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS test_variant_light_properties"
     sql """CREATE TABLE test_variant_light_properties (
@@ -34,14 +35,14 @@ suite("test_variant_light_properties", "p0") {
         VARIANT<'a': INT, 'b': INT, PROPERTIES("variant_max_subcolumns_count"="0")>"""
     // ALTER changes the write policy without rewriting existing rowsets.
     order_qt_after_alter "SELECT id, v FROM test_variant_light_properties"
-    trigger_and_wait_compaction("test_variant_light_properties", "full")
+    trigger_and_wait_compaction("test_variant_light_properties", "full", 300, [] as String[], true)
     order_qt_before_propagation "SELECT id, v FROM test_variant_light_properties"
     sql """INSERT INTO test_variant_light_properties VALUES
         (5, parse_to_variant('{"a":"005","b":"006","keep":10}'))"""
     order_qt_new_write "SELECT id, v FROM test_variant_light_properties"
     order_qt_mixed_filtered """SELECT id FROM test_variant_light_properties
         WHERE CAST(v['a'] AS INT) = 1 OR CAST(v['b'] AS INT) = 4"""
-    trigger_and_wait_compaction("test_variant_light_properties", "full")
+    trigger_and_wait_compaction("test_variant_light_properties", "full", 300, [] as String[], true)
     order_qt_after_compaction "SELECT id, v FROM test_variant_light_properties"
     order_qt_paths """SELECT id, v['a'], v['b'], v['keep']
         FROM test_variant_light_properties"""
@@ -56,7 +57,7 @@ suite("test_variant_light_properties", "p0") {
     sql """ALTER TABLE test_variant_light_properties MODIFY COLUMN v
         VARIANT<PROPERTIES("variant_max_subcolumns_count"="1")>"""
     sql """INSERT INTO test_variant_light_properties VALUES (7, parse_to_variant('{"keep":12}'))"""
-    trigger_and_wait_compaction("test_variant_light_properties", "full")
+    trigger_and_wait_compaction("test_variant_light_properties", "full", 300, [] as String[], true)
     order_qt_removed_template "SELECT id, v FROM test_variant_light_properties"
 
     sql """ALTER TABLE test_variant_light_properties MODIFY COLUMN v
@@ -64,7 +65,7 @@ suite("test_variant_light_properties", "p0") {
     sql """INSERT INTO test_variant_light_properties VALUES
         (6, parse_to_variant('{"a":6,"b":7,"keep":11}'))"""
     order_qt_mixed_versions "SELECT id, v FROM test_variant_light_properties"
-    trigger_and_wait_compaction("test_variant_light_properties", "full")
+    trigger_and_wait_compaction("test_variant_light_properties", "full", 300, [] as String[], true)
     order_qt_final "SELECT id, v FROM test_variant_light_properties"
 
     test {
@@ -89,13 +90,13 @@ suite("test_variant_light_properties", "p0") {
     sql """ALTER TABLE test_variant_light_properties_mow MODIFY COLUMN v
         VARIANT<'a': INT, PROPERTIES("variant_max_subcolumns_count"="0")>"""
     sql """INSERT INTO test_variant_light_properties_mow VALUES (4, parse_to_variant('{"a":"006"}'))"""
-    trigger_and_wait_compaction("test_variant_light_properties_mow", "full")
+    trigger_and_wait_compaction("test_variant_light_properties_mow", "full", 300, [] as String[], true)
     order_qt_mow_compacted "SELECT id, v FROM test_variant_light_properties_mow"
     order_qt_mow_filtered """SELECT id FROM test_variant_light_properties_mow
         WHERE CAST(v['a'] AS INT) = 1 OR CAST(v['a'] AS INT) = 3"""
     sql """INSERT INTO test_variant_light_properties_mow VALUES
         (2, parse_to_variant('{"a":"005","keep":5}'))"""
-    trigger_and_wait_compaction("test_variant_light_properties_mow", "full")
+    trigger_and_wait_compaction("test_variant_light_properties_mow", "full", 300, [] as String[], true)
     order_qt_mow_updated "SELECT id, v FROM test_variant_light_properties_mow"
 
     sql "DROP TABLE IF EXISTS test_variant_light_properties_rowstore"
@@ -110,7 +111,7 @@ suite("test_variant_light_properties", "p0") {
     sql """ALTER TABLE test_variant_light_properties_rowstore MODIFY COLUMN v
         VARIANT<PROPERTIES("variant_max_subcolumns_count"="0")>"""
     sql """INSERT INTO test_variant_light_properties_rowstore VALUES (3, parse_to_variant('{"a":"003"}'))"""
-    trigger_and_wait_compaction("test_variant_light_properties_rowstore", "full")
+    trigger_and_wait_compaction("test_variant_light_properties_rowstore", "full", 300, [] as String[], true)
     sql "SET enable_short_circuit_query = false"
     order_qt_rowstore_scan "SELECT id, v FROM test_variant_light_properties_rowstore WHERE id = 1"
     sql "SET enable_short_circuit_query = true"
@@ -140,8 +141,9 @@ suite("test_variant_light_properties", "p0") {
         sql """INSERT INTO test_variant_count_sparse_promotion VALUES
             (1, parse_to_variant('{"row":1,"fresh":7}'))"""
         order_qt_sparse_promotion_before "SELECT id, v FROM test_variant_count_sparse_promotion"
-        trigger_and_wait_compaction("test_variant_count_sparse_promotion", "full")
+        trigger_and_wait_compaction("test_variant_count_sparse_promotion", "full", 300, [] as String[], true)
         order_qt_sparse_promotion_after "SELECT id, v FROM test_variant_count_sparse_promotion"
         order_qt_sparse_promotion_path "SELECT id, v['lost'] FROM test_variant_count_sparse_promotion"
+    }
     }
 }

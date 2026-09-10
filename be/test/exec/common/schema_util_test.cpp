@@ -1566,10 +1566,12 @@ TEST_F(SchemaUtilTest, get_compaction_typed_columns) {
     EXPECT_EQ(output_schema->column(0).type(), FieldType::OLAP_FIELD_TYPE_INT);
     EXPECT_EQ(paths_set_info.typed_path_set.size(), 1);
 
-    typed_paths.insert("abc");
-    EXPECT_FALSE(variant_util::VariantCompactionUtil::get_compaction_typed_columns(
-                         schema, typed_paths, parent_column, output_schema, paths_set_info)
-                         .ok());
+    typed_paths = {"abc"};
+    EXPECT_TRUE(variant_util::VariantCompactionUtil::get_compaction_typed_columns(
+                        schema, typed_paths, parent_column, output_schema, paths_set_info)
+                        .ok());
+    EXPECT_EQ(output_schema->num_columns(), 1);
+    EXPECT_FALSE(paths_set_info.typed_path_set.contains("abc"));
 }
 
 TEST_F(SchemaUtilTest, get_compaction_nested_columns) {
@@ -1829,7 +1831,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
             paths_set_info, parent_column, target, path_to_data_types, output_schema);
 
-    EXPECT_EQ(output_schema->num_columns(), 4);
+    EXPECT_EQ(output_schema->num_columns(), 5);
     bool found_a = false, found_b = false, found_typed = false, found_shared = false;
     int empty_key_column_count = 0;
     for (const auto& col : output_schema->columns()) {
@@ -1850,7 +1852,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
             EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_STRING);
             EXPECT_EQ(col->parent_unique_id(), 1);
             EXPECT_EQ(col->path_info_ptr()->get_path(), "v1.typed");
-            EXPECT_TRUE(col->path_info_ptr()->get_is_typed());
+            EXPECT_FALSE(col->path_info_ptr()->get_is_typed());
         } else if (col->name() == "v1.shared" && !col->path_info_ptr()->get_is_typed()) {
             found_shared = true;
             EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_INT);
@@ -1869,7 +1871,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     }
     EXPECT_TRUE(found_a && found_b && found_shared);
     EXPECT_EQ(empty_key_column_count, 1);
-    EXPECT_FALSE(found_typed);
+    EXPECT_TRUE(found_typed);
 
     ASSERT_TRUE(paths_set_info.subcolumn_indexes.find("a") !=
                 paths_set_info.subcolumn_indexes.end());
@@ -1877,7 +1879,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
                 paths_set_info.subcolumn_indexes.end());
     EXPECT_EQ(paths_set_info.subcolumn_indexes["a"].size(), 1);
     EXPECT_EQ(paths_set_info.subcolumn_indexes["b"].size(), 1);
-    EXPECT_FALSE(paths_set_info.subcolumn_indexes.contains("typed"));
+    EXPECT_TRUE(paths_set_info.subcolumn_indexes.contains("typed"));
     ASSERT_TRUE(paths_set_info.subcolumn_indexes.contains("shared"));
     EXPECT_EQ(paths_set_info.subcolumn_indexes.at("shared").size(), 1);
     ASSERT_TRUE(paths_set_info.subcolumn_indexes.contains(""));
@@ -1886,7 +1888,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     EXPECT_TRUE(paths_set_info.sub_path_set.contains("a"));
     EXPECT_TRUE(paths_set_info.sub_path_set.contains("b"));
     EXPECT_TRUE(paths_set_info.sub_path_set.contains("shared"));
-    EXPECT_FALSE(paths_set_info.sub_path_set.contains("typed"));
+    EXPECT_TRUE(paths_set_info.sub_path_set.contains("typed"));
     EXPECT_TRUE(paths_set_info.sub_path_set.contains(""));
     EXPECT_FALSE(paths_set_info.sparse_path_set.contains(""));
 
