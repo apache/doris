@@ -493,7 +493,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         long threshold = sessionLong(session, NUM_FILES_IN_BATCH_MODE, DEFAULT_NUM_FILES_IN_BATCH_MODE);
         long fileCount = 0;
         try (CloseableIterable<ManifestFile> matching = getMatchingManifest(
-                snapshot.dataManifests(table.io()), table.specs(), scan.filter())) {
+                snapshot.dataManifests(table.io()),
+                SchemaAwareDataTableScan.specsFor(table, scan.schema()), scan.filter())) {
             for (ManifestFile manifest : matching) {
                 // Manifest metadata counts (cheap — no per-file read). Null guard for ancient manifests that
                 // omit the counts (legacy summed them unguarded; 0 is the safe under-count, never over-streams).
@@ -1215,6 +1216,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             } else {
                 scan = scan.useSnapshot(handle.getSnapshotId());
             }
+        }
+        // A latest MVCC pin may pair the current schema with the preceding snapshot after a schema-only commit.
+        // Preserve that logical schema explicitly so cache metrics use new field IDs and their initial defaults.
+        if (!handle.isSystemTable() && !scan.schema().sameSchema(selectedSchema)) {
+            scan = scan.project(selectedSchema);
         }
         if (filter.isPresent()) {
             // Historical predicates must resolve names to the field ids of the generation used for binding;

@@ -32,18 +32,17 @@ import java.util.function.Supplier;
 
 /**
  * Per-catalog cache of an iceberg table's raw partition list (PERF-02), keyed by {@code (TableIdentifier,
- * snapshotId)}. Restores the partition-info half of the legacy {@code IcebergExternalMetaCache} that the SPI
+ * snapshotId, schemaId, specId)}. Restores the partition-info half of the legacy
+ * {@code IcebergExternalMetaCache} that the SPI
  * cutover dropped: the analysis-phase PARTITIONS metadata-table scan
  * ({@link IcebergPartitionUtils#loadRawPartitionsUncached}, which the iceberg SDK materializes by reading EVERY
  * data+delete manifest of the snapshot) was re-run per query and re-run 4~6 times per MTMV refresh, with no
  * cross-query reuse. The three consumers ({@code buildMvccPartitionView} for the MVCC/MTMV partition view,
  * {@code listPartitions} for {@code selectedPartitionNum}, {@code listPartitionNames} for SHOW PARTITIONS) all
- * funnel through it, so they share a single scan per {@code (table, snapshot)}.
+ * funnel through it, so they share a single scan per metadata generation.
  *
- * <p><b>Snapshot-keyed, so always correct.</b> A snapshot is immutable, so the derived partitions are a pure
- * function of the key; a new commit yields a new snapshot id (a new key -&gt; a live scan). Within the TTL the
- * snapshot id itself is held stable by {@link IcebergLatestSnapshotCache}, which is what makes the key stable
- * across queries and across the enumeration points of one MTMV refresh.
+ * <p><b>Metadata-generation-keyed.</b> A data commit yields a new snapshot id, while schema/spec IDs fence
+ * metadata-only evolution that changes Iceberg's unified partition struct without changing the snapshot.
  *
  * <p><b>No credential gate</b> (unlike {@link IcebergTableCache}): the cached value is pure metadata (partition
  * names, values, transforms, timestamps, snapshot ids) and carries no {@code FileIO} / credential, so it is
@@ -58,14 +57,18 @@ import java.util.function.Supplier;
  */
 final class IcebergPartitionCache {
 
-    /** Immutable composite key: a table's partition list is distinct per pinned snapshot id. */
+    /** Immutable composite key: partition projection depends on the snapshot and current schema/spec metadata. */
     static final class Key {
         final TableIdentifier id;
         final long snapshotId;
+        final int schemaId;
+        final int specId;
 
-        Key(TableIdentifier id, long snapshotId) {
+        Key(TableIdentifier id, long snapshotId, int schemaId, int specId) {
             this.id = id;
             this.snapshotId = snapshotId;
+            this.schemaId = schemaId;
+            this.specId = specId;
         }
 
         @Override
@@ -77,12 +80,15 @@ final class IcebergPartitionCache {
                 return false;
             }
             Key that = (Key) o;
-            return snapshotId == that.snapshotId && Objects.equals(id, that.id);
+            return snapshotId == that.snapshotId
+                    && schemaId == that.schemaId
+                    && specId == that.specId
+                    && Objects.equals(id, that.id);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(id, snapshotId);
+            return Objects.hash(id, snapshotId, schemaId, specId);
         }
     }
 

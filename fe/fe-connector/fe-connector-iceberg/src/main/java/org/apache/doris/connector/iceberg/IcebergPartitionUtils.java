@@ -758,29 +758,39 @@ final class IcebergPartitionUtils {
     /**
      * The cross-query PARTITIONS-scan de-duplication seam (PERF-02): when {@code cache} is non-null the raw
      * partition list is served from / populated into the per-catalog {@link IcebergPartitionCache} keyed by
-     * {@code (id, snapshotId)} — a snapshot is immutable, so the derived partitions are a pure function of that
-     * key and safe to reuse across queries (restoring the legacy IcebergExternalMetaCache partition-info cache).
+     * {@code (id, snapshotId, schemaId, specId)}. The schema/spec generation is required because metadata-only
+     * evolution can change the unified partition projection without creating a snapshot.
      * A {@code null} cache (offline unit tests / the no-cache catalog) reads live every call. The cached list is
-     * unmodifiable so a shared entry cannot be mutated by a concurrent reader; the loader's exception (e.g. the
-     * dropped-partition-source-column {@link ValidationException}) propagates verbatim so callers keep their own
-     * degradation, and a failed scan is not cached.
+     * unmodifiable so a shared entry cannot be mutated by a concurrent reader; loader exceptions propagate
+     * verbatim so callers keep their own degradation, and a failed scan is not cached.
      */
     private static List<IcebergRawPartition> loadRawPartitions(TableIdentifier id, Table table, long snapshotId,
             IcebergPartitionCache cache) {
         if (cache == null) {
             return loadRawPartitionsUncached(table, snapshotId);
         }
-        return cache.getOrLoad(new IcebergPartitionCache.Key(id, snapshotId),
+        return cache.getOrLoad(new IcebergPartitionCache.Key(
+                        id, snapshotId, table.schema().schemaId(), table.spec().specId()),
                 () -> Collections.unmodifiableList(loadRawPartitionsUncached(table, snapshotId)));
     }
 
     private static List<IcebergRawPartition> loadRawPartitionsUncached(Table table, long snapshotId) {
-        Table partitionsTable = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.PARTITIONS);
         StructType unifiedPartitionType = Partitioning.partitionType(table);
         Map<Integer, Integer> partitionFieldOrdinals = new HashMap<>();
         for (int i = 0; i < unifiedPartitionType.fields().size(); i++) {
             partitionFieldOrdinals.put(unifiedPartitionType.fields().get(i).fieldId(), i);
         }
+        boolean hasUnrepresentableField = table.specs().values().stream()
+                .flatMap(spec -> spec.fields().stream())
+                .anyMatch(field -> !partitionFieldOrdinals.containsKey(field.fieldId()));
+        if (hasUnrepresentableField) {
+            // Iceberg 1.11 drops orphaned historical fields from the unified struct and groups their distinct
+            // values together. An empty display is safer than fabricating null-valued or collapsed partitions.
+            LOG.warn("Cannot represent all historical partition fields for iceberg table {}; "
+                    + "reporting an empty partition display.", table.name());
+            return Collections.emptyList();
+        }
+        Table partitionsTable = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.PARTITIONS);
         List<IcebergRawPartition> partitions = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().useSnapshot(snapshotId).planFiles()) {
             for (FileScanTask task : tasks) {
@@ -813,8 +823,8 @@ final class IcebergPartitionUtils {
             Class<?> fieldClass = partitionSpec.javaClasses()[i];
             // Iceberg 1.11 projects every metadata row into the table-wide unified partition struct; a spec-local
             // position can therefore point at a different evolved field, so resolve the ordinal by field ID.
-            Integer ordinal = partitionFieldOrdinals.get(partitionField.fieldId());
-            Object o = ordinal == null ? null : partitionData.get(ordinal, fieldClass);
+            int ordinal = partitionFieldOrdinals.get(partitionField.fieldId());
+            Object o = partitionData.get(ordinal, fieldClass);
             String fieldValue = o == null ? null : o.toString();
             sb.append(partitionField.name()).append("=").append(fieldValue).append("/");
             // Resolve the partition field's SOURCE column name (case-preserved), matching the generic

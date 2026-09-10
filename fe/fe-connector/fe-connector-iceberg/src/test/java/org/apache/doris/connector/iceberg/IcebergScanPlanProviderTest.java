@@ -64,6 +64,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
@@ -1925,6 +1926,43 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void streamingDispatchRebindsPartitionSpecsForHistoricalSchemaBeforeAndAfterSnapshotAdvance()
+            throws IOException {
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(1, "x", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        PartitionSpec historicalSpec = PartitionSpec.builderFor(historicalSchema).identity("x").build();
+        Table table = createTable("historical_batch_estimate", historicalSchema, historicalSpec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/historical_batch_estimate/old.parquet", 1024, null, "x=1")).commit();
+        long historicalSnapshotId = table.currentSnapshot().snapshotId();
+        int historicalSchemaId = table.currentSnapshot().schemaId();
+        table.updateSchema().renameColumn("x", "renamed_x").commit();
+
+        assertHistoricalStreamingDispatch(table, historicalSnapshotId, historicalSchemaId);
+
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/historical_batch_estimate/new.parquet", 1024, null, "x=2")).commit();
+        assertHistoricalStreamingDispatch(table, historicalSnapshotId, historicalSchemaId);
+    }
+
+    private static void assertHistoricalStreamingDispatch(
+            Table table, long historicalSnapshotId, int historicalSchemaId) throws IOException {
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "historical_batch_estimate")
+                .withSnapshot(historicalSnapshotId, null, historicalSchemaId);
+        IcebergScanPlanProvider provider = providerOver(table);
+        ConnectorSession session = batchSession(1, true);
+        Optional<ConnectorExpression> filter = Optional.of(eqInt("x", 1));
+
+        Assertions.assertEquals(1L, provider.streamingSplitEstimate(session, handle, filter, false));
+        List<ConnectorScanRange> ranges = drain(provider.streamSplits(
+                session, handle, Collections.emptyList(), filter, -1L));
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertTrue(ranges.get(0).getPath().get().endsWith("old.parquet"));
+    }
+
+    @Test
     public void planScanResolvedEmptySnapshotIgnoresConcurrentFirstAppend() {
         // MERGE may resolve its read snapshot while the target has no snapshots, then race with the first append.
         // The -1 marker is a real MVCC boundary: treating it as "latest" lets MERGE miss the new row and insert a
@@ -3412,6 +3450,43 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(1, deleteCount(ranges.get(0)));
         Assertions.assertEquals(0L, cache.takeStats("q")[2],
                 "historical equality-delete keys must not force the cache path to fail");
+    }
+
+    @Test
+    public void manifestCacheUsesLatestSchemaForSchemaOnlyMvccPin() throws IOException {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "k", Types.IntegerType.get()));
+        Table table = createPersistedTable("latest_schema_cache", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        Map<Integer, ByteBuffer> oldBounds = Collections.singletonMap(
+                2, Conversions.toByteBuffer(Types.IntegerType.get(), 1));
+        DataFile oldFile = DataFiles.builder(table.spec())
+                .withPath(table.location() + "/old.parquet")
+                .withFileSizeInBytes(100)
+                .withRecordCount(1)
+                .withMetrics(new Metrics(1L, null, null, null, null, oldBounds, oldBounds))
+                .withFormat(FileFormat.PARQUET)
+                .build();
+        table.newAppend().appendFile(oldFile).commit();
+        long pinnedSnapshotId = table.currentSnapshot().snapshotId();
+        table.updateSchema().allowIncompatibleChanges().deleteColumn("k").commit();
+        table.updateSchema().addRequiredColumn(
+                "k", Types.IntegerType.get(), Literal.of(7)).commit();
+        Table reloaded = reloadPersistedTable(table);
+        IcebergTableHandle latestPin = new IcebergTableHandle("db1", "latest_schema_cache")
+                .withSnapshot(pinnedSnapshotId, null, reloaded.schema().schemaId());
+
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> ranges = manifestProvider(
+                manifestCacheProps(), reloaded, cache).planScan(
+                        emptySession(), ConnectorScanRequest.builder(latestPin, Collections.emptyList())
+                                .filter(Optional.of(eqInt("k", 7))).build());
+
+        Assertions.assertEquals(1, ranges.size(),
+                "the new field's initial default matches old files and must not be pruned by retired-field stats");
+        Assertions.assertEquals(1, cache.size(), "the assertion must exercise the manifest-cache path");
+        Assertions.assertEquals(0L, cache.takeStats("q")[2], "the cache path must not fall back to the SDK");
     }
 
     // --- T09: vended credentials (extractVendedToken + static/vended location.* + URI threading) ---

@@ -1094,11 +1094,11 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
-    public void listPartitionsRetainsHistoricalSpecWhenPartitionSourceColumnDropped() {
+    public void listPartitionsDegradesWhenDroppedPartitionSourceCannotBeRepresented() {
         // Partition-evolution regression (external_table_p0/iceberg/test_iceberg_partition_evolution): a
-        // HISTORICAL spec references a source column that was later DROPPED, while the CURRENT spec stays
-        // partitioned on a surviving column. Iceberg 1.11 resolves the historical spec against its own schema,
-        // so listPartitions must retain both old and current partitions instead of failing or degrading to empty.
+        // HISTORICAL spec references a source column that is later DROPPED, while the CURRENT spec stays
+        // partitioned on a surviving column. Iceberg 1.11 removes the historical field from the unified
+        // partition type, so distinct old buckets become unrepresentable and must not be reported as null.
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db1"));
@@ -1112,26 +1112,39 @@ public class IcebergPartitionUtilsTest {
                 Collections.singletonMap("format-version", "2"));
         // A data file under the original (bucket-on-region) spec so the PARTITIONS metadata scan has a row whose
         // spec must be unified.
-        table.newAppend().appendFile(DataFiles.builder(table.spec())
-                .withPath("s3://b/db1/t/f0.parquet").withFileSizeInBytes(100).withRecordCount(1)
-                .withPartitionPath("region_bucket=1").withFormat(FileFormat.PARQUET).build()).commit();
+        table.newAppend()
+                .appendFile(DataFiles.builder(table.spec())
+                        .withPath("s3://b/db1/t/f0.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                        .withPartitionPath("region_bucket=1").withFormat(FileFormat.PARQUET).build())
+                .appendFile(DataFiles.builder(table.spec())
+                        .withPath("s3://b/db1/t/f1.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                        .withPartitionPath("region_bucket=2").withFormat(FileFormat.PARQUET).build())
+                .commit();
         // Evolve: drop the bucket(region) partition field and add identity(id) — the CURRENT spec stays
         // PARTITIONED (on the surviving id column), so listPartitions passes the isUnpartitioned() early-return
         // and genuinely reaches the metadata scan (guards this test against a vacuous unpartitioned pass).
         table.updateSpec().removeField("region_bucket").addField("id").commit();
         table.newAppend().appendFile(DataFiles.builder(table.spec())
-                .withPath("s3://b/db1/t/f1.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withPath("s3://b/db1/t/f2.parquet").withFileSizeInBytes(100).withRecordCount(1)
                 .withPartitionPath("id=5").withFormat(FileFormat.PARQUET).build()).commit();
+        IcebergPartitionCache cache = new IcebergPartitionCache(100, 1000);
+        List<String> beforeDrop = IcebergPartitionUtils.listPartitions(catalog.loadTable(id), id, cache).stream()
+                .map(ConnectorPartitionInfo::getPartitionName).sorted().collect(Collectors.toList());
+        Assertions.assertEquals(Arrays.asList("id=5", "region_bucket=1", "region_bucket=2"), beforeDrop);
+        long snapshotBeforeDrop = table.currentSnapshot().snapshotId();
         // Drop the source column referenced only by the historical spec, leaving that spec dangling.
         table.updateSchema().deleteColumn("region").commit();
         Table evolved = catalog.loadTable(id);
+        Assertions.assertEquals(snapshotBeforeDrop, evolved.currentSnapshot().snapshotId(),
+                "schema-only evolution must keep the same snapshot and exercise the cache-key boundary");
         Assertions.assertTrue(evolved.spec().isPartitioned(),
                 "current spec must stay partitioned so listPartitions reaches the metadata scan, not the "
                         + "unpartitioned early-return (otherwise this test would pass vacuously)");
 
-        // Iceberg 1.11 resolves each historical spec with its own schema, so both old and current partitions
-        // remain visible after the old source column is dropped instead of degrading to UNPARTITIONED.
-        Assertions.assertEquals(2, IcebergPartitionUtils.listPartitions(evolved).size());
+        Assertions.assertTrue(IcebergPartitionUtils.listPartitions(evolved, id, cache).isEmpty(),
+                "unrepresentable historical buckets must degrade to an empty partition display");
+        Assertions.assertEquals(2, cache.loadCountForTest(),
+                "a schema-only commit must not reuse partition metadata cached under the preceding schema");
     }
 
     @Test
