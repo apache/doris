@@ -42,6 +42,18 @@ GroupJoinSharedState::GroupJoinSharedState()
         : data_variants(std::make_unique<GroupJoinDataVariants>()),
           arena(std::make_shared<Arena>()) {}
 
+void GroupJoinSharedState::update_memory_usage() {
+    DCHECK(memory_used_counter != nullptr);
+    const auto hash_table_bytes =
+            std::visit(Overload {[](std::monostate&) -> size_t { return 0; },
+                                 [](auto& method) -> size_t {
+                                     return method.hash_table->get_buffer_size_in_bytes();
+                                 }},
+                       data_variants->method_variant);
+    // Entries, aggregate state storage and persisted keys already belong to the arena.
+    COUNTER_SET(memory_used_counter, arena->size() + hash_table_bytes);
+}
+
 GroupJoinSharedState::~GroupJoinSharedState() {
     groupjoin::destroy_agg_states(this);
 }

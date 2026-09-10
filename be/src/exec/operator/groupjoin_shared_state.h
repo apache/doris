@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "exec/pipeline/dependency.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
 
@@ -37,6 +38,11 @@ struct GroupJoinSharedState : public BasicSharedState {
 
     GroupJoinSharedState();
     ~GroupJoinSharedState() override;
+
+    // Shared hash-table and arena storage is attributed only to the build sink. The
+    // sink profile lives in RuntimeState's object pool, including during probe/drain.
+    RuntimeProfile::HighWaterMarkCounter* memory_used_counter = nullptr;
+    void update_memory_usage();
 
     bool probe_eos = false;
     bool result_emitted = false;
