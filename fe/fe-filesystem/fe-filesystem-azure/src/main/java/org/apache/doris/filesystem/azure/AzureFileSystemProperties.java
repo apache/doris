@@ -51,9 +51,8 @@ import java.util.Set;
  * Provider-owned Azure Blob Storage properties.
  *
  * <p>The public aliases, endpoint formatting, and shared-key validation retain fe-core Azure
- * compatibility. Backend maps use provider-owned {@code AZURE_*} keys; legacy uppercase input
- * aliases remain accepted so existing FE filesystem callers can migrate through
- * {@link AzureFileSystemProvider#bind(Map)}.
+ * compatibility. Backend maps use provider-owned {@code AZURE_*} keys. Existing uppercase input
+ * aliases remain accepted, but new backend fields are output-only, not aliases for user properties.
  */
 public final class AzureFileSystemProperties
         implements FileSystemProperties, BackendStorageProperties, HadoopStorageProperties {
@@ -89,7 +88,6 @@ public final class AzureFileSystemProperties
     public static final String BACKEND_CLIENT_SECRET = "AZURE_CLIENT_SECRET";
     public static final String BACKEND_TENANT_ID = "AZURE_TENANT_ID";
     public static final String BACKEND_OAUTH_SERVER_URI = "AZURE_OAUTH_SERVER_URI";
-    public static final String BACKEND_OAUTH_ACCOUNT_HOST = "AZURE_OAUTH_ACCOUNT_HOST";
 
     private static final String[] AZURE_BLOB_HOST_SUFFIXES = {
             "blob.core.windows.net",
@@ -99,9 +97,8 @@ public final class AzureFileSystemProperties
     };
 
     // In each @ConnectorProperty below, the first name is the canonical key, kept as a
-    // constant because other code references it. The remaining literal names are legacy
-    // aliases accepted for compatibility only and referenced nowhere else, so they are not
-    // promoted to constants.
+    // constant because other code references it. The remaining literal names are input aliases
+    // kept for compatibility, not new backend-protocol fields; they are not promoted to constants.
     @ConnectorProperty(names = {ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
             "AZURE_ENDPOINT"},
             required = false,
@@ -132,12 +129,12 @@ public final class AzureFileSystemProperties
             description = "The client secret of Azure AD application.")
     private String clientSecret = "";
 
-    @ConnectorProperty(names = {OAUTH_SERVER_URI, BACKEND_OAUTH_SERVER_URI},
+    @ConnectorProperty(names = {OAUTH_SERVER_URI},
             required = false,
             description = "The Azure OAuth2 token endpoint.")
     private String oauthServerUri = "";
 
-    @ConnectorProperty(names = {OAUTH_ACCOUNT_HOST, BACKEND_OAUTH_ACCOUNT_HOST},
+    @ConnectorProperty(names = {OAUTH_ACCOUNT_HOST},
             required = false,
             description = "The Azure account host used by Hadoop OAuth2 config.")
     private String oauthAccountHost = "";
@@ -147,18 +144,18 @@ public final class AzureFileSystemProperties
             description = "The Azure AD tenant id used by the native Azure SDK.")
     private String tenantId = "";
 
-    @ConnectorProperty(names = {AUTH_TYPE, "AZURE_AUTH_TYPE"},
+    @ConnectorProperty(names = {AUTH_TYPE},
             required = false,
             description = "The auth type of Azure Blob Storage.")
     private String azureAuthType = "";
 
-    @ConnectorProperty(names = {SAS_TOKEN, "azure.sas-token", "AZURE_SAS_TOKEN"},
+    @ConnectorProperty(names = {SAS_TOKEN, "azure.sas-token"},
             required = false,
             sensitive = true,
             description = "A provider-issued Azure SAS token.")
     private String sasToken = "";
 
-    @ConnectorProperty(names = {SAS_EXPIRY_MS, "azure.sas-token-expires-at-ms", "AZURE_SAS_EXPIRY_MS"},
+    @ConnectorProperty(names = {SAS_EXPIRY_MS, "azure.sas-token-expires-at-ms"},
             required = false,
             description = "The expiry time of the Azure SAS token in Unix milliseconds.")
     private String sasExpiryMs = "";

@@ -331,11 +331,11 @@ public class LocationPathTest {
     public void testAzureNativeLocationKeepsAuthorityAndUsesS3ReaderFamily() {
         Map<String, String> azure = new HashMap<>();
         azure.put("provider", "azure");
-        azure.put("AZURE_AUTH_TYPE", "SAS");
+        azure.put("azure.auth_type", "SAS");
         azure.put("AZURE_ENDPOINT", "account.blob.core.windows.net");
         azure.put("AZURE_ACCOUNT_NAME", "account");
-        azure.put("AZURE_SAS_TOKEN", "sv=2024-01-01&sig=temporary");
-        azure.put("AZURE_SAS_EXPIRY_MS", "4102444800000");
+        azure.put("azure.sas_token", "sv=2024-01-01&sig=temporary");
+        azure.put("azure.sas_expiry_ms", "4102444800000");
         StorageAdapter adapter = StorageAdapter.of(azure);
         Map<StorageTypeId, StorageAdapter> adapters = new HashMap<>();
         adapters.put(StorageTypeId.AZURE, adapter);

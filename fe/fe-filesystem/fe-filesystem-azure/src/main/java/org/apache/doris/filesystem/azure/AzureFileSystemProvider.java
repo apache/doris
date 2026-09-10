@@ -45,7 +45,7 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
     private static final String[] ACCOUNT_NAME_KEYS = {
             AzureFileSystemProperties.ACCOUNT_NAME, "azure.access_key", "AZURE_ACCOUNT_NAME"};
     private static final String[] SAS_TOKEN_KEYS = {
-            AzureFileSystemProperties.SAS_TOKEN, "azure.sas-token", "AZURE_SAS_TOKEN"};
+            AzureFileSystemProperties.SAS_TOKEN, "azure.sas-token"};
     private static final String[] ENDPOINT_KEYS = {
             AzureFileSystemProperties.ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
             "AZURE_ENDPOINT"};
@@ -147,7 +147,11 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
 
     @Override
     public Set<String> sensitivePropertyKeys() {
-        return ConnectorPropertiesUtils.getSensitiveKeys(AzureFileSystemProperties.class);
+        Set<String> keys = ConnectorPropertiesUtils.getSensitiveKeys(AzureFileSystemProperties.class);
+        // Wire secrets must stay masked independently of which spellings the input binder accepts.
+        keys.addAll(Set.of(AzureFileSystemProperties.BACKEND_ACCOUNT_KEY,
+                AzureFileSystemProperties.BACKEND_CLIENT_SECRET, AzureFileSystemProperties.BACKEND_SAS_TOKEN));
+        return keys;
     }
 
     private boolean isExplicitAzure(Map<String, String> properties) {

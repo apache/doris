@@ -52,8 +52,18 @@ class AzureFileSystemProviderTest {
     @Test
     void supports_recognizesProviderOwnedSasToken() {
         Map<String, String> props = new HashMap<>();
-        props.put("AZURE_SAS_TOKEN", "sv=2024-01-01&sig=temporary");
+        props.put("azure.sas_token", "sv=2024-01-01&sig=temporary");
         Assertions.assertTrue(provider.supports(props));
+        Assertions.assertTrue(provider.supportsGuess(props));
+    }
+
+    @Test
+    void supports_doesNotRouteByTheBackendSasField() {
+        Map<String, String> props = Map.of("AZURE_SAS_TOKEN", "sig=wire-only");
+
+        Assertions.assertFalse(provider.supports(props));
+        Assertions.assertFalse(provider.supportsGuess(props));
+        Assertions.assertTrue(provider.sensitivePropertyKeys().contains("AZURE_SAS_TOKEN"));
     }
 
     @Test

@@ -141,13 +141,13 @@ class AzureObjStorageExtensionTest {
     }
 
     @Test
-    void buildClient_acceptsNativeSasCredential() throws Exception {
+    void buildClient_acceptsProviderSasInput() throws Exception {
         Map<String, String> props = new HashMap<>();
-        props.put("AZURE_AUTH_TYPE", "SAS");
+        props.put("azure.auth_type", "SAS");
         props.put("AZURE_ENDPOINT", "account.blob.core.windows.net");
         props.put("AZURE_ACCOUNT_NAME", "account");
-        props.put("AZURE_SAS_TOKEN", "?sv=2024-01-01&sig=temporary");
-        props.put("AZURE_SAS_EXPIRY_MS", "4102444800000");
+        props.put("azure.sas_token", "?sv=2024-01-01&sig=temporary");
+        props.put("azure.sas_expiry_ms", "4102444800000");
 
         AzureObjStorage storage = new AzureObjStorage(props);
 

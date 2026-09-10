@@ -85,6 +85,40 @@ class DefaultConnectorContextResolvedStoragePropertiesTest {
     }
 
     @Test
+    void vendedAzureSasDoesNotChangeTheIndependentS3Binding() {
+        Map<String, String> catalog = Map.of(
+                "azure.endpoint", "https://account.dfs.core.windows.net",
+                "azure.account_name", "account", "azure.account_key", "azure-static-key",
+                "s3.endpoint", "https://s3.us-west-2.amazonaws.com", "s3.region", "us-west-2",
+                "s3.access_key", "s3-access-key", "s3.secret_key", "s3-secret-key");
+        DefaultConnectorContext context = context(catalog);
+        List<StorageProperties> before = context.resolveStorageProperties(Map.of());
+        StorageProperties staticAzure = azure(before);
+        StorageProperties staticS3 = provider(before, "S3");
+        Map<String, String> originalAzure = staticAzure.toBackendProperties().orElseThrow().toMap();
+        Map<String, String> originalS3 = staticS3.toBackendProperties().orElseThrow().toMap();
+        Assertions.assertEquals("azure-static-key", originalAzure.get("AZURE_ACCOUNT_KEY"));
+        Assertions.assertEquals("s3-access-key", originalS3.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("s3-secret-key", originalS3.get("AWS_SECRET_KEY"));
+        Assertions.assertTrue(staticAzure.matchedProperties().keySet().stream()
+                .allMatch(key -> key.startsWith("azure.")));
+        Assertions.assertTrue(staticS3.matchedProperties().keySet().stream().allMatch(key -> key.startsWith("s3.")));
+        Assertions.assertFalse(originalAzure.keySet().stream().anyMatch(key -> key.startsWith("AWS_")));
+        Assertions.assertFalse(originalS3.keySet().stream().anyMatch(key -> key.startsWith("AZURE_")));
+
+        List<StorageProperties> after = context.resolveStorageProperties(Map.of(TOKEN_KEY, TOKEN));
+        Map<String, String> vendedAzure = azure(after).toBackendProperties().orElseThrow().toMap();
+
+        Assertions.assertEquals(originalS3, provider(after, "S3").toBackendProperties().orElseThrow().toMap());
+        Assertions.assertEquals(originalAzure, staticAzure.toBackendProperties().orElseThrow().toMap());
+        Assertions.assertEquals(TOKEN, vendedAzure.get("AZURE_SAS_TOKEN"));
+        Assertions.assertEquals("https://account.blob.core.windows.net", vendedAzure.get("AZURE_ENDPOINT"));
+        Assertions.assertFalse(vendedAzure.containsKey("AZURE_ACCOUNT_KEY"));
+        Assertions.assertFalse(vendedAzure.keySet().stream().anyMatch(key -> key.startsWith("AWS_")));
+        Assertions.assertEquals("azure-static-key", catalog.get("azure.account_key"));
+    }
+
+    @Test
     void staticOAuthKeepsItsHadoopRequirementAndAuthentication() {
         Map<String, String> catalog = Map.of(
                 "fs.azure.support", "true", "iceberg.catalog.type", "rest", "azure.auth_type", "OAuth2",

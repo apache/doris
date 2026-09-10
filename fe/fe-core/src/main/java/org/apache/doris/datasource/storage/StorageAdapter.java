@@ -645,8 +645,7 @@ public final class StorageAdapter {
             return;
         }
         String authType = origProps.entrySet().stream()
-                .filter(entry -> "azure.auth_type".equalsIgnoreCase(entry.getKey())
-                        || "AZURE_AUTH_TYPE".equalsIgnoreCase(entry.getKey()))
+                .filter(entry -> "azure.auth_type".equalsIgnoreCase(entry.getKey()))
                 .map(Map.Entry::getValue)
                 .findFirst()
                 .orElse("SharedKey");
