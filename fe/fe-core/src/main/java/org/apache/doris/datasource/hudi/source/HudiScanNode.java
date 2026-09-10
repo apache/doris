@@ -169,6 +169,12 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     @Override
+    protected String getHiveParquetTimeZone() {
+        // Hudi preserves its legacy session-timezone contract in both native and JNI readers.
+        return "";
+    }
+
+    @Override
     protected void doInitialize() throws UserException {
         ExternalTable table = (ExternalTable) desc.getTable();
         Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();

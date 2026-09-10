@@ -17,6 +17,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
@@ -48,7 +49,8 @@ public:
                   std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
                   bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
                   std::shared_ptr<const FileContext> file_context = nullptr,
-                  int64_t format_split_id = -1, int64_t format_split_id_end = -1);
+                  int64_t format_split_id = -1, int64_t format_split_id_end = -1,
+                  std::string hive_parquet_time_zone = "");
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
@@ -104,6 +106,7 @@ private:
     std::shared_ptr<const FileContext> _file_context;
     int64_t _format_split_id = -1;
     int64_t _format_split_id_end = -1;
+    std::string _hive_parquet_time_zone; // explicit INT96 timezone; empty disables conversion
 };
 
 } // namespace doris::format::parquet
