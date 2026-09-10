@@ -15,9 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.apache.doris.regression.action.ProfileAction
-
-suite("test_uuid_spill", "p0") {
+// Memory pressure from concurrent suites can reject reservations before there is data to spill.
+suite("test_uuid_spill", "p0,nonConcurrent") {
     sql "DROP TABLE IF EXISTS uuid_spill_paths"
     sql """
         CREATE TABLE uuid_spill_paths (id BIGINT, u UUID, n UUID, a ARRAY<ARRAY<UUID>>)
@@ -29,7 +28,7 @@ suite("test_uuid_spill", "p0") {
             CAST(LPAD(HEX(number % 65536), 32, '0') AS UUID),
             IF(number % 7 = 0, NULL, CAST(LPAD(HEX(number % 65536), 32, '0') AS UUID)),
             ARRAY(ARRAY(CAST(LPAD(HEX(number % 65536), 32, '0') AS UUID), NULL), CAST(NULL AS ARRAY<UUID>))
-        FROM numbers("number"="262144")
+        FROM numbers("number"="131072")
     """
     sql "SET enable_profile = true"
     sql "SET enable_sql_cache = false"
@@ -38,17 +37,22 @@ suite("test_uuid_spill", "p0") {
     sql "SET enable_bucketed_hash_agg = false"
     sql "SET profile_level = 2"
     sql "SET topn_opt_limit_threshold = 0"
-    sql "SET spill_min_revocable_mem = 524288"
+    // Keep enough groups to exceed the BE's 1 MiB minimum spill threshold across three buckets.
+    sql "SET enable_reserve_memory = true"
+    sql "SET spill_min_revocable_mem = 1048576"
+    sql "SET batch_size = 1024"
     sql "SET parallel_pipeline_task_num = 1"
+    // Gather into one sorter so small per-BE runs do not stay below the spill threshold.
+    sql "SET sort_phase_num = 1"
     def queries = [
         aggregate: """SELECT COUNT(*), SUM(c), MIN(u), MAX(u)
                       FROM (SELECT u, COUNT(*) c FROM uuid_spill_paths GROUP BY u) g""",
         join: """SELECT COUNT(*), MIN(a.u), MAX(b.n)
                  FROM uuid_spill_paths a JOIN [shuffle] uuid_spill_paths b ON a.u = b.u""",
         sort: """SELECT COUNT(*), MIN(u), MAX(u) FROM
-                 (SELECT u FROM uuid_spill_paths ORDER BY u DESC LIMIT 131072) s""",
+                 (SELECT u FROM uuid_spill_paths ORDER BY u DESC LIMIT 65536) s""",
         nested_sort: """SELECT COUNT(*), MIN(CAST(a AS STRING)), MAX(CAST(a AS STRING)) FROM
-                        (SELECT a FROM uuid_spill_paths ORDER BY a DESC LIMIT 131072) s"""
+                        (SELECT a FROM uuid_spill_paths ORDER BY a DESC LIMIT 65536) s"""
     ]
     try {
         for (boolean spill : [false, true]) {
@@ -58,11 +62,8 @@ suite("test_uuid_spill", "p0") {
                 String token = "uuid_spill_${entry.key}_${UUID.randomUUID().toString()}"
                 qt_spill_result "/* ${token} */ ${entry.value}"
                 if (spill) {
-                    String profileText = new ProfileAction(context).getProfileBySql(token, ["SpillWriteRows"])
-                    // Prove that the result was read through the physical spill path.
-                    if (!(profileText =~ /SpillWriteRows:\s*[1-9][0-9,.]*/).find()) {
-                        throw new IllegalStateException("UUID ${entry.key} did not spill rows: ${profileText}")
-                    }
+                    // Verify both writing and recovering data through the physical spill path.
+                    checkProfileCounters(token, ["SpillWriteRows", "SpillReadRows"], [])
                 }
             }
         }
