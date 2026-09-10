@@ -22,12 +22,17 @@
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
@@ -36,6 +41,7 @@
 #include "exprs/function_context.h"
 #include "exprs/vcast_expr.h"
 #include "exprs/vexpr_context.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -133,6 +139,25 @@ struct TryCastTestRowExecReturnErrorImpl {
     }
 };
 
+template <int error_code, bool retry, bool throw_error>
+struct TryCastTestExecutionErrorImpl {
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, uint32_t result,
+                               size_t input_rows_count) {
+        if constexpr (retry) {
+            if (input_rows_count > 1) {
+                return Status::InvalidArgument("retry the failed conversion batch");
+            }
+        }
+        auto status = Status::Error<error_code, false>("cast execution failed");
+        if constexpr (throw_error) {
+            throw Exception(status);
+        } else {
+            return status;
+        }
+    }
+};
+
 template <bool nullable>
 struct TryCastTestOverflowImpl {
     static Status execute_impl(FunctionContext* context, Block& block,
@@ -223,17 +248,20 @@ struct TryCastExprTest : public ::testing::Test {
     void check_real_cast(const DataTypePtr& input_type, const DataTypePtr& nested_result_type,
                          const std::vector<std::optional<std::string>>& input_values,
                          const std::vector<std::optional<std::string>>& expected_values,
-                         bool strict) {
+                         bool strict, RuntimeState* state = nullptr) {
+        auto utc = cctz::utc_time_zone();
+        DataTypeSerDe::FormatOptions options;
+        options.timezone = state ? &state->timezone_obj() : &utc;
         auto result_type = make_nullable(nested_result_type);
         auto input_column = input_type->create_column();
         auto expected_column = result_type->create_column();
-        auto fill_column = [](const DataTypePtr& type, IColumn& column,
-                              const std::vector<std::optional<std::string>>& values) {
+        auto fill_column = [&options](const DataTypePtr& type, IColumn& column,
+                                      const std::vector<std::optional<std::string>>& values) {
             auto serde = type->get_serde();
             for (const auto& value : values) {
                 if (value.has_value()) {
                     StringRef text {*value};
-                    auto status = serde->from_string_strict_mode(text, column, {});
+                    auto status = serde->from_string_strict_mode(text, column, options);
                     ASSERT_TRUE(status.ok()) << status;
                 } else {
                     ASSERT_TRUE(type->is_nullable());
@@ -253,7 +281,7 @@ struct TryCastExprTest : public ::testing::Test {
         try_cast_expr._original_cast_return_is_nullable = input_type->is_nullable();
         try_cast_expr._children[0] = std::make_shared<MockBlockInputForTryCast>();
         context->_fn_contexts[0] =
-                FunctionContext::create_context(nullptr, result_type, {input_type, result_type});
+                FunctionContext::create_context(state, result_type, {input_type, result_type});
         context->fn_context(0)->set_enable_strict_mode(strict);
         ColumnsWithTypeAndName arguments {{input_column->get_ptr(), input_type, "input"},
                                           {nullptr, result_type, "target"}};
@@ -413,6 +441,80 @@ TEST_F(TryCastExprTest, child_arithmetic_overflow) {
     ColumnPtr result;
     auto status = try_cast_expr.execute_column_impl(context.get(), nullptr, nullptr, 3, result);
     EXPECT_TRUE(status.is<ErrorCode::ARITHMETIC_OVERFLOW_ERRROR>()) << status;
+}
+
+TEST_F(TryCastExprTest, execution_errors_are_not_conversion_failures) {
+    try_cast_expr._original_cast_return_is_nullable = false;
+    auto check_error = [&]<int error_code, bool retry, bool throw_error>() {
+        try_cast_expr._function = std::make_shared<DefaultFunction>(
+                try_cast_test_function<
+                        TryCastTestExecutionErrorImpl<error_code, retry, throw_error>>::create(),
+                DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
+        ColumnPtr result;
+        auto status = try_cast_expr.execute_column_impl(context.get(), nullptr, nullptr, 3, result);
+        EXPECT_EQ(status.code(), error_code) << status;
+        EXPECT_EQ(status.msg(), "cast execution failed");
+    };
+    auto check_paths = [&]<int error_code>() {
+        // Exercise both direct Status returns and the function exception boundary,
+        // before retry and during single-row retry, without exhausting real resources.
+        check_error.template operator()<error_code, false, false>();
+        check_error.template operator()<error_code, false, true>();
+        check_error.template operator()<error_code, true, false>();
+        check_error.template operator()<error_code, true, true>();
+    };
+    check_paths.template operator()<ErrorCode::MEM_ALLOC_FAILED>();
+    check_paths.template operator()<ErrorCode::BUFFER_ALLOCATION_FAILED>();
+    check_paths.template operator()<ErrorCode::MEM_LIMIT_EXCEEDED>();
+    check_paths.template operator()<ErrorCode::QUERY_MEMORY_EXCEEDED>();
+    check_paths.template operator()<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>();
+    check_paths.template operator()<ErrorCode::PROCESS_MEMORY_EXCEEDED>();
+    check_paths.template operator()<ErrorCode::INTERNAL_ERROR>();
+    check_paths.template operator()<ErrorCode::RUNTIME_ERROR>();
+    check_paths.template operator()<ErrorCode::CORRUPTION>();
+    check_paths.template operator()<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+    check_paths.template operator()<ErrorCode::OUT_OF_BOUND>();
+    check_paths.template operator()<ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE>();
+    check_paths.template operator()<ErrorCode::CANCELLED>();
+    check_paths.template operator()<ErrorCode::TIMEOUT>();
+}
+
+TEST_F(TryCastExprTest, real_cast_timestamptz_range_errors) {
+    RuntimeState state;
+    state._timezone = "UTC";
+    state._timezone_obj = cctz::utc_time_zone();
+    auto datetime6 = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    auto timestamptz6 = make_nullable(std::make_shared<DataTypeTimeStampTz>(6));
+    auto datetime0 = std::make_shared<DataTypeDateTimeV2>(0);
+    auto timestamptz0 = std::make_shared<DataTypeTimeStampTz>(0);
+    for (bool strict : {false, true}) {
+        check_real_cast(datetime6, timestamptz0,
+                        {"2024-01-01 00:00:00.123456", "9999-12-31 23:59:59.999999"},
+                        {"2024-01-01 00:00:00+00:00", std::nullopt}, strict, &state);
+        check_real_cast(timestamptz6, timestamptz0,
+                        {"2024-01-01 00:00:00.123456+00:00", "9999-12-31 23:59:59.999999+00:00"},
+                        {"2024-01-01 00:00:00+00:00", std::nullopt}, strict, &state);
+        check_real_cast(timestamptz6, datetime0,
+                        {"2024-01-01 00:00:00.123456+00:00", "9999-12-31 23:59:59.999999+00:00"},
+                        {"2024-01-01 00:00:00", std::nullopt}, strict, &state);
+    }
+}
+
+TEST_F(TryCastExprTest, real_cast_jsonb_key_length_errors) {
+    auto string_type = make_nullable(std::make_shared<DataTypeString>());
+    auto map_type = make_nullable(std::make_shared<DataTypeMap>(string_type, string_type));
+    auto jsonb_type = std::make_shared<DataTypeJsonb>();
+    const std::string valid_key(255, 'k');
+    const std::string invalid_key(256, 'k');
+    const auto valid_map = "{\"" + valid_key + "\":\"value\"}";
+    const auto invalid_map = "{\"" + invalid_key + "\":\"value\"}";
+    auto struct_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {string_type}, Strings {invalid_key}));
+    for (bool strict : {false, true}) {
+        check_real_cast(map_type, jsonb_type, {valid_map, invalid_map, "{}"},
+                        {valid_map, std::nullopt, "{}"}, strict);
+        check_real_cast(struct_type, jsonb_type, {invalid_map}, {std::nullopt}, strict);
+    }
 }
 
 TEST_F(TryCastExprTest, real_cast_array_decimal_overflow) {

@@ -394,7 +394,7 @@ Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column
     for (size_t i = 0; i < elem_serdes_ptrs.size(); ++i) {
         // check key
         if (elem_names[i].size() > std::numeric_limits<uint8_t>::max()) {
-            return Status::InternalError("key size exceeds max limit {} ", elem_names[i]);
+            return Status::InvalidArgument("key size exceeds max limit {} ", elem_names[i]);
         }
         // write key
         if (!writer.writeKey(elem_names[i].data(), (uint8_t)elem_names[i].size())) {
