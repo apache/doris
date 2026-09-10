@@ -1087,8 +1087,8 @@ void test_every_value_combination(const std::string& test_dir) {
     };
 
     auto fs = io::global_local_filesystem();
-    auto column = create_float_column<is_double ? FieldType::OLAP_FIELD_TYPE_DOUBLE
-                                                : FieldType::OLAP_FIELD_TYPE_FLOAT>(0, true);
+    auto column = create_float_column < is_double ? FieldType::OLAP_FIELD_TYPE_DOUBLE
+                                                  : FieldType::OLAP_FIELD_TYPE_FLOAT > (0, true);
     const TabletColumn* field = &(*column);
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(Type, false);
 
