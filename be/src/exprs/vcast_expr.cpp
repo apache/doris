@@ -133,10 +133,10 @@ Status VCastExpr::execute_column_impl(VExprContext* context, const Block* block,
 bool cast_error_code(const Status& st) {
     // Value conversion failures use INVALID_ARGUMENT (parsing, numeric/date range checks,
     // JSONB and complex elements) or ARITHMETIC_OVERFLOW_ERRROR (decimal conversions).
-    // Keep execution failures such as allocation errors, invalid column shapes and corruption
-    // visible. A value failure reported as INTERNAL_ERROR must be corrected at its producer;
+    // This predicate relies on producers classifying errors correctly: execution-contract
+    // violations (including invalid column shapes) must use INTERNAL_ERROR, not these codes.
+    // Likewise, value failures reported as INTERNAL_ERROR must be corrected at their producer;
     // accepting all INTERNAL_ERROR/RUNTIME_ERROR statuses would hide execution defects.
-    // See exprs/function/cast/README.md for the conversion-path audit.
     return st.is<ErrorCode::INVALID_ARGUMENT>() || st.is<ErrorCode::ARITHMETIC_OVERFLOW_ERRROR>();
 }
 

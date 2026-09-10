@@ -349,7 +349,7 @@ Status execute_non_strict_scalar_cast(FunctionContext* context, const ColumnPtr&
                                       const DataTypePtr& target_type, const char* source_name,
                                       size_t rows, ColumnPtr* output) {
     if (context == nullptr) {
-        return Status::InvalidArgument("Variant V2 scalar CAST requires a FunctionContext");
+        return Status::InternalError("Variant V2 scalar CAST requires a FunctionContext");
     }
     auto cast_context = context->clone();
     cast_context->set_enable_strict_mode(false);
@@ -483,7 +483,7 @@ Status cast_scalar_to_variant(const ColumnPtr& source, const DataTypePtr& source
                               ForcedNulls forced_nulls, ColumnPtr* output) {
     if (!source || source->size() != rows ||
         (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid scalar input shape for Variant V2 CAST");
+        return Status::InternalError("Invalid scalar input shape for Variant V2 CAST");
     }
     auto nulls = ColumnUInt8::create(rows, 0);
     if (!forced_nulls.empty()) {
@@ -499,7 +499,7 @@ Status cast_typed_variant_to_scalar(FunctionContext* context, const ColumnVarian
                                     const DataTypePtr& target_type, size_t rows,
                                     ForcedNulls forced_nulls, ColumnPtr* output) {
     if (!source.is_typed() || source.size() != rows) {
-        return Status::InvalidArgument("Expected a typed Variant V2 source with {} rows", rows);
+        return Status::InternalError("Expected a typed Variant V2 source with {} rows", rows);
     }
     ColumnPtr converted;
     RETURN_IF_ERROR(execute_typed_cast(context, source.typed_column().get_ptr(),
@@ -511,8 +511,8 @@ Status cast_variant_refs_to_scalar(FunctionContext* context, std::span<const Var
                                    const DataTypePtr& target_type, ForcedNulls forced_nulls,
                                    ColumnPtr* output) {
     if (!forced_nulls.empty() && forced_nulls.size() != values.size()) {
-        return Status::InvalidArgument("Variant V2 CAST null map has {} rows, expected {}",
-                                       forced_nulls.size(), values.size());
+        return Status::InternalError("Variant V2 CAST null map has {} rows, expected {}",
+                                     forced_nulls.size(), values.size());
     }
     ScalarGroups groups;
     for (size_t row = 0; row < values.size(); ++row) {
@@ -527,7 +527,7 @@ Status cast_encoded_variant_to_scalar(FunctionContext* context, const ColumnVari
                                       ForcedNulls forced_nulls, ColumnPtr* output) {
     if (source.is_typed() || source.size() != rows ||
         (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid encoded Variant V2 input for scalar CAST");
+        return Status::InternalError("Invalid encoded Variant V2 input for scalar CAST");
     }
     ScalarGroups groups;
     for (size_t row = 0; row < rows; ++row) {
@@ -542,7 +542,7 @@ Status cast_variant_values_to_scalar(FunctionContext* context, const ColumnVaria
                                      const DataTypePtr& target_type, size_t rows,
                                      ForcedNulls forced_nulls, ColumnPtr* output) {
     if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid Variant V2 input for canonical scalar CAST");
+        return Status::InternalError("Invalid Variant V2 input for canonical scalar CAST");
     }
     ScalarGroups groups;
     visit_variant_v2_values(
@@ -563,15 +563,15 @@ ColumnPtr make_all_null_column(const DataTypePtr& nested_type, size_t rows) {
 
 Status apply_forced_nulls(ColumnPtr column, ForcedNulls forced_nulls, ColumnPtr* output) {
     if (!column) {
-        return Status::InvalidArgument("Cannot apply a null map to an empty Variant V2 result");
+        return Status::InternalError("Cannot apply a null map to an empty Variant V2 result");
     }
     if (forced_nulls.empty()) {
         *output = std::move(column);
         return Status::OK();
     }
     if (forced_nulls.size() != column->size()) {
-        return Status::InvalidArgument("Variant V2 CAST null map has {} rows, expected {}",
-                                       forced_nulls.size(), column->size());
+        return Status::InternalError("Variant V2 CAST null map has {} rows, expected {}",
+                                     forced_nulls.size(), column->size());
     }
     auto nulls = ColumnUInt8::create(column->size(), 0);
     if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
