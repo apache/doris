@@ -34,7 +34,7 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -168,11 +168,11 @@ public class ShowLanceIndexJobsCommand extends ShowCommand {
     private void analyzeSubPredicate(Expression expr) throws AnalysisException {
         if (!(expr instanceof EqualTo)
                 || !(expr.child(0) instanceof UnboundSlot)
-                || !(expr.child(1) instanceof StringLiteral)) {
+                || !(expr.child(1) instanceof StringLikeLiteral)) {
             throw new AnalysisException(WHERE_HINT);
         }
         String key = ((UnboundSlot) expr.child(0)).getName();
-        String value = ((StringLiteral) expr.child(1)).getStringValue();
+        String value = ((StringLikeLiteral) expr.child(1)).getStringValue();
         if (key.equalsIgnoreCase(KEY_TABLE_NAME)) {
             tableNameValue = value;
         } else if (key.equalsIgnoreCase(KEY_STATE)) {
