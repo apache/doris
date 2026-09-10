@@ -651,6 +651,26 @@ public class LanceIndexAdmissionTest {
     }
 
     @Test
+    public void reservedSystemNameIsRejectedWithoutAnySnapshotRead() {
+        // Fail cheap-first: the admission-depth reserved-prefix rejection runs before target
+        // capture and the snapshot read, so a reserved name never costs a remote metadata read.
+        LanceIndexAdmission.SnapshotLoader forbiddingLoader = (cat, dbName, tblName) -> {
+            throw new AssertionError("snapshot read must not happen for reserved names");
+        };
+
+        assertInvalid(() -> LanceIndexAdmission.admitCreate(forbiddingLoader, catalog, database,
+                table, annDef("__lance_foo", false, false), false),
+                "index name '__lance_foo' uses the reserved '__lance_' prefix of Lance system indexes");
+        assertInvalid(() -> LanceIndexAdmission.admitCreate(forbiddingLoader, catalog, database,
+                table, annDef("__lance_foo", false, true), false),
+                "index name '__lance_foo' uses the reserved '__lance_' prefix of Lance system indexes");
+        assertInvalid(() -> LanceIndexAdmission.admitDrop(forbiddingLoader, catalog, database,
+                table, "__lance_foo", false),
+                "index name '__lance_foo' uses the reserved '__lance_' prefix of Lance system indexes");
+        assertNothingPersisted();
+    }
+
+    @Test
     public void ambiguousCaseCollisionIsRejectedThreeWays() {
         LanceIndexAdmissionSnapshot snapshot = snapshot(
                 Arrays.asList(logicalIndex("IdxA", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON),

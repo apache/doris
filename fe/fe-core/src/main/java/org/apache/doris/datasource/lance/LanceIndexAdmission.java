@@ -53,11 +53,13 @@ import javax.annotation.Nullable;
  * IF preflight never takes a second metadata read, and no catalog/db/table metadata lock is held
  * while the snapshot loader does its JNI work (design section 5.1).
  *
- * <p>The step order is the correctness contract: snapshot read, name normalization and reserved
- * prefix, case-only collision analysis, IF preflight (including the two-stage {@code matches}:
- * requested-algorithm equality plus physical-family corroboration), schema contract from the
- * stored column name, locator normalization, deterministic properties JSON, positive-quota
- * assertion, and only then exactly one id allocation and the durable {@code createJob} transfer.
+ * <p>The step order is the correctness contract: name normalization and reserved prefix come
+ * first, before target capture and the snapshot read (fail cheap-first — a reserved name
+ * rejected at admission depth costs no remote read), then case-only collision analysis, IF
+ * preflight (including the two-stage {@code matches}: requested-algorithm equality plus
+ * physical-family corroboration), schema contract from the stored column name, locator
+ * normalization, deterministic properties JSON, positive-quota assertion, and only then exactly
+ * one id allocation and the durable {@code createJob} transfer.
  * Every rejection before {@code createJob} leaves no job, no fence, no quota charge, no journal
  * record, and no id allocation; the manager's own fence/quota rejections pass through verbatim
  * (an id burned by them is accepted — ids are never required to be contiguous).
@@ -115,16 +117,17 @@ public final class LanceIndexAdmission {
     static Outcome admitCreate(SnapshotLoader loader, LanceExternalCatalog catalog,
             LanceExternalDatabase db, LanceExternalTable table, IndexDefinition def, boolean ifNotExists)
             throws Exception {
-        // 1. One pinned snapshot for every authoritative decision below.
-        CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
-        CatalogMgr.LanceIndexTarget target = catalogMgr.captureLanceIndexTarget(catalog);
-        LanceIndexAdmissionSnapshot snapshot = loader.load(catalog, db.getRemoteName(), table.getRemoteName());
-        // 2. Display/normalized names; the reserved system prefix is rejected for CREATE and
-        // REPLACE exactly as for DROP (the static layer rejects it first; this is the
-        // defense-in-depth copy at admission depth).
+        // 1. Display/normalized names and the reserved system prefix, checked before any metadata
+        // read so a reserved name rejected at admission depth costs no remote snapshot read (fail
+        // cheap-first). The prefix is rejected for CREATE and REPLACE exactly as for DROP; the
+        // static layer rejects it first and this is the defense-in-depth copy at admission depth.
         String displayName = def.getIndexName();
         String normalizedName = LanceIndexNameNormalizer.normalize(displayName);
         LanceIndexMutationValidator.rejectIfReservedIndexName(displayName);
+        // 2. One pinned snapshot for every authoritative decision below.
+        CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
+        CatalogMgr.LanceIndexTarget target = catalogMgr.captureLanceIndexTarget(catalog);
+        LanceIndexAdmissionSnapshot snapshot = loader.load(catalog, db.getRemoteName(), table.getRemoteName());
         // 3. Case-only analysis (design section 4.1): ambiguous external collisions fail closed;
         // a unique match resolves to the stored display name.
         List<String> storedNames = logicalIndexNames(snapshot);
@@ -195,11 +198,13 @@ public final class LanceIndexAdmission {
     static Outcome admitDrop(SnapshotLoader loader, LanceExternalCatalog catalog,
             LanceExternalDatabase db, LanceExternalTable table, String indexName, boolean ifExists)
             throws Exception {
+        // Fail cheap-first: the reserved prefix is rejected before target capture and the
+        // snapshot read, so it costs no remote read.
+        String normalizedName = LanceIndexNameNormalizer.normalize(indexName);
+        LanceIndexMutationValidator.rejectIfReservedIndexName(indexName);
         CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
         CatalogMgr.LanceIndexTarget target = catalogMgr.captureLanceIndexTarget(catalog);
         LanceIndexAdmissionSnapshot snapshot = loader.load(catalog, db.getRemoteName(), table.getRemoteName());
-        String normalizedName = LanceIndexNameNormalizer.normalize(indexName);
-        LanceIndexMutationValidator.rejectIfReservedIndexName(indexName);
         List<String> storedNames = logicalIndexNames(snapshot);
         if (LanceIndexFamilies.isAmbiguousCaseCollision(storedNames, normalizedName)) {
             rejectInvalid("index name '" + indexName
