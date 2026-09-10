@@ -138,6 +138,9 @@ public class AIResource extends Resource {
             if (kv.getKey().equals(AIProperties.API_KEY)
                     || kv.getKey().equals(AIProperties.EMBED_API_KEY)) {
                 this.properties.put(kv.getKey(), kv.getValue());
+            } else if (kv.getKey().equals(AIProperties.EFFORT)
+                    && Strings.isNullOrEmpty(kv.getValue())) {
+                this.properties.remove(kv.getKey());
             }
         }
         ++version;
