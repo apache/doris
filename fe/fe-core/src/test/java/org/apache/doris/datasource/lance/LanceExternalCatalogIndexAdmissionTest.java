@@ -21,7 +21,9 @@ import org.apache.doris.common.AnalysisException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -106,5 +108,25 @@ public class LanceExternalCatalogIndexAdmissionTest {
         Assertions.assertEquals("Lance index admission is not supported for Lance REST catalogs",
                 exception.getDetailMessage());
         Assertions.assertFalse(catalog.isInitialized());
+    }
+
+    @Test
+    public void testLoadTableIndexAdmissionSnapshotWrapsMissingTableFailure(@TempDir Path warehouse) {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceExternalCatalog.LANCE_CATALOG_TYPE, LanceExternalCatalog.LANCE_FILESYSTEM);
+        properties.put(LanceExternalCatalog.WAREHOUSE, warehouse.toString());
+        LanceExternalCatalog catalog = new LanceExternalCatalog(
+                304, "lance_admission_missing_table", null, properties, "");
+
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.loadTableIndexAdmissionSnapshot("missing_db", "missing_tbl"));
+
+        Assertions.assertTrue(exception.getMessage().startsWith(
+                "Failed to load Lance index admission snapshot for missing_db.missing_tbl:"),
+                exception.getMessage());
+        Assertions.assertNotNull(exception.getCause());
+        Assertions.assertNotNull(exception.getCause().getMessage());
+        Assertions.assertFalse(exception.getCause().getMessage().isEmpty());
     }
 }

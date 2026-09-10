@@ -186,7 +186,7 @@ public final class LanceIndexMetadataLoader {
      * logical path: the raw list is bounded before per-entry validation, system entries are
      * validated then filtered out, and duplicate UUID ownership fails closed.
      */
-    private static List<LanceIndexAdmissionSnapshot.PhysicalIndexInfo> collectPhysicalIndexInfos(
+    static List<LanceIndexAdmissionSnapshot.PhysicalIndexInfo> collectPhysicalIndexInfos(
             Dataset dataset) {
         List<Index> indexes = dataset.getIndexes();
         if (indexes == null) {
