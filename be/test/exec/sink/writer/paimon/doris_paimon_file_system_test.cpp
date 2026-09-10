@@ -20,11 +20,14 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
+#include "util/defer_op.h"
 
 namespace doris {
 namespace {
@@ -201,6 +204,33 @@ TEST(DorisPaimonFileSystemTest, ObjectWriteReadAndLogicalNamespace) {
     EXPECT_EQ(1, callbacks);
     ASSERT_TRUE(in->Close().ok());
     EXPECT_FALSE(in->Read(bytes, 1).ok());
+}
+
+TEST(DorisPaimonFileSystemTest, LocalWriteReadAndLogicalNamespace) {
+    char directory[] = "/tmp/doris_paimon_fs_XXXXXX";
+    ASSERT_NE(nullptr, mkdtemp(directory));
+    auto fs = io::global_local_filesystem();
+    Defer cleanup {[&] { EXPECT_TRUE(fs->delete_directory(directory).ok()); }};
+    const std::string storage_root = std::string(directory) + "/table with spaces+%20?#";
+    const std::string table_root = "file:" + storage_root;
+    DorisPaimonFileSystem adapter(fs, table_root, storage_root, nullptr);
+    const auto logical_path = table_root + "/data/part";
+    ASSERT_TRUE(adapter.WriteFile(logical_path, "data", false).ok());
+
+    bool exists = false;
+    ASSERT_TRUE(fs->exists(storage_root + "/data/part", &exists).ok());
+    ASSERT_TRUE(exists);
+    auto opened = adapter.Open(logical_path);
+    ASSERT_TRUE(opened.ok()) << opened.status().ToString();
+    auto in = std::move(opened).value();
+    EXPECT_EQ(logical_path, in->GetUri().value());
+    char bytes[4] {};
+    ASSERT_EQ(4, in->Read(bytes, sizeof(bytes)).value());
+    EXPECT_EQ("data", std::string(bytes, sizeof(bytes)));
+    ASSERT_TRUE(in->Close().ok());
+    ASSERT_TRUE(adapter.cleanup_owned_files().ok());
+    ASSERT_TRUE(fs->exists(storage_root + "/data/part", &exists).ok());
+    EXPECT_FALSE(exists);
 }
 
 TEST(DorisPaimonFileSystemTest, PrefixListingAndDeleteScope) {

@@ -20,22 +20,19 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TPaimonCppColumn;
-import org.apache.doris.thrift.TPaimonCppStorageDescriptor;
-import org.apache.doris.thrift.TPaimonCppWriteDescriptor;
+import org.apache.doris.thrift.TPaimonStorageDescriptor;
 import org.apache.doris.thrift.TPaimonWriteMode;
 
 import com.google.common.collect.ImmutableSet;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataField;
 
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -55,18 +52,18 @@ public final class PaimonCppWriteSupport {
     @Getter
     @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
     public static final class Decision {
-        private final TPaimonCppWriteDescriptor descriptor;
+        private final TPaimonStorageDescriptor storage;
         private final String fallbackReason;
 
         public boolean isSupported() {
-            return descriptor != null;
+            return storage != null;
         }
 
-        public TPaimonCppWriteDescriptor getDescriptor() {
+        public TPaimonStorageDescriptor getStorage() {
             if (!isSupported()) {
-                throw new IllegalStateException("No native descriptor: " + fallbackReason);
+                throw new IllegalStateException("No paimon-cpp storage: " + fallbackReason);
             }
-            return descriptor;
+            return storage;
         }
     }
 
@@ -76,7 +73,7 @@ public final class PaimonCppWriteSupport {
         if (reason != null) {
             return new Decision(null, reason);
         }
-        TPaimonCppStorageDescriptor storage;
+        TPaimonStorageDescriptor storage;
         try {
             storage = describeStorage(table, storageProperties);
         } catch (RuntimeException e) {
@@ -84,13 +81,16 @@ public final class PaimonCppWriteSupport {
             return new Decision(null,
                     "storage is not supported by the Doris native Paimon filesystem adapter");
         }
-        return new Decision(describe(table, storage), null);
+        return new Decision(storage, null);
     }
 
     private static String unsupportedFormatReason(FileStoreTable table, List<String> columns,
             TPaimonWriteMode mode) {
         if (mode != TPaimonWriteMode.APPEND) {
             return "v1 only supports APPEND";
+        }
+        if (table.fileIO() instanceof RESTTokenFileIO || table.catalogEnvironment().supportsVersionManagement()) {
+            return "catalog-managed tokens and snapshots require JNI";
         }
         if (!table.schema().primaryKeys().isEmpty() || !table.schema().partitionKeys().isEmpty()) {
             return "v1 requires an unpartitioned append table";
@@ -127,29 +127,7 @@ public final class PaimonCppWriteSupport {
         return null;
     }
 
-    private static TPaimonCppWriteDescriptor describe(FileStoreTable table,
-            TPaimonCppStorageDescriptor storage) {
-        TPaimonCppWriteDescriptor descriptor = new TPaimonCppWriteDescriptor();
-        // Preserve the SDK's logical namespace. Only the filesystem adapter maps it to
-        // Doris's normalized location (e.g. oss://bucket/table -> s3://bucket/table).
-        descriptor.setRootPath(storage.getFileType() == TFileType.FILE_LOCAL
-                ? storage.getRootPath() : table.location().toString());
-        descriptor.setStorage(storage);
-        descriptor.setSchemaId(table.schema().id());
-        List<TPaimonCppColumn> columns = new ArrayList<>();
-        for (DataField field : table.schema().fields()) {
-            columns.add(new TPaimonCppColumn(field.type().getTypeRoot().name(), field.type().isNullable()));
-        }
-        descriptor.setColumns(columns);
-        Map<String, String> options = new HashMap<>(table.options());
-        options.put("file.format", "parquet");
-        options.put("manifest.format", "avro");
-        options.put("write-only", "true");
-        descriptor.setOptions(options);
-        return descriptor;
-    }
-
-    private static TPaimonCppStorageDescriptor describeStorage(FileStoreTable table,
+    private static TPaimonStorageDescriptor describeStorage(FileStoreTable table,
             Map<StorageProperties.Type, StorageProperties> storageProperties) {
         URI location = table.location().toUri();
         String path = location.getPath();
@@ -161,7 +139,7 @@ public final class PaimonCppWriteSupport {
             if (location.getAuthority() != null) {
                 throw new IllegalArgumentException("Local Paimon paths cannot have an authority");
             }
-            return new TPaimonCppStorageDescriptor(TFileType.FILE_LOCAL, path, Collections.emptyMap());
+            return new TPaimonStorageDescriptor(TFileType.FILE_LOCAL, path, Collections.emptyMap());
         }
         // S3URI currently interprets '?' and '#' as URI components, not object-key bytes.
         // Reject ambiguous keys rather than writing to a different object.
@@ -177,6 +155,6 @@ public final class PaimonCppWriteSupport {
             throw new IllegalArgumentException(
                     "Storage configuration is not a Doris native object-store configuration");
         }
-        return new TPaimonCppStorageDescriptor(TFileType.FILE_S3, resolved.toStorageLocation().toString(), backend);
+        return new TPaimonStorageDescriptor(TFileType.FILE_S3, resolved.toStorageLocation().toString(), backend);
     }
 }

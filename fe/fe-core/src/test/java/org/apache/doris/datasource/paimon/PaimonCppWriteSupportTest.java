@@ -19,19 +19,15 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TPaimonCppWriteDescriptor;
-import org.apache.doris.thrift.TPaimonTableSink;
-import org.apache.doris.thrift.TPaimonWriteBackendType;
+import org.apache.doris.thrift.TPaimonTableDescriptor;
 import org.apache.doris.thrift.TPaimonWriteMode;
 
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
-import org.apache.thrift.TDeserializer;
-import org.apache.thrift.TSerializer;
-import org.apache.thrift.protocol.TCompactProtocol;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -57,13 +53,17 @@ public class PaimonCppWriteSupportTest {
         return PaimonCppWriteSupport.decide(table, columns, mode, storage).getFallbackReason();
     }
 
-    private TPaimonCppWriteDescriptor describe(FileStoreTable table) {
+    private TPaimonTableDescriptor describe(FileStoreTable table) {
         return describe(table, Collections.emptyMap());
     }
 
-    private TPaimonCppWriteDescriptor describe(FileStoreTable table,
+    private TPaimonTableDescriptor describe(FileStoreTable table,
             Map<StorageProperties.Type, StorageProperties> storage) {
-        return PaimonCppWriteSupport.decide(table, COLUMNS, TPaimonWriteMode.APPEND, storage).getDescriptor();
+        TPaimonTableDescriptor descriptor = PaimonWriteBinding.describeTable(
+                table, Collections.emptyMap(), Collections.emptyMap());
+        descriptor.setStorage(PaimonCppWriteSupport.decide(
+                table, COLUMNS, TPaimonWriteMode.APPEND, storage).getStorage());
+        return descriptor;
     }
 
     private FileStoreTable table(Map<String, String> overrides, List<String> partitions,
@@ -81,56 +81,12 @@ public class PaimonCppWriteSupportTest {
         Mockito.when(table.schema()).thenReturn(schema);
         Mockito.when(table.options()).thenReturn(options);
         Mockito.when(table.location()).thenReturn(new Path(location));
+        Mockito.when(table.catalogEnvironment()).thenReturn(CatalogEnvironment.empty());
         return table;
     }
 
     private FileStoreTable table(Map<String, String> overrides) {
         return table(overrides, Collections.emptyList(), Collections.emptyList(), "file:///tmp/paimon");
-    }
-
-    @Test
-    public void testSupportedAppendDescriptor() {
-        FileStoreTable table = table(Collections.emptyMap());
-        Assert.assertNull(unsupportedReason(table, COLUMNS, TPaimonWriteMode.APPEND));
-        TPaimonCppWriteDescriptor desc = describe(table);
-        Assert.assertEquals(TFileType.FILE_LOCAL, desc.getStorage().getFileType());
-        Assert.assertEquals(7, desc.getSchemaId());
-        Assert.assertEquals("/tmp/paimon", desc.getRootPath());
-        Assert.assertEquals(COLUMNS.size(), desc.getColumnsSize());
-        Assert.assertEquals("INTEGER", desc.getColumns().get(0).getType());
-        Assert.assertEquals("VARCHAR", desc.getColumns().get(1).getType());
-        Assert.assertFalse(desc.getColumns().get(0).isNullable());
-        Assert.assertTrue(desc.getColumns().get(1).isNullable());
-        Assert.assertFalse(table.options().containsKey("manifest.format"));
-        Assert.assertEquals("avro", desc.getOptions().get("manifest.format"));
-    }
-
-    @Test
-    public void testNativeSinkThriftRoundTrip() throws Exception {
-        TPaimonTableSink sink = new TPaimonTableSink();
-        sink.setBackendType(TPaimonWriteBackendType.CPP);
-        sink.setWriteMode(TPaimonWriteMode.APPEND);
-        sink.setCommitUser("test-writer");
-        sink.setColumnNames(COLUMNS);
-        sink.setCppDescriptor(describe(table(Collections.emptyMap())));
-
-        byte[] bytes = new TSerializer(new TCompactProtocol.Factory()).serialize(sink);
-        TPaimonTableSink restored = new TPaimonTableSink();
-        new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored, bytes);
-        Assert.assertEquals(sink, restored);
-        Assert.assertFalse(restored.isSetSerializedTable());
-        Assert.assertFalse(restored.isSetHadoopConfig());
-        Assert.assertEquals(COLUMNS, restored.getColumnNames());
-        Assert.assertEquals(COLUMNS.size(), restored.getCppDescriptor().getColumnsSize());
-    }
-
-    @Test
-    public void testOwnerDoesNotChangeWriteCapability() {
-        FileStoreTable table = table(Collections.singletonMap("owner", "hadoop"));
-        Assert.assertNull(unsupportedReason(table, COLUMNS, TPaimonWriteMode.APPEND));
-        Assert.assertEquals("hadoop", describe(table).getOptions().get("owner"));
-        Assert.assertNotNull(unsupportedReason(
-                table(Collections.singletonMap("unknown-option", "true")), COLUMNS, TPaimonWriteMode.APPEND));
     }
 
     @Test
@@ -140,12 +96,13 @@ public class PaimonCppWriteSupportTest {
                     Collections.emptyList(), location);
             Assert.assertNull(unsupportedReason(table, COLUMNS, TPaimonWriteMode.APPEND));
             Path original = table.location();
-            Assert.assertEquals("/tmp/p", describe(table).getRootPath());
-            Assert.assertSame(original, table.location());
+            TPaimonTableDescriptor descriptor = describe(table);
+            Assert.assertEquals(original.toString(), descriptor.getRootPath());
+            Assert.assertEquals("/tmp/p", descriptor.getStorage().getRootPath());
         }
         FileStoreTable table = table(Collections.emptyMap(), Collections.emptyList(),
                 Collections.emptyList(), "file:/tmp/a b+%20?#");
-        Assert.assertEquals("/tmp/a b+%20?#", describe(table).getRootPath());
+        Assert.assertEquals("/tmp/a b+%20?#", describe(table).getStorage().getRootPath());
     }
 
     @Test
@@ -156,13 +113,15 @@ public class PaimonCppWriteSupportTest {
             Mockito.when(table.location()).thenReturn(new Path(URI.create(location)));
             Assert.assertNotNull(location,
                     unsupportedReason(table, COLUMNS, TPaimonWriteMode.APPEND));
-            Assert.assertThrows(IllegalStateException.class, () -> describe(table));
         }
     }
 
     @Test
     public void testUnsupportedOptionsAndModes() {
+        Assert.assertNull(unsupportedReason(
+                table(Collections.singletonMap("owner", "hadoop")), COLUMNS, TPaimonWriteMode.APPEND));
         for (Map<String, String> options : Arrays.asList(
+                Collections.singletonMap("unknown-option", "true"),
                 Collections.singletonMap("bucket", "4"),
                 Collections.singletonMap("write-only", "false"),
                 Collections.singletonMap("file.format", "orc"),
@@ -201,35 +160,17 @@ public class PaimonCppWriteSupportTest {
                     Collections.emptyList(), testCase[1]);
             Assert.assertNull(testCase[1], unsupportedReason(
                     table, COLUMNS, TPaimonWriteMode.APPEND, storage));
-            TPaimonCppWriteDescriptor desc = describe(table, storage);
+            TPaimonTableDescriptor desc = describe(table, storage);
             Assert.assertEquals(testCase[1], desc.getRootPath());
             Assert.assertEquals(TFileType.FILE_S3, desc.getStorage().getFileType());
             Assert.assertTrue(desc.getStorage().getRootPath().startsWith("s3://"));
             Assert.assertTrue(desc.getStorage().getRootPath().endsWith("/table"));
             Assert.assertEquals("test-secret", desc.getStorage().getProperties().get("AWS_SECRET_KEY"));
-            Assert.assertFalse(desc.getOptions().containsKey("AWS_SECRET_KEY"));
+            Assert.assertFalse(TableSchema.fromJson(desc.getSchemaJson()).options().containsKey("AWS_SECRET_KEY"));
             if ("azure".equals(testCase[0])) {
                 Assert.assertEquals("azure", desc.getStorage().getProperties().get("provider"));
             }
         }
-    }
-
-    @Test
-    public void testDecisionResolvesStorageOnlyOnce() throws Exception {
-        Map<String, String> properties = new HashMap<>();
-        properties.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
-        properties.put("s3.access_key", "test-account");
-        properties.put("s3.secret_key", "test-secret");
-        StorageProperties provider = Mockito.spy(StorageProperties.createAll(properties).stream()
-                .filter(p -> p.getType() == StorageProperties.Type.S3).findFirst().get());
-        FileStoreTable table = table(Collections.emptyMap(), Collections.emptyList(),
-                Collections.emptyList(), "s3://bucket/table");
-        PaimonCppWriteSupport.Decision decision = PaimonCppWriteSupport.decide(table, COLUMNS,
-                TPaimonWriteMode.APPEND, Collections.singletonMap(StorageProperties.Type.S3, provider));
-        Assert.assertTrue(decision.isSupported());
-        Assert.assertSame(decision.getDescriptor(), decision.getDescriptor());
-        Assert.assertNull(decision.getFallbackReason());
-        Mockito.verify(provider, Mockito.times(1)).validateAndNormalizeUri("s3://bucket/table");
     }
 
     @Test
@@ -251,15 +192,12 @@ public class PaimonCppWriteSupportTest {
     }
 
     @Test
-    public void testUnsupportedRoutingAndStorage() {
+    public void testUnsupportedTableLayout() {
         Assert.assertNotNull(unsupportedReason(
                 table(Collections.emptyMap(), Collections.singletonList("id"), Collections.emptyList(), "/tmp/p"),
                 COLUMNS, TPaimonWriteMode.APPEND));
         Assert.assertNotNull(unsupportedReason(
                 table(Collections.emptyMap(), Collections.emptyList(), Collections.singletonList("id"), "/tmp/p"),
-                COLUMNS, TPaimonWriteMode.APPEND));
-        Assert.assertNotNull(unsupportedReason(
-                table(Collections.emptyMap(), Collections.emptyList(), Collections.emptyList(), "s3://bucket/p"),
                 COLUMNS, TPaimonWriteMode.APPEND));
         Assert.assertNotNull(unsupportedReason(
                 table(Collections.emptyMap()), Arrays.asList("name", "id"), TPaimonWriteMode.APPEND));

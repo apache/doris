@@ -1097,10 +1097,10 @@ build_grpc() {
 build_paimon_cpp() {
     check_if_source_exist "${PAIMON_CPP_SOURCE}"
     cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
-    # Repository-owned patch; upstream scripts must not be sourced into this shell.
-    if [[ ! -f doris-schema-pin.patched ]]; then
-        patch -p1 < "${TP_DIR}/patches/paimon-cpp-0.3.0-schema-pin.patch"
-        touch doris-schema-pin.patched
+    # Allow the writer to consume the FE-selected table schema.
+    if [[ ! -f doris-table-schema.patched ]]; then
+        patch -p1 < "${TP_DIR}/patches/paimon-cpp-0.3.0-table-schema.patch"
+        touch doris-table-schema.patched
     fi
     local paimon_runtime_flags="" paimon_install_rpath='$ORIGIN'
     if [[ "${KERNEL}" == "Linux" ]]; then

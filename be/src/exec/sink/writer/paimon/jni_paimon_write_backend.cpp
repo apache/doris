@@ -26,7 +26,7 @@
 
 #include <algorithm>
 #include <atomic>
-#include <map>
+#include <limits>
 #include <mutex>
 #include <string_view>
 #include <vector>
@@ -42,6 +42,7 @@
 #include "util/defer_op.h"
 #include "util/jni-util.h"
 #include "util/pretty_printer.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -194,8 +195,7 @@ void retain_resources_after_failed_close(std::unique_ptr<PaimonJniMemoryManager>
 
 static constexpr const char* PAIMON_JNI_WRITER_CLASS = "org/apache/doris/paimon/PaimonJniWriter";
 const char* const PAIMON_JNI_WRITER_OPEN_SIGNATURE =
-        "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
-        "String;JJJ)V";
+        "([B[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/String;JJJ)V";
 
 PaimonJniWriterOpenMode PaimonJniWriterOpenMode::from_write_mode(
         TPaimonWriteMode::type write_mode) {
@@ -322,8 +322,9 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     _arrow_schema.reset();
     DORIS_CHECK(sink.__isset.column_names);
     DORIS_CHECK(sink.__isset.write_mode);
-    DORIS_CHECK(sink.__isset.serialized_table);
-    DORIS_CHECK(!sink.serialized_table.empty());
+    if (!sink.__isset.table_descriptor) {
+        return Status::InvalidArgument("Missing Paimon table descriptor");
+    }
     DORIS_CHECK(sink.__isset.transaction_id);
     DORIS_CHECK(sink.transaction_id > 0);
     DORIS_CHECK(sink.__isset.commit_user);
@@ -387,11 +388,19 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     }
 
     // Step 5: Build Java arguments and call PaimonJniWriter.open().
-    const std::map<std::string, std::string> empty_config;
-    jstring j_serialized_table = env->NewStringUTF(sink.serialized_table.c_str());
-    Jni::LocalObject j_hadoop_config;
-    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(
-            env, sink.__isset.hadoop_config ? sink.hadoop_config : empty_config, &j_hadoop_config));
+    ThriftSerializer serializer(true, 4096);
+    uint32_t descriptor_size = 0;
+    uint8_t* descriptor_data = nullptr;
+    RETURN_IF_ERROR(
+            serializer.serialize(&sink.table_descriptor, &descriptor_size, &descriptor_data));
+    if (descriptor_size > static_cast<uint32_t>(std::numeric_limits<jsize>::max())) {
+        return Status::InvalidArgument("Paimon table descriptor exceeds JNI array size");
+    }
+    jbyteArray j_table_descriptor = env->NewByteArray(static_cast<jsize>(descriptor_size));
+    RETURN_IF_ERROR(_check_jni_exception(env, "allocate Paimon table descriptor"));
+    env->SetByteArrayRegion(j_table_descriptor, 0, static_cast<jsize>(descriptor_size),
+                            reinterpret_cast<const jbyte*>(descriptor_data));
+    RETURN_IF_ERROR(_check_jni_exception(env, "copy Paimon table descriptor"));
     jstring j_commit_user = env->NewStringUTF(sink.commit_user.c_str());
     jstring j_time_zone = env->NewStringUTF(state->timezone().c_str());
 
@@ -407,7 +416,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 
     PaimonJniWriterOpenMode open_mode = PaimonJniWriterOpenMode::from_write_mode(sink.write_mode);
     env->CallVoidMethod(
-            _jni_writer_obj, open_id, j_serialized_table, j_hadoop_config.get(), j_cols,
+            _jni_writer_obj, open_id, j_table_descriptor, j_cols,
             static_cast<jlong>(sink.transaction_id), j_commit_user, open_mode.overwrite,
             open_mode.changelog, j_time_zone, static_cast<jlong>(_memory_manager->memory_limit()),
             reinterpret_cast<jlong>(_memory_manager.get()),

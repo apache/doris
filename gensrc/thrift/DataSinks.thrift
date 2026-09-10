@@ -632,25 +632,31 @@ enum TPaimonWriteBackendType {
     CPP = 2,
 }
 
-// Target column types in TPaimonTableSink.column_names order.
-struct TPaimonCppColumn {
-    2: required string type
-    3: required bool nullable
-}
-
 // Doris storage access is separate from the Paimon table's logical location.
-struct TPaimonCppStorageDescriptor {
+struct TPaimonStorageDescriptor {
     1: required Types.TFileType file_type
     2: required string root_path // FE-normalized Doris location; decoded absolute path for FILE_LOCAL
     3: required map<string, string> properties
 }
 
-struct TPaimonCppWriteDescriptor {
-    2: required string root_path // Paimon logical location; same as storage.root_path for FILE_LOCAL
-    3: required i64 schema_id
-    4: required list<TPaimonCppColumn> columns
-    5: required map<string, string> options
-    6: optional TPaimonCppStorageDescriptor storage // populated for native writes
+// Catalog services needed by a writer; snapshot commit remains owned by FE.
+struct TPaimonCatalogEnvironment {
+    1: required string database_name
+    2: required string object_name // includes Paimon's branch suffix, if present
+    3: optional string uuid
+    4: optional bool snapshot_loader = false
+    5: optional bool version_management = false
+    6: optional bool rest_token_enabled = false
+}
+
+// Language-neutral table definition shared by all Paimon write backends.
+struct TPaimonTableDescriptor {
+    1: required string root_path // Paimon logical location; storage.root_path is the Doris access location
+    2: required string schema_json // complete Paimon TableSchema, including field IDs and effective options
+    3: required map<string, string> hadoop_config
+    4: required map<string, string> catalog_options
+    5: optional TPaimonCatalogEnvironment catalog_environment
+    6: optional TPaimonStorageDescriptor storage // resolved Doris filesystem access, when supported
 }
 
 enum TPaimonWriteMode {
@@ -664,14 +670,14 @@ struct TPaimonCommitMessage {
 }
 
 struct TPaimonTableSink {
-    1: optional string serialized_table           // JNI only; serialized Paimon Table object (base64)
-    2: optional map<string, string> hadoop_config
+    1: optional string serialized_table // Deprecated: use table_descriptor.schema_json.
+    2: optional map<string, string> hadoop_config // Deprecated: use table_descriptor.hadoop_config.
     3: optional list<string> column_names
     4: optional TPaimonWriteBackendType backend_type
     5: optional TPaimonWriteMode write_mode
     6: optional i64 transaction_id
     7: optional string commit_user
-    8: optional TPaimonCppWriteDescriptor cpp_descriptor
+    9: optional TPaimonTableDescriptor table_descriptor
 }
 
 struct TDataSink {

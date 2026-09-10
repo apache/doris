@@ -49,7 +49,7 @@ import java.util.Set;
 /**
  * Paimon table sink.
  *
- * Generates TPaimonTableSink payload consumed by BE, including serialized table
+ * Generates TPaimonTableSink payload consumed by BE, including the pinned table
  * metadata, Hadoop authentication config, transaction identity, write mode,
  * and sink column names.
  *
@@ -134,9 +134,8 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         // Arrow conversion and the Java writer schema.
         List<String> outputColumnNames = outputColumnNames();
 
-        // FE owns table metadata resolution. BE and the JNI writer consume this
-        // exact table instance instead of loading catalog metadata independently.
-        tSink.setSerializedTable(binding.getSerializedTable());
+        // Both SDKs construct their writer from the same FE-selected table definition.
+        tSink.setTableDescriptor(binding.getTableDescriptor());
 
         tSink.setBackendType(TPaimonWriteBackendType.JNI);
         if (isChangelogWrite()) {
@@ -146,8 +145,6 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         } else {
             tSink.setWriteMode(TPaimonWriteMode.APPEND);
         }
-
-        tSink.setHadoopConfig(binding.getHadoopConfig());
 
         tSink.setColumnNames(outputColumnNames);
 
@@ -159,10 +156,8 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
                     binding.getTable(), outputColumnNames, tSink.getWriteMode(),
                     targetTable.getCatalog().getCatalogProperty().getStoragePropertiesMap());
             if (decision.isSupported()) {
-                tSink.setCppDescriptor(decision.getDescriptor());
+                tSink.getTableDescriptor().setStorage(decision.getStorage());
                 tSink.setBackendType(TPaimonWriteBackendType.CPP);
-                tSink.unsetSerializedTable();
-                tSink.unsetHadoopConfig();
                 backendSelectionReason = "paimon-cpp supported";
             } else {
                 backendSelectionReason = "JNI fallback: " + decision.getFallbackReason();

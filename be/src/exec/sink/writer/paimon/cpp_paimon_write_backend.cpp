@@ -23,6 +23,7 @@
 #include <paimon/file_store_write.h>
 #include <paimon/memory/memory_pool.h>
 #include <paimon/record_batch.h>
+#include <paimon/schema/schema.h>
 #include <paimon/write_context.h>
 
 #include <algorithm>
@@ -196,19 +197,6 @@ struct ExportOwner {
     }
 };
 
-std::shared_ptr<arrow::DataType> arrow_type(const std::string& type) {
-    if (type == "BOOLEAN") return arrow::boolean();
-    if (type == "TINYINT") return arrow::int8();
-    if (type == "SMALLINT") return arrow::int16();
-    if (type == "INTEGER") return arrow::int32();
-    if (type == "BIGINT") return arrow::int64();
-    if (type == "FLOAT") return arrow::float32();
-    if (type == "DOUBLE") return arrow::float64();
-    if (type == "VARCHAR") return arrow::utf8();
-    if (type == "VARBINARY") return arrow::binary();
-    return nullptr;
-}
-
 } // namespace
 
 std::shared_ptr<paimon::MemoryPool> make_paimon_query_memory_pool(
@@ -219,15 +207,14 @@ std::shared_ptr<paimon::MemoryPool> make_paimon_query_memory_pool(
 class CppPaimonWriteBackend::Impl {
 public:
     Status open(const TPaimonTableSink& sink, RuntimeState* state, RuntimeProfile* profile) {
-        if (!sink.__isset.cpp_descriptor || !sink.__isset.write_mode ||
+        if (!sink.__isset.table_descriptor || !sink.__isset.write_mode ||
             sink.write_mode != TPaimonWriteMode::APPEND || !sink.__isset.commit_user ||
             sink.commit_user.empty() || state->get_query_ctx() == nullptr ||
             state->query_mem_tracker() == nullptr) {
             return Status::InvalidArgument("Incomplete native Paimon write description");
         }
-        const auto& desc = sink.cpp_descriptor;
-        if (desc.columns.empty() || !sink.__isset.column_names ||
-            desc.columns.size() != sink.column_names.size()) {
+        const auto& desc = sink.table_descriptor;
+        if (!sink.__isset.column_names || sink.column_names.empty()) {
             return Status::InvalidArgument("Native Paimon column order is missing");
         }
         // Reject configuration mismatch rather than silently falling back after dispatch.
@@ -236,20 +223,23 @@ public:
              desc.storage.file_type != TFileType::FILE_S3)) {
             return Status::NotSupported("Missing or unsupported Doris Paimon storage descriptor");
         }
-        const auto& root_path = desc.root_path;
         const auto& storage = desc.storage;
+        const auto& root_path = desc.root_path;
         // FE selects supported write options and normalizes storage locations. The filesystem
         // adapter owns logical-to-storage path mapping; the backend only consumes the descriptor.
-        arrow::FieldVector fields;
-        for (size_t i = 0; i < desc.columns.size(); ++i) {
-            const auto& column = desc.columns[i];
-            auto type = arrow_type(column.type);
-            if (!type) {
-                return Status::NotSupported("Unsupported native Paimon type {}", column.type);
-            }
-            fields.push_back(arrow::field(sink.column_names[i], type, column.nullable));
-        }
-        _schema = arrow::schema(fields);
+        auto table_schema = paimon::DataSchema::FromJson(desc.schema_json);
+        if (!table_schema.ok()) return sdk_status(table_schema.status());
+        // Import through C Data, never pass Arrow C++ objects between the two SDK versions.
+        auto c_schema_result = table_schema.value()->GetArrowSchema();
+        if (!c_schema_result.ok()) return sdk_status(c_schema_result.status());
+        auto c_schema = std::move(c_schema_result).value();
+        Defer release_schema {[&] {
+            if (c_schema->release) c_schema->release(c_schema.get());
+        }};
+        auto schema = arrow::ImportSchema(c_schema.get());
+        if (!schema.ok())
+            return Status::InternalError("Paimon Arrow schema: {}", schema.status().ToString());
+        _schema = std::move(schema).ValueOrDie();
         auto context = state->get_query_ctx()->resource_ctx();
         int64_t limit = config::paimon_cpp_writer_memory_limit_bytes;
         const auto query_limit = state->query_mem_tracker()->limit();
@@ -272,10 +262,11 @@ public:
         if (!fs.has_value()) return fs.error();
         _filesystem = std::make_shared<DorisPaimonFileSystem>(std::move(fs.value()), root_path,
                                                               storage.root_path, context);
-        auto options = desc.options;
-        options["doris.expected-schema-id"] = std::to_string(desc.schema_id);
         paimon::WriteContextBuilder builder(root_path, sink.commit_user);
-        auto ctx = builder.SetOptions(options)
+        const auto& options = table_schema.value()->Options();
+        auto branch = options.find("branch");
+        auto ctx = builder.WithTableSchema(table_schema.value())
+                           .WithBranch(branch == options.end() ? "main" : branch->second)
                            .WithFileSystem(_filesystem)
                            .WithMemoryPool(_pool)
                            .WithWriteSchema(sink.column_names)
@@ -295,6 +286,10 @@ public:
         std::shared_ptr<arrow::RecordBatch> batch;
         RETURN_IF_ERROR(convert_to_arrow_batch(block, _schema, _arrow_pool.get(), &batch,
                                                state->timezone_obj()));
+        auto validation = batch->Validate();
+        if (!validation.ok()) {
+            return Status::InvalidArgument("Paimon Arrow batch: {}", validation.ToString());
+        }
         ArrowArray data {};
         Defer release {[&] {
             if (data.release) data.release(&data);
