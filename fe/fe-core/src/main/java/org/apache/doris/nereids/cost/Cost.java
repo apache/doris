@@ -17,10 +17,6 @@
 
 package org.apache.doris.nereids.cost;
 
-import org.apache.doris.qe.SessionVariable;
-
-import com.google.common.base.Preconditions;
-
 /**
  * CostV1.
  */
@@ -39,7 +35,7 @@ public class Cost {
     /**
      * Constructor of CostV1.
      */
-    public Cost(SessionVariable sessionVariable, double cpuCost, double memoryCost, double networkCost) {
+    public Cost(CostWeight costWeight, double cpuCost, double memoryCost, double networkCost) {
         // TODO: fix stats
         cpuCost = Double.max(0, cpuCost);
         memoryCost = Double.max(0, memoryCost);
@@ -48,13 +44,8 @@ public class Cost {
         this.memoryCost = memoryCost;
         this.networkCost = networkCost;
 
-        double cpuWeight = sessionVariable.getCboCpuWeight();
-        double memoryWeight = sessionVariable.getCboMemWeight();
-        double networkWeight = sessionVariable.getCboNetWeight();
-        Preconditions.checkArgument(cpuWeight >= 0, "cpuWeight cannot be negative");
-        Preconditions.checkArgument(memoryWeight >= 0, "memoryWeight cannot be negative");
-        Preconditions.checkArgument(networkWeight >= 0, "networkWeight cannot be negative");
-        this.cost = cpuWeight * cpuCost + memoryWeight * memoryCost + networkWeight * networkCost;
+        this.cost = costWeight.cpuWeight * cpuCost + costWeight.memoryWeight * memoryCost
+                + costWeight.networkWeight * networkCost;
     }
 
     private Cost(double cost, double cpuCost, double memoryCost, double networkCost) {
@@ -88,12 +79,12 @@ public class Cost {
         return cost;
     }
 
-    public static Cost of(SessionVariable sessionVariable, double cpuCost, double maxMemory, double networkCost) {
-        return new Cost(sessionVariable, cpuCost, maxMemory, networkCost);
+    public static Cost of(CostWeight costWeight, double cpuCost, double maxMemory, double networkCost) {
+        return new Cost(costWeight, cpuCost, maxMemory, networkCost);
     }
 
-    public static Cost ofCpu(SessionVariable sessionVariable, double cpuCost) {
-        return new Cost(sessionVariable, cpuCost, 0, 0);
+    public static Cost ofCpu(CostWeight costWeight, double cpuCost) {
+        return new Cost(costWeight, cpuCost, 0, 0);
     }
 
     /** Add another cost without recomputing the weighted value. */

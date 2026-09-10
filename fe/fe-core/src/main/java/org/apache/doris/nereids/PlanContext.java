@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
@@ -71,6 +72,10 @@ public class PlanContext {
 
     public void setBroadcastJoin() {
         isBroadcastJoin = true;
+    }
+
+    public CostWeight getCostWeight() {
+        return getStatementContext().getCostWeight();
     }
 
     public boolean isBroadcastJoin() {
