@@ -32,18 +32,6 @@
 
 namespace doris {
 
-int AdaptiveThreadPoolController::PoolGroup::get_max_threads() const {
-    int num_cpus = std::thread::hardware_concurrency();
-    if (num_cpus <= 0) num_cpus = 1;
-    return static_cast<int>(num_cpus * max_threads_per_cpu);
-}
-
-int AdaptiveThreadPoolController::PoolGroup::get_min_threads() const {
-    int num_cpus = std::thread::hardware_concurrency();
-    if (num_cpus <= 0) num_cpus = 1;
-    return std::max(1, static_cast<int>(num_cpus * min_threads_per_cpu));
-}
-
 // Static callback registered with bthread_timer_add.
 // Runs in brpc TimerThread. Must be fast and non-blocking.
 void AdaptiveThreadPoolController::_on_timer(void* raw) {
@@ -98,16 +86,25 @@ void AdaptiveThreadPoolController::stop() {
 void AdaptiveThreadPoolController::add(std::string name, std::vector<ThreadPool*> pools,
                                        AdjustFunc adjust_func, double max_threads_per_cpu,
                                        double min_threads_per_cpu, int64_t interval_ms) {
+    int num_cpus = std::thread::hardware_concurrency();
+    if (num_cpus <= 0) num_cpus = 1;
+    add_with_thread_limits(std::move(name), std::move(pools), std::move(adjust_func),
+                           static_cast<int>(num_cpus * max_threads_per_cpu),
+                           std::max(1, static_cast<int>(num_cpus * min_threads_per_cpu)),
+                           interval_ms);
+}
+
+void AdaptiveThreadPoolController::add_with_thread_limits(std::string name,
+                                                          std::vector<ThreadPool*> pools,
+                                                          AdjustFunc adjust_func, int max_threads,
+                                                          int min_threads, int64_t interval_ms) {
     PoolGroup group;
     group.name = name;
     group.pools = std::move(pools);
     group.adjust_func = std::move(adjust_func);
-    group.max_threads_per_cpu = max_threads_per_cpu;
-    group.min_threads_per_cpu = min_threads_per_cpu;
-    group.current_threads = group.get_max_threads();
-
-    int log_max = group.get_max_threads();
-    int log_min = group.get_min_threads();
+    group.max_threads = max_threads;
+    group.min_threads = min_threads;
+    group.current_threads = max_threads;
 
     auto* arg = new TimerArg();
     arg->ctrl = this;
@@ -128,7 +125,7 @@ void AdaptiveThreadPoolController::add(std::string name, std::vector<ThreadPool*
     }
 
     LOG(INFO) << "Adaptive: added pool group '" << name << "'"
-              << ", max_threads=" << log_max << ", min_threads=" << log_min
+              << ", max_threads=" << max_threads << ", min_threads=" << min_threads
               << ", interval_ms=" << interval_ms;
 }
 
@@ -181,8 +178,8 @@ void AdaptiveThreadPoolController::_fire_group(const std::string& name) {
         const PoolGroup& g = it->second;
         fn = g.adjust_func;
         current = g.current_threads;
-        min_t = g.get_min_threads();
-        max_t = g.get_max_threads();
+        min_t = g.min_threads;
+        max_t = g.max_threads;
     }
 
     // Phase 2: compute target — no lock held (adjust_func may call is_io_busy etc.).
@@ -212,8 +209,8 @@ void AdaptiveThreadPoolController::adjust_once() {
 
 void AdaptiveThreadPoolController::_apply_thread_count(PoolGroup& group, int target_threads,
                                                        const std::string& reason) {
-    int max_threads = group.get_max_threads();
-    int min_threads = group.get_min_threads();
+    int max_threads = group.max_threads;
+    int min_threads = group.min_threads;
     target_threads = std::max(min_threads, std::min(max_threads, target_threads));
     if (target_threads == group.current_threads) return;
 

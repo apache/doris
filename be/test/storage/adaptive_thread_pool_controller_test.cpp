@@ -25,7 +25,10 @@
 #include "common/config.h"
 #include "common/metrics/metrics.h"
 #include "common/metrics/system_metrics.h"
+#include "storage/delete/calc_delete_bitmap_executor.h"
 #include "testutil/test_util.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -106,6 +109,88 @@ TEST_F(AdaptiveThreadPoolControllerTest, TestMultiplePoolGroups) {
 
     EXPECT_EQ(controller.get_current_threads("group_a"), num_cpus * 4);
     EXPECT_EQ(controller.get_current_threads("group_b"), num_cpus * 2);
+}
+
+// Absolute limits must not scale with CPU count, and disabling adjustment freezes the pool.
+TEST_F(AdaptiveThreadPoolControllerTest, TestAbsoluteThreadLimits) {
+    config::enable_adaptive_flush_threads = true;
+    ASSERT_TRUE(_pool->set_min_threads(1).ok());
+    ASSERT_TRUE(_pool->set_max_threads(3).ok());
+    AdaptiveThreadPoolController controller;
+    controller.init(nullptr, nullptr);
+    int target = 100;
+    controller.add_with_thread_limits(
+            "absolute", {_pool.get()}, [&target](int, int, int, std::string&) { return target; }, 3,
+            1, 3600000);
+
+    target = 0;
+    controller.adjust_once();
+    EXPECT_EQ(controller.get_current_threads("absolute"), 1);
+    EXPECT_EQ(_pool->max_threads(), 1);
+    target = 100;
+    controller.adjust_once();
+    EXPECT_EQ(controller.get_current_threads("absolute"), 3);
+    EXPECT_EQ(_pool->max_threads(), 3);
+
+    config::enable_adaptive_flush_threads = false;
+    target = 1;
+    controller.adjust_once();
+    EXPECT_EQ(_pool->max_threads(), 3);
+}
+
+TEST_F(AdaptiveThreadPoolControllerTest, TestIndependentDeleteBitmapQueues) {
+    config::enable_adaptive_flush_threads = true;
+    CalcDeleteBitmapExecutor tablet_executor;
+    tablet_executor.init("TestTabletDeleteBitmap", 4);
+    CalcDeleteBitmapExecutor load_executor;
+    load_executor.init("TestLoadDeleteBitmap", 3);
+    auto* tablet_pool = tablet_executor.thread_pool();
+    auto* load_pool = load_executor.thread_pool();
+
+    AdaptiveThreadPoolController controller;
+    controller.init(nullptr, nullptr);
+    controller.add_with_thread_limits(
+            "tablet", {tablet_pool},
+            AdaptiveThreadPoolController::make_flush_adjust_func(&controller, tablet_pool), 4, 1,
+            3600000);
+    controller.add_with_thread_limits(
+            "load", {load_pool},
+            AdaptiveThreadPoolController::make_flush_adjust_func(&controller, load_pool), 3, 1,
+            3600000);
+
+    // Simulate a previous reduction under system pressure, then let the real
+    // queue-based policy recover each pool independently.
+    controller._apply_thread_count(controller._pool_groups.at("tablet"), 1, "test");
+    controller._apply_thread_count(controller._pool_groups.at("load"), 1, "test");
+    CountDownLatch tablet_release(1);
+    CountDownLatch load_release(1);
+    Defer release = [&] {
+        controller.stop();
+        tablet_release.count_down();
+        load_release.count_down();
+        tablet_pool->wait();
+        load_pool->wait();
+    };
+    constexpr int task_count = AdaptiveThreadPoolController::kQueueThreshold + 8;
+    for (int i = 0; i < task_count; ++i) {
+        ASSERT_TRUE(tablet_pool->submit_func([&] { tablet_release.wait(); }).ok());
+    }
+    controller.adjust_once();
+    EXPECT_EQ(tablet_pool->max_threads(), 2);
+    EXPECT_EQ(load_pool->max_threads(), 1);
+
+    tablet_release.count_down();
+    tablet_pool->wait();
+    for (int i = 0; i < task_count; ++i) {
+        ASSERT_TRUE(load_pool->submit_func([&] { load_release.wait(); }).ok());
+    }
+    controller.adjust_once();
+    EXPECT_EQ(tablet_pool->max_threads(), 2);
+    EXPECT_EQ(load_pool->max_threads(), 2);
+    controller.adjust_once();
+    controller.adjust_once();
+    EXPECT_EQ(tablet_pool->max_threads(), 2);
+    EXPECT_EQ(load_pool->max_threads(), 3);
 }
 
 // Test that when adaptive is disabled, adjust_once is a no-op (config guard in _fire_group)

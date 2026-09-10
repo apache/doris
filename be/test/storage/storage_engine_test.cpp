@@ -33,8 +33,10 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "storage/data_dir.h"
+#include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta_manager.h"
+#include "util/defer_op.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -67,6 +69,34 @@ public:
     std::string _engine_data_path;
     std::unique_ptr<DataDir> _data_dir;
 };
+
+TEST_F(StorageEngineTest, TestAdaptiveDeleteBitmapRegistration) {
+    const bool original_enable = config::enable_adaptive_flush_threads;
+    Defer restore_config = [&] { config::enable_adaptive_flush_threads = original_enable; };
+    _storage_engine->_calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
+    _storage_engine->_calc_delete_bitmap_executor->init("TestTabletDeleteBitmap", 4);
+    _storage_engine->_calc_delete_bitmap_executor_for_load =
+            std::make_unique<CalcDeleteBitmapExecutor>();
+    _storage_engine->_calc_delete_bitmap_executor_for_load->init("TestLoadDeleteBitmap", 3);
+    auto* controller = _storage_engine->adaptive_thread_controller();
+    Defer stop = [&] { controller->stop(); };
+
+    config::enable_adaptive_flush_threads = false;
+    _storage_engine->_start_adaptive_thread_controller();
+    EXPECT_EQ(controller->get_current_threads("calc_delete_bitmap"), 0);
+    EXPECT_EQ(controller->get_current_threads("calc_delete_bitmap_for_load"), 0);
+
+    config::enable_adaptive_flush_threads = true;
+    _storage_engine->_start_adaptive_thread_controller();
+    EXPECT_EQ(controller->get_current_threads("calc_delete_bitmap"), 4);
+    EXPECT_EQ(controller->get_current_threads("calc_delete_bitmap_for_load"), 3);
+    EXPECT_EQ(controller->_pool_groups.at("calc_delete_bitmap").min_threads, 1);
+    EXPECT_EQ(controller->_pool_groups.at("calc_delete_bitmap_for_load").min_threads, 1);
+    EXPECT_EQ(controller->_pool_groups.at("calc_delete_bitmap").pools.front(),
+              _storage_engine->_calc_delete_bitmap_executor->thread_pool());
+    EXPECT_EQ(controller->_pool_groups.at("calc_delete_bitmap_for_load").pools.front(),
+              _storage_engine->_calc_delete_bitmap_executor_for_load->thread_pool());
+}
 
 TEST_F(StorageEngineTest, TestBrokenDisk) {
     std::string path = config::custom_config_dir + "/be_custom.conf";
