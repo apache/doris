@@ -63,6 +63,31 @@ suite("infer_agg_not_null") {
         LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
     """
 
+    order_qt_null_ignoring_aggregate_identities """
+        SELECT SUM(r.v), SUM0(r.v), ARRAY_SIZE(COLLECT_LIST(r.v)),
+               BITMAP_COUNT(BITMAP_AGG(r.v))
+        FROM infer_agg_not_null_left l
+        LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
+    """
+
+    order_qt_all_null_equals_empty_input """
+        SELECT
+            (SELECT SUM(v) FROM infer_agg_not_null_right WHERE k = 3),
+            (SELECT SUM(v) FROM infer_agg_not_null_right WHERE FALSE),
+            (SELECT SUM0(v) FROM infer_agg_not_null_right WHERE k = 3),
+            (SELECT SUM0(v) FROM infer_agg_not_null_right WHERE FALSE),
+            (SELECT ARRAY_SIZE(COLLECT_LIST(v)) FROM infer_agg_not_null_right WHERE k = 3),
+            (SELECT ARRAY_SIZE(COLLECT_LIST(v)) FROM infer_agg_not_null_right WHERE FALSE),
+            (SELECT BITMAP_COUNT(BITMAP_AGG(v)) FROM infer_agg_not_null_right WHERE k = 3),
+            (SELECT BITMAP_COUNT(BITMAP_AGG(v)) FROM infer_agg_not_null_right WHERE FALSE)
+    """
+
+    order_qt_null_sensitive_aggregates_keep_rows """
+        SELECT ARRAY_SIZE(ARRAY_AGG(r.v)), MAP_SIZE(MAP_AGG(l.k, r.v))
+        FROM infer_agg_not_null_left l
+        LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
+    """
+
     explain {
         sql """
             SHAPE PLAN
@@ -97,6 +122,28 @@ suite("infer_agg_not_null") {
         sql """
             SHAPE PLAN
             SELECT COUNT(r.v), ARRAY_SIZE(ARRAY_AGG(r.v))
+            FROM infer_agg_not_null_left l
+            LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
+        """
+        contains "LEFT_OUTER_JOIN"
+    }
+
+    explain {
+        sql """
+            SHAPE PLAN
+            SELECT SUM(r.v), SUM0(r.v), ARRAY_SIZE(COLLECT_LIST(r.v)),
+                   BITMAP_COUNT(BITMAP_AGG(r.v))
+            FROM infer_agg_not_null_left l
+            LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
+        """
+        contains "INNER_JOIN"
+        notContains "LEFT_OUTER_JOIN"
+    }
+
+    explain {
+        sql """
+            SHAPE PLAN
+            SELECT ARRAY_SIZE(ARRAY_AGG(r.v)), MAP_SIZE(MAP_AGG(l.k, r.v))
             FROM infer_agg_not_null_left l
             LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
         """

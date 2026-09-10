@@ -35,7 +35,7 @@ import java.util.List;
  * AggregateFunction 'percentile_reservoir'
  */
 public class PercentileReservoir extends NullableAggregateFunction
-        implements BinaryExpression, ExplicitlyCastableSignature {
+        implements BinaryExpression, ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE)
