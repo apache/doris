@@ -363,11 +363,14 @@ public class NereidsParser {
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
+    /** Parse SQL for masking without applying execution hints to the session. */
     public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString) {
         CommonTokenStream tokenStream = parseLeanTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
+        // SQL masking must not apply SET_VAR hints to the current session.
+        // The original SQL, including its hints, is preserved by the property replacements.
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForEncryption(
-                getHintMap(sql, tokenStream, DorisParser::selectHint), indexInSqlToString);
+                ImmutableMap.of(), indexInSqlToString);
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
