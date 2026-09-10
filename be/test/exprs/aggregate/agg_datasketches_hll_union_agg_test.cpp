@@ -17,6 +17,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <hll.hpp>
 
 #include "agent/be_exec_version_manager.h"
@@ -603,6 +605,45 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMixedLgKMergeKeepsAllIn
     ASSERT_TRUE(data.hll_union_data.has_value());
     EXPECT_EQ(data.hll_union_data->get_lg_config_k(), 8);
     EXPECT_NEAR(data.get_result(), 3 * cardinality, 0.2 * 3 * cardinality);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
+       testHigherLgMaxKTightensHighCardinalityErrorBounds) {
+    constexpr uint64_t cardinality_per_sketch = 100000;
+    constexpr double exact_cardinality = 2 * cardinality_per_sketch;
+    const auto first = create_sketch(16, 0, cardinality_per_sketch);
+    const auto second = create_sketch(16, cardinality_per_sketch, cardinality_per_sketch);
+
+    Data data_lg_k_7;
+    data_lg_k_7.merge(first, 7);
+    data_lg_k_7.merge(second, 7);
+    Data data_lg_k_12;
+    data_lg_k_12.merge(first, 12);
+    data_lg_k_12.merge(second, 12);
+    Data data_lg_k_16;
+    data_lg_k_16.merge(first, 16);
+    data_lg_k_16.merge(second, 16);
+
+    ASSERT_TRUE(data_lg_k_7.hll_union_data.has_value());
+    ASSERT_TRUE(data_lg_k_12.hll_union_data.has_value());
+    ASSERT_TRUE(data_lg_k_16.hll_union_data.has_value());
+
+    auto verify_accuracy = [&](const Data& data, uint8_t expected_lg_k) {
+        const auto& hll_union = data.hll_union_data.value();
+        EXPECT_EQ(hll_union.get_lg_config_k(), expected_lg_k);
+        EXPECT_LE(hll_union.get_lower_bound(3), exact_cardinality);
+        EXPECT_GE(hll_union.get_upper_bound(3), exact_cardinality);
+    };
+    verify_accuracy(data_lg_k_7, 7);
+    verify_accuracy(data_lg_k_12, 12);
+    verify_accuracy(data_lg_k_16, 16);
+
+    auto max_relative_error = [](uint8_t lg_k) {
+        return std::max(Data::Union::get_rel_err(false, true, lg_k, 3),
+                        std::abs(Data::Union::get_rel_err(true, true, lg_k, 3)));
+    };
+    EXPECT_GT(max_relative_error(7), max_relative_error(12));
+    EXPECT_GT(max_relative_error(12), max_relative_error(16));
 }
 
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
