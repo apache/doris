@@ -113,7 +113,7 @@ public final class LanceIndexMetadataLoader {
         if (indexes.size() > MAX_PHYSICAL_INDEX_ENTRIES) {
             throw new IllegalArgumentException(
                     "Lance physical index entry count exceeds limit "
-                            + MAX_PHYSICAL_INDEX_ENTRIES);
+                            + MAX_PHYSICAL_INDEX_ENTRIES + " (actual=" + indexes.size() + ")");
         }
         List<LancePhysicalIndexEntry> entries = new ArrayList<>(indexes.size());
         Set<String> seenUuids = new HashSet<>();
@@ -163,7 +163,7 @@ public final class LanceIndexMetadataLoader {
         if (listedNames.size() > MAX_PHYSICAL_INDEX_ENTRIES) {
             throw new IllegalArgumentException(
                     "Lance physical index entry count exceeds limit "
-                            + MAX_PHYSICAL_INDEX_ENTRIES);
+                            + MAX_PHYSICAL_INDEX_ENTRIES + " (actual=" + listedNames.size() + ")");
         }
 
         Set<String> userIndexNames = new LinkedHashSet<>();
@@ -176,7 +176,9 @@ public final class LanceIndexMetadataLoader {
             userIndexNames.add(name);
             if (userIndexNames.size() > MAX_LOGICAL_INDEXES) {
                 throw new IllegalArgumentException(
-                        "Lance logical index count exceeds limit " + MAX_LOGICAL_INDEXES);
+                        "Lance logical index count exceeds limit " + MAX_LOGICAL_INDEXES
+                                + " (observed=" + userIndexNames.size()
+                                + ", listed_entries=" + listedNames.size() + ")");
             }
         }
 
@@ -190,7 +192,8 @@ public final class LanceIndexMetadataLoader {
             // A criteria query is an exact lookup; any other cardinality is inconsistent metadata.
             if (matching.size() != 1) {
                 throw new IllegalArgumentException(
-                        "Lance index criteria must return exactly one description");
+                        "Lance index criteria must return exactly one description (actual="
+                                + matching.size() + ")");
             }
             IndexDescription description = matching.get(0);
             if (description == null) {
@@ -214,7 +217,8 @@ public final class LanceIndexMetadataLoader {
         }
         if (fields.size() > MAX_SCHEMA_FIELDS) {
             throw new IllegalArgumentException(
-                    "Lance schema field count exceeds limit " + MAX_SCHEMA_FIELDS);
+                    "Lance schema field count exceeds limit " + MAX_SCHEMA_FIELDS
+                            + " (actual=" + fields.size() + ")");
         }
         Map<Integer, String> fieldNames = new HashMap<>();
         SchemaTraversalState traversalState = new SchemaTraversalState();
@@ -228,7 +232,8 @@ public final class LanceIndexMetadataLoader {
             Map<Integer, String> fieldNames, SchemaTraversalState traversalState) {
         if (depth > MAX_SCHEMA_DEPTH) {
             throw new IllegalArgumentException(
-                    "Lance schema depth exceeds limit " + MAX_SCHEMA_DEPTH);
+                    "Lance schema depth exceeds limit " + MAX_SCHEMA_DEPTH
+                            + " (observed=" + depth + ")");
         }
         if (field == null) {
             throw new IllegalArgumentException("Lance schema field must not be null");
@@ -236,7 +241,8 @@ public final class LanceIndexMetadataLoader {
         ++traversalState.fieldCount;
         if (traversalState.fieldCount > MAX_SCHEMA_FIELDS) {
             throw new IllegalArgumentException(
-                    "Lance schema field count exceeds limit " + MAX_SCHEMA_FIELDS);
+                    "Lance schema field count exceeds limit " + MAX_SCHEMA_FIELDS
+                            + " (observed=" + traversalState.fieldCount + ")");
         }
         String segment = formatFieldPathSegment(
                 requireExternalString(field.getName(), "Lance schema field name"));
@@ -273,7 +279,8 @@ public final class LanceIndexMetadataLoader {
         }
         if (descriptions.size() > MAX_LOGICAL_INDEXES) {
             throw new IllegalArgumentException(
-                    "Lance logical index count exceeds limit " + MAX_LOGICAL_INDEXES);
+                    "Lance logical index count exceeds limit " + MAX_LOGICAL_INDEXES
+                            + " (actual=" + descriptions.size() + ")");
         }
         if (fieldNames == null) {
             throw new IllegalArgumentException("Lance field names must not be null");
@@ -298,7 +305,8 @@ public final class LanceIndexMetadataLoader {
             }
             if (fieldIds.size() > MAX_COLUMNS_PER_INDEX) {
                 throw new IllegalArgumentException(
-                        "Lance logical index column count exceeds limit " + MAX_COLUMNS_PER_INDEX);
+                        "Lance logical index column count exceeds limit " + MAX_COLUMNS_PER_INDEX
+                                + " (actual=" + fieldIds.size() + ")");
             }
 
             List<String> columns = new ArrayList<>(fieldIds.size());
@@ -322,7 +330,8 @@ public final class LanceIndexMetadataLoader {
                 if (aggregateColumnNamesBytes > MAX_COLUMN_NAMES_BYTES) {
                     throw new IllegalArgumentException(
                             "Lance logical index column names exceed aggregate limit "
-                                    + MAX_COLUMN_NAMES_BYTES + " UTF-8 bytes");
+                                    + MAX_COLUMN_NAMES_BYTES + " UTF-8 bytes (observed="
+                                    + aggregateColumnNamesBytes + ")");
                 }
                 columns.add(column);
             }
@@ -357,7 +366,8 @@ public final class LanceIndexMetadataLoader {
         if (utf8Length(detailsJson) > MAX_EXTERNAL_STRING_BYTES) {
             throw new IllegalArgumentException(
                     "Lance index details JSON exceeds limit "
-                            + MAX_EXTERNAL_STRING_BYTES + " UTF-8 bytes");
+                            + MAX_EXTERNAL_STRING_BYTES + " UTF-8 bytes (actual="
+                            + utf8Length(detailsJson) + ")");
         }
         if (StringUtils.isBlank(detailsJson)) {
             return "{}";
@@ -391,7 +401,8 @@ public final class LanceIndexMetadataLoader {
         if (utf8Length(properties) > MAX_PROPERTIES_BYTES) {
             throw new IllegalArgumentException(
                     "Lance index properties exceed limit "
-                            + MAX_PROPERTIES_BYTES + " UTF-8 bytes");
+                            + MAX_PROPERTIES_BYTES + " UTF-8 bytes (actual="
+                            + utf8Length(properties) + ")");
         }
         return properties;
     }
@@ -446,7 +457,8 @@ public final class LanceIndexMetadataLoader {
         }
         if (utf8Length(value) > MAX_EXTERNAL_STRING_BYTES) {
             throw new IllegalArgumentException(valueType + " exceeds limit "
-                    + MAX_EXTERNAL_STRING_BYTES + " UTF-8 bytes");
+                    + MAX_EXTERNAL_STRING_BYTES + " UTF-8 bytes (actual="
+                    + utf8Length(value) + ")");
         }
         return value;
     }

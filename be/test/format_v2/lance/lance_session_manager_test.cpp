@@ -69,6 +69,9 @@ TEST(LanceSessionManagerTest, PublishesSessionCacheMetrics) {
             .lance_index_cache_size_bytes = INDEX_CACHE_CAPACITY,
             .lance_metadata_cache_size_bytes = METADATA_CACHE_CAPACITY,
             .enable_lance_data_cache = false,
+            .lance_data_cache_path = "",
+            .lance_data_cache_disk_capacity_bytes = 0,
+            .lance_data_cache_read_block_size_bytes = 0,
     };
     LanceSessionManager manager(std::move(config));
     LanceDataset* raw_dataset = nullptr;
