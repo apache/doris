@@ -967,16 +967,37 @@ TEST_F(ColumnZoneMapTest, LegacyFloatZoneMapWithoutHasNanDegradesToPassAll) {
             ZoneMap zm;
             ASSERT_TRUE(ZoneMap::from_proto(legacy_pb(1.0, 2.0), data_type, zm).ok());
             EXPECT_TRUE(zm.pass_all) << "type=" << primitive_type << ", nullable=" << nullable;
-            // The null flags stay usable, so IS NULL and IS NOT NULL keep pruning.
+            // The null flags survive, and so does the pruning that reads only them:
+            // eval_null_zonemap never consults pass_all. The ColumnPredicate path in
+            // ColumnReader::_get_filtered_pages does return early on pass_all, so it loses its
+            // IS NULL pruning for this zone map.
             EXPECT_TRUE(zm.has_not_null);
             EXPECT_FALSE(zm.has_null);
 
-            // The same zone map from a writer that does report the flag keeps its bounds.
+            // The same bounds from a writer that does report the flag stay usable.
             auto pb = legacy_pb(1.0, 2.0);
             pb.set_has_nan(false);
             ZoneMap current;
             ASSERT_TRUE(ZoneMap::from_proto(pb, data_type, current).ok());
-            EXPECT_FALSE(current.pass_all) << "type=" << primitive_type;
+            EXPECT_FALSE(current.pass_all)
+                    << "type=" << primitive_type << ", nullable=" << nullable;
+            if (primitive_type == TYPE_DOUBLE) {
+                EXPECT_EQ(1.0, current.min_value.get<TYPE_DOUBLE>());
+                EXPECT_EQ(2.0, current.max_value.get<TYPE_DOUBLE>());
+            } else {
+                EXPECT_EQ(1.0F, current.min_value.get<TYPE_FLOAT>());
+                EXPECT_EQ(2.0F, current.max_value.get<TYPE_FLOAT>());
+            }
+
+            // A legacy zone with no non-null value never received one, so no NaN can hide in it.
+            // The bound text is irrelevant here: from_proto only parses it when has_not_null.
+            auto all_null = legacy_pb(1.0, 2.0);
+            all_null.set_has_null(true);
+            all_null.set_has_not_null(false);
+            ZoneMap all_null_zm;
+            ASSERT_TRUE(ZoneMap::from_proto(all_null, data_type, all_null_zm).ok());
+            EXPECT_FALSE(all_null_zm.pass_all)
+                    << "type=" << primitive_type << ", nullable=" << nullable;
         }
     }
 
@@ -1149,8 +1170,10 @@ TEST_F(ColumnZoneMapTest, ReversedBoundsDegradeToPassAll) {
         pb.set_has_nan(false);
         return pb;
     };
-    // What a page of only NaN leaves behind before 4.0: bounds that never moved off the values
-    // the writer starts from, and that round-trip exactly, so only the reversal gives them away.
+    // add_values() starts each call from numeric_limits::max() and ::lowest(), and a page whose
+    // only non-null values are NaN or infinity leaves them there, so the stored pair comes back
+    // reversed. These strings round-trip exactly, and the reversal is the first signal either way:
+    // is_reversed runs before the flag overrides.
     const std::string double_lowest = "-1.7976931348623157e+308";
     const std::string double_highest = "1.7976931348623157e+308";
     const std::string float_lowest = "-3.4028235e+38";

@@ -79,14 +79,16 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
 
     auto field_type = data_type->get_storage_field_type();
 
-    // has_positive_inf, has_negative_inf and has_nan were all added together with NaN-aware
-    // float/double zone maps. A zone map serialized before that carries none of them, and its
-    // bounds came from a comparison that never selects a NaN, so a hidden NaN cannot be ruled out.
-    // Doris orders NaN above every other value, so `x > c` can be true for a row that these bounds
-    // say cannot exist. Treat such a zone map as covering everything instead of as NaN-free.
+    // has_nan arrived with NaN-aware float/double zone maps, so its absence means the writer could
+    // not report NaN and the bounds came from a comparison that never selects one: a hidden NaN
+    // cannot be ruled out. Doris orders NaN above every other value, so `x > c` can be true for a
+    // row that these bounds say cannot exist. Treat such a zone map as covering everything instead
+    // of as NaN-free. A zone with no non-null value never received one, so it has no NaN to hide;
+    // leaving it usable keeps the three ColumnPredicate checks that start from has_not_null: the
+    // null predicates, each comparison predicate's early return, and the in-list one's.
     if ((field_type == FieldType::OLAP_FIELD_TYPE_FLOAT ||
          field_type == FieldType::OLAP_FIELD_TYPE_DOUBLE) &&
-        !zone_map.has_has_nan()) {
+        zone_map.has_not_null() && !zone_map.has_has_nan()) {
         zone_map_info.pass_all = true;
     }
 
