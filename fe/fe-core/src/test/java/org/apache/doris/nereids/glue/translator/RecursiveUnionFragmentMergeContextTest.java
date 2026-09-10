@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
  * fragment of its own. Fusing inside a fragment-merging child hands the scan over to the merging
  * parent, so two olap scans end up in the same fragment, which the scan assignment rejects
  * ("Not supported multiple scan multiple OlapTable but not contains colocate join or bucket shuffle
- * join"). The recursive union is the
+ * join") and FragmentScanAssignmentValidator rejects at planning time. The recursive union is the
  * only merging entry point that did not declare that context, so its base case was fused anyway: the
  * exchange that keeps the merge legal survived only because the property enforcer happens to insert
  * a gather exchange above that child. This test pins the translator contract itself instead of
