@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.planner.PlanNodeId;
@@ -340,6 +341,9 @@ public class FileQueryScanNodeTest {
 
         node.initSchemaParams();
 
+        Assert.assertEquals(FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION,
+                node.params.getParquetTimestampSemanticsVersion());
+        Assert.assertFalse(node.params.isSetHiveParquetTimeZone());
         TExpr defaultExpr = node.params.getDefaultValueOfSrcSlot().get(slot.getId().asInt());
         Assert.assertEquals(TExprNodeType.NULL_LITERAL, defaultExpr.getNodes().get(0).getNodeType());
         Mockito.verify(externalTable, Mockito.never()).getFullSchema();

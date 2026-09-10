@@ -567,8 +567,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // table function fetch schema, whether to enable mapping varbinary
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
         fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
+        fileScanRangeParams.setParquetTimestampSemanticsVersion(
+                FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION);
         String hiveParquetTimeZone = getHiveParquetTimeZone();
-        if (!hiveParquetTimeZone.isEmpty()) {
+        if (hiveParquetTimeZone != null && !hiveParquetTimeZone.isEmpty()) {
             fileScanRangeParams.setHiveParquetTimeZone(hiveParquetTimeZone);
         }
 

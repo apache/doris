@@ -202,9 +202,20 @@ const NativeFieldSchema* find_child_field(const NativeFieldSchema& parent,
     return field_it == parent.children.end() ? nullptr : &*field_it;
 }
 
-Status sync_native_field_types(const ParquetColumnSchema& schema, NativeFieldSchema* field) {
+} // namespace
+
+Status detail::sync_native_field_types(const ParquetColumnSchema& schema,
+                                       NativeFieldSchema* field) {
     DORIS_CHECK(field != nullptr);
-    field->data_type = schema.type;
+    if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
+        DORIS_CHECK(schema.variant_physical_type != nullptr);
+        // Native dispatch still needs Variant's physical group after request-level logical types
+        // are applied; replacing it with TYPE_VARIANT would lose every physical leaf index.
+        field->data_type = schema.variant_physical_type;
+        field->variant_physical_type = schema.variant_physical_type;
+    } else {
+        field->data_type = schema.type;
+    }
     for (const auto& child_schema : schema.children) {
         auto child_it = std::ranges::find_if(field->children, [&](const NativeFieldSchema& child) {
             return (child_schema->parquet_field_id >= 0 &&
@@ -215,10 +226,12 @@ Status sync_native_field_types(const ParquetColumnSchema& schema, NativeFieldSch
             return Status::Corruption("Native/reader parquet child schema mismatch at {}.{}",
                                       field->name, child_schema->name);
         }
-        RETURN_IF_ERROR(sync_native_field_types(*child_schema, &*child_it));
+        RETURN_IF_ERROR(detail::sync_native_field_types(*child_schema, &*child_it));
     }
     return Status::OK();
 }
+
+namespace {
 
 void collect_physical_subtree_ids(const NativeFieldSchema& field, std::set<uint64_t>* ids) {
     DORIS_CHECK(ids != nullptr);
@@ -325,7 +338,8 @@ Status NativeColumnReader::create(
     // Footer metadata is cached and shared across scans. Keep per-request timestamp semantics on a
     // reader-owned copy so mixed Paimon TIMESTAMP/TIMESTAMP_LTZ columns cannot contaminate it.
     native_reader->_native_field_schema = *metadata_field;
-    RETURN_IF_ERROR(sync_native_field_types(column_schema, &native_reader->_native_field_schema));
+    RETURN_IF_ERROR(
+            detail::sync_native_field_types(column_schema, &native_reader->_native_field_schema));
     auto* field = &native_reader->_native_field_schema;
     std::shared_ptr<NativeSchemaNode> schema_node;
     RETURN_IF_ERROR(build_native_schema_node(native_type, column_schema, &schema_node));

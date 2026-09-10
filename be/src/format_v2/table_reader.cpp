@@ -51,6 +51,7 @@
 #include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
+#include "format_v2/parquet/parquet_timestamp_semantics.h"
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
@@ -1632,10 +1633,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     const bool enable_mapping_varbinary = _scan_params != nullptr &&
                                           _scan_params->__isset.enable_mapping_varbinary &&
                                           _scan_params->enable_mapping_varbinary;
-    const std::string hive_parquet_time_zone =
-            _scan_params != nullptr && _scan_params->__isset.hive_parquet_time_zone
-                    ? _scan_params->hive_parquet_time_zone
-                    : "";
+    const std::optional<std::string> hive_parquet_time_zone =
+            parquet::get_int96_timezone_override(_scan_params);
     if (_format == FileFormat::PARQUET) {
         // V2 must honor the scan contract directly; otherwise Hive STRING columns backed by an
         // unannotated BYTE_ARRAY are silently exposed as VARBINARY and predicate bytes no longer

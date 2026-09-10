@@ -676,7 +676,7 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
                              std::shared_ptr<const FileContext> file_context,
                              int64_t format_split_id, int64_t format_split_id_end,
-                             std::string hive_parquet_time_zone)
+                             std::optional<std::string> hive_parquet_time_zone)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(global_rowid_context),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
@@ -705,14 +705,17 @@ Status ParquetReader::init(RuntimeState* state) {
             state != nullptr && state->query_options().enable_parquet_filter_by_bloom_filter;
     _state->enable_page_cache =
             state != nullptr && state->query_options().enable_parquet_file_page_cache;
-    if (!_hive_parquet_time_zone.empty()) {
+    if (_hive_parquet_time_zone.has_value() && !_hive_parquet_time_zone->empty()) {
         cctz::time_zone int96_timezone;
-        if (!TimezoneUtils::find_cctz_time_zone(_hive_parquet_time_zone, int96_timezone)) {
+        if (!TimezoneUtils::find_cctz_time_zone(*_hive_parquet_time_zone, int96_timezone)) {
             return Status::InvalidArgument("Invalid hive.parquet.time-zone: {}",
-                                           _hive_parquet_time_zone);
+                                           *_hive_parquet_time_zone);
         }
         _state->int96_timezone = int96_timezone;
-        _state->scheduler.set_int96_timezone(&*_state->int96_timezone);
+    }
+    if (_hive_parquet_time_zone.has_value()) {
+        _state->scheduler.set_int96_timezone(
+                _state->int96_timezone.has_value() ? &*_state->int96_timezone : nullptr);
     }
     if (state != nullptr) {
         _state->runtime_state = state;
