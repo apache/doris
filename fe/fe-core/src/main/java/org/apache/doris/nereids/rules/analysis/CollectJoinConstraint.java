@@ -30,8 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -54,6 +53,8 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                 LeadingHint leading = (LeadingHint) ctx.cascadesContext
                             .getHintMap().get("Leading");
                 LogicalJoin join = ctx.root;
+                collectLeafPlan(leading, (LogicalPlan) join.left());
+                collectLeafPlan(leading, (LogicalPlan) join.right());
                 if (join.getJoinType().isNullAwareLeftAntiJoin()) {
                     leading.setStatus(Hint.HintStatus.UNUSED);
                     leading.setErrorMessage("condition does not matched joinType");
@@ -99,22 +100,28 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                         leading, leftHand, rightHand, joinType, totalFilterBitMap, nonNullableSlotBitMap);
 
                 return ctx.root;
-            }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
-
-            logicalProject(logicalOlapScan()).thenApply(
-                ctx -> {
-                    if (!ctx.cascadesContext.isLeadingJoin()) {
-                        return ctx.root;
-                    }
-                    LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                            .getHintMap().get("Leading");
-                    LogicalProject<LogicalOlapScan> project = ctx.root;
-                    LogicalOlapScan scan = project.child();
-                    leading.getRelationIdToScanMap().put(scan.getRelationId(), project);
-                    return ctx.root;
-                }
-            ).toRule(RuleType.COLLECT_JOIN_CONSTRAINT)
+            }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT)
         );
+    }
+
+    /**
+     * Remember the whole plan below one side of the join, so that the leading hint can rebuild the join
+     * with exactly the same leaves. The plan could be the relation itself, or the plans which are built
+     * on the relation by the previous analysis rules, e.g. the row policy / data mask filter which is
+     * materialized by CheckPolicy. If only the relation is remembered, these plans are dropped silently
+     * once the join is rebuilt from them.
+     */
+    private void collectLeafPlan(LeadingHint leading, LogicalPlan child) {
+        Set<RelationId> inputRelations = child.getInputRelations();
+        if (inputRelations.size() != 1) {
+            // the child is built on multiple relations, e.g. a join, its own join node is processed separately
+            return;
+        }
+        RelationId relationId = inputRelations.iterator().next();
+        if (relationId == null) {
+            return;
+        }
+        leading.getRelationIdToScanMap().put(relationId, child);
     }
 
     private void collectJoinConstraintList(LeadingHint leading, Long leftHand, Long rightHand, JoinType joinType,
