@@ -23,7 +23,7 @@
 
 # choose a base image
 # doris 2.1, 3.0+, master use JDK 17
-ARG JDK_IMAGE=openjdk:17.0.1-jdk-slim
+ARG JDK_IMAGE=bellsoft/liberica-openjdk-debian:17
 
 # doris 2.0 use JDK 8
 # build 2.0 image, example:
@@ -55,12 +55,13 @@ FROM ${JDK_IMAGE}
 # set environment variables
 ENV JACOCO_VERSION=0.8.8
 
-RUN sed -i -e s@/deb.debian.org/@/mirrors.aliyun.com/@g -e s@/security.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list \
+RUN find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec \
+        sed -i -e s@/deb.debian.org/@/mirrors.aliyun.com/@g -e s@/security.debian.org/@/mirrors.aliyun.com/@g {} + \
     && apt-get clean \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         default-mysql-client \
-        python \
+        python-is-python3 \
         lsof \
         tzdata \
         curl \

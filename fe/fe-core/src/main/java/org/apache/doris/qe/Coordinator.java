@@ -816,6 +816,25 @@ public class Coordinator implements CoordInterface {
         execInternal();
     }
 
+    /**
+     * Whether the BE keeps calling back into this coordinator after {@link #exec()} returned: an
+     * external-table scan in batch mode fetches its splits lazily from the split source that its
+     * scan node holds, so the coordinator must not be closed until the BE has finished scanning.
+     * Arrow Flight SQL uses this to decide whether a query's coordinator has to outlive
+     * GetFlightInfo, the client pulling the results from the BE later in DoGet. See #62259.
+     */
+    public boolean hasBatchSplitSource() {
+        if (scanNodes == null) {
+            return false;
+        }
+        for (ScanNode scanNode : scanNodes) {
+            if (scanNode.hasBatchSplitSource()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public void close() {
         // NOTE: all close method should be no exception
