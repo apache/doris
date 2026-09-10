@@ -149,4 +149,43 @@ TEST_F(ConfigTest, UpdateConfigs) {
     EXPECT_EQ(cfg_std_string, "doris_config_test_string");
 }
 
+// A config declared with one of the _Sensitive macros holds a secret, and every rendering of its
+// value -- the show_config API, information_schema.backend_configuration, the update audit line --
+// goes through mask_config_value().
+TEST_F(ConfigTest, SensitiveConfigsAreMasked) {
+    DEFINE_mString_Sensitive(cfg_secret, "hunter2");
+    DEFINE_mString_Sensitive(cfg_secret_unset, "");
+    DEFINE_mString(cfg_plain, "not-a-secret");
+
+    EXPECT_TRUE(config::init(nullptr, true));
+
+    EXPECT_TRUE(config::is_sensitive_config("cfg_secret"));
+    EXPECT_FALSE(config::is_sensitive_config("cfg_plain"));
+    // An unknown name names no config, so it carries no config secret.
+    EXPECT_FALSE(config::is_sensitive_config("cfg_not_exist"));
+
+    EXPECT_EQ(config::SENSITIVE_CONF_MASK, config::mask_config_value("cfg_secret", "hunter2"));
+    EXPECT_EQ("not-a-secret", config::mask_config_value("cfg_plain", "not-a-secret"));
+    EXPECT_EQ("whatever", config::mask_config_value("cfg_not_exist", "whatever"));
+    // An empty value reveals nothing and keeps "this secret is not configured" visible.
+    EXPECT_EQ("", config::mask_config_value("cfg_secret_unset", ""));
+
+    // The dump the show_config API and information_schema are built from.
+    std::map<std::string, std::string> dumped;
+    for (const auto& config : config::get_config_info()) {
+        dumped.emplace(config[0], config[2]);
+    }
+    EXPECT_EQ(config::SENSITIVE_CONF_MASK, dumped["cfg_secret"]);
+    EXPECT_EQ("", dumped["cfg_secret_unset"]);
+    EXPECT_EQ("not-a-secret", dumped["cfg_plain"]);
+
+    // A secret stays masked after it is updated, and the update itself still takes effect.
+    EXPECT_TRUE(config::set_config("cfg_secret", "hunter3").ok());
+    EXPECT_EQ("hunter3", cfg_secret);
+    EXPECT_EQ(config::SENSITIVE_CONF_MASK, config::mask_config_value("cfg_secret", "hunter3"));
+    // get_config_value() is the raw value: it is what the audit line masks, not the mask itself.
+    EXPECT_EQ("hunter3", config::get_config_value("cfg_secret"));
+    EXPECT_EQ("", config::get_config_value("cfg_not_exist"));
+}
+
 } // namespace doris

@@ -45,11 +45,22 @@
 #define DECLARE_mInt64(name) DECLARE_FIELD(int64_t, name)
 #define DECLARE_mDouble(name) DECLARE_FIELD(double, name)
 #define DECLARE_mString(name) DECLARE_FIELD(std::string, name)
+// A secret carried in a config: only strings can hold one, so only strings have a Sensitive
+// variant. The DECLARE side expands the same as the plain one; it exists so the header says
+// which configs are secrets, the way DECLARE_mString says which ones are mutable.
+#define DECLARE_String_Sensitive(name) DECLARE_FIELD(std::string, name)
+#define DECLARE_mString_Sensitive(name) DECLARE_FIELD(std::string, name)
 
 #define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT, VALMUTABLE)                      \
     FIELD_TYPE FIELD_NAME;                                                                   \
     static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &(FIELD_NAME), FIELD_DEFAULT, \
                                      VALMUTABLE);
+
+// Same as DEFINE_FIELD, but marks the config as holding a secret. See Register::Field::sensitive.
+#define DEFINE_FIELD_SENSITIVE(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT, VALMUTABLE)            \
+    FIELD_TYPE FIELD_NAME;                                                                   \
+    static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &(FIELD_NAME), FIELD_DEFAULT, \
+                                     VALMUTABLE, true);
 
 #define DEFINE_VALIDATOR(FIELD_NAME, VALIDATOR)              \
     static auto validator_##FIELD_NAME = VALIDATOR;          \
@@ -94,6 +105,10 @@
 #define DEFINE_mInt64(name, defaultstr) DEFINE_FIELD(int64_t, name, defaultstr, true)
 #define DEFINE_mDouble(name, defaultstr) DEFINE_FIELD(double, name, defaultstr, true)
 #define DEFINE_mString(name, defaultstr) DEFINE_FIELD(std::string, name, defaultstr, true)
+#define DEFINE_String_Sensitive(name, defaultstr) \
+    DEFINE_FIELD_SENSITIVE(std::string, name, defaultstr, false)
+#define DEFINE_mString_Sensitive(name, defaultstr) \
+    DEFINE_FIELD_SENSITIVE(std::string, name, defaultstr, true)
 #define DEFINE_Validator(name, validator) DEFINE_VALIDATOR(name, validator)
 
 namespace doris {
@@ -701,7 +716,7 @@ DECLARE_String(tls_certificate_path);
 // Path of TLS private key
 DECLARE_String(tls_private_key_path);
 // Password for encrypted TLS private key
-DECLARE_String(tls_private_key_password);
+DECLARE_String_Sensitive(tls_private_key_password);
 // TLS peer verification mode
 DECLARE_String(tls_verify_mode);
 // Path of TLS CA certificate
@@ -1978,8 +1993,8 @@ DECLARE_mBool(enable_cloud_random_segment_id);
 DECLARE_mInt32(file_handles_deplenish_frequency_times);
 
 #ifdef BE_TEST
-DECLARE_String(test_s3_ak);
-DECLARE_String(test_s3_sk);
+DECLARE_String_Sensitive(test_s3_ak);
+DECLARE_String_Sensitive(test_s3_sk);
 DECLARE_String(test_s3_endpoint);
 DECLARE_String(test_s3_region);
 DECLARE_String(test_s3_bucket);
@@ -1994,13 +2009,18 @@ public:
         void* storage = nullptr;
         const char* defval = nullptr;
         bool valmutable = false;
+        // True when the value is a secret: a token, a password, a cloud access key. Every place
+        // that renders a config value for a human -- the show_config API, information_schema,
+        // the config update audit line -- must put it through mask_config_value() first.
+        bool sensitive = false;
         Field(const char* ftype, const char* fname, void* fstorage, const char* fdefval,
-              bool fvalmutable)
+              bool fvalmutable, bool fsensitive = false)
                 : type(ftype),
                   name(fname),
                   storage(fstorage),
                   defval(fdefval),
-                  valmutable(fvalmutable) {}
+                  valmutable(fvalmutable),
+                  sensitive(fsensitive) {}
     };
 
 public:
@@ -2008,11 +2028,11 @@ public:
 
 public:
     Register(const char* ftype, const char* fname, void* fstorage, const char* fdefval,
-             bool fvalmutable) {
+             bool fvalmutable, bool fsensitive = false) {
         if (_s_field_map == nullptr) {
             _s_field_map = new std::map<std::string, Field>();
         }
-        Field field(ftype, fname, fstorage, fdefval, fvalmutable);
+        Field field(ftype, fname, fstorage, fdefval, fvalmutable, fsensitive);
         _s_field_map->insert(std::make_pair(std::string(fname), field));
     }
 };
@@ -2104,6 +2124,23 @@ Status persist_config(const std::string& field, const std::string& value);
 std::mutex* get_mutable_string_config_lock();
 
 std::vector<std::vector<std::string>> get_config_info();
+
+// Placeholder rendered instead of a sensitive config's real value. This is the string
+// get_config_info() already used for tls_private_key_password, kept so that show_config and
+// information_schema.backend_configuration report exactly what they reported before.
+inline const std::string SENSITIVE_CONF_MASK = "******";
+
+// Whether `field` names a config declared with one of the _Sensitive macros. An unknown name is
+// not sensitive: it names no config, so it carries no config secret.
+bool is_sensitive_config(const std::string& field);
+
+// Renders a config value for a log line or an API response. An empty value is returned as-is:
+// it reveals nothing, and it keeps "this secret is not configured" visible.
+std::string mask_config_value(const std::string& field, const std::string& value);
+
+// Current value of `field` in its string form, or an empty string if there is no such config.
+// This is the value the config dump APIs report, so it reflects runtime updates.
+std::string get_config_value(const std::string& field);
 
 Status set_fuzzy_configs();
 
