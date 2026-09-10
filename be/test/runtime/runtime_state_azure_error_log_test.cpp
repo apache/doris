@@ -36,7 +36,7 @@
 #include "testutil/mock/obj_storage_client_test_stub.h"
 
 namespace doris {
-namespace {
+namespace azure_error_log_test {
 
 using testing::_;
 using testing::AllOf;
@@ -203,5 +203,5 @@ TEST_F(RuntimeStateAzureErrorLogTest, FailedUploadKeepsLocalPathWithoutAttemptin
     EXPECT_EQ(std::filesystem::file_size(_directory / "error.log"), sizeof(ERROR_LOG_CONTENT) - 1);
 }
 
-} // namespace
+} // namespace azure_error_log_test
 } // namespace doris

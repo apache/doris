@@ -148,7 +148,7 @@ TEST_F(AzureClientFactoryCacheTest, ExplicitEarlierExpiryControlsEviction) {
 TEST_F(AzureClientFactoryCacheTest, ReusedFileSystemRejectsExpiredSasBeforeOpeningKnownSizeReader) {
     auto conf = sas_conf("reused-reader");
     conf.azure_credentials.sas_token += "&se=2100-01-01T00%3A00%3A00Z";
-    S3Conf fs_conf {.bucket = conf.bucket, .client_conf = conf};
+    S3Conf fs_conf {.bucket = conf.bucket, .prefix = {}, .client_conf = conf};
     auto fs_result = io::S3FileSystem::create(std::move(fs_conf), "azure-access-expiry");
     ASSERT_TRUE(fs_result.has_value());
     auto fs = std::move(fs_result).value();
@@ -179,7 +179,7 @@ TEST_F(AzureClientFactoryCacheTest, ReusedFileSystemRejectsExpiredSasBeforeOpeni
 TEST_F(AzureClientFactoryCacheTest, ReusedFileSystemRejectsExpiredSasBeforeOpeningWriter) {
     auto conf = sas_conf("reused-writer");
     conf.azure_credentials.sas_expiration_time_ms = TOKEN_EXPIRY_MS;
-    S3Conf fs_conf {.bucket = conf.bucket, .client_conf = conf};
+    S3Conf fs_conf {.bucket = conf.bucket, .prefix = {}, .client_conf = conf};
     auto fs_result = io::S3FileSystem::create(std::move(fs_conf), "azure-writer-expiry");
     ASSERT_TRUE(fs_result.has_value());
 
@@ -196,7 +196,7 @@ TEST_F(AzureClientFactoryCacheTest, ReusedFileSystemRejectsExpiredSasBeforeOpeni
 TEST_F(AzureClientFactoryCacheTest, ReaderAdmissionChecksCurrentCredentialAfterConcurrentReset) {
     auto long_lived = sas_conf("admission-old");
     long_lived.azure_credentials.sas_expiration_time_ms = TOKEN_EXPIRY_MS + 60000;
-    S3Conf fs_conf {.bucket = long_lived.bucket, .client_conf = long_lived};
+    S3Conf fs_conf {.bucket = long_lived.bucket, .prefix = {}, .client_conf = long_lived};
     auto fs_result = io::S3FileSystem::create(std::move(fs_conf), "azure-concurrent-admission");
     ASSERT_TRUE(fs_result.has_value());
     auto fs = std::move(fs_result).value();

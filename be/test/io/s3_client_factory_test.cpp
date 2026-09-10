@@ -899,7 +899,8 @@ TEST_F(S3ClientFactoryTest, AzureClientIdentityExcludesAwsCredentialsAndSigningS
     first.endpoint = "https://account.blob.core.windows.net";
     first.bucket = "container";
     first.provider = ObjStorageProvider::AZURE;
-    first.azure_credentials = {.account_name = "account", .account_key = "key"};
+    first.azure_credentials.account_name = "account";
+    first.azure_credentials.account_key = "key";
     auto second = first;
     second.ak = "unrelated-aws-access-key";
     second.sk = "unrelated-aws-secret-key";
@@ -914,20 +915,23 @@ TEST_F(S3ClientFactoryTest, AzureClientIdentityExcludesAwsCredentialsAndSigningS
     EXPECT_NE(first, second);
     EXPECT_NE(first.get_hash(), second.get_hash());
     EXPECT_EQ(second.to_string().find("rotated-key"), std::string::npos);
-    first.azure_credentials = {
-            .type = AzureCredentialType::SAS, .account_name = "account", .sas_token = "sig=first"};
+    first.azure_credentials = {};
+    first.azure_credentials.type = AzureCredentialType::SAS;
+    first.azure_credentials.account_name = "account";
+    first.azure_credentials.sas_token = "sig=first";
     second = first;
     second.azure_credentials.sas_token = "sig=second";
     EXPECT_NE(first, second);
     EXPECT_NE(first.get_hash(), second.get_hash());
     EXPECT_EQ(second.to_string().find("sig=second"), std::string::npos);
-    first.azure_credentials = {
-            .type = AzureCredentialType::OAUTH2,
-            .account_name = "account",
-            .oauth_client_id = "client",
-            .oauth_client_secret = "first-secret",
-            .oauth_tenant_id = "tenant",
-            .oauth_server_uri = "https://login.microsoftonline.com/tenant/oauth2/token"};
+    first.azure_credentials = {};
+    first.azure_credentials.type = AzureCredentialType::OAUTH2;
+    first.azure_credentials.account_name = "account";
+    first.azure_credentials.oauth_client_id = "client";
+    first.azure_credentials.oauth_client_secret = "first-secret";
+    first.azure_credentials.oauth_tenant_id = "tenant";
+    first.azure_credentials.oauth_server_uri =
+            "https://login.microsoftonline.com/tenant/oauth2/token";
     second = first;
     second.azure_credentials.oauth_client_secret = "second-secret";
     EXPECT_NE(first, second);
@@ -940,10 +944,10 @@ TEST_F(S3ClientFactoryTest, NativeAzureRejectsExpiredSasBeforeClientCreation) {
     conf.provider = ObjStorageProvider::AZURE;
     conf.endpoint = "https://account.blob.core.windows.net";
     conf.bucket = "container";
-    conf.azure_credentials = {.type = AzureCredentialType::SAS,
-                              .account_name = "account",
-                              .sas_token = "sig=do-not-log",
-                              .sas_expiration_time_ms = 1};
+    conf.azure_credentials.type = AzureCredentialType::SAS;
+    conf.azure_credentials.account_name = "account";
+    conf.azure_credentials.sas_token = "sig=do-not-log";
+    conf.azure_credentials.sas_expiration_time_ms = 1;
     int creates = 0;
     S3ClientFactory::instance().set_client_creator_for_test(
             [&](const S3ClientConf&) -> std::shared_ptr<io::ObjStorageClient> {
@@ -996,7 +1000,8 @@ TEST_F(S3ClientFactoryTest, ObjClientHolderResetReplacesAzureCredentialGroup) {
     conf.endpoint = "https://account.blob.core.windows.net";
     conf.bucket = "container";
     conf.provider = ObjStorageProvider::AZURE;
-    conf.azure_credentials = {.account_name = "account", .account_key = "key"};
+    conf.azure_credentials.account_name = "account";
+    conf.azure_credentials.account_key = "key";
     int create_count = 0;
     S3ClientFactory::instance().set_client_creator_for_test(
             [&](const S3ClientConf&) -> std::shared_ptr<io::ObjStorageClient> {
@@ -1007,9 +1012,10 @@ TEST_F(S3ClientFactoryTest, ObjClientHolderResetReplacesAzureCredentialGroup) {
     io::ObjClientHolder holder(conf);
     ASSERT_TRUE(holder.init().ok());
     auto first_client = holder.get();
-    conf.azure_credentials = {.type = AzureCredentialType::SAS,
-                              .account_name = "account",
-                              .sas_token = "sig=temporary"};
+    conf.azure_credentials = {};
+    conf.azure_credentials.type = AzureCredentialType::SAS;
+    conf.azure_credentials.account_name = "account";
+    conf.azure_credentials.sas_token = "sig=temporary";
     ASSERT_TRUE(holder.reset(conf).ok());
     EXPECT_EQ(create_count, 2);
     EXPECT_NE(holder.get(), first_client);
@@ -1045,12 +1051,14 @@ TEST_F(S3ClientFactoryTest, ConcurrentAzureRefreshKeepsUriValidationSnapshotsCon
     shared_key.endpoint = "https://account.blob.core.windows.net";
     shared_key.bucket = "container";
     shared_key.provider = ObjStorageProvider::AZURE;
-    shared_key.azure_credentials = {.account_name = "account", .account_key = "key"};
+    shared_key.azure_credentials.account_name = "account";
+    shared_key.azure_credentials.account_key = "key";
     shared_key.max_connections = 64;
     auto sas = shared_key;
-    sas.azure_credentials = {.type = AzureCredentialType::SAS,
-                             .account_name = "account",
-                             .sas_token = "sig=temporary"};
+    sas.azure_credentials = {};
+    sas.azure_credentials.type = AzureCredentialType::SAS;
+    sas.azure_credentials.account_name = "account";
+    sas.azure_credentials.sas_token = "sig=temporary";
     sas.max_connections = 128;
     S3ClientFactory::instance().set_client_creator_for_test(
             [](const S3ClientConf&) -> std::shared_ptr<io::ObjStorageClient> {

@@ -196,9 +196,8 @@ protected:
         s3_conf.client_conf.region = config_->get_region();
         s3_conf.client_conf.provider = convert_provider(config_->get_provider());
         if (s3_conf.client_conf.provider == io::ObjStorageProvider::AZURE) {
-            s3_conf.client_conf.azure_credentials = {
-                    .account_name = std::move(s3_conf.client_conf.ak),
-                    .account_key = std::move(s3_conf.client_conf.sk)};
+            s3_conf.client_conf.azure_credentials.account_name = std::move(s3_conf.client_conf.ak);
+            s3_conf.client_conf.azure_credentials.account_key = std::move(s3_conf.client_conf.sk);
             s3_conf.client_conf.ak.clear();
             s3_conf.client_conf.sk.clear();
             s3_conf.client_conf.region.clear();
