@@ -35,6 +35,7 @@ import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.DoubleType;
 import org.apache.paimon.types.FloatType;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.SmallIntType;
 import org.apache.paimon.types.TimestampType;
@@ -103,8 +104,14 @@ public class DorisToPaimonTypeVisitor extends DorisTypeVisitor<DataType> {
             return new DateType();
         } else if (primitiveType.equals(PrimitiveType.DECIMALV2) || primitiveType.isDecimalV3Type()) {
             return new DecimalType(((ScalarType) atomic).getScalarPrecision(), ((ScalarType) atomic).getScalarScale());
-        } else if (primitiveType.equals(PrimitiveType.DATETIME) || primitiveType.equals(PrimitiveType.DATETIMEV2)) {
+        } else if (primitiveType.equals(PrimitiveType.DATETIME)) {
             return new TimestampType();
+        } else if (primitiveType.equals(PrimitiveType.DATETIMEV2)) {
+            // Preserve wall-clock semantics and fractional precision in the Paimon schema.
+            return new TimestampType(((ScalarType) atomic).getScalarScale());
+        } else if (primitiveType.equals(PrimitiveType.TIMESTAMPTZ)) {
+            // TIMESTAMPTZ represents an instant, so map it to Paimon's local-zoned timestamp.
+            return new LocalZonedTimestampType(((ScalarType) atomic).getScalarScale());
         } else if (primitiveType.isVarbinaryType()) {
             return new VarBinaryType(VarBinaryType.MAX_LENGTH);
         } else if (primitiveType.isVariantType()) {
