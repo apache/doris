@@ -1612,7 +1612,7 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
         // Delete and data files must parse raw binary fields with the same scan-level mapping.
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
-                enable_mapping_timestamp_tz, enable_mapping_varbinary);
+                enable_mapping_timestamp_tz, enable_mapping_varbinary, "", preserve_binary_uuid());
     } else {
         *reader = std::make_unique<format::orc::OrcReader>(system_properties, file_description,
                                                            io_ctx, _scanner_profile, std::nullopt,
