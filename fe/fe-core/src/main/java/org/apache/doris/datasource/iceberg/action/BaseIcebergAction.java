@@ -20,11 +20,16 @@ package org.apache.doris.datasource.iceberg.action;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.execute.BaseExecuteAction;
 
+import org.apache.iceberg.Table;
+
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -33,11 +38,13 @@ import java.util.Optional;
  * functionality while inheriting common execution action behavior.
  */
 public abstract class BaseIcebergAction extends BaseExecuteAction {
+    private final IcebergMetadataOps metadataOps;
 
     protected BaseIcebergAction(String actionType, Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
-            Optional<Expression> whereCondition) {
+            Optional<Expression> whereCondition, IcebergMetadataOps metadataOps) {
         super(actionType, properties, partitionNamesInfo, whereCondition);
+        this.metadataOps = Objects.requireNonNull(metadataOps, "metadataOps is null");
     }
 
     @Override
@@ -69,6 +76,11 @@ public abstract class BaseIcebergAction extends BaseExecuteAction {
      */
     protected void validateIcebergAction() throws UserException {
         // Default implementation does nothing.
+    }
+
+    protected final Table getWritableIcebergTable(TableIf table) {
+        // The expected ops fences lazy table acquisition to the authenticator generation selected at dispatch.
+        return IcebergUtils.getWritableIcebergTable((IcebergExternalTable) table, metadataOps);
     }
 
 }
