@@ -55,6 +55,19 @@ suite("test_paimon_write_types", "p0,external,paimon") {
             c_boolean BOOLEAN
         ) USING paimon;
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_types_primitive;
+        CREATE TABLE paimon.${dbName}.t_types_primitive (
+            c_boolean BOOLEAN, c_int INT, c_bigint BIGINT,
+            c_float FLOAT, c_double DOUBLE, c_string STRING, c_varchar VARCHAR(100)
+        ) USING paimon
+        TBLPROPERTIES ('bucket'='-1', 'file.format'='parquet', 'write-only'='true');
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_types_null_write_only;
+        CREATE TABLE paimon.${dbName}.t_types_null_write_only (
+            id INT, c_int INT, c_string STRING, c_double DOUBLE, c_boolean BOOLEAN
+        ) USING paimon
+        TBLPROPERTIES ('bucket'='-1', 'file.format'='parquet', 'write-only'='true');
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_types_decimal;
         CREATE TABLE paimon.${dbName}.t_types_decimal (
             id INT,
@@ -134,12 +147,38 @@ suite("test_paimon_write_types", "p0,external,paimon") {
                 c_decimal, c_string, c_varchar, c_date, c_datetime
                 """, "ORDER BY c_int")
 
-        // FT-040: NULL handling
-        sql """INSERT INTO t_types_null VALUES (1, 100, 'data', 1.5, true)"""
-        sql """INSERT INTO t_types_null VALUES (2, NULL, NULL, NULL, NULL)"""
-        sql """INSERT INTO t_types_null VALUES (3, NULL, 'partial', 2.0, false)"""
+        // Reuse the boundary data above without unsupported types forcing the whole
+        // table through JNI. Honor the session setting, including external fuzzy testing.
+        String primitiveBackend = sql("SELECT UPPER(@@paimon_write_backend)")[0][0]
+        String primitiveColumns = "c_boolean, c_int, c_bigint, c_float, c_double, c_string, c_varchar"
+        String primitiveInsert = "INSERT INTO t_types_primitive SELECT ${primitiveColumns} FROM t_types"
+        explain {
+            sql primitiveInsert
+            contains "backend: ${primitiveBackend}"
+        }
+        sql primitiveInsert
+        assertEquals(sql("SELECT ${primitiveColumns} FROM t_types ORDER BY c_int"),
+                sql("SELECT * FROM t_types_primitive ORDER BY c_int"))
+        assertTableEquals("t_types_primitive", """
+                c_boolean, c_int, c_bigint, c_float / 1.0E38,
+                c_double / 1.0E308, c_string, c_varchar
+                """, "ORDER BY c_int")
+
+        // FT-040: Reuse NULL checks for both default and write-only tables.
+        [t_types_null: "JNI", t_types_null_write_only: primitiveBackend].each {
+            tableName, expectedBackend ->
+            explain {
+                sql "INSERT INTO ${tableName} VALUES (1, 100, 'data', 1.5, true)"
+                contains "backend: ${expectedBackend}"
+            }
+            sql "INSERT INTO ${tableName} VALUES (1, 100, 'data', 1.5, true)"
+            sql "INSERT INTO ${tableName} VALUES (2, NULL, NULL, NULL, NULL)"
+            sql "INSERT INTO ${tableName} VALUES (3, NULL, 'partial', 2.0, false)"
+            assertTableEquals(tableName, "*", "ORDER BY id")
+        }
         order_qt_types_null """SELECT id, c_int, c_string, c_double, c_boolean FROM t_types_null ORDER BY id"""
-        assertTableEquals("t_types_null", "*", "ORDER BY id")
+        assertEquals(sql("SELECT * FROM t_types_null ORDER BY id"),
+                sql("SELECT * FROM t_types_null_write_only ORDER BY id"))
 
         // FT-043: Decimal precision
         sql """

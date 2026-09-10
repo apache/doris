@@ -284,7 +284,7 @@ public:
         auto writer = paimon::FileStoreWrite::Create(std::move(ctx).value());
         if (!writer.ok()) return sdk_status(writer.status());
         _sdk = std::move(writer).value();
-        profile->add_info_string("PaimonWriteBackend", "CPP (experimental v1)");
+        profile->add_info_string("PaimonWriteBackend", "CPP");
         return Status::OK();
     }
 

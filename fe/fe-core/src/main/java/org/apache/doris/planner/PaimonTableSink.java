@@ -63,7 +63,7 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
     private final DMLCommandType dmlCommandType;
     private List<Expr> outputExprs;
     private List<Column> cols;
-    private String backendSelectionReason = "JNI default";
+    private String backendSelectionReason = "";
 
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
             add(TFileFormatType.FORMAT_ORC);
@@ -151,9 +151,10 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
 
         tSink.setColumnNames(outputColumnNames);
 
-        backendSelectionReason = "JNI default";
-        if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().enablePaimonCppWriter) {
+        String writeBackend = ConnectContext.get() == null
+                ? "CPP" : ConnectContext.get().getSessionVariable().paimonWriteBackend;
+        backendSelectionReason = "JNI selected";
+        if ("CPP".equalsIgnoreCase(writeBackend)) {
             PaimonCppWriteSupport.Decision decision = PaimonCppWriteSupport.decide(
                     binding.getTable(), outputColumnNames, tSink.getWriteMode(),
                     targetTable.getCatalog().getCatalogProperty().getStoragePropertiesMap());
@@ -162,7 +163,7 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
                 tSink.setBackendType(TPaimonWriteBackendType.CPP);
                 tSink.unsetSerializedTable();
                 tSink.unsetHadoopConfig();
-                backendSelectionReason = "native append";
+                backendSelectionReason = "paimon-cpp supported";
             } else {
                 backendSelectionReason = "JNI fallback: " + decision.getFallbackReason();
             }

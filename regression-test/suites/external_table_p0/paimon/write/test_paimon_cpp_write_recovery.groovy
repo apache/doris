@@ -22,19 +22,19 @@ import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.ListObjectsV2Request
 
-// Requires debug points enabled on all BEs.
-// Opt in explicitly: ordinary JNI regression environments must not silently claim native coverage.
+// Enable BE debug points to inject write failures and verify cleanup.
+// Functional coverage is shared with the other Paimon write suites.
 suite("test_paimon_cpp_write_recovery", "p0,external,paimon,nonConcurrent") {
-    if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enablePaimonTest"))
-            || !"true".equalsIgnoreCase(context.config.otherConfigs.get("enablePaimonCppTest"))) {
-        logger.info("Skip native Paimon recovery: enablePaimonTest and enablePaimonCppTest are required")
+    if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enablePaimonTest"))) {
+        logger.info("disable paimon test.")
         return
     }
+    def originalWriteBackend = sql("SELECT @@paimon_write_backend")[0][0]
     String ip = context.config.otherConfigs.get("externalEnvIp")
     String port = context.config.otherConfigs.get("iceberg_minio_port")
     String catalog = "test_paimon_cpp_recovery_catalog"
     String db = "test_paimon_cpp_recovery_db"
-    String prefix = "wh/${db}.db/t_native/"
+    String prefix = "wh/${db}.db/t_recovery/"
     def points = ["CppPaimonWriteBackend.prepare.serialize_oom",
                   "CppPaimonWriteBackend.close.inject_failure",
                   "PaimonTableWriter.close.store_messages_oom"]
@@ -56,6 +56,8 @@ suite("test_paimon_cpp_write_recovery", "p0,external,paimon,nonConcurrent") {
         return keys
     }
     try {
+        // Fault injection targets paimon-cpp regardless of the fuzzy session setting.
+        sql "SET paimon_write_backend='CPP'"
         sql """DROP CATALOG IF EXISTS ${catalog}"""
         sql """
             CREATE CATALOG ${catalog} PROPERTIES (
@@ -71,35 +73,26 @@ suite("test_paimon_cpp_write_recovery", "p0,external,paimon,nonConcurrent") {
         sql """CREATE DATABASE ${db}"""
         sql """USE ${db}"""
         sql """
-            CREATE TABLE t_native (id INT, payload STRING) ENGINE=paimon
+            CREATE TABLE t_recovery (id INT, payload STRING) ENGINE=paimon
             PROPERTIES ('bucket'='-1', 'file.format'='parquet', 'write-only'='true')
         """
-        sql """
-            CREATE TABLE t_fallback (id INT, payload STRING) ENGINE=paimon
-            PROPERTIES ('bucket'='-1', 'file.format'='orc', 'write-only'='true')
-        """
-        sql "SET enable_paimon_cpp_writer=true"
         explain {
-            sql "INSERT INTO t_native VALUES (1, 'native')"
+            sql "INSERT INTO t_recovery VALUES (1, 'baseline')"
             contains "backend: CPP"
         }
-        // This must produce NON-EMPTY C++ serializer-v12 messages decoded/committed by Java FE.
-        sql "INSERT INTO t_native VALUES (1, 'native'), (2, NULL)"
-        assertEquals([[1, "native"], [2, null]], sql("SELECT * FROM t_native ORDER BY id"))
+        // Establish committed files that failure cleanup must preserve.
+        sql "INSERT INTO t_recovery VALUES (1, 'baseline')"
         assertTrue(!dataFiles().isEmpty())
-        spark_paimon """REFRESH TABLE paimon.${db}.t_native"""
-        assertSparkDorisResultEquals(
-                spark_paimon("SELECT * FROM paimon.${db}.t_native ORDER BY id"),
-                sql("SELECT * FROM t_native ORDER BY id"))
 
-        // Check physical objects, not only committed snapshots: an invisible orphan is also a failure.
-        int nextId = 3
+        // Check Parquet objects as well as visible rows, including uncommitted data files.
+        def expectedRows = [[1, "baseline"]]
+        int nextId = 2
         points.each { point ->
             def before = dataFiles()
             try {
                 GetDebugPoint().enableDebugPointForAllBEs(point)
                 test {
-                    sql "INSERT INTO t_native VALUES (999, 'must-be-cleaned')"
+                    sql "INSERT INTO t_recovery VALUES (999, 'must-be-cleaned')"
                     exception(point.endsWith("_oom") ?
                             "Paimon write allocation failed" : "Injected Paimon native close failure")
                 }
@@ -108,26 +101,24 @@ suite("test_paimon_cpp_write_recovery", "p0,external,paimon,nonConcurrent") {
             }
             for (int retry = 0; retry < 50 && dataFiles() != before; ++retry) Thread.sleep(100)
             assertEquals(before, dataFiles())
-            assertEquals([[0]], sql("SELECT COUNT(*) FROM t_native WHERE id=999"))
-            sql "INSERT INTO t_native VALUES (${nextId}, 'after-failure')"
-            assertEquals([[1]], sql("SELECT COUNT(*) FROM t_native WHERE id=${nextId}"))
+            assertEquals(expectedRows, sql("SELECT * FROM t_recovery ORDER BY id"))
+            sql "INSERT INTO t_recovery VALUES (${nextId}, 'after-failure')"
+            expectedRows.add([nextId, "after-failure"])
+            assertEquals(expectedRows, sql("SELECT * FROM t_recovery ORDER BY id"))
             ++nextId
         }
-        explain {
-            sql "INSERT INTO t_fallback VALUES (1, 'jni')"
-            contains "backend: JNI"
-        }
-        sql "INSERT INTO t_fallback VALUES (1, 'jni')"
-        assertEquals([[1, "jni"]], sql("SELECT * FROM t_fallback"))
     } finally {
         try {
             points.each { GetDebugPoint().disableDebugPointForAllBEs(it) }
-            sql "SET enable_paimon_cpp_writer=false"
             sql """DROP DATABASE IF EXISTS ${catalog}.${db} FORCE"""
             sql """SWITCH internal"""
             sql """DROP CATALOG IF EXISTS ${catalog}"""
         } finally {
-            client.shutdown()
+            try {
+                sql "SET paimon_write_backend='${originalWriteBackend}'"
+            } finally {
+                client.shutdown()
+            }
         }
     }
 }

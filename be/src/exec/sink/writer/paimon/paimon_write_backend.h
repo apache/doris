@@ -118,8 +118,9 @@ public:
 /// Factory that selects and creates the appropriate write backend.
 ///
 /// Backend selection is based on TPaimonTableSink.backend_type:
-/// - Default (unset or JNI): JniPaimonWriteBackend
-/// - CPP: CppPaimonWriteBackend (explicit opt-in)
+/// - JNI: JniPaimonWriteBackend (also used for legacy plans without backend_type)
+/// - CPP: CppPaimonWriteBackend
+/// FE resolves the session preference and capability fallback before sending the plan.
 class PaimonWriteBackendFactory {
 public:
     /// Create a backend instance based on the sink configuration.

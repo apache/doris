@@ -1477,11 +1477,14 @@ public class SessionVariable implements Serializable, Writable {
         IGNORE_PAIMON_CPP
     }
 
-    // Runtime opt-in; unsupported write capabilities use JNI.
-    @VariableMgr.VarAttr(name = "enable_paimon_cpp_writer", needForward = true, fuzzy = false,
-            description = {"实验性 paimon-cpp 写入，未支持组合使用 JNI",
-                    "Experimental paimon-cpp writer; unsupported combinations use JNI"})
-    public boolean enablePaimonCppWriter = false;
+    public static final String PAIMON_WRITE_BACKEND = "paimon_write_backend";
+    @VariableMgr.VarAttr(name = PAIMON_WRITE_BACKEND, needForward = true, fuzzy = true,
+            checker = "checkPaimonWriteBackend", setter = "setPaimonWriteBackend",
+            options = {"CPP", "JNI"},
+            description = {"Paimon 写入后端：CPP 优先使用 paimon-cpp，不支持时使用 JNI；JNI 使用 Java SDK",
+                    "Paimon write backend: CPP prefers paimon-cpp and falls back to JNI for unsupported "
+                            + "writes; JNI uses the Java SDK"})
+    public String paimonWriteBackend = "CPP";
 
     public static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
     @VariableMgr.VarAttr(name = IGNORE_SPLIT_TYPE,
@@ -3999,6 +4002,8 @@ public class SessionVariable implements Serializable, Writable {
 
         // jni
         this.forceJniScanner = random.nextBoolean();
+        // paimon writes
+        this.paimonWriteBackend = Util.getRandomString("CPP", "JNI");
         // statistics
         this.fetchHiveRowCountSync = random.nextBoolean();
 
@@ -6592,6 +6597,17 @@ public class SessionVariable implements Serializable, Writable {
         return ignoreSplitType;
     }
 
+
+    public void checkPaimonWriteBackend(String value) {
+        if (!"CPP".equalsIgnoreCase(value) && !"JNI".equalsIgnoreCase(value)) {
+            throw new UnsupportedOperationException("paimon_write_backend only supports CPP and JNI");
+        }
+    }
+
+    public void setPaimonWriteBackend(String value) {
+        checkPaimonWriteBackend(value);
+        paimonWriteBackend = value.toUpperCase(Locale.ROOT);
+    }
 
     public void checkIgnoreSplitType(String value) {
         try {

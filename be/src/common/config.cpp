@@ -1633,7 +1633,7 @@ DEFINE_mInt64(iceberg_sink_max_file_size, "1073741824"); // 1GB
 
 /** Paimon sink configurations **/
 DEFINE_mInt64(paimon_jni_writer_memory_pool_limit_bytes, "536870912"); // 512MB
-DEFINE_mInt64(paimon_cpp_writer_memory_limit_bytes, "536870912"); // experimental per-writer cap
+DEFINE_mInt64(paimon_cpp_writer_memory_limit_bytes, "536870912"); // per-writer SDK pool cap
 DEFINE_Validator(paimon_jni_writer_memory_pool_limit_bytes,
                  [](int64_t bytes) -> bool { return bytes > 0; });
 
