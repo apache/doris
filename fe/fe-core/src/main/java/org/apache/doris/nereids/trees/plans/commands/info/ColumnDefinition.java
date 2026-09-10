@@ -631,8 +631,8 @@ public class ColumnDefinition {
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis,
-                generatedColumnDesc.map(desc ->
-                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
+                generatedColumnDesc.map(desc -> desc.getSessionVariables().orElseGet(() ->
+                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get())))
                         .orElse(null)
                 );
         column.setAggregationTypeImplicit(aggTypeImplicit);
@@ -650,8 +650,8 @@ public class ColumnDefinition {
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis,
-                generatedColumnDesc.map(desc ->
-                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
+                generatedColumnDesc.map(desc -> desc.getSessionVariables().orElseGet(() ->
+                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get())))
                         .orElse(null));
         column.setNullableSpecified(nullableSpecified);
         column.setCommentSpecified(commentSpecified);

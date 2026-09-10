@@ -19,7 +19,11 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.GeneratedColumnInfo;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
+
+import java.util.Map;
+import java.util.Optional;
 
 /**GeneratedColumnDesc for nereids*/
 public class GeneratedColumnDesc {
@@ -33,6 +37,7 @@ public class GeneratedColumnDesc {
     private final String exprSql;
     private Expr expr;
     private final Expression expression;
+    private Optional<Map<String, String>> sessionVariables = Optional.empty();
 
     /** constructor */
     public GeneratedColumnDesc(String exprSql, Expression expression) {
@@ -50,7 +55,16 @@ public class GeneratedColumnDesc {
     }
 
     public Expression getExpression() {
-        return expression;
+        // CREATE TABLE LIKE must also parse the expression under its original session settings.
+        return sessionVariables.isPresent() ? new NereidsParser().parseExpression(exprSql) : expression;
+    }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = Optional.ofNullable(sessionVariables);
+    }
+
+    public Optional<Map<String, String>> getSessionVariables() {
+        return sessionVariables;
     }
 
     public GeneratedColumnInfo translateToInfo() {

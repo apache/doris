@@ -22,6 +22,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -47,6 +48,38 @@ public class CreateTableLikeTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         createDatabase("test2");
+    }
+
+    @Test
+    public void testGeneratedColumnSessionVariables() throws Exception {
+        SessionVariable original = connectContext.getSessionVariable();
+        boolean originalDecimal256 = original.enableDecimal256;
+        try {
+            for (boolean decimal256 : new boolean[] {true, false}) {
+                String sourceName = "generated_session_src_" + decimal256;
+                String targetName = "generated_session_dst_" + decimal256;
+                original.enableDecimal256 = decimal256;
+                createTable("CREATE TABLE test." + sourceName + " ("
+                        + "a DECIMAL(20,5), b DECIMAL(21,6), "
+                        + "c DECIMAL(38,11) GENERATED ALWAYS AS (a * b) NOT NULL) "
+                        + "DISTRIBUTED BY HASH(a) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
+                original.enableDecimal256 = !decimal256;
+                createTableLike("CREATE TABLE test." + targetName + " LIKE test." + sourceName);
+
+                Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+                Column source = db.getTableOrDdlException(sourceName).getColumn("c");
+                Column target = db.getTableOrDdlException(targetName).getColumn("c");
+                Assertions.assertEquals(source.getSessionVariables(), target.getSessionVariables());
+                Assertions.assertEquals(source.getGeneratedColumnInfo().getExpr().getType(),
+                        target.getGeneratedColumnInfo().getExpr().getType());
+                Assertions.assertEquals(source.getGeneratedColumnInfo().getExpr().toSql(),
+                        target.getGeneratedColumnInfo().getExpr().toSql());
+                Assertions.assertSame(original, connectContext.getSessionVariable());
+                Assertions.assertEquals(!decimal256, original.enableDecimal256);
+            }
+        } finally {
+            original.enableDecimal256 = originalDecimal256;
+        }
     }
 
     private void createTableLike(String sql) throws Exception {
