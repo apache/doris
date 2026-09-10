@@ -393,16 +393,13 @@ VECTOR_TABLES = {
 # reached the index. That costs roughly 190KB per cell, so the tier deliberately covers one
 # representative cell per axis rather than the whole matrix.
 #
-# The breadth tier covers everything the depth tier leaves out, at plan level only. It is a
-# single table carrying one vector column per remaining cell, each with exactly one index -
-# one column per cell, never several indexes on one column, because only the first index
-# built on a column is reachable. Measured on Lance: with a cosine and a dot index on one
-# column, whichever was created first answers its metric from the index and the other falls
-# back to a silent brute-force scan. Doris lands in the same place by a different route -
-# LanceScanNode.selectIndexSegments keeps only the segments of the first index it finds for
-# the column's field id, so the second index is invisible to the planner and metricMatches
-# then rejects the query whose metric it does not carry. Either way a column is the unit that
-# can hold a testable index, and 64 rows is enough to train one.
+# The breadth tier covers every remaining cell at plan level only.
+# It is a single table carrying one vector column per remaining cell, each with exactly one
+# index. Keeping one index per column isolates every type x metric x algorithm cell;
+# same-column multi-index selection is covered by LanceScanNodeTest's metadata fixtures. A
+# column is not limited to one logical vector index: Doris groups physical segments by index
+# name and picks the first lexicographic group that matches the requested metric and can safely
+# plan splits. Sixty-four rows are enough to train each matrix index.
 #
 # What this tier proves is narrower than the depth tier's, and the documentation must not
 # conflate them: it shows Doris plans an indexed split and the backend answers it, NOT that
