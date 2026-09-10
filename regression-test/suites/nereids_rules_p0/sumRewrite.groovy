@@ -124,4 +124,32 @@ INSERT INTO sr (id, not_null_id, f_id, d_id) VALUES
     // explainAndOrderResult 'decimal_sum_sub_const_precision_3',  """ select not_null_id, sum(d_id - 2) from sr group by not_null_id """
 
     // explainAndOrderResult 'decimal_sum_sub_const_precision_4',  """ select not_null_id, sum(d_id - 2.223) from sr group by not_null_id """
+
+    sql "DROP TABLE IF EXISTS sr_double_rounding"
+    sql """
+        CREATE TABLE sr_double_rounding (
+            id INT NOT NULL,
+            x DOUBLE NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql "INSERT INTO sr_double_rounding VALUES (1, 1e16), (2, -1e16)"
+
+    def doubleResults = sql """
+        SELECT CAST(SUM(x + 1.0) AS STRING), CAST(SUM(x + 2.0) AS STRING)
+        FROM sr_double_rounding
+    """
+    assertEquals(1, doubleResults.size())
+    assertEquals("0", doubleResults[0][0])
+    assertEquals("4", doubleResults[0][1])
+
+    explain {
+        sql """
+            SELECT SUM(x + 1.0), SUM(x + 2.0)
+            FROM sr_double_rounding
+        """
+        notContains "count("
+    }
 }
