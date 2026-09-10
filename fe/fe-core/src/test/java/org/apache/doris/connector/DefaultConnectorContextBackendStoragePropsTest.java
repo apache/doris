@@ -19,7 +19,7 @@ package org.apache.doris.connector;
 
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
-import org.apache.doris.kerberos.ExecutionAuthenticator;
+import org.apache.doris.foundation.security.ExecutionAuthenticator;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
 public class DefaultConnectorContextBackendStoragePropsTest {
 
     private static final Supplier<ExecutionAuthenticator> NOOP_AUTH =
-            () -> new ExecutionAuthenticator() {};
+            () -> ExecutionAuthenticator.DIRECT;
 
     /** A context whose storage-props supplier yields a real OSS storage-properties map, built with
      *  the same {@code StorageAdapter.ofAll} machinery a real OSS catalog uses. */

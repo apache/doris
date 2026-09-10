@@ -173,11 +173,17 @@ under the License.
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-foundation</artifactId>
         </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-kerberos</artifactId>
-            <version>${project.version}</version>
-        </dependency>
+        <!-- fe-kerberos is deliberately NOT a dependency of the FE kernel. Its 15 classes split into
+             an 8-class Hadoop half (UserGroupInformation logins, AuthenticationConfig(Configuration),
+             HadoopAuthenticator and friends) and a Hadoop-free remainder, and fe-core only ever needed
+             the one interface the module's own javadoc calls a migration bridge: ExecutionAuthenticator,
+             now taken straight from fe-foundation (org.apache.doris.foundation.security). Depending on
+             fe-kerberos put its Hadoop half in fe/lib as classes that can never link there, and left a
+             compiles-green/fails-at-runtime path open for any future caller that picked an overload
+             whose signature happens to mention no Hadoop type. The four connector plugins that use the
+             Hadoop half (hive/hudi/iceberg/paimon) declare fe-kerberos themselves and are unaffected.
+             FeCoreHasNoHadoopClassesTest is the guard: it scans fe-core's own bytecode and fails if
+             org/apache/hadoop/ or those class names come back. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
