@@ -57,6 +57,10 @@ class IColumn;
  *   - value:      numeric column to average
  *   - timeunit:   numeric time index (not raw timestamp; use intDiv if needed)
  * Returns DOUBLE.
+ *
+ * A zero half_decay returns 0 and is also the empty-state marker. Serialized
+ * zero-half-decay states do not contribute to _merge/_union and do not trigger
+ * a half-decay mismatch. Compatibility checks apply to nonzero half decays.
  */
 struct ExponentialMovingAverageData {
     double value = 0.0;
