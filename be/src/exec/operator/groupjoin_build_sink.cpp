@@ -122,7 +122,7 @@ GroupJoinBuildSinkOperatorX::GroupJoinBuildSinkOperatorX(ObjectPool* pool, int o
                                      ? tnode.group_join_node.dist_type
                                      : TJoinDistributionType::NONE),
           _pool(pool),
-          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
+          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[1]
                                                                : std::vector<TExpr> {}),
           _runtime_filter_descs(tnode.runtime_filters) {}
 
