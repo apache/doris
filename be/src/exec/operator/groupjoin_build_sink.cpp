@@ -28,6 +28,7 @@
 #include "exprs/vexpr.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -40,6 +41,7 @@ GroupJoinBuildSinkLocalState::GroupJoinBuildSinkLocalState(DataSinkOperatorXBase
 
 Status GroupJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    _shared_state->memory_used_counter = _memory_used_counter;
     auto& p = _parent->cast<GroupJoinBuildSinkOperatorX>();
     _build_expr_ctxs.resize(p._build_expr_ctxs.size());
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
@@ -60,6 +62,7 @@ Status GroupJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInf
     }
     RETURN_IF_ERROR(init_hash_method<GroupJoinDataVariants>(_shared_state->data_variants.get(),
                                                             data_types, true));
+    _shared_state->update_memory_usage();
     if (!p._runtime_filter_descs.empty()) {
         _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelperGroupJoin>();
         RETURN_IF_ERROR(_runtime_filter_producer_helper->init(
@@ -195,6 +198,8 @@ Status GroupJoinBuildSinkOperatorX::sink_impl(RuntimeState* state, Block* in_blo
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), static_cast<int64_t>(in_block->rows()));
     if (in_block->rows() > 0) {
+        // Snapshot before publishing build EOS: probe may then grow the shared arena.
+        Defer update_memory {[&]() { local_state._shared_state->update_memory_usage(); }};
         const auto rows = cast_set<uint32_t>(in_block->rows());
         RETURN_IF_ERROR(groupjoin::do_evaluate(*in_block, local_state._build_expr_ctxs,
                                                local_state._key_columns_holder));
