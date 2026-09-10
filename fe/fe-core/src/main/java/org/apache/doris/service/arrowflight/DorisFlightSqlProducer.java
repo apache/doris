@@ -324,9 +324,17 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         try {
             ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
             return executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(), descriptor);
-        } catch (FlightRuntimeException e) {
-            throw e;
         } catch (Throwable e) {
+            if (e instanceof FlightRuntimeException) {
+                FlightRuntimeException flightError = (FlightRuntimeException) e;
+                ErrorFlightMetadata metadata = flightError.status().metadata();
+                // Only the incremental-window error bypasses the original INTERNAL wrapper.
+                if (metadata.containsKey("doris-error-code")
+                        && Integer.toString(ErrorCode.ERR_INCR_WINDOW_NOT_READY.getCode())
+                                .equals(metadata.get("doris-error-code"))) {
+                    throw flightError;
+                }
+            }
             String errMsg = "get flight info statement failed, " + e.getMessage();
             LOG.error(errMsg, e);
             throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
