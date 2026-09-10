@@ -19,7 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <utility>
 #include <vector>
 
 #include "gen_cpp/PlanNodes_types.h"
@@ -34,8 +33,8 @@ TFileRangeDesc make_legacy_iceberg_sys_table_range() {
     table_format_params.__set_table_format_type("iceberg");
     TIcebergFileDesc iceberg_params;
     iceberg_params.__set_serialized_split("serialized-metadata-task");
-    table_format_params.__set_iceberg_params(std::move(iceberg_params));
-    range.__set_table_format_params(std::move(table_format_params));
+    table_format_params.__set_iceberg_params(iceberg_params);
+    range.__set_table_format_params(table_format_params);
     return range;
 }
 
