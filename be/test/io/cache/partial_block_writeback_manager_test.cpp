@@ -338,6 +338,19 @@ protected:
         return manager;
     }
 
+    void cache_block(BlockFileCache* cache, const UInt128Wrapper& hash,
+                     const std::string& content) {
+        ReadStatistics stats;
+        CacheContext context;
+        context.stats = &stats;
+        auto holder = cache->get_or_set(hash, 0, content.size(), context);
+        ASSERT_EQ(holder.file_blocks.size(), 1);
+        auto block = holder.file_blocks.front();
+        ASSERT_EQ(block->get_or_set_downloader(), FileBlock::get_caller_id());
+        ASSERT_TRUE(block->append(Slice(content)).ok());
+        ASSERT_TRUE(block->finalize().ok());
+    }
+
     void TearDown() override {
         for (const auto& path : _paths) {
             std::error_code error;
@@ -348,6 +361,193 @@ protected:
 private:
     std::vector<fs::path> _paths;
 };
+
+TEST_F(PartialBlockWritebackManagerTest, SkipsDownloadedBlockWithoutAllocating) {
+    auto cache = create_cache("partial_block_already_cached");
+    auto* writer = cache->async_write_manager();
+    auto manager = create_manager();
+    const auto hash = BlockFileCache::hash("partial_block_already_cached");
+    const auto content = patterned_content('a');
+    auto reader = std::make_shared<ControlledFileReader>(content);
+    cache_block(cache.get(), hash, content);
+
+    EXPECT_EQ(manager->try_submit(make_request(writer, cache->inflight_write_buffer_index(), reader,
+                                               hash, content, 1024, 1024)),
+              PartialBlockSubmitResult::CACHE_BLOCK_PRESENT);
+    EXPECT_EQ(manager->pending_count(), 0);
+    EXPECT_EQ(writer->buffer_memory_bytes(), 0);
+    EXPECT_EQ(reader->read_calls(), 0);
+    EXPECT_EQ(read_cached_block(cache.get(), hash), content);
+}
+
+TEST_F(PartialBlockWritebackManagerTest, SkipsInflightBlockWithoutProbingCache) {
+    auto cache = create_cache("partial_block_inflight_before_probe");
+    auto* writer = cache->async_write_manager();
+    auto* index = cache->inflight_write_buffer_index();
+    auto manager = create_manager();
+    const auto hash = BlockFileCache::hash("partial_block_inflight_before_probe");
+    const auto content = patterned_content('i');
+    auto reader = std::make_shared<ControlledFileReader>(content);
+    AsyncCacheWriteBufferPtr buffer;
+    ASSERT_TRUE(writer->allocate_tracked_buffer(kBlockSize, &buffer).ok());
+    std::memcpy(buffer->data(), content.data(), content.size());
+    auto entry = std::make_shared<InflightWriteBufferEntry>(buffer, 0, kBlockSize, 0);
+    ASSERT_EQ(index->insert_if_absent(hash, 0, entry), nullptr);
+    Defer remove_entry {[&]() { index->remove_if(hash, 0, entry); }};
+
+    std::future<PartialBlockSubmitResult> submission;
+    {
+        // An inflight hit must complete even while the cache-probe mutex is held.
+        std::lock_guard cache_lock(cache->_mutex);
+        submission = std::async(std::launch::async, [&]() {
+            return manager->try_submit(make_request(writer, index, reader, hash, content, 0, 1024));
+        });
+        EXPECT_EQ(submission.wait_for(1s), std::future_status::ready);
+    }
+    EXPECT_EQ(submission.get(), PartialBlockSubmitResult::CACHE_BLOCK_PRESENT);
+    EXPECT_EQ(reader->read_calls(), 0);
+    EXPECT_EQ(manager->pending_count(), 0);
+    EXPECT_EQ(writer->buffer_memory_bytes(), kBlockSize);
+}
+
+TEST_F(PartialBlockWritebackManagerTest, SkipsDownloadedEofBlock) {
+    auto cache = create_cache("partial_block_cached_eof");
+    auto* writer = cache->async_write_manager();
+    auto manager = create_manager();
+    const auto hash = BlockFileCache::hash("partial_block_cached_eof");
+    const std::string content(1500, 'e');
+    auto reader = std::make_shared<ControlledFileReader>(content);
+    cache_block(cache.get(), hash, content);
+    auto request = make_request(writer, nullptr, reader, hash, content, 1000, 500);
+    request.block_valid_size = content.size();
+
+    EXPECT_EQ(manager->try_submit(std::move(request)),
+              PartialBlockSubmitResult::CACHE_BLOCK_PRESENT);
+    EXPECT_EQ(manager->pending_count(), 0);
+    EXPECT_EQ(writer->buffer_memory_bytes(), 0);
+    EXPECT_EQ(reader->read_calls(), 0);
+}
+
+TEST_F(PartialBlockWritebackManagerTest, SkipsBlockWithExistingDownloader) {
+    auto cache = create_cache("partial_block_downloading");
+    auto* writer = cache->async_write_manager();
+    auto manager = create_manager();
+    const auto hash = BlockFileCache::hash("partial_block_downloading");
+    const auto content = patterned_content('d');
+    auto reader = std::make_shared<ControlledFileReader>(content);
+    ReadStatistics stats;
+    CacheContext context;
+    context.stats = &stats;
+    auto holder = cache->get_or_set(hash, 0, kBlockSize, context);
+    auto block = holder.file_blocks.front();
+    ASSERT_EQ(block->get_or_set_downloader(), FileBlock::get_caller_id());
+
+    EXPECT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 0, 1024)),
+              PartialBlockSubmitResult::CACHE_BLOCK_PRESENT);
+    EXPECT_EQ(reader->read_calls(), 0);
+    EXPECT_EQ(manager->pending_count(), 0);
+    EXPECT_EQ(block->state(), FileBlock::State::DOWNLOADING);
+    EXPECT_EQ(block->get_downloader(), FileBlock::get_caller_id());
+}
+
+TEST_F(PartialBlockWritebackManagerTest, FillsExistingEmptyBlock) {
+    auto cache = create_cache("partial_block_empty_cell");
+    auto* writer = cache->async_write_manager();
+    auto manager = create_manager();
+    const auto hash = BlockFileCache::hash("partial_block_empty_cell");
+    const auto content = patterned_content('e');
+    auto reader = std::make_shared<ControlledFileReader>(content);
+    ReadStatistics stats;
+    CacheContext context;
+    context.stats = &stats;
+    auto holder = cache->get_or_set(hash, 0, kBlockSize, context);
+    ASSERT_EQ(holder.file_blocks.front()->state(), FileBlock::State::EMPTY);
+
+    ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 0, 1024)),
+              PartialBlockSubmitResult::QUEUED);
+    ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
+    ASSERT_TRUE(wait_until([&]() { return writer->pending_count() == 0; }));
+    EXPECT_EQ(reader->read_calls(), 1);
+    EXPECT_EQ(read_cached_block(cache.get(), hash), content);
+}
+
+TEST_F(PartialBlockWritebackManagerTest, SkipsBlockCachedWhileQueued) {
+    auto cache = create_cache("partial_block_cached_while_queued");
+    auto* writer = cache->async_write_manager();
+    auto manager = create_manager(partial_writeback_options(1, 2));
+    const auto content = patterned_content('q');
+    auto blocker = std::make_shared<ControlledFileReader>(content, true);
+    auto reader = std::make_shared<ControlledFileReader>(content);
+    Defer release {[&]() { blocker->release_reads(); }};
+    const auto blocker_hash = BlockFileCache::hash("partial_block_queued_blocker");
+    const auto hash = BlockFileCache::hash("partial_block_cached_while_queued");
+    ASSERT_EQ(manager->try_submit(
+                      make_request(writer, nullptr, blocker, blocker_hash, content, 0, 1024)),
+              PartialBlockSubmitResult::QUEUED);
+    ASSERT_TRUE(blocker->wait_for_entered(1));
+    ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 0, 1024)),
+              PartialBlockSubmitResult::QUEUED);
+    ASSERT_EQ(manager->queued_count(), 1);
+
+    cache_block(cache.get(), hash, content);
+    blocker->release_reads();
+    ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
+    ASSERT_TRUE(wait_until([&]() { return writer->pending_count() == 0; }));
+    EXPECT_EQ(reader->read_calls(), 0);
+    EXPECT_EQ(read_cached_block(cache.get(), hash), content);
+}
+
+TEST_F(PartialBlockWritebackManagerTest, CompletesPlannedReadsWhenBlockIsCachedDuringRead) {
+    auto cache = create_cache("partial_block_cached_between_reads");
+    auto* writer = cache->async_write_manager();
+    auto manager = create_manager();
+    const auto hash = BlockFileCache::hash("partial_block_cached_between_reads");
+    const auto content = patterned_content('c');
+    auto reader = std::make_shared<ControlledFileReader>(content, true);
+    Defer release {[&]() { reader->release_reads(); }};
+    ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 1024, 1024)),
+              PartialBlockSubmitResult::QUEUED);
+    ASSERT_TRUE(reader->wait_for_entered(1));
+
+    cache_block(cache.get(), hash, content);
+    reader->release_reads();
+    ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
+    ASSERT_TRUE(wait_until([&]() { return writer->pending_count() == 0; }));
+    const auto reads = reader->reads();
+    ASSERT_EQ(reads.size(), 2);
+    EXPECT_EQ(reads.front().offset, 0);
+    EXPECT_EQ(reads.front().size, 1024);
+    EXPECT_EQ(reads.back().offset, 2048);
+    EXPECT_EQ(reads.back().size, kBlockSize - 2048);
+    EXPECT_EQ(read_cached_block(cache.get(), hash), content);
+}
+
+TEST_F(PartialBlockWritebackManagerTest,
+       CompletesPlannedReadsWhenInflightBufferIsPublishedDuringRead) {
+    auto cache = create_cache("partial_block_inflight_between_reads");
+    auto* writer = cache->async_write_manager();
+    auto* index = cache->inflight_write_buffer_index();
+    auto manager = create_manager();
+    const auto hash = BlockFileCache::hash("partial_block_inflight_between_reads");
+    const auto content = patterned_content('i');
+    auto reader = std::make_shared<ControlledFileReader>(content, true);
+    Defer release {[&]() { reader->release_reads(); }};
+    ASSERT_EQ(manager->try_submit(make_request(writer, index, reader, hash, content, 1024, 1024)),
+              PartialBlockSubmitResult::QUEUED);
+    ASSERT_TRUE(reader->wait_for_entered(1));
+
+    AsyncCacheWriteBufferPtr buffer;
+    ASSERT_TRUE(writer->allocate_tracked_buffer(kBlockSize, &buffer).ok());
+    std::memcpy(buffer->data(), content.data(), content.size());
+    auto entry = std::make_shared<InflightWriteBufferEntry>(buffer, 0, kBlockSize, 0);
+    ASSERT_EQ(index->insert_if_absent(hash, 0, entry), nullptr);
+    Defer remove_entry {[&]() { index->remove_if(hash, 0, entry); }};
+    reader->release_reads();
+    ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
+    EXPECT_EQ(reader->read_calls(), 2);
+    EXPECT_EQ(writer->pending_count(), 0);
+    EXPECT_FALSE(cache_range_downloaded(cache.get(), hash));
+}
 
 TEST_F(PartialBlockWritebackManagerTest, MergesQueuedFragmentsAndWaitsForCacheWriterCapacity) {
     auto cache = create_cache("partial_block_merge", 1);

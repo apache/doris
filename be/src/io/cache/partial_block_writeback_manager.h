@@ -65,8 +65,8 @@ enum class PartialBlockSubmitResult : uint8_t {
     /// The block is already being filled; the fragment was not copied because that worker reads
     /// every byte not present when it took the task.
     ACTIVE_DEDUPLICATED,
-    /// A completed buffer for this block is already pending or active in the cache writer.
-    CACHE_WRITE_INFLIGHT,
+    /// An inflight buffer, downloaded cache block, or existing downloader already covers the block.
+    CACHE_BLOCK_PRESENT,
     /// The cache invalidation fence changed before the fragment could be accepted.
     STALE_EPOCH,
     /// A tracked full-block buffer could not be allocated for a new task.
@@ -93,7 +93,7 @@ struct PartialBlockWritebackRequest {
 };
 
 /// BE-level bounded queue and dedicated remote-read workers for completing partial File Cache
-/// blocks. Query threads only perform memory admission and one fragment copy.
+/// blocks. Query threads probe existing blocks, perform memory admission, and copy one fragment.
 class PartialBlockWritebackManager {
 public:
     ~PartialBlockWritebackManager();
@@ -105,9 +105,9 @@ public:
     static Status create(const PartialBlockWritebackOptions& options,
                          std::unique_ptr<PartialBlockWritebackManager>* output_manager);
 
-    /// Best-effort submission that performs no remote or cache-disk IO on the caller. QUEUED and
-    /// MERGED retain a copy of `request.data`; the two deduplication results mean equivalent work
-    /// is already progressing. Other results retain none of the fragment bytes.
+    /// Best-effort submission that probes existing cache metadata before copying a fragment.
+    /// QUEUED and MERGED retain a copy of `request.data`; deduplication results mean the block
+    /// is already cached or being filled. Other results retain none of the fragment bytes.
     PartialBlockSubmitResult try_submit(PartialBlockWritebackRequest request);
 
     /// Resize the dedicated remote-read worker set. Shrinking waits for retiring workers to finish

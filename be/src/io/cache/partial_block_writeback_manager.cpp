@@ -86,8 +86,8 @@ struct PartialBlockWritebackManager::Task {
 
     bool is_active() const { return active.load(std::memory_order_acquire); }
 
-    // Avoid a remote GET when invalidation makes the write stale or the cache writer already owns
-    // a completed buffer for this block.
+    // Only inspect epoch and inflight state under the queue mutex. Full cache probing follows
+    // task activation, outside that mutex.
     bool should_discard_before_read() const {
         if (!key.write_manager->accepting() ||
             !key.write_manager->is_current_write_epoch(write_epoch)) {
@@ -222,9 +222,10 @@ PartialBlockSubmitResult PartialBlockWritebackManager::try_submit(
     if (!request.write_manager->check_write_epoch(request.write_epoch)) {
         return PartialBlockSubmitResult::STALE_EPOCH;
     }
-    if (request.inflight_index != nullptr &&
-        request.inflight_index->lookup(request.cache_hash, request.block_offset) != nullptr) {
-        return PartialBlockSubmitResult::CACHE_WRITE_INFLIGHT;
+    if (request.write_manager->should_skip_block_writeback(
+                request.cache_hash, request.block_offset, request.block_valid_size,
+                request.admission_ctx, request.inflight_index)) {
+        return PartialBlockSubmitResult::CACHE_BLOCK_PRESENT;
     }
 
     const BlockKey key {.write_manager = request.write_manager,
@@ -567,7 +568,12 @@ void PartialBlockWritebackManager::_process_task(const TaskPtr& task) {
         }
         _complete_task(task);
     }};
-    if (!task->key.write_manager->check_write_epoch(task->write_epoch)) {
+    // Recheck after queueing, outside the manager mutex. Once started, execute the hole-read plan.
+    if (!task->key.write_manager->accepting() ||
+        !task->key.write_manager->check_write_epoch(task->write_epoch) ||
+        task->key.write_manager->should_skip_block_writeback(
+                task->key.cache_hash, task->key.block_offset, task->block_valid_size,
+                task->admission_ctx, task->inflight_index)) {
         return;
     }
 

@@ -596,6 +596,25 @@ bool AsyncCacheWriteManager::accepting() const {
     return _started.load(std::memory_order_acquire) && _accepting.load(std::memory_order_acquire);
 }
 
+bool AsyncCacheWriteManager::should_skip_block_writeback(
+        const UInt128Wrapper& cache_hash, size_t offset, size_t size,
+        const CacheAdmissionContext& admission_ctx,
+        InflightWriteBufferIndex* inflight_index) const {
+    if (inflight_index != nullptr && inflight_index->lookup(cache_hash, offset) != nullptr) {
+        return true;
+    }
+    ReadStatistics stats;
+    const auto context = admission_ctx.to_cache_context(&stats);
+    auto result = _cache->probe(cache_hash, offset, size, context);
+    DORIS_CHECK(result.file_blocks.size() == 1);
+    const auto& block = result.file_blocks.front();
+    if (block == nullptr) {
+        return false;
+    }
+    const auto state = block->state();
+    return state == FileBlock::State::DOWNLOADED || state == FileBlock::State::DOWNLOADING;
+}
+
 Status AsyncCacheWriteManager::allocate_tracked_buffer(size_t size,
                                                        AsyncCacheWriteBufferPtr* buffer) {
     DORIS_CHECK(buffer != nullptr);
