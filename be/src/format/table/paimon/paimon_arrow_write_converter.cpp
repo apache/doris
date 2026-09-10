@@ -17,6 +17,7 @@
 
 #include "format/table/paimon/paimon_arrow_write_converter.h"
 
+#include <arrow/array/builder_base.h>
 #include <arrow/type.h>
 
 namespace doris::paimon {
@@ -28,6 +29,8 @@ Status PaimonArrowWriteConverter::write_column(const std::shared_ptr<const IData
                                                const std::shared_ptr<arrow::Field>& field,
                                                arrow::ArrayBuilder* array_builder, int64_t start,
                                                int64_t end, const cctz::time_zone& ctz) const {
+    // This adapter dereferences Arrow declarations that are intentionally forward-declared by
+    // its public header, so keep the complete definitions local to this implementation file.
     return serde.write_column_to_paimon(type, column, null_map,
                                         field->WithType(array_builder->type()), array_builder,
                                         start, end, ctz);

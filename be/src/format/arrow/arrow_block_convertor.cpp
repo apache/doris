@@ -44,7 +44,9 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/value/vdatetime_value.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
@@ -116,11 +118,63 @@ bool is_declared_plain_arrow_binding(const DataTypePtr& type,
         if (plain_timestamp.unit() != target_timestamp.unit()) {
             return false;
         }
+        const PrimitiveType primitive = remove_nullable(type)->get_primitive_type();
+        // A timezone-free Arrow timestamp is a wall-clock value and is therefore only compatible
+        // with DATETIMEV2; TIMESTAMPTZ must always retain its instant semantics.
+        if (target_timestamp.timezone().empty()) {
+            return primitive == TYPE_DATETIMEV2;
+        }
         cctz::time_zone target_timezone;
         return TimezoneUtils::find_cctz_time_zone(target_timestamp.timezone(), target_timezone) &&
                target_timezone.name() == plain_timestamp.timezone();
     }
     const PrimitiveType primitive = remove_nullable(type)->get_primitive_type();
+    if (primitive == TYPE_ARRAY && plain_arrow_type->id() == arrow::Type::LIST &&
+        target_type->id() == arrow::Type::LIST) {
+        const auto& array = assert_cast<const DataTypeArray&>(*remove_nullable(type));
+        const auto& plain_list = assert_cast<const arrow::ListType&>(*plain_arrow_type);
+        const auto& target_list = assert_cast<const arrow::ListType&>(*target_type);
+        return plain_list.value_field()
+                       ->WithType(target_list.value_type())
+                       ->Equals(target_list.value_field()) &&
+               is_declared_plain_arrow_binding(array.get_nested_type(), plain_list.value_type(),
+                                               target_list.value_type());
+    }
+    if (primitive == TYPE_MAP && plain_arrow_type->id() == arrow::Type::MAP &&
+        target_type->id() == arrow::Type::MAP) {
+        const auto& map = assert_cast<const DataTypeMap&>(*remove_nullable(type));
+        const auto& plain_map = assert_cast<const arrow::MapType&>(*plain_arrow_type);
+        const auto& target_map = assert_cast<const arrow::MapType&>(*target_type);
+        return plain_map.keys_sorted() == target_map.keys_sorted() &&
+               plain_map.key_field()
+                       ->WithType(target_map.key_type())
+                       ->Equals(target_map.key_field()) &&
+               plain_map.item_field()
+                       ->WithType(target_map.item_type())
+                       ->Equals(target_map.item_field()) &&
+               is_declared_plain_arrow_binding(map.get_key_type(), plain_map.key_type(),
+                                               target_map.key_type()) &&
+               is_declared_plain_arrow_binding(map.get_value_type(), plain_map.item_type(),
+                                               target_map.item_type());
+    }
+    if (primitive == TYPE_STRUCT && plain_arrow_type->id() == arrow::Type::STRUCT &&
+        target_type->id() == arrow::Type::STRUCT) {
+        const auto& structure = assert_cast<const DataTypeStruct&>(*remove_nullable(type));
+        if (plain_arrow_type->num_fields() != target_type->num_fields() ||
+            structure.get_elements().size() != static_cast<size_t>(target_type->num_fields())) {
+            return false;
+        }
+        for (int i = 0; i < target_type->num_fields(); ++i) {
+            const auto& plain_field = plain_arrow_type->field(i);
+            const auto& target_field = target_type->field(i);
+            if (!plain_field->WithType(target_field->type())->Equals(target_field) ||
+                !is_declared_plain_arrow_binding(structure.get_element(i), plain_field->type(),
+                                                 target_field->type())) {
+                return false;
+            }
+        }
+        return true;
+    }
     if (is_string_type(primitive)) {
         return target_type->id() == arrow::Type::STRING ||
                target_type->id() == arrow::Type::LARGE_STRING ||
