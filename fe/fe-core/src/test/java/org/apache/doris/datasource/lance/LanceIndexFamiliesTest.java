@@ -19,9 +19,11 @@ package org.apache.doris.datasource.lance;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -153,5 +155,24 @@ public class LanceIndexFamiliesTest {
                 Collections.emptyList(), "myidx"));
         Assertions.assertEquals("myidx", LanceIndexFamilies.uniqueMatch(
                 Arrays.asList("myidx", "myidx"), "myidx"));
+    }
+
+    @Test
+    public void testNullArgumentsAreRejectedByCollisionAndMatch() {
+        // A loader that produced null stored names, or an unnormalized target, is a caller bug:
+        // both entry points fail fast instead of silently reporting no match.
+        List<String> displayNames = Collections.singletonList("myidx");
+        List<Executable> calls = Arrays.asList(
+                () -> LanceIndexFamilies.isAmbiguousCaseCollision(null, "myidx"),
+                () -> LanceIndexFamilies.isAmbiguousCaseCollision(displayNames, null),
+                () -> LanceIndexFamilies.uniqueMatch(null, "myidx"),
+                () -> LanceIndexFamilies.uniqueMatch(displayNames, null));
+
+        for (Executable call : calls) {
+            IllegalArgumentException exception = Assertions.assertThrows(
+                    IllegalArgumentException.class, call);
+            Assertions.assertTrue(exception.getMessage().contains("must not be null"),
+                    exception.getMessage());
+        }
     }
 }
