@@ -41,11 +41,16 @@ fi
 
 # DO NOT using parallel make(-j) for gensrc
 make -j
-rm -rf "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/parquet"
-rm -rf "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/parquet"
+rm -rf "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris/thrift" \
+    "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/parquet/format"
+rm -rf "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris/thrift" \
+    "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/parquet/format"
+# Remove legacy generated classes as well: an incremental build must use the
+# official parquet-format-structures classes, including their shaded Thrift ABI.
+rm -rf "${DORIS_HOME}/fe/fe-common/target/classes/org/apache/parquet/format" \
+    "${DORIS_HOME}/fe/fe-core/target/classes/org/apache/parquet/format"
 
 cp -r "build/gen_java/org/apache/doris/thrift" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris"
-cp -r "build/gen_java/org/apache/parquet" "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/"
 cd "${DORIS_HOME}/"
 echo "Done"
 exit 0
