@@ -175,6 +175,19 @@ Status RowGroupReader::init(
                 continue;
             }
 
+            // A predicate column the schema tree does not know (FE/BE contract mismatch)
+            // cannot be dict-filtered; fall back to plain conjunct filtering instead of
+            // crashing on children.at(). See #61225.
+            if (!_table_info_node_ptr->has_children_column(predicate_col_name)) {
+                if (_slot_id_to_filter_conjuncts->find(slot_id) !=
+                    _slot_id_to_filter_conjuncts->end()) {
+                    for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
+                        _filter_conjuncts.push_back(ctx);
+                    }
+                }
+                continue;
+            }
+
             auto predicate_file_col_name =
                     _table_info_node_ptr->children_file_column_name(predicate_col_name);
             auto field = schema.get_column(predicate_file_col_name);
