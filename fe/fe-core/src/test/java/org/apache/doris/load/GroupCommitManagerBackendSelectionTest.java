@@ -167,7 +167,8 @@ public class GroupCommitManagerBackendSelectionTest {
         backend.setCloudClusterName(cluster);
         Mockito.when(cloudSystemInfoService.getCloudIdToBackend(cluster))
                 .thenReturn(ImmutableMap.of(backend.getId(), backend));
-        Mockito.when(cloudSystemInfoService.getBackend(backend.getId())).thenReturn(backend);
+        Mockito.when(cloudSystemInfoService.getBackendInCurrentCluster(cluster, backend.getId()))
+                .thenReturn(backend);
 
         BackendSelectionManager.setProviderForTest(policy);
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
