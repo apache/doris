@@ -13,6 +13,10 @@ true
 1
 2
 
+-- !unrelated_table_above_prefix --
+10
+20
+
 -- !retry_original_window --
 1
 2

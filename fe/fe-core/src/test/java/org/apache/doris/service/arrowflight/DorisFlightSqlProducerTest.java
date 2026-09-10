@@ -70,14 +70,22 @@ public class DorisFlightSqlProducerTest {
     }
 
     @Test
-    public void testGetFlightInfoPreservesWindowNotReadyError() throws Exception {
-        QueryState state = new QueryState();
-        IncrWindowNotReadyException error = new IncrWindowNotReadyException(2000, 100, 1000);
-        state.setError(error.getMysqlErrorCode(), error.getDetailMessage());
-        FlightRuntimeException failure = DorisFlightSqlProducer.queryFailure(state, state.getErrorMessage(), error);
-
-        // Preserve the retryable status, business metadata and committed TSO details without wrapping.
-        Assertions.assertSame(failure, getFlightInfoFailure(failure));
+    public void testGetFlightInfoPreservesBothWindowErrors() throws Exception {
+        for (ErrorCode code : new ErrorCode[] {ErrorCode.ERR_INCR_WINDOW_NOT_READY,
+                ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT}) {
+            QueryState state = new QueryState();
+            IncrWindowNotReadyException error = new IncrWindowNotReadyException(code, "test reason",
+                    2000, 3000, 100, 1000, 5000);
+            state.setError(error.getMysqlErrorCode(), error.getDetailMessage());
+            FlightRuntimeException failure = DorisFlightSqlProducer.queryFailure(state, state.getErrorMessage(), error);
+            Assertions.assertEquals(FlightStatusCode.UNAVAILABLE, failure.status().code());
+            Assertions.assertEquals(Integer.toString(code.getCode()), failure.status().metadata().get("doris-error-code"));
+            Assertions.assertEquals(code.name(), failure.status().metadata().get("doris-error-name"));
+            Assertions.assertTrue(failure.status().description().contains("currentTSO=3000"));
+            Assertions.assertTrue(failure.status().description().contains("committedTSO=100"));
+            Assertions.assertTrue(failure.status().description().contains("timeoutMs=5000"));
+            Assertions.assertSame(failure, getFlightInfoFailure(failure));
+        }
     }
 
     @Test

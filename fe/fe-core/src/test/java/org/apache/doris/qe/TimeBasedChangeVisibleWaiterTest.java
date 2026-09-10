@@ -40,6 +40,8 @@ import org.apache.doris.service.FrontendServiceImpl;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceRequest;
 import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceResult;
+import org.apache.doris.thrift.TIncrWindowNotReady;
+import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.tso.TSOService;
@@ -47,6 +49,8 @@ import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -252,10 +256,11 @@ public class TimeBasedChangeVisibleWaiterTest {
     }
 
     @Test
-    public void testBoundedReadRejectsUnknownOrInsufficientCommittedTso() throws Exception {
+    public void testBoundedReadDelegatesRegisteredTransactionWait() throws Exception {
         Env env = mockMasterEnv();
         TSOService service = mockTsoService(env, CURRENT_TSO);
         GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        Map<Long, List<Long>> tables = ImmutableMap.of(DB_ID, ImmutableList.of(TABLE_ID));
         try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
                 MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
             config.when(Config::isCloudMode).thenReturn(true);
@@ -264,14 +269,11 @@ public class TimeBasedChangeVisibleWaiterTest {
             for (long committed : new long[] {0, TSOTimestamp.composeTimestamp(CURRENT_PHYSICAL_TIME_MS - 1, 17)}) {
                 Mockito.when(service.getStatusSnapshot()).thenReturn(
                         new TSOService.TSOStatusSnapshot(true, CURRENT_TSO, CURRENT_PHYSICAL_TIME_MS + 1000, committed));
-                IncrWindowNotReadyException error = Assertions.assertThrows(IncrWindowNotReadyException.class,
-                        () -> TimeBasedChangeVisibleWaiter.acquireFenceOnMaster(
-                                ImmutableMap.of(DB_ID, ImmutableList.of(TABLE_ID)),
-                                CURRENT_PHYSICAL_TIME_MS, 1000, true, true));
-                Assertions.assertEquals(ErrorCode.ERR_INCR_WINDOW_NOT_READY, error.getMysqlErrorCode());
-                Assertions.assertEquals(committed, error.getCommittedTso());
-                Assertions.assertEquals(CURRENT_PHYSICAL_TIME_MS, error.getRequestedEndTimestampMs());
+                TimeBasedChangeVisibleWaiter.ChangeReadFence result = TimeBasedChangeVisibleWaiter.acquireFenceOnMaster(
+                        tables, CURRENT_PHYSICAL_TIME_MS, 1000, true, true);
+                Assertions.assertEquals(committed, result.getCommittedTso());
             }
+            Mockito.verify(service, Mockito.times(2)).waitForReadableWindow(tables, CURRENT_PHYSICAL_TIME_MS, 1000);
             Mockito.verifyNoInteractions(txnMgr);
         }
     }
@@ -288,25 +290,54 @@ public class TimeBasedChangeVisibleWaiterTest {
     }
 
     @Test
-    public void testMasterRpcAndFollowerPreserveWindowNotReady() throws Exception {
-        Env master = mockMasterEnv();
-        mockTsoService(master, CURRENT_TSO); // Unknown committed prefix.
-        TAcquireTimeBasedChangeReadFenceRequest request = new TAcquireTimeBasedChangeReadFenceRequest();
-        request.setDbToTableIds(ImmutableMap.of(DB_ID, ImmutableList.of(TABLE_ID)));
-        request.setEndTimestampMs(CURRENT_PHYSICAL_TIME_MS);
-        request.setTimeoutMs(1000);
-        request.setWaitForTransactions(true);
-        request.setAllEndsExplicit(true);
-        TAcquireTimeBasedChangeReadFenceResult response;
-        try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class);
-                MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
-            mocked.when(Env::getCurrentEnv).thenReturn(master);
-            config.when(Config::isCloudMode).thenReturn(true);
-            response = new FrontendServiceImpl(null).acquireTimeBasedChangeReadFence(request);
+    public void testMasterRpcAndFollowerPreserveBothWindowErrors() throws Exception {
+        for (ErrorCode code : new ErrorCode[] {ErrorCode.ERR_INCR_WINDOW_NOT_READY,
+                ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT}) {
+            Env master = mockMasterEnv();
+            TSOService service = mockTsoService(master, CURRENT_TSO);
+            String reason = code == ErrorCode.ERR_INCR_WINDOW_NOT_READY ? "TSO_RECOVERING" : "VISIBLE_WAIT_TIMEOUT";
+            IncrWindowNotReadyException failure = new IncrWindowNotReadyException(code, reason,
+                    CURRENT_PHYSICAL_TIME_MS, CURRENT_TSO, 0, 1000, 1000);
+            Mockito.doThrow(failure).when(service)
+                    .waitForReadableWindow(Mockito.anyMap(), Mockito.anyLong(), Mockito.anyLong());
+            TAcquireTimeBasedChangeReadFenceRequest request = new TAcquireTimeBasedChangeReadFenceRequest();
+            request.setDbToTableIds(ImmutableMap.of(DB_ID, ImmutableList.of(TABLE_ID)));
+            request.setEndTimestampMs(CURRENT_PHYSICAL_TIME_MS);
+            request.setTimeoutMs(1000);
+            request.setWaitForTransactions(true);
+            request.setAllEndsExplicit(true);
+            TAcquireTimeBasedChangeReadFenceResult response;
+            try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class);
+                    MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+                mocked.when(Env::getCurrentEnv).thenReturn(master);
+                config.when(Config::isCloudMode).thenReturn(true);
+                response = new FrontendServiceImpl(null).acquireTimeBasedChangeReadFence(request);
+            }
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, response.getStatus().getStatusCode());
+            Assertions.assertEquals(code.getCode(), response.getWindowNotReady().getErrorCode());
+            // Exercise the optional fields over the actual Thrift encoding before the follower receives them.
+            TAcquireTimeBasedChangeReadFenceResult decoded = new TAcquireTimeBasedChangeReadFenceResult();
+            new TDeserializer().deserialize(decoded, new TSerializer().serialize(response));
+            IncrWindowNotReadyException propagated = receiveWindowErrorOnFollower(decoded);
+            Assertions.assertEquals(code, propagated.getMysqlErrorCode());
+            Assertions.assertEquals(CURRENT_TSO, propagated.getCurrentTso());
+            Assertions.assertEquals(1000, propagated.getTimeoutMs());
+            Assertions.assertEquals(reason, propagated.getReason());
         }
-        Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, response.getStatus().getStatusCode());
-        Assertions.assertTrue(response.isSetWindowNotReady());
-        Assertions.assertEquals(CURRENT_PHYSICAL_TIME_MS, response.getWindowNotReady().getRequestedEndTimestampMs());
+    }
+
+    @Test
+    public void testFollowerAcceptsWindowErrorFromOlderMaster() throws Exception {
+        TAcquireTimeBasedChangeReadFenceResult response = new TAcquireTimeBasedChangeReadFenceResult();
+        response.setStatus(new TStatus(TStatusCode.ANALYSIS_ERROR));
+        response.setWindowNotReady(new TIncrWindowNotReady(CURRENT_PHYSICAL_TIME_MS, 0, 1000));
+        IncrWindowNotReadyException propagated = receiveWindowErrorOnFollower(response);
+        Assertions.assertEquals(ErrorCode.ERR_INCR_WINDOW_NOT_READY, propagated.getMysqlErrorCode());
+        Assertions.assertEquals("WINDOW_NOT_READY", propagated.getReason());
+    }
+
+    private IncrWindowNotReadyException receiveWindowErrorOnFollower(TAcquireTimeBasedChangeReadFenceResult response)
+            throws Exception {
         Env follower = Mockito.mock(Env.class);
         Mockito.when(follower.getMasterHost()).thenReturn("127.0.0.1");
         Mockito.when(follower.getMasterRpcPort()).thenReturn(9020);
@@ -318,15 +349,17 @@ public class TimeBasedChangeVisibleWaiterTest {
         GenericPool<FrontendService.Client> pool = Mockito.mock(GenericPool.class);
         Mockito.when(pool.borrowObject(Mockito.any(), Mockito.anyInt())).thenReturn(client);
         ClientPool.frontendPool = pool;
-        try {
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
             IncrWindowNotReadyException error = Assertions.assertThrows(IncrWindowNotReadyException.class,
                     () -> TimeBasedChangeVisibleWaiter.waitForVisible(context,
                             newChangeRelation(1, ImmutableMap.of(OlapScanNode.OLAP_END_TIMESTAMP, "2024-01-01 00:00:00")),
                             ImmutableMap.of(TABLE_QUALIFIER, mockOlapTable(DB_ID, TABLE_ID))));
-            Assertions.assertEquals(ErrorCode.ERR_INCR_WINDOW_NOT_READY, error.getMysqlErrorCode());
             Assertions.assertEquals(CURRENT_PHYSICAL_TIME_MS, error.getRequestedEndTimestampMs());
             Assertions.assertEquals(0, error.getCommittedTso());
+            Mockito.verify(pool).borrowObject(Mockito.any(), Mockito.eq(2000));
             Mockito.verify(pool).returnObject(Mockito.any(), Mockito.eq(client));
+            return error;
         } finally {
             ClientPool.frontendPool = originalPool;
         }
@@ -347,10 +380,12 @@ public class TimeBasedChangeVisibleWaiterTest {
         return env;
     }
 
-    private TSOService mockTsoService(Env env, long currentTso) {
+    private TSOService mockTsoService(Env env, long currentTso) throws UserException {
         TSOService tsoService = Mockito.mock(TSOService.class);
         Mockito.when(tsoService.getStatusSnapshot()).thenReturn(
                 new TSOService.TSOStatusSnapshot(true, currentTso, CURRENT_PHYSICAL_TIME_MS + 1000));
+        Mockito.when(tsoService.waitForReadableWindow(Mockito.anyMap(), Mockito.anyLong(), Mockito.anyLong()))
+                .thenAnswer(invocation -> tsoService.getStatusSnapshot());
         Mockito.when(env.getTSOService()).thenReturn(tsoService);
         return tsoService;
     }

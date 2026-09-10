@@ -735,7 +735,8 @@ public class StmtExecutor {
                 Throwable cause = e instanceof NereidsException
                         ? Util.getRootCause(((NereidsException) e).getException()) : e;
                 if (cause instanceof IncrWindowNotReadyException) {
-                    context.getState().setError(ErrorCode.ERR_INCR_WINDOW_NOT_READY, e.getMessage());
+                    context.getState().setError(((IncrWindowNotReadyException) cause).getMysqlErrorCode(),
+                            e.getMessage());
                 } else {
                     context.getState().setError(e.getMessage());
                 }

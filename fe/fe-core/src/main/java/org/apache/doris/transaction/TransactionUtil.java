@@ -104,7 +104,8 @@ public class TransactionUtil {
                         + transactionId + ": TSO service is unavailable");
             }
             long fetched = Config.isCloudMode()
-                    ? env.getTSOService().getCommitTSO(db.getId(), transactionId) : env.getTSOService().getTSO();
+                    ? env.getTSOService().getCommitTSO(db.getId(), transactionId, tableIds)
+                    : env.getTSOService().getTSO();
             if (fetched <= 0) {
                 throw new TransactionCommitFailedException("failed to get TSO for txn "
                         + transactionId + ", fetched=" + fetched);

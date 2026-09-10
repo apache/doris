@@ -33,6 +33,14 @@ suite("test_committed_tso", "nonConcurrent") {
         PROPERTIES ("replication_num" = "1", "binlog.enable" = "true", "binlog.format" = "ROW")
     """
     sql "INSERT INTO test_committed_tso VALUES (1), (2)"
+    sql "DROP TABLE IF EXISTS test_committed_tso_unrelated"
+    sql """
+        CREATE TABLE test_committed_tso_unrelated (id INT)
+        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1", "binlog.enable" = "true", "binlog.format" = "ROW")
+    """
+    sql "INSERT INTO test_committed_tso_unrelated VALUES (10), (20)"
+    sql "SET change_visible_timeout_ms = 1000"
     def currentPhysicalTime = {
         (sql "SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status")[0][0] as long
     }
@@ -53,6 +61,12 @@ suite("test_committed_tso", "nonConcurrent") {
     order_qt_historical_window """
         SELECT id FROM test_committed_tso@incr('endTimestamp' = '${timestamp(historicalEnd)}') ORDER BY id
     """
+
+    long futureEnd = currentPhysicalTime() + 60_000L
+    test {
+        sql "SELECT id FROM test_committed_tso@incr('endTimestamp' = '${timestamp(futureEnd)}')"
+        exception "ERR_INCR_WINDOW_NOT_READY"
+    }
 
     def masterHttpAddress = "${getMasterIp()}:${getMasterPort()}"
     def pendingMetric = { String name ->
@@ -85,9 +99,13 @@ suite("test_committed_tso", "nonConcurrent") {
         order_qt_history_with_later_write """
             SELECT id FROM test_committed_tso@incr('endTimestamp' = '${timestamp(historicalEnd)}') ORDER BY id
         """
+        // The global prefix is held by another table. This closed window must remain readable.
+        order_qt_unrelated_table_above_prefix """
+            SELECT id FROM test_committed_tso_unrelated@incr('endTimestamp' = '${timestamp(blockedEnd)}') ORDER BY id
+        """
         test {
             sql "SELECT id FROM test_committed_tso@incr('endTimestamp' = '${timestamp(blockedEnd)}')"
-            exception "ERR_INCR_WINDOW_NOT_READY"
+            exception "ERR_INCR_VISIBLE_WAIT_TIMEOUT"
         }
         GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.commitTxn.blockAfterTso")
         loadThread.join(60000)

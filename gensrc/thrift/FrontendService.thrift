@@ -2002,6 +2002,11 @@ struct TIncrWindowNotReady {
     1: required i64 requested_end_timestamp_ms
     2: required i64 committed_tso
     3: required i64 retry_after_ms
+    4: optional i64 current_tso
+    // Absent on older masters: ERR_INCR_WINDOW_NOT_READY (5100).
+    5: optional i32 error_code
+    6: optional i64 timeout_ms
+    7: optional string reason
 }
 
 struct TAcquireTimeBasedChangeReadFenceResult {

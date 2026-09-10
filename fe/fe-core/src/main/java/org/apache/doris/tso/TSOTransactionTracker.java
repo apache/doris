@@ -28,11 +28,15 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /** In-memory commit registrations. Uses the allocator's lock so no allocated TSO can be missed. */
@@ -41,6 +45,7 @@ final class TSOTransactionTracker {
     private static final int CHECK_BATCH_SIZE = 64;
     private static final long CHECK_AGE_NANOS = TimeUnit.SECONDS.toNanos(1);
     private final ReentrantLock lock;
+    private final Condition transactionsChanged;
     private final Map<Pair<Long, Long>, PendingTransaction> pendingByTxn = new HashMap<>();
     private final TreeMap<Long, PendingTransaction> pendingByTso = new TreeMap<>();
     private long generation;
@@ -49,20 +54,27 @@ final class TSOTransactionTracker {
     private boolean recoveryReady;
     private long pollCursor;
 
+    enum WaitResult {
+        FINISHED, TIMED_OUT, RECOVERING
+    }
+
     private static final class PendingTransaction {
         private final Pair<Long, Long> identity;
         private final long tso;
         private final long registeredAtNanos;
+        private final Set<Long> tableIds;
 
-        private PendingTransaction(Pair<Long, Long> identity, long tso, long nowNanos) {
+        private PendingTransaction(Pair<Long, Long> identity, long tso, long nowNanos, Set<Long> tableIds) {
             this.identity = identity;
             this.tso = tso;
             this.registeredAtNanos = nowNanos;
+            this.tableIds = new HashSet<>(tableIds);
         }
     }
 
     TSOTransactionTracker(ReentrantLock lock) {
         this.lock = lock;
+        this.transactionsChanged = lock.newCondition();
     }
 
     void reset(long nowNanos, long recoveryDelayMs) {
@@ -74,17 +86,55 @@ final class TSOTransactionTracker {
         recoveryWatermark = 0;
         recoveryReady = false;
         pollCursor = 0;
+        transactionsChanged.signalAll();
     }
 
-    void register(Pair<Long, Long> identity, long tso, long nowNanos) {
+    void register(Pair<Long, Long> identity, long tso, long nowNanos, Set<Long> tableIds) {
         Preconditions.checkState(lock.isHeldByCurrentThread());
-        if (pendingByTxn.containsKey(identity)) {
+        Preconditions.checkArgument(!tableIds.isEmpty(), "commit registration requires table IDs");
+        PendingTransaction existing = pendingByTxn.get(identity);
+        if (existing != null) {
             // A timed-out request can still commit using the earlier TSO.
+            existing.tableIds.addAll(tableIds);
             return;
         }
-        PendingTransaction pending = new PendingTransaction(identity, tso, nowNanos);
+        PendingTransaction pending = new PendingTransaction(identity, tso, nowNanos, tableIds);
         pendingByTxn.put(identity, pending);
         Preconditions.checkState(pendingByTso.put(tso, pending) == null);
+    }
+
+    /** Called with the allocator lock after validating endTso against its current clock. */
+    WaitResult awaitTransactions(Map<Long, List<Long>> dbToTableIds, long endTso, long remainingNanos)
+            throws InterruptedException {
+        Preconditions.checkState(lock.isHeldByCurrentThread());
+        if (!recoveryReady) {
+            return WaitResult.RECOVERING;
+        }
+        long waitStartNanos = System.nanoTime();
+        long waitGeneration = generation;
+        List<PendingTransaction> remaining = new ArrayList<>();
+        for (PendingTransaction pending : pendingByTso.headMap(endTso, true).values()) {
+            List<Long> tables = dbToTableIds.get(pending.identity.first);
+            if (tables != null && !Collections.disjoint(tables, pending.tableIds)) {
+                remaining.add(pending);
+            }
+        }
+        // Allocation/registration and this snapshot share the lock. Later allocations are outside
+        // the validated window; only this fixed set can affect the read. awaitNanos releases the lock.
+        while (true) {
+            if (generation != waitGeneration) {
+                return WaitResult.RECOVERING;
+            }
+            remaining.removeIf(pending -> pendingByTxn.get(pending.identity) != pending);
+            if (remaining.isEmpty()) {
+                return WaitResult.FINISHED;
+            }
+            long nanosLeft = remainingNanos - (System.nanoTime() - waitStartNanos);
+            if (nanosLeft <= 0) {
+                return WaitResult.TIMED_OUT;
+            }
+            transactionsChanged.awaitNanos(nanosLeft);
+        }
     }
 
     long candidateCommittedTso(long currentTso, long durableCommittedTso) {
@@ -104,6 +154,7 @@ final class TSOTransactionTracker {
             PendingTransaction pending = pendingByTxn.remove(Pair.of(dbId, txnId));
             if (pending != null) {
                 pendingByTso.remove(pending.tso);
+                transactionsChanged.signalAll();
             }
         } finally {
             lock.unlock();
@@ -156,6 +207,7 @@ final class TSOTransactionTracker {
                 if (generation == checkGeneration && pendingByTxn.get(pending.identity) == pending) {
                     pendingByTxn.remove(pending.identity);
                     pendingByTso.remove(pending.tso);
+                    transactionsChanged.signalAll();
                 }
             } finally {
                 lock.unlock();

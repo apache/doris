@@ -19,7 +19,10 @@ package org.apache.doris.tso;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalEntity;
@@ -27,6 +30,7 @@ import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
+import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import org.junit.jupiter.api.AfterEach;
@@ -44,6 +48,10 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -447,6 +455,102 @@ public class TSOServiceTest {
     }
 
     @Test
+    public void testReadableWindowDoesNotRequireAnotherCommittedTsoFlush() throws Exception {
+        Mockito.when(env.isMaster()).thenReturn(true);
+        Mockito.when(env.getTSOService()).thenReturn(tsoService);
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 1000, 17);
+        long committed = TSOTimestamp.composeTimestamp(900, 1);
+        tsoService.replayWindowEndTSO(new TSOServiceState(2000, committed));
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
+        Mockito.when(txnMgr.isPreviousTransactionsFinishedForTsoRecovery(1000L)).thenReturn(true);
+        tracker.checkTransactions(txnMgr, Long.MAX_VALUE);
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            TimeBasedChangeVisibleWaiter.ChangeReadFence fence = TimeBasedChangeVisibleWaiter.acquireFenceOnMaster(
+                    Collections.singletonMap(1L, Collections.singletonList(2L)), 950L, 0, true, true);
+            Assertions.assertEquals(committed, fence.getCommittedTso());
+        }
+    }
+
+    private void prepareWindowRead(boolean finishRecovery) throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        Mockito.when(env.getTSOService()).thenReturn(tsoService);
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 100, 0);
+        tsoService.replayWindowEndTSO(new TSOServiceState(2000, TSOTimestamp.composeTimestamp(80, 1)));
+        if (finishRecovery) {
+            Field field = TSOService.class.getDeclaredField("transactionTracker");
+            field.setAccessible(true);
+            GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+            Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
+            Mockito.when(txnMgr.isPreviousTransactionsFinishedForTsoRecovery(1000L)).thenReturn(true);
+            ((TSOTransactionTracker) field.get(tsoService)).checkTransactions(txnMgr, Long.MAX_VALUE);
+        }
+    }
+
+    @Test
+    public void testSlowTableDoesNotBlockAnotherTableOrAnEarlierEnd() throws Exception {
+        prepareWindowRead(true);
+        long pending = tsoService.getCommitTSO(1, 10, Set.of(100L, 101L));
+        setGlobalTimestamp(tsoService, 150, 17);
+        TSOService.TSOStatusSnapshot unrelated = tsoService.waitForReadableWindow(
+                Map.of(1L, Collections.singletonList(200L)), 120, 0);
+        Assertions.assertTrue(unrelated.getCommittedTso() < pending);
+        tsoService.waitForReadableWindow(Map.of(1L, Collections.singletonList(100L)), 100, 0);
+        for (long table : new long[] {100, 101}) {
+            IncrWindowNotReadyException error = Assertions.assertThrows(IncrWindowNotReadyException.class,
+                    () -> tsoService.waitForReadableWindow(Map.of(1L, Collections.singletonList(table)), 120, 0));
+            Assertions.assertEquals(ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT, error.getMysqlErrorCode());
+            Assertions.assertEquals("VISIBLE_WAIT_TIMEOUT", error.getReason());
+            Assertions.assertEquals(120, error.getRequestedEndTimestampMs());
+            Assertions.assertEquals(tsoService.getCurrentTSO(), error.getCurrentTso());
+            Assertions.assertEquals(unrelated.getCommittedTso(), error.getCommittedTso());
+        }
+        tsoService.transactionFinished(1, 10);
+        TSOService.TSOStatusSnapshot finished = tsoService.waitForReadableWindow(
+                Map.of(1L, Collections.singletonList(100L)), 120, 0);
+        // A table-specific successful read does not advance the global durable prefix.
+        Assertions.assertEquals(unrelated.getCommittedTso(), finished.getCommittedTso());
+    }
+
+    @Test
+    public void testFutureWindowAndRecoveryHaveDifferentReasonsFromWaitTimeout() throws Exception {
+        prepareWindowRead(false);
+        Map<Long, List<Long>> tables = Map.of(1L, Collections.singletonList(100L));
+        IncrWindowNotReadyException future = Assertions.assertThrows(IncrWindowNotReadyException.class,
+                () -> tsoService.waitForReadableWindow(tables, 101, 0));
+        Assertions.assertEquals(ErrorCode.ERR_INCR_WINDOW_NOT_READY, future.getMysqlErrorCode());
+        Assertions.assertEquals("END_AFTER_CURRENT_TSO", future.getReason());
+        IncrWindowNotReadyException recovering = Assertions.assertThrows(IncrWindowNotReadyException.class,
+                () -> tsoService.waitForReadableWindow(tables, 90, 0));
+        Assertions.assertEquals(ErrorCode.ERR_INCR_WINDOW_NOT_READY, recovering.getMysqlErrorCode());
+        Assertions.assertEquals("TSO_RECOVERING", recovering.getReason());
+        tsoService.waitForReadableWindow(tables, 80, 0);
+    }
+
+    @Test
+    public void testInterruptedReadWaitRestoresInterruptFlag() throws Exception {
+        prepareWindowRead(true);
+        tsoService.getCommitTSO(1, 10, Collections.singleton(100L));
+        setGlobalTimestamp(tsoService, 150, 17);
+        try {
+            Thread.currentThread().interrupt();
+            UserException error = Assertions.assertThrows(UserException.class, () -> tsoService.waitForReadableWindow(
+                    Map.of(1L, Collections.singletonList(100L)), 120, 1000));
+            Assertions.assertTrue(error.getDetailMessage().contains("interrupted"));
+            Assertions.assertTrue(Thread.currentThread().isInterrupted());
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @Test
     public void testCommittedPrefixIsPublishedOnlyAfterJournalSuccess() throws Exception {
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
@@ -491,7 +595,7 @@ public class TSOServiceTest {
             config.when(Config::isCloudMode).thenReturn(true);
             invokeCalibrateTimestamp(tsoService);
             Assertions.assertEquals(oldCommitted, tsoService.getStatusSnapshot().getCommittedTso());
-            long pendingTso = tsoService.getCommitTSO(1, 10);
+            long pendingTso = tsoService.getCommitTSO(1, 10, Collections.singleton(2L));
             Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
             trackerField.setAccessible(true);
             TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
@@ -565,14 +669,14 @@ public class TSOServiceTest {
             enteredRegistration.countDown();
             Assertions.assertTrue(releaseRegistration.await(30, TimeUnit.SECONDS));
             return invocation.callRealMethod();
-        }).when(tracker).register(Mockito.any(), Mockito.anyLong(), Mockito.anyLong());
-        Method generate = TSOService.class.getDeclaredMethod("generateTSO", Pair.class);
+        }).when(tracker).register(Mockito.any(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anySet());
+        Method generate = TSOService.class.getDeclaredMethod("generateTSO", Pair.class, Set.class);
         generate.setAccessible(true);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> allocation = executor.submit(() -> {
                 try {
-                    generate.invoke(tsoService, Pair.of(1L, 10L));
+                    generate.invoke(tsoService, Pair.of(1L, 10L), Collections.singleton(2L));
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }

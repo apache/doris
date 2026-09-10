@@ -78,19 +78,24 @@ public class StmtExecutorTest extends TestWithFeService {
 
     @Test
     public void testCommittedTsoErrorSurvivesPlannerWrapping() throws Exception {
-        connectContext.getState().reset();
-        IncrWindowNotReadyException rejected = new IncrWindowNotReadyException(2000, 1000, 1000);
-        StmtExecutor executor = new StmtExecutor(connectContext, "select 1");
-        try (MockedConstruction<NereidsPlanner> planners = Mockito.mockConstruction(NereidsPlanner.class,
-                (planner, construction) -> Mockito.doThrow(new NereidsException(rejected.getMessage(), rejected))
-                        .when(planner).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class)))) {
-            executor.execute();
-            Assertions.assertEquals(1, planners.constructed().size());
+        for (ErrorCode code : new ErrorCode[] {ErrorCode.ERR_INCR_WINDOW_NOT_READY,
+                ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT}) {
+            connectContext.getState().reset();
+            IncrWindowNotReadyException rejected = new IncrWindowNotReadyException(code, "test reason",
+                    2000, 3000, 1000, 1000, 5000);
+            StmtExecutor executor = new StmtExecutor(connectContext, "select 1");
+            try (MockedConstruction<NereidsPlanner> planners = Mockito.mockConstruction(NereidsPlanner.class,
+                    (planner, construction) -> Mockito.doThrow(new NereidsException(rejected.getMessage(), rejected))
+                            .when(planner).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class)))) {
+                executor.execute();
+                Assertions.assertEquals(1, planners.constructed().size());
+            }
+            Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+            Assertions.assertEquals(code, connectContext.getState().getErrorCode());
+            Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("requestedEndTimestampMs=2000"));
+            Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("retryAfterMs=1000"));
+            Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("timeoutMs=5000"));
         }
-        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
-        Assertions.assertEquals(ErrorCode.ERR_INCR_WINDOW_NOT_READY, connectContext.getState().getErrorCode());
-        Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("requestedEndTimestampMs=2000"));
-        Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("retryAfterMs=1000"));
     }
 
     @Test

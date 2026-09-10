@@ -21,6 +21,7 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
@@ -307,10 +308,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     }
 
     static FlightRuntimeException queryFailure(QueryState state, String message, Throwable cause) {
-        if (state.getErrorCode() == ErrorCode.ERR_INCR_WINDOW_NOT_READY) {
+        if (IncrWindowNotReadyException.isWindowError(state.getErrorCode())) {
             ErrorFlightMetadata metadata = new ErrorFlightMetadata();
-            metadata.insert("doris-error-code", Integer.toString(ErrorCode.ERR_INCR_WINDOW_NOT_READY.getCode()));
-            metadata.insert("doris-error-name", "ERR_INCR_WINDOW_NOT_READY");
+            metadata.insert("doris-error-code", Integer.toString(state.getErrorCode().getCode()));
+            metadata.insert("doris-error-name", state.getErrorCode().name());
             // The description preserves the requested end, committed prefix and retry delay from QueryState.
             return CallStatus.UNAVAILABLE.withDescription(message).withCause(cause)
                     .withMetadata(metadata).toRuntimeException();
@@ -328,11 +329,13 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             if (e instanceof FlightRuntimeException) {
                 FlightRuntimeException flightError = (FlightRuntimeException) e;
                 ErrorFlightMetadata metadata = flightError.status().metadata();
-                // Only the incremental-window error bypasses the original INTERNAL wrapper.
-                if (metadata.containsKey("doris-error-code")
-                        && Integer.toString(ErrorCode.ERR_INCR_WINDOW_NOT_READY.getCode())
-                                .equals(metadata.get("doris-error-code"))) {
-                    throw flightError;
+                // Only the two incremental-window errors bypass the original INTERNAL wrapper.
+                if (metadata.containsKey("doris-error-code")) {
+                    String code = metadata.get("doris-error-code");
+                    if (Integer.toString(ErrorCode.ERR_INCR_WINDOW_NOT_READY.getCode()).equals(code)
+                            || Integer.toString(ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT.getCode()).equals(code)) {
+                        throw flightError;
+                    }
                 }
             }
             String errMsg = "get flight info statement failed, " + e.getMessage();

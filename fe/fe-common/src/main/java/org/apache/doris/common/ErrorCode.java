@@ -1237,6 +1237,9 @@ public enum ErrorCode {
     ERR_INCR_WINDOW_NOT_READY(5100, new byte[]{'H', 'Y', '0', '0', '0'},
             "The requested incremental read window is not yet visible; retry the same window."),
 
+    ERR_INCR_VISIBLE_WAIT_TIMEOUT(5101, new byte[]{'H', 'Y', '0', '0', '0'},
+            "Timed out waiting for incremental read transactions to become visible; retry the same window."),
+
     ERR_NOT_CLOUD_MODE(6000, new byte[]{'4', '2', '0', '0', '0'},
             "Command only support in cloud mode.");
 

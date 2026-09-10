@@ -27,6 +27,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Collections;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -47,7 +54,7 @@ public class TSOTransactionTrackerTest {
     private void register(long dbId, long txnId, long tso) {
         lock.lock();
         try {
-            tracker.register(Pair.of(dbId, txnId), tso, 0);
+            tracker.register(Pair.of(dbId, txnId), tso, 0, Collections.singleton(100L));
         } finally {
             lock.unlock();
         }
@@ -66,6 +73,118 @@ public class TSOTransactionTrackerTest {
         Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
         Mockito.doReturn(true).when(txnMgr).isPreviousTransactionsFinishedForTsoRecovery(1000L);
         tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(3));
+    }
+
+    private TSOTransactionTracker.WaitResult awaitTable(long dbId, long tableId, long endTso) throws Exception {
+        lock.lock();
+        try {
+            return tracker.awaitTransactions(Collections.singletonMap(dbId, Collections.singletonList(tableId)),
+                    endTso, 0);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Test
+    public void testReadWaitFiltersDatabaseTableAndExclusivePhysicalEnd() throws Exception {
+        reset(0);
+        finishRecovery();
+        register(1, 10, TSOTimestamp.composeTimestamp(100, 1));
+        long end = TSOTimestamp.composePhysicalTimestamp(101);
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, awaitTable(2, 100, end));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, awaitTable(1, 200, end));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED,
+                awaitTable(1, 100, TSOTimestamp.composePhysicalTimestamp(100)));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, awaitTable(1, 100, end));
+        // Retrying later must not hide the original in-window request or lose any involved table.
+        lock.lock();
+        try {
+            tracker.register(Pair.of(1L, 10L), TSOTimestamp.composeTimestamp(200, 1), 0, Set.of(100L, 200L));
+        } finally {
+            lock.unlock();
+        }
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, awaitTable(1, 100, end));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, awaitTable(1, 200, end));
+        tracker.transactionFinished(1, 10);
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, awaitTable(1, 200, end));
+    }
+
+    @Test
+    public void testEmptyRegistrationSetCannotBypassRecovery() throws Exception {
+        reset(2000);
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.RECOVERING, awaitTable(1, 100, 200));
+    }
+
+    private Future<TSOTransactionTracker.WaitResult> submitReadWait(ExecutorService executor, CountDownLatch started) {
+        return executor.submit(() -> {
+            lock.lock();
+            try {
+                started.countDown();
+                return tracker.awaitTransactions(Map.of(1L, Collections.singletonList(100L)),
+                        200, TimeUnit.SECONDS.toNanos(30));
+            } finally {
+                lock.unlock();
+            }
+        });
+    }
+
+    @Test
+    public void testReconciliationWakesReadWithoutAdvancingTheGlobalPrefix() throws Exception {
+        reset(0);
+        finishRecovery();
+        register(1, 10, 100);
+        register(2, 20, 90); // An unrelated database continues to hold the global prefix.
+        CountDownLatch started = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<TSOTransactionTracker.WaitResult> waiting = submitReadWait(executor, started);
+            Assertions.assertTrue(started.await(30, TimeUnit.SECONDS));
+            TransactionState aborted = Mockito.mock(TransactionState.class);
+            Mockito.when(aborted.getTransactionStatus()).thenReturn(TransactionStatus.ABORTED);
+            Mockito.when(txnMgr.getTransactionState(1, 10)).thenReturn(aborted);
+            tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(4));
+            Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, waiting.get(30, TimeUnit.SECONDS));
+            Assertions.assertEquals(89, candidate(300, 80));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testWaitReleasesAllocatorLockAndDoesNotFollowLaterWrites() throws Exception {
+        reset(0);
+        finishRecovery();
+        register(1, 10, 100);
+        CountDownLatch started = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<TSOTransactionTracker.WaitResult> waiting = submitReadWait(executor, started);
+            Assertions.assertTrue(started.await(30, TimeUnit.SECONDS));
+            // Acquiring the lock proves the waiter released it; allocation can continue while it waits.
+            register(1, 20, 300);
+            tracker.transactionFinished(1, 10);
+            Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, waiting.get(30, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, tracker.getPendingCount());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testResetInvalidatesAnInFlightReadWait() throws Exception {
+        reset(0);
+        finishRecovery();
+        register(1, 10, 100);
+        CountDownLatch started = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<TSOTransactionTracker.WaitResult> waiting = submitReadWait(executor, started);
+            Assertions.assertTrue(started.await(30, TimeUnit.SECONDS));
+            reset(2000);
+            Assertions.assertEquals(TSOTransactionTracker.WaitResult.RECOVERING, waiting.get(30, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

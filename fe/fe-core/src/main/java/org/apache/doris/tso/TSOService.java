@@ -19,7 +19,10 @@ package org.apache.doris.tso;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.journal.local.LocalJournal;
@@ -33,8 +36,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
@@ -252,18 +258,18 @@ public class TSOService extends MasterDaemon {
      * @throws RuntimeException if TSO is not calibrated or other errors occur
      */
     public long getTSO() {
-        return getTSO(null);
+        return getTSO(null, Collections.emptySet());
     }
 
-    public long getCommitTSO(long dbId, long txnId) {
-        return getTSO(Pair.of(dbId, txnId));
+    public long getCommitTSO(long dbId, long txnId, Set<Long> tableIds) {
+        return getTSO(Pair.of(dbId, txnId), tableIds);
     }
 
     public void transactionFinished(long dbId, long txnId) {
         transactionTracker.transactionFinished(dbId, txnId);
     }
 
-    private long getTSO(Pair<Long, Long> transactionIdentity) {
+    private long getTSO(Pair<Long, Long> transactionIdentity, Set<Long> tableIds) {
         if (!isTsoEnabled()) {
             throw new RuntimeException("TSO feature is disabled, please check enable_feature_binlog");
         }
@@ -297,7 +303,7 @@ public class TSOService extends MasterDaemon {
                 continue;
             }
 
-            Pair<Long, Long> pair = generateTSO(transactionIdentity);
+            Pair<Long, Long> pair = generateTSO(transactionIdentity, tableIds);
             long physical = pair.first;
             long logical = pair.second;
 
@@ -353,6 +359,56 @@ public class TSOService extends MasterDaemon {
         } finally {
             lock.unlock();
         }
+    }
+
+    /** Establish a bounded cloud read on the master without draining unrelated or later transactions. */
+    public TSOStatusSnapshot waitForReadableWindow(Map<Long, List<Long>> dbToTableIds,
+            long endTimestampMs, long timeoutMs) throws UserException {
+        long startNanos = System.nanoTime();
+        lock.lock();
+        try {
+            TSOStatusSnapshot snapshot = getStatusSnapshot();
+            if (!snapshot.isInitialized()) {
+                throw new UserException("TSO timestamp is not calibrated, please check");
+            }
+            if (endTimestampMs > TSOTimestamp.extractPhysicalTime(snapshot.getCurrentTso())) {
+                throw windowError(ErrorCode.ERR_INCR_WINDOW_NOT_READY, "END_AFTER_CURRENT_TSO",
+                        endTimestampMs, snapshot, timeoutMs);
+            }
+            if (snapshot.getCommittedTso() > 0
+                    && endTimestampMs <= TSOTimestamp.extractPhysicalTime(snapshot.getCommittedTso())) {
+                return snapshot;
+            }
+            // Logical zero matches the BE upper boundary for the physical interval [start, end).
+            TSOTransactionTracker.WaitResult result = transactionTracker.awaitTransactions(dbToTableIds,
+                    TSOTimestamp.composePhysicalTimestamp(endTimestampMs),
+                    TimeUnit.MILLISECONDS.toNanos(timeoutMs) - (System.nanoTime() - startNanos));
+            snapshot = getStatusSnapshot();
+            if (result == TSOTransactionTracker.WaitResult.RECOVERING) {
+                throw windowError(ErrorCode.ERR_INCR_WINDOW_NOT_READY, "TSO_RECOVERING",
+                        endTimestampMs, snapshot, timeoutMs);
+            }
+            if (!Env.getCurrentEnv().isMaster()) {
+                throw windowError(ErrorCode.ERR_INCR_WINDOW_NOT_READY, "TSO_MASTER_CHANGED",
+                        endTimestampMs, snapshot, timeoutMs);
+            }
+            if (result == TSOTransactionTracker.WaitResult.TIMED_OUT) {
+                throw windowError(ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT, "VISIBLE_WAIT_TIMEOUT",
+                        endTimestampMs, snapshot, timeoutMs);
+            }
+            return snapshot;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new UserException("interrupted while waiting for incremental read transactions", e);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private IncrWindowNotReadyException windowError(ErrorCode code, String reason, long endTimestampMs,
+            TSOStatusSnapshot snapshot, long timeoutMs) {
+        return new IncrWindowNotReadyException(code, reason, endTimestampMs, snapshot.getCurrentTso(),
+                snapshot.getCommittedTso(), Config.tso_service_window_duration_ms, timeoutMs);
     }
 
     /**
@@ -589,10 +645,10 @@ public class TSOService extends MasterDaemon {
      * @return Pair of (physicalTime, updatedLogicalCounter) for the base timestamp
      */
     private Pair<Long, Long> generateTSO() {
-        return generateTSO(null);
+        return generateTSO(null, Collections.emptySet());
     }
 
-    private Pair<Long, Long> generateTSO(Pair<Long, Long> transactionIdentity) {
+    private Pair<Long, Long> generateTSO(Pair<Long, Long> transactionIdentity, Set<Long> tableIds) {
         lock.lock();
         try {
             if (!isTsoEnabled() || !isInitialized.get()) {
@@ -610,7 +666,7 @@ public class TSOService extends MasterDaemon {
             globalTimestamp.setLogicalCounter(nextLogical);
             if (transactionIdentity != null) {
                 transactionTracker.register(transactionIdentity,
-                        TSOTimestamp.composeTimestamp(physicalTime, nextLogical), System.nanoTime());
+                        TSOTimestamp.composeTimestamp(physicalTime, nextLogical), System.nanoTime(), tableIds);
             }
             return Pair.of(physicalTime, nextLogical);
         } finally {

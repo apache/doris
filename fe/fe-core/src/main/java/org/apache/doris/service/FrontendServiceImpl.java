@@ -3412,7 +3412,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getDetailMessage());
             result.setWindowNotReady(new TIncrWindowNotReady(
-                    e.getRequestedEndTimestampMs(), e.getCommittedTso(), e.getRetryAfterMs()));
+                    e.getRequestedEndTimestampMs(), e.getCommittedTso(), e.getRetryAfterMs())
+                    .setCurrentTso(e.getCurrentTso()).setErrorCode(e.getMysqlErrorCode().getCode())
+                    .setTimeoutMs(e.getTimeoutMs()).setReason(e.getReason()));
         } catch (UserException e) {
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getDetailMessage());
