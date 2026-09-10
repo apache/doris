@@ -2435,11 +2435,175 @@ Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size
 
     _recovery_from_place_holder_column(dst);
 
+    if (count == 0) {
+        return Status::OK();
+    }
+
+    if (read_null_map_only()) {
+        DORIS_CHECK(is_column_nullable(*dst));
+        auto& nullable_column = assert_cast<ColumnNullable&>(*dst);
+        if (_null_iterator) {
+            auto null_map_ptr = nullable_column.get_null_map_column_ptr();
+            MutableColumnPtr null_map_column = std::move(null_map_ptr);
+            RETURN_IF_ERROR(_null_iterator->read_by_rowids(rowids, count, null_map_column));
+        } else {
+            nullable_column.get_null_map_column_ptr()->insert_many_vals(0, count);
+        }
+        auto& column_array = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                nullable_column.get_nested_column());
+        column_array.insert_many_defaults(count);
+        return Status::OK();
+    }
+
+    auto& column_array = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(
+            is_column_nullable(*dst) ? static_cast<ColumnNullable&>(*dst).get_nested_column()
+                                     : *dst);
+    const bool read_meta_columns = need_to_read_meta_columns();
+
+    if (_array_reader->is_nullable()) {
+        if (UNLIKELY(!is_column_nullable(*dst))) {
+            return Status::InternalError(
+                    "unexpected non-nullable destination column for nullable array reader");
+        }
+        auto& nullable_column = static_cast<ColumnNullable&>(*dst);
+        if (read_meta_columns) {
+            MutableColumnPtr null_map_column = nullable_column.get_null_map_column_ptr();
+            RETURN_IF_ERROR(_null_iterator->read_by_rowids(rowids, count, null_map_column));
+        } else {
+            DORIS_CHECK(nullable_column.get_null_map_column().size() == count);
+        }
+    } else if (read_meta_columns && is_column_nullable(*dst)) {
+        static_cast<ColumnNullable&>(*dst).get_null_map_column_ptr()->insert_many_vals(0, count);
+    }
+
+    // Storage offsets contain the start item ordinal of each array row. Read all starts in one
+    // pass, then read the following row's start as the corresponding end ordinal.
+    MutableColumnPtr starts_column = ColumnOffset64::create();
+    starts_column->reserve(count);
+    RETURN_IF_ERROR(_offset_iterator->read_by_rowids(rowids, count, starts_column));
+
+    // read_by_rowids callers provide strictly increasing segment rowids, so only the final
+    // requested row can require the page-tail sentinel instead of a rowid + 1 lookup.
+    std::vector<rowid_t> next_rowids;
+    next_rowids.reserve(count);
     for (size_t i = 0; i < count; ++i) {
-        // TODO(cambyszju): now read array one by one, need optimize later
-        RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
+        const auto next_rowid = static_cast<uint64_t>(rowids[i]) + 1;
+        if (next_rowid < _array_reader->num_rows()) {
+            next_rowids.push_back(static_cast<rowid_t>(next_rowid));
+        } else {
+            DORIS_CHECK(i + 1 == count);
+        }
+    }
+    MutableColumnPtr next_starts_column = ColumnOffset64::create();
+    next_starts_column->reserve(count);
+    if (!next_rowids.empty()) {
+        RETURN_IF_ERROR(_offset_iterator->read_by_rowids(next_rowids.data(), next_rowids.size(),
+                                                         next_starts_column));
+    }
+
+    auto& next_starts = assert_cast<ColumnOffset64&>(*next_starts_column).get_data();
+    if (next_rowids.size() != count) {
+        // The last array row has no rowid + 1. Consume its start offset, then obtain the end
+        // offset from the page-tail sentinel written by OffsetColumnWriter.
+        RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(rowids[count - 1]));
         size_t num_read = 1;
-        RETURN_IF_ERROR(next_batch(&num_read, dst));
+        bool has_null = false;
+        MutableColumnPtr last_start = ColumnOffset64::create();
+        RETURN_IF_ERROR(_offset_iterator->next_batch(&num_read, last_start, &has_null));
+        if (UNLIKELY(num_read != 1)) {
+            return Status::Corruption("failed to read the last array offset");
+        }
+        ordinal_t next_start = 0;
+        RETURN_IF_ERROR(_offset_iterator->_peek_one_offset(&next_start));
+        next_starts.push_back(next_start);
+    }
+    DORIS_CHECK(next_starts.size() == count);
+
+    auto& starts = assert_cast<ColumnOffset64&>(*starts_column).get_data();
+    DORIS_CHECK(starts.size() == count);
+    if (!read_meta_columns) {
+        DORIS_CHECK(column_array.size() == count);
+    }
+
+    MutableColumnPtr output_offsets_ptr;
+    ColumnArray::ColumnOffsets* output_offsets = nullptr;
+    if (read_meta_columns) {
+        output_offsets_ptr = IColumn::mutate(std::move(column_array.get_offsets_ptr()));
+        output_offsets = assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                output_offsets_ptr.get());
+    }
+    Defer defer_offsets {[&] {
+        if (read_meta_columns) {
+            auto typed_offsets_ptr = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
+                    assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                            output_offsets_ptr.get()));
+            output_offsets_ptr = nullptr;
+            column_array.get_offsets_ptr() = std::move(typed_offsets_ptr);
+        }
+    }};
+
+    auto items_ptr = IColumn::mutate(std::move(column_array.get_data_ptr()));
+    Defer defer_items {[&] { column_array.get_data_ptr() = std::move(items_ptr); }};
+    auto read_item_range = [&](ordinal_t start, size_t item_count) -> Status {
+        if (item_count == 0) {
+            return Status::OK();
+        }
+        size_t num_read = item_count;
+        bool has_null = false;
+        RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(start));
+        RETURN_IF_ERROR(_item_iterator->next_batch(&num_read, items_ptr, &has_null));
+        if (UNLIKELY(num_read != item_count)) {
+            return Status::Corruption("array item reader returned {} items, expected {}", num_read,
+                                      item_count);
+        }
+        return Status::OK();
+    };
+
+    uint64_t output_offset =
+            read_meta_columns && !output_offsets->empty() ? output_offsets->get_data().back() : 0;
+    size_t total_item_count = 0;
+    ordinal_t range_start = 0;
+    size_t range_size = 0;
+    if (read_meta_columns) {
+        output_offsets->get_data().reserve(output_offsets->size() + count);
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (UNLIKELY(next_starts[i] < starts[i])) {
+            return Status::Corruption("invalid array element offsets: start {}, end {}", starts[i],
+                                      next_starts[i]);
+        }
+        const size_t item_count = static_cast<size_t>(next_starts[i] - starts[i]);
+        // A nullable parent can legally retain nested payload for a null row. Preserve the raw
+        // offset span so the nested column stays aligned with the parent offsets, especially when
+        // lazy materialization fills only the item subtree in a later phase.
+        total_item_count += item_count;
+        if (read_meta_columns) {
+            output_offset += item_count;
+            output_offsets->get_data().push_back(output_offset);
+        } else {
+            DCHECK_EQ(column_array.size_at(i), item_count);
+        }
+        if (read_offset_only() || item_count == 0) {
+            continue;
+        }
+
+        const auto item_start = static_cast<ordinal_t>(starts[i]);
+        if (range_size == 0) {
+            range_start = item_start;
+            range_size = item_count;
+        } else if (range_start + range_size == item_start) {
+            range_size += item_count;
+        } else {
+            RETURN_IF_ERROR(read_item_range(range_start, range_size));
+            range_start = item_start;
+            range_size = item_count;
+        }
+    }
+
+    if (read_offset_only()) {
+        items_ptr->insert_many_defaults(total_item_count);
+    } else {
+        RETURN_IF_ERROR(read_item_range(range_start, range_size));
     }
     return Status::OK();
 }
