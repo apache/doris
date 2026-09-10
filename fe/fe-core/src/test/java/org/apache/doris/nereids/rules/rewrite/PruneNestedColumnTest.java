@@ -778,9 +778,12 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                         logicalOlapScan()
                                     )
                                 ).when(p -> {
-                                    Assertions.assertEquals(2, p.getProjects().size());
-                                    Assertions.assertTrue(p.getProjects().stream()
-                                            .anyMatch(o -> o instanceof Alias && o.child(0) instanceof ElementAt));
+                                    // the one-row relation's constant `id` is propagated into the
+                                    // left side (`id = 100` pushed into the filter below), so the
+                                    // project above the filter only keeps the pushed-down access
+                                    Assertions.assertEquals(1, p.getProjects().size());
+                                    Assertions.assertTrue(p.getProjects().get(0) instanceof Alias
+                                            && p.getProjects().get(0).child(0) instanceof ElementAt);
                                     return true;
                                 }),
                                 logicalOneRowRelation()
