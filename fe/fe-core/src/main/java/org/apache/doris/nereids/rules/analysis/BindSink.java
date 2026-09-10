@@ -563,6 +563,9 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = ((Alias) boundExpression).child();
                 }
                 boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
+                // Dependent generated columns must use the value converted to this column's declared type.
+                boundExpression = TypeCoercionUtils.castIfNotSameType(boundExpression,
+                        DataType.fromCatalogType(column.getType()));
                 if (!SessionVarGuardRewriter.checkSessionVariablesMatch(
                         currentSessionVars, column.getSessionVariables())) {
                     boundExpression = boundExpression.accept(
