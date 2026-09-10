@@ -98,10 +98,7 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
 
     @Override
     public String computeToSql(SqlRenderMode mode) {
-        if (mode == SqlRenderMode.FOR_VIEW) {
-            return name;
-        }
-        return child(0).toSql(mode);
+        return name;
     }
 
     @Override
