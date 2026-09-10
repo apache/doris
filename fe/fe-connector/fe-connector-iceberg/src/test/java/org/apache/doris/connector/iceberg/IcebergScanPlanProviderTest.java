@@ -59,6 +59,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
+import org.apache.iceberg.SupportsDistributedScanPlanning;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
@@ -173,6 +174,20 @@ public class IcebergScanPlanProviderTest {
     private static Table tableWithIo(Table table, FileIO fileIO) {
         return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
                 (proxy, method, args) -> method.getName().equals("io") ? fileIO : invoke(method, table, args));
+    }
+
+    private static Table serverPlannedTable(Table table, AtomicBoolean localMetadataAccessed) {
+        return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(),
+                new Class<?>[] {Table.class, SupportsDistributedScanPlanning.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("allowDistributedPlanning")) {
+                        return false;
+                    }
+                    if (method.getName().equals("newScan") || method.getName().equals("io")) {
+                        localMetadataAccessed.set(true);
+                    }
+                    return invoke(method, table, args);
+                });
     }
 
     private static Table tableWithMissingManifestRowsAndIo(Table table, FileIO fileIO) {
@@ -312,6 +327,58 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertTrue(ranges.isEmpty());
         Assertions.assertEquals("db1", ops.lastLoadDb);
         Assertions.assertEquals("t1", ops.lastLoadTable);
+    }
+
+    @Test
+    public void planScanRejectsServerPlanningBeforeReplacingHistoricalScan() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(
+                table.spec(), "s3://b/db1/t1/f.parquet", 100, null, null)).commit();
+        long historicalSnapshotId = table.currentSnapshot().snapshotId();
+        int historicalSchemaId = table.schema().schemaId();
+        table.updateSchema().renameColumn("name", "renamed_name").commit();
+        AtomicBoolean localMetadataAccessed = new AtomicBoolean();
+        IcebergScanPlanProvider provider = providerOver(serverPlannedTable(table, localMetadataAccessed));
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1")
+                .withSnapshot(historicalSnapshotId, null, historicalSchemaId);
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList()).build()));
+
+        Assertions.assertTrue(failure.getMessage().contains("server-side scan planning"), failure.getMessage());
+        Assertions.assertFalse(localMetadataAccessed.get(),
+                "rejection must happen before replacing the native scan or opening local metadata");
+    }
+
+    @Test
+    public void streamingEstimateRejectsServerPlanningBeforeReadingLocalManifests() {
+        Table table = threeFileTable();
+        AtomicBoolean localMetadataAccessed = new AtomicBoolean();
+        IcebergScanPlanProvider provider = providerOver(serverPlannedTable(table, localMetadataAccessed));
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.streamingSplitEstimate(batchSession(1, true),
+                        new IcebergTableHandle("db1", "t1"), Optional.empty(), false));
+
+        Assertions.assertTrue(failure.getMessage().contains("server-side scan planning"), failure.getMessage());
+        Assertions.assertFalse(localMetadataAccessed.get(),
+                "streaming dispatch must reject before table.io() reads local manifests");
+    }
+
+    @Test
+    public void scanPropertiesRejectServerPlanningBeforeReadingTableCredentials() {
+        Table table = threeFileTable();
+        AtomicBoolean localMetadataAccessed = new AtomicBoolean();
+        IcebergScanPlanProvider provider = providerOver(serverPlannedTable(table, localMetadataAccessed));
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.getScanNodeProperties(emptySession(), new IcebergTableHandle("db1", "t1"),
+                        Collections.emptyList(), Optional.empty()));
+
+        Assertions.assertTrue(failure.getMessage().contains("server-side scan planning"), failure.getMessage());
+        Assertions.assertFalse(localMetadataAccessed.get(),
+                "scan properties must reject before reading table.io() instead of planned-scan credentials");
     }
 
     @Test

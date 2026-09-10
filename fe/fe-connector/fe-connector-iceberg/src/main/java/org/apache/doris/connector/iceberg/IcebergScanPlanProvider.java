@@ -70,6 +70,7 @@ import org.apache.iceberg.SchemaAwareDataTableScan;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SplittableScanTask;
+import org.apache.iceberg.SupportsDistributedScanPlanning;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
@@ -3106,7 +3107,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         () -> tableCache.borrow(
                                 TableIdentifier.of(handle.getDbName(), handle.getTableName()), directLoader),
                         directLoader);
+        rejectServerSideScanPlanning(raw, handle);
         return wrapTableForScan(raw);
+    }
+
+    private static void rejectServerSideScanPlanning(Table table, IcebergTableHandle handle) {
+        if (table instanceof SupportsDistributedScanPlanning
+                && !((SupportsDistributedScanPlanning) table).allowDistributedPlanning()) {
+            // Iceberg 1.11 marks REST server-planned tables this way. Doris reads manifests and table.io()
+            // before planFiles(), when REST scan-scoped credentials do not exist, so fail before any local I/O.
+            throw new DorisConnectorException("Iceberg server-side scan planning is not supported for table "
+                    + handle.getDbName() + "." + handle.getTableName()
+                    + "; configure the REST catalog to use client-side scan planning");
+        }
     }
 
     /**
@@ -3174,6 +3187,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
                                 () -> ops.loadTable(handle.getDbName(), handle.getTableName())),
                         () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
+        rejectServerSideScanPlanning(base, handle);
         return MetadataTableUtils.createMetadataTableInstance(
                 base,
                 MetadataTableType.from(handle.getSysTableName()));

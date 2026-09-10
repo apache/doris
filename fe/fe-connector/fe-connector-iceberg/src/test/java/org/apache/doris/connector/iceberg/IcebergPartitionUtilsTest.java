@@ -1148,6 +1148,33 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
+    public void listPartitionsIgnoresUnrepresentableSpecWithoutLiveFiles() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()));
+        TableIdentifier id = TableIdentifier.of("db1", "live_specs_only");
+        Table table = catalog.createTable(id, schema,
+                PartitionSpec.builderFor(schema).bucket("region", 8).build(),
+                Collections.singletonMap("format-version", "2"));
+        table.updateSpec().removeField("region_bucket").addField("id").commit();
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://b/db1/live_specs_only/f.parquet")
+                .withFileSizeInBytes(100).withRecordCount(1)
+                .withPartitionPath("id=5").withFormat(FileFormat.PARQUET).build()).commit();
+        table.updateSchema().deleteColumn("region").commit();
+
+        List<ConnectorPartitionInfo> partitions = IcebergPartitionUtils.listPartitions(
+                catalog.loadTable(id), id, null);
+
+        Assertions.assertEquals(1, partitions.size());
+        Assertions.assertEquals("id=5", partitions.get(0).getPartitionName(),
+                "an unrepresentable historical spec with no live files must not hide live partitions");
+    }
+
+    @Test
     public void listPartitionsReadsValuesFromUnifiedPartitionStructByFieldId() {
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());

@@ -780,22 +780,22 @@ final class IcebergPartitionUtils {
         for (int i = 0; i < unifiedPartitionType.fields().size(); i++) {
             partitionFieldOrdinals.put(unifiedPartitionType.fields().get(i).fieldId(), i);
         }
-        boolean hasUnrepresentableField = table.specs().values().stream()
-                .flatMap(spec -> spec.fields().stream())
-                .anyMatch(field -> !partitionFieldOrdinals.containsKey(field.fieldId()));
-        if (hasUnrepresentableField) {
-            // Iceberg 1.11 drops orphaned historical fields from the unified struct and groups their distinct
-            // values together. An empty display is safer than fabricating null-valued or collapsed partitions.
-            LOG.warn("Cannot represent all historical partition fields for iceberg table {}; "
-                    + "reporting an empty partition display.", table.name());
-            return Collections.emptyList();
-        }
         Table partitionsTable = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.PARTITIONS);
         List<IcebergRawPartition> partitions = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().useSnapshot(snapshotId).planFiles()) {
             for (FileScanTask task : tasks) {
                 CloseableIterable<StructLike> rows = task.asDataTask().rows();
                 for (StructLike row : rows) {
+                    PartitionSpec liveSpec = table.specs().get(row.get(1, Integer.class));
+                    boolean hasUnrepresentableField = liveSpec.fields().stream()
+                            .anyMatch(field -> !partitionFieldOrdinals.containsKey(field.fieldId()));
+                    if (hasUnrepresentableField) {
+                        // Only specs represented by live partition rows affect this snapshot. Rejecting an
+                        // orphaned but file-free historical spec would hide otherwise valid current partitions.
+                        LOG.warn("Cannot represent a live historical partition spec for iceberg table {}; "
+                                + "reporting an empty partition display.", table.name());
+                        return Collections.emptyList();
+                    }
                     partitions.add(generateRawPartition(table, row, partitionFieldOrdinals));
                 }
             }
