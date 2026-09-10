@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -40,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -131,6 +134,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     checkAggregateFunction(plan);
                     checkGroupingScalarFunction(plan);
                     checkIvmExpression(plan, ctx.connectContext);
+                    checkScoreTableType(plan);
                     return null;
                 })
             ),
@@ -142,6 +146,22 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 })
             )
         );
+    }
+
+    private void checkScoreTableType(Plan plan) {
+        if (!(plan instanceof LogicalProject)
+                || plan.getExpressions().stream().noneMatch(expression -> expression.containsType(Score.class))) {
+            return;
+        }
+        for (LogicalOlapScan scan : plan.<LogicalOlapScan>collectToList(LogicalOlapScan.class::isInstance)) {
+            KeysType keysType = scan.getTable().getKeysType();
+            if (keysType == KeysType.AGG_KEYS
+                    || (keysType == KeysType.UNIQUE_KEYS
+                            && !scan.getTable().getEnableUniqueKeyMergeOnWrite())) {
+                throw new AnalysisException(
+                        "score() function is not supported on AGG_KEYS table or merge-on-read UNIQUE_KEYS table");
+            }
+        }
     }
 
     private void checkUnexpectedExpressions(Plan plan) {
