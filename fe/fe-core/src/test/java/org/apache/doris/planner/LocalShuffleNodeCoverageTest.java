@@ -82,6 +82,33 @@ public class LocalShuffleNodeCoverageTest {
     }
 
     @Test
+    public void testBroadcastJoinPreservesProbeStorageHashType() {
+        TrackingPlanNode identityProbe = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.IDENTITY;
+            }
+        };
+        TrackingPlanNode crc32Build = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.CRC32;
+            }
+        };
+        HashJoinNode broadcastJoin = new HashJoinNode(nextPlanNodeId(), identityProbe, crc32Build,
+                JoinOperator.INNER_JOIN, Collections.singletonList(Mockito.mock(BinaryPredicate.class)),
+                Collections.emptyList(), null, null, false);
+        broadcastJoin.setDistributionMode(DistributionMode.BROADCAST);
+
+        Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
+                broadcastJoin.getStorageDistributionHashType());
+        LocalExchangeNode bucketExchange = new LocalExchangeNode(nextPlanNodeId(), broadcastJoin,
+                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList());
+        Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
+                bucketExchange.getStorageDistributionHashType());
+    }
+
+    @Test
     public void testRequireSpecificAutoRequireHashPreservesSpecificHash() {
         // Pass-through operators (union / streaming agg / sort) forward their parent's specific
         // hash requirement downward via autoRequireHash() while leaving row placement to their

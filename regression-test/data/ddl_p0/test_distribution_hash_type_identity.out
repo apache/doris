@@ -106,6 +106,16 @@ beta	2
 7	2	20
 8	3	30
 
+-- !identity_broadcast_then_bucket_native --
+1024	6	60
+7	2	20
+8	3	30
+
+-- !identity_broadcast_then_bucket_fe --
+1024	6	60
+7	2	20
+8	3	30
+
 -- !identity_multi_bucket_shuffle --
 -1	A	12	22
 1	A	10	20

@@ -484,6 +484,27 @@ suite("test_distribution_hash_type_identity") {
     sql "set enable_local_shuffle_planner = false"
 
     // Multi-column mixed-type identity bucket shuffle follows the same composition as storage.
+    // A broadcast join keeps its probe-side IDENTITY bucket layout. Its CRC32 build side must not
+    // erase that metadata before the result feeds another bucket-shuffle join.
+    def broadcastThenBucketSql = """
+        SELECT p.id, p.v, r.w
+        FROM (
+            SELECT a.id, a.v
+            FROM test_dist_hash_bs_left a
+            JOIN [broadcast] test_dist_hash_join_crc32 b ON a.id = b.id
+        ) p
+        JOIN [shuffle] test_dist_hash_bs_right r ON p.id = r.id
+    """
+    explain {
+        sql(broadcastThenBucketSql)
+        contains "INNER JOIN(BROADCAST)"
+        contains "INNER JOIN(BUCKET_SHUFFLE)"
+    }
+    order_qt_identity_broadcast_then_bucket_native "${broadcastThenBucketSql}"
+    sql "set enable_local_shuffle_planner = true"
+    order_qt_identity_broadcast_then_bucket_fe "${broadcastThenBucketSql}"
+    sql "set enable_local_shuffle_planner = false"
+
     sql "DROP TABLE IF EXISTS test_dist_hash_bs_multi_right"
     sql """
         CREATE TABLE `test_dist_hash_bs_multi_right` (
