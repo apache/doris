@@ -23,15 +23,16 @@ import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
  * Reference-counted wrapper around a shared {@link HoodieTableFileSystemView}.
  *
  * <p>The underlying fs view is cached per table and shared by concurrent scan nodes. Closing it while
- * another thread is still planning splits is unsafe, so the cache only closes the view after the entry has
- * been evicted AND all acquired references have been released.
+ * another thread is still planning splits is unsafe, so the wrapper only closes the view after its cache
+ * and loader owners have retired and all acquired leases have been released.
  */
 public class HudiFsViewCacheValue {
     private final HoodieTableFileSystemView fsView;
-    // The loader owns one transferable reference until getFsView hands this exact generation to its first caller.
-    private int refCount = 1;
-    private boolean loaderReferenceAvailable = true;
-    private boolean evicted = false;
+    // Cache and loader ownership are independent so an asynchronous removal callback cannot close
+    // a rejected value before getFsView has handed it to the caller that performed the load.
+    private int refCount = 2;
+    private boolean cacheReferenceReleased;
+    private boolean loaderReferenceReleased;
     private boolean closed = false;
 
     public HudiFsViewCacheValue(HoodieTableFileSystemView fsView) {
@@ -40,30 +41,38 @@ public class HudiFsViewCacheValue {
 
     public Lease tryAcquire() {
         synchronized (this) {
-            if (loaderReferenceAvailable) {
-                loaderReferenceAvailable = false;
-                return new Lease(this, fsView);
-            } else if (evicted) {
+            if (cacheReferenceReleased && loaderReferenceReleased) {
                 return null;
-            } else {
-                refCount++;
-                return new Lease(this, fsView);
             }
+            refCount++;
+            return new Lease(this, fsView);
         }
     }
 
-    public synchronized void evict() {
-        evicted = true;
-        // A value rejected before getFsView() returns still owns the loader's transferable reference.
-        // Consume it here so a sealed/generation-lost load can reach zero without a nonexistent caller.
-        if (loaderReferenceAvailable) {
-            loaderReferenceAvailable = false;
-            refCount--;
+    public synchronized void releaseCacheReference() {
+        if (!cacheReferenceReleased) {
+            cacheReferenceReleased = true;
+            releaseReference();
         }
-        maybeClose();
+    }
+
+    public synchronized void releaseLoaderReference() {
+        if (!loaderReferenceReleased) {
+            loaderReferenceReleased = true;
+            releaseReference();
+        }
+    }
+
+    public synchronized void retire() {
+        releaseCacheReference();
+        releaseLoaderReference();
     }
 
     private synchronized void release() {
+        releaseReference();
+    }
+
+    private void releaseReference() {
         if (refCount <= 0) {
             throw new IllegalStateException("Hudi fs view released without a matching acquisition");
         }
@@ -72,7 +81,7 @@ public class HudiFsViewCacheValue {
     }
 
     private void maybeClose() {
-        if (evicted && !closed && refCount == 0) {
+        if (!closed && refCount == 0) {
             closed = true;
             fsView.close();
         }
