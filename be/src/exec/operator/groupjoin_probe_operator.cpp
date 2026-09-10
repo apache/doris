@@ -28,6 +28,7 @@
 #include "exprs/vexpr.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -116,6 +117,7 @@ Status GroupJoinProbeOperatorX::prepare(RuntimeState* state) {
 
 Status GroupJoinProbeOperatorX::push(RuntimeState* state, Block* input_block, bool eos) const {
     auto& local_state = get_local_state(state);
+    Defer update_memory {[&]() { local_state._shared_state->update_memory_usage(); }};
     if (input_block->rows() > 0) {
         const auto rows = cast_set<uint32_t>(input_block->rows());
         RETURN_IF_ERROR(groupjoin::do_evaluate(*input_block, local_state._probe_expr_ctxs,
