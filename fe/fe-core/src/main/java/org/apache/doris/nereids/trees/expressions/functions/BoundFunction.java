@@ -95,23 +95,11 @@ public abstract class BoundFunction extends Function implements ComputeSignature
 
     @Override
     public String computeToSql(SqlRenderMode mode) throws UnboundException {
-        if (mode == SqlRenderMode.FOR_VIEW) {
-            return functionNameToSql(mode) + "(" + argumentsToViewSql() + ")";
-        }
-        StringBuilder sql = new StringBuilder(functionNameToSql(mode)).append("(");
-        int arity = arity();
-        for (int i = 0; i < arity; i++) {
-            Expression arg = child(i);
-            sql.append(arg.toSql(mode));
-            if (i + 1 < arity) {
-                sql.append(", ");
-            }
-        }
-        return sql.append(")").toString();
+        return functionNameToSql(mode) + "(" + argumentsToSql(mode) + ")";
     }
 
     /** Render ordinary arguments followed by any in-function ORDER BY keys. */
-    protected String argumentsToViewSql() {
+    protected String argumentsToSql(SqlRenderMode mode) {
         StringBuilder sql = new StringBuilder();
         for (int i = 0; i < arity(); i++) {
             Expression argument = child(i);
@@ -120,7 +108,7 @@ public abstract class BoundFunction extends Function implements ComputeSignature
             } else if (i > 0) {
                 sql.append(", ");
             }
-            sql.append(argument.toSql(SqlRenderMode.FOR_VIEW));
+            sql.append(argument.toSql(mode));
         }
         return sql.toString();
     }

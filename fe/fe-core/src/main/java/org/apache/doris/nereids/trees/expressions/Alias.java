@@ -128,14 +128,14 @@ public class Alias extends NamedExpression implements UnaryExpression {
 
     @Override
     public String computeToSql(SqlRenderMode mode) {
-        return child().toSql(mode) + " AS "
-                + Utils.qualifiedNameWithBackquote(
-                        Collections.singletonList(getName()));
+        String sb = child().toSql(mode) + " AS "
+                + Utils.qualifiedNameWithBackquote(Collections.singletonList(getName()));
+        return sb;
     }
 
     @Override
     public String computeToSql() {
-        return child().toSql() + " AS `" + name.get() + "`";
+        return computeToSql(SqlRenderMode.DEFAULT);
     }
 
     @Override

@@ -96,23 +96,20 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
 
     @Override
     public String computeToSql(SqlRenderMode mode) {
-        String sql = frameUnits + " ";
+        StringBuilder sb = new StringBuilder();
+        sb.append(frameUnits).append(" ");
         if (rightBoundary != null) {
-            return sql + "BETWEEN " + leftBoundary.toSql(mode) + " AND " + rightBoundary.toSql(mode);
+            sb.append("BETWEEN ").append(leftBoundary.toSql(mode))
+                    .append(" AND ").append(rightBoundary.toSql(mode));
+        } else {
+            sb.append(leftBoundary.toSql(mode));
         }
-        return sql + leftBoundary.toSql(mode);
+        return sb.toString();
     }
 
     @Override
     public String computeToSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(frameUnits + " ");
-        if (rightBoundary != null) {
-            sb.append("BETWEEN " + leftBoundary.toSql() + " AND " + rightBoundary.toSql());
-        } else {
-            sb.append(leftBoundary);
-        }
-        return sb.toString();
+        return computeToSql(SqlRenderMode.DEFAULT);
     }
 
     @Override
@@ -262,16 +259,14 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
             return sb.toString();
         }
 
-        /** Render the offset using the same SQL mode as the window expression. */
-        public String toSql(SqlRenderMode mode) {
-            String offset = boundOffset.map(value -> value.toSql(mode) + " ").orElse("");
-            return offset + frameBoundType.toString().replace('_', ' ');
+        public String toSql() {
+            return toSql(SqlRenderMode.DEFAULT);
         }
 
-        /** Render a frame boundary for diagnostic SQL. */
-        public String toSql() {
+        /** Render the offset using the same SQL mode as the window expression. */
+        public String toSql(SqlRenderMode mode) {
             StringBuilder sb = new StringBuilder();
-            boundOffset.ifPresent(value -> sb.append(value + " "));
+            boundOffset.ifPresent(value -> sb.append(value.toSql(mode)).append(" "));
             switch (frameBoundType) {
                 case UNBOUNDED_PRECEDING:
                     sb.append("UNBOUNDED PRECEDING");

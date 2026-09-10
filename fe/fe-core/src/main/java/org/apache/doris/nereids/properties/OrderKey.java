@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Expression.SqlRenderMode;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import java.util.Objects;
@@ -71,7 +72,11 @@ public class OrderKey {
     }
 
     public String toSql() {
-        return expr.toSql() + (isAsc ? " asc" : " desc") + (nullFirst ? " null first" : "");
+        return toSql(SqlRenderMode.DEFAULT);
+    }
+
+    public String toSql(SqlRenderMode mode) {
+        return expr.toSql(mode) + (isAsc ? " ASC" : " DESC") + (nullFirst ? " NULLS FIRST" : " NULLS LAST");
     }
 
     @Override

@@ -111,14 +111,16 @@ public abstract class CompoundPredicate extends Expression implements ExpectsInp
 
     @Override
     public String computeToSql(SqlRenderMode mode) {
-        if (mode == SqlRenderMode.FOR_VIEW) {
-            return children().stream().map(expr -> expr.toSql(mode))
-                    .collect(Collectors.joining(" " + symbol + " ", "(", ")"));
-        }
         StringBuilder sb = new StringBuilder();
-        children().forEach(c -> sb.append(c.toSql(mode)).append(","));
-        sb.deleteCharAt(sb.length() - 1);
-        return symbol + "[" + sb + "]";
+        sb.append("(");
+        for (int i = 0; i < children().size(); i++) {
+            if (i > 0) {
+                sb.append(" ").append(symbol).append(" ");
+            }
+            sb.append(child(i).toSql(mode));
+        }
+        sb.append(")");
+        return sb.toString();
     }
 
     @Override

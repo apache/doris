@@ -87,13 +87,12 @@ public class OrderExpression extends Expression implements UnaryExpression, Prop
 
     @Override
     public String computeToSql(SqlRenderMode mode) {
-        return child().toSql(mode) + (isAsc() ? " ASC" : " DESC")
-                + (isNullFirst() ? " NULLS FIRST" : " NULLS LAST");
+        return orderKey.toSql(mode);
     }
 
     @Override
     public String computeToSql() {
-        return orderKey.toSql();
+        return computeToSql(SqlRenderMode.DEFAULT);
     }
 
     @Override
