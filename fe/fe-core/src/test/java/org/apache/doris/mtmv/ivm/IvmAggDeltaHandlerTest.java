@@ -70,7 +70,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         mtmv.getIvmInfo().advanceRefreshVersion();
         Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
                 bundle.normalizedPlan, bundle.rewriteResult,
-                IvmRewriteContext.incremental(mtmv, false), bundle.connectContext);
+                IvmRewriteContext.incremental(mtmv), bundle.connectContext);
         Assertions.assertNotNull(rewritten);
         InsertIntoTableCommand command = new IvmIncrRefreshManager()
                 .buildInsertCommand((LogicalPlan) rewritten, mtmv);
@@ -89,7 +89,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         mtmv.getIvmInfo().advanceRefreshVersion();
         Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
                 bundle.normalizedPlan, bundle.rewriteResult,
-                IvmRewriteContext.incremental(mtmv, false), bundle.connectContext);
+                IvmRewriteContext.incremental(mtmv), bundle.connectContext);
         Assertions.assertNotNull(rewritten);
         InsertIntoTableCommand command = new IvmIncrRefreshManager()
                 .buildInsertCommand((LogicalPlan) rewritten, mtmv);
@@ -247,7 +247,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
         Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
                 bundle.normalizedPlan, bundle.rewriteResult,
-                IvmRewriteContext.incremental(mtmv, false), bundle.connectContext);
+                IvmRewriteContext.incremental(mtmv), bundle.connectContext);
 
         Assertions.assertTrue(rewritten.anyMatch(node -> node instanceof LogicalProject
                 && ((LogicalProject<?>) node).getProjects().stream().anyMatch(this::containsNonDeterministicGuard)));

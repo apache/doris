@@ -128,7 +128,7 @@ class IvmNormalizeMTMVTest {
     @Test
     void testIvmRewriteContextEnablesNormalizeWithoutSessionVariable() {
         JobContext jobContext = newJobContextForRoot(scan, false, Collections.emptySet(),
-                Optional.of(new IvmRewriteContext(IvmRewriteContext.Mode.CREATE, null, false)));
+                Optional.of(IvmRewriteContext.create("test_mtmv")));
         Plan result = new IvmNormalizeMTMV().rewriteRoot(scan, jobContext);
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
@@ -142,7 +142,7 @@ class IvmNormalizeMTMVTest {
     void testIncrementalSignatureMismatchThrowsAtNormalize() {
         MTMV mtmv = mockIvmMtmv("stored-signature");
         JobContext jobContext = newJobContextForRoot(scan, true, Collections.emptySet(),
-                Optional.of(IvmRewriteContext.incremental(mtmv, false)));
+                Optional.of(IvmRewriteContext.incremental(mtmv)));
 
         IvmException exception = Assertions.assertThrows(IvmException.class,
                 () -> new IvmNormalizeMTMV().rewriteRoot(scan, jobContext));
@@ -162,7 +162,7 @@ class IvmNormalizeMTMVTest {
 
         MTMV mtmv = mockIvmMtmv(signature);
         JobContext jobContext = newJobContextForRoot(scan, true, Collections.emptySet(),
-                Optional.of(IvmRewriteContext.incremental(mtmv, false)));
+                Optional.of(IvmRewriteContext.incremental(mtmv)));
 
         Plan result = new IvmNormalizeMTMV().rewriteRoot(scan, jobContext);
 
