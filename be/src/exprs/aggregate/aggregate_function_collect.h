@@ -28,6 +28,7 @@
 #include <string>
 #include <type_traits>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
@@ -444,6 +445,18 @@ public:
                Arena& arena) const override {
         auto& data = this->data(place);
         const auto& rhs_data = this->data(rhs);
+        if constexpr (HasLimit) {
+            if (rhs_data.max_size == -1) {
+                return;
+            }
+            if (data.max_size != -1) {
+                if (UNLIKELY(data.max_size != rhs_data.max_size)) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "{} aggregate states have incompatible limits: {} vs {}",
+                                    get_name(), data.max_size, rhs_data.max_size);
+                }
+            }
+        }
         if constexpr (ENABLE_ARENA) {
             data.merge(rhs_data, arena);
         } else {

@@ -169,6 +169,18 @@ public:
         }
     }
 
+    bool has_same_keys(const BitmapIntersect& other) const {
+        if (_bitmaps.size() != other._bitmaps.size()) {
+            return false;
+        }
+        for (const auto& [key, bitmap] : _bitmaps) {
+            if (!other._bitmaps.contains(key)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     void merge(const BitmapIntersect& other) {
         for (auto& kv : other._bitmaps) {
             if (_bitmaps.find(kv.first) != _bitmaps.end()) {
@@ -257,6 +269,18 @@ public:
         if (_bitmaps.find(key) != _bitmaps.end()) {
             _bitmaps[key] |= bitmap;
         }
+    }
+
+    bool has_same_keys(const BitmapIntersect& other) const {
+        if (_bitmaps.size() != other._bitmaps.size()) {
+            return false;
+        }
+        for (const auto& [key, bitmap] : _bitmaps) {
+            if (!other._bitmaps.contains(key)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     void merge(const BitmapIntersect& other) {

@@ -184,9 +184,16 @@ struct WindowFunnelStateV2 {
         }
 
         if (events_list.empty()) {
+            window = other.window;
+            window_funnel_mode = other.window_funnel_mode;
             events_list = other.events_list;
             sorted = other.sorted;
         } else {
+            if (UNLIKELY(window != other.window ||
+                         window_funnel_mode != other.window_funnel_mode)) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "window_funnel aggregate states have incompatible window or mode");
+            }
             const auto prefix_size = events_list.size();
             events_list.insert(std::end(events_list), std::begin(other.events_list),
                                std::end(other.events_list));
@@ -199,10 +206,6 @@ struct WindowFunnelStateV2 {
         }
 
         event_count = event_count > 0 ? event_count : other.event_count;
-        window = window != WINDOW_UNSET ? window : other.window;
-        window_funnel_mode = window_funnel_mode == WindowFunnelMode::INVALID
-                                     ? other.window_funnel_mode
-                                     : window_funnel_mode;
     }
 
     void write(BufferWritable& out) const {

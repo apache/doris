@@ -37,6 +37,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "core/assert_cast.h"
 #include "core/column/column_string.h"
@@ -119,6 +120,12 @@ public:
     void merge(const AggregateFunctionSequenceMatchData& other) {
         if (other.events_list.empty()) return;
 
+        if (!init_flag) {
+            init(other.pattern, other.arg_count);
+        } else if (UNLIKELY(pattern != other.pattern || arg_count != other.arg_count)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "sequence aggregate states have incompatible patterns or event counts");
+        }
         events_list.insert(std::end(events_list), std::begin(other.events_list),
                            std::end(other.events_list));
         sorted = false;
@@ -648,8 +655,6 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
-        const std::string pattern = this->data(rhs).get_pattern();
-        this->data(place).init(pattern, this->data(rhs).get_arg_count());
         this->data(place).merge(this->data(rhs));
     }
 

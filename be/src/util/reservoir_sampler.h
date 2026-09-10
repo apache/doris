@@ -349,6 +349,8 @@ public:
         return samples[left_index] * left_coef + samples[right_index] * right_coef;
     }
 
+    bool empty() const { return total_values == 0; }
+
     void merge(const ReservoirSampler& b) {
         if (sample_count != b.sample_count) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,

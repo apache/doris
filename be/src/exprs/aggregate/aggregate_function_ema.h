@@ -23,6 +23,7 @@
 #include <cmath>
 #include <memory>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
@@ -86,12 +87,17 @@ struct ExponentialMovingAverageData {
     }
 
     void merge(const ExponentialMovingAverageData& rhs) {
-        double hd = half_decay != 0.0 ? half_decay : rhs.half_decay;
-        if (hd == 0.0) {
+        if (rhs.half_decay == 0.0) {
             return;
         }
-        half_decay = hd;
-        merge_point(rhs, hd);
+        if (half_decay == 0.0) {
+            half_decay = rhs.half_decay;
+        } else if (UNLIKELY(half_decay != rhs.half_decay)) {
+            throw Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "exponential_moving_average aggregate states have incompatible half decay");
+        }
+        merge_point(rhs, half_decay);
     }
 
     double get() const {

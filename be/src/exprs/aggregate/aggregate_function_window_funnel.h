@@ -295,6 +295,15 @@ struct WindowFunnelState {
         if (other.events_list.empty()) {
             return;
         }
+
+        if (events_list.empty()) {
+            window = other.window;
+            window_funnel_mode = other.window_funnel_mode;
+        } else if (UNLIKELY(window != other.window ||
+                            window_funnel_mode != other.window_funnel_mode)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "window_funnel aggregate states have incompatible window or mode");
+        }
         events_list.dt.insert(std::end(events_list.dt), std::begin(other.events_list.dt),
                               std::end(other.events_list.dt));
         for (size_t i = 0; i < event_count; i++) {

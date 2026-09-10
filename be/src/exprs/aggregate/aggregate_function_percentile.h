@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
@@ -139,17 +140,18 @@ struct PercentileApproxState {
         if (!rhs.init_flag) {
             return;
         }
-        if (init_flag) {
-            DCHECK(digest.get() != nullptr);
-            digest->merge(rhs.digest.get());
-        } else {
-            digest = TDigest::create_unique(compressions);
-            digest->merge(rhs.digest.get());
-            init_flag = true;
-        }
-        if (target_quantile == PercentileApproxState::INIT_QUANTILE) {
+        if (!init_flag) {
             target_quantile = rhs.target_quantile;
+            compressions = rhs.compressions;
+            digest = TDigest::create_unique(compressions);
+            init_flag = true;
+        } else if (UNLIKELY(target_quantile != rhs.target_quantile ||
+                            compressions != rhs.compressions)) {
+            throw Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "percentile_approx aggregate states have incompatible quantile or compression");
         }
+        digest->merge(rhs.digest.get());
     }
 
     void add(double source) { digest->add(static_cast<float>(source)); }
@@ -414,7 +416,8 @@ struct PercentileApproxArrayState {
             }
             init_flag = true;
         } else {
-            if (compressions != rhs.compressions || levels.quantiles != rhs.levels.quantiles) {
+            if (UNLIKELY(compressions != rhs.compressions ||
+                         levels.quantiles != rhs.levels.quantiles)) {
                 throw Exception(
                         ErrorCode::INVALID_ARGUMENT,
                         "percentile_approx_array aggregate states have incompatible quantiles "
@@ -642,14 +645,14 @@ struct PercentileState {
         int size_num = cast_set<int>(rhs.vec_quantile.size());
         if (!inited_flag) {
             vec_counts.resize(size_num);
-            vec_quantile.resize(size_num, -1);
+            vec_quantile = rhs.vec_quantile;
             inited_flag = true;
+        } else if (UNLIKELY(vec_quantile != rhs.vec_quantile)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "percentile aggregate states have incompatible quantiles");
         }
 
         for (int i = 0; i < size_num; ++i) {
-            if (vec_quantile[i] == -1.0) {
-                vec_quantile[i] = rhs.vec_quantile[i];
-            }
             vec_counts[i].merge(&(rhs.vec_counts[i]));
         }
     }
@@ -736,8 +739,9 @@ struct PercentileExactState {
         if (!inited_flag) {
             levels = rhs.levels;
             inited_flag = true;
-        } else {
-            levels.merge(rhs.levels);
+        } else if (UNLIKELY(levels.quantiles != rhs.levels.quantiles)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "percentile aggregate states have incompatible quantiles");
         }
         _append(rhs.values.data(), rhs.values.size());
     }
