@@ -36,6 +36,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.UncheckedIOException;
+import java.time.Clock;
 import java.util.Base64;
 import java.util.Map;
 import java.util.TimeZone;
@@ -48,6 +49,8 @@ public class IcebergSysTableJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(IcebergSysTableJniScanner.class);
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
     private final ClassLoader classLoader;
+    private final Clock clock;
+    private final String fileIoExpiryMs;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
     private final FileScanTask scanTask;
     private final int requiredFieldCount;
@@ -55,12 +58,18 @@ public class IcebergSysTableJniScanner extends JniScanner {
     private CloseableIterator<StructLike> reader;
 
     public IcebergSysTableJniScanner(int batchSize, Map<String, String> params) {
+        this(batchSize, params, Clock.systemUTC());
+    }
+
+    IcebergSysTableJniScanner(int batchSize, Map<String, String> params, Clock clock) {
         this.classLoader = this.getClass().getClassLoader();
+        this.clock = clock;
+        this.fileIoExpiryMs = params.get("file_io_expiry_ms");
         String serializedSplitParams = params.get("serialized_split");
         Preconditions.checkArgument(serializedSplitParams != null && !serializedSplitParams.isEmpty(),
                 "serialized_split should not be empty");
-        // Deserialize under the extension classloader so FileIO implementations embedded by the
-        // planner remain visible, then bind Azure all-manifests tasks to their vended credential.
+        // The planner's serialized FileIO owns metadata credentials. Resolve its implementation
+        // under the extension classloader without replacing it from native reader properties.
         String requiredFieldsParam = params.get("required_fields");
         Preconditions.checkArgument(requiredFieldsParam != null && !requiredFieldsParam.isEmpty(),
                 "required_fields should not be empty");
@@ -71,10 +80,8 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
                 .collect(Collectors
                         .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
-        FileScanTask deserializedTask;
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            deserializedTask = deserializeWithClassLoader(serializedSplitParams, classLoader);
-            this.scanTask = IcebergSysTableFileIOResolver.resolve(deserializedTask, hadoopOptionParams);
+            this.scanTask = deserializeWithClassLoader(serializedSplitParams, classLoader);
         }
         this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
         String requiredTypesParam = params.get("required_types");
@@ -109,6 +116,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
     }
 
     private void openReader() throws IOException {
+        validateFileIoExpiry();
         try {
             try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
                 preExecutionAuthenticator.execute(() -> {
@@ -122,6 +130,22 @@ public class IcebergSysTableJniScanner extends JniScanner {
             String msg = String.format("Failed to open scan task: %s", scanTask);
             LOG.error(msg, e);
             throw new IOException(msg, e);
+        }
+    }
+
+    private void validateFileIoExpiry() throws IOException {
+        if (fileIoExpiryMs == null) {
+            return;
+        }
+        final long expiry;
+        try {
+            expiry = Long.parseLong(fileIoExpiryMs);
+        } catch (NumberFormatException ignored) {
+            // The parsing exception includes its input, which must not reach diagnostics.
+            throw new IOException("Invalid Iceberg FileIO expiry timestamp");
+        }
+        if (expiry <= clock.millis()) {
+            throw new IOException("Iceberg FileIO credential is expired; replan the query to obtain fresh credentials");
         }
     }
 

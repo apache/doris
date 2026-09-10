@@ -18,6 +18,11 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -35,11 +40,95 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 class IcebergRestFileIOPropertiesTest {
+    private static final String ACCOUNT_ROOT = "abfss://container@account.dfs.core.windows.net/";
+    private static final String METADATA_LOCATION = ACCOUNT_ROOT + "metadata/v1.metadata.json";
+    private static final String SAS_PROPERTY = "adls.sas-token.account.dfs.core.windows.net";
+    private static final String EXPIRY_PROPERTY = "adls.sas-token-expires-at-ms.account.dfs.core.windows.net";
+    private static final String SAS = "si=test-policy&sig=test-scoped-signature";
+
+    @Test
+    void credentialsOnlySasUsesTheMetadataFileLocationAndPreservesItsScope() {
+        Credential credential = sasCredential(ACCOUNT_ROOT + "metadata/", SAS);
+        LoadTableResponse original = scopedTableResponse(METADATA_LOCATION, List.of(credential));
+
+        LoadTableResponse adapted = (LoadTableResponse) azurePolicy(Map.of(), Map.of()).adapt(original);
+
+        Assertions.assertEquals(SAS, adapted.config().get(SAS_PROPERTY),
+                "official ADLSFileIO consumes properties, not the preserved scoped-credentials list");
+        Assertions.assertEquals(METADATA_LOCATION, adapted.metadataLocation());
+        Assertions.assertEquals(ACCOUNT_ROOT + "table", adapted.tableMetadata().location());
+        Assertions.assertEquals(original.credentials(), adapted.credentials());
+        Assertions.assertFalse(original.config().containsKey(SAS_PROPERTY));
+    }
+
+    @Test
+    void credentialsOnlySasDoesNotInheritThePreviousStaticExpiry() {
+        Map<String, String> previous = Map.of(SAS_PROPERTY, "sig=test-expired-signature", EXPIRY_PROPERTY, "1");
+        LoadTableResponse original = scopedTableResponse(METADATA_LOCATION,
+                List.of(sasCredential(ACCOUNT_ROOT + "metadata/", SAS)));
+
+        LoadTableResponse adapted = (LoadTableResponse) azurePolicy(previous, Map.of()).adapt(original);
+
+        Assertions.assertEquals(SAS, adapted.config().get(SAS_PROPERTY));
+        Assertions.assertTrue(adapted.config().keySet().stream()
+                .noneMatch(key -> key.startsWith("adls.sas-token-expires-at-ms.")),
+                "the replacement has unknown expiry and must not reuse the previous generation's expiry");
+        Assertions.assertFalse(adapted.config().containsValue("sig=test-expired-signature"));
+        Assertions.assertEquals(original.credentials(), adapted.credentials());
+        Assertions.assertEquals("1", previous.get(EXPIRY_PROPERTY));
+    }
+
+    @Test
+    void explicitHadoopFileIoCannotIgnoreCredentialsOnlyAzureAuthentication() {
+        LoadTableResponse response = scopedTableResponse(METADATA_LOCATION,
+                List.of(sasCredential(ACCOUNT_ROOT + "metadata/", SAS)));
+        IcebergRestFileIOProperties policy = azurePolicy(Map.of(),
+                Map.of("io-impl", "org.apache.iceberg.hadoop.HadoopFileIO"));
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> policy.adapt(response));
+
+        Assertions.assertTrue(failure.getMessage().contains("HadoopFileIO"));
+        Assertions.assertFalse(failure.getMessage().contains(SAS));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void differentAzureSasIdentitiesForTheSameAccountCannotBecomeOneFileIo(boolean differentScope) {
+        List<Credential> credentials = List.of(
+                sasCredential(ACCOUNT_ROOT + "metadata/", SAS),
+                sasCredential(differentScope ? ACCOUNT_ROOT : ACCOUNT_ROOT + "metadata/",
+                        "sig=test-other-scoped-signature"));
+        LoadTableResponse response = scopedTableResponse(METADATA_LOCATION, credentials);
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> azurePolicy(Map.of(), Map.of()).adapt(response));
+
+        Assertions.assertFalse(failure.getMessage().contains(SAS));
+        Assertions.assertFalse(failure.getMessage().contains("test-other-scoped-signature"));
+        Assertions.assertEquals(credentials, response.credentials());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"s3://other-bucket/metadata/v1.metadata.json", METADATA_LOCATION})
+    void dataOnlyAzureCredentialDoesNotBecomeTheMetadataIdentity(String metadataLocation) {
+        LoadTableResponse original = scopedTableResponse(metadataLocation,
+                List.of(sasCredential(ACCOUNT_ROOT + "table/", SAS)));
+
+        LoadTableResponse adapted = (LoadTableResponse) azurePolicy(Map.of(), Map.of()).adapt(original);
+
+        Assertions.assertFalse(adapted.config().containsKey(SAS_PROPERTY),
+                "the table data location cannot stand in for the metadata-file credential scope");
+        Assertions.assertEquals(metadataLocation, adapted.metadataLocation());
+        Assertions.assertEquals(original.credentials(), adapted.credentials());
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void responseAdaptationPreservesMetadataLocationAndEveryCredentialScope(boolean stagedCreate) {
@@ -156,6 +245,78 @@ class IcebergRestFileIOPropertiesTest {
     private static IcebergRestFileIOProperties policy() {
         // Raw SDK tokens belong only to Java FileIO; this test needs no native storage provider.
         return new IcebergRestFileIOProperties(ConnectorStorageContext.NOOP, Map.of("adls.token", "test-sdk-token"));
+    }
+
+    private static IcebergRestFileIOProperties azurePolicy(Map<String, String> staticAuthentication,
+            Map<String, String> clientProperties) {
+        // The engine/provider side is an external SPI boundary for this connector module. The
+        // real provider's credential parsing and group replacement have separate integration tests.
+        ConnectorStorageContext storage = new ConnectorStorageContext() {
+            @Override
+            public List<StorageProperties> getStorageProperties() {
+                return List.of(new AzureFileIoProperties(staticAuthentication));
+            }
+
+            @Override
+            public List<StorageProperties> resolveStorageProperties(Map<String, String> rawVendedCredentials) {
+                return List.of(new AzureFileIoProperties(rawVendedCredentials.isEmpty()
+                        ? staticAuthentication : rawVendedCredentials));
+            }
+        };
+        return new IcebergRestFileIOProperties(storage, clientProperties);
+    }
+
+    private static Credential sasCredential(String prefix, String token) {
+        return ImmutableCredential.builder().prefix(prefix).putConfig(SAS_PROPERTY, token).build();
+    }
+
+    private static LoadTableResponse scopedTableResponse(String metadataLocation, List<Credential> credentials) {
+        TableMetadata metadata = TableMetadataParser.fromJson(metadataLocation,
+                TableMetadataParser.toJson(tableResponse().tableMetadata()));
+        return LoadTableResponse.builder().withTableMetadata(metadata).addAllCredentials(credentials).build();
+    }
+
+    private static final class AzureFileIoProperties implements FileSystemProperties {
+        private final Map<String, String> authentication;
+
+        private AzureFileIoProperties(Map<String, String> authentication) {
+            this.authentication = Map.copyOf(authentication);
+        }
+
+        @Override
+        public String providerName() {
+            return "AZURE";
+        }
+
+        @Override
+        public StorageKind kind() {
+            return StorageKind.OBJECT_STORAGE;
+        }
+
+        @Override
+        public FileSystemType type() {
+            return FileSystemType.AZURE;
+        }
+
+        @Override
+        public Set<String> getSupportedSchemes() {
+            return Set.of("abfs", "abfss", "wasb", "wasbs");
+        }
+
+        @Override
+        public Map<String, String> rawProperties() {
+            return authentication;
+        }
+
+        @Override
+        public Map<String, String> matchedProperties() {
+            return authentication;
+        }
+
+        @Override
+        public Map<String, String> toIcebergFileIOProperties() {
+            return authentication;
+        }
     }
 
     private static LoadTableResponse tableResponse() {

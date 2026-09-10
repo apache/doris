@@ -52,6 +52,7 @@ import org.apache.doris.thrift.schema.external.TFieldPtr;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -72,6 +73,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
@@ -1405,13 +1407,7 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void getScanNodePropertiesForSysHandleStillEmitsLocationCreds() {
-        // T07 gap-fill: both existing sys getScanNodeProperties tests run context==null, so the location.*
-        // credential blocks (which sit OUTSIDE the two if(!systemTable) skips, D-065) never execute -> cred
-        // SURVIVAL for a sys handle is never positively asserted. BE still needs creds to read the metadata
-        // files (legacy IcebergScanNode.getLocationProperties has no isSystemTable branch). MUTATION: folding
-        // the location.* blocks inside if(!systemTable) (a plausible "tidy-up") strips creds from sys
-        // metadata scans -> BE 403 -> every existing test stays green, this one -> red.
+    public void getScanNodePropertiesForSysHandleDoesNotExportNativeStorageCredentials() {
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         RecordingConnectorContext context = new RecordingConnectorContext();
         Map<String, String> beStatic = new HashMap<>();
@@ -1429,19 +1425,15 @@ public class IcebergScanPlanProviderTest {
                 null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
                 metaColumns, Optional.empty());
 
-        Assertions.assertEquals("ak", props.get("location.AWS_ACCESS_KEY"),
-                "a sys handle must still emit location.* creds (BE reads the metadata files; legacy parity)");
-        Assertions.assertEquals("sk", props.get("location.AWS_SECRET_KEY"));
+        Assertions.assertTrue(locationProperties(props).isEmpty(),
+                "JNI metadata uses its FileIO, not native object-store parameters");
         Assertions.assertFalse(props.containsKey("iceberg.schema_evolution"), "sys still skips the dict");
         Assertions.assertFalse(props.containsKey("path_partition_keys"), "sys still skips path_partition_keys");
         Assertions.assertEquals("jni", props.get("file_format_type"));
     }
 
     @Test
-    public void getScanNodePropertiesForSysHandleCarriesVendedAzureSas() {
-        // The BE Java $all_manifests reader receives the canonical Azure binding through the same
-        // location.* carrier as native data ranges. The serialized Iceberg task itself may still
-        // contain HadoopFileIO; the BE resolver uses these values to rebuild ADLSFileIO.
+    public void getScanNodePropertiesForSysHandleLeavesVendedAzureSasInFileIo() {
         FakeIcebergTable table = fakeTable("t1");
         table.setIo(new PropsOnlyFileIO(Collections.singletonMap(
                 "adls.sas-token.account.dfs.core.windows.net", "sv=2024-01-01&sig=temporary")));
@@ -1460,18 +1452,16 @@ public class IcebergScanPlanProviderTest {
                 null, IcebergTableHandle.forSystemTable("db1", "t1", "all_manifests", -1L, null, -1L),
                 Collections.emptyList(), Optional.empty());
 
-        Assertions.assertEquals("azure", props.get("location.provider"));
-        Assertions.assertEquals("SAS", props.get("location.AZURE_AUTH_TYPE"));
-        Assertions.assertEquals("https://account.blob.core.windows.net", props.get("location.AZURE_ENDPOINT"));
-        Assertions.assertEquals("account", props.get("location.AZURE_ACCOUNT_NAME"));
-        Assertions.assertEquals("sv=2024-01-01&sig=temporary", props.get("location.AZURE_SAS_TOKEN"));
-        Assertions.assertEquals("4102444800000", props.get("location.AZURE_SAS_EXPIRY_MS"));
+        Assertions.assertTrue(locationProperties(props).isEmpty());
+        Assertions.assertEquals("sv=2024-01-01&sig=temporary",
+                table.io().properties().get("adls.sas-token.account.dfs.core.windows.net"));
+        Assertions.assertEquals(0, context.vendStorageCredentialsCount);
         Assertions.assertEquals(0, context.newStorageAccessResolverCount,
-                "JNI metadata keeps the serialized FileIO and existing all-manifests resolver");
+                "JNI metadata must not resolve a native data binding");
     }
 
     @Test
-    public void jniNodePropertiesKeepLegacyMultipleAzureCredentialScopes() {
+    public void jniNodePropertiesDoNotFlattenMultipleAzureFileIoCredentialScopes() {
         FakeIcebergTable table = fakeTable("t1");
         Map<String, String> firstConfig = Collections.singletonMap(
                 "adls.sas-token.account.dfs.core.windows.net", "sv=test&sig=first-scope");
@@ -1492,13 +1482,41 @@ public class IcebergScanPlanProviderTest {
                     IcebergTableHandle.forSystemTable("db1", "t1", suffix, -1L, null, -1L),
                     Collections.emptyList(), Optional.empty());
             Assertions.assertEquals("jni", properties.get("file_format_type"));
-            Assertions.assertEquals(azureReadProperties(), locationProperties(properties));
+            Assertions.assertTrue(locationProperties(properties).isEmpty());
         }
         Assertions.assertEquals(secondConfig, IcebergScanPlanProvider.extractVendedToken(table, true));
         Assertions.assertSame(fileIO, table.io());
         Assertions.assertEquals(credentials, ((SupportsStorageCredentials) table.io()).credentials());
         Assertions.assertEquals(0, context.newStorageAccessResolverCount);
-        Assertions.assertEquals(2, context.vendStorageCredentialsCount);
+        Assertions.assertEquals(0, context.vendStorageCredentialsCount);
+    }
+
+    @Test
+    public void jniNodePropertiesPreserveActualHadoopFileIoConfiguration() {
+        FakeIcebergTable table = fakeTable("t1");
+        Configuration configuration = new Configuration(false);
+        Map<String, String> hadoop = Map.of(
+                "fs.defaultFS", "hdfs://metadata-namenode:8020",
+                "hadoop.username", "metadata-reader",
+                "hadoop.security.authentication", "kerberos",
+                "hadoop.kerberos.principal", "metadata-reader@EXAMPLE.COM",
+                "hadoop.kerberos.keytab", "/test/metadata-reader.keytab",
+                "hadoop.security.auth_to_local", "RULE:[1:$1] DEFAULT",
+                "fs.azure.account.oauth2.client.secret.onelake.dfs.fabric.microsoft.com", "test-onelake-secret");
+        hadoop.forEach(configuration::set);
+        table.setIo(new HadoopFileIO(configuration));
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.storageProperties = List.of(fakeBackendStorage(azureReadProperties()));
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table), context);
+
+        Map<String, String> properties = provider.getScanNodeProperties(null,
+                IcebergTableHandle.forSystemTable("db1", "t1", "all_manifests", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals(hadoop, locationProperties(properties));
+        Assertions.assertEquals(0, context.vendStorageCredentialsCount);
+        Assertions.assertEquals(0, context.newStorageAccessResolverCount);
     }
 
     @Test

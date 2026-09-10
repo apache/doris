@@ -36,6 +36,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.TFileFormatType;
@@ -45,6 +46,7 @@ import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.BaseFileScanTask;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.BatchScan;
@@ -84,6 +86,7 @@ import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
 import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.ResidualEvaluator;
+import org.apache.iceberg.hadoop.HadoopConfigurable;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.io.FileIO;
@@ -954,6 +957,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 ranges.add(new IcebergScanRange.Builder()
                         .path(SYS_TABLE_DUMMY_PATH)
                         .serializedSplit(SerializationUtil.serializeToBase64(task))
+                        .fileIoExpiryMs(IcebergMetadataTaskProperties.fixedSasExpiryMs(baseTable.io(), task))
                         .build());
             }
         } catch (IOException e) {
@@ -1968,8 +1972,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (context == null) {
             return Collections.emptyMap();
         }
-        // Non-Azure scans can legitimately use both HDFS and object-store files. Keep their existing
-        // aggregate carrier; JNI metadata retains its serialized FileIO and the all-manifests resolver.
+        // Non-Azure native scans can legitimately use both HDFS and object-store files.
+        // Keep their existing aggregate carrier and per-key vended overlay.
         Map<String, String> vendedToken = extractVendedToken(table, restVendedCredentialsEnabled());
         List<StorageProperties> storages = new ArrayList<>(storage().getStorageProperties());
         if (!vendedToken.isEmpty()
@@ -1990,6 +1994,31 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return backendProperties;
     }
 
+    private Map<String, String> metadataHadoopProperties(Table table) {
+        Map<String, String> hadoopProperties = new HashMap<>();
+        if (context != null) {
+            for (StorageProperties binding : IcebergCatalogFactory.selectEffectiveStorages(
+                    storage().getStorageProperties())) {
+                if (binding.kind() == StorageKind.HDFS_COMPATIBLE) {
+                    binding.toHadoopProperties().ifPresent(hadoop ->
+                            hadoopProperties.putAll(hadoop.toHadoopConfigurationMap()));
+                }
+            }
+        }
+        // FileIO owns metadata access, independently of the native data provider. In particular,
+        // HadoopFileIO may still authenticate Azure OAuth2 or OneLake. Its actual configuration
+        // wins over catalog defaults and also supplies the BE's Hadoop/UGI execution context.
+        FileIO fileIO = table.io();
+        Configuration configuration = fileIO instanceof IcebergAuthenticatedFileIO
+                ? ((IcebergAuthenticatedFileIO) fileIO).hadoopConfiguration()
+                : fileIO instanceof HadoopConfigurable ? ((HadoopConfigurable) fileIO).getConf() : null;
+        // A ResolvingFileIO initialized without Hadoop support has no Configuration.
+        if (configuration != null) {
+            configuration.forEach(entry -> hadoopProperties.put(entry.getKey(), entry.getValue()));
+        }
+        return hadoopProperties;
+    }
+
     /**
      * Scan-node-level (not per-range) properties consumed by the generic {@code PluginDrivenScanNode}:
      * <ul>
@@ -2004,9 +2033,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      *       columns so BE field-id-matches file&harr;table columns across rename/reorder (see
      *       {@link IcebergSchemaUtils}). Emitted unconditionally (legacy {@code createScanRangeLocations}
      *       always sets the dict). {@link #populateScanLevelParams} applies it.</li>
-     *   <li>{@code location.*} (T09) — the BE-canonical storage credentials: the catalog's static creds
-     *       (all flavors) plus, for a REST vended catalog, the per-table vended overlay (legacy precedence).
-     *       Without these BE opens the object store with no creds (403). See {@link #extractVendedToken}.</li>
+     *   <li>{@code location.*} — native scans carry BE storage credentials. JNI metadata carries only its
+     *       Hadoop execution configuration; metadata credentials remain in the serialized FileIO.</li>
      * </ul>
      * The serialized-table key (JNI system-table path) lands in a later task.
      */
@@ -2067,21 +2095,23 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // emitting them would double-fill/DCHECK) nor the field-id schema-evolution dict. Worse, building the
         // dict for a sys handle uses the BASE schema keyed off the requested META columns ->
         // IcebergSchemaUtils throws ("requested column not found"). So skip BOTH for a sys handle, keeping
-        // file_format_type=jni and the location.* credential overlay (BE still needs creds to read the
-        // metadata files). Mirrors paimon, whose getScanNodeProperties skips both for a metadata table
+        // file_format_type=jni and the Hadoop execution properties. Mirrors paimon's metadata-table handling
         // (empty partitionKeys + null schema-dict table). resolveTable still loads the base table here for
-        // the credential overlay below (the metadata table shares the base table's FileIO).
+        // the execution properties below (the metadata table shares the base table's FileIO).
         if (!systemTable) {
             List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
             if (!partitionKeys.isEmpty()) {
                 props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partitionKeys));
             }
         }
-        // Native Azure and OneLake data use only the selected read binding. JNI metadata tasks retain their
-        // serialized Iceberg FileIO path and legacy property handling; non-Azure scans retain mixed HDFS/S3 maps.
+        // JNI metadata uses its serialized FileIO, never the native data credentials. Keep only
+        // Hadoop configuration for its execution context. Native non-Azure scans retain mixed HDFS/S3 maps.
         ReadStorageAccess readAccess = !systemTable || isPositionDeletesSysTable(iceHandle)
                 ? readStorageAccess(session, iceHandle, table) : null;
-        if (readAccess != null && readAccess.isAzure()) {
+        if (systemTable && !isPositionDeletesSysTable(iceHandle)) {
+            metadataHadoopProperties(table).forEach(
+                    (k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
+        } else if (readAccess != null && readAccess.isAzure()) {
             readAccess.backendProperties().forEach(
                     (k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         } else {

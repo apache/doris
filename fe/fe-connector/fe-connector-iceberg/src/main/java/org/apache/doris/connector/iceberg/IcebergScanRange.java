@@ -83,6 +83,7 @@ public class IcebergScanRange implements ConnectorScanRange {
     // it back to SerializationUtil.deserializeFromBase64(...).asDataTask().rows()), ignoring every file-level
     // field. Mirrors legacy IcebergSplit.serializedSplit / IcebergScanNode.setIcebergParams isSystemTable.
     private final String serializedSplit;
+    private final Long fileIoExpiryMs;
     // M-2 proportional BE scheduling weight (mirrors PaimonScanRange): the size-based weight numerator
     // (legacy IcebergSplit.selfSplitWeight = task.length() + Σ delete file sizes) and the scan-level
     // denominator (legacy IcebergScanNode.targetSplitSize). -1 = not provided (SPI sentinel) → the generic
@@ -140,6 +141,7 @@ public class IcebergScanRange implements ConnectorScanRange {
                 : Collections.emptyList();
         this.pushDownRowCount = builder.pushDownRowCount;
         this.serializedSplit = builder.serializedSplit;
+        this.fileIoExpiryMs = builder.fileIoExpiryMs;
         this.selfSplitWeight = builder.selfSplitWeight;
         this.targetSplitSize = builder.targetSplitSize;
         this.positionDeleteSystemTableSplit = builder.positionDeleteSystemTableSplit;
@@ -375,14 +377,17 @@ public class IcebergScanRange implements ConnectorScanRange {
         }
         if (serializedSplit != null) {
             // System-table (JNI) split: mirror legacy IcebergScanNode.setIcebergParams isSystemTable branch —
-            // emit ONLY the serialized FileScanTask + FORMAT_JNI + table_level_row_count=-1, and NONE of the
-            // file-level carriers (format_version / original_file_path / content / delete_files / partition).
+            // emit the serialized FileScanTask, optional credential expiry, FORMAT_JNI and table_level_row_count=-1.
+            // Omit file-level carriers (format_version / original_file_path / content / delete_files / partition).
             // BE's IcebergSysTableJniScanner reads serialized_split (deserializeFromBase64 -> asDataTask().rows())
-            // and ignores every other field, so emitting them would be a parity divergence. Returns early, like
+            // and checks a fixed credential's expiry before opening FileIO. Returns early, like
             // legacy (setFormatType(FORMAT_JNI):290, setTableLevelRowCount(-1):291, setSerializedSplit:292).
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
             formatDesc.setTableLevelRowCount(-1);
             fileDesc.setSerializedSplit(serializedSplit);
+            if (fileIoExpiryMs != null) {
+                fileDesc.setFileIoExpiryMs(fileIoExpiryMs);
+            }
             formatDesc.setIcebergParams(fileDesc);
             return;
         }
@@ -476,6 +481,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         private List<DeleteFile> deleteFiles;
         private long pushDownRowCount = -1;
         private String serializedSplit;
+        private Long fileIoExpiryMs;
         // -1 = not provided (SPI sentinel) → PluginDrivenSplit keeps SplitWeight.standard(). Only the normal
         // data-file path sets these (legacy IcebergSplit.selfSplitWeight / IcebergScanNode.targetSplitSize).
         private long selfSplitWeight = -1;
@@ -592,6 +598,12 @@ public class IcebergScanRange implements ConnectorScanRange {
         /** The base64 serialized iceberg {@code FileScanTask} for a system-table (JNI) split; default null. */
         public Builder serializedSplit(String serializedSplit) {
             this.serializedSplit = serializedSplit;
+            return this;
+        }
+
+        /** Known expiry of this metadata task's fixed FileIO credential; no credential is copied here. */
+        public Builder fileIoExpiryMs(Long fileIoExpiryMs) {
+            this.fileIoExpiryMs = fileIoExpiryMs;
             return this;
         }
 

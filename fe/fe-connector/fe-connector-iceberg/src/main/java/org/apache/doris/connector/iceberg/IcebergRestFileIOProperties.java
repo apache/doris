@@ -31,6 +31,7 @@ import org.apache.iceberg.azure.adlsv2.ADLSFileIO;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.ResolvingFileIO;
 import org.apache.iceberg.rest.RESTResponse;
+import org.apache.iceberg.rest.credentials.Credential;
 import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 
@@ -95,7 +96,7 @@ final class IcebergRestFileIOProperties {
             return response;
         }
         LoadTableResponse table = (LoadTableResponse) response;
-        Map<String, String> authentication = selectAuthentication(table.config());
+        Map<String, String> authentication = selectAuthentication(table);
         Map<String, String> providerAuthentication = providerAuthenticationProperties(authentication);
         Map<String, String> fileIOProperties = new HashMap<>(authentication);
         Map<String, String> configured = withoutAzureAuthentication(serverConfig.merge(clientProperties));
@@ -160,10 +161,14 @@ final class IcebergRestFileIOProperties {
                 TableProperties.WRITE_METADATA_LOCATION, table.tableMetadata().location() + "/metadata");
     }
 
-    private Map<String, String> selectAuthentication(Map<String, String> tableConfig) {
+    private Map<String, String> selectAuthentication(LoadTableResponse table) {
+        Map<String, String> scopedAuthentication = scopedSasAuthentication(table);
+        if (!scopedAuthentication.isEmpty()) {
+            return scopedAuthentication;
+        }
         // REST precedence applies to a credential generation, not to individual aliases or
         // expiry fields. A new token with unknown expiry must not inherit an old expiry.
-        for (Map<String, String> source : List.of(tableConfig, serverConfig.overrides(), clientProperties)) {
+        for (Map<String, String> source : List.of(table.config(), serverConfig.overrides(), clientProperties)) {
             Map<String, String> authentication = authenticationProperties(source);
             if (!authentication.isEmpty()) {
                 return authentication;
@@ -176,6 +181,33 @@ final class IcebergRestFileIOProperties {
             return Collections.emptyMap();
         }
         return authenticationProperties(serverConfig.defaults());
+    }
+
+    private static Map<String, String> scopedSasAuthentication(LoadTableResponse table) {
+        Location metadata = Location.of(metadataLocation(table));
+        Credential selected = null;
+        Map<String, String> authentication = Collections.emptyMap();
+        for (Credential credential : table.credentials()) {
+            if (!credential.config().keySet().stream().anyMatch(IcebergRestFileIOProperties::isAzureSasProperty)
+                    || !metadata.startsWith(Location.of(credential.prefix()))) {
+                continue;
+            }
+            Map<String, String> candidate = authenticationProperties(credential.config());
+            if (selected != null && (!selected.prefix().equals(credential.prefix())
+                    || !authentication.equals(candidate))) {
+                // ADLSFileIO accepts one SAS per account host, not a prefix-aware credential
+                // list. Do not flatten conflicting scopes into a table-wide last-token-wins map.
+                throw new DorisConnectorException("Multiple scoped Azure metadata credentials are not supported");
+            }
+            selected = credential;
+            authentication = candidate;
+        }
+        // ResolvingFileIO preserves the original list, but ADLSFileIO does not implement
+        // SupportsStorageCredentials. Put only this metadata location's selected group through
+        // the provider bridge before the SDK constructs FileIO. A data-only scope stays in the
+        // original list and cannot replace metadata authentication. A scoped table credential
+        // overrides unscoped defaults as a complete group, including an absent/unknown expiry.
+        return authentication;
     }
 
     private static Map<String, String> authenticationProperties(Map<String, String> source) {

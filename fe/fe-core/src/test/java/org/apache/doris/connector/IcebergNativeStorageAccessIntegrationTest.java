@@ -126,7 +126,7 @@ class IcebergNativeStorageAccessIntegrationTest {
     }
 
     @Test
-    void allManifestsEntryReplacesExpiredStaticSasBeforeExportingCredentials() {
+    void metadataTaskDoesNotSendNativeAzureCredentialsAlongsideItsFileIo() {
         IcebergScanPlanProvider provider = provider(tableWithData(2));
         IcebergTableHandle allManifests = IcebergTableHandle.forSystemTable(
                 "db", "t", "all_manifests", -1L, null, -1L);
@@ -135,13 +135,28 @@ class IcebergNativeStorageAccessIntegrationTest {
                 session, allManifests, Collections.emptyList(), Optional.empty());
 
         Assertions.assertEquals("jni", nodeProperties.get(ScanNodePropertyKeys.FILE_FORMAT_TYPE));
-        // The all-manifests resolver still consumes these until the serialized FileIO replacement
-        // has been verified. Selecting fresh credentials must precede any static expiry validation.
-        assertFreshNativeAzure(backendProperties(nodeProperties));
+        Map<String, String> backend = backendProperties(nodeProperties);
+        Assertions.assertFalse(backend.containsKey("provider"), "the serialized FileIO owns metadata storage");
+        Assertions.assertTrue(backend.keySet().stream().noneMatch(key -> key.startsWith("AZURE_")),
+                "native credentials must not be copied into JNI's Hadoop parameter channel");
     }
 
     @Test
-    void allManifestsAzureRefreshRetainsTheIndependentHdfsBinding() {
+    void allManifestsEntryDoesNotAccessExpiredNativeCredentials() {
+        IcebergScanPlanProvider provider = provider(tableWithData(2));
+        IcebergTableHandle allManifests = IcebergTableHandle.forSystemTable(
+                "db", "t", "all_manifests", -1L, null, -1L);
+
+        Map<String, String> nodeProperties = provider.getScanNodeProperties(
+                session, allManifests, Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals("jni", nodeProperties.get(ScanNodePropertyKeys.FILE_FORMAT_TYPE));
+        Assertions.assertTrue(backendProperties(nodeProperties).isEmpty(),
+                "metadata must not access an expired native binding when its FileIO already owns authentication");
+    }
+
+    @Test
+    void allManifestsRetainsTheIndependentHdfsBindingWithoutAzureNativeCredentials() {
         Map<String, String> catalogProperties = new LinkedHashMap<>(CATALOG_PROPERTIES);
         catalogProperties.put("fs.defaultFS", "hdfs://namenode:8020");
         catalogProperties.put("hadoop.username", "metadata-reader");
@@ -154,9 +169,8 @@ class IcebergNativeStorageAccessIntegrationTest {
 
         Assertions.assertEquals("hdfs://namenode:8020", backend.get("fs.defaultFS"));
         Assertions.assertEquals("metadata-reader", backend.get("hadoop.username"));
-        Map<String, String> azure = new LinkedHashMap<>(backend);
-        azure.keySet().removeIf(key -> !key.equals("provider") && !key.startsWith("AZURE_"));
-        assertFreshNativeAzure(azure);
+        Assertions.assertFalse(backend.containsKey("provider"));
+        Assertions.assertTrue(backend.keySet().stream().noneMatch(key -> key.startsWith("AZURE_")));
     }
 
     @ParameterizedTest

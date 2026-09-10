@@ -21,6 +21,7 @@ import org.apache.doris.connector.iceberg.IcebergConnector;
 import org.apache.doris.connector.iceberg.IcebergTableHandle;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.fs.FileSystemFactory;
@@ -37,6 +38,9 @@ import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.azure.adlsv2.ADLSFileIO;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.io.ResolvingFileIO;
+import org.apache.iceberg.rest.credentials.Credential;
+import org.apache.iceberg.rest.credentials.ImmutableCredential;
 import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.apache.iceberg.rest.responses.ConfigResponseParser;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
@@ -48,8 +52,10 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
@@ -76,6 +82,31 @@ class IcebergAzureFileIOIntegrationTest {
             Assertions.assertEquals(fixture.metadata.uuid(), actual.uuid());
             Assertions.assertEquals(fixture.metadata.schema().asStruct(), actual.schema().asStruct());
             Assertions.assertFalse(fixture.queries.isEmpty());
+            Assertions.assertTrue(fixture.queries.stream().allMatch(query -> query != null
+                    && query.contains("sig=unit-test-signature")));
+        }
+    }
+
+    @Test
+    void restCredentialsListOnlySasAuthenticatesTheOfficialTableFileIO() throws Exception {
+        try (RestFixture fixture = new RestFixture(Map.of("io-impl", ResolvingFileIO.class.getName()))) {
+            fixture.tableCredentials(List.of(ImmutableCredential.builder().prefix(REST_LOCATION + "/")
+                    .putConfig("adls.sas-token.account.dfs.core.windows.net", TOKEN).build()));
+            Assertions.assertTrue(fixture.tableConfig.keySet().stream()
+                    .noneMatch(key -> key.startsWith("adls.sas-token.")),
+                    "SAS must arrive only in storage-credentials, not the ordinary response config");
+
+            Table table = fixture.load();
+
+            ResolvingFileIO fileIO = Assertions.assertInstanceOf(ResolvingFileIO.class, table.io());
+            Assertions.assertEquals(TOKEN, fileIO.properties().get("adls.sas-token.account.dfs.core.windows.net"),
+                    "the selected REST credential must reach FileIO before SDK credential discovery");
+            Assertions.assertEquals(1, fileIO.credentials().size());
+            Assertions.assertEquals(REST_LOCATION + "/", fileIO.credentials().get(0).prefix());
+            TableMetadata actual = TableMetadataParser.read(fileIO, REST_LOCATION + "/v1.metadata.json");
+
+            Assertions.assertEquals(fixture.metadata.uuid(), actual.uuid());
+            Assertions.assertFalse(fixture.queries.isEmpty(), "the official FileIO must perform the storage read");
             Assertions.assertTrue(fixture.queries.stream().allMatch(query -> query != null
                     && query.contains("sig=unit-test-signature")));
         }
@@ -295,7 +326,9 @@ class IcebergAzureFileIOIntegrationTest {
         private final HttpServer server;
         private final TableMetadata metadata;
         private final CopyOnWriteArrayList<String> queries = new CopyOnWriteArrayList<>();
+        private final List<String> rangeReadPaths = new CopyOnWriteArrayList<>();
         private final Map<String, String> tableConfig = new ConcurrentHashMap<>();
+        private final List<Credential> tableCredentials = new CopyOnWriteArrayList<>();
         private final AtomicInteger tableLoadRequests = new AtomicInteger();
         private final CapturingContext context;
         private final IcebergConnector connector;
@@ -316,8 +349,18 @@ class IcebergAzureFileIOIntegrationTest {
         RestFixture(Map<String, String> storageProperties, ConfigResponse serverConfig, String metadataLocation,
                 String dataLocation)
                 throws IOException {
-            metadata = TableMetadata.newTableMetadata(
-                    SCHEMA, PartitionSpec.unpartitioned(), dataLocation, Collections.emptyMap());
+            this(storageProperties, serverConfig, metadataLocation, TableMetadata.newTableMetadata(
+                    SCHEMA, PartitionSpec.unpartitioned(), dataLocation, Collections.emptyMap()), Map.of());
+        }
+
+        RestFixture(Map<String, String> storageProperties, TableMetadata metadata, Map<String, byte[]> objects)
+                throws IOException {
+            this(storageProperties, ConfigResponse.builder().build(), metadata.location(), metadata, objects);
+        }
+
+        private RestFixture(Map<String, String> storageProperties, ConfigResponse serverConfig, String metadataLocation,
+                TableMetadata metadata, Map<String, byte[]> objects) throws IOException {
+            this.metadata = metadata;
             String json = TableMetadataParser.toJson(metadata);
             TableMetadata located = TableMetadataParser.fromJson(metadataLocation + "/v1.metadata.json", json);
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -330,12 +373,27 @@ class IcebergAzureFileIOIntegrationTest {
                     tableLoadRequests.incrementAndGet();
                 }
                 serveJson(exchange, LoadTableResponseParser.toJson(LoadTableResponse.builder()
-                        .withTableMetadata(located).addAllConfig(new HashMap<>(tableConfig)).build()));
+                        .withTableMetadata(located).addAllConfig(new HashMap<>(tableConfig))
+                        .addAllCredentials(new ArrayList<>(tableCredentials)).build()));
             });
             server.createContext("/container/table/v1.metadata.json", exchange -> serve(exchange,
                     json.getBytes(StandardCharsets.UTF_8), queries));
             server.createContext("/bucket/table/v1.metadata.json", exchange -> serve(exchange,
                     json.getBytes(StandardCharsets.UTF_8), queries));
+            server.createContext("/container/table/", exchange -> {
+                byte[] bytes = objects.get(exchange.getRequestURI().getPath());
+                if (bytes == null) {
+                    exchange.sendResponseHeaders(404, -1);
+                    exchange.close();
+                    return;
+                }
+                if ("GET".equals(exchange.getRequestMethod())
+                        && (exchange.getRequestHeaders().containsKey("Range")
+                                || exchange.getRequestHeaders().containsKey("x-ms-range"))) {
+                    rangeReadPaths.add(exchange.getRequestURI().getPath());
+                }
+                serve(exchange, bytes, queries);
+            });
             Map<String, String> properties = new HashMap<>(Map.of(
                     "iceberg.catalog.type", "rest", "uri", endpoint, "rest.auth.type", "none",
                     "iceberg.rest.vended-credentials-enabled", "true"));
@@ -369,6 +427,18 @@ class IcebergAzureFileIOIntegrationTest {
             return tableLoadRequests.get();
         }
 
+        ConnectorScanPlanProvider scanProvider() {
+            return connector.getScanPlanProvider();
+        }
+
+        List<String> storageQueries() {
+            return new ArrayList<>(queries);
+        }
+
+        List<String> rangeReadPaths() {
+            return List.copyOf(rangeReadPaths);
+        }
+
         ConnectorStorageContext storageContext() {
             return context;
         }
@@ -379,6 +449,10 @@ class IcebergAzureFileIOIntegrationTest {
 
         void tableConfig(Map<String, String> properties) {
             tableConfig.putAll(properties);
+        }
+
+        void tableCredentials(List<Credential> credentials) {
+            tableCredentials.addAll(credentials);
         }
 
         void removeTableConfig(String key) {
