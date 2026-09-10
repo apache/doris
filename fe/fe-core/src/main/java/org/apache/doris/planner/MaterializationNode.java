@@ -166,17 +166,17 @@ public class MaterializationNode extends PlanNode {
             context = new ConnectContext();
         }
         ComputeGroup computeGroup = context.getComputeGroupSafely();
-        for (Backend backend : policy.getCandidateBackends(computeGroup.getBackendList())) {
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
-        }
-        // Remote doris catalog backends. Skip the dead ones, as the local policy above does:
-        // the remote meta cache may still advertise them and an unreachable entry makes the
-        // second phase fetch fail eagerly. Id conflicts are rejected before the plan rewrite
-        // (LazyMaterializeTopN), so no check here.
-        for (Backend backend : remoteBackends) {
-            if (!backend.isAlive()) {
-                continue;
-            }
+        // The local compute group backends and the remote doris catalog backends go through
+        // the same policy: the remote meta cache may still advertise dead backends and an
+        // unreachable entry makes the second phase fetch fail eagerly. On a remote Backend
+        // only the alive flag is carried (Backend.fromThrift), so the query-available check
+        // degrades to it. Id conflicts are rejected before the plan rewrite
+        // (LazyMaterializeTopN), so no dedupe here.
+        List<Backend> candidates = ImmutableList.<Backend>builder()
+                .addAll(computeGroup.getBackendList())
+                .addAll(remoteBackends)
+                .build();
+        for (Backend backend : policy.getCandidateBackends(candidates)) {
             nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
     }
