@@ -114,7 +114,7 @@ bool RangeCacheWriteback::_submit_partial_block(const FileCacheBlockFragment& fr
             COUNTER_UPDATE(counter, 1);
             COUNTER_UPDATE(&statistics->partial_fragment_bytes, fragment.data.size);
         } else if (result == PartialBlockSubmitResult::ACTIVE_DEDUPLICATED ||
-                   result == PartialBlockSubmitResult::CACHE_WRITE_INFLIGHT) {
+                   result == PartialBlockSubmitResult::CACHE_BLOCK_PRESENT) {
             COUNTER_UPDATE(&statistics->writeback_deduplicated_blocks, 1);
         } else {
             COUNTER_UPDATE(&statistics->writeback_rejected_blocks, 1);
@@ -123,7 +123,7 @@ bool RangeCacheWriteback::_submit_partial_block(const FileCacheBlockFragment& fr
     return result == PartialBlockSubmitResult::QUEUED ||
            result == PartialBlockSubmitResult::MERGED ||
            result == PartialBlockSubmitResult::ACTIVE_DEDUPLICATED ||
-           result == PartialBlockSubmitResult::CACHE_WRITE_INFLIGHT;
+           result == PartialBlockSubmitResult::CACHE_BLOCK_PRESENT;
 }
 
 } // namespace doris::io

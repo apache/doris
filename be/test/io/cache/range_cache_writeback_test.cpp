@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "io/cache/block_file_cache_test_common.h"
+#include "io/cache/inflight_write_buffer_index.h"
 #include "io/cache/partial_block_writeback_manager.h"
 #include "io/fs/path.h"
 #include "io/fs/read_ahead_metrics.h"
@@ -246,6 +247,41 @@ TEST_F(RangeCacheWritebackTest, RoutesCompleteAndPartialBlocks) {
     EXPECT_EQ(reads, (std::vector<FileRange> {
                              {.offset = 0, .size = 1024},
                              {.offset = 2 * kBlockSize + 1024, .size = kBlockSize - 1024}}));
+}
+
+TEST_F(RangeCacheWritebackTest, SkipsCachedBlockInRangeWithUncachedBlock) {
+    const std::string content = patterned_file(2 * kBlockSize);
+    auto source_reader = std::make_shared<RecordingFileReader>(content);
+    auto cache = create_cache("range_writeback_partly_cached");
+    auto partial_manager = create_partial_manager();
+    const auto hash = BlockFileCache::hash("range_writeback_partly_cached_file");
+    auto writeback = make_writeback(cache.get(), partial_manager.get(), source_reader, hash);
+    auto epoch = writeback.capture_write_epoch();
+    ASSERT_TRUE(epoch.has_value());
+    const auto initial = writeback.submit_consumed_range({.offset = 0, .size = kBlockSize},
+                                                         Slice(content.data(), kBlockSize), *epoch);
+    ASSERT_EQ(initial.submitted_complete_block_count, 1);
+    ASSERT_TRUE(wait_until([&]() {
+        return cache->async_write_manager()->pending_count() == 0 &&
+               cache->inflight_write_buffer_index()->count() == 0;
+    }));
+
+    ReadAheadStatistics statistics;
+    const FileRange range {.offset = 1024, .size = kBlockSize};
+    const auto result = writeback.submit_consumed_range(
+            range, Slice(content.data() + range.offset, range.size), *epoch, &statistics);
+
+    EXPECT_EQ(result.partial_fragment_count, 2);
+    EXPECT_EQ(statistics.partial_blocks_queued.value(), 1);
+    EXPECT_EQ(statistics.partial_fragment_bytes.value(), 1024);
+    EXPECT_EQ(statistics.writeback_deduplicated_blocks.value(), 1);
+    EXPECT_EQ(statistics.writeback_rejected_blocks.value(), 0);
+    ASSERT_TRUE(wait_until([&]() { return partial_manager->pending_count() == 0; }));
+    ASSERT_TRUE(wait_until([&]() { return cache->async_write_manager()->pending_count() == 0; }));
+    EXPECT_EQ(source_reader->reads(),
+              (std::vector<FileRange> {{.offset = kBlockSize + 1024, .size = kBlockSize - 1024}}));
+    EXPECT_EQ(read_cached_range(cache.get(), hash, kBlockSize, kBlockSize),
+              content.substr(kBlockSize));
 }
 
 TEST_F(RangeCacheWritebackTest, TreatsPhysicalEofPrefixAsCompleteBlock) {
