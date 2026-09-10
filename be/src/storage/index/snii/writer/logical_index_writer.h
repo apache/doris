@@ -239,7 +239,7 @@ struct FreqStats {
 // Builds and holds the section bytes + meta sub-sections for one logical index.
 class LogicalIndexWriter {
 public:
-    explicit LogicalIndexWriter(const SniiIndexInput& in);
+    LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDocids null_docids);
     // Out-of-line: stream_state_ points at the private nested BlockState, which
     // is incomplete here (unique_ptr needs the complete type at destruction).
     ~LogicalIndexWriter();
@@ -323,7 +323,6 @@ public:
 
 private:
     friend class SniiStreamedIndexSession;
-    LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDocids null_docids);
 
     // One DICT block's directory record. The block's serialized bytes are appended to
     // the in-RAM dict buffer as soon as the block is cut; only this compact summary

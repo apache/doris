@@ -96,9 +96,7 @@ private:
     Status _add_value_tokens(const Slice& value, uint32_t docid, uint32_t position_base,
                              uint32_t* max_position, uint32_t* semantic_length);
     inverted_index::CommonGramsSegmentMetadata _build_common_grams_metadata() const;
-    // Mirrors _null_docids' capacity into _memory_reporter (delta-charged);
-    // release_all zeroes the charge (finish() handoff / close_on_error()).
-    void _report_null_docids_capacity(bool release_all = false);
+    Status _reserve_null_docids_for_append(size_t count);
     void _report_encoded_norms_capacity(bool release_all = false);
     Status _latch_analysis_failure(Status status);
 
@@ -126,17 +124,12 @@ private:
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
     inverted_index::CommonGramsFilter* _common_grams_filter = nullptr;
     std::unique_ptr<::doris::snii::writer::MemoryReporter> _memory_reporter;
+    ::doris::snii::writer::MemoryReporter::Reservation _null_docids_reservation;
     std::unique_ptr<::doris::snii::writer::SpimiTermBuffer> _term_buffer;
     std::vector<uint32_t> _null_docids;
     std::vector<uint8_t> _encoded_norms;
     uint64_t _scoring_token_count = 0;
     std::optional<inverted_index::CommonGramsSegmentMetadata> _common_grams_metadata_seed;
-    // Bytes of _null_docids capacity currently mirrored into _memory_reporter
-    // (and through it the SNII index-build observation tracker). Re-charged on
-    // growth in add_nulls / add_array_nulls, released in finish() / close_on_error() --
-    // without it a large interleaved-null segment accumulates untracked RSS the
-    // G09 limiter cannot see.
-    int64_t _null_docids_charged_bytes = 0;
     int64_t _encoded_norms_charged_bytes = 0;
     Status _failure_status = Status::OK();
 };

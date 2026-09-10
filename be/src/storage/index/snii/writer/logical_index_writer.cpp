@@ -449,9 +449,6 @@ FreqStats fuse_freq_stats_for_test(const std::vector<uint32_t>& freqs) {
 }
 } // namespace testing
 
-LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
-        : LogicalIndexWriter(in, TrackedNullDocids(std::vector<uint32_t>(in.null_docids))) {}
-
 LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDocids null_docids)
         : index_id_(in.index_id),
           index_suffix_(in.index_suffix),
