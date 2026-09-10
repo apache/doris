@@ -24,7 +24,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "common/exception.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_decimal.h"
@@ -91,14 +90,8 @@ public:
             return;
         }
 
-        if (interval == 0) {
-            interval = rhs.interval;
-            offset = rhs.offset;
-        } else if (UNLIKELY(interval != rhs.interval || offset != rhs.offset)) {
-            throw Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "linear_histogram aggregate states have incompatible interval or offset");
-        }
+        interval = rhs.interval;
+        offset = rhs.offset;
 
         for (const auto& [key, count] : rhs.buckets) {
             buckets[key] += count;

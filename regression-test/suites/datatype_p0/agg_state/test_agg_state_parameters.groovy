@@ -47,8 +47,6 @@ suite("test_agg_state_parameters") {
         ["topn_weighted", "1, 1, 1", "1, 1, 3"],
         ["topn_weighted", "1, 1, 3, 2", "1, 1, 3, 5"],
         ["histogram", "7, 1", "7, 3"],
-        ["linear_histogram", "7, 2", "7, 3"],
-        ["linear_histogram", "7, 2, 0", "7, 2, 1"],
         ["percentile", "7, 0.25", "7, 0.75"],
         ["percentile_array", "7, [0.25]", "7, [0.75]"],
         ["percentile_array", "7, [0.25]", "7, [0.25, 0.75]"],

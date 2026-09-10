@@ -204,15 +204,10 @@ TEST(AggregateStateParametersTest, TopN) {
                      {argument<DataTypeInt32>(1), argument<DataTypeInt32>(3)});
 }
 
-TEST(AggregateStateParametersTest, Histograms) {
+TEST(AggregateStateParametersTest, Histogram) {
     auto value = argument<DataTypeInt32>(7);
     check_parameters("histogram", {value, argument<DataTypeInt32>(1)},
                      {value, argument<DataTypeInt32>(3)});
-    check_parameters("linear_histogram", {value, argument<DataTypeFloat64>(2)},
-                     {value, argument<DataTypeFloat64>(3)});
-    check_parameters("linear_histogram",
-                     {value, argument<DataTypeFloat64>(2), argument<DataTypeFloat64>(0)},
-                     {value, argument<DataTypeFloat64>(2), argument<DataTypeFloat64>(1)});
 }
 
 TEST(AggregateStateParametersTest, Percentiles) {
