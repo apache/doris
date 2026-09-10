@@ -18,6 +18,7 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <limits>
@@ -30,6 +31,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/bvars.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/stats.h"
@@ -53,6 +55,10 @@ using namespace std::chrono;
 namespace doris::cloud {
 
 static constexpr std::string_view kMetaSyncPointDummyKey = "__meta_service_sync_point_dummy_key__";
+
+void repair_tablet_index(std::shared_ptr<TxnKv>& txn_kv, MetaServiceCode& code, std::string& msg,
+                         const std::string& instance_id, int64_t db_id, int64_t txn_id,
+                         const std::vector<int64_t>& tablet_ids, bool is_versioned_write);
 
 static bool validate_table_stream_updates(const CommitTxnRequest* request, MetaServiceCode& code,
                                           std::string& msg) {
@@ -1960,6 +1966,29 @@ void MetaServiceImpl::commit_txn_immediately(
             }
         }
 
+        std::vector<int64_t> repair_tablet_ids;
+        for (const auto& [tablet_id, tablet_idx] : tablet_ids) {
+            if (!tablet_idx.has_db_id()) {
+                repair_tablet_ids.push_back(tablet_id);
+            }
+        }
+        bool need_repair_tablet_idx = !repair_tablet_ids.empty();
+
+        TEST_SYNC_POINT_CALLBACK("commit_txn_immediately::need_repair_tablet_idx",
+                                 &need_repair_tablet_idx);
+        if (need_repair_tablet_idx) {
+            stats.get_bytes += txn->get_bytes();
+            stats.get_counter += txn->num_get_keys();
+            txn.reset();
+            repair_tablet_index(txn_kv_, code, msg, instance_id, db_id, txn_id, repair_tablet_ids,
+                                is_versioned_write);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "repair_tablet_index failed, txn_id=" << txn_id << " code=" << code;
+                return;
+            }
+            continue;
+        }
+
         std::unordered_map<int64_t, std::tuple<int64_t, int64_t>> partition_indexes;
         for (auto& [_, i] : tmp_rowsets_meta) {
             int64_t tablet_id = i.tablet_id();
@@ -2407,15 +2436,13 @@ void MetaServiceImpl::commit_txn_immediately(
 
 // rewrite TabletIndexPB for fill db_id, in case of historical reasons
 // TabletIndexPB missing db_id
-void repair_tablet_index(
-        std::shared_ptr<TxnKv>& txn_kv, MetaServiceCode& code, std::string& msg,
-        const std::string& instance_id, int64_t db_id, int64_t txn_id,
-        const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
-        bool is_versioned_write) {
+void repair_tablet_index(std::shared_ptr<TxnKv>& txn_kv, MetaServiceCode& code, std::string& msg,
+                         const std::string& instance_id, int64_t db_id, int64_t txn_id,
+                         const std::vector<int64_t>& tablet_ids, bool is_versioned_write) {
     std::stringstream ss;
     std::vector<std::string> tablet_idx_keys;
-    for (auto& [_, i] : tmp_rowsets_meta) {
-        tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id, i.tablet_id()}));
+    for (int64_t tablet_id : tablet_ids) {
+        tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id, tablet_id}));
     }
 
     for (size_t i = 0; i < tablet_idx_keys.size(); i += config::max_tablet_index_num_per_batch) {
@@ -2469,6 +2496,7 @@ void repair_tablet_index(
             }
 
             if (!tablet_idx_pb.has_db_id()) {
+                g_bvar_ms_repair_tablet_index << 1;
                 tablet_idx_pb.set_db_id(db_id);
                 std::string idx_val;
                 if (!tablet_idx_pb.SerializeToString(&idx_val)) {
@@ -2582,9 +2610,13 @@ void MetaServiceImpl::commit_txn_eventually(
             }
         }
 
-        bool need_repair_tablet_idx =
-                std::any_of(tablet_ids.begin(), tablet_ids.end(),
-                            [](const auto& pair) { return !pair.second.has_db_id(); });
+        std::vector<int64_t> repair_tablet_ids;
+        for (const auto& [tablet_id, tablet_idx] : tablet_ids) {
+            if (!tablet_idx.has_db_id()) {
+                repair_tablet_ids.push_back(tablet_id);
+            }
+        }
+        bool need_repair_tablet_idx = !repair_tablet_ids.empty();
 
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::need_repair_tablet_idx",
                                  &need_repair_tablet_idx);
@@ -2592,7 +2624,7 @@ void MetaServiceImpl::commit_txn_eventually(
             stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
             txn.reset();
-            repair_tablet_index(txn_kv_, code, msg, instance_id, db_id, txn_id, tmp_rowsets_meta,
+            repair_tablet_index(txn_kv_, code, msg, instance_id, db_id, txn_id, repair_tablet_ids,
                                 is_versioned_write);
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "repair_tablet_index failed, txn_id=" << txn_id << " code=" << code;
@@ -3153,10 +3185,11 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
         std::vector<int64_t> acquired_tablet_ids;
         for (const auto& [_, tmp_rowsets_meta] : sub_txn_to_tmp_rowsets_meta) {
-            for (const auto& [_, i] : tmp_rowsets_meta) {
-                acquired_tablet_ids.push_back(i.tablet_id());
+            for (const auto& [_, rowset_meta] : tmp_rowsets_meta) {
+                acquired_tablet_ids.push_back(rowset_meta.tablet_id());
             }
         }
+
         if (!is_versioned_read) {
             // Read tablet indexes in batch.
             std::tie(code, msg) =
@@ -3165,14 +3198,35 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                 return;
             }
         } else {
-            TxnErrorCode err =
-                    meta_reader.get_tablet_indexes(txn.get(), acquired_tablet_ids, &tablet_ids);
+            err = meta_reader.get_tablet_indexes(txn.get(), acquired_tablet_ids, &tablet_ids);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("failed to get tablet indexes, err={}", err);
                 LOG_WARNING(msg);
                 return;
             }
+        }
+
+        std::vector<int64_t> repair_tablet_ids;
+        for (const auto& [tablet_id, tablet_idx] : tablet_ids) {
+            if (!tablet_idx.has_db_id()) {
+                repair_tablet_ids.push_back(tablet_id);
+            }
+        }
+        bool need_repair_tablet_idx = !repair_tablet_ids.empty();
+        TEST_SYNC_POINT_CALLBACK("commit_txn_with_sub_txn::need_repair_tablet_idx",
+                                 &need_repair_tablet_idx);
+        if (need_repair_tablet_idx) {
+            stats.get_bytes += txn->get_bytes();
+            stats.get_counter += txn->num_get_keys();
+            txn.reset();
+            repair_tablet_index(txn_kv_, code, msg, instance_id, db_id, txn_id, repair_tablet_ids,
+                                is_versioned_write);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "repair_tablet_index failed, txn_id=" << txn_id << " code=" << code;
+                return;
+            }
+            continue;
         }
 
         // {table/partition} -> version
