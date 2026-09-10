@@ -176,6 +176,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTimeToUuidV7;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
@@ -568,6 +569,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrZero;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformKeys;
@@ -593,6 +597,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidV4;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidV7;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidV7ToDateTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidVersion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidtoInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
@@ -3061,4 +3066,25 @@ public interface ScalarFunctionVisitor<R, C> {
     default R visitUnicodeNormalize(UnicodeNormalize func, C context) {
         return visitScalarFunction(func, context);
     }
+
+    default R visitToUuidOrZero(ToUuidOrZero function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
+    default R visitToUuidOrNull(ToUuidOrNull function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
+    default R visitToUuidOrDefault(ToUuidOrDefault function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
+    default R visitUuidV7ToDateTime(UuidV7ToDateTime function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
+    default R visitDateTimeToUuidV7(DateTimeToUuidV7 function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
 }
