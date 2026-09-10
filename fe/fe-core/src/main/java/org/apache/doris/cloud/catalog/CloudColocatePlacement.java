@@ -23,6 +23,8 @@ import com.google.common.hash.Hashing;
 import java.util.Arrays;
 
 public class CloudColocatePlacement {
+    private static final long EXTRA_QUOTA_SCORE_IDX = -1L;
+
     @FunctionalInterface
     interface ScoreFunction {
         long score(long grpId, long idx, long beId);
@@ -40,25 +42,52 @@ public class CloudColocatePlacement {
                 .asLong();
     }
 
-    public static long pickBackendId(long grpId, long idx, long[] candidateBeIds) {
-        return pickBackendId(grpId, idx, candidateBeIds, CloudColocatePlacement::score);
+    public static long[] buildPlacement(long grpId, long[] candidateBeIds, int bucketNum) {
+        return buildPlacement(grpId, candidateBeIds, bucketNum, CloudColocatePlacement::score);
     }
 
-    static long pickBackendId(long grpId, long idx, long[] candidateBeIds, ScoreFunction scoreFunction) {
+    static long[] buildPlacement(long grpId, long[] candidateBeIds, int bucketNum, ScoreFunction scoreFunction) {
         Preconditions.checkArgument(candidateBeIds.length > 0);
+        Preconditions.checkArgument(bucketNum > 0);
         long[] sortedBeIds = Arrays.copyOf(candidateBeIds, candidateBeIds.length);
         Arrays.sort(sortedBeIds);
 
-        long pickedBeId = sortedBeIds[0];
-        long maxScore = scoreFunction.score(grpId, idx, pickedBeId);
-        for (int i = 1; i < sortedBeIds.length; i++) {
-            long beId = sortedBeIds[i];
-            long score = scoreFunction.score(grpId, idx, beId);
-            if (score > maxScore || (score == maxScore && beId < pickedBeId)) {
-                maxScore = score;
-                pickedBeId = beId;
+        int[] remainingQuota = new int[sortedBeIds.length];
+        Arrays.fill(remainingQuota, bucketNum / sortedBeIds.length);
+        int[] extraQuotaCandidates = new int[sortedBeIds.length];
+        Arrays.fill(extraQuotaCandidates, 1);
+        for (int i = 0; i < bucketNum % sortedBeIds.length; i++) {
+            int pickedIndex = pickBackendIndex(grpId, EXTRA_QUOTA_SCORE_IDX, sortedBeIds,
+                    extraQuotaCandidates, scoreFunction);
+            remainingQuota[pickedIndex]++;
+            extraQuotaCandidates[pickedIndex] = 0;
+        }
+
+        long[] placement = new long[bucketNum];
+        for (int idx = 0; idx < bucketNum; idx++) {
+            int pickedIndex = pickBackendIndex(grpId, idx, sortedBeIds, remainingQuota, scoreFunction);
+            placement[idx] = sortedBeIds[pickedIndex];
+            remainingQuota[pickedIndex]--;
+        }
+        return placement;
+    }
+
+    private static int pickBackendIndex(long grpId, long idx, long[] sortedBeIds, int[] remainingQuota,
+            ScoreFunction scoreFunction) {
+        int pickedIndex = 0;
+        while (remainingQuota[pickedIndex] == 0) {
+            pickedIndex++;
+        }
+        long maxScore = scoreFunction.score(grpId, idx, sortedBeIds[pickedIndex]);
+        for (int i = pickedIndex + 1; i < sortedBeIds.length; i++) {
+            if (remainingQuota[i] > 0) {
+                long score = scoreFunction.score(grpId, idx, sortedBeIds[i]);
+                if (score > maxScore) {
+                    maxScore = score;
+                    pickedIndex = i;
+                }
             }
         }
-        return pickedBeId;
+        return pickedIndex;
     }
 }

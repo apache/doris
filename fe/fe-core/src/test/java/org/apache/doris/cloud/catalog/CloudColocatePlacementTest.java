@@ -68,12 +68,20 @@ public class CloudColocatePlacementTest {
     }
 
     @Test
+    public void testHrwPlacementBalancesBucketsAcrossBackends() {
+        assertBalanced(100L, 120, new long[] {1L, 2L, 3L});
+        assertBalanced(100L, 121, new long[] {1L, 2L, 3L});
+        assertBalanced(100L, 2, new long[] {1L, 2L, 3L});
+    }
+
+    @Test
     public void testTieBreakPicksSmallerBackendId() {
         long[] beIds = new long[] {30L, 20L, 10L};
 
-        long pickedBeId = CloudColocatePlacement.pickBackendId(100L, 1L, beIds, (groupId, idx, beId) -> 1L);
+        long[] placement = CloudColocatePlacement.buildPlacement(100L, beIds, 1,
+                (groupId, idx, beId) -> 1L);
 
-        Assertions.assertEquals(10L, pickedBeId);
+        Assertions.assertEquals(10L, placement[0]);
     }
 
     @Test
@@ -178,12 +186,28 @@ public class CloudColocatePlacementTest {
         return values;
     }
 
+    private static void assertBalanced(long groupId, int bucketNum, long[] beIds) {
+        long[] placement = CloudColocatePlacement.buildPlacement(groupId, beIds, bucketNum);
+        long min = Long.MAX_VALUE;
+        long max = Long.MIN_VALUE;
+        long total = 0;
+        for (long beId : beIds) {
+            long count = Arrays.stream(placement).filter(value -> value == beId).count();
+            min = Math.min(min, count);
+            max = Math.max(max, count);
+            total += count;
+        }
+        Assertions.assertEquals(bucketNum, total);
+        Assertions.assertTrue(max - min <= 1,
+                "Placement should differ by at most one bucket, but counts range from " + min + " to " + max);
+    }
+
     private static int changedBucketsByHrw(long groupId, int bucketNum, long[] originalBeIds, long[] changedBeIds) {
+        long[] before = CloudColocatePlacement.buildPlacement(groupId, originalBeIds, bucketNum);
+        long[] after = CloudColocatePlacement.buildPlacement(groupId, changedBeIds, bucketNum);
         int changed = 0;
         for (int idx = 0; idx < bucketNum; idx++) {
-            long before = CloudColocatePlacement.pickBackendId(groupId, idx, originalBeIds);
-            long after = CloudColocatePlacement.pickBackendId(groupId, idx, changedBeIds);
-            if (before != after) {
+            if (before[idx] != after[idx]) {
                 changed++;
             }
         }

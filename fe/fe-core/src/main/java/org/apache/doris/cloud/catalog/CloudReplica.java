@@ -189,10 +189,9 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         if (!Config.enable_cloud_colocate_consistent_hash) {
             return pickColocatedBackend(infoService, groupId, clusterId, availableBes);
         }
-        int bucketNum = infoService.getCloudColocateBucketsNum(groupId);
-        CloudSystemInfoService.checkCloudColocateBucketIdx(groupId, clusterId, idx, bucketNum);
-        long[] availableBeIds = availableBes.stream().mapToLong(Backend::getId).toArray();
-        long pickedBeId = CloudColocatePlacement.pickBackendId(groupId.grpId, idx, availableBeIds);
+        List<Long> availableBeIds = availableBes.stream().map(Backend::getId).collect(Collectors.toList());
+        long pickedBeId = infoService.getCloudColocateHrwBeIdForDeadGrace(
+                groupId, clusterId, availableBeIds, idx);
         return findPickedBackend(pickedBeId, groupId, clusterId, availableBes);
     }
 
