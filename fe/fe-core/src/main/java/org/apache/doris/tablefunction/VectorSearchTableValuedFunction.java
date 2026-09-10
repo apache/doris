@@ -17,35 +17,12 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.lance.LanceExternalCatalog;
-import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.LanceTableMetadata;
-import org.apache.doris.datasource.lance.LanceTypeConverter;
 import org.apache.doris.datasource.lance.LanceVectorQuery;
-import org.apache.doris.datasource.lance.source.LanceScanNode;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.exceptions.ParseException;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
-import org.apache.doris.thrift.TSearchFilter;
-import org.apache.doris.thrift.TSearchFilterFormat;
 import org.apache.doris.thrift.TSearchVector;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchOptions;
@@ -55,290 +32,100 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import org.apache.arrow.vector.types.pojo.Field;
 
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.OptionalInt;
 import java.util.Set;
-import java.util.TreeMap;
-import java.util.TreeSet;
 
 /** Relation TVF for a fixed-snapshot Lance vector search. */
-public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
+public class VectorSearchTableValuedFunction extends LanceExternalSearchTableValuedFunction {
     public static final String NAME = "vector_search";
     public static final String DISTANCE_COLUMN = "_distance";
 
-    private static final String TABLE = "table";
-    private static final String COLUMN = "column";
     private static final String QUERY_VECTOR = "query_vector";
-    private static final String TOP_K = "top_k";
-    private static final String OFFSET = "offset";
     private static final String METRIC = "metric";
-    private static final String FILTER = "filter";
     private static final String NPROBES = "nprobes";
     private static final String REFINE_FACTOR = "refine_factor";
     private static final String EF = "ef";
     private static final String USE_INDEX = "use_index";
-    private static final String FULLY_QUALIFIED_TABLE_NAME_ERROR =
-            "'table' must be a fully qualified catalog.database.table name";
-    private static final long UINT32_MAX = 0xFFFF_FFFFL;
     private static final Set<String> PROPERTIES = ImmutableSet.of(
             TABLE, COLUMN, QUERY_VECTOR, TOP_K, OFFSET, METRIC, FILTER,
             NPROBES, REFINE_FACTOR, EF, USE_INDEX);
 
-    private final TableName sourceTableName;
-    private final LanceExternalTable sourceTable;
-    private final LanceTableMetadata metadata;
-    private final int vectorFieldId;
-    private final List<Column> columns;
-    private final TExternalSearchRequest searchRequest;
-
     public VectorSearchTableValuedFunction(Map<String, String> properties)
             throws AnalysisException {
-        Map<String, String> params = normalizeProperties(properties);
-        sourceTableName = parseTableName(required(params, TABLE));
-        sourceTable = findLanceExternalTable(sourceTableName);
+        super(prepare(properties));
+    }
+
+    private static PreparedSearch prepare(Map<String, String> properties)
+            throws AnalysisException {
+        Map<String, String> params = normalizeProperties(properties, PROPERTIES, NAME);
         boolean useIndex = !params.containsKey(USE_INDEX)
                 || parseBoolean(params.get(USE_INDEX), USE_INDEX);
-        try {
-            metadata = useIndex
-                    ? sourceTable.loadMetadataForVectorSearch() : sourceTable.loadMetadata();
-        } catch (RuntimeException e) {
-            throw new AnalysisException("Failed to load Lance metadata for vector search on "
-                    + sourceTableName + ": " + e.getMessage(), e);
-        }
-        if (metadata.getVersion() <= 0) {
-            throw new AnalysisException("Lance vector search requires a fixed positive dataset version");
-        }
+        CommonSearch common = prepareCommon(params, NAME,
+                "VectorSearchTableValuedFunction", "vector search", useIndex);
 
         Field vectorField = LanceVectorQuery.findVectorColumnField(
-                metadata.getSchema(), required(params, COLUMN));
-        vectorFieldId = useIndex ? requireLanceFieldId(metadata, vectorField) : -1;
+                common.metadata().getSchema(), required(params, COLUMN, NAME));
+        int vectorFieldId = useIndex
+                ? requireLanceFieldId(common.metadata(), vectorField) : -1;
         TSearchVector queryVector = LanceVectorQuery.parseAndEncodeQueryVector(
-                vectorField, required(params, QUERY_VECTOR));
-        long topK = parseLong(params.getOrDefault(TOP_K, "10"), TOP_K, 1, Long.MAX_VALUE);
-        long offset = parseLong(params.getOrDefault(OFFSET, "0"), OFFSET, 0, Long.MAX_VALUE);
-        if (offset > UINT32_MAX || topK > UINT32_MAX - offset) {
-            throw new AnalysisException("'top_k + offset' must not exceed " + UINT32_MAX);
-        }
+                vectorField, required(params, QUERY_VECTOR, NAME));
 
         TVectorSearchParams vectorParams = new TVectorSearchParams()
                 .setColumn(vectorField.getName())
                 .setQueryVector(queryVector)
-                .setTopK(topK)
-                .setOffset(offset);
+                .setTopK(common.topK())
+                .setOffset(common.offset());
         if (params.containsKey(METRIC)) {
             vectorParams.setMetric(parseMetric(params.get(METRIC)));
         }
 
-        searchRequest = new TExternalSearchRequest()
+        TExternalSearchRequest searchRequest = new TExternalSearchRequest()
                 .setSchemaVersion(1)
                 .setSearchQuery(TExternalSearchQuery.vector_search(vectorParams));
-        if (params.containsKey(FILTER)) {
-            searchRequest.setSearchFilter(new TSearchFilter()
-                    .setFormat(TSearchFilterFormat.SQL)
-                    .setPayload(validateAndEncodeSqlFilter(params.get(FILTER))));
-        }
-
-        TVectorSearchOptions vectorSearchOptions = new TVectorSearchOptions();
-        boolean hasVectorSearchOptions = false;
-        if (params.containsKey(NPROBES)) {
-            vectorSearchOptions.setNprobes(parsePositiveInt(params.get(NPROBES), NPROBES));
-            hasVectorSearchOptions = true;
-        }
-        if (params.containsKey(REFINE_FACTOR)) {
-            vectorSearchOptions.setRefineFactor(
-                    parsePositiveInt(params.get(REFINE_FACTOR), REFINE_FACTOR));
-            hasVectorSearchOptions = true;
-        }
-        if (params.containsKey(EF)) {
-            vectorSearchOptions.setEf(parsePositiveInt(params.get(EF), EF));
-            hasVectorSearchOptions = true;
-        }
-        if (params.containsKey(USE_INDEX)) {
-            vectorSearchOptions.setUseIndex(useIndex);
-            hasVectorSearchOptions = true;
-        }
-        if (hasVectorSearchOptions) {
+        TVectorSearchOptions vectorSearchOptions = buildVectorSearchOptions(params, useIndex);
+        if (vectorSearchOptions != null) {
             searchRequest.setVectorSearchOptions(vectorSearchOptions);
         }
-        columns = buildOutputColumns(metadata);
+        return prepareSearch(
+                common, vectorFieldId, searchRequest, DISTANCE_COLUMN, "vector search");
     }
 
-    public LanceExternalTable getSourceTable() {
-        return sourceTable;
-    }
-
-    public LanceTableMetadata getMetadata() {
-        return metadata;
-    }
-
-    public TExternalSearchRequest getSearchRequest() {
-        return searchRequest.deepCopy();
-    }
-
-    public long getTopK() {
-        return searchRequest.getSearchQuery().getVectorSearch().getTopK();
-    }
-
-    public long getOffset() {
-        return searchRequest.getSearchQuery().getVectorSearch().getOffset();
-    }
-
-    @Override
-    public String getTableName() {
-        return "VectorSearchTableValuedFunction<" + sourceTableName + ">";
-    }
-
-    @Override
-    public List<Column> getTableColumns() {
-        return columns;
-    }
-
-    @Override
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return LanceScanNode.forVectorSearch(id, desc, sourceTable, metadata,
-                vectorFieldId, searchRequest, sv);
-    }
-
-    private static Map<String, String> normalizeProperties(Map<String, String> properties)
-            throws AnalysisException {
-        Map<String, String> normalized = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            String key = entry.getKey().toLowerCase(Locale.ROOT);
-            if (!PROPERTIES.contains(key)) {
-                throw new AnalysisException("'" + entry.getKey()
-                        + "' is an invalid property for vector_search()");
-            }
-            if (normalized.put(key, entry.getValue()) != null) {
-                throw new AnalysisException("Duplicate vector_search() property '" + key + "'");
-            }
+    private static TVectorSearchOptions buildVectorSearchOptions(
+            Map<String, String> params, boolean useIndex) throws AnalysisException {
+        TVectorSearchOptions options = new TVectorSearchOptions();
+        boolean configured = false;
+        if (params.containsKey(NPROBES)) {
+            options.setNprobes(parsePositiveInt(params.get(NPROBES), NPROBES));
+            configured = true;
         }
-        return normalized;
-    }
-
-    private static String required(Map<String, String> params, String key)
-            throws AnalysisException {
-        String value = params.get(key);
-        if (value == null || value.trim().isEmpty()) {
-            throw new AnalysisException("Missing required vector_search() property '" + key + "'");
+        if (params.containsKey(REFINE_FACTOR)) {
+            options.setRefineFactor(
+                    parsePositiveInt(params.get(REFINE_FACTOR), REFINE_FACTOR));
+            configured = true;
         }
-        return value.trim();
-    }
-
-    @VisibleForTesting
-    static TableName parseTableName(String value) throws AnalysisException {
-        Expression expression;
-        try {
-            expression = new NereidsParser().parseExpression(value);
-        } catch (ParseException e) {
-            throw new AnalysisException(FULLY_QUALIFIED_TABLE_NAME_ERROR, e);
+        if (params.containsKey(EF)) {
+            options.setEf(parsePositiveInt(params.get(EF), EF));
+            configured = true;
         }
-        if (!(expression instanceof UnboundSlot)) {
-            throw new AnalysisException(FULLY_QUALIFIED_TABLE_NAME_ERROR);
+        if (params.containsKey(USE_INDEX)) {
+            options.setUseIndex(useIndex);
+            configured = true;
         }
-        List<String> names = ((UnboundSlot) expression).getNameParts();
-        if (names.size() != 3) {
-            throw new AnalysisException(FULLY_QUALIFIED_TABLE_NAME_ERROR);
-        }
-        return new TableName(names.get(0), names.get(1), names.get(2));
-    }
-
-    private static LanceExternalTable findLanceExternalTable(TableName tableName)
-            throws AnalysisException {
-        ConnectContext context = ConnectContext.get();
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(context, tableName, PrivPredicate.SELECT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
-                    context.getQualifiedUser(), context.getRemoteIP(),
-                    tableName.getDb() + ": " + tableName.getTbl());
-        }
-        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
-        if (!(catalog instanceof LanceExternalCatalog)) {
-            throw new AnalysisException("Catalog '" + tableName.getCtl()
-                    + "' is not a Lance catalog");
-        }
-        TableIf table = catalog.getDbOrAnalysisException(tableName.getDb())
-                .getTableOrAnalysisException(tableName.getTbl());
-        if (!(table instanceof LanceExternalTable)) {
-            throw new AnalysisException("Table '" + tableName + "' is not a Lance table");
-        }
-        return (LanceExternalTable) table;
+        return configured ? options : null;
     }
 
     @VisibleForTesting
     static List<Column> buildOutputColumns(LanceTableMetadata metadata)
             throws AnalysisException {
-        List<Column> result = new ArrayList<>(metadata.getSchema().getFields().size() + 1);
-        Set<String> fieldNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        int position = 0;
-        for (Field field : metadata.getSchema().getFields()) {
-            if (!fieldNames.add(field.getName())) {
-                throw new AnalysisException("Duplicate Lance schema column under "
-                        + "case-insensitive matching: '" + field.getName() + "'");
-            }
-            if (field.getName().startsWith(Column.GLOBAL_ROWID_COL)) {
-                throw new AnalysisException("Lance table contains column '" + field.getName()
-                        + "' using reserved Doris internal column prefix '"
-                        + Column.GLOBAL_ROWID_COL + "'");
-            }
-            if (field.getName().equalsIgnoreCase(DISTANCE_COLUMN)) {
-                throw new AnalysisException("Lance table already contains reserved vector search "
-                        + "column '" + DISTANCE_COLUMN + "'");
-            }
-            String comment = field.getMetadata() == null
-                    ? null : field.getMetadata().get("comment");
-            Type type;
-            try {
-                type = LanceTypeConverter.toDorisType(field);
-            } catch (RuntimeException e) {
-                throw new AnalysisException("Invalid Lance type for column '" + field.getName()
-                        + "': " + e.getMessage(), e);
-            }
-            result.add(new Column(field.getName(), type, false, null,
-                    field.isNullable(), comment, true, position++));
-        }
-        result.add(new Column(DISTANCE_COLUMN, Type.FLOAT, false, null,
-                true, null, true, position));
-        return result;
+        return buildOutputColumns(metadata, DISTANCE_COLUMN, "vector search");
     }
 
     @VisibleForTesting
     static int requireLanceFieldId(LanceTableMetadata metadata, Field field)
             throws AnalysisException {
-        OptionalInt fieldId = metadata.getLanceFieldId(field.getName());
-        if (!fieldId.isPresent()) {
-            throw new AnalysisException("Lance vector column '" + field.getName()
-                    + "' has no field ID in the Lance schema");
-        }
-        return fieldId.getAsInt();
-    }
-
-    @VisibleForTesting
-    static byte[] validateAndEncodeSqlFilter(String filter) throws AnalysisException {
-        if (filter == null || filter.trim().isEmpty()) {
-            throw new AnalysisException("'filter' must not be empty");
-        }
-        if (filter.indexOf('\0') >= 0) {
-            throw new AnalysisException("'filter' must not contain an embedded NUL byte");
-        }
-        return filter.getBytes(StandardCharsets.UTF_8);
-    }
-
-    private static long parseLong(String value, String property, long min, long max)
-            throws AnalysisException {
-        try {
-            long parsed = Long.parseLong(value);
-            if (parsed < min || parsed > max) {
-                throw new AnalysisException("'" + property + "' must be between "
-                        + min + " and " + max);
-            }
-            return parsed;
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("'" + property + "' must be an integer", e);
-        }
+        return requireLanceFieldId(metadata, field, "vector");
     }
 
     private static int parsePositiveInt(String value, String property)

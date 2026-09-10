@@ -353,10 +353,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.219.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.11.219.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.11.219"
-AWS_SDK_MD5SUM="80aa616efe1a3e7a9bf0dfbc44a97864"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.221.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.11.221.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.11.221"
+AWS_SDK_MD5SUM="95ea128da58829117a544b092bc39033"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -443,6 +443,14 @@ NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10
 NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
 NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
+
+# Google Cloud C++ OAuth2 authentication library. Only the auth/common REST
+# components are built; the Google Cloud Storage SDK is intentionally excluded.
+GOOGLE_CLOUD_CPP_DOWNLOAD="https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v2.45.0.tar.gz"
+GOOGLE_CLOUD_CPP_FALLBACK_DOWNLOAD="https://codeload.github.com/googleapis/google-cloud-cpp/tar.gz/refs/tags/v2.45.0"
+GOOGLE_CLOUD_CPP_NAME="google-cloud-cpp-2.45.0.tar.gz"
+GOOGLE_CLOUD_CPP_SOURCE="google-cloud-cpp-2.45.0"
+GOOGLE_CLOUD_CPP_MD5SUM="3cc131764cd9009c20407d7b67afcf6e"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
@@ -566,10 +574,10 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.7.tar.gz"
-LANCE_C_NAME="lance-c-v0.1.7.tar.gz"
-LANCE_C_SOURCE="lance-c-0.1.7"
-LANCE_C_MD5SUM="15ef7cd20a2e1606384251cb2d41d42f"
+LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.9.tar.gz"
+LANCE_C_NAME="lance-c-v0.1.9.tar.gz"
+LANCE_C_SOURCE="lance-c-0.1.9"
+LANCE_C_MD5SUM="7138ed44e92d4bc91d5b522a6b92ed64"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -635,6 +643,7 @@ export TP_ARCHIVES=(
     'XSIMD'
     'SIMDJSON'
     'NLOHMANN_JSON'
+    'GOOGLE_CLOUD_CPP'
     'LIBBACKTRACE'
     'SSE2NEON'
     'XXHASH'

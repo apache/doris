@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
+import org.apache.doris.common.profile.ProfileManager.ProfileLoadStatus;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -44,7 +45,10 @@ import java.util.PriorityQueue;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @ResourceLock("global")
 class ProfileManagerTest {
@@ -66,7 +70,7 @@ class ProfileManagerTest {
         originalPath = ProfileManager.PROFILE_STORAGE_PATH;
         ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
         profileManager.cleanProfile();
-        profileManager.isProfileLoaded = false;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.UNLOADED);
         originMaxProfiles = Config.max_query_profile_num;
     }
 
@@ -370,7 +374,7 @@ class ProfileManagerTest {
 
     @Test
     void testLoadProfile() throws IOException {
-        profileManager.isProfileLoaded = false;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.UNLOADED);
 
         try {
             // Create some test profile files
@@ -381,7 +385,7 @@ class ProfileManagerTest {
             }
 
             profileManager.loadProfilesFromStorageIfFirstTime(true);
-            Assertions.assertTrue(profileManager.isProfileLoaded);
+            Assertions.assertEquals(ProfileLoadStatus.LOADED, profileManager.profileLoadStatus.get());
             Assertions.assertEquals(30, profileManager.queryIdToProfileMap.size());
             Assertions.assertEquals(0, profileManager.queryIdToExecutionProfiles.size());
         } catch (InterruptedException e) {
@@ -548,7 +552,7 @@ class ProfileManagerTest {
             }
 
             // Execute deletion
-            profileManager.isProfileLoaded = true;
+            profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
             profileManager.deleteOutdatedProfilesFromStorage();
 
             // Verify correct profiles were deleted
@@ -626,7 +630,7 @@ class ProfileManagerTest {
         }
 
         // Delete broken profiles
-        profileManager.isProfileLoaded = true;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
         profileManager.deleteBrokenProfiles();
 
         // Verify normal files still exist
@@ -662,6 +666,63 @@ class ProfileManagerTest {
     }
 
     @Test
+    public void testOnlyOneProfileLoaderCanRun() throws Exception {
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch duplicateLoadStarted = new CountDownLatch(1);
+        CountDownLatch allowLoadToFinish = new CountDownLatch(1);
+        AtomicInteger scanCount = new AtomicInteger();
+        ProfileManager manager = new ProfileManager() {
+            @Override
+            protected List<String> getOnStorageProfileInfos() {
+                if (scanCount.incrementAndGet() > 1) {
+                    duplicateLoadStarted.countDown();
+                }
+                loadStarted.countDown();
+                try {
+                    allowLoadToFinish.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+                return Lists.newArrayList();
+            }
+        };
+        Thread initialLoad = new Thread(() -> manager.loadProfilesFromStorageIfFirstTime(true));
+
+        try {
+            initialLoad.start();
+            Assertions.assertTrue(loadStarted.await(5, TimeUnit.SECONDS));
+
+            for (int i = 0; i < 10; i++) {
+                manager.loadProfilesFromStorageIfFirstTime(false);
+            }
+
+            Assertions.assertFalse(duplicateLoadStarted.await(500, TimeUnit.MILLISECONDS));
+            Assertions.assertEquals(1, scanCount.get());
+        } finally {
+            allowLoadToFinish.countDown();
+            initialLoad.join(5000);
+            Assertions.assertFalse(initialLoad.isAlive());
+        }
+    }
+
+    @Test
+    public void testProfileLoaderCanRetryAfterFailure() throws IOException {
+        File invalidProfileStorage = new File(tempDir, "not_a_directory");
+        Assertions.assertTrue(invalidProfileStorage.createNewFile());
+        ProfileManager.PROFILE_STORAGE_PATH = invalidProfileStorage.getAbsolutePath();
+        ProfileManager manager = new ProfileManager();
+
+        manager.loadProfilesFromStorageIfFirstTime(true);
+        Assertions.assertEquals(ProfileLoadStatus.UNLOADED, manager.profileLoadStatus.get());
+
+        Assertions.assertTrue(invalidProfileStorage.delete());
+        ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
+        manager.loadProfilesFromStorageIfFirstTime(true);
+        Assertions.assertEquals(ProfileLoadStatus.LOADED, manager.profileLoadStatus.get());
+    }
+
+    @Test
     public void testProfileStorageLimit() throws Exception {
         // Set small storage limit
         Config.spilled_profile_storage_limit_bytes = 1000;
@@ -681,7 +742,7 @@ class ProfileManagerTest {
         }
 
         // Trigger cleanup
-        profileManager.isProfileLoaded = true;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
         profileManager.deleteOutdatedProfilesFromStorage();
 
         // Verify number of profiles is within limits
@@ -706,7 +767,7 @@ class ProfileManagerTest {
         brokenFile.createNewFile();
 
         // Trigger cleanup
-        profileManager.isProfileLoaded = true;
+        profileManager.profileLoadStatus.set(ProfileLoadStatus.LOADED);
         profileManager.deleteBrokenProfiles();
 
         // Verify broken profile is removed but valid one remains

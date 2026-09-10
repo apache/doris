@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import java.io.File;
+import java.lang.reflect.Field;
 
 public class Config extends ConfigBase {
 
@@ -1427,7 +1428,7 @@ public class Config extends ConfigBase {
     public static int streaming_pg_max_identifier_length = 63;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static int streaming_cdc_fetch_splits_batch_size = 100;
+    public static int streaming_cdc_fetch_splits_batch_size = 16;
 
     /**
      * the max timeout of get kafka meta.
@@ -3020,6 +3021,17 @@ public class Config extends ConfigBase {
             "Maximal number of connections of Arrow Flight Server per FE."})
     public static int arrow_flight_max_connections = 4096;
 
+    @ConfField(mutable = true, description = "Arrow Flight SQL only. A query that scans an external table in "
+            + "batch mode keeps its FE coordinator alive after GetFlightInfo, so the BE can keep fetching splits "
+            + "while the client pulls the results (DoGet); that coordinator is normally released when the "
+            + "session runs its next query or is closed. Most Flight clients never close a session, so the "
+            + "coordinator, and with it the query's workload group queue slot and its active_queries entry, "
+            + "would otherwise stay held until wait_timeout. If the session stays idle for longer than this "
+            + "many seconds after the query started, the coordinator is released anyway. The bound is never "
+            + "shorter than the query's own execution timeout, and the session itself is not killed "
+            + "(wait_timeout still governs that). 0 disables the bound.")
+    public static int arrow_flight_deferred_query_idle_timeout_second = 3600;
+
     @ConfField(mutable = true, masterOnly = true, description = {
         "Auto Buckets 中按照 partition size 去估算 bucket 数，存算一体 partition size 5G 估算一个 bucket，"
             + "但存算分离下 partition size 10G 估算一个 bucket。若配置小于 0，会在在代码中会自适应存算一体模式默认 5G，在存算分离默认 10G",
@@ -3717,8 +3729,20 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_warm_up_timeout_second = 86400 * 30; // 30 days
 
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true,
+            callback = PositiveCloudWarmUpSchedulerIntervalConfHandler.class)
     public static int cloud_warm_up_job_scheduler_interval_millisecond = 1000; // 1 seconds
+
+    public static class PositiveCloudWarmUpSchedulerIntervalConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsedValue = Integer.parseInt(value.trim());
+            if (parsedValue <= 0) {
+                throw new ConfigException(field.getName() + " must be greater than 0");
+            }
+            field.setInt(null, parsedValue);
+        }
+    }
 
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
