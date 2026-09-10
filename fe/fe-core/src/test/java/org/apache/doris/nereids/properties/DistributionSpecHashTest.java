@@ -51,7 +51,7 @@ public class DistributionSpecHashTest {
         map.put(e6, 2);
         DistributionSpecHash origin = new DistributionSpecHash(
                 Lists.newArrayList(e1, e2, e3),
-                ShuffleType.EXECUTION_BUCKETED,
+                ShuffleType.STORAGE_BUCKETED,
                 0L,
                 -1L,
                 Sets.newHashSet(0L),
@@ -389,6 +389,20 @@ public class DistributionSpecHashTest {
 
         Assertions.assertFalse(bucketed1.satisfy(bucketed2));
         Assertions.assertFalse(bucketed2.satisfy(bucketed1));
+    }
+
+    @Test
+    public void testExecutionBucketedNormalizesStorageHashType() {
+        DistributionSpecHash fromIdentity = new DistributionSpecHash(
+                Lists.newArrayList(new ExprId(1)), ShuffleType.EXECUTION_BUCKETED,
+                1L, -1L, Sets.newHashSet(1L), HashType.IDENTITY);
+        DistributionSpecHash fromCrc32 = new DistributionSpecHash(
+                Lists.newArrayList(new ExprId(2)), ShuffleType.EXECUTION_BUCKETED,
+                2L, -1L, Sets.newHashSet(2L), HashType.CRC32);
+
+        Assertions.assertEquals(HashType.CRC32, fromIdentity.getHashType());
+        Assertions.assertEquals(HashType.CRC32, fromCrc32.getHashType());
+        Assertions.assertDoesNotThrow(() -> DistributionSpecHash.merge(fromIdentity, fromCrc32));
     }
 
     @Test

@@ -93,7 +93,8 @@ public class DistributionSpecHash extends DistributionSpec {
                 Objects.requireNonNull(partitionIds, "partitionIds should not null"));
         this.tableId = tableId;
         this.selectedIndexId = selectedIndexId;
-        this.hashType = Objects.requireNonNull(hashType, "hashType should not null");
+        this.hashType = normalizeHashType(shuffleType,
+                Objects.requireNonNull(hashType, "hashType should not null"));
         ImmutableList.Builder<Set<ExprId>> equivalenceExprIdsBuilder
                 = ImmutableList.builderWithExpectedSize(orderedShuffledColumns.size());
         ImmutableMap.Builder<ExprId, Integer> exprIdToEquivalenceSetBuilder
@@ -135,7 +136,8 @@ public class DistributionSpecHash extends DistributionSpec {
         this.shuffleType = Objects.requireNonNull(shuffleType, "shuffleType should not null");
         this.tableId = tableId;
         this.selectedIndexId = selectedIndexId;
-        this.hashType = Objects.requireNonNull(hashType, "hashType should not null");
+        this.hashType = normalizeHashType(shuffleType,
+                Objects.requireNonNull(hashType, "hashType should not null"));
         this.partitionIds = ImmutableSet.copyOf(
                 Objects.requireNonNull(partitionIds, "partitionIds should not null"));
         this.equivalenceExprIds = ImmutableList.copyOf(
@@ -144,7 +146,17 @@ public class DistributionSpecHash extends DistributionSpec {
                 Objects.requireNonNull(exprIdToEquivalenceSet, "exprIdToEquivalenceSet should not null"));
     }
 
-    static DistributionSpecHash merge(DistributionSpecHash left, DistributionSpecHash right, ShuffleType shuffleType) {
+    private static HashDistributionInfo.HashType normalizeHashType(
+            ShuffleType shuffleType, HashDistributionInfo.HashType hashType) {
+        // EXECUTION_BUCKETED is produced by the ordinary execution exchange, not by table storage
+        // bucketing. It must not retain an IDENTITY label inherited from a source table.
+        return shuffleType == ShuffleType.EXECUTION_BUCKETED
+                ? HashDistributionInfo.HashType.CRC32
+                : hashType;
+    }
+
+    static DistributionSpecHash merge(DistributionSpecHash left, DistributionSpecHash right,
+            ShuffleType shuffleType) {
         Preconditions.checkState(left.hashType == right.hashType,
                 "can not merge distribution specs with different hash types: %s vs %s",
                 left.hashType, right.hashType);

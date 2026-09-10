@@ -403,6 +403,9 @@ suite("test_distribution_hash_type_identity") {
         );
     """
     sql "INSERT INTO test_dist_hash_join_crc32 VALUES (1), (7), (8), (1024)"
+    // Force both storage layouts through ordinary execution shuffle. Their source-table hash
+    // labels must be normalized because HASH_PARTITIONED uses the execution hash algorithm.
+    sql "set enable_bucket_shuffle_join = false"
     explain {
         sql("""SELECT a.id FROM test_dist_hash_colo_id1 a
                  JOIN test_dist_hash_join_crc32 b ON a.id = b.id""")
@@ -410,6 +413,7 @@ suite("test_distribution_hash_type_identity") {
     }
     order_qt_mixed_hash_join """SELECT a.id FROM test_dist_hash_colo_id1 a
                                     JOIN test_dist_hash_join_crc32 b ON a.id = b.id"""
+    sql "set enable_bucket_shuffle_join = true"
 
     // ---------------------------------------------------------------------
     // 8. bucket-shuffle join: an identity table joins a table with a different bucket count.
