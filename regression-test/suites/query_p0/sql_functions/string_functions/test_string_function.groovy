@@ -536,6 +536,14 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_ngram_search2 """select ngram_search('abc','abc1313131',3); """
     qt_ngram_search3 """select ngram_search('abc1313131','abc1313131',3); """
     qt_ngram_search3 """select ngram_search('1313131','abc1313131',3); """
+    test {
+        sql "select ngram_search('abc', 'abc', 0);"
+        exception "gram_num must be a positive constant"
+    }
+    test {
+        sql "select ngram_search('abc', 'abc', -1);"
+        exception "gram_num must be a positive constant"
+    }
     
 
     sql "drop table if exists test_function_ngram_search;";

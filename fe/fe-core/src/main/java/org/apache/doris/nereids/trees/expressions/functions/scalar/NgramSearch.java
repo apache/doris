@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -47,19 +48,28 @@ public class NgramSearch extends ScalarFunction
      */
     public NgramSearch(Expression arg0, Expression arg1, Expression arg2) {
         super("ngram_search", arg0, arg1, arg2);
-        if (!(arg1.isConstant())) {
-            throw new AnalysisException(
-                    "ngram_search(text,pattern,gram_num): pattern support const value only.");
-        }
-        if (!(arg2.isConstant())) {
-            throw new AnalysisException(
-                    "ngram_search(text,pattern,gram_num): gram_num support const value only.");
-        }
     }
 
     /** constructor for withChildren and reuse signature */
     private NgramSearch(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!child(1).isConstant()) {
+            throw new AnalysisException(
+                    "ngram_search(text,pattern,gram_num): pattern support const value only.");
+        }
+        Expression gramNum = child(2);
+        if (!gramNum.isConstant()) {
+            throw new AnalysisException(
+                    "ngram_search(text,pattern,gram_num): gram_num support const value only.");
+        }
+        if (!(gramNum instanceof IntegerLikeLiteral) || ((IntegerLikeLiteral) gramNum).getIntValue() <= 0) {
+            throw new AnalysisException(
+                    "ngram_search(text,pattern,gram_num): gram_num must be a positive constant.");
+        }
     }
 
     /**
