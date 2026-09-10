@@ -314,7 +314,7 @@ public:
     static std::unique_ptr<PhysicalToLogicalConverter> get_converter(
             const FieldSchema* field_schema, DataTypePtr src_logical_type,
             const DataTypePtr& dst_logical_type, const cctz::time_zone* ctz,
-            bool is_dict_filter = false);
+            bool is_dict_filter = false, bool preserve_binary_uuid = false);
 
     static bool is_parquet_native_type(PrimitiveType type);
 

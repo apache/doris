@@ -54,9 +54,11 @@ suite("test_iceberg_uuid_binary_compatibility",
             "javac -cp \"/opt/spark/jars/*\" ${fixtureDir}/CreateIcebergUuidFixtures.java && " +
             "java -cp \"${fixtureDir}:/opt/spark/jars/*\" CreateIcebergUuidFixtures uuid_binary_compatibility'")
     def snapshots = [:]
+    def equalitySnapshots = [:]
     fixtureOutput.readLines().findAll { it.startsWith("UUID_SNAPSHOT ") }.each { String line ->
         def fields = line.split(" ")
         snapshots[fields[1]] = fields[2]
+        equalitySnapshots[fields[1]] = fields[3]
     }
     assertEquals(4, snapshots.size(), "Iceberg writer/oracle did not create all format combinations")
 
@@ -80,6 +82,23 @@ suite("test_iceberg_uuid_binary_compatibility",
         """
         sql "SWITCH ${catalogName}"
         sql "USE uuid_binary_compatibility"
+        sql "SET enable_file_scanner_v2 = true"
+        for (String format : ['parquet', 'orc']) {
+            String table = "uuid_write_${format}_${mapping}"
+            String normal = mapping ? "CAST(UNHEX('00112233445566778899aabbccddeeff') AS VARBINARY)"
+                    : "CAST(CAST('00112233445566778899aabbccddeeff' AS UUID) AS STRING)"
+            String zero = mapping ? "CAST(UNHEX('00000000000000000000000000000000') AS VARBINARY)"
+                    : "UNHEX('00000000000000000000000000000000')"
+            String high = mapping ? "CAST(UNHEX('80000000000000000000000000000000') AS VARBINARY)"
+                    : "UNHEX('80000000000000000000000000000000')"
+            String maximum = mapping ? "CAST(UNHEX('ffffffffffffffffffffffffffffffff') AS VARBINARY)"
+                    : "'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'"
+            sql "INSERT INTO ${table} VALUES (1,${zero}),(2,${high}),(3,${normal}),(4,NULL)"
+            "order_qt_${table}_insert" "SELECT id,HEX(u) FROM ${table} ORDER BY id"
+            sql "INSERT OVERWRITE TABLE ${table} VALUES (11,${normal}),(12,${maximum}),(13,NULL)"
+            sql "REFRESH TABLE ${table}"
+            "order_qt_${table}_overwrite" "SELECT id,HEX(u) FROM ${table} ORDER BY id"
+        }
         for (boolean scannerV2 : [false, true]) {
             // V1's equality-delete StringSet cannot consume ColumnVarbinary. Its legacy STRING
             // mapping is the compatibility control; V2 exercises both mappings below.
@@ -102,6 +121,11 @@ suite("test_iceberg_uuid_binary_compatibility",
                         SELECT id, HEX(u), HEX(element_at(payload, 'u'))
                         FROM ${table} FOR VERSION AS OF ${snapshot} ORDER BY id
                     """
+                    "order_qt_${prefix}_equality_only" """
+                        SELECT id, HEX(u), HEX(element_at(payload, 'u'))
+                        FROM ${table} FOR VERSION AS OF ${equalitySnapshots[table]} ORDER BY id
+                    """
+                    // The current snapshot additionally position-deletes the row carrying OTHER.
                     "order_qt_${prefix}_deleted" """
                         SELECT id, HEX(u), HEX(element_at(payload, 'u'))
                         FROM ${table} ORDER BY id
@@ -118,12 +142,20 @@ suite("test_iceberg_uuid_binary_compatibility",
                     String predicate = mapping
                             ? "HEX(u) = '80000000000000000000000000000000'"
                             : "u = UNHEX('80000000000000000000000000000000')"
-                    "order_qt_${prefix}_predicate" """
-                        SELECT id FROM ${table}
-                        WHERE ${predicate} ORDER BY id
-                    """
+                    for (boolean minMax : [false, true]) {
+                        sql "SET enable_parquet_filter_by_min_max = ${minMax}"
+                        "order_qt_${prefix}_predicate" """
+                            SELECT id FROM ${table}
+                            WHERE ${predicate} ORDER BY id
+                        """
+                    }
                 }
             }
         }
     }
+    // Read Doris-authored files with Iceberg itself, so symmetric Doris reader/writer bugs fail.
+    String verified = executeCommand("${dockerCommand} exec ${sparkContainer} bash -lc '" +
+            "java -cp \"${fixtureDir}:/opt/spark/jars/*\" CreateIcebergUuidFixtures " +
+            "uuid_binary_compatibility verify-writes'")
+    assertEquals(4, verified.readLines().count { it.startsWith("UUID_WRITE_VERIFIED ") })
 }

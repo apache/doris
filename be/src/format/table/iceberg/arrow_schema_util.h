@@ -25,8 +25,10 @@ namespace doris::iceberg {
 
 class ArrowSchemaUtil {
 public:
+    // Use the UUID extension for Parquet schemas; batch conversion uses fixed-size storage.
     static Status convert(const Schema* schema, const std::string& timezone,
-                          std::vector<std::shared_ptr<arrow::Field>>& fields);
+                          std::vector<std::shared_ptr<arrow::Field>>& fields,
+                          bool use_uuid_extension = false);
 
 private:
     static const char* PARQUET_FIELD_ID;
@@ -36,7 +38,7 @@ private:
 
     static Status convert_to(const iceberg::NestedField& field,
                              std::shared_ptr<arrow::Field>* arrow_field,
-                             const std::string& timezone);
+                             const std::string& timezone, bool use_uuid_extension);
 };
 
 } // namespace doris::iceberg

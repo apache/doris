@@ -284,9 +284,18 @@ Status VParquetTransformer::write(const Block& block) {
 }
 
 arrow::Status VParquetTransformer::_open_file_writer() {
+    auto writer_schema = _arrow_schema;
+    if (_iceberg_schema != nullptr) {
+        // Keep fixed-size binary arrays for batch conversion, but tell Arrow's Parquet writer
+        // that Iceberg UUID leaves need the UUID logical annotation (also inside collections).
+        std::vector<std::shared_ptr<arrow::Field>> fields;
+        RETURN_ARROW_STATUS_IF_ERROR(iceberg::ArrowSchemaUtil::convert(
+                _iceberg_schema, _state->timezone(), fields, true));
+        writer_schema = arrow::schema(std::move(fields), _arrow_schema->metadata());
+    }
     ARROW_ASSIGN_OR_RAISE(_writer,
                           ::parquet::arrow::FileWriter::Open(
-                                  *_arrow_schema, ExecEnv::GetInstance()->arrow_memory_pool(),
+                                  *writer_schema, ExecEnv::GetInstance()->arrow_memory_pool(),
                                   _outstream, _parquet_writer_properties, _arrow_properties));
     return arrow::Status::OK();
 }

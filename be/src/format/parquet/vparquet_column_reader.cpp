@@ -105,21 +105,19 @@ static void fill_array_offset(FieldSchema* field, ColumnArray::Offsets64& offset
     }
 }
 
-Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
-                                   const tparquet::RowGroup& row_group, const RowRanges& row_ranges,
-                                   const cctz::time_zone* ctz, io::IOContext* io_ctx,
-                                   std::unique_ptr<ParquetColumnReader>& reader,
-                                   size_t max_buf_size,
-                                   std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
-                                   RuntimeState* state, bool in_collection,
-                                   const std::set<uint64_t>& column_ids,
-                                   const std::set<uint64_t>& filter_column_ids) {
+Status ParquetColumnReader::create(
+        io::FileReaderSPtr file, FieldSchema* field, const tparquet::RowGroup& row_group,
+        const RowRanges& row_ranges, const cctz::time_zone* ctz, io::IOContext* io_ctx,
+        std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size,
+        std::unordered_map<int, tparquet::OffsetIndex>& col_offsets, RuntimeState* state,
+        bool in_collection, const std::set<uint64_t>& column_ids,
+        const std::set<uint64_t>& filter_column_ids, bool preserve_binary_uuid) {
     size_t total_rows = row_group.num_rows;
     if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                element_reader, max_buf_size, col_offsets, state, true, column_ids,
-                               filter_column_ids));
+                               filter_column_ids, preserve_binary_uuid));
         auto array_reader = ArrayColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
         element_reader->set_column_in_nested();
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
@@ -134,7 +132,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             // Create key reader
             RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                    key_reader, max_buf_size, col_offsets, state, true, column_ids,
-                                   filter_column_ids));
+                                   filter_column_ids, preserve_binary_uuid));
         } else {
             auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
                                                                    io_ctx, &field->children[0]);
@@ -146,7 +144,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             // Create value reader
             RETURN_IF_ERROR(create(file, &field->children[1], row_group, row_ranges, ctz, io_ctx,
                                    value_reader, max_buf_size, col_offsets, state, true, column_ids,
-                                   filter_column_ids));
+                                   filter_column_ids, preserve_binary_uuid));
         } else {
             auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
                                                                    io_ctx, &field->children[0]);
@@ -169,7 +167,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             if (column_ids.empty() || column_ids.find(child.get_column_id()) != column_ids.end()) {
                 RETURN_IF_ERROR(create(file, &child, row_group, row_ranges, ctz, io_ctx,
                                        child_reader, max_buf_size, col_offsets, state,
-                                       in_collection, column_ids, filter_column_ids));
+                                       in_collection, column_ids, filter_column_ids,
+                                       preserve_binary_uuid));
                 child_readers[child.name] = std::move(child_reader);
                 // Record the first non-SkippingReader
                 if (non_skip_reader_idx == -1) {
@@ -188,7 +187,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             std::unique_ptr<ParquetColumnReader> child_reader;
             RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                    child_reader, max_buf_size, col_offsets, state, in_collection,
-                                   column_ids, filter_column_ids));
+                                   column_ids, filter_column_ids, preserve_binary_uuid));
             child_reader->set_column_in_nested();
             child_readers[field->children[0].name] = std::move(child_reader);
         }
@@ -237,6 +236,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             }
         }
     }
+    reader->_preserve_binary_uuid = preserve_binary_uuid;
     return Status::OK();
 }
 
@@ -527,7 +527,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         int64_t real_column_size) {
     if (_converter == nullptr) {
         _converter = parquet::PhysicalToLogicalConverter::get_converter(
-                _field_schema, _field_schema->data_type, type, _ctz, is_dict_filter);
+                _field_schema, _field_schema->data_type, type, _ctz, is_dict_filter,
+                _preserve_binary_uuid);
         if (!_converter->support()) {
             return Status::InternalError(
                     "The column type of '{}' is not supported: {}, is_dict_filter: {}, "
