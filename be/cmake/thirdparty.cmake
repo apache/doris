@@ -20,54 +20,49 @@
 # define COMMON_THIRDPARTY list variable
 set(COMMON_THIRDPARTY)
 
-# Native Paimon is opt-in while its write capability and recovery matrix are expanded.
 # Do not import Paimon's exported Arrow C++ targets into the Doris link graph.
-option(WITH_PAIMON_CPP "Build the experimental Paimon native writer" OFF)
-if(WITH_PAIMON_CPP)
-    set(DORIS_PAIMON_PREFIX "${THIRDPARTY_DIR}/paimon-cpp")
-    find_path(DORIS_PAIMON_INCLUDE NAMES paimon/file_store_write.h
-        PATHS "${DORIS_PAIMON_PREFIX}/doris-include" NO_DEFAULT_PATH NO_CACHE REQUIRED)
-    find_library(DORIS_PAIMON_LIBRARY NAMES paimon
+set(DORIS_PAIMON_PREFIX "${THIRDPARTY_DIR}/paimon-cpp")
+find_path(DORIS_PAIMON_INCLUDE NAMES paimon/file_store_write.h
+    PATHS "${DORIS_PAIMON_PREFIX}/doris-include" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+find_library(DORIS_PAIMON_LIBRARY NAMES paimon
+    PATHS "${DORIS_PAIMON_PREFIX}/lib" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+add_library(doris_paimon_cpp SHARED IMPORTED)
+set_target_properties(doris_paimon_cpp PROPERTIES
+    IMPORTED_LOCATION "${DORIS_PAIMON_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${DORIS_PAIMON_INCLUDE}")
+list(APPEND COMMON_THIRDPARTY doris_paimon_cpp)
+# Exec is an independently compiled static target, not a consumer of the final BE
+# executable's transitive include directories.
+include_directories(SYSTEM "${DORIS_PAIMON_INCLUDE}")
+# Format factories register when their shared libraries are loaded. Keep these fixed
+# dependencies at link time instead of loading plugins from each writer.
+set(DORIS_PAIMON_FORMAT_LIBRARIES)
+foreach(plugin paimon_parquet_file_format paimon_avro_file_format)
+    find_library(DORIS_PAIMON_${plugin} NAMES ${plugin}
         PATHS "${DORIS_PAIMON_PREFIX}/lib" NO_DEFAULT_PATH NO_CACHE REQUIRED)
-    add_library(doris_paimon_cpp SHARED IMPORTED)
-    set_target_properties(doris_paimon_cpp PROPERTIES
-        IMPORTED_LOCATION "${DORIS_PAIMON_LIBRARY}"
-        INTERFACE_INCLUDE_DIRECTORIES "${DORIS_PAIMON_INCLUDE}")
-    list(APPEND COMMON_THIRDPARTY doris_paimon_cpp)
-    add_compile_definitions(USE_PAIMON_CPP)
-    # Exec is an independently compiled static target, not a consumer of the final BE
-    # executable's transitive include directories.
-    include_directories(SYSTEM "${DORIS_PAIMON_INCLUDE}")
-    # Format factories register when their shared libraries are loaded. Keep these fixed
-    # dependencies at link time instead of loading plugins from each writer.
-    set(DORIS_PAIMON_FORMAT_LIBRARIES)
-    foreach(plugin paimon_parquet_file_format paimon_avro_file_format)
-        find_library(DORIS_PAIMON_${plugin} NAMES ${plugin}
-            PATHS "${DORIS_PAIMON_PREFIX}/lib" NO_DEFAULT_PATH NO_CACHE REQUIRED)
-        add_library(doris_${plugin} SHARED IMPORTED)
-        set_target_properties(doris_${plugin} PROPERTIES
-            IMPORTED_LOCATION "${DORIS_PAIMON_${plugin}}")
-        list(APPEND DORIS_PAIMON_FORMAT_LIBRARIES doris_${plugin})
-    endforeach()
-    if(APPLE)
-        foreach(plugin IN LISTS DORIS_PAIMON_FORMAT_LIBRARIES)
-            target_link_libraries(doris_paimon_cpp INTERFACE
-                "-Wl,-needed_library,$<TARGET_FILE:${plugin}>")
-        endforeach()
-    else()
-        # Scope --no-as-needed to registration libraries; do not change other Doris links.
+    add_library(doris_${plugin} SHARED IMPORTED)
+    set_target_properties(doris_${plugin} PROPERTIES
+        IMPORTED_LOCATION "${DORIS_PAIMON_${plugin}}")
+    list(APPEND DORIS_PAIMON_FORMAT_LIBRARIES doris_${plugin})
+endforeach()
+if(APPLE)
+    foreach(plugin IN LISTS DORIS_PAIMON_FORMAT_LIBRARIES)
         target_link_libraries(doris_paimon_cpp INTERFACE
-            "-Wl,--push-state,--no-as-needed"
-            ${DORIS_PAIMON_FORMAT_LIBRARIES}
-            "-Wl,--pop-state")
-    endif()
-    install(DIRECTORY "${DORIS_PAIMON_PREFIX}/lib/" DESTINATION "${OUTPUT_DIR}/lib"
-        FILES_MATCHING PATTERN "*.so*" PATTERN "*.dylib*")
-    if(APPLE)
-        list(APPEND CMAKE_INSTALL_RPATH "@loader_path")
-    else()
-        list(APPEND CMAKE_INSTALL_RPATH "$ORIGIN")
-    endif()
+            "-Wl,-needed_library,$<TARGET_FILE:${plugin}>")
+    endforeach()
+else()
+    # Scope --no-as-needed to registration libraries; do not change other Doris links.
+    target_link_libraries(doris_paimon_cpp INTERFACE
+        "-Wl,--push-state,--no-as-needed"
+        ${DORIS_PAIMON_FORMAT_LIBRARIES}
+        "-Wl,--pop-state")
+endif()
+install(DIRECTORY "${DORIS_PAIMON_PREFIX}/lib/" DESTINATION "${OUTPUT_DIR}/lib"
+    FILES_MATCHING PATTERN "*.so*" PATTERN "*.dylib*")
+if(APPLE)
+    list(APPEND CMAKE_INSTALL_RPATH "@loader_path")
+else()
+    list(APPEND CMAKE_INSTALL_RPATH "$ORIGIN")
 endif()
 
 # define add_thirdparty function, append thirdparty libraries to COMMON_THIRDPARTY variable, and pass arg too add_library

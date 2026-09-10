@@ -17,7 +17,6 @@
 
 #include "exec/sink/writer/paimon/doris_paimon_file_system.h"
 
-#ifdef USE_PAIMON_CPP
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -308,4 +307,3 @@ TEST(DorisPaimonFileSystemTest, CleanupContinuesAndRetriesFailedDeletes) {
     EXPECT_TRUE(fs->store->objects.empty());
 }
 } // namespace doris
-#endif

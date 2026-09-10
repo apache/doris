@@ -17,24 +17,19 @@
 
 #pragma once
 
+#include <paimon/memory/memory_pool.h>
+
 #include <memory>
 #include <string>
 
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 
-#ifdef USE_PAIMON_CPP
-#include <paimon/memory/memory_pool.h>
-#endif
-
 namespace doris {
 
-#ifdef USE_PAIMON_CPP
 class ResourceContext;
 std::shared_ptr<paimon::MemoryPool> make_paimon_query_memory_pool(
         std::shared_ptr<ResourceContext> context, uint64_t limit);
-#endif
 
-// Implemented behind USE_PAIMON_CPP; a CPP plan fails explicitly on a BE without the library.
 class CppPaimonWriteBackend final : public IPaimonWriteBackend {
 public:
     CppPaimonWriteBackend();

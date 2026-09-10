@@ -17,11 +17,6 @@
 
 #include "exec/sink/writer/paimon/cpp_paimon_write_backend.h"
 
-#include <limits>
-
-#include "common/exception.h"
-
-#ifdef USE_PAIMON_CPP
 #include <arrow/api.h>
 #include <arrow/c/bridge.h>
 #include <paimon/commit_message.h>
@@ -33,8 +28,10 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <limits>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "core/allocator.h"
 #include "exec/sink/writer/paimon/doris_paimon_file_system.h"
@@ -48,7 +45,6 @@
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
-#endif
 
 namespace doris {
 
@@ -72,7 +68,6 @@ Status frame_paimon_cpp_commit(const std::string& data, int32_t version,
     return Status::OK();
 }
 
-#ifdef USE_PAIMON_CPP
 namespace {
 
 Status sdk_status(const paimon::Status& status) {
@@ -422,21 +417,5 @@ Status CppPaimonWriteBackend::close() {
 void CppPaimonWriteBackend::on_commit_messages_transferred() {
     _impl->on_commit_messages_transferred();
 }
-#else
-class CppPaimonWriteBackend::Impl {};
-CppPaimonWriteBackend::CppPaimonWriteBackend() = default;
-CppPaimonWriteBackend::~CppPaimonWriteBackend() = default;
-Status CppPaimonWriteBackend::open(const TPaimonTableSink&, RuntimeState*, RuntimeProfile*) {
-    return Status::NotSupported(
-            "This BE was built without WITH_PAIMON_CPP; no runtime JNI fallback");
-}
-Status CppPaimonWriteBackend::create_writer(std::unique_ptr<IPaimonWriter>*) {
-    return Status::NotSupported("This BE was built without WITH_PAIMON_CPP");
-}
-Status CppPaimonWriteBackend::close() {
-    return Status::OK();
-}
-void CppPaimonWriteBackend::on_commit_messages_transferred() {}
-#endif
 
 } // namespace doris

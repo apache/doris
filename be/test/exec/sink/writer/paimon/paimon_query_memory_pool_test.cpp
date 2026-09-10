@@ -15,15 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/sink/writer/paimon/cpp_paimon_write_backend.h"
-
-#ifdef USE_PAIMON_CPP
 #include <gtest/gtest.h>
 
 #include <cstring>
 #include <thread>
 
 #include "common/config.h"
+#include "exec/sink/writer/paimon/cpp_paimon_write_backend.h"
 #include "runtime/query_context.h"
 #include "util/defer_op.h"
 
@@ -75,4 +73,3 @@ TEST(PaimonQueryMemoryPoolTest, AllocatorOomRollsBackAndAllowsNextAllocation) {
 }
 
 } // namespace doris
-#endif

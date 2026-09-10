@@ -17,7 +17,6 @@
 
 #include "exec/sink/writer/paimon/doris_paimon_file_system.h"
 
-#ifdef USE_PAIMON_CPP
 #include <paimon/macros.h>
 
 #include <algorithm>
@@ -500,4 +499,3 @@ PStatus DorisPaimonFileSystem::WriteFile(const std::string& path, const std::str
     });
 }
 } // namespace doris
-#endif

@@ -22,7 +22,7 @@ import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.ListObjectsV2Request
 
-// Requires a homogeneous WITH_PAIMON_CPP build and debug points enabled on all BEs.
+// Requires debug points enabled on all BEs.
 // Opt in explicitly: ordinary JNI regression environments must not silently claim native coverage.
 suite("test_paimon_cpp_write_recovery", "p0,external,paimon,nonConcurrent") {
     if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enablePaimonTest"))

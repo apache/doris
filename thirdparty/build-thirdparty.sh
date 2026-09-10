@@ -1093,7 +1093,7 @@ build_grpc() {
     # sed -i 's/find_dependency/find_package/g' "${TP_INSTALL_DIR}"/lib64/cmake/grpc/gRPCConfig.cmake
 }
 
-# arrow
+# paimon-cpp
 build_paimon_cpp() {
     check_if_source_exist "${PAIMON_CPP_SOURCE}"
     cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
@@ -1143,6 +1143,7 @@ build_paimon_cpp() {
         "${TP_INSTALL_DIR}/paimon-cpp/doris-include/"
 }
 
+# arrow
 build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
@@ -2237,6 +2238,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         cares
         grpc # after cares, protobuf
         arrow
+        paimon_cpp
         lance_c
         s2
         bitshuffle

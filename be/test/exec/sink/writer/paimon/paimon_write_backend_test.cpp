@@ -18,14 +18,11 @@
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 
 #include <gtest/gtest.h>
+#include <paimon/commit_message.h>
+#include <paimon/factories/factory_creator.h>
 
 #include "exec/sink/writer/paimon/cpp_paimon_write_backend.h"
 #include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
-
-#ifdef USE_PAIMON_CPP
-#include <paimon/commit_message.h>
-#include <paimon/factories/factory_creator.h>
-#endif
 
 namespace doris {
 
@@ -58,7 +55,6 @@ TEST(CppPaimonWriteBackendTest, DpcmFrame) {
     EXPECT_FALSE(frame_paimon_cpp_commit("", -1, &message).ok());
 }
 
-#ifdef USE_PAIMON_CPP
 TEST(CppPaimonWriteBackendTest, LinkedFormatsAndCommitVersion) {
     // Exercise link-time registration without dlopen. An SDK upgrade must revalidate the
     // native serializer against Java FE before changing this expected version.
@@ -75,7 +71,6 @@ TEST(CppPaimonWriteBackendTest, FailedOpenCanBeClosedRepeatedly) {
     EXPECT_TRUE(backend.close().ok());
     EXPECT_TRUE(backend.close().ok());
 }
-#endif
 
 TEST(JniPaimonWriteBackendTest, CloseWithoutOpenIsRepeatable) {
     JniPaimonWriteBackend backend;

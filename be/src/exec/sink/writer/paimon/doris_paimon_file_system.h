@@ -17,7 +17,6 @@
 
 #pragma once
 
-#ifdef USE_PAIMON_CPP
 #include <paimon/fs/file_system.h>
 
 #include <mutex>
@@ -71,4 +70,3 @@ private:
     bool _ownership_finished = false;
 };
 } // namespace doris
-#endif
