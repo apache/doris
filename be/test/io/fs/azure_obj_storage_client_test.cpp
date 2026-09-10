@@ -26,6 +26,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <utility>
@@ -266,6 +267,20 @@ private:
     std::string _expected_key;
 };
 
+void assert_reader_range_contents(io::FileReader& reader) {
+    EXPECT_EQ(reader.size(), 16);
+    std::array<char, 4> buffer {};
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader.read_at(7, Slice(buffer.data(), buffer.size()), &bytes_read).ok());
+    EXPECT_EQ(bytes_read, 4);
+    EXPECT_EQ(std::string(buffer.data(), bytes_read), "data");
+}
+
+void assert_native_azure_client_conf(const S3ClientConf& received, const S3ClientConf& expected) {
+    EXPECT_EQ(received, expected);
+    EXPECT_EQ(received.provider, ObjStorageProvider::AZURE);
+}
+
 void assert_native_sas_reader_range(const std::string& location, const std::string& expected_key) {
     auto transport = std::make_shared<AzureRangeTransport>(expected_key);
     Azure::Storage::Blobs::BlobClientOptions options;
@@ -294,8 +309,7 @@ void assert_native_sas_reader_range(const std::string& location, const std::stri
     S3ClientFactory::instance().set_client_creator_for_test(
             [native_client,
              conf](const S3ClientConf& received) -> std::shared_ptr<io::ObjStorageClient> {
-                EXPECT_EQ(received, conf.client_conf);
-                EXPECT_EQ(received.provider, ObjStorageProvider::AZURE);
+                assert_native_azure_client_conf(received, conf.client_conf);
                 return native_client;
             });
     auto result = FileFactory::create_file_reader(properties, {.path = location, .fs_name = {}}, {},
@@ -303,12 +317,7 @@ void assert_native_sas_reader_range(const std::string& location, const std::stri
     S3ClientFactory::instance().clear_client_creator_for_test();
     ASSERT_TRUE(result.has_value()) << result.error();
     auto reader = std::move(result).value();
-    EXPECT_EQ(reader->size(), 16);
-    std::array<char, 4> buffer {};
-    size_t bytes_read = 0;
-    ASSERT_TRUE(reader->read_at(7, Slice(buffer.data(), buffer.size()), &bytes_read).ok());
-    EXPECT_EQ(bytes_read, 4);
-    EXPECT_EQ(std::string(buffer.data(), bytes_read), "data");
+    ASSERT_NO_FATAL_FAILURE(assert_reader_range_contents(*reader));
     EXPECT_EQ(transport->heads, 1);
     EXPECT_EQ(transport->ranges, 1);
     EXPECT_TRUE(reader->close().ok());
@@ -369,24 +378,22 @@ protected:
     static std::shared_ptr<ObjStorageClient> obj_storage_client;
 
     static void SetUpTestSuite() {
-        if (!std::getenv("AZURE_ACCOUNT_NAME") || !std::getenv("AZURE_ACCOUNT_KEY") ||
-            !std::getenv("AZURE_CONTAINER_NAME")) {
+        const auto* account_name = std::getenv("AZURE_ACCOUNT_NAME");
+        const auto* account_key = std::getenv("AZURE_ACCOUNT_KEY");
+        const auto* container_name = std::getenv("AZURE_CONTAINER_NAME");
+        if (!account_name || !account_key || !container_name) {
             return;
         }
-
-        std::string accountName = std::getenv("AZURE_ACCOUNT_NAME");
-        std::string accountKey = std::getenv("AZURE_ACCOUNT_KEY");
-        std::string containerName = std::getenv("AZURE_CONTAINER_NAME");
 
         // Initialize Azure SDK
         [[maybe_unused]] auto& s3ClientFactory = S3ClientFactory::instance();
 
         S3ClientConf conf;
-        conf.endpoint = fmt::format("https://{}.blob.core.windows.net", accountName);
+        conf.endpoint = fmt::format("https://{}.blob.core.windows.net", account_name);
         conf.region = "dummy-region";
-        conf.azure_credentials.account_name = accountName;
-        conf.azure_credentials.account_key = accountKey;
-        conf.bucket = containerName;
+        conf.azure_credentials.account_name = account_name;
+        conf.azure_credentials.account_key = account_key;
+        conf.bucket = container_name;
         conf.provider = ObjStorageProvider::AZURE;
         auto client_result = S3ClientFactory::instance().create(conf);
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
