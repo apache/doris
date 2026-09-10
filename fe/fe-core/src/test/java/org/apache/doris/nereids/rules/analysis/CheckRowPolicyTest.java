@@ -26,20 +26,26 @@ import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy.RelatedPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -48,6 +54,8 @@ import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -296,5 +304,53 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 + policyName
                 + " ON "
                 + tableNameRanddomDist);
+    }
+
+    @Test
+    public void checkPolicyOnOlapTableWrapperUsesOriginTable() throws Exception {
+        useUser(userName);
+        connectContext.setStatementContext(new StatementContext());
+        LogicalOlapScan relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
+                new RenamedOlapTableWrapper(olapTable), Arrays.asList(fullDbName));
+        LogicalCheckPolicy<LogicalOlapScan> checkPolicy = new LogicalCheckPolicy<>(relation);
+        createPolicy("CREATE ROW POLICY " + policyName + " ON " + tableName
+                + " AS PERMISSIVE TO " + userName + " USING (k1 = 1)");
+        try {
+            Plan plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext,
+                    new CheckPolicy(), new BindExpression());
+
+            Assertions.assertTrue(plan instanceof LogicalFilter);
+            LogicalFilter<?> filter = (LogicalFilter<?>) plan;
+            Assertions.assertEquals(relation, filter.child());
+            Assertions.assertTrue(filter.getConjuncts().toString().contains("k1"));
+        } finally {
+            dropPolicy("DROP ROW POLICY " + policyName + " ON " + tableName);
+        }
+    }
+
+    @Test
+    public void checkMvRefreshPolicyOnNestedOlapTableWrapperUsesOriginTable() throws Exception {
+        useUser(userName);
+        StatementContext statementContext = new StatementContext();
+        connectContext.setStatementContext(statementContext);
+        OlapTableWrapper wrapper = new OlapTableWrapper(olapTable, Collections.emptyMap());
+        OlapTableWrapper nestedWrapper = new OlapTableWrapper(wrapper, Collections.emptyMap());
+        LogicalOlapScan relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
+                nestedWrapper, Arrays.asList(fullDbName));
+        Expression predicate = new EqualTo(relation.getOutput().get(0), new IntegerLiteral(1));
+        statementContext.setMvRefreshPredicates(ImmutableMap.of(olapTable, ImmutableSet.of(predicate)));
+
+        LogicalCheckPolicy<LogicalOlapScan> checkPolicy = new LogicalCheckPolicy<>(relation);
+        RelatedPolicy policy = checkPolicy.findPolicy(relation,
+                CascadesContext.initContext(statementContext, relation, PhysicalProperties.GATHER));
+
+        Assertions.assertEquals(Optional.of(predicate), policy.rowPolicyFilter);
+    }
+
+    private static class RenamedOlapTableWrapper extends OlapTableWrapper {
+        private RenamedOlapTableWrapper(OlapTable originTable) {
+            super(originTable, "renamed_policy_wrapper", originTable.getBaseSchema(),
+                    originTable.getKeysType(), Collections.emptyMap());
+        }
     }
 }
