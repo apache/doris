@@ -429,9 +429,6 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (canUseRust) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
-            } else if (sessionVariable.isEnablePaimonCppReader() && nativeSplit) {
-                fileDesc.setReaderType(TPaimonReaderType.PAIMON_CPP);
-                fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
             } else {
                 // A logical DataSplit may span multiple files, so keep it intact for the JNI reader.
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
