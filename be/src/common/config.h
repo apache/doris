@@ -572,9 +572,6 @@ DECLARE_mDouble(sparse_column_compaction_threshold_percent);
 DECLARE_mBool(enable_rle_batch_put_optimization);
 DECLARE_Bool(enable_bmi2_optimizations);
 
-// If enabled, segments will be flushed column by column
-DECLARE_mBool(enable_vertical_segment_writer);
-
 // In ordered data compaction, min segment size for input rowset
 DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 
@@ -1163,6 +1160,8 @@ DECLARE_mInt32(in_memory_file_size);
 
 // Max size of parquet page header in bytes
 DECLARE_mInt32(parquet_header_max_size_mb);
+// Max size of parquet file metadata in bytes
+DECLARE_mInt64(parquet_metadata_size_limit);
 // Max buffer size for parquet row group
 DECLARE_mInt32(parquet_rowgroup_max_buffer_mb);
 // Max buffer size for parquet chunk column

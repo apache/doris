@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.hms.HmsClientConfig;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -86,6 +88,15 @@ class HudiCatalogPropertiesTest {
                 () -> HudiCatalogProperties.of(m));
         Assertions.assertTrue(e.getMessage().contains(HudiCatalogProperties.HMS_CLIENT_POOL_SIZE),
                 "the error must name the offending key, got: " + e.getMessage());
+    }
+
+    @Test
+    void partitionBatchSizeAcceptsSurroundingWhitespace() {
+        Map<String, String> m = HudiTestProperties.minimalMap();
+        m.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, " 5000 ");
+        HudiCatalogProperties p = HudiCatalogProperties.of(m);
+        HmsClientConfig config = new HmsClientConfig(p.getRaw(), p.getHmsClientPoolSize());
+        Assertions.assertEquals(5000, config.getPartitionBatchSize());
     }
 
     // Guards DESIGN D3(2): the map this connector receives is the gateway catalog's whole map — hive's

@@ -129,7 +129,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     public InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand,
             Offset runningOffset, long taskId) {
         S3Offset offset = (S3Offset) runningOffset;
-        Map<String, String> props = new HashMap<>();
+        Map<String, String> props = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         // rewrite plan
         Plan rewritePlan = originCommand.getParsedPlan().get().rewriteUp(plan -> {
             if (plan instanceof UnboundTVFRelation) {

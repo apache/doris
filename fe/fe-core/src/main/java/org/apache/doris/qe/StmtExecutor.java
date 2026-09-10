@@ -74,7 +74,9 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlCursorFetchCompatibility;
 import org.apache.doris.mysql.MysqlEofPacket;
+import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -1869,15 +1871,7 @@ public class StmtExecutor {
             }
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
-        // When CLIENT_DEPRECATE_EOF is set, the server should not send the intermediate
-        // EOF packet after column definitions. The client will go directly from column
-        // definitions to reading data rows.
-        if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-            serializer.reset();
-            MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-            eofPacket.writeTo(serializer);
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-        }
+        sendMetadataTerminatorIfNeeded(context.getMysqlChannel());
     }
 
     private List<PrimitiveType> exprToStringType(List<Expr> exprs) {
@@ -2013,15 +2007,28 @@ public class StmtExecutor {
                 channel.sendOnePacket(serializer.toByteBuffer());
             }
         }
-        // When CLIENT_DEPRECATE_EOF is set, the server should not send the intermediate
-        // EOF packet after column definitions. The client will go directly from column
-        // definitions to reading data rows.
+        sendMetadataTerminatorIfNeeded(channel);
+    }
+
+    private void sendMetadataTerminatorIfNeeded(MysqlChannel channel) throws IOException {
         if (!channel.clientDeprecatedEOF()) {
             serializer.reset();
-            MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-            eofPacket.writeTo(serializer);
+            new MysqlEofPacket(context.getState()).writeTo(serializer);
+            channel.sendOnePacket(serializer.toByteBuffer());
+        } else if (connectorJConsumesCursorMetadataTerminator()) {
+            // Connector/J before 9.5 consumes the first OK packet after column definitions
+            // while probing whether a requested cursor was created. Doris does not create a
+            // cursor, so an empty result would otherwise lose its only end marker and block.
+            serializer.reset();
+            new MysqlResultSetEndPacket(context.getState()).writeTo(serializer);
             channel.sendOnePacket(serializer.toByteBuffer());
         }
+    }
+
+    private boolean connectorJConsumesCursorMetadataTerminator() {
+        return context.isCursorFetchRequested()
+                && MysqlCursorFetchCompatibility.resolve(context.getConnectAttributes())
+                        != MysqlCursorFetchCompatibility.Behavior.STANDARD;
     }
 
     public void sendResultSet(ResultSet resultSet) throws IOException {
@@ -2579,6 +2586,7 @@ public class StmtExecutor {
         if (masterOpExecutor == null) {
             return;
         }
+        masterOpExecutor.prepareQueryResultForClient();
         List<ByteBuffer> queryResultBufList = masterOpExecutor.getQueryResultBufList();
         for (ByteBuffer byteBuffer : queryResultBufList) {
             context.getMysqlChannel().sendOnePacket(byteBuffer);

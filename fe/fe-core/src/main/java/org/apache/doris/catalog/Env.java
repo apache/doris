@@ -7688,10 +7688,12 @@ public class Env {
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void alterMTMVProperty(AlterMTMVPropertyInfo info) {
+    public void alterMTMVProperty(AlterMTMVPropertyInfo info) throws UserException {
         AlterMTMV alter = new AlterMTMV(info.getMvName(), MTMVAlterOpType.ALTER_PROPERTY);
         alter.setMvProperties(info.getProperties());
-        this.alter.processAlterMTMV(alter, false);
+        // Runs outside the tolerant processAlterMTMV catch so that failures (e.g. a
+        // partial IVM excluded-trigger-tables stream transition) reach the client.
+        this.alter.processAlterMTMVProperty(alter, false);
     }
 
     public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) {
