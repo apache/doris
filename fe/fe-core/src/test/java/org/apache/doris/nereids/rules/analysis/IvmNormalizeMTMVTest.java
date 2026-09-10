@@ -1271,12 +1271,21 @@ class IvmNormalizeMTMVTest {
                 ImmutableList.of(join.getOutput().get(0), join.getOutput().get(1)), join);
 
         JobContext jobContext = newJobContextWithFullKeys(sink);
-        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
         List<String> keyNames = rewriteResult.getIdentityKeySlots().stream()
                 .map(Slot::getName).collect(Collectors.toList());
-        // Left table keys (id, name) followed by right table keys (id, name), deduped by output presence.
-        Assertions.assertEquals(ImmutableList.of("id", "name", "id", "name"), keyNames);
+        // Left keys (id, name) are the projected outputs; the same-named right keys are not
+        // projected, so each must be materialized under its own hidden key column instead of
+        // being folded onto the same-named left outputs (which would silently drop the right
+        // dimensions from the full-keys layout).
+        String rightIdKey = Column.IVM_KEY_COL_PREFIX + "1_id_COL__";
+        String rightNameKey = Column.IVM_KEY_COL_PREFIX + "2_name_COL__";
+        Assertions.assertEquals(ImmutableList.of("id", "name", rightIdKey, rightNameKey), keyNames);
+        List<String> outputNames = result.getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertTrue(outputNames.contains(rightIdKey));
+        Assertions.assertTrue(outputNames.contains(rightNameKey));
     }
 
     @Test
