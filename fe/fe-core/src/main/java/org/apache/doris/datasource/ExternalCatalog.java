@@ -99,6 +99,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
 /**
@@ -444,6 +445,11 @@ public abstract class ExternalCatalog
 
     boolean isMetadataLoadEpochCurrent(long epoch) {
         return metadataLoadEpoch.get() == epoch;
+    }
+
+    protected final boolean executeIfDatabaseCurrent(
+            ExternalDatabase<? extends ExternalTable> database, BooleanSupplier action) {
+        return metaCache.executeIfMetaObjCurrent(database.getFullName(), database, action);
     }
 
     // check if all required properties are set when creating catalog
