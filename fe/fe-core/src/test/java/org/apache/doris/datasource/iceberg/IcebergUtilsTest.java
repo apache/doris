@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
@@ -430,6 +431,39 @@ public class IcebergUtilsTest {
         IllegalArgumentException readException = Assert.assertThrows(IllegalArgumentException.class,
                 () -> IcebergUtils.getSerializedInitialDefault(malformedField, false));
         Assert.assertTrue(readException.getMessage().contains("VARIANT initial-default must be NULL"));
+    }
+
+    @Test
+    public void testSpatialTypeRoundTrip() {
+        Type defaultGeometry = IcebergUtils.icebergTypeToDorisType(
+                Types.GeometryType.crs84(), false, false);
+        Assert.assertEquals("OGC:CRS84", ((ScalarType) defaultGeometry).getSpatialCrs());
+        Assert.assertEquals(Types.GeometryType.crs84(), IcebergUtils.dorisTypeToIcebergType(defaultGeometry));
+
+        Type geometry = IcebergUtils.icebergTypeToDorisType(
+                Types.GeometryType.of("EPSG:3857"), false, false);
+        Assert.assertEquals("EPSG:3857", ((ScalarType) geometry).getSpatialCrs());
+        Assert.assertEquals(Types.GeometryType.of("EPSG:3857"), IcebergUtils.dorisTypeToIcebergType(geometry));
+
+        Type defaultGeography = IcebergUtils.icebergTypeToDorisType(
+                Types.GeographyType.crs84(), false, false);
+        Assert.assertEquals("OGC:CRS84", ((ScalarType) defaultGeography).getSpatialCrs());
+        Assert.assertEquals("spherical", ((ScalarType) defaultGeography).getSpatialAlgorithm());
+        Assert.assertEquals(Types.GeographyType.crs84(), IcebergUtils.dorisTypeToIcebergType(defaultGeography));
+
+        Type geography = IcebergUtils.icebergTypeToDorisType(
+                Types.GeographyType.of("EPSG:4326", org.apache.iceberg.types.EdgeAlgorithm.VINCENTY), false, false);
+        Assert.assertEquals("EPSG:4326", ((ScalarType) geography).getSpatialCrs());
+        Assert.assertEquals("vincenty", ((ScalarType) geography).getSpatialAlgorithm());
+        Assert.assertEquals(Types.GeographyType.of("EPSG:4326", org.apache.iceberg.types.EdgeAlgorithm.VINCENTY),
+                IcebergUtils.dorisTypeToIcebergType(geography));
+
+        try {
+            IcebergUtils.icebergTypeToDorisType(Types.GeographyType.of("EPSG:4326"), false, false);
+            Assert.fail("Iceberg geography with an unspecified edge algorithm must not be mapped to a different type");
+        } catch (IllegalArgumentException e) {
+            Assert.assertTrue(e.getMessage().contains("no edge algorithm"));
+        }
     }
 
     @Test

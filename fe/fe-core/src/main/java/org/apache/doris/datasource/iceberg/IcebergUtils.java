@@ -734,6 +734,23 @@ public class IcebergUtils {
                     return ScalarType.createTimeStampTzType(ICEBERG_DATETIME_SCALE_MS);
                 }
                 return ScalarType.createDatetimeV2Type(ICEBERG_DATETIME_SCALE_MS);
+            case GEOMETRY:
+                String geometryCrs = ((Types.GeometryType) primitive).crs();
+                return geometryCrs == null
+                        ? ScalarType.createGeometryType()
+                        : ScalarType.createGeometryType(geometryCrs);
+            case GEOGRAPHY:
+                Types.GeographyType geography = (Types.GeographyType) primitive;
+                if (geography.crs() == null && geography.algorithm() == null) {
+                    return ScalarType.createGeographyType();
+                }
+                if (geography.crs() != null && geography.algorithm() == null) {
+                    throw new IllegalArgumentException(
+                            "Cannot map Iceberg geography with a custom CRS and no edge algorithm");
+                }
+                return ScalarType.createGeographyType(
+                        geography.crs() == null ? Types.GeographyType.DEFAULT_CRS : geography.crs(),
+                        geography.algorithm().toString());
             case TIME:
                 return Type.UNSUPPORTED;
             default:
