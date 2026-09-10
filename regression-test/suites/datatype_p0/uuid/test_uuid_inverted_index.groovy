@@ -44,10 +44,13 @@ suite("test_uuid_inverted_index", "p0") {
             sql "SHOW ALTER TABLE COLUMN WHERE TableName='uuid_index_paths' ORDER BY CreateTime DESC LIMIT 1"
             time 120
         }
-        sql "BUILD INDEX uuid_idx ON uuid_index_paths"
+        // Cloud mode builds all indexes in one table-wide job.
+        build_index_on_table("uuid_idx", "uuid_index_paths")
         wait_for_last_build_index_finish("uuid_index_paths", 120000)
-        sql "BUILD INDEX uuid_array_idx ON uuid_index_paths"
-        wait_for_last_build_index_finish("uuid_index_paths", 120000)
+        if (!isCloudMode()) {
+            build_index_on_table("uuid_array_idx", "uuid_index_paths")
+            wait_for_last_build_index_finish("uuid_index_paths", 120000)
+        }
         sql """INSERT INTO uuid_index_paths VALUES
                (5,'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF',['ffffffff-ffff-ffff-ffff-ffffffffffff']),
                (6,'80000000000000000000000000000000',['80000000000000000000000000000000'])"""
