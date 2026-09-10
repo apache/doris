@@ -118,7 +118,10 @@ public:
     }
 
     void merge(const AggregateFunctionSequenceMatchData& other) {
-        if (other.events_list.empty()) return;
+        // All-false event rows still establish a pattern that must match during merge.
+        if (!other.init_flag) {
+            return;
+        }
 
         if (!init_flag) {
             init(other.pattern, other.arg_count);
@@ -126,6 +129,10 @@ public:
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "sequence aggregate states have incompatible patterns or event counts");
         }
+        if (other.events_list.empty()) {
+            return;
+        }
+
         events_list.insert(std::end(events_list), std::begin(other.events_list),
                            std::end(other.events_list));
         sorted = false;
@@ -664,9 +671,13 @@ public:
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
-        this->data(place).read(buf);
-        const std::string pattern = this->data(place).get_pattern();
-        this->data(place).init(pattern, this->data(place).get_arg_count());
+        auto& state = AggregateFunctionSequenceBase::data(place);
+        state.read(buf);
+        // A serialized uninitialized state has no arguments and must stay uninitialized.
+        if (state.get_arg_count() == 0) {
+            return;
+        }
+        state.init(state.get_pattern(), state.get_arg_count());
     }
 
     void check_input_columns_type(const IColumn** columns) const override {

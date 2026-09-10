@@ -72,6 +72,14 @@ suite("test_agg_state_parameters") {
         ["sequence_count", "'(?1)', non_nullable(cast('2024-01-01' as datetime)), true, false",
                            "'(?2)', non_nullable(cast('2024-01-01' as datetime)), true, false"]
     ]
+    // All-false event rows retain their pattern, including when both states have no events.
+    for (def function : ["sequence_match", "sequence_count"]) {
+        for (def event : ["true", "false"]) {
+            cases.add([function,
+                       "'(?1)', non_nullable(cast('2024-01-01' as datetime)), false, false",
+                       "'(?2)', non_nullable(cast('2024-01-01' as datetime)), ${event}, false"])
+        }
+    }
     // Use STRING for both modes to keep the AggState argument types identical.
     for (def function : ["window_funnel", "window_funnel_v1", "window_funnel_v2"]) {
         cases.add([function, "1, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), true, false",

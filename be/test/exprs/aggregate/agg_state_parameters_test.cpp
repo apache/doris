@@ -77,6 +77,35 @@ public:
         expect_incompatible([&] {
             _function->deserialize_and_merge_from_column(destination, *serialized, _arena);
         });
+        auto* fresh_destination = create();
+        auto serialized_first = serialize(create(first));
+        _function->deserialize_and_merge_from_column(fresh_destination, *serialized_first, _arena);
+        expect_incompatible([&] {
+            _function->deserialize_and_merge_from_column(fresh_destination, *serialized, _arena);
+        });
+    }
+
+    void check_sequence_merge(const Arguments& initial, const Arguments& incoming,
+                              bool serialized) {
+        auto* destination = create();
+        auto* source = create();
+        auto* expected = create();
+        if (!initial.empty()) {
+            add(destination, initial);
+            add(expected, initial);
+        }
+        if (!incoming.empty()) {
+            add(source, incoming);
+            add(expected, incoming);
+        }
+        if (serialized) {
+            auto column = serialize(source);
+            EXPECT_NO_THROW(
+                    _function->deserialize_and_merge_from_column(destination, *column, _arena));
+        } else {
+            EXPECT_NO_THROW(_function->merge(destination, source, _arena));
+        }
+        EXPECT_TRUE(ColumnHelper::column_equal(result(destination), result(expected)));
     }
 
     void check_empty_and_reset(const Arguments& first, const Arguments& second) {
@@ -307,6 +336,37 @@ TEST(AggregateStateParametersTest, SequenceAndWindowFunnel) {
                           timestamp, yes, no},
                          {argument<DataTypeInt64>(1), argument<DataTypeString>("fixed"), timestamp,
                           yes, no});
+    }
+}
+
+TEST(AggregateStateParametersTest, SequenceEventlessParameters) {
+    DateV2Value<DateTimeV2ValueType> time;
+    time.unchecked_set_time(2024, 1, 1, 0, 0, 0, 0);
+    auto timestamp = argument<DataTypeDateTimeV2>(time);
+    auto yes = argument<DataTypeUInt8>(1);
+    auto no = argument<DataTypeUInt8>(0);
+    for (const auto& name : {"sequence_match", "sequence_count"}) {
+        SCOPED_TRACE(name);
+        Arguments eventless {argument<DataTypeString>("(?1)"), timestamp, no, no};
+        check_parameters(name, eventless, {argument<DataTypeString>("(?2)"), timestamp, yes, no});
+        check_parameters(name, eventless, {argument<DataTypeString>("(?2)"), timestamp, no, no});
+        DataTypes types;
+        for (const auto& arg : eventless) {
+            types.push_back(arg.type);
+        }
+        auto function = AggregateFunctionSimpleFactory::instance().get(
+                name, types, nullptr, false, BeExecVersionManager::get_newest_version());
+        ASSERT_NE(function, nullptr);
+        function->set_version(BeExecVersionManager::get_newest_version());
+        StateParameterChecks checks(function);
+        Arguments contributing {argument<DataTypeString>("(?1)"), timestamp, yes, no};
+        for (const auto& initial : {Arguments {}, eventless, contributing}) {
+            for (const auto& incoming : {Arguments {}, eventless, contributing}) {
+                for (bool serialized : {false, true}) {
+                    checks.check_sequence_merge(initial, incoming, serialized);
+                }
+            }
+        }
     }
 }
 } // namespace doris
