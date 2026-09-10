@@ -250,10 +250,11 @@ public:
         response->SetHeader("x-ms-server-encrypted", "true");
         response->SetHeader("x-ms-lease-status", "unlocked");
         response->SetHeader("x-ms-lease-state", "available");
+        // HEAD has no response bytes, but the SDK transport policy still consumes a body stream.
+        response->SetBodyStream(std::make_unique<Azure::Core::IO::MemoryBodyStream>(
+                reinterpret_cast<const uint8_t*>("data"), head ? 0 : 4));
         if (!head) {
             response->SetHeader("Content-Range", "bytes 7-10/16");
-            response->SetBodyStream(std::make_unique<Azure::Core::IO::MemoryBodyStream>(
-                    reinterpret_cast<const uint8_t*>("data"), 4));
         }
         return response;
     }
