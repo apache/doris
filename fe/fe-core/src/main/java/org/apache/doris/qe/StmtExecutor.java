@@ -1854,11 +1854,16 @@ public class StmtExecutor {
     }
 
     private void sendMetaData(ResultSetMetaData metaData, List<FieldInfo> fieldInfos) throws IOException {
+        sendMetaData(metaData, fieldInfos, context.getMysqlChannel());
+    }
+
+    private void sendMetaData(ResultSetMetaData metaData, List<FieldInfo> fieldInfos, MysqlChannel channel)
+            throws IOException {
         Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(metaData.getColumnCount());
-        context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        channel.sendOnePacket(serializer.toByteBuffer());
         // send field one by one
         for (int i = 0; i < metaData.getColumns().size(); i++) {
             Column col = metaData.getColumn(i);
@@ -1869,9 +1874,9 @@ public class StmtExecutor {
             } else {
                 serializer.writeField(fieldInfos.get(i), col.getType());
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            channel.sendOnePacket(serializer.toByteBuffer());
         }
-        sendMetadataTerminatorIfNeeded(context.getMysqlChannel());
+        sendMetadataTerminatorIfNeeded(channel);
     }
 
     private List<PrimitiveType> exprToStringType(List<Expr> exprs) {
@@ -2036,19 +2041,29 @@ public class StmtExecutor {
     }
 
     public void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos) throws IOException {
+        sendResultSet(resultSet, fieldInfos, context.getMysqlChannel());
+    }
+
+    /**
+     * Sends a FE-computed result set to the given mysql channel. Regular queries use the
+     * executor's own channel; internal queries have to stream to the channel of the caller
+     * that issued them, because the executor's own channel is not connected to that client.
+     */
+    private void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos, MysqlChannel channel)
+            throws IOException {
         if (context.getConnectType().equals(ConnectType.MYSQL)) {
             context.updateReturnRows(resultSet.getResultRows().size());
             // Send meta data.
-            sendMetaData(resultSet.getMetaData(), fieldInfos);
+            sendMetaData(resultSet.getMetaData(), fieldInfos, channel);
 
             // Send result set.
             if (isComStmtExecute) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Use binary protocol to set result.");
                 }
-                sendBinaryResultRow(resultSet);
+                sendBinaryResultRow(resultSet, channel);
             } else {
-                sendTextResultRow(resultSet);
+                sendTextResultRow(resultSet, channel);
             }
             context.getState().setEof();
         } else if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
@@ -2062,6 +2077,10 @@ public class StmtExecutor {
     }
 
     protected void sendTextResultRow(ResultSet resultSet) throws IOException {
+        sendTextResultRow(resultSet, context.getMysqlChannel());
+    }
+
+    protected void sendTextResultRow(ResultSet resultSet, MysqlChannel channel) throws IOException {
         for (List<String> row : resultSet.getResultRows()) {
             serializer.reset();
             for (String item : row) {
@@ -2071,11 +2090,15 @@ public class StmtExecutor {
                     serializer.writeLenEncodedString(item);
                 }
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            channel.sendOnePacket(serializer.toByteBuffer());
         }
     }
 
     protected void sendBinaryResultRow(ResultSet resultSet) throws IOException {
+        sendBinaryResultRow(resultSet, context.getMysqlChannel());
+    }
+
+    protected void sendBinaryResultRow(ResultSet resultSet, MysqlChannel channel) throws IOException {
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html#sect_protocol_binary_resultset_row_value
         ResultSetMetaData metaData = resultSet.getMetaData();
         int nullBitmapLength = (metaData.getColumnCount() + 7 + 2) / 8;
@@ -2138,7 +2161,7 @@ public class StmtExecutor {
                     }
                 }
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            channel.sendOnePacket(serializer.toByteBuffer());
         }
     }
 
@@ -2312,6 +2335,31 @@ public class StmtExecutor {
             }
             planner = new NereidsPlanner(statementContext);
             planner.plan(adapter, context.getSessionVariable().toThrift());
+
+            // A plan that FE can compute on its own (e.g. the empty delta of a dry run) must be
+            // answered by the frontend, like a regular query does. Otherwise the coordinator
+            // would send fragments to the placeholder backend registered when no backend is
+            // needed (see NereidsPlanner#notNeedBackend), which cannot resolve. Results go to the
+            // caller's channel: the executor's own channel is not connected to that client.
+            if (context.supportHandleByFe()) {
+                Optional<ResultSet> resultSet = planner.handleQueryInFe(adapter);
+                if (resultSet.isPresent()) {
+                    boolean sendToChannel = !collectMode;
+                    if (sendToChannel) {
+                        sendResultSet(resultSet.get(), adapter.getFieldInfos(), sendChannel);
+                    }
+                    isHandleQueryInFe = true;
+                    if (context.getSessionVariable().enableProfile() && profile != null) {
+                        profile.getSummaryProfile().setExecutedByFrontend(true);
+                    }
+                    if (sendToChannel) {
+                        return new ArrayList<>();
+                    }
+                    return resultSet.get().getResultRows().stream()
+                            .map(ResultRow::new)
+                            .collect(Collectors.toList());
+                }
+            }
 
             if (!collectMode) {
                 executeAndSendResult(false, false, adapter, sendChannel, null, null);
