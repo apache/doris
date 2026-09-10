@@ -296,7 +296,15 @@ public class LanceExternalCatalog extends ExternalCatalog {
     }
 
     public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName) {
-        return loadTableMetadata(dbName, tableName, Optional.empty());
+        makeSureInitialized();
+        ResolvedTableAccess tableAccess = resolveTableAccess(dbName, tableName);
+        try {
+            return LanceMetadataLoader.loadLatestForSearch(
+                    tableAccess.datasetUri, tableAccess.storageOptions, allocator);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load Lance table metadata for " + dbName + "." + tableName
+                    + ": " + sanitizedRootCauseMessage(e), safeCause(e));
+        }
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName,
