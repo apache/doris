@@ -35,6 +35,8 @@
 #include "format_v2/parquet/native_schema_node.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
+#include "format_v2/parquet/parquet_timestamp_semantics.h"
+#include "format_v2/parquet/reader/native_column_reader.h"
 
 namespace doris::format::parquet {
 namespace {
@@ -225,6 +227,39 @@ TEST(ParquetSchemaTest, NativeSchemaRecognizesVariantLogicalGroup) {
         EXPECT_EQ(fields[0]->children[0]->name, "metadata");
         EXPECT_EQ(fields[0]->children[1]->name, "value");
     }
+}
+
+TEST(ParquetSchemaTest, RequestTypeSyncPreservesVariantPhysicalStruct) {
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift(unshredded_variant_schema()).ok());
+    descriptor.assign_ids();
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+    ASSERT_EQ(fields.size(), 1);
+    const auto* metadata_field = descriptor.get_column(0);
+    ASSERT_NE(metadata_field, nullptr);
+    NativeFieldSchema request_field = *metadata_field;
+
+    ASSERT_TRUE(detail::sync_native_field_types(*fields[0], &request_field).ok());
+    EXPECT_EQ(remove_nullable(request_field.data_type)->get_primitive_type(), TYPE_STRUCT);
+    ASSERT_NE(request_field.variant_physical_type, nullptr);
+    EXPECT_EQ(remove_nullable(request_field.variant_physical_type)->get_primitive_type(),
+              TYPE_STRUCT);
+}
+
+TEST(ParquetSchemaTest, Int96TimezoneOverrideRequiresVersionMarker) {
+    TFileScanRangeParams params;
+    params.__set_hive_parquet_time_zone("Asia/Shanghai");
+    EXPECT_FALSE(get_int96_timezone_override(&params).has_value());
+
+    params.__set_parquet_timestamp_semantics_version(PARQUET_TIMESTAMP_SEMANTICS_VERSION_1);
+    ASSERT_TRUE(get_int96_timezone_override(&params).has_value());
+    EXPECT_EQ(*get_int96_timezone_override(&params), "Asia/Shanghai");
+
+    params.__isset.hive_parquet_time_zone = false;
+    ASSERT_TRUE(get_int96_timezone_override(&params).has_value());
+    EXPECT_TRUE(get_int96_timezone_override(&params)->empty());
 }
 
 TEST(ParquetSchemaTest, AppliesTableFormatVariantOverrideToUnannotatedGroup) {

@@ -55,9 +55,12 @@ import java.util.stream.Stream;
 public class HudiScanNodeTest {
 
     @Test
-    public void testDoesNotUseHiveParquetInt96TimeZone() {
+    public void testUsesSessionZoneForLegacyInt96Semantics() throws Exception {
         HudiScanNode node = Mockito.mock(HudiScanNode.class, Answers.CALLS_REAL_METHODS);
-        Assertions.assertEquals("", node.getHiveParquetTimeZone());
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setTimeZone("America/Los_Angeles");
+        setField(node, FileQueryScanNode.class, "sessionVariable", sessionVariable);
+        Assertions.assertEquals("America/Los_Angeles", node.getHiveParquetTimeZone());
     }
 
     @Test

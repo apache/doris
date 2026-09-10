@@ -36,6 +36,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -251,8 +252,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // Set enable_mapping_varbinary from catalog or TVF
         params.setEnableMappingVarbinary(getEnableMappingVarbinary());
         params.setEnableMappingTimestampTz(getEnableMappingTimestampTz());
+        // The marker makes an omitted timezone an explicit wall-clock choice while old FE plans
+        // remain distinguishable during a BE-first rolling upgrade.
+        params.setParquetTimestampSemanticsVersion(FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION);
         String hiveParquetTimeZone = getHiveParquetTimeZone();
-        if (!hiveParquetTimeZone.isEmpty()) {
+        if (hiveParquetTimeZone != null && !hiveParquetTimeZone.isEmpty()) {
             params.setHiveParquetTimeZone(hiveParquetTimeZone);
         }
     }
