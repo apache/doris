@@ -30,7 +30,7 @@ namespace doris::segment_v2 {
 class VariantStatsCaculator {
 public:
     // `footer_column_offset` is the index of the first footer entry that belongs to this init()'s `column_ids`.
-    // Required because SegmentWriter::init() can be invoked multiple times (vertical compaction) against
+    // Required because VerticalSegmentWriter::init() can be invoked multiple times (vertical compaction) against
     // an ever-growing footer; without the offset every additional init() would re-scan the whole footer.
     explicit VariantStatsCaculator(SegmentFooterPB* footer, TabletSchemaSPtr tablet_schema,
                                    const std::vector<uint32_t>& column_ids,

@@ -1071,7 +1071,7 @@ TEST(SniiCompoundWriter, FinishFailureReleasesBlobSourcesWhileWriterRemainsAlive
 // A poisoned compound can never seal, so every registered blob source is dead --
 // and after the producer hands its file over, that source is the file's ONLY
 // owner. Production frequently never calls finish() after a poison:
-// SegmentWriter::_write_inverted_index() returns before close_inverted_index(),
+// VerticalSegmentWriter::_write_inverted_index() returns before close_inverted_index(),
 // and SegmentCreator::flush() keeps the failed writer, so a release that waits
 // for finish() never runs and the staging file and its descriptor stay pinned.
 TEST(SniiCompoundWriter, PoisonReleasesBlobSourcesWithoutWaitingForFinish) {
