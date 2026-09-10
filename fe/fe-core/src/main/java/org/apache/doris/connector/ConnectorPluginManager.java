@@ -127,12 +127,18 @@ public class ConnectorPluginManager {
     // -wins registry -- cannot be frozen by whichever plugin's context loader happens to touch it
     // first.
     //
-    // NOTE: the intended end state is an FE kernel with no hadoop classes at all, every plugin
-    // bringing its own. At that point the fallback above takes over on its own, and the plugin
-    // becomes responsible for shipping a patched FileSystem the same way the kernel does today -
-    // which is what the BE plugins already do, since their loader has no hadoop to delegate to:
-    // each declares hadoop-deps, and that jar's Doris-Shadows-Classes manifest entry puts it ahead
-    // of hadoop-common in the plugin directory (see be-java-extensions/jni-bootstrap PluginRuntime).
+    // NOTE: the intended end state is an FE kernel with no hadoop classes at all. The BE plugins
+    // got there by each bundling its own hadoop -- their loader has no hadoop to delegate to --
+    // with the patched FileSystem placed ahead of hadoop-common by the Doris-Shadows-Classes
+    // manifest entry of hadoop-deps (see be-java-extensions/jni-bootstrap PluginRuntime). The FE
+    // cannot copy that: the fs.cache.key patch above only means anything while every catalog
+    // shares ONE FileSystem.CACHE, and UserGroupInformation's login is process state, so hadoop
+    // has to be one copy for all plugins. It becomes a shared library bundle instead,
+    // plugins/shared/hadoop (fe-hadoop-runtime, unpacked by build.sh), which SharedLibraryLayer
+    // turns into the parent of every plugin classloader, with hadoop-deps.jar at the bundle root
+    // so the patched FileSystem precedes hadoop-common's there too. Once the kernel carries no
+    // hadoop this prefix goes: a plugin then resolves org.apache.hadoop.* child-first and, for
+    // whatever it does not bundle, falls back to that layer rather than to fe/lib.
     //
     // Package-private so ConnectorPluginHadoopPatchTest asserts against this list, not a copy of it.
     static final List<String> CONNECTOR_PARENT_FIRST_PREFIXES =
