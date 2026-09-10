@@ -56,6 +56,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_quantilestate.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_time.h"
@@ -495,6 +496,12 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
     case TYPE_VARBINARY:
         nested = std::make_shared<DataTypeVarbinary>(len, TYPE_VARBINARY);
         break;
+    case TYPE_GEOMETRY:
+        nested = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
+        break;
+    case TYPE_GEOGRAPHY:
+        nested = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "spherical");
+        break;
     case TYPE_AGG_STATE:
     case TYPE_ARRAY:
     case TYPE_MAP:
@@ -525,6 +532,23 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
     case TTypeNodeType::SCALAR: {
         DCHECK(node.__isset.scalar_type);
         const TScalarType& scalar_type = node.scalar_type;
+        if (scalar_type.type == TPrimitiveType::GEOMETRY ||
+            scalar_type.type == TPrimitiveType::GEOGRAPHY) {
+            if (!scalar_type.__isset.spatial_crs) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Missing spatial CRS in type descriptor");
+            }
+            if (scalar_type.type == TPrimitiveType::GEOGRAPHY &&
+                !scalar_type.__isset.spatial_algorithm) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Missing geography edge algorithm in type descriptor");
+            }
+            const auto primitive_type = thrift_to_type(scalar_type.type);
+            DataTypePtr spatial_type = std::make_shared<DataTypeSpatial>(
+                    primitive_type, scalar_type.spatial_crs,
+                    scalar_type.__isset.spatial_algorithm ? scalar_type.spatial_algorithm : "");
+            return is_nullable ? make_nullable(spatial_type) : spatial_type;
+        }
         if (scalar_type.type == TPrimitiveType::VARIANT) {
             DCHECK(scalar_type.variant_max_subcolumns_count >= 0)
                     << "count is: " << scalar_type.variant_max_subcolumns_count;
