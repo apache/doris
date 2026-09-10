@@ -346,6 +346,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
             // The eos here only indicates that the current exchange sink has reached eos.
             // However, the queue still contains data from other exchange sinks, so RPCs need to continue being sent.
+            // `_send_rpc` must be the LAST operation in this function, because it may reuse the callback!
             s = _send_rpc(ins);
             if (!s) {
                 _failed(ins.id,
@@ -472,9 +473,9 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             } else if (eos) {
                 _ended(ins);
             }
-
             // The eos here only indicates that the current exchange sink has reached eos.
             // However, the queue still contains data from other exchange sinks, so RPCs need to continue being sent.
+            // `_send_rpc` must be the LAST operation in this function, because it may reuse the callback!
             s = _send_rpc(ins);
             if (!s) {
                 _failed(ins.id,
