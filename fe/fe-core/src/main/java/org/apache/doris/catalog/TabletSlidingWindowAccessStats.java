@@ -20,10 +20,11 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TActiveTabletStat;
 
+import com.google.common.collect.Maps;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,15 +37,20 @@ import java.util.concurrent.atomic.AtomicLong;
 public class TabletSlidingWindowAccessStats {
     private static volatile TabletSlidingWindowAccessStats instance;
 
+    // Hottest first, most recently touched breaking a tie. Reversing the whole chain is the
+    // same as reversing each key, and reads as the one sentence above.
     private static final Comparator<AccessStatsResult> QUERY_RATE_COMPARATOR =
-            Comparator.comparingDouble((AccessStatsResult r) -> r.scanRate).reversed()
-                    .thenComparing(Comparator.comparingLong((AccessStatsResult r) -> r.lastAccessTime).reversed());
+            Comparator.comparingDouble((AccessStatsResult r) -> r.scanRate)
+                    .thenComparingLong(r -> r.lastAccessTime)
+                    .reversed();
     private static final Comparator<AccessStatsResult> LOAD_RATE_COMPARATOR =
-            Comparator.comparingDouble((AccessStatsResult r) -> r.loadRate).reversed()
-                    .thenComparing(Comparator.comparingLong((AccessStatsResult r) -> r.lastAccessTime).reversed());
+            Comparator.comparingDouble((AccessStatsResult r) -> r.loadRate)
+                    .thenComparingLong(r -> r.lastAccessTime)
+                    .reversed();
 
-    // beId -> (tabletId -> stats). Each report replaces the complete snapshot for one backend.
-    // Backend removal is handled by removeBackend(), so no cleanup daemon is needed.
+    // beId -> (tabletId -> stats). A report updates the tablets it carries and ages out the
+    // rest by active_tablet_sliding_window_time_window_second, so entries expire on write
+    // instead of needing a cleanup daemon; a backend going away is handled by removeBackend().
     private final ConcurrentHashMap<Long, Map<Long, AccessStatsResult>> beToStats = new ConcurrentHashMap<>();
     private final AtomicLong totalAccessCount = new AtomicLong(0);
 
@@ -67,34 +73,110 @@ public class TabletSlidingWindowAccessStats {
             return;
         }
 
-        // long[]{scan, load, lastQueryMs, lastLoadMs, scanWindowMs, loadWindowMs}
-        Map<Long, long[]> accumulated = new HashMap<>((topQuery.size() + topLoad.size()) * 2);
+        // A tablet hot on both dimensions arrives once in each list, each entry carrying only
+        // its own dimension, so the two lists are merged by tablet id before anything is built.
+        Map<Long, Accumulator> accumulated = Maps.newHashMapWithExpectedSize(
+                topQuery.size() + topLoad.size());
         for (TActiveTabletStat stat : topQuery) {
-            long[] values = accumulated.computeIfAbsent(stat.getTabletId(), key -> new long[6]);
-            values[0] = stat.getScanCountDelta();
-            values[2] = stat.getLastQueryTimeMs();
-            values[4] = Math.max(1L, stat.getDeltaWindowMs());
+            Accumulator acc = accumulated.computeIfAbsent(stat.getTabletId(), key -> new Accumulator());
+            acc.scanDelta = stat.getScanCountDelta();
+            acc.lastQueryMs = stat.getLastQueryTimeMs();
+            acc.scanWindowMs = Math.max(1L, stat.getDeltaWindowMs());
         }
         for (TActiveTabletStat stat : topLoad) {
-            long[] values = accumulated.computeIfAbsent(stat.getTabletId(), key -> new long[6]);
-            values[1] = stat.getLoadCountDelta();
-            values[3] = stat.getLastLoadTimeMs();
-            values[5] = Math.max(1L, stat.getDeltaWindowMs());
+            Accumulator acc = accumulated.computeIfAbsent(stat.getTabletId(), key -> new Accumulator());
+            acc.loadDelta = stat.getLoadCountDelta();
+            acc.lastLoadMs = stat.getLastLoadTimeMs();
+            acc.loadWindowMs = Math.max(1L, stat.getDeltaWindowMs());
         }
 
-        Map<Long, AccessStatsResult> backendStats = new HashMap<>(accumulated.size() * 2);
-        long delta = 0;
-        for (Map.Entry<Long, long[]> entry : accumulated.entrySet()) {
-            long[] values = entry.getValue();
-            // Compare rates across backends because a skipped report makes the raw delta cover multiple periods.
-            double scanRate = values[4] > 0 ? values[0] * 60_000.0 / values[4] : 0.0;
-            double loadRate = values[5] > 0 ? values[1] * 60_000.0 / values[5] : 0.0;
-            delta += values[0] + values[1];
-            backendStats.put(entry.getKey(), new AccessStatsResult(entry.getKey(), values[0] + values[1],
-                    Math.max(values[2], values[3]), scanRate, loadRate));
+        Map<Long, AccessStatsResult> backendStats = Maps.newHashMapWithExpectedSize(accumulated.size());
+        long reportedAccesses = 0;
+        for (Map.Entry<Long, Accumulator> entry : accumulated.entrySet()) {
+            long tabletId = entry.getKey();
+            Accumulator acc = entry.getValue();
+            long accessCount = acc.scanDelta + acc.loadDelta;
+            reportedAccesses += accessCount;
+            backendStats.put(tabletId, new AccessStatsResult(tabletId, accessCount,
+                    Math.max(acc.lastQueryMs, acc.lastLoadMs), acc.scanRate(), acc.loadRate()));
         }
-        totalAccessCount.addAndGet(delta);
-        beToStats.put(beId, backendStats);
+        totalAccessCount.addAndGet(reportedAccesses);
+        beToStats.put(beId, retainWithinWindow(beToStats.get(beId), backendStats));
+    }
+
+    /**
+     * A report only carries the tablets that saw traffic since the previous one, so taking it
+     * as the whole truth would shrink "active" to one report interval - a tablet queried hard
+     * four minutes ago would read as cold and become a migration candidate. Entries the backend
+     * did not repeat are therefore kept until they fall outside
+     * active_tablet_sliding_window_time_window_second, which is the window this feature has
+     * advertised since it lived in FE memory.
+     *
+     * <p>Retention is bounded by cloud_active_partition_scheduling_topn: the scheduler never
+     * consumes more actives than that in total, and a backend whose hot set churns would
+     * otherwise accumulate a whole window's worth of distinct tablets. The oldest are dropped
+     * first. lastAccessTime comes from the backend's clock while the cutoff comes from FE's,
+     * but a window measured in hours absorbs the skew between them.
+     */
+    private static Map<Long, AccessStatsResult> retainWithinWindow(
+            Map<Long, AccessStatsResult> previous, Map<Long, AccessStatsResult> reported) {
+        int retainLimit = Config.cloud_active_partition_scheduling_topn;
+        if (previous == null || previous.isEmpty() || retainLimit <= 0) {
+            // retainLimit <= 0 disables TopN segmentation, so getTopNActive() returns nothing
+            // and anything retained here would only cost memory.
+            return reported;
+        }
+
+        long windowMs = Math.max(1L, Config.active_tablet_sliding_window_time_window_second) * 1000L;
+        long oldestKept = System.currentTimeMillis() - windowMs;
+        Map<Long, AccessStatsResult> merged = Maps.newHashMapWithExpectedSize(
+                previous.size() + reported.size());
+        for (AccessStatsResult stale : previous.values()) {
+            if (stale.lastAccessTime >= oldestKept) {
+                merged.put(stale.id, stale);
+            }
+        }
+        // Whatever the backend just reported is fresher than anything retained for it.
+        merged.putAll(reported);
+        if (merged.size() <= retainLimit) {
+            return merged;
+        }
+
+        List<AccessStatsResult> byRecency = new ArrayList<>(merged.values());
+        byRecency.sort(Comparator.comparingLong((AccessStatsResult r) -> r.lastAccessTime).reversed());
+        Map<Long, AccessStatsResult> capped = Maps.newHashMapWithExpectedSize(retainLimit);
+        for (int i = 0; i < retainLimit; i++) {
+            AccessStatsResult result = byRecency.get(i);
+            capped.put(result.id, result);
+        }
+        return capped;
+    }
+
+    /**
+     * One tablet's half-built stats while the query and load lists are being merged.
+     * Each dimension keeps its own window: the two entries for one tablet come from the
+     * same report, but a backend that skipped a round carries a wider window on the
+     * dimension that was reported then.
+     */
+    private static class Accumulator {
+        private long scanDelta;
+        private long loadDelta;
+        private long lastQueryMs;
+        private long lastLoadMs;
+        // Never zero, so no division guard is needed below.
+        private long scanWindowMs = 1L;
+        private long loadWindowMs = 1L;
+
+        // Accesses per minute. Backends must be compared by rate, not by raw delta: a
+        // skipped report makes the next delta cover several periods, and backends report
+        // on independent phases.
+        private double scanRate() {
+            return scanDelta * 60_000.0 / scanWindowMs;
+        }
+
+        private double loadRate() {
+            return loadDelta * 60_000.0 / loadWindowMs;
+        }
     }
 
     public void removeBackend(long beId) {
@@ -200,16 +282,13 @@ public class TabletSlidingWindowAccessStats {
         queryStats.sort(QUERY_RATE_COMPARATOR);
         loadStats.sort(LOAD_RATE_COMPARATOR);
 
-        int queryQuota = topN / 2;
-        int loadQuota = topN - queryQuota;
-        int queryLimit = Math.min(queryQuota, queryStats.size());
-        int loadLimit = Math.min(loadQuota, loadStats.size());
-        if (queryLimit < queryQuota) {
-            loadLimit = Math.min(loadStats.size(), topN - queryLimit);
-        }
-        if (loadLimit < loadQuota) {
-            queryLimit = Math.min(queryStats.size(), topN - loadLimit);
-        }
+        // Half the budget is reserved for each dimension, then each side takes whatever the
+        // other could not fill, so a cluster that only queries or only loads does not forfeit
+        // half of topN. When both sides are short, every candidate is returned and the result
+        // is simply smaller than topN.
+        int queryLimit = Math.min(queryStats.size(), topN / 2);
+        int loadLimit = Math.min(loadStats.size(), topN - queryLimit);
+        queryLimit = Math.min(queryStats.size(), topN - loadLimit);
 
         Map<Long, AccessStatsResult> selected = new LinkedHashMap<>();
         for (int i = 0; i < queryLimit; i++) {
@@ -254,8 +333,17 @@ public class TabletSlidingWindowAccessStats {
         return merged;
     }
 
+    /**
+     * Flatten beId -> tabletId -> stats into one view keyed by tablet. A tablet with several
+     * replicas is reported once per backend holding one, so the collisions are resolved by
+     * mergeByMax().
+     */
     private Map<Long, AccessStatsResult> mergeBackendStats() {
-        Map<Long, AccessStatsResult> mergedStats = new HashMap<>();
+        int upperBound = 0;
+        for (Map<Long, AccessStatsResult> backendStats : beToStats.values()) {
+            upperBound += backendStats.size();
+        }
+        Map<Long, AccessStatsResult> mergedStats = Maps.newHashMapWithExpectedSize(upperBound);
         for (Map<Long, AccessStatsResult> backendStats : beToStats.values()) {
             for (AccessStatsResult result : backendStats.values()) {
                 mergedStats.merge(result.id, result, TabletSlidingWindowAccessStats::mergeByMax);
@@ -264,6 +352,12 @@ public class TabletSlidingWindowAccessStats {
         return mergedStats;
     }
 
+    /**
+     * Per-field maximum, never a sum: each backend reports its own replica, so summing would
+     * make a three-replica tablet look three times hotter than a one-replica tablet carrying
+     * the same traffic. Every field independently answers "the busiest replica", which is what
+     * both consumers want - the rates rank tablets, and the raw count is only displayed.
+     */
     private static AccessStatsResult mergeByMax(AccessStatsResult left, AccessStatsResult right) {
         return new AccessStatsResult(left.id,
                 Math.max(left.accessCount, right.accessCount),

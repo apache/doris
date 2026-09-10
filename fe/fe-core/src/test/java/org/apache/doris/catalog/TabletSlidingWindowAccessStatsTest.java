@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -60,17 +61,110 @@ public class TabletSlidingWindowAccessStatsTest {
         Assertions.assertEquals(3.0, result.loadRate);
     }
 
+    // A report carries only the tablets that saw traffic since the previous one. Dropping the
+    // rest would shrink "active" to a single report interval, which in a cluster reporting
+    // every second means a tablet is active for one second after it stops being queried.
     @Test
-    public void testReportReplacesPreviousBackendSnapshot() {
-        stats.updateFromReport(1L, Collections.singletonList(queryStat(10L, 12L, 100L, 60_000L)),
+    public void testTabletsMissingFromTheNextReportStayActive() {
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(10L, 12L, now, 60_000L)),
                 Collections.emptyList());
-        stats.updateFromReport(1L, Collections.singletonList(queryStat(20L, 7L, 200L, 60_000L)),
+        // Next report: tablet 10 saw no traffic, tablet 20 did.
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(20L, 7L, now, 60_000L)),
+                Collections.emptyList());
+
+        Assertions.assertEquals(12L, stats.getAccessInfo(10L).accessCount);
+        Assertions.assertEquals(7L, stats.getAccessInfo(20L).accessCount);
+        Assertions.assertEquals(2L, stats.getActiveIdsInWindow());
+        Assertions.assertEquals(19L, stats.getRecentAccessCountInWindow());
+    }
+
+    // A repeated tablet takes the fresh values, it is not accumulated across reports.
+    @Test
+    public void testRepeatedTabletTakesTheLatestReport() {
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(10L, 12L, now - 1_000L, 60_000L)),
+                Collections.emptyList());
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(10L, 7L, now, 60_000L)),
+                Collections.emptyList());
+
+        Assertions.assertEquals(7L, stats.getAccessInfo(10L).accessCount);
+        Assertions.assertEquals(now, stats.getAccessInfo(10L).lastAccessTime);
+        Assertions.assertEquals(1L, stats.getActiveIdsInWindow());
+    }
+
+    // Equal rates fall through to the tie-break, and the tie-break runs in the same direction
+    // as the rate: most recently touched wins.
+    @Test
+    public void testEqualRatesPreferTheMostRecentlyTouched() {
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L, List.of(
+                queryStat(10L, 10L, now - 1_000L, 60_000L),
+                queryStat(20L, 10L, now, 60_000L)), Collections.emptyList());
+
+        List<TabletSlidingWindowAccessStats.AccessStatsResult> top = stats.getTopNActive(1);
+        Assertions.assertEquals(1, top.size());
+        Assertions.assertEquals(20L, top.get(0).id);
+    }
+
+    // The half-and-half budget is a floor, not a cap: whichever dimension has fewer candidates
+    // hands its unused share to the other, and when both are short everything is returned.
+    @Test
+    public void testTopNQuotaSpillsToTheOtherDimension() {
+        long now = System.currentTimeMillis();
+
+        // Only queries: the load half is handed over, so all 8 query tablets fit in topN=8.
+        TabletSlidingWindowAccessStats queryOnly = new TabletSlidingWindowAccessStats();
+        queryOnly.updateFromReport(1L, queryStats(8, now), Collections.emptyList());
+        Assertions.assertEquals(8, queryOnly.getTopNActive(8).size());
+
+        // Only loads: mirror image.
+        TabletSlidingWindowAccessStats loadOnly = new TabletSlidingWindowAccessStats();
+        loadOnly.updateFromReport(1L, Collections.emptyList(), loadStats(8, now));
+        Assertions.assertEquals(8, loadOnly.getTopNActive(8).size());
+
+        // Both below topN/2: nothing to spill, every candidate is returned and topN is not met.
+        TabletSlidingWindowAccessStats bothShort = new TabletSlidingWindowAccessStats();
+        bothShort.updateFromReport(1L, queryStats(2, now), loadStats(3, now));
+        Assertions.assertEquals(5, bothShort.getTopNActive(20).size());
+    }
+
+    // Retention ends at active_tablet_sliding_window_time_window_second.
+    @Test
+    public void testEntriesAgeOutOfTheWindow() {
+        long windowMs = Config.active_tablet_sliding_window_time_window_second * 1000L;
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L,
+                Collections.singletonList(queryStat(10L, 12L, now - windowMs - 60_000L, 60_000L)),
+                Collections.emptyList());
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(20L, 7L, now, 60_000L)),
                 Collections.emptyList());
 
         Assertions.assertNull(stats.getAccessInfo(10L));
-        Assertions.assertEquals(7L, stats.getAccessInfo(20L).accessCount);
         Assertions.assertEquals(1L, stats.getActiveIdsInWindow());
-        Assertions.assertEquals(7L, stats.getRecentAccessCountInWindow());
+    }
+
+    // Retention is bounded, so a backend with a churning hot set cannot grow FE memory for a
+    // whole window. The oldest entries go first.
+    @Test
+    public void testRetentionIsCappedByTopnKeepingTheNewest() {
+        int originalTopn = Config.cloud_active_partition_scheduling_topn;
+        Config.cloud_active_partition_scheduling_topn = 2;
+        try {
+            long now = System.currentTimeMillis();
+            stats.updateFromReport(1L, List.of(
+                    queryStat(1L, 1L, now - 3_000L, 60_000L),
+                    queryStat(2L, 1L, now - 2_000L, 60_000L)), Collections.emptyList());
+            stats.updateFromReport(1L,
+                    Collections.singletonList(queryStat(3L, 1L, now, 60_000L)), Collections.emptyList());
+
+            Assertions.assertEquals(2L, stats.getActiveIdsInWindow());
+            Assertions.assertNull(stats.getAccessInfo(1L));
+            Assertions.assertNotNull(stats.getAccessInfo(2L));
+            Assertions.assertNotNull(stats.getAccessInfo(3L));
+        } finally {
+            Config.cloud_active_partition_scheduling_topn = originalTopn;
+        }
     }
 
     @Test
@@ -142,6 +236,22 @@ public class TabletSlidingWindowAccessStatsTest {
         Assertions.assertEquals(0L, stats.getActiveIdsInWindow());
         Assertions.assertEquals(0L, stats.getTotalAccessCount());
         Assertions.assertEquals("Active tablet sliding window access stats is disabled", stats.getStatsSummary());
+    }
+
+    private static List<TActiveTabletStat> queryStats(int count, long lastAccessTime) {
+        List<TActiveTabletStat> stats = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            stats.add(queryStat(1_000L + i, 10L + i, lastAccessTime, 60_000L));
+        }
+        return stats;
+    }
+
+    private static List<TActiveTabletStat> loadStats(int count, long lastAccessTime) {
+        List<TActiveTabletStat> stats = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            stats.add(loadStat(2_000L + i, 10L + i, lastAccessTime, 60_000L));
+        }
+        return stats;
     }
 
     private static TActiveTabletStat queryStat(long tabletId, long delta, long lastAccessTime, long windowMs) {

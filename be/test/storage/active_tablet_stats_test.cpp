@@ -225,10 +225,10 @@ TEST(ActiveTabletStatsTest, DroppedReportCarriesDeltaIntoAWiderWindow) {
     EXPECT_DOUBLE_EQ(candidate.rate(), 10.0 * 1000.0 / kReportIntervalMs);
 }
 
-// A tablet whose delta is stale -- it kept being cut by the topN cap, so its baseline
-// was never committed -- must age out of the report once it stops being touched.
-// This is the case report_active_tablet_window_second exists for; without it the
-// stale delta would keep the tablet in the active set forever.
+// A tablet whose delta is stale -- reporting kept failing, so no baseline was committed
+// for a long stretch -- must age out once it stops being touched. This is the case
+// report_active_tablet_window_second exists for: without it, a tablet that went cold
+// hours ago would be reported as active the moment reporting recovers.
 TEST(ActiveTabletStatsTest, StaleDeltaOutsideActiveWindowIsDropped) {
     const int64_t window_ms = int64_t {config::report_active_tablet_window_second} * 1000;
     auto tablet = make_baselined_tablet(105, kNowMs - window_ms - kReportIntervalMs);
