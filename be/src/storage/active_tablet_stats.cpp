@@ -41,7 +41,7 @@ void ActiveTabletCollector::collect(const std::shared_ptr<BaseTablet>& tablet) {
 
     const int64_t prev_ms = tablet->last_reported_time_ms.load(std::memory_order_relaxed);
     if (prev_ms == 0) {
-        // First time we see this tablet: this round only establishes the baseline.
+        // Unreachable for normally constructed tablets: BaseTablet initializes the baseline time.
         return;
     }
     const int64_t scan_delta =

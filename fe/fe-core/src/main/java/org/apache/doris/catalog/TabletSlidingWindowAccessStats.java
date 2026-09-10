@@ -49,8 +49,8 @@ public class TabletSlidingWindowAccessStats {
                     .reversed();
 
     // beId -> (tabletId -> stats). A report updates the tablets it carries and ages out the
-    // rest by active_tablet_sliding_window_time_window_second, so entries expire on write
-    // instead of needing a cleanup daemon; a backend going away is handled by removeBackend().
+    // rest by active_tablet_sliding_window_time_window_second. Reads also filter expired entries
+    // and reclaim expired snapshots when reports stop; backend removal calls removeBackend().
     private final ConcurrentHashMap<Long, Map<Long, AccessStatsResult>> beToStats = new ConcurrentHashMap<>();
     private final AtomicLong totalAccessCount = new AtomicLong(0);
 
@@ -221,10 +221,13 @@ public class TabletSlidingWindowAccessStats {
             return null;
         }
 
+        long oldestKept = System.currentTimeMillis()
+                - Math.max(1L, Config.active_tablet_sliding_window_time_window_second) * 1000L;
         AccessStatsResult result = null;
         for (Map<Long, AccessStatsResult> backendStats : beToStats.values()) {
             AccessStatsResult candidate = backendStats.get(id);
-            if (candidate != null && (result == null || candidate.accessCount > result.accessCount)) {
+            if (candidate != null && candidate.lastAccessTime >= oldestKept
+                    && (result == null || candidate.accessCount > result.accessCount)) {
                 result = candidate;
             }
         }
@@ -282,21 +285,25 @@ public class TabletSlidingWindowAccessStats {
         queryStats.sort(QUERY_RATE_COMPARATOR);
         loadStats.sort(LOAD_RATE_COMPARATOR);
 
-        // Half the budget is reserved for each dimension, then each side takes whatever the
-        // other could not fill, so a cluster that only queries or only loads does not forfeit
-        // half of topN. When both sides are short, every candidate is returned and the result
-        // is simply smaller than topN.
-        int queryLimit = Math.min(queryStats.size(), topN / 2);
-        int loadLimit = Math.min(loadStats.size(), topN - queryLimit);
-        queryLimit = Math.min(queryStats.size(), topN - loadLimit);
-
         Map<Long, AccessStatsResult> selected = new LinkedHashMap<>();
-        for (int i = 0; i < queryLimit; i++) {
-            AccessStatsResult result = queryStats.get(i);
-            selected.put(result.id, result);
+        int queryIdx = 0;
+        int loadIdx = 0;
+
+        // Half the budget is reserved for the query dimension, counted in tablets actually
+        // added: a tablet hot on both dimensions must not cost a slot on each side.
+        int queryReserve = topN / 2;
+        while (queryIdx < queryStats.size() && selected.size() < queryReserve) {
+            AccessStatsResult result = queryStats.get(queryIdx++);
+            selected.putIfAbsent(result.id, result);
         }
-        for (int i = 0; i < loadLimit; i++) {
-            AccessStatsResult result = loadStats.get(i);
+        // Load then fills the rest of the budget, and query backfills whatever is still free -
+        // which happens when load ran out, or when the two lists overlapped.
+        while (loadIdx < loadStats.size() && selected.size() < topN) {
+            AccessStatsResult result = loadStats.get(loadIdx++);
+            selected.putIfAbsent(result.id, result);
+        }
+        while (queryIdx < queryStats.size() && selected.size() < topN) {
+            AccessStatsResult result = queryStats.get(queryIdx++);
             selected.putIfAbsent(result.id, result);
         }
         return new ArrayList<>(selected.values());
@@ -344,9 +351,20 @@ public class TabletSlidingWindowAccessStats {
             upperBound += backendStats.size();
         }
         Map<Long, AccessStatsResult> mergedStats = Maps.newHashMapWithExpectedSize(upperBound);
-        for (Map<Long, AccessStatsResult> backendStats : beToStats.values()) {
+        long oldestKept = System.currentTimeMillis()
+                - Math.max(1L, Config.active_tablet_sliding_window_time_window_second) * 1000L;
+        for (Map.Entry<Long, Map<Long, AccessStatsResult>> backend : beToStats.entrySet()) {
+            Map<Long, AccessStatsResult> backendStats = backend.getValue();
+            boolean hasActiveStats = false;
             for (AccessStatsResult result : backendStats.values()) {
-                mergedStats.merge(result.id, result, TabletSlidingWindowAccessStats::mergeByMax);
+                if (result.lastAccessTime >= oldestKept) {
+                    hasActiveStats = true;
+                    mergedStats.merge(result.id, result, TabletSlidingWindowAccessStats::mergeByMax);
+                }
+            }
+            if (!hasActiveStats) {
+                // A concurrent report may have replaced this snapshot; only remove the one read.
+                beToStats.remove(backend.getKey(), backendStats);
             }
         }
         return mergedStats;
