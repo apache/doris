@@ -18,6 +18,16 @@
 suite("test_agg_state_parameters") {
     sql "set enable_agg_state=true"
 
+    for (def function : ["collect_set", "collect_set_state", "collect_set_combine"]) {
+        test {
+            sql """
+                SELECT ${function}(number, cast(number AS int))
+                FROM numbers("number" = "3")
+            """
+            exception "collect_set requires second parameter must be a constant"
+        }
+    }
+
     // Each pair has the same AggState type but incompatible configuration values.
     def cases = [
         ["topn", "'a', 1", "'a', 3"],

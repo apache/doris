@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -107,5 +108,14 @@ public class CollectSet extends NotNullableAggregateFunction
     @Override
     public Expression resultForEmptyInput() {
         return new ArrayLiteral(new ArrayList<>(), this.getDataType());
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (arity() == 2 && !getArgument(1).isConstant()) {
+            throw new AnalysisException(
+                    "collect_set requires second parameter must be a constant: "
+                            + this.toSql());
+        }
     }
 }
