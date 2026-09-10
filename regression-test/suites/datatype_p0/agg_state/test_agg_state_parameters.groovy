@@ -18,6 +18,28 @@
 suite("test_agg_state_parameters") {
     sql "set enable_agg_state=true"
 
+    for (def function : ["window_funnel", "window_funnel_v1", "window_funnel_v2"]) {
+        def implementation = function == "window_funnel" ? "window_funnel_v2" : function
+        for (def suffix : ["", "_state", "_combine"]) {
+            test {
+                sql """
+                    SELECT ${function}${suffix}(number, 'default',
+                           cast('2024-01-01' AS datetime), true, false)
+                    FROM numbers("number" = "3")
+                """
+                exception "The window parameter of ${implementation} must be a constant"
+            }
+            test {
+                sql """
+                    SELECT ${function}${suffix}(10, if(number = 0, 'default', 'fixed'),
+                           cast('2024-01-01' AS datetime), true, false)
+                    FROM numbers("number" = "3")
+                """
+                exception "The mode parameter of ${implementation} must be a constant"
+            }
+        }
+    }
+
     for (def function : ["collect_set", "collect_set_state", "collect_set_combine"]) {
         test {
             sql """
