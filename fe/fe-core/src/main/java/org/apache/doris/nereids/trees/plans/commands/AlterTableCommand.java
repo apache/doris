@@ -559,7 +559,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 IndexDefinition indexDef = ((CreateIndexOp) op).getIndexDef();
                 outcome = LanceIndexAdmission.admitCreate((LanceExternalCatalog) catalog,
                         (LanceExternalDatabase) dbIf, (LanceExternalTable) tableIf, indexDef,
-                        indexDef.translateToLegacyIndexDef().isSetIfNotExists());
+                        indexDef.isIfNotExists());
             } else {
                 DropIndexOp dropIndexOp = (DropIndexOp) op;
                 outcome = LanceIndexAdmission.admitDrop((LanceExternalCatalog) catalog,

@@ -328,6 +328,10 @@ public class IndexDefinition {
         return orReplace;
     }
 
+    public boolean isIfNotExists() {
+        return ifNotExists;
+    }
+
     public String getLanceIndexType() {
         return lanceIndexType;
     }
