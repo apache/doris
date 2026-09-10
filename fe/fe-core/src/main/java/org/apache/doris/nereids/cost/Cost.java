@@ -19,6 +19,8 @@ package org.apache.doris.nereids.cost;
 
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.base.Preconditions;
+
 /**
  * CostV1.
  */
@@ -46,9 +48,13 @@ public class Cost {
         this.memoryCost = memoryCost;
         this.networkCost = networkCost;
 
-        CostWeight costWeight = CostWeight.get(sessionVariable);
-        this.cost = costWeight.cpuWeight * cpuCost + costWeight.memoryWeight * memoryCost
-                + costWeight.networkWeight * networkCost;
+        double cpuWeight = sessionVariable.getCboCpuWeight();
+        double memoryWeight = sessionVariable.getCboMemWeight();
+        double networkWeight = sessionVariable.getCboNetWeight();
+        Preconditions.checkArgument(cpuWeight >= 0, "cpuWeight cannot be negative");
+        Preconditions.checkArgument(memoryWeight >= 0, "memoryWeight cannot be negative");
+        Preconditions.checkArgument(networkWeight >= 0, "networkWeight cannot be negative");
+        this.cost = cpuWeight * cpuCost + memoryWeight * memoryCost + networkWeight * networkCost;
     }
 
     private Cost(double cost, double cpuCost, double memoryCost, double networkCost) {
@@ -88,6 +94,14 @@ public class Cost {
 
     public static Cost ofCpu(SessionVariable sessionVariable, double cpuCost) {
         return new Cost(sessionVariable, cpuCost, 0, 0);
+    }
+
+    /** Add another cost without recomputing the weighted value. */
+    public Cost add(Cost other) {
+        return new Cost(cost + other.cost,
+                cpuCost + other.cpuCost,
+                memoryCost + other.memoryCost,
+                networkCost + other.networkCost);
     }
 
     @Override
