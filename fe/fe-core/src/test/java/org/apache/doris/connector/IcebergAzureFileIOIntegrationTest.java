@@ -418,6 +418,10 @@ class IcebergAzureFileIOIntegrationTest {
 
         Table loadForRefresh() {
             load();
+            return reload();
+        }
+
+        Table reload() {
             Assertions.assertNotNull(context.catalog, "capture the connector's actual SDK catalog");
             // Load from the SDK catalog, not Doris' immutable statement-snapshot table.
             return context.catalog.loadTable(TableIdentifier.of("db", "t"));

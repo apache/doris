@@ -1138,7 +1138,11 @@ public class IcebergConnector implements Connector {
         }, null) {
             @Override
             public Table loadTable(SessionContext session, TableIdentifier identifier) {
-                return fileIOProperties.withTableLoad(() -> super.loadTable(session, identifier));
+                return fileIOProperties.withTableLoad(() -> {
+                    Table table = super.loadTable(session, identifier);
+                    fileIOProperties.configureTableFileIO(table.io());
+                    return table;
+                });
             }
         };
         CatalogUtil.configureHadoopConf(sessionCatalog, restConf);

@@ -688,13 +688,18 @@ public final class IcebergCatalogFactory {
             Map<String, String> storageHadoopConfig) {
         Configuration conf = new Configuration();
         conf.setClassLoader(IcebergCatalogFactory.class.getClassLoader());
+        applyHadoopProperties(conf, props, storageHadoopConfig);
+        return conf;
+    }
+
+    static void applyHadoopProperties(Configuration conf, Map<String, String> props,
+            Map<String, String> storageHadoopConfig) {
         storageHadoopConfig.forEach(conf::set);
         props.forEach((key, value) -> {
             if (key.startsWith("fs.") || key.startsWith("dfs.") || key.startsWith("hadoop.")) {
                 conf.set(key, value);
             }
         });
-        return conf;
     }
 
     /**

@@ -29,6 +29,51 @@ import java.util.Map;
 class IcebergRestFileIORefreshTest {
 
     @Test
+    void reloadingTableUsesNewSasWithoutChangingTheExistingFileIO() throws Exception {
+        String sasProperty = "adls.sas-token.account.dfs.core.windows.net";
+        String firstSas = "sv=2024-11-04&sp=r&sig=first-reload-test-signature&se=2100-01-01T00:00:00Z";
+        String nextSas = "si=stored-access-policy&sig=next-reload-test-signature";
+        try (IcebergAzureFileIOIntegrationTest.RestFixture fixture =
+                new IcebergAzureFileIOIntegrationTest.RestFixture(Map.of())) {
+            fixture.tableConfig(Map.of(sasProperty, firstSas));
+            Table original = fixture.loadForRefresh();
+            FileIO originalFileIO = original.io();
+            Map<String, String> originalProperties = Map.copyOf(originalFileIO.properties());
+            String metadataLocation = original.location() + "/v1.metadata.json";
+            TableMetadata originalMetadata = TableMetadataParser.read(originalFileIO, metadataLocation);
+            Assertions.assertFalse(fixture.storageQueries().isEmpty());
+            Assertions.assertTrue(fixture.storageQueries().stream()
+                    .allMatch(query -> query != null && query.contains("sig=first-reload-test-signature")));
+
+            fixture.tableConfig(Map.of(sasProperty, nextSas));
+            int requestsBeforeReload = fixture.tableLoadRequestCount();
+            int readsBeforeReload = fixture.storageQueries().size();
+
+            Table reloaded = fixture.reload();
+
+            Assertions.assertEquals(requestsBeforeReload + 1, fixture.tableLoadRequestCount());
+            Assertions.assertNotSame(originalFileIO, reloaded.io());
+            Assertions.assertEquals(nextSas, reloaded.io().properties().get(sasProperty));
+            Assertions.assertFalse(reloaded.io().properties().keySet().stream()
+                    .anyMatch(key -> key.startsWith("adls.sas-token-expires-at-ms.")),
+                    "a new SAS with unknown expiry must not inherit the old FileIO's expiry");
+            TableMetadata reloadedMetadata = TableMetadataParser.read(reloaded.io(), metadataLocation);
+            Assertions.assertEquals(originalMetadata.uuid(), reloadedMetadata.uuid());
+            Assertions.assertTrue(fixture.storageQueries().size() > readsBeforeReload);
+            Assertions.assertTrue(fixture.storageQueries().stream().skip(readsBeforeReload)
+                    .allMatch(query -> query != null && query.contains("sig=next-reload-test-signature")));
+
+            Assertions.assertSame(originalFileIO, original.io());
+            Assertions.assertEquals(originalProperties, originalFileIO.properties());
+            int readsBeforeOriginal = fixture.storageQueries().size();
+            TableMetadataParser.read(originalFileIO, metadataLocation);
+            Assertions.assertTrue(fixture.storageQueries().size() > readsBeforeOriginal);
+            Assertions.assertTrue(fixture.storageQueries().stream().skip(readsBeforeOriginal)
+                    .allMatch(query -> query != null && query.contains("sig=first-reload-test-signature")));
+        }
+    }
+
+    @Test
     void metadataRefreshKeepsTheExistingVendedFileIOWhenResponseOmitsCredentials() throws Exception {
         String sasProperty = "adls.sas-token.account.dfs.core.windows.net";
         String freshSas = "sv=2024-11-04&sp=r&sig=refresh-test-signature&se=2100-01-01T00:00:00Z";

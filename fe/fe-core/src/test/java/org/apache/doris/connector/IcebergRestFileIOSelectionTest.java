@@ -19,6 +19,7 @@ package org.apache.doris.connector;
 
 import org.apache.doris.connector.spi.ConnectorStorageAccess;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
@@ -130,6 +131,55 @@ class IcebergRestFileIOSelectionTest {
             Assertions.assertEquals("SAS",
                     fileIO.getConf().get("fs.azure.account.auth.type.account.dfs.core.windows.net"));
             Assertions.assertEquals(sas, fileIO.getConf().get("fs.azure.sas.fixed.token.account.dfs.core.windows.net"));
+        }
+    }
+
+    @Test
+    void tableSelectedHadoopFileIORetainsStaticSasConfiguration() throws Exception {
+        String sas = "si=stored-access-policy&sig=static-test-signature";
+        try (IcebergAzureFileIOIntegrationTest.RestFixture fixture =
+                new IcebergAzureFileIOIntegrationTest.RestFixture(Map.of(
+                        "azure.account_name", "account", "azure.sas_token", sas))) {
+            fixture.tableConfig(Map.of("io-impl", HadoopFileIO.class.getName()));
+
+            Table table = fixture.load();
+
+            HadoopFileIO fileIO = Assertions.assertInstanceOf(HadoopFileIO.class, table.io());
+            Assertions.assertEquals("SAS",
+                    fileIO.getConf().get("fs.azure.account.auth.type.account.dfs.core.windows.net"));
+            Assertions.assertEquals(sas, fileIO.getConf().get("fs.azure.sas.fixed.token.account.dfs.core.windows.net"));
+
+            Configuration originalConf = fileIO.getConf();
+            HadoopFileIO reloadedFileIO = Assertions.assertInstanceOf(HadoopFileIO.class, fixture.reload().io());
+            Assertions.assertNotSame(fileIO, reloadedFileIO);
+            Assertions.assertNotSame(originalConf, reloadedFileIO.getConf());
+            Assertions.assertSame(originalConf, fileIO.getConf());
+            Assertions.assertEquals(sas, originalConf.get("fs.azure.sas.fixed.token.account.dfs.core.windows.net"));
+            Assertions.assertEquals(sas,
+                    reloadedFileIO.getConf().get("fs.azure.sas.fixed.token.account.dfs.core.windows.net"));
+
+            ConnectorStorageAccess access = fixture.storageContext().newStorageAccessResolver(fileIO.properties())
+                    .apply("abfss://container@account.dfs.core.windows.net/table/data.parquet");
+            Assertions.assertEquals("FILE_S3", access.getBackendFileType());
+            Assertions.assertEquals("SAS", access.getBackendProperties().get("AZURE_AUTH_TYPE"));
+        }
+    }
+
+    @Test
+    void explicitHadoopConfigurationOverridesProviderDefaults() throws Exception {
+        String sasProperty = "fs.azure.sas.fixed.token.account.dfs.core.windows.net";
+        String hadoopSas = "si=stored-access-policy&sig=explicit-hadoop-test-signature";
+        ConfigResponse serverConfig = ConfigResponse.builder()
+                .withOverride("io-impl", HadoopFileIO.class.getName()).build();
+        try (IcebergAzureFileIOIntegrationTest.RestFixture fixture =
+                new IcebergAzureFileIOIntegrationTest.RestFixture(Map.of(
+                        "azure.account_name", "account", "azure.sas_token", "sig=provider-test-signature",
+                        sasProperty, hadoopSas), serverConfig)) {
+            Table table = fixture.load();
+
+            HadoopFileIO fileIO = Assertions.assertInstanceOf(HadoopFileIO.class, table.io());
+            Assertions.assertEquals(hadoopSas, fileIO.getConf().get(sasProperty),
+                    "the static provider view must not overwrite an explicit Hadoop option");
         }
     }
 }

@@ -24,11 +24,13 @@ import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.azure.AzureProperties;
 import org.apache.iceberg.azure.adlsv2.ADLSFileIO;
 import org.apache.iceberg.hadoop.HadoopFileIO;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.ResolvingFileIO;
 import org.apache.iceberg.rest.RESTResponse;
 import org.apache.iceberg.rest.credentials.Credential;
@@ -48,10 +50,14 @@ final class IcebergRestFileIOProperties {
     private final Map<String, String> clientProperties;
     // Only loadTable creates a new FileIO after a GET. Refresh and lazy snapshot GETs retain
     // the existing one, so they must not resolve or validate a replacement credential.
-    private final ThreadLocal<Boolean> tableLoad = new ThreadLocal<>();
+    private final ThreadLocal<TableLoadContext> tableLoad = new ThreadLocal<>();
     // Set during catalog initialization, before the catalog is published. No table credentials
     // are retained here: each response chooses its own complete credential group.
     private ConfigResponse serverConfig = ConfigResponse.builder().build();
+
+    private static final class TableLoadContext {
+        private Map<String, String> hadoopProperties = Collections.emptyMap();
+    }
 
     IcebergRestFileIOProperties(ConnectorStorageContext storage, Map<String, String> clientProperties) {
         this.storage = storage;
@@ -65,8 +71,8 @@ final class IcebergRestFileIOProperties {
     }
 
     <T> T withTableLoad(Supplier<T> operation) {
-        Boolean previous = tableLoad.get();
-        tableLoad.set(true);
+        TableLoadContext previous = tableLoad.get();
+        tableLoad.set(new TableLoadContext());
         try {
             return operation.get();
         } finally {
@@ -78,8 +84,21 @@ final class IcebergRestFileIOProperties {
         }
     }
 
+    void configureTableFileIO(FileIO fileIO) {
+        Map<String, String> hadoopProperties = tableLoad.get().hadoopProperties;
+        if (!hadoopProperties.isEmpty()) {
+            // Only the official HadoopFileIO is selected here: initialize stores properties
+            // without opening files. REST creates a table-owned IO for this nonempty config.
+            // Copy before adding the static view, never mutate another table's Configuration.
+            HadoopFileIO hadoopFileIO = (HadoopFileIO) fileIO;
+            Configuration conf = new Configuration(hadoopFileIO.getConf());
+            IcebergCatalogFactory.applyHadoopProperties(conf, clientProperties, hadoopProperties);
+            hadoopFileIO.setConf(conf);
+        }
+    }
+
     RESTResponse adaptGet(RESTResponse response) {
-        if (response instanceof LoadTableResponse && !Boolean.TRUE.equals(tableLoad.get())) {
+        if (response instanceof LoadTableResponse && tableLoad.get() == null) {
             return response;
         }
         return adapt(response);
@@ -96,6 +115,10 @@ final class IcebergRestFileIOProperties {
             return response;
         }
         LoadTableResponse table = (LoadTableResponse) response;
+        TableLoadContext load = tableLoad.get();
+        if (load != null) {
+            load.hadoopProperties = Collections.emptyMap();
+        }
         Map<String, String> authentication = selectAuthentication(table);
         Map<String, String> providerAuthentication = providerAuthenticationProperties(authentication);
         Map<String, String> fileIOProperties = new HashMap<>(authentication);
@@ -113,10 +136,17 @@ final class IcebergRestFileIOProperties {
                     continue;
                 }
                 filesystem.validateAndNormalizeUri(metadataLocation);
-                if (!authentication.isEmpty()
-                        && HadoopFileIO.class.getName().equals(configured.get(CatalogProperties.FILE_IO_IMPL))) {
-                    throw new DorisConnectorException("HadoopFileIO cannot consume vended Azure FileIO authentication; "
-                            + "its static Hadoop configuration must not silently reuse the previous identity");
+                if (HadoopFileIO.class.getName().equals(configured.get(CatalogProperties.FILE_IO_IMPL))) {
+                    if (!authentication.isEmpty()) {
+                        throw new DorisConnectorException("HadoopFileIO cannot consume vended Azure"
+                                + " FileIO authentication; its static Hadoop configuration"
+                                + " must not silently reuse the previous identity");
+                    }
+                    if (load != null) {
+                        load.hadoopProperties = binding.toHadoopProperties().orElseThrow(() ->
+                                new DorisConnectorException("Azure storage has no static Hadoop configuration"))
+                                .toHadoopConfigurationMap();
+                    }
                 }
                 fileIOProperties.keySet().removeIf(IcebergRestFileIOProperties::isProviderAuthenticationProperty);
             }
