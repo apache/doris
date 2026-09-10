@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -36,11 +37,14 @@ import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.IcebergGenerics;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.deletes.EqualityDeleteWriter;
+import org.apache.iceberg.deletes.BaseDVFileWriter;
+import org.apache.iceberg.deletes.PositionDeleteIndex;
 import org.apache.iceberg.encryption.EncryptedFiles;
 import org.apache.iceberg.encryption.EncryptedOutputFile;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.DataWriter;
+import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.types.Types;
 
 /** Real Iceberg UUID data/default/delete fixtures, authored and checked by Iceberg itself. */
@@ -65,9 +69,43 @@ public final class CreateIcebergUuidFixtures {
         properties.put("s3.region", "us-east-1");
         Catalog catalog = CatalogUtil.buildIcebergCatalog("demo", properties, null);
         Namespace namespace = Namespace.of(args[0]);
+        if (args.length > 1 && args[1].equals("verify-writes")) {
+            for (String format : Arrays.asList("parquet", "orc")) {
+                for (boolean mapping : Arrays.asList(false, true)) {
+                    Table table = catalog.loadTable(TableIdentifier.of(namespace,
+                            "uuid_write_" + format + "_" + mapping));
+                    Map<Integer, UUID> actual = new HashMap<>();
+                    try (CloseableIterable<Record> records = IcebergGenerics.read(table).build()) {
+                        for (Record row : records) {
+                            actual.put((Integer) row.getField("id"), (UUID) row.getField("u"));
+                        }
+                    }
+                    Map<Integer, UUID> expected = new HashMap<>();
+                    expected.put(11, NORMAL);
+                    expected.put(12, MAX);
+                    expected.put(13, null);
+                    if (!expected.equals(actual)) {
+                        throw new IllegalStateException("Invalid Doris UUID write: " + table + " " + actual);
+                    }
+                    System.out.println("UUID_WRITE_VERIFIED " + table.name());
+                }
+            }
+            return;
+        }
         SupportsNamespaces namespaces = (SupportsNamespaces) catalog;
         if (!namespaces.namespaceExists(namespace)) {
             namespaces.createNamespace(namespace);
+        }
+        for (String format : Arrays.asList("parquet", "orc")) {
+            for (boolean mapping : Arrays.asList(false, true)) {
+                TableIdentifier identifier = TableIdentifier.of(namespace,
+                        "uuid_write_" + format + "_" + mapping);
+                catalog.dropTable(identifier, true);
+                Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                        Types.NestedField.optional(2, "u", Types.UUIDType.get()));
+                catalog.createTable(identifier, schema, PartitionSpec.unpartitioned(),
+                        Map.of("format-version", "2", "write.format.default", format));
+            }
         }
         for (FileFormat dataFormat : Arrays.asList(FileFormat.PARQUET, FileFormat.ORC)) {
             for (FileFormat deleteFormat : Arrays.asList(FileFormat.PARQUET, FileFormat.ORC)) {
@@ -89,12 +127,16 @@ public final class CreateIcebergUuidFixtures {
                         .addColumn("payload", "u", Types.UUIDType.get(), null, Literal.of(NORMAL))
                         .commit();
                 // Old files omit both UUID leaves; new files contain values and explicit NULLs.
-                append(table, dataFormat, 2, Arrays.asList(NORMAL, ZERO, HIGH, MAX, null, OTHER), true);
+                DataFile data = append(table, dataFormat, 2,
+                        Arrays.asList(NORMAL, ZERO, HIGH, MAX, null, OTHER), true);
                 long before = table.currentSnapshot().snapshotId();
-                verify(table, false);
+                verify(table, Arrays.asList(0, 1, 2, 3, 4, 5, 6, 7));
                 appendDelete(table, deleteFormat, Arrays.asList(NORMAL, MAX, null));
-                verify(table, true);
-                System.out.println("UUID_SNAPSHOT " + name + " " + before);
+                verify(table, Arrays.asList(3, 4, 7));
+                long afterEquality = table.currentSnapshot().snapshotId();
+                appendDeletionVector(table, data);
+                verify(table, Arrays.asList(3, 4));
+                System.out.println("UUID_SNAPSHOT " + name + " " + before + " " + afterEquality);
             }
         }
     }
@@ -121,7 +163,7 @@ public final class CreateIcebergUuidFixtures {
         return row;
     }
 
-    private static void append(Table table, FileFormat format, int firstId, List<UUID> values,
+    private static DataFile append(Table table, FileFormat format, int firstId, List<UUID> values,
             boolean physicalUuid) throws Exception {
         GenericAppenderFactory factory = new GenericAppenderFactory(table.schema(), table.spec());
         DataWriter<Record> writer = factory.newDataWriter(output(table, "." + format.name().toLowerCase()),
@@ -131,7 +173,9 @@ public final class CreateIcebergUuidFixtures {
                 writer.write(row(table.schema(), firstId + i, values.get(i), physicalUuid));
             }
         }
-        table.newAppend().appendFile(writer.toDataFile()).commit();
+        DataFile file = writer.toDataFile();
+        table.newAppend().appendFile(file).commit();
+        return file;
     }
 
     private static void appendDelete(Table table, FileFormat format, List<UUID> values) throws Exception {
@@ -150,7 +194,17 @@ public final class CreateIcebergUuidFixtures {
         table.newRowDelta().addDeletes(writer.toDeleteFile()).commit();
     }
 
-    private static void verify(Table table, boolean deleted) throws Exception {
+    private static void appendDeletionVector(Table table, DataFile data) throws Exception {
+        OutputFileFactory files = OutputFileFactory.builderFor(table, 0, 1)
+                .format(FileFormat.PUFFIN).build();
+        BaseDVFileWriter writer = new BaseDVFileWriter(files, path -> PositionDeleteIndex.empty());
+        try (BaseDVFileWriter ignored = writer) {
+            writer.delete(data.path().toString(), 5, table.spec(), null);
+        }
+        table.newRowDelta().addDeletes(writer.result().deleteFiles().get(0)).commit();
+    }
+
+    private static void verify(Table table, List<Integer> expected) throws Exception {
         List<Integer> ids = new ArrayList<>();
         try (CloseableIterable<Record> records = IcebergGenerics.read(table).build()) {
             for (Record row : records) {
@@ -162,7 +216,6 @@ public final class CreateIcebergUuidFixtures {
             }
         }
         ids.sort(Integer::compareTo);
-        List<Integer> expected = deleted ? Arrays.asList(3, 4, 7) : Arrays.asList(0, 1, 2, 3, 4, 5, 6, 7);
         if (!ids.equals(expected)) {
             throw new IllegalStateException("Unexpected Iceberg survivors " + ids + ", expected " + expected);
         }
