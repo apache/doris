@@ -45,6 +45,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -148,7 +149,7 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
+    protected List<List<String>> executeAction(TableIf table) throws UserException {
         Table icebergTable = getWritableIcebergTable(table);
 
         // Parse parameters
@@ -240,14 +241,14 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
             Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateTableCache((ExternalTable) table);
 
-            return Lists.newArrayList(
+            return Collections.singletonList(Lists.newArrayList(
                 String.valueOf(deletedDataFilesCount.get()),
                 String.valueOf(deletedPositionDeleteFilesCount.get()),
                 String.valueOf(deletedEqualityDeleteFilesCount.get()),
                 String.valueOf(deletedManifestFilesCount.get()),
                 String.valueOf(deletedManifestListsCount.get()),
                 String.valueOf(deletedStatisticsFilesCount.get())
-            );
+            ));
         } catch (Exception e) {
             throw new UserException("Failed to expire snapshots: " + e.getMessage(), e);
         } finally {
