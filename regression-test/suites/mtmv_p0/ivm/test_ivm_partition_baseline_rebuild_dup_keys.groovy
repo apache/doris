@@ -30,7 +30,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
  * partition after the truncate must still be consumed. Both are checked by comparing whole result
  * sets, so row multiplicities are part of the expectation.
  */
-suite("test_ivm_partition_baseline_rebuild_dup_keys", "nonConcurrent") {
+suite("test_ivm_partition_baseline_rebuild_dup_keys") {
     def tableName = "ivm_part_dup_t"
     def mvName = "ivm_part_dup_mv"
 

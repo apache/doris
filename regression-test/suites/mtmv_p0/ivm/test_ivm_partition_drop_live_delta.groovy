@@ -32,7 +32,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
  * <p>Partitions are managed by hand (no dynamic partition scheduler) and every dt is a literal, so
  * the case is fully deterministic.
  */
-suite("test_ivm_partition_drop_live_delta", "nonConcurrent") {
+suite("test_ivm_partition_drop_live_delta") {
     def tableName = "ivm_part_drop_t"
     def mvName = "ivm_part_drop_mv"
 
