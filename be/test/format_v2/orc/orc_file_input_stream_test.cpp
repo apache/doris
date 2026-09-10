@@ -75,6 +75,25 @@ private:
     io::Path _path = "/tmp/orc_v2_input_stream";
 };
 
+// FileReader whose reads always fail with NotFound, mimicking a missing HDFS file under lazy open.
+class NotFoundFileReader final : public io::FileReader {
+public:
+    Status close() override { return Status::OK(); }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return 4096; }
+    bool closed() const override { return false; }
+    int64_t mtime() const override { return 0; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        return Status::NotFound("failed to open /test/missing.orc: No such file or directory");
+    }
+
+private:
+    io::Path _path = "/test/missing.orc";
+};
+
 class TestStreamInformation final : public ::orc::StreamInformation {
 public:
     TestStreamInformation(TestStream stream, uint64_t offset) : _stream(stream), _offset(offset) {}
@@ -371,6 +390,20 @@ TEST(OrcFileInputStreamTest, MergedIoChildrenStayIsolatedInBothInitializationOrd
         EXPECT_EQ(generic_request_io->value(), 0);
         ASSERT_NE(profile.get_counter("OrcMergedRequestIO"), nullptr);
         EXPECT_EQ(profile.get_counter("OrcMergedRequestIO")->value(), 1);
+    }
+}
+
+// A failed read must carry the status text so the ORC reader can restore NotFound (parity with v1).
+TEST(OrcFileInputStreamTest, ReadFailureCarriesNotFoundText) {
+    auto reader = std::make_shared<NotFoundFileReader>();
+    OrcFileInputStream input("missing.orc", reader, nullptr, nullptr, {});
+    std::array<char, 16> buf {};
+    try {
+        input.read(buf.data(), buf.size(), 0);
+        FAIL() << "expected orc::ParseError";
+    } catch (const ::orc::ParseError& e) {
+        const std::string msg = e.what();
+        EXPECT_NE(msg.find("No such file or directory"), std::string::npos);
     }
 }
 
