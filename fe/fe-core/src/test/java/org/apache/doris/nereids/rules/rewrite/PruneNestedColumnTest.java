@@ -1154,6 +1154,20 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testVariantSubPathConstructionOrder() {
+        SlotReference root = new SlotReference("v", VariantType.INSTANCE);
+        List<String> subPath = ImmutableList.of("a", "b", "c");
+
+        Expression expression = VariantSubPathPruning.constructElementAt(root, subPath);
+
+        Assertions.assertInstanceOf(ElementAt.class, expression);
+        Pair<SlotReference, List<String>> extracted = VariantSubPathPruning.extractSlotToSubPathPair(
+                (ElementAt) expression);
+        Assertions.assertEquals(root, extracted.first);
+        Assertions.assertEquals(subPath, extracted.second);
+    }
+
+    @Test
     public void testDataTypeAccessTree() {
         List<Pair<SlotReference, DataTypeAccessTree>> trees = getDataTypeAccessTrees(
                 "select element_at(s, 'city') from (select id, s from tbl union all select 1, null) tmp");

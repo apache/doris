@@ -332,10 +332,7 @@ public class VariantSubPathPruning implements CustomRewriter {
                         } else {
                             pushDownExpr = constExpr;
                         }
-                        for (int sp = entry.getKey().size() - 1; sp >= 0; sp--) {
-                            VarcharLiteral path = new VarcharLiteral(entry.getKey().get(sp));
-                            pushDownExpr = new ElementAt(pushDownExpr, path);
-                        }
+                        pushDownExpr = constructElementAt(pushDownExpr, entry.getKey());
                         constExprs.get(j).add(new Alias(pushDownExpr));
 
                     }
@@ -610,11 +607,7 @@ public class VariantSubPathPruning implements CustomRewriter {
             Set<List<String>> subPaths = context.slotToSubPathsMap
                     .get((SlotReference) projection.toSlot());
             for (List<String> subPath : subPaths) {
-                Expression pushDownExpr = child;
-                for (int i = subPath.size() - 1; i >= 0; i--) {
-                    VarcharLiteral path = new VarcharLiteral(subPath.get(i));
-                    pushDownExpr = new ElementAt(pushDownExpr, path);
-                }
+                Expression pushDownExpr = constructElementAt(child, subPath);
                 Alias alias = new Alias(pushDownExpr);
                 newProjections.add(alias);
                 subPathToSlot.put(subPath, (SlotReference) alias.toSlot());
@@ -779,6 +772,15 @@ public class VariantSubPathPruning implements CustomRewriter {
             }
             return null;
         }
+    }
+
+    /** Build nested ElementAt expressions from a canonical root-to-leaf sub-path. */
+    protected static Expression constructElementAt(Expression root, List<String> subPath) {
+        Expression result = root;
+        for (String path : subPath) {
+            result = new ElementAt(result, new VarcharLiteral(path));
+        }
+        return result;
     }
 
     protected static Pair<SlotReference, List<String>> extractSlotToSubPathPair(ElementAt elementAt) {
