@@ -446,7 +446,7 @@ public:
         auto& data = this->data(place);
         const auto& rhs_data = this->data(rhs);
         if constexpr (HasLimit) {
-            if (rhs_data.max_size == -1) {
+            if (rhs_data.max_size < 0) {
                 return;
             }
             if (data.max_size != -1) {
