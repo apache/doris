@@ -25,6 +25,7 @@ import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Preconditions;
+import org.apache.commons.io.input.ClassLoaderObjectInputStream;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.CloseableIterator;
@@ -34,7 +35,6 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
-import java.io.ObjectStreamClass;
 import java.io.UncheckedIOException;
 import java.util.Base64;
 import java.util.Map;
@@ -87,13 +87,10 @@ public class IcebergSysTableJniScanner extends JniScanner {
 
     private static <T> T deserializeWithClassLoader(String serialized, ClassLoader classLoader) {
         byte[] bytes = Base64.getMimeDecoder().decode(serialized);
-        try (ObjectInputStream input = new ObjectInputStream(new ByteArrayInputStream(bytes)) {
-            @Override
-            protected Class<?> resolveClass(ObjectStreamClass descriptor)
-                    throws IOException, ClassNotFoundException {
-                return Class.forName(descriptor.getName(), false, classLoader);
-            }
-        }) {
+        // Keep extension-local FileIO visibility without losing Java's primitive and proxy
+        // descriptor handling. Commons IO is supplied by the BE parent classloader.
+        try (ObjectInputStream input = new ClassLoaderObjectInputStream(
+                classLoader, new ByteArrayInputStream(bytes))) {
             @SuppressWarnings("unchecked")
             T value = (T) input.readObject();
             return value;
