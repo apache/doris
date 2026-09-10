@@ -1054,14 +1054,14 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         try {
             auto data = *(data_ptr + 2);
             auto nested_null_map = *(data_ptr + 3);
-            RETURN_IF_ERROR(index_column_writer->add_array_values(
+            RETURN_IF_ERROR(index_column_writer->add_nullable_array_values(
                     field_type_size(column->get_sub_column(0).type()),
                     reinterpret_cast<const void*>(data),
-                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+                    reinterpret_cast<const uint8_t*>(nested_null_map), null_map, offsets_ptr,
+                    num_rows));
             DBUG_EXECUTE_IF("IndexBuilder::_add_nullable_add_array_values_error", {
                 _CLTHROWA(CL_ERR_IO, "debug point: _add_nullable_add_array_values_error");
             })
-            RETURN_IF_ERROR(index_column_writer->add_array_nulls(null_map, num_rows));
         } catch (const std::exception& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occurred: {}", e.what());
@@ -1115,16 +1115,18 @@ Status IndexBuilder::_add_data(const std::string& column_name,
             DCHECK(column->get_subtype_count() == 1);
             // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
             const auto* data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
-            // total number length
-            auto element_cnt = size_t((unsigned long)(*data_ptr));
+            const auto element_count = static_cast<size_t>(*data_ptr);
             auto offset_data = *(data_ptr + 1);
             const auto* offsets_ptr = (const uint8_t*)offset_data;
-            if (element_cnt > 0) {
+            const FieldType item_type = column->get_sub_column(0).type();
+            // Text writers own one logical document (and one scoring norm) per
+            // ARRAY row, including an all-empty batch. Numeric/ANN writers still
+            // require a non-null element buffer before entering their point path.
+            if (element_count > 0 || field_is_slice_type(item_type)) {
                 auto data = *(data_ptr + 2);
                 auto nested_null_map = *(data_ptr + 3);
                 RETURN_IF_ERROR(index_column_writer->add_array_values(
-                        field_type_size(column->get_sub_column(0).type()),
-                        reinterpret_cast<const void*>(data),
+                        field_type_size(item_type), reinterpret_cast<const void*>(data),
                         reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
             }
         } else {

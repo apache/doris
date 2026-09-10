@@ -281,8 +281,9 @@ Status SniiPlainT2MergePlan::prepare(std::vector<const reader::LogicalIndexReade
 
     std::vector<writer::MemoryReporter::Reservation> destination_norm_reservations;
     std::vector<std::vector<uint8_t>> destination_encoded_norms;
-    if (eligibility.kind == SniiStreamedMergeKind::kCommonGramsT3) {
-        DORIS_CHECK(eligibility.common_grams_metadata_seed.has_value());
+    if (streamed_merge_carries_norms(eligibility.kind)) {
+        DORIS_CHECK(eligibility.kind != SniiStreamedMergeKind::kCommonGramsT3 ||
+                    eligibility.common_grams_metadata_seed.has_value());
         destination_norm_reservations.reserve(destination_segment_num_rows.size());
         destination_encoded_norms.resize(destination_segment_num_rows.size());
         for (size_t destination_ordinal = 0;
@@ -371,14 +372,14 @@ writer::TrackedNullDocids SniiPlainT2MergePlan::take_destination_null_docids(
 
 const std::vector<uint8_t>& SniiPlainT2MergePlan::destination_encoded_norms(
         size_t destination_segment) const {
-    DORIS_CHECK(eligibility_.kind == SniiStreamedMergeKind::kCommonGramsT3);
+    DORIS_CHECK(streamed_merge_carries_norms(eligibility_.kind));
     DORIS_CHECK_LT(destination_segment, destination_encoded_norms_.size());
     return destination_encoded_norms_[destination_segment];
 }
 
 writer::TrackedEncodedNorms SniiPlainT2MergePlan::take_destination_encoded_norms(
         size_t destination_segment) {
-    DORIS_CHECK(eligibility_.kind == SniiStreamedMergeKind::kCommonGramsT3);
+    DORIS_CHECK(streamed_merge_carries_norms(eligibility_.kind));
     DORIS_CHECK_LT(destination_segment, destination_encoded_norms_.size());
     DORIS_CHECK(!destination_encoded_norms_taken_[destination_segment]);
     destination_encoded_norms_taken_[destination_segment] = true;
@@ -388,14 +389,14 @@ writer::TrackedEncodedNorms SniiPlainT2MergePlan::take_destination_encoded_norms
 }
 
 format::IndexConfig SniiPlainT2MergePlan::destination_index_config() const {
-    return eligibility_.kind == SniiStreamedMergeKind::kCommonGramsT3
+    return streamed_merge_carries_norms(eligibility_.kind)
                    ? format::IndexConfig::kDocsPositionsScoring
                    : format::IndexConfig::kDocsPositions;
 }
 
 std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata>
 SniiPlainT2MergePlan::destination_common_grams_metadata(size_t destination_segment) const {
-    if (eligibility_.kind == SniiStreamedMergeKind::kPlainT2) {
+    if (eligibility_.kind != SniiStreamedMergeKind::kCommonGramsT3) {
         return std::nullopt;
     }
     DORIS_CHECK(eligibility_.common_grams_metadata_seed.has_value());

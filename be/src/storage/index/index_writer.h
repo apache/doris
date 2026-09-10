@@ -56,6 +56,15 @@ public:
                                     const uint8_t* null_map, const uint8_t* offsets_ptr,
                                     size_t count) = 0;
 
+    virtual Status add_nullable_array_values(size_t field_size, const void* value_ptr,
+                                             const uint8_t* nested_null_map,
+                                             const uint8_t* row_null_map,
+                                             const uint8_t* offsets_ptr, size_t count) {
+        RETURN_IF_ERROR(
+                add_array_values(field_size, value_ptr, nested_null_map, offsets_ptr, count));
+        return add_array_nulls(row_null_map, count);
+    }
+
     virtual Status add_nulls(uint32_t count) = 0;
     virtual Status add_array_nulls(const uint8_t* null_map, size_t num_rows) = 0;
 

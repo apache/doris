@@ -921,13 +921,13 @@ suite("test_common_grams_snii", "p0,nonConcurrent") {
                 "SELECT id FROM test_common_grams_missing "
                         + "WHERE body MATCH_PHRASE_PREFIX 'the wo' ORDER BY id",
                 "SniiCommonGramsFallbackIncompatible")
-        test {
-            sql """
-                SELECT id, score() AS s FROM test_common_grams_missing
-                WHERE body MATCH_PHRASE 'alpha beta' ORDER BY s DESC LIMIT 100
-            """
-            exception "SNII semantic scoring metadata is missing"
-        }
+        // Scoring no longer depends on CommonGrams. This table declares a
+        // CommonGrams analyzer but every segment was written with the build
+        // switch off, so it holds no grams -- and that is simply an ordinary
+        // analyzed index, which ranks exactly like the V3 control.
+        assertEquals(
+                rankedIds("test_common_grams_mixed_v3_plain", "body MATCH_PHRASE 'alpha beta'", 100),
+                rankedIds("test_common_grams_missing", "body MATCH_PHRASE 'alpha beta'", 100))
 
         setBeConfig("enable_common_grams_index_build", "true")
         sql """
@@ -969,13 +969,16 @@ suite("test_common_grams_snii", "p0,nonConcurrent") {
                 "SELECT id FROM test_common_grams_mixed "
                         + "WHERE body MATCH_PHRASE_PREFIX 'the wo' ORDER BY id",
                 "SniiCommonGramsFallbackIncompatible")
-        test {
-            sql """
-                SELECT id, score() AS s FROM test_common_grams_mixed
-                WHERE body MATCH_PHRASE 'alpha beta' ORDER BY s DESC LIMIT 100
-            """
-            exception "SNII semantic scoring metadata is missing"
-        }
+        // A CommonGrams segment and a plain one for the same field combine: the
+        // CommonGrams segment contributes its SEMANTIC token count (its physical
+        // sum_total_term_freq is inflated by the gram postings), the plain one
+        // contributes its physical count, which is already semantic. Plain
+        // postings are complete on both sides -- the writer emits the gram AND
+        // the token's own posting -- so df is measured the same way and the
+        // ranking matches the V3 control.
+        assertEquals(
+                rankedIds("test_common_grams_mixed_v3_plain", "body MATCH_PHRASE 'alpha beta'", 100),
+                rankedIds("test_common_grams_mixed", "body MATCH_PHRASE 'alpha beta'", 100))
 
         setBeConfig("enable_common_grams_index_build", "true")
         trigger_and_wait_compaction("test_common_grams_mixed", "full", 300)

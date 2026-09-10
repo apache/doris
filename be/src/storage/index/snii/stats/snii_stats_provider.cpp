@@ -61,11 +61,23 @@ Status SniiStatsProvider::open_impl(const reader::LogicalIndexReader* idx, SniiS
     out->idx_ = idx;
     const auto& sb = idx->stats();
     out->doc_count_ = sb.doc_count;
-    out->indexed_doc_count_ = sb.indexed_doc_count;
+    // avgdl divides the token sum by this. Norms are written for EVERY row --
+    // a null row contributes encode_norm(0) -- so the denominator must span the
+    // same rows the lengths do, i.e. all documents. The CommonGrams branch below
+    // uses scoring_doc_count, which is likewise every row; keeping the plain
+    // branch on indexed_doc_count would make avgdl 2x too large on a 50%-null
+    // column and give the two shapes different arithmetic.
+    out->indexed_doc_count_ = sb.doc_count;
     out->sum_total_term_freq_ = sb.sum_total_term_freq;
 
     const RegionRef& norms = idx->section_refs().norms;
     const auto* metadata = idx->common_grams_metadata();
+    // A CommonGrams index stores gram tokens in its physical postings, so its
+    // StatsBlock is NOT the collection BM25 should see: the semantic view lives
+    // in the CommonGrams metadata and must validate before it is trusted. Every
+    // other analyzed index has no such divergence -- its physical statistics
+    // ARE the semantic ones -- so it scores straight from the StatsBlock, the
+    // same way V1/V2/V3 score an ordinary parser index.
     if (metadata != nullptr) {
         using namespace segment_v2::inverted_index;
         RETURN_IF_ERROR(validate_snii_scoring_metadata(
@@ -74,10 +86,20 @@ Status SniiStatsProvider::open_impl(const reader::LogicalIndexReader* idx, SniiS
         out->doc_count_ = metadata->scoring_doc_count;
         out->indexed_doc_count_ = metadata->scoring_doc_count;
         out->sum_total_term_freq_ = metadata->scoring_token_count;
-    } else if (require_semantic_metadata) {
-        RETURN_IF_ERROR(segment_v2::inverted_index::validate_snii_scoring_metadata(
-                nullptr, sb.doc_count, sb.sum_total_term_freq,
-                idx->tier() == format::IndexTier::kT3, idx->has_positions(), norms.length != 0));
+    } else if (require_semantic_metadata && (idx->tier() != format::IndexTier::kT3 ||
+                                             !idx->has_positions() || norms.length == 0)) {
+        // "Can this index be scored" is exactly "does it persist the BM25
+        // inputs" -- the scoring tier, positions, and a norms region. It is NOT
+        // "does it have CommonGrams metadata". Two shapes land here: a keyword
+        // index (never analyzed, so no norms even with support_phrase=true) and
+        // a segment written before an analyzed index reached the scoring tier.
+        // Both are refused rather than scored at a guessed document length: a
+        // silent unit-length fallback would rank those segments on a different
+        // scale from their siblings in the same table, with no error to notice.
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "SNII index does not persist scoring data (scoring tier {}, positions {}, "
+                "norms {})",
+                idx->tier() == format::IndexTier::kT3, idx->has_positions(), norms.length != 0);
     }
     if (norms.length == 0) {
         out->has_norms_ = false;

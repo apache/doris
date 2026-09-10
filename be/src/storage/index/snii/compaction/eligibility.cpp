@@ -90,6 +90,29 @@ inverted_index::CommonGramsSegmentMetadata static_common_grams_metadata(
     return seed;
 }
 
+Status validate_plain_t3_source_shape(const reader::LogicalIndexReader& source,
+                                      size_t source_ordinal) {
+    if (source.tier() != format::IndexTier::kT3 || !source.has_positions()) {
+        return reject(fmt::format("source {} is not a scoring T3 index", source_ordinal));
+    }
+    if (source.section_refs().norms.length == 0) {
+        return reject(fmt::format("source {} has no scoring norms", source_ordinal));
+    }
+    if (source.common_grams_metadata() != nullptr) {
+        return reject(fmt::format("source {} carries CommonGrams metadata", source_ordinal));
+    }
+    if (source.common_grams_posting_policy() != format::CommonGramsPostingPolicy::kNone) {
+        return reject(
+                fmt::format("source {} carries a CommonGrams posting policy", source_ordinal));
+    }
+    const auto& stats = source.stats();
+    if (stats.indexed_doc_count > stats.doc_count ||
+        stats.null_count != stats.doc_count - stats.indexed_doc_count) {
+        return reject(fmt::format("source {} statistics are inconsistent", source_ordinal));
+    }
+    return Status::OK();
+}
+
 Status validate_common_grams_source_shape(const reader::LogicalIndexReader& source,
                                           size_t source_ordinal) {
     if (source.tier() != format::IndexTier::kT3 || !source.has_positions()) {
@@ -217,6 +240,10 @@ Status validate_snii_source_eligibility(const reader::LogicalIndexReader& source
     if (eligibility.kind == SniiStreamedMergeKind::kPlainT2) {
         return validate_plain_t2_source_eligibility(source, source_ordinal);
     }
+    if (eligibility.kind == SniiStreamedMergeKind::kPlainT3) {
+        RETURN_IF_ERROR(validate_plain_t3_source_shape(source, source_ordinal));
+        return reject_legacy_bigram(source, source_ordinal);
+    }
     RETURN_IF_ERROR(validate_common_grams_source_shape(source, source_ordinal));
     RETURN_IF_ERROR(reject_legacy_bigram(source, source_ordinal));
     if (!eligibility.common_grams_metadata_seed.has_value()) {
@@ -277,6 +304,31 @@ Status validate_plain_t2_compaction_eligibility(
     return validate_destination_policy(destination_index, analyzer_provider_factory);
 }
 
+namespace {
+
+// Scoring sources with no CommonGrams metadata: every source must be the same
+// plain T3 shape, and the destination analyzer must still be the plain one.
+// There is no identity seed to carry -- the physical statistics are already the
+// semantic ones -- so the destination needs nothing beyond the norms remap.
+Status resolve_plain_t3_eligibility(std::span<const PlainT2CompactionSource> sources,
+                                    const TabletIndex& destination_index,
+                                    const AnalyzerProviderFactory& analyzer_provider_factory,
+                                    SniiCompactionEligibility* out) {
+    for (size_t source_ordinal = 0; source_ordinal < sources.size(); ++source_ordinal) {
+        const auto& source = sources[source_ordinal].reader.get();
+        if (source.tier() != format::IndexTier::kT3) {
+            return reject("source streamed-merge shapes are not homogeneous");
+        }
+        RETURN_IF_ERROR(validate_plain_t3_source_shape(source, source_ordinal));
+        RETURN_IF_ERROR(reject_legacy_bigram(source, source_ordinal));
+    }
+    RETURN_IF_ERROR(validate_destination_policy(destination_index, analyzer_provider_factory));
+    out->kind = SniiStreamedMergeKind::kPlainT3;
+    return Status::OK();
+}
+
+} // namespace
+
 Status validate_snii_compaction_eligibility(
         std::span<const PlainT2CompactionSource> sources, const TabletIndex& destination_index,
         SniiCompactionEligibility* out, const AnalyzerProviderFactory& analyzer_provider_factory) {
@@ -336,6 +388,13 @@ Status validate_snii_compaction_eligibility(
     }
     if (source_tier != format::IndexTier::kT3) {
         return reject("source streamed-merge shape is neither plain T2 nor CommonGrams T3");
+    }
+
+    // Reaching the scoring tier no longer implies CommonGrams: an ordinary
+    // analyzed index is T3 too. Split on the metadata, not on the tier.
+    if (sources.front().reader.get().common_grams_metadata() == nullptr) {
+        return resolve_plain_t3_eligibility(sources, destination_index, analyzer_provider_factory,
+                                            out);
     }
 
     std::optional<inverted_index::CommonGramsSegmentMetadata> source_seed;

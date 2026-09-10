@@ -32,10 +32,11 @@
 // running the test and copying the "actual=" value from the failure message --
 // and say so loudly in the commit message.
 //
-// RE-HARVESTED when SniiStatsPB and SniiSectionRefsPB were renumbered back to the
-// field numbers the format shipped with. Protobuf tags are part of the image, so
-// EVERY digest moved -- including kGoldenKeywordDocsOnly, which is what tells you
-// the change reaches all SNII segments and not just one lane.
+// RE-HARVESTED after SniiStatsPB and SniiSectionRefsPB returned to their shipped
+// field numbers and SNII scoring stopped depending on CommonGrams. The protobuf
+// tag change moves every digest; the scoring change additionally gives analyzed
+// position-enabled indexes a norms region. The keyword digest changes only with
+// the protobuf layout because keyword indexes remain outside the scoring tier.
 
 #include <gtest/gtest.h>
 
@@ -308,8 +309,8 @@ private:
 // Whole-image digests re-harvested for the protobuf v1 metadata layout. They
 // still pin posting bytes together with every framing, directory, and metadata
 // byte, so future format changes remain explicit.
-constexpr uint64_t kGoldenEnglishPhrase = 0x21fa508c4b24585eULL;
-constexpr uint64_t kGoldenUnicodePhrase = 0xf3132d01603c7613ULL;
+constexpr uint64_t kGoldenEnglishPhrase = 0x4df3e24e42c442deULL;
+constexpr uint64_t kGoldenUnicodePhrase = 0x984f133d11f6f697ULL;
 constexpr uint64_t kGoldenKeywordDocsOnly = 0x45e45e6f7b81c65aULL;
 
 TEST_F(SniiWriterGoldenBytes, EnglishPhrase) {

@@ -57,6 +57,9 @@ public:
     Status add_array_values(size_t field_size, const void* value_ptr,
                             const uint8_t* nested_null_map, const uint8_t* offsets_ptr,
                             size_t count) override;
+    Status add_nullable_array_values(size_t field_size, const void* value_ptr,
+                                     const uint8_t* nested_null_map, const uint8_t* row_null_map,
+                                     const uint8_t* offsets_ptr, size_t count) override;
     Status add_nulls(uint32_t count) override;
     Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override;
     Status finish() override;
@@ -93,6 +96,9 @@ public:
 #endif
 
 private:
+    Status _add_array_values(size_t field_size, const void* value_ptr,
+                             const uint8_t* nested_null_map, const uint8_t* row_null_map,
+                             const uint8_t* offsets_ptr, size_t count);
     Status _add_value_tokens(const Slice& value, uint32_t docid, uint32_t position_base,
                              uint32_t* max_position, uint32_t* semantic_length);
     inverted_index::CommonGramsSegmentMetadata _build_common_grams_metadata() const;
@@ -109,6 +115,12 @@ private:
     const bool _is_char;
     const bool _common_grams_build_enabled;
     bool _uses_common_grams = false;
+
+    // An index persists per-document norms exactly when it is analyzed and keeps
+    // positions -- the same condition that puts it on the scoring tier. This is
+    // deliberately NOT "_uses_common_grams": CommonGrams changes what a semantic
+    // token count means, it does not decide whether the index can be scored.
+    bool _writes_norms() const { return _should_analyzer && _has_positions; }
     // Latch: set_direct_load() ran. The first call wins; a repeat or late call
     // is ignored (and logged) so one index keeps one stable compression-tier
     // decision.
