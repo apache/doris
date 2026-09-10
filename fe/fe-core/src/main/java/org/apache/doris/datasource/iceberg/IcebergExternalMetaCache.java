@@ -53,6 +53,7 @@ import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -677,6 +678,15 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         String resourceKey = "iceberg-table:" + nameMapping.getCtlId() + "\u0000"
                 + nameMapping.getRemoteDbName() + "\u0000" + nameMapping.getRemoteTblName();
         return statementContext.getOrRegisterStatementResource(resourceKey, () -> borrow(nameMapping));
+    }
+
+    /** Retain the exact statement generation until asynchronous split planning actually terminates. */
+    public Closeable retainStatementTableGenerationForAsyncPlanning(ExternalTable dorisTable) {
+        IcebergTableCacheValue.Lease statementLease = statementLease(dorisTable.getOrBuildNameMapping());
+        if (statementLease == null) {
+            throw new IllegalStateException("Iceberg asynchronous planning requires a statement scope");
+        }
+        return statementLease.retain();
     }
 
     private IcebergTableCacheValue.Lease borrow(NameMapping nameMapping) {

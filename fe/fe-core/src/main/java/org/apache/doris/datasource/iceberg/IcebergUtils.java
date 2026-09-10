@@ -135,6 +135,7 @@ import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -1214,6 +1215,19 @@ public class IcebergUtils {
 
     public static ThreadPoolExecutor getIcebergTableExecutor(ExternalTable dorisTable) {
         return icebergExternalMetaCache(dorisTable).getIcebergTableExecutor(dorisTable);
+    }
+
+    public static Closeable retainStatementTableGenerationForAsyncPlanning(TableIf table) {
+        ExternalTable ownerTable;
+        if (table instanceof IcebergSysExternalTable) {
+            ownerTable = ((IcebergSysExternalTable) table).getSourceTable();
+        } else {
+            Preconditions.checkArgument(table instanceof ExternalTable,
+                    "Iceberg asynchronous planning requires an external table");
+            ownerTable = (ExternalTable) table;
+        }
+        return icebergExternalMetaCache(ownerTable)
+                .retainStatementTableGenerationForAsyncPlanning(ownerTable);
     }
 
     /** The action must return derived metadata rather than retain the supplied table. */
