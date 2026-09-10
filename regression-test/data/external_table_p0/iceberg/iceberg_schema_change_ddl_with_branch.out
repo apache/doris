@@ -250,11 +250,6 @@ phone	text	Yes	true	\N
 4	david@example.com
 
 -- !all_branches_have_phone --
-1	\N
-2	\N
-3	\N
-4	\N
-5	\N
 
 -- !summary_main --
 1	Alice	95.5	\N	\N
@@ -334,4 +329,3 @@ phone	text	Yes	true	\N
 5	Eve	91.3	eve@example.com	\N
 6	Frank	88.7	frank@example.com	\N
 7	Grace	93.2	grace@example.com	555-0123
-

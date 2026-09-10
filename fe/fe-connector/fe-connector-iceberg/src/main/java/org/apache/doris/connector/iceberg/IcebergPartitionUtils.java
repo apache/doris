@@ -33,6 +33,7 @@ import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Partitioning;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
@@ -42,6 +43,7 @@ import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.types.Types.StructType;
 import org.apache.iceberg.types.Types.TimestampType;
 import org.apache.iceberg.util.JsonUtil;
 import org.apache.iceberg.util.StructProjection;
@@ -774,12 +776,17 @@ final class IcebergPartitionUtils {
 
     private static List<IcebergRawPartition> loadRawPartitionsUncached(Table table, long snapshotId) {
         Table partitionsTable = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.PARTITIONS);
+        StructType unifiedPartitionType = Partitioning.partitionType(table);
+        Map<Integer, Integer> partitionFieldOrdinals = new HashMap<>();
+        for (int i = 0; i < unifiedPartitionType.fields().size(); i++) {
+            partitionFieldOrdinals.put(unifiedPartitionType.fields().get(i).fieldId(), i);
+        }
         List<IcebergRawPartition> partitions = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().useSnapshot(snapshotId).planFiles()) {
             for (FileScanTask task : tasks) {
                 CloseableIterable<StructLike> rows = task.asDataTask().rows();
                 for (StructLike row : rows) {
-                    partitions.add(generateRawPartition(table, row));
+                    partitions.add(generateRawPartition(table, row, partitionFieldOrdinals));
                 }
             }
         } catch (IOException e) {
@@ -788,7 +795,8 @@ final class IcebergPartitionUtils {
         return partitions;
     }
 
-    private static IcebergRawPartition generateRawPartition(Table table, StructLike row) {
+    private static IcebergRawPartition generateRawPartition(
+            Table table, StructLike row, Map<Integer, Integer> partitionFieldOrdinals) {
         // PARTITIONS row layout: 0 partitionData, 1 spec_id, 2 record_count, 3 file_count,
         // 4 total_data_file_size_in_bytes, 5..8 position/equality delete stats, 9 last_updated_at,
         // 10 last_updated_snapshot_id. Only 0/1/9/10 are needed by the MTMV partition view.
@@ -803,9 +811,10 @@ final class IcebergPartitionUtils {
         for (int i = 0; i < partitionSpec.fields().size(); ++i) {
             PartitionField partitionField = partitionSpec.fields().get(i);
             Class<?> fieldClass = partitionSpec.javaClasses()[i];
-            // A spec's partition struct is compact even when evolved field IDs have gaps, so index by the
-            // field's position in this spec rather than by its table-global partition field ID.
-            Object o = partitionData.get(i, fieldClass);
+            // Iceberg 1.11 projects every metadata row into the table-wide unified partition struct; a spec-local
+            // position can therefore point at a different evolved field, so resolve the ordinal by field ID.
+            Integer ordinal = partitionFieldOrdinals.get(partitionField.fieldId());
+            Object o = ordinal == null ? null : partitionData.get(ordinal, fieldClass);
             String fieldValue = o == null ? null : o.toString();
             sb.append(partitionField.name()).append("=").append(fieldValue).append("/");
             // Resolve the partition field's SOURCE column name (case-preserved), matching the generic

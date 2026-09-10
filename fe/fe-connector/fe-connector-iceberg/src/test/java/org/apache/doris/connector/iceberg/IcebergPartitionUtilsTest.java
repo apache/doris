@@ -1135,6 +1135,34 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
+    public void listPartitionsReadsValuesFromUnifiedPartitionStructByFieldId() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()));
+        TableIdentifier id = TableIdentifier.of("db1", "unified_partition_values");
+        Table table = catalog.createTable(id, schema,
+                PartitionSpec.builderFor(schema).bucket("region", 8).build(),
+                Collections.singletonMap("format-version", "2"));
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://b/db1/t/f0.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withPartitionPath("region_bucket=1").withFormat(FileFormat.PARQUET).build()).commit();
+        table.updateSpec().removeField("region_bucket").addField("id").commit();
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://b/db1/t/f1.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withPartitionPath("id=5").withFormat(FileFormat.PARQUET).build()).commit();
+
+        List<ConnectorPartitionInfo> partitions = IcebergPartitionUtils.listPartitions(
+                catalog.loadTable(id), id, null);
+        List<String> names = partitions.stream().map(ConnectorPartitionInfo::getPartitionName)
+                .sorted().collect(java.util.stream.Collectors.toList());
+
+        Assertions.assertEquals(Arrays.asList("id=5", "region_bucket=1"), names);
+    }
+
+    @Test
     public void listPartitionNamesForNonRelatedPartitionedTableStillLists() {
         // SHOW PARTITIONS is NOT gated on the MTMV eligibility rules: a bucket-partitioned table still lists its
         // physical partitions (M-10: master rejected iceberg SHOW PARTITIONS, so an empty default would be a

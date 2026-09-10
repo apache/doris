@@ -81,6 +81,8 @@ under the License.
 
     <!-- ignore iceberg delete file index copied from iceberg/DeleteFileIndex.java -->
     <suppress files="org[\\/]apache[\\/]iceberg[\\/]DeleteFileIndex\.java" checks="[a-zA-Z0-9]*"/>
+    <!-- Iceberg package access is required to preserve historical schema binding in DataTableScan. -->
+    <suppress files="org[\\/]apache[\\/]iceberg[\\/]SchemaAwareDataTableScan\.java" checks="[a-zA-Z0-9]*"/>
 
     <!-- ignore gensrc/thrift/ExternalTableSchema.thrift -->
     <suppress files=".*thrift/schema/external/.*" checks=".*"/>

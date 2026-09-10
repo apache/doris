@@ -410,7 +410,9 @@ public class DeleteFileIndex {
       return this;
     }
 
-    Builder schemasById(Map<Integer, Schema> newSchemasById) {
+    // Doris' cache-backed planner builds this index outside org.apache.iceberg and must preserve equality-delete
+    // fields from every historical schema, including fields absent from the current table schema.
+    public Builder schemasById(Map<Integer, Schema> newSchemasById) {
       this.schemasById = newSchemasById;
       return this;
     }

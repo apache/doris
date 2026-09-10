@@ -75,7 +75,6 @@ import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
-import org.apache.iceberg.util.SerializationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -1559,7 +1558,7 @@ public class IcebergScanPlanProviderTest {
                 .build());
 
         Assertions.assertEquals(1, ranges.size(), "one data file -> one metadata split");
-        FileScanTask task = SerializationUtil.deserializeFromBase64(
+        FileScanTask task = IcebergSystemTableSerialization.deserializeFromBase64(
                 ((IcebergScanRange) ranges.get(0)).getSerializedSplit());
         Assertions.assertNotNull(task.schema().findField("file_size_in_bytes"),
                 "the requested column must survive in the projected task schema");
@@ -1602,7 +1601,7 @@ public class IcebergScanPlanProviderTest {
                 .build());
 
         Assertions.assertEquals(1, ranges.size(), "one commit -> one $snapshots metadata split");
-        FileScanTask task = SerializationUtil.deserializeFromBase64(
+        FileScanTask task = IcebergSystemTableSerialization.deserializeFromBase64(
                 ((IcebergScanRange) ranges.get(0)).getSerializedSplit());
         try (CloseableIterable<StructLike> rows = task.asDataTask().rows()) {
             Iterator<StructLike> it = rows.iterator();
@@ -1792,6 +1791,18 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void jniSystemTableNeedsNoRollingUpgradeFence() {
+        Table table = createTable("sys_upgrade", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, IcebergTableHandle.forSystemTable("db1", "sys_upgrade", "snapshots", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty());
+
+        Assertions.assertFalse(props.containsKey(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
+    }
+
+    @Test
     public void getScanNodePropertiesForPositionDeletesRowRequiresCurrentBackendSemantics() {
         Table table = tableWithPositionDelete(
                 positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null));
@@ -1889,10 +1900,18 @@ public class IcebergScanPlanProviderTest {
         } else {
             table.updateSchema().renameColumn("x", "renamed_x").commit();
         }
+
+        assertHistoricalPredicatePlans(table, historicalSnapshotId, historicalSchemaId);
+
         table.newFastAppend()
                 .appendFile(dataFile(table.spec(), "s3://b/db/current.parquet", 1024, null, null))
                 .commit();
 
+        assertHistoricalPredicatePlans(table, historicalSnapshotId, historicalSchemaId);
+    }
+
+    private static void assertHistoricalPredicatePlans(
+            Table table, long historicalSnapshotId, int historicalSchemaId) {
         IcebergTableHandle historicalHandle = new IcebergTableHandle("db1", "t1")
                 .withSnapshot(historicalSnapshotId, null, historicalSchemaId);
         List<ConnectorScanRange> ranges = providerOver(table).planScan(
@@ -2016,6 +2035,29 @@ public class IcebergScanPlanProviderTest {
                 .build());
         Assertions.assertEquals(1, pinned.size());
         Assertions.assertTrue(pinned.get(0).getPath().get().endsWith("f1.parquet"));
+    }
+
+    @Test
+    public void planScanPinnedToBranchBindsPredicateToCurrentSchema() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "score", Types.IntegerType.get()));
+        Table table = createTable("branch_predicate", schema, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(
+                table.spec(), "s3://b/db/branch_predicate/f1.parquet", 1024, null, null)).commit();
+        long branchSnapshotId = table.currentSnapshot().snapshotId();
+        table.manageSnapshots().createBranch("b1", branchSnapshotId).commit();
+        table.updateSchema().renameColumn("score", "grade").commit();
+        IcebergTableHandle branchHandle = new IcebergTableHandle("db1", "branch_predicate")
+                .withSnapshot(branchSnapshotId, "b1", table.schema().schemaId());
+
+        List<ConnectorScanRange> ranges = providerOver(table).planScan(
+                emptySession(), ConnectorScanRequest.builder(branchHandle, Collections.emptyList())
+                        .filter(Optional.of(eqInt("grade", 1)))
+                        .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertTrue(ranges.get(0).getPath().get().endsWith("f1.parquet"));
     }
 
     @Test
@@ -3347,6 +3389,31 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertTrue(cache.size() >= 2, "the data + delete manifests must both be cached");
     }
 
+    @Test
+    public void streamSplitsManifestCacheResolvesDroppedEqualityDeleteFieldAfterReload() throws IOException {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "old_key", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        Table table = createPersistedTable("dropped_cache_key", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/dropped_cache_key/f1.parquet", 1024, null, null)).commit();
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/dropped_cache_key/eq.parquet", FileFormat.PARQUET, 1)).commit();
+        table.updateSchema().deleteColumn("old_key").commit();
+        Table reloaded = reloadPersistedTable(table);
+        IcebergManifestCache cache = new IcebergManifestCache();
+
+        List<ConnectorScanRange> ranges = drain(manifestProvider(manifestCacheProps(), reloaded, cache)
+                .streamSplits(emptySession(), new IcebergTableHandle("db1", "dropped_cache_key"),
+                        Collections.emptyList(), Optional.empty(), -1L));
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(1, deleteCount(ranges.get(0)));
+        Assertions.assertEquals(0L, cache.takeStats("q")[2],
+                "historical equality-delete keys must not force the cache path to fail");
+    }
+
     // --- T09: vended credentials (extractVendedToken + static/vended location.* + URI threading) ---
 
     @Test
@@ -3915,7 +3982,7 @@ public class IcebergScanPlanProviderTest {
     @Test
     public void planScanForSystemTableSerializesEachFileScanTaskAsJniSplit() {
         // A $snapshots handle plans through the metadata table (MetadataTableUtils.createMetadataTableInstance):
-        // each metadata FileScanTask is serialized (SerializationUtil.serializeToBase64) and emitted as a JNI
+        // each metadata FileScanTask is serialized with the Iceberg 1.10.1 Schema UID and emitted as a JNI
         // split carrying ONLY serialized_split + FORMAT_JNI + table_level_row_count=-1, mirroring legacy
         // IcebergScanNode.doGetSystemTableSplits + setIcebergParams. MUTATION: routing the sys handle through
         // the normal data-file path (resolveTable + buildRange) -> the range carries the f1.parquet path and no
@@ -3935,6 +4002,8 @@ public class IcebergScanPlanProviderTest {
             String serialized = ((IcebergScanRange) range).getSerializedSplit();
             Assertions.assertNotNull(serialized, "every sys split must carry a serialized FileScanTask");
             Assertions.assertFalse(serialized.isEmpty());
+            Assertions.assertEquals(IcebergSystemTableSerialization.ICEBERG_1_10_1_SCHEMA_UID,
+                    IcebergSystemTableSerialization.schemaUid(serialized));
             TFileRangeDesc rangeDesc = populate(range);
             Assertions.assertEquals(TFileFormatType.FORMAT_JNI, rangeDesc.getFormatType());
             Assertions.assertEquals(serialized,
@@ -3947,7 +4016,8 @@ public class IcebergScanPlanProviderTest {
     public void planScanForSystemTableSplitDeserializesThroughTheBeJniReaderPath() throws Exception {
         // The strongest FE-reachable byte-shape parity check: the serialized_split must be consumable EXACTLY
         // as BE's IcebergSysTableJniScanner consumes it —
-        // SerializationUtil.deserializeFromBase64(...).asDataTask().rows() — and must carry the METADATA-table
+        // IcebergSystemTableSerialization.deserializeFromBase64(...).asDataTask().rows() — and must carry the
+        // METADATA-table
         // schema ($snapshots), not the base table's. (Cross-version / classloader interop is P6.8 docker e2e.)
         // MUTATION: serializing anything other than the FileScanTask (e.g. the DataFile) -> deserialize /
         // asDataTask() fails or yields the wrong schema -> red.
@@ -3964,7 +4034,8 @@ public class IcebergScanPlanProviderTest {
         long snapshotRows = 0;
         for (ConnectorScanRange range : ranges) {
             FileScanTask task =
-                    SerializationUtil.deserializeFromBase64(((IcebergScanRange) range).getSerializedSplit());
+                    IcebergSystemTableSerialization.deserializeFromBase64(
+                            ((IcebergScanRange) range).getSerializedSplit());
             // the deserialized task exposes the $snapshots metadata schema, not the base table's columns.
             Assertions.assertNotNull(task.schema().findField("snapshot_id"),
                     "the serialized split must carry the metadata-table ($snapshots) schema");
@@ -4122,7 +4193,8 @@ public class IcebergScanPlanProviderTest {
     private static String firstSysSplitResidual(List<ConnectorScanRange> ranges) throws Exception {
         Assertions.assertFalse(ranges.isEmpty(), "the metadata table must plan at least one split");
         FileScanTask task =
-                SerializationUtil.deserializeFromBase64(((IcebergScanRange) ranges.get(0)).getSerializedSplit());
+                IcebergSystemTableSerialization.deserializeFromBase64(
+                        ((IcebergScanRange) ranges.get(0)).getSerializedSplit());
         return task.residual().toString();
     }
 
@@ -4249,7 +4321,8 @@ public class IcebergScanPlanProviderTest {
         long rows = 0;
         for (ConnectorScanRange range : ranges) {
             FileScanTask task =
-                    SerializationUtil.deserializeFromBase64(((IcebergScanRange) range).getSerializedSplit());
+                    IcebergSystemTableSerialization.deserializeFromBase64(
+                            ((IcebergScanRange) range).getSerializedSplit());
             try (CloseableIterable<StructLike> closeable = task.asDataTask().rows()) {
                 Iterator<StructLike> it = closeable.iterator();
                 while (it.hasNext()) {
