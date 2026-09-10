@@ -424,6 +424,22 @@ public class Predicates {
         return ImmutableMap.copyOf(remainingPredicates);
     }
 
+    /** Whether output guarantees prove that a filter predicate is redundant at its input. */
+    static boolean isImpliedByOutput(Set<Expression> outputPredicates, Expression predicate) {
+        if (outputPredicates.contains(predicate)) {
+            return true;
+        }
+        if (outputPredicates.isEmpty() || predicate.containsVolatileExpression()) {
+            return false;
+        }
+        try {
+            return impliesByDnf(ExpressionUtils.and(outputPredicates), predicate);
+        } catch (DnfBranchOverflowException exception) {
+            // Keep the filter when proving it would exceed the existing implication budget.
+            return false;
+        }
+    }
+
     private static boolean impliesByDnf(Expression source, Expression target) {
         // Check whether source => target.
         List<Set<Expression>> sourceBranches = extractDnfBranches(source);
