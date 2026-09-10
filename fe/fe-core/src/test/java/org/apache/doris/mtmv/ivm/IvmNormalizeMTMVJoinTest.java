@@ -1049,8 +1049,7 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         MTMV mtmv = buildMtmvFromPlan(ImmutableList.of(leftId));
         mtmv.getIvmInfo().setUseFullKeys(true);
         ConnectContext ctx = newConnectContext();
-        ctx.getStatementContext().setIvmRewriteContext(Optional.of(
-                new IvmRewriteContext(IvmRewriteContext.Mode.CREATE, mtmv, false)));
+        ctx.getStatementContext().setIvmRewriteContext(Optional.of(IvmRewriteContext.normalize(mtmv)));
         JobContext jobContext = newJobContextForRoot(sink, ctx);
         Plan normalized = new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
