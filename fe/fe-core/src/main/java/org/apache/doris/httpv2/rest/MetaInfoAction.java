@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
@@ -33,7 +32,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
@@ -64,8 +62,6 @@ public class MetaInfoAction extends RestBaseController {
     private static final String NAMESPACES = "namespaces";
     private static final String DATABASES = "databases";
     private static final String TABLES = "tables";
-    private static final String PARAM_LIMIT = "limit";
-    private static final String PARAM_OFFSET = "offset";
     private static final String PARAM_WITH_MV = "with_mv";
 
 
@@ -124,8 +120,7 @@ public class MetaInfoAction extends RestBaseController {
         Collections.sort(visibleDbNames);
 
         // handle limit offset
-        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, visibleDbNames.size());
-        return ResponseEntityBuilder.ok(visibleDbNames.subList(fromToIndex.first, fromToIndex.second));
+        return ResponseEntityBuilder.ok(paginate(request, visibleDbNames));
     }
 
     /** Get all tables of a database
@@ -174,8 +169,7 @@ public class MetaInfoAction extends RestBaseController {
         Collections.sort(tblNames);
 
         // handle limit offset
-        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, tblNames.size());
-        return ResponseEntityBuilder.ok(tblNames.subList(fromToIndex.first, fromToIndex.second));
+        return ResponseEntityBuilder.ok(paginate(request, tblNames));
     }
 
     /** Get schema of a table
@@ -309,38 +303,4 @@ public class MetaInfoAction extends RestBaseController {
         return val.equals(FeConstants.null_string) ? null : val;
     }
 
-    // get limit and offset from query parameter
-    // and return fromIndex and toIndex of a list
-    private Pair<Integer, Integer> getFromToIndex(HttpServletRequest request, int maxNum) {
-        String limitStr = request.getParameter(PARAM_LIMIT);
-        String offsetStr = request.getParameter(PARAM_OFFSET);
-
-        int offset = 0;
-        int limit = Integer.MAX_VALUE;
-        if (Strings.isNullOrEmpty(limitStr)) {
-            // limit not set
-            if (!Strings.isNullOrEmpty(offsetStr)) {
-                throw new BadRequestException("Param offset should be set with param limit");
-            }
-        } else {
-            // limit is set
-            limit = Integer.valueOf(limitStr);
-            if (limit < 0) {
-                throw new BadRequestException("Param limit should >= 0");
-            }
-
-            offset = 0;
-            if (!Strings.isNullOrEmpty(offsetStr)) {
-                offset = Integer.valueOf(offsetStr);
-                if (offset < 0) {
-                    throw new BadRequestException("Param offset should >= 0");
-                }
-            }
-        }
-
-        if (maxNum <= 0) {
-            return Pair.of(0, 0);
-        }
-        return Pair.of(Math.min(offset, maxNum - 1), Math.min(limit + offset, maxNum));
-    }
 }
