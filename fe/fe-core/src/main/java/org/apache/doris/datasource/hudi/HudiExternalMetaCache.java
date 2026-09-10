@@ -34,6 +34,7 @@ import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
@@ -97,7 +98,7 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
         fsViewEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_FS_VIEW, HudiFsViewCacheKey.class,
                 HudiFsViewCacheValue.class, this::createFsView, defaultEntryCacheSpec(),
                 false, MetaCacheEntryInvalidation.forNameMapping(HudiFsViewCacheKey::getNameMapping))
-                .withRemovalListener(value -> value, this::evictFsView)
+                .withRemovalListener(value -> value, this::releaseFsViewCacheReference)
                 .withStrongValues());
         metaClientEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_META_CLIENT, HudiMetaClientCacheKey.class,
                 HoodieTableMetaClient.class, this::createHoodieTableMetaClient, defaultEntryCacheSpec(),
@@ -128,6 +129,7 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
                 }
             }
             HudiFsViewCacheValue value = generation.entry.get(key);
+            afterFsViewLoadForTest(generation, key, value);
             HudiFsViewCacheValue.Lease lease;
             boolean staleGeneration;
             synchronized (this) {
@@ -135,10 +137,15 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
                 lease = staleGeneration ? null : value.tryAcquire();
             }
             if (staleGeneration) {
-                value.evict();
+                value.retire();
                 throw new IllegalStateException(
                         "Hudi catalog runtime changed before filesystem-view acquisition");
             }
+            if (generation.entry.peekIfPresent(key) != value) {
+                // Disabled, closed, rejected, and invalidation-suppressed loads have no cache owner.
+                value.releaseCacheReference();
+            }
+            value.releaseLoaderReference();
             if (lease == null) {
                 continue;
             }
@@ -158,6 +165,11 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
                 throw new RuntimeException("Failed to synchronize Hudi filesystem view", e);
             }
         }
+    }
+
+    @VisibleForTesting
+    void afterFsViewLoadForTest(FsViewGeneration generation, HudiFsViewCacheKey key,
+            HudiFsViewCacheValue value) {
     }
 
     /** A reference to one exact catalog cache generation. */
@@ -217,9 +229,9 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
                 FileSystemViewManager.createInMemoryFileSystemView(ctx, tableMetaClient, metadataConfig));
     }
 
-    private void evictFsView(HudiFsViewCacheKey key, HudiFsViewCacheValue value) {
+    private void releaseFsViewCacheReference(HudiFsViewCacheKey key, HudiFsViewCacheValue value) {
         if (value != null) {
-            value.evict();
+            value.releaseCacheReference();
         }
     }
 

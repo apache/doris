@@ -228,4 +228,10 @@ public class SplitAssignment {
             LOG.warn("close resource registered after stop error:{}", e.getMessage(), e);
         }
     }
+
+    public void removeCloseable(Closeable resource) {
+        synchronized (closeableResources) {
+            closeableResources.remove(resource);
+        }
+    }
 }

@@ -82,8 +82,12 @@ public abstract class BaseIcebergAction extends BaseExecuteAction {
 
     @Override
     protected final List<String> executeAction(TableIf table) throws UserException {
-        try (WritableTableLease lease = IcebergUtils.acquireWritableIcebergTable(
-                (IcebergExternalTable) table, metadataOps)) {
+        // Keep the pre-mutation generation fence outside the execution catch. The command may
+        // safely rebuild the action when acquisition detects a reset, but it must never retry an
+        // exception raised after the action body has started.
+        WritableTableLease writableLease = IcebergUtils.acquireWritableIcebergTable(
+                (IcebergExternalTable) table, metadataOps);
+        try (WritableTableLease lease = writableLease) {
             return lease.getAuthenticator().execute(
                     () -> executeIcebergAction(table, lease));
         } catch (UserException e) {
