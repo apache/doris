@@ -120,10 +120,12 @@ public class SchemaTableTest {
         SchemaTable tsoStatus = (SchemaTable) SchemaTable.TABLE_MAP.get("tso_status");
         Assertions.assertFalse(tsoStatus.shouldFetchAllFe());
         Assertions.assertFalse(tsoStatus.shouldAddAgg());
-        Assertions.assertEquals(4, tsoStatus.getFullSchema().size());
+        Assertions.assertEquals(6, tsoStatus.getFullSchema().size());
         Assertions.assertEquals("WINDOW_END_PHYSICAL_TIME", tsoStatus.getFullSchema().get(0).getName());
         Assertions.assertEquals("CURRENT_TSO", tsoStatus.getFullSchema().get(1).getName());
         Assertions.assertEquals("CURRENT_TSO_PHYSICAL_TIME", tsoStatus.getFullSchema().get(2).getName());
         Assertions.assertEquals("CURRENT_TSO_LOGICAL_COUNTER", tsoStatus.getFullSchema().get(3).getName());
+        Assertions.assertEquals("COMMITTED_TSO", tsoStatus.getFullSchema().get(4).getName());
+        Assertions.assertEquals("COMMITTED_TSO_PHYSICAL_TIME", tsoStatus.getFullSchema().get(5).getName());
     }
 }
