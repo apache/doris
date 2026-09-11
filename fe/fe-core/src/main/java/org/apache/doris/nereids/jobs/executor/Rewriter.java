@@ -680,9 +680,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 topic("init join", bottomUp(ImmutableList.of(new InitJoinOrder()))),
                 topic("Eager aggregation",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(
-                                LogicalAggregate.class, LogicalJoin.class
-                        ),
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
+                                && cascadesContext.rewritePlanContainsTypes(LogicalJoin.class, LogicalUnion.class),
                         custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
                         topDown(new PushCountIntoUnionAll())
                 ),
