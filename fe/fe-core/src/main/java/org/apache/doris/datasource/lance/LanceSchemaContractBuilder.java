@@ -26,6 +26,7 @@ import org.apache.arrow.vector.types.DateUnit;
 import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.lance.schema.LanceField;
 
 import java.util.Arrays;
@@ -47,6 +48,18 @@ import java.util.regex.Pattern;
  * field id (0 is legal) or a non-positive dimension is a malformed provider fact and fails
  * closed the same way. The canonical vocabulary defined here is the Java-side authority the
  * Rust worker's golden fixtures align to (design section 4.2).
+ *
+ * <p>Fixed-size-list element facts are sourced from the reconstructed Arrow view, not from
+ * the LanceField tree. The pinned SDK's {@code Dataset.getLanceSchema()} collapses the element
+ * into the manifest logical-type string (for example {@code fixed_size_list:float:4}), so the
+ * field's children are always empty, while {@link LanceField#asArrowField()} synthesizes the
+ * element back as the first child of the Arrow view. The element type is recovered from that
+ * synthesized child; its nullability is copied as synthesized — the manifest has no slot for
+ * element nullability, so the reconstruction reports {@code true} today regardless of what was
+ * written, and existing datasets are as affected as new ones. The contract therefore records
+ * reconstructed-schema facts, which is exactly what the worker observes through the same SDK;
+ * copying the synthesized flag instead of pinning {@code true} lets the contract improve
+ * automatically if a future SDK preserves element nullability.
  */
 final class LanceSchemaContractBuilder {
     /** Timezones that fit the canonical {@code tz="…"} slot without any escaping (IANA names). */
@@ -104,12 +117,19 @@ final class LanceSchemaContractBuilder {
                         "unsupported schema contract: fixed-size list dimension must be positive");
             }
             fixedSizeListDimension = listSize;
-            List<LanceField> children = field.getChildren();
-            if (children == null || children.size() != 1 || children.get(0) == null) {
-                throw new IllegalArgumentException(
-                        "Lance fixed-size list field must have exactly one child");
+            // The pinned SDK collapses the element into the manifest logical-type string, so the
+            // LanceField tree never carries children for a fixed-size list; asArrowField()
+            // re-synthesizes the element as the first child of the reconstructed Arrow view. The
+            // synthesized child's nullability is always true — the manifest has no slot for
+            // element nullability — and it is copied as-is so the contract tracks whatever the
+            // SDK can reconstruct rather than pinning the limitation.
+            Field arrowView = field.asArrowField();
+            List<Field> elements = arrowView == null ? null : arrowView.getChildren();
+            if (elements == null || elements.isEmpty() || elements.get(0) == null) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_LANCE_INDEX_INVALID,
+                        "unsupported schema contract: fixed-size list element must be present");
             }
-            LanceField element = children.get(0);
+            Field element = elements.get(0);
             vectorElementType = canonicalType(element.getType());
             vectorElementNullable = element.isNullable();
         }

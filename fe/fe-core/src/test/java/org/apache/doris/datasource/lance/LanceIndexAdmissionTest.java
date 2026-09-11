@@ -39,6 +39,8 @@ import org.apache.doris.qe.ConnectContext;
 
 import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,7 +50,6 @@ import org.lance.schema.LanceField;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -114,7 +115,7 @@ public class LanceIndexAdmissionTest {
         Mockito.when(catalog.getId()).thenReturn(CATALOG_ID);
         Mockito.when(catalog.getProperties()).thenReturn(new HashMap<>());
         CatalogMgr catalogMgr = new CatalogMgr();
-        Field catalogs = CatalogMgr.class.getDeclaredField("idToCatalog");
+        java.lang.reflect.Field catalogs = CatalogMgr.class.getDeclaredField("idToCatalog");
         catalogs.setAccessible(true);
         @SuppressWarnings("unchecked")
         Map<Long, CatalogIf> registered = (Map<Long, CatalogIf>) catalogs.get(catalogMgr);
@@ -178,19 +179,20 @@ public class LanceIndexAdmissionTest {
     }
 
     private static LanceField vectorField(String name, int id) {
-        LanceField element = Mockito.mock(LanceField.class);
-        Mockito.when(element.getId()).thenReturn(id * 100 + 1);
-        Mockito.when(element.getName()).thenReturn("item");
-        Mockito.when(element.getType())
-                .thenReturn(new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE));
-        Mockito.when(element.isNullable()).thenReturn(false);
-        Mockito.when(element.getChildren()).thenReturn(Collections.emptyList());
+        // Mirrors the pinned SDK: the LanceField tree carries no children for a fixed-size
+        // list; the element lives only in the synthesized child of the reconstructed Arrow
+        // view, always nullable.
+        Field synthesizedElement = Field.nullable("item",
+                new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE));
+        Field arrowView = new Field(name, FieldType.notNullable(new ArrowType.FixedSizeList(4)),
+                Collections.singletonList(synthesizedElement));
         LanceField field = Mockito.mock(LanceField.class);
         Mockito.when(field.getId()).thenReturn(id);
         Mockito.when(field.getName()).thenReturn(name);
         Mockito.when(field.getType()).thenReturn(new ArrowType.FixedSizeList(4));
         Mockito.when(field.isNullable()).thenReturn(false);
-        Mockito.when(field.getChildren()).thenReturn(Collections.singletonList(element));
+        Mockito.when(field.getChildren()).thenReturn(Collections.emptyList());
+        Mockito.when(field.asArrowField()).thenReturn(arrowView);
         return field;
     }
 
@@ -342,7 +344,9 @@ public class LanceIndexAdmissionTest {
         Assertions.assertFalse(field.isNullable());
         Assertions.assertEquals(4, field.getFixedSizeListDimension());
         Assertions.assertEquals("float32", field.getVectorElementType());
-        Assertions.assertEquals(Boolean.FALSE, field.getVectorElementNullable());
+        // The synthesized element child is always nullable — the manifest has no slot for
+        // element nullability — so the contract records the reconstructed-schema fact.
+        Assertions.assertEquals(Boolean.TRUE, field.getVectorElementNullable());
 
         Assertions.assertEquals(1, manager.getJobCount());
         Assertions.assertEquals(1, manager.editLog.size());

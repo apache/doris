@@ -51,6 +51,8 @@ import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,7 +62,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -181,29 +182,30 @@ public class AlterTableCommandLanceAdmissionTest {
 
         @SuppressWarnings("unchecked")
         private void registerCatalog() throws ReflectiveOperationException {
-            Field idToCatalog = CatalogMgr.class.getDeclaredField("idToCatalog");
+            java.lang.reflect.Field idToCatalog = CatalogMgr.class.getDeclaredField("idToCatalog");
             idToCatalog.setAccessible(true);
             ((Map<Long, CatalogIf>) idToCatalog.get(catalogMgr)).put(CATALOG_ID, catalog);
-            Field nameToCatalog = CatalogMgr.class.getDeclaredField("nameToCatalog");
+            java.lang.reflect.Field nameToCatalog = CatalogMgr.class.getDeclaredField("nameToCatalog");
             nameToCatalog.setAccessible(true);
             ((Map<String, CatalogIf>) nameToCatalog.get(catalogMgr)).put(CTL, catalog);
         }
 
         void respondWithSnapshot(List<LanceLogicalIndex> logical, List<PhysicalIndexInfo> physical)
                 throws Exception {
-            LanceField element = Mockito.mock(LanceField.class);
-            Mockito.when(element.getId()).thenReturn(101);
-            Mockito.when(element.getName()).thenReturn("item");
-            Mockito.when(element.getType())
-                    .thenReturn(new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE));
-            Mockito.when(element.isNullable()).thenReturn(false);
-            Mockito.when(element.getChildren()).thenReturn(Collections.emptyList());
+            // Mirrors the pinned SDK: the LanceField tree carries no children for a fixed-size
+            // list; the element lives only in the synthesized child of the reconstructed Arrow
+            // view, always nullable.
+            Field synthesizedElement = Field.nullable("item",
+                    new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE));
+            Field arrowView = new Field("v", FieldType.notNullable(new ArrowType.FixedSizeList(4)),
+                    Collections.singletonList(synthesizedElement));
             LanceField vector = Mockito.mock(LanceField.class);
             Mockito.when(vector.getId()).thenReturn(1);
             Mockito.when(vector.getName()).thenReturn("v");
             Mockito.when(vector.getType()).thenReturn(new ArrowType.FixedSizeList(4));
             Mockito.when(vector.isNullable()).thenReturn(false);
-            Mockito.when(vector.getChildren()).thenReturn(Collections.singletonList(element));
+            Mockito.when(vector.getChildren()).thenReturn(Collections.emptyList());
+            Mockito.when(vector.asArrowField()).thenReturn(arrowView);
             LanceField scalar = Mockito.mock(LanceField.class);
             Mockito.when(scalar.getId()).thenReturn(2);
             Mockito.when(scalar.getName()).thenReturn("c");
