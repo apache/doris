@@ -2380,9 +2380,10 @@ public class SessionVariable implements Serializable, Writable {
             + "pushdown minmax on unique table.")
     public boolean enablePushDownMinMaxOnUnique = false;
 
-    // Whether enable push down string type minmax to scan node.
-    @VarAttrDef.VarAttr(name = ENABLE_PUSHDOWN_STRING_MINMAX, needForward = true, description = "Set whether to enable "
-            + "push down string type minmax.")
+    // Whether a cut string zone map bound may answer MIN/MAX. A bound is cut at 512 bytes, so a
+    // cut one is a prefix, not a value the column holds. Statistics collection takes it anyway.
+    @VarAttrDef.VarAttr(name = ENABLE_PUSHDOWN_STRING_MINMAX, needForward = true, description = "Set whether a cut "
+            + "string zone map bound may answer a pushed down minmax.")
     public boolean enablePushDownStringMinMax = false;
 
     // Comma-separated list of MOR tables to enable value predicate pushdown.
@@ -5580,6 +5581,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
         tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
+        tResult.setEnablePushdownStringMinmax(enablePushDownStringMinMax);
 
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);
