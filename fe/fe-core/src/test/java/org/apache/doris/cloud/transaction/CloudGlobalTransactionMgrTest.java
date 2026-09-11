@@ -46,6 +46,7 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
 
 import com.google.common.collect.Lists;
+import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -102,13 +103,19 @@ public class CloudGlobalTransactionMgrTest {
                     .setFinished(true);
             Mockito.when(proxy.checkTxnConflict(Mockito.any())).thenReturn(response.build());
             Assertions.assertThrows(UserException.class,
-                    () -> masterTransMgr.isPreviousTransactionsFinishedForTsoRecovery(1000));
+                    () -> masterTransMgr.getTsoRecoveryTransactions(1000, ByteString.EMPTY));
             Mockito.when(proxy.checkTxnConflict(Mockito.any())).thenReturn(
                     response.setStrictRecoveryCheckApplied(true).build());
-            Assertions.assertTrue(masterTransMgr.isPreviousTransactionsFinishedForTsoRecovery(1000));
+            Assertions.assertThrows(UserException.class,
+                    () -> masterTransMgr.getTsoRecoveryTransactions(1000, ByteString.EMPTY));
+            Mockito.when(proxy.checkTxnConflict(Mockito.any())).thenReturn(
+                    response.setRecoveryBatchApplied(true).setNextRecoveryKey(ByteString.EMPTY).build());
+            Assertions.assertTrue(masterTransMgr.getTsoRecoveryTransactions(1000, ByteString.EMPTY)
+                    .getNextRecoveryKey().isEmpty());
             ArgumentCaptor<Cloud.CheckTxnConflictRequest> capture =
                     ArgumentCaptor.forClass(Cloud.CheckTxnConflictRequest.class);
-            Mockito.verify(proxy, Mockito.times(2)).checkTxnConflict(capture.capture());
+            Mockito.verify(proxy, Mockito.times(3)).checkTxnConflict(capture.capture());
+            Assertions.assertEquals(256, capture.getValue().getRecoveryBatchSize());
             Assertions.assertTrue(capture.getValue().getStrictRecoveryCheck());
             Assertions.assertEquals(1000, capture.getValue().getEndTxnId());
             Assertions.assertFalse(capture.getValue().hasDbId());

@@ -17,6 +17,9 @@
 
 package org.apache.doris.tso;
 
+import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictResponse;
+import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
+import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
@@ -24,10 +27,12 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
+import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -48,10 +53,15 @@ final class TSOTransactionTracker {
     private final Condition transactionsChanged;
     private final Map<Pair<Long, Long>, PendingTransaction> pendingByTxn = new HashMap<>();
     private final TreeMap<Long, PendingTransaction> pendingByTso = new TreeMap<>();
+    // Recovered transactions may have no persisted TSO yet. Keep them out of the TSO index.
+    private final TreeMap<Long, PendingTransaction> recoveryByTxn = new TreeMap<>();
     private long generation;
     private long recoveryDeadlineNanos;
     private long recoveryWatermark;
     private boolean recoveryReady;
+    private boolean recoveryLoaded;
+    private ByteString recoveryStartKey = ByteString.EMPTY;
+    private long recoveryPollCursor;
     private long pollCursor;
 
     enum WaitResult {
@@ -64,7 +74,7 @@ final class TSOTransactionTracker {
         private final long registeredAtNanos;
         private final Set<Long> tableIds;
 
-        private PendingTransaction(Pair<Long, Long> identity, long tso, long nowNanos, Set<Long> tableIds) {
+        private PendingTransaction(Pair<Long, Long> identity, long tso, long nowNanos, Collection<Long> tableIds) {
             this.identity = identity;
             this.tso = tso;
             this.registeredAtNanos = nowNanos;
@@ -82,9 +92,13 @@ final class TSOTransactionTracker {
         generation++;
         pendingByTxn.clear();
         pendingByTso.clear();
+        recoveryByTxn.clear();
         recoveryDeadlineNanos = nowNanos + TimeUnit.MILLISECONDS.toNanos(recoveryDelayMs);
         recoveryWatermark = 0;
         recoveryReady = false;
+        recoveryLoaded = false;
+        recoveryStartKey = ByteString.EMPTY;
+        recoveryPollCursor = 0;
         pollCursor = 0;
         transactionsChanged.signalAll();
     }
@@ -92,6 +106,10 @@ final class TSOTransactionTracker {
     void register(Pair<Long, Long> identity, long tso, long nowNanos, Set<Long> tableIds) {
         Preconditions.checkState(lock.isHeldByCurrentThread());
         Preconditions.checkArgument(!tableIds.isEmpty(), "commit registration requires table IDs");
+        PendingTransaction recovered = recoveryByTxn.get(identity.second);
+        if (recovered != null) {
+            recovered.tableIds.addAll(tableIds);
+        }
         PendingTransaction existing = pendingByTxn.get(identity);
         if (existing != null) {
             // A timed-out request can still commit using the earlier TSO.
@@ -107,12 +125,19 @@ final class TSOTransactionTracker {
     WaitResult awaitTransactions(Map<Long, List<Long>> dbToTableIds, long endTso, long remainingNanos)
             throws InterruptedException {
         Preconditions.checkState(lock.isHeldByCurrentThread());
-        if (!recoveryReady) {
+        if (!recoveryLoaded) {
             return WaitResult.RECOVERING;
         }
         long waitStartNanos = System.nanoTime();
         long waitGeneration = generation;
         List<PendingTransaction> remaining = new ArrayList<>();
+        for (PendingTransaction pending : recoveryByTxn.values()) {
+            List<Long> tables = dbToTableIds.get(pending.identity.first);
+            if ((pending.tso <= 0 || pending.tso <= endTso)
+                    && tables != null && !Collections.disjoint(tables, pending.tableIds)) {
+                remaining.add(pending);
+            }
+        }
         for (PendingTransaction pending : pendingByTso.headMap(endTso, true).values()) {
             List<Long> tables = dbToTableIds.get(pending.identity.first);
             if (tables != null && !Collections.disjoint(tables, pending.tableIds)) {
@@ -125,7 +150,8 @@ final class TSOTransactionTracker {
             if (generation != waitGeneration) {
                 return WaitResult.RECOVERING;
             }
-            remaining.removeIf(pending -> pendingByTxn.get(pending.identity) != pending);
+            remaining.removeIf(pending -> pendingByTxn.get(pending.identity) != pending
+                    && recoveryByTxn.get(pending.identity.second) != pending);
             if (remaining.isEmpty()) {
                 return WaitResult.FINISHED;
             }
@@ -154,8 +180,10 @@ final class TSOTransactionTracker {
             PendingTransaction pending = pendingByTxn.remove(Pair.of(dbId, txnId));
             if (pending != null) {
                 pendingByTso.remove(pending.tso);
-                transactionsChanged.signalAll();
             }
+            recoveryByTxn.remove(txnId);
+            updateRecoveryReady();
+            transactionsChanged.signalAll();
         } finally {
             lock.unlock();
         }
@@ -166,12 +194,14 @@ final class TSOTransactionTracker {
         long checkGeneration;
         long watermark;
         boolean checkRecovery;
+        ByteString startKey;
         List<PendingTransaction> batch = new ArrayList<>();
         lock.lock();
         try {
             checkGeneration = generation;
             watermark = recoveryWatermark;
-            checkRecovery = !recoveryReady && nowNanos - recoveryDeadlineNanos >= 0;
+            checkRecovery = !recoveryLoaded && nowNanos - recoveryDeadlineNanos >= 0;
+            startKey = recoveryStartKey;
             if (!pendingByTso.isEmpty()) {
                 // Always check the transaction blocking the prefix, then rotate through the rest.
                 PendingTransaction oldest = pendingByTso.firstEntry().getValue();
@@ -190,6 +220,17 @@ final class TSOTransactionTracker {
                     }
                 }
             }
+            for (int i = 0; i < Math.min(CHECK_BATCH_SIZE, recoveryByTxn.size()); i++) {
+                Map.Entry<Long, PendingTransaction> next = recoveryByTxn.higherEntry(recoveryPollCursor);
+                if (next == null) {
+                    next = recoveryByTxn.firstEntry();
+                }
+                recoveryPollCursor = next.getKey();
+                // A local registration already supplies the reconciliation RPC for this transaction.
+                if (!pendingByTxn.containsKey(next.getValue().identity)) {
+                    batch.add(next.getValue());
+                }
+            }
         } finally {
             lock.unlock();
         }
@@ -204,10 +245,9 @@ final class TSOTransactionTracker {
             }
             lock.lock();
             try {
-                if (generation == checkGeneration && pendingByTxn.get(pending.identity) == pending) {
-                    pendingByTxn.remove(pending.identity);
-                    pendingByTso.remove(pending.tso);
-                    transactionsChanged.signalAll();
+                if (generation == checkGeneration && (pendingByTxn.get(pending.identity) == pending
+                        || recoveryByTxn.get(pending.identity.second) == pending)) {
+                    transactionFinished(pending.identity.first, pending.identity.second);
                 }
             } finally {
                 lock.unlock();
@@ -228,16 +268,47 @@ final class TSOTransactionTracker {
                     lock.unlock();
                 }
             }
-            boolean finished = txnMgr.isPreviousTransactionsFinishedForTsoRecovery(watermark);
-            lock.lock();
-            try {
-                if (generation == checkGeneration && finished) {
-                    recoveryReady = true;
-                    LOG.info("TSO recovery completed, transaction watermark={}", watermark);
+            while (true) {
+                CheckTxnConflictResponse response = txnMgr.getTsoRecoveryTransactions(watermark, startKey);
+                lock.lock();
+                try {
+                    if (generation != checkGeneration) {
+                        return;
+                    }
+                    for (TxnInfoPB info : response.getConflictTxnsList()) {
+                        Preconditions.checkState(info.getStatus() != TxnStatusPB.TXN_STATUS_VISIBLE
+                                        && info.getStatus() != TxnStatusPB.TXN_STATUS_ABORTED,
+                                "TSO recovery batch contains a terminal transaction: %s", info.getTxnId());
+                        Pair<Long, Long> identity = Pair.of(info.getDbId(), info.getTxnId());
+                        PendingTransaction recovered = new PendingTransaction(identity,
+                                info.hasCommitTso() ? info.getCommitTso() : 0,
+                                nowNanos, info.getTableIdsList());
+                        PendingTransaction local = pendingByTxn.get(identity);
+                        if (local != null) {
+                            recovered.tableIds.addAll(local.tableIds);
+                        }
+                        recoveryByTxn.put(info.getTxnId(), recovered);
+                    }
+                    startKey = response.getNextRecoveryKey();
+                    recoveryStartKey = startKey;
+                    if (startKey.isEmpty()) {
+                        recoveryLoaded = true;
+                        updateRecoveryReady();
+                        LOG.info("Loaded TSO recovery transactions, watermark={}, pending={}",
+                                watermark, recoveryByTxn.size());
+                        return;
+                    }
+                } finally {
+                    lock.unlock();
                 }
-            } finally {
-                lock.unlock();
             }
+        }
+    }
+
+    private void updateRecoveryReady() {
+        if (!recoveryReady && recoveryLoaded && recoveryByTxn.isEmpty()) {
+            recoveryReady = true;
+            LOG.info("TSO recovery completed, transaction watermark={}", recoveryWatermark);
         }
     }
 

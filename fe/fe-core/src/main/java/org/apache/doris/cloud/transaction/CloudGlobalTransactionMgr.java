@@ -138,6 +138,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.protobuf.ByteString;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
@@ -2216,12 +2217,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public boolean isPreviousTransactionsFinishedForTsoRecovery(long endTransactionId) throws UserException {
+    public CheckTxnConflictResponse getTsoRecoveryTransactions(long endTransactionId,
+            ByteString startKey) throws UserException {
         CheckTxnConflictRequest request = CheckTxnConflictRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setEndTxnId(endTransactionId)
-                .setStrictRecoveryCheck(true).build();
+                .setStrictRecoveryCheck(true).setRecoveryBatchSize(256).setRecoveryStartKey(startKey).build();
         CheckTxnConflictResponse response;
         try {
             response = MetaServiceProxy.getInstance().checkTxnConflict(request);
@@ -2231,10 +2233,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (response.getStatus().getCode() != MetaServiceCode.OK) {
             throw new UserException(response.getStatus().getMsg());
         }
-        if (!response.getStrictRecoveryCheckApplied() || !response.hasFinished()) {
-            throw new UserException("MetaService does not support strict TSO recovery; upgrade MetaService first");
+        if (!response.getStrictRecoveryCheckApplied() || !response.getRecoveryBatchApplied()
+                || !response.hasNextRecoveryKey()) {
+            throw new UserException("MetaService does not support TSO recovery batches; upgrade MetaService first");
         }
-        return response.getFinished();
+        return response;
     }
 
     @Override

@@ -17,16 +17,21 @@
 
 package org.apache.doris.tso;
 
+import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictResponse;
+import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
+import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
@@ -69,9 +74,28 @@ public class TSOTransactionTrackerTest {
         }
     }
 
+    static CheckTxnConflictResponse recoveryBatch(ByteString nextKey, TxnInfoPB... transactions) {
+        return CheckTxnConflictResponse.newBuilder().setStrictRecoveryCheckApplied(true)
+                .setRecoveryBatchApplied(true).setNextRecoveryKey(nextKey)
+                .addAllConflictTxns(Arrays.asList(transactions)).build();
+    }
+
+    private static TxnInfoPB recoveryTxn(long dbId, long txnId, long tso, long... tables) {
+        TxnInfoPB.Builder info = TxnInfoPB.newBuilder().setDbId(dbId).setTxnId(txnId)
+                .setStatus(TxnStatusPB.TXN_STATUS_PREPARED);
+        for (long table : tables) {
+            info.addTableIds(table);
+        }
+        if (tso > 0) {
+            info.setCommitTso(tso).setStatus(TxnStatusPB.TXN_STATUS_COMMITTED);
+        }
+        return info.build();
+    }
+
     private void finishRecovery() throws Exception {
         Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
-        Mockito.doReturn(true).when(txnMgr).isPreviousTransactionsFinishedForTsoRecovery(1000L);
+        Mockito.doReturn(recoveryBatch(ByteString.EMPTY)).when(txnMgr)
+                .getTsoRecoveryTransactions(1000L, ByteString.EMPTY);
         tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(3));
     }
 
@@ -113,6 +137,146 @@ public class TSOTransactionTrackerTest {
     public void testEmptyRegistrationSetCannotBypassRecovery() throws Exception {
         reset(2000);
         Assertions.assertEquals(TSOTransactionTracker.WaitResult.RECOVERING, awaitTable(1, 100, 200));
+    }
+
+    @Test
+    public void testLoadedRecoveryWaitsOnlyRelatedTablesAndKeepsPrefixFrozen() throws Exception {
+        reset(2000);
+        Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+                .thenReturn(recoveryBatch(ByteString.EMPTY,
+                        recoveryTxn(1, 10, 100, 100), recoveryTxn(1, 20, 0, 200)));
+        tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(2));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, awaitTable(1, 300, 200));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, awaitTable(2, 100, 200));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, awaitTable(1, 100, 90));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, awaitTable(1, 100, 200));
+        // No persisted TSO is not proof that an old in-flight commit lies outside this window.
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, awaitTable(1, 200, 90));
+        Assertions.assertEquals(80, candidate(250, 80));
+        tracker.transactionFinished(1, 10);
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, awaitTable(1, 100, 200));
+        Assertions.assertEquals(80, candidate(250, 80));
+        tracker.transactionFinished(1, 20);
+        Assertions.assertTrue(tracker.isRecoveryReady());
+        Assertions.assertEquals(250, candidate(250, 80));
+    }
+
+    @Test
+    public void testFailedBatchResumesWithoutOpeningAnIncompleteRecovery() throws Exception {
+        reset(0);
+        ByteString nextKey = ByteString.copyFromUtf8("next batch");
+        Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+                .thenReturn(recoveryBatch(nextKey, recoveryTxn(1, 10, 100, 100)));
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, nextKey))
+                .thenThrow(new UserException("batch RPC failed"))
+                .thenReturn(recoveryBatch(ByteString.EMPTY, recoveryTxn(2, 20, 0, 200)));
+        Assertions.assertThrows(UserException.class,
+                () -> tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(3)));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.RECOVERING, awaitTable(1, 300, 200));
+        tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(4));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, awaitTable(1, 300, 200));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, awaitTable(1, 100, 200));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, awaitTable(2, 200, 200));
+        Assertions.assertEquals(80, candidate(250, 80));
+        Mockito.verify(txnMgr).getTransactionIdWatermark();
+        Mockito.verify(txnMgr).getTsoRecoveryTransactions(1000L, ByteString.EMPTY);
+    }
+
+    @Test
+    public void testRecoveryBatchesMergeConcurrentRegistrationsAndFinishNotifications() throws Exception {
+        reset(0);
+        ByteString nextKey = ByteString.copyFromUtf8("next batch");
+        Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY)).thenAnswer(invocation -> {
+            Assertions.assertFalse(lock.isHeldByCurrentThread());
+            register(1, 10, 200); // Same old transaction is retried through the new master.
+            return recoveryBatch(nextKey, recoveryTxn(1, 10, 0, 200));
+        });
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, nextKey)).thenAnswer(invocation -> {
+            Assertions.assertFalse(lock.isHeldByCurrentThread());
+            tracker.transactionFinished(1, 10);
+            register(2, 2000, 150); // New transactions must survive importing the old list.
+            return recoveryBatch(ByteString.EMPTY, recoveryTxn(1, 20, 0, 300));
+        });
+        tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(3));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, awaitTable(1, 100, 300));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, awaitTable(1, 200, 300));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, awaitTable(2, 100, 300));
+        Assertions.assertEquals(80, candidate(300, 80));
+        tracker.transactionFinished(1, 20);
+        Assertions.assertEquals(149, candidate(300, 80));
+    }
+
+    @Test
+    public void testRecoveredUnknownTsoRetainsTablesAcrossLocalRetry() throws Exception {
+        reset(0);
+        Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+                .thenReturn(recoveryBatch(ByteString.EMPTY, recoveryTxn(1, 10, 0, 200)));
+        tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(3));
+        register(1, 10, 300);
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, awaitTable(1, 100, 200));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, awaitTable(1, 200, 200));
+        Assertions.assertEquals(80, candidate(400, 80));
+        tracker.transactionFinished(1, 10);
+        Assertions.assertEquals(400, candidate(400, 80));
+    }
+
+    @Test
+    public void testRecoveredTransactionsAreReconciledInBoundedRotatingBatches() throws Exception {
+        reset(0);
+        TxnInfoPB[] transactions = new TxnInfoPB[150];
+        for (int i = 0; i < transactions.length; i++) {
+            transactions[i] = recoveryTxn(1, i + 1, 0, 100);
+        }
+        Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+                .thenReturn(recoveryBatch(ByteString.EMPTY, transactions));
+        tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(3));
+        tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(4));
+        Mockito.verify(txnMgr, Mockito.atMost(64)).getTransactionState(Mockito.anyLong(), Mockito.anyLong());
+        tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(5));
+        tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(6));
+        Mockito.verify(txnMgr).getTransactionState(1, 150);
+        Assertions.assertEquals(80, candidate(200, 80)); // Missing state must retain recovery entries.
+        TransactionState state = Mockito.mock(TransactionState.class);
+        Mockito.when(state.getTransactionStatus()).thenReturn(TransactionStatus.COMMITTED);
+        Mockito.when(txnMgr.getTransactionState(Mockito.anyLong(), Mockito.anyLong())).thenReturn(state);
+        tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(7));
+        Assertions.assertEquals(80, candidate(200, 80));
+        Mockito.when(state.getTransactionStatus()).thenReturn(TransactionStatus.ABORTED);
+        for (int i = 0; i < 3; i++) {
+            tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(8 + i));
+        }
+        Assertions.assertTrue(tracker.isRecoveryReady());
+        Assertions.assertEquals(200, candidate(200, 80));
+    }
+
+    @Test
+    public void testRecoveredTransactionCompletionWakesOnlyItsWaiters() throws Exception {
+        reset(0);
+        Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+                .thenReturn(recoveryBatch(ByteString.EMPTY,
+                        recoveryTxn(1, 10, 0, 100), recoveryTxn(2, 20, 0, 100)));
+        tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(3));
+        CountDownLatch started = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<TSOTransactionTracker.WaitResult> waiting = submitReadWait(executor, started);
+            Assertions.assertTrue(started.await(30, TimeUnit.SECONDS));
+            TransactionState aborted = Mockito.mock(TransactionState.class);
+            Mockito.when(aborted.getTransactionStatus()).thenReturn(TransactionStatus.ABORTED);
+            Mockito.when(txnMgr.getTransactionState(1, 10)).thenReturn(aborted);
+            tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(4));
+            Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, waiting.get(30, TimeUnit.SECONDS));
+            Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, awaitTable(2, 100, 200));
+            Assertions.assertEquals(80, candidate(300, 80));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     private Future<TSOTransactionTracker.WaitResult> submitReadWait(ExecutorService executor, CountDownLatch started) {
@@ -210,13 +374,17 @@ public class TSOTransactionTrackerTest {
         Mockito.verify(txnMgr, Mockito.never()).getTransactionIdWatermark();
         Assertions.assertEquals(80, candidate(250, 80));
         Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L, 2000L);
-        Mockito.when(txnMgr.isPreviousTransactionsFinishedForTsoRecovery(1000L)).thenReturn(false, true);
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+                .thenReturn(recoveryBatch(ByteString.EMPTY, recoveryTxn(1, 10, 0, 100)));
         tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(2));
         Assertions.assertEquals(80, candidate(250, 80));
+        TransactionState aborted = Mockito.mock(TransactionState.class);
+        Mockito.when(aborted.getTransactionStatus()).thenReturn(TransactionStatus.ABORTED);
+        Mockito.when(txnMgr.getTransactionState(1, 10)).thenReturn(aborted);
         tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(3));
         Assertions.assertEquals(199, candidate(250, 80));
         Mockito.verify(txnMgr).getTransactionIdWatermark();
-        Mockito.verify(txnMgr, Mockito.times(2)).isPreviousTransactionsFinishedForTsoRecovery(1000L);
+        Mockito.verify(txnMgr).getTsoRecoveryTransactions(1000L, ByteString.EMPTY);
     }
 
     @Test
@@ -239,7 +407,7 @@ public class TSOTransactionTrackerTest {
         reset(0);
         register(1, 10, 100);
         Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
-        Mockito.when(txnMgr.isPreviousTransactionsFinishedForTsoRecovery(1000L))
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
                 .thenThrow(new UserException("old MS has no strict check capability"));
         Assertions.assertThrows(UserException.class,
                 () -> tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(3)));
@@ -272,10 +440,10 @@ public class TSOTransactionTrackerTest {
     public void testOldRecoveryResultCannotOpenNewRecovery() throws Exception {
         reset(0);
         Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
-        Mockito.when(txnMgr.isPreviousTransactionsFinishedForTsoRecovery(1000L)).thenAnswer(invocation -> {
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY)).thenAnswer(invocation -> {
             Assertions.assertFalse(lock.isHeldByCurrentThread());
             reset(2000);
-            return true;
+            return recoveryBatch(ByteString.EMPTY);
         });
         tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(3));
         Assertions.assertFalse(tracker.isRecoveryReady());

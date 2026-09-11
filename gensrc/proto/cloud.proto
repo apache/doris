@@ -1250,6 +1250,9 @@ message CheckTxnConflictRequest {
     optional string request_ip = 6;
     // Check every database/table in the instance, including expired running transactions.
     optional bool strict_recovery_check = 7 [default = false];
+    // Fetch running transaction details in bounded batches for FE TSO recovery.
+    optional int32 recovery_batch_size = 8;
+    optional bytes recovery_start_key = 9;
 }
 
 message CheckTxnConflictResponse {
@@ -1257,6 +1260,9 @@ message CheckTxnConflictResponse {
     optional bool finished = 2;
     repeated TxnInfoPB conflict_txns = 3;
     optional bool strict_recovery_check_applied = 4;
+    // Present for batch responses; empty means the full instance has been scanned.
+    optional bytes next_recovery_key = 5;
+    optional bool recovery_batch_applied = 6;
 }
 
 message CleanTxnLabelRequest {

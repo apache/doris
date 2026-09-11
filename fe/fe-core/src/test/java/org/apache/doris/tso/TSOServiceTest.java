@@ -33,6 +33,7 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
+import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -467,7 +468,8 @@ public class TSOServiceTest {
         TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
         GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
         Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
-        Mockito.when(txnMgr.isPreviousTransactionsFinishedForTsoRecovery(1000L)).thenReturn(true);
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+                    .thenReturn(TSOTransactionTrackerTest.recoveryBatch(ByteString.EMPTY));
         tracker.checkTransactions(txnMgr, Long.MAX_VALUE);
         try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
             config.when(Config::isCloudMode).thenReturn(true);
@@ -489,7 +491,8 @@ public class TSOServiceTest {
             field.setAccessible(true);
             GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
             Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
-            Mockito.when(txnMgr.isPreviousTransactionsFinishedForTsoRecovery(1000L)).thenReturn(true);
+            Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+                    .thenReturn(TSOTransactionTrackerTest.recoveryBatch(ByteString.EMPTY));
             ((TSOTransactionTracker) field.get(tsoService)).checkTransactions(txnMgr, Long.MAX_VALUE);
         }
     }
@@ -564,7 +567,8 @@ public class TSOServiceTest {
         TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
         GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
         Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
-        Mockito.when(txnMgr.isPreviousTransactionsFinishedForTsoRecovery(1000L)).thenReturn(true);
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+                    .thenReturn(TSOTransactionTrackerTest.recoveryBatch(ByteString.EMPTY));
         tracker.checkTransactions(txnMgr, Long.MAX_VALUE);
         try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
             config.when(Config::isCloudMode).thenReturn(true);
@@ -601,7 +605,8 @@ public class TSOServiceTest {
             TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
             GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
             Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
-            Mockito.when(txnMgr.isPreviousTransactionsFinishedForTsoRecovery(1000L)).thenReturn(true);
+            Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+                    .thenReturn(TSOTransactionTrackerTest.recoveryBatch(ByteString.EMPTY));
             long afterRecoveryDelay = System.nanoTime()
                     + TimeUnit.MILLISECONDS.toNanos(Config.tso_service_window_duration_ms + 1001L);
             tracker.checkTransactions(txnMgr, afterRecoveryDelay);

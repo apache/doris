@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictResponse;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -37,6 +38,8 @@ import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+
+import com.google.protobuf.ByteString;
 
 import java.io.DataInput;
 import java.io.IOException;
@@ -145,8 +148,9 @@ public interface GlobalTransactionMgrIface extends Writable {
     public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
             Map<Long, Set<Long>> backendPartitions) throws UserException;
 
-    /** Instance-wide, timeout-independent check of the exclusive recovery transaction bound. */
-    default boolean isPreviousTransactionsFinishedForTsoRecovery(long endTransactionId) throws UserException {
+    /** Fetch a batch of running transactions below the exclusive recovery transaction bound. */
+    default CheckTxnConflictResponse getTsoRecoveryTransactions(long endTransactionId, ByteString startKey)
+            throws UserException {
         throw new UserException("Strict TSO recovery is only supported in cloud mode");
     }
 

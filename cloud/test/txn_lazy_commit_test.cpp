@@ -1270,6 +1270,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
     commit_req.set_db_id(db_id);
     commit_req.set_txn_id(txn_id);
     commit_req.set_is_2pc(false);
+    commit_req.set_commit_tso(12345);
     commit_req.set_enable_txn_lazy_commit(true);
     CommitTxnResponse commit_res;
     meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -1290,6 +1291,16 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
     ASSERT_EQ(recovery_res.status().code(), MetaServiceCode::OK);
     ASSERT_TRUE(recovery_res.strict_recovery_check_applied());
     ASSERT_FALSE(recovery_res.finished());
+    recovery_req.set_recovery_batch_size(256);
+    recovery_res.Clear();
+    meta_service->check_txn_conflict(&cntl, &recovery_req, &recovery_res, nullptr);
+    ASSERT_EQ(recovery_res.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(recovery_res.recovery_batch_applied());
+    ASSERT_EQ(recovery_res.conflict_txns_size(), 1);
+    EXPECT_EQ(recovery_res.conflict_txns(0).txn_id(), txn_id);
+    EXPECT_EQ(recovery_res.conflict_txns(0).status(), TxnStatusPB::TXN_STATUS_COMMITTED);
+    EXPECT_EQ(recovery_res.conflict_txns(0).commit_tso(), 12345);
+    EXPECT_EQ(recovery_res.conflict_txns(0).table_ids(0), table_id);
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
