@@ -17,9 +17,11 @@
 
 #include "exec/partitioner/partitioner.h"
 
+#include "agent/be_exec_version_manager.h"
 #include "common/cast_set.h"
 #include "common/status.h"
 #include "core/column/column_const.h"
+#include "exec/common/hash_table/hash_key_normalize.h"
 #include "exec/exchange/local_exchange_sink_operator.h"
 #include "exec/exchange/vdata_stream_sender.h"
 #include "runtime/thread_context.h"
@@ -39,12 +41,25 @@ Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Bl
         _initialize_hash_vals(rows);
         auto* __restrict hashes = _hash_vals.data();
         RETURN_IF_ERROR(_get_partition_column_result(block, result));
+        // Equal float keys (-0.0 == +0.0, any NaN) must reach the same channel. Every BE of a
+        // query hashes with the same be_exec_version, so mixed-version senders during a rolling
+        // upgrade keep the legacy raw-bit convention until FE raises the version.
+        const bool normalize_float_keys =
+                state->be_exec_version() >= NORMALIZE_FLOAT_HASH_KEY_VERSION;
         for (int j = 0; j < result_size; ++j) {
             const auto& [col, is_const] = unpack_if_const(block->get_by_position(result[j]).column);
             if (is_const) {
                 continue;
             }
-            _do_hash(col, hashes, j);
+            if (normalize_float_keys) {
+                // The block keeps its own reference, so a float column is hashed from a
+                // normalized copy and the rows sent downstream are unchanged.
+                ColumnPtr key = col;
+                normalize_float_hash_key(key, _partition_expr_ctxs[j]->root()->data_type());
+                _do_hash(key, hashes, j);
+            } else {
+                _do_hash(col, hashes, j);
+            }
         }
 
         for (size_t i = 0; i < rows; i++) {

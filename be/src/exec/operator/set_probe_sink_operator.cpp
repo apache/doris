@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include "exec/common/hash_table/hash_key_normalize.h"
 #include "exec/common/hash_table/hash_table_set_probe.h"
 #include "exec/common/set_utils.h"
 #include "exec/operator/operator.h"
@@ -144,15 +145,16 @@ Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
     auto& build_not_ignore_null = local_state._shared_state->build_not_ignore_null;
 
     auto& child_exprs = local_state._child_exprs;
+    local_state._key_columns_holder.clear();
     for (size_t i = 0; i < child_exprs.size(); ++i) {
         int result_col_id = -1;
         RETURN_IF_ERROR(child_exprs[i]->execute(&block, &result_col_id));
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        const auto* column = block.get_by_position(result_col_id).column.get();
+        ColumnPtr key_column = block.get_by_position(result_col_id).column;
 
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*key_column)) {
             if (!build_not_ignore_null[i]) {
                 return Status::InternalError(
                         "SET operator expects a nullable : {} column in column {}, but the "
@@ -161,18 +163,18 @@ Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
                         build_not_ignore_null[i], i,
                         nullable->get_nested_column_ptr()->is_nullable());
             }
-            raw_ptrs[i] = nullable;
-        } else {
-            if (build_not_ignore_null[i]) {
-                auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
-                local_state._probe_column_inserted_id.emplace_back(block.columns());
-                block.insert(
-                        {column_ptr, make_nullable(block.get_by_position(result_col_id).type), ""});
-                column = column_ptr.get();
-            }
-
-            raw_ptrs[i] = column;
+        } else if (build_not_ignore_null[i]) {
+            key_column = make_nullable(key_column, false);
+            local_state._probe_column_inserted_id.emplace_back(block.columns());
+            block.insert(
+                    {key_column, make_nullable(block.get_by_position(result_col_id).type), ""});
         }
+
+        // Probe keys are normalized the same way as the build keys, see
+        // SetSinkOperatorX::_extract_build_column(); the block keeps the stored values.
+        normalize_float_hash_key(key_column, child_exprs[i]->root()->data_type());
+        local_state._key_columns_holder.emplace_back(key_column);
+        raw_ptrs[i] = key_column.get();
     }
     return Status::OK();
 }

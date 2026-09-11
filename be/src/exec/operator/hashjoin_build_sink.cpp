@@ -25,6 +25,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
+#include "exec/common/hash_table/hash_key_normalize.h"
 #include "exec/common/hash_table/hash_map_util.h"
 #include "exec/common/template_helpers.hpp"
 #include "exec/operator/hashjoin_probe_operator.h"
@@ -209,10 +210,17 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
             null_map_val = ColumnUInt8::create();
             null_map_val->get_data().assign(build_block_rows, (uint8_t)0);
 
-            // Get the key column that needs to be built
-            Status st = _extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids);
+            // Get the key column that needs to be built. The normalized float key copies made
+            // here only estimate their own size; process_build_block() makes the ones the hash
+            // table points into.
+            std::vector<ColumnPtr> normalized_key_columns;
+            Status st = _extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids,
+                                             normalized_key_columns);
             if (!st.ok()) {
                 throw Exception(st);
+            }
+            for (const auto& column : normalized_key_columns) {
+                size_to_reserve += column->allocated_bytes();
             }
 
             std::visit(Overload {[&](std::monostate& arg) {},
@@ -550,14 +558,22 @@ std::vector<uint16_t> HashJoinBuildSinkLocalState::_convert_block_to_null(Block&
     return results;
 }
 
-Status HashJoinBuildSinkLocalState::_extract_join_column(Block& block,
-                                                         ColumnUInt8::MutablePtr& null_map,
-                                                         ColumnRawPtrs& raw_ptrs,
-                                                         const std::vector<int>& res_col_ids) {
+Status HashJoinBuildSinkLocalState::_extract_join_column(
+        Block& block, ColumnUInt8::MutablePtr& null_map, ColumnRawPtrs& raw_ptrs,
+        const std::vector<int>& res_col_ids, std::vector<ColumnPtr>& normalized_key_columns) {
     DCHECK(_should_build_hash_table);
     auto& shared_state = *_shared_state;
+    normalized_key_columns.clear();
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
-        const auto& column_ptr = block.get_by_position(res_col_ids[i]).column;
+        ColumnPtr column_ptr = block.get_by_position(res_col_ids[i]).column;
+        // The hash table compares keys by raw bits, so -0.0/+0.0 and NaN payloads must be
+        // collapsed before the keys are hashed or serialized. The block keeps its own
+        // reference, so a float key is normalized into a copy and the stored row values stay
+        // visible to other join conjuncts and to the join output.
+        normalize_float_hash_key(column_ptr, _build_expr_ctxs[i]->root()->data_type());
+        if (column_ptr.get() != block.get_by_position(res_col_ids[i]).column.get()) {
+            normalized_key_columns.emplace_back(column_ptr);
+        }
         const auto* column = column_ptr.get();
         const bool serialize_null_into_key =
                 _parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i];
@@ -567,8 +583,7 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(Block& block,
         DORIS_CHECK(const_column == nullptr ||
                     !is_column_nullable(const_column->get_data_column()));
         if (!column->is_nullable() && serialize_null_into_key) {
-            _key_columns_holder.emplace_back(
-                    make_nullable(block.get_by_position(res_col_ids[i]).column));
+            _key_columns_holder.emplace_back(make_nullable(column_ptr));
             raw_ptrs[i] = _key_columns_holder.back().get();
         } else if (const auto* nullable = check_and_get_column<ColumnNullable>(*column);
                    !serialize_null_into_key && nullable) {
@@ -622,8 +637,14 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
         null_map_val->get_data().assign((size_t)rows, (uint8_t)0);
     }
 
-    // Get the key column that needs to be built
-    RETURN_IF_ERROR(_extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids));
+    // Get the key column that needs to be built. The hash table keeps pointers into the
+    // normalized float key copies for the whole probe phase, so they live in the shared state.
+    RETURN_IF_ERROR(_extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids,
+                                         _shared_state->normalized_build_key_columns));
+    int64_t normalized_key_columns_bytes = 0;
+    for (const auto& column : _shared_state->normalized_build_key_columns) {
+        normalized_key_columns_bytes += column->allocated_bytes();
+    }
 
     RETURN_IF_ERROR(_hash_table_init(state, raw_ptrs));
 
@@ -643,6 +664,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
                                   p._have_other_join_conjunct);
                           COUNTER_SET(_memory_used_counter,
                                       _build_blocks_memory_usage->value() +
+                                              normalized_key_columns_bytes +
                                               (int64_t)(arg.hash_table->get_byte_size() +
                                                         arg.serialized_keys_size(true)));
                           return st;

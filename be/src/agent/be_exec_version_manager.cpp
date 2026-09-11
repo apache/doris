@@ -133,8 +133,11 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 //   b. support Paimon default fixed-bucket routing in the external sink exchange.
 // 14: start from master
 //   a. support TIMESTAMP_NS in Thrift descriptors and PBlock exchange.
+// 15: start from master
+//   a. shuffle partitioners and bloom runtime filters hash canonical float values, so -0.0 / +0.0
+//      and all NaN payloads reach the same instance and pass the same filter.
 
-const int BeExecVersionManager::max_be_exec_version = SUPPORT_TIMESTAMP_NS_VERSION;
+const int BeExecVersionManager::max_be_exec_version = NORMALIZE_FLOAT_HASH_KEY_VERSION;
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
 std::set<std::string> BeExecVersionManager::_function_restrict_map;

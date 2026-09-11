@@ -20,9 +20,13 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <bit>
+#include <limits>
 #include <memory>
 
+#include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_vector.h"
 #include "exec/operator/operator_helper.h"
 #include "exec/operator/partition_sort_source_operator.h"
 #include "testutil/column_helper.h"
@@ -89,22 +93,21 @@ struct PartitionSortOperatorTest : public ::testing::Test {
     }
 
     void test_for_sink_and_source(int partition_exprs_num = 1, bool has_global_limit = false,
-                                  int partition_inner_limit = 0) {
+                                  int partition_inner_limit = 0,
+                                  DataTypePtr key_type = std::make_shared<DataTypeInt64>()) {
         SetUp();
         sink = std::make_unique<PartitionSortSinkOperatorX>(
                 &pool, -1, partition_exprs_num, has_global_limit, partition_inner_limit);
         sink->_is_asc_order = {true};
         sink->_nulls_first = {false};
 
-        sink->_ordering_expr_ctxs =
-                MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
+        sink->_ordering_expr_ctxs = MockSlotRef::create_mock_contexts(key_type);
 
         if (partition_exprs_num > 0) {
-            sink->_partition_expr_ctxs =
-                    MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+            sink->_partition_expr_ctxs = MockSlotRef::create_mock_contexts(0, key_type);
         }
-        _child_op->set_mock_row_desc(std::make_unique<MockRowDescriptor>(
-                std::vector<DataTypePtr> {std::make_shared<DataTypeInt64>()}, &pool));
+        _child_op->set_mock_row_desc(
+                std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {key_type}, &pool));
 
         EXPECT_TRUE(sink->set_child(_child_op));
 
@@ -225,6 +228,47 @@ TEST_F(PartitionSortOperatorTest, test_one_partition) {
     int topn_num = 3;
     test_for_sink_and_source(partition_exprs_num, true, 3);
     test_partition_sort(partition_exprs_num, topn_num);
+}
+
+// -0.0 / +0.0 and all NaN payloads are one partition key, and the partitioned rows keep their
+// stored values (the key is hashed from a normalized copy).
+TEST_F(PartitionSortOperatorTest, test_float_signed_zero_partition_key) {
+    test_for_sink_and_source(1, false, 10, std::make_shared<DataTypeFloat64>());
+    // The mock query options leave the pass-through thresholds at 0; use the production defaults
+    // so every row is partitioned.
+    state->_query_options.partition_topn_max_partitions = 1024;
+    state->_query_options.partition_topn_pre_partition_rows = 1000;
+    const auto quiet_nan = std::numeric_limits<double>::quiet_NaN();
+    const auto payload_nan = std::bit_cast<double>(std::bit_cast<uint64_t>(quiet_nan) | 0x1234ULL);
+    Block block =
+            ColumnHelper::create_block<DataTypeFloat64>({-0.0, 0.0, payload_nan, quiet_nan, 1.5});
+    EXPECT_TRUE(sink->sink(state.get(), &block, true));
+    // {-0.0, +0.0}, {NaN, NaN} and {1.5}
+    EXPECT_EQ(sink_local_state->_num_partition, 3);
+
+    // The source emits one partition per call.
+    size_t rows = 0;
+    size_t negative_zero_rows = 0;
+    size_t payload_nan_rows = 0;
+    bool eos = false;
+    while (!eos) {
+        Block output_block;
+        EXPECT_TRUE(source->get_block(state.get(), &output_block, &eos).ok());
+        rows += output_block.rows();
+        if (output_block.rows() == 0) {
+            continue;
+        }
+        for (const auto value :
+             assert_cast<const ColumnFloat64&>(*output_block.get_by_position(0).column)
+                     .get_data()) {
+            negative_zero_rows += std::bit_cast<uint64_t>(value) == std::bit_cast<uint64_t>(-0.0);
+            payload_nan_rows +=
+                    std::bit_cast<uint64_t>(value) == std::bit_cast<uint64_t>(payload_nan);
+        }
+    }
+    EXPECT_EQ(rows, 5);
+    EXPECT_EQ(negative_zero_rows, 1);
+    EXPECT_EQ(payload_nan_rows, 1);
 }
 
 TEST_F(PartitionSortOperatorTest, TestWithoutKey) {

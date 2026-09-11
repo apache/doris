@@ -58,8 +58,11 @@ protected:
     Status _do_evaluate(Block& block, VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
     std::vector<uint16_t> _convert_block_to_null(Block& block);
+    // `normalized_key_columns` receives the normalized copies of float keys that `raw_ptrs`
+    // point into; the caller owns them for as long as `raw_ptrs` is used.
     Status _extract_join_column(Block& block, ColumnUInt8::MutablePtr& null_map,
-                                ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids);
+                                ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids,
+                                std::vector<ColumnPtr>& normalized_key_columns);
     friend class HashJoinBuildSinkOperatorX;
     friend class PartitionedHashJoinSinkLocalState;
     template <class HashTableContext>

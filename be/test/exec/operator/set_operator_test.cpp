@@ -18,10 +18,14 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <vector>
 
+#include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
 #include "exec/operator/operator_helper.h"
 #include "exec/operator/set_probe_sink_operator.h"
 #include "exec/operator/set_sink_operator.h"
@@ -262,6 +266,95 @@ TEST_F(IntersectOperatorTest, test_build_not_ignore_null) {
         std::cout << block.dump_data() << std::endl;
         EXPECT_TRUE(ColumnHelper::block_equal_with_sort(
                 block, ColumnHelper::create_nullable_block<DataTypeInt64>({2, 4}, {false, false})));
+    }
+}
+
+// -0.0 and +0.0 are equal, so INTERSECT / EXCEPT must match them although their bit
+// patterns differ; the keys are hashed from a normalized copy and the result rows keep the
+// value stored on the first child.
+TEST_F(IntersectOperatorTest, test_float_signed_zero_key) {
+    init_op(2, {std::make_shared<DataTypeFloat64>()});
+    sink_op->_child_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeFloat64>()});
+    probe_sink_ops[0]->_child_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeFloat64>()});
+    init_local_state();
+
+    {
+        Block block = ColumnHelper::create_block<DataTypeFloat64>({-0.0, 1.0, 2.0});
+        EXPECT_TRUE(sink_op->sink(state.get(), &block, true));
+    }
+    {
+        Block block = ColumnHelper::create_block<DataTypeFloat64>({0.0, 1.0, 3.0});
+        EXPECT_TRUE(probe_sink_ops[0]->sink(states[0].get(), &block, true));
+    }
+    {
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(source_op->get_block(state.get(), &block, &eos));
+        // The first child stored -0.0 and the result keeps that sign.
+        EXPECT_TRUE(ColumnHelper::block_equal_with_sort(
+                block, ColumnHelper::create_block<DataTypeFloat64>({-0.0, 1.0})));
+        const auto& data =
+                assert_cast<const ColumnFloat64&>(*block.get_by_position(0).column).get_data();
+        size_t negative_zero_rows = 0;
+        for (const auto value : data) {
+            negative_zero_rows += value == 0.0 && std::signbit(value);
+        }
+        EXPECT_EQ(negative_zero_rows, 1);
+    }
+}
+
+TEST_F(ExceptOperatorTest, test_float_signed_zero_key) {
+    init_op(2, {std::make_shared<DataTypeFloat64>()});
+    sink_op->_child_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeFloat64>()});
+    probe_sink_ops[0]->_child_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeFloat64>()});
+    init_local_state();
+
+    {
+        Block block = ColumnHelper::create_block<DataTypeFloat64>({-0.0, 1.0, 2.0});
+        EXPECT_TRUE(sink_op->sink(state.get(), &block, true));
+    }
+    {
+        Block block = ColumnHelper::create_block<DataTypeFloat64>({0.0, 3.0});
+        EXPECT_TRUE(probe_sink_ops[0]->sink(states[0].get(), &block, true));
+    }
+    {
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(source_op->get_block(state.get(), &block, &eos));
+        EXPECT_TRUE(ColumnHelper::block_equal_with_sort(
+                block, ColumnHelper::create_block<DataTypeFloat64>({1.0, 2.0})));
+    }
+}
+
+TEST_F(ExceptOperatorTest, test_float_signed_zero_value_preserved) {
+    init_op(2, {std::make_shared<DataTypeFloat64>()});
+    sink_op->_child_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeFloat64>()});
+    probe_sink_ops[0]->_child_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeFloat64>()});
+    init_local_state();
+
+    {
+        Block block = ColumnHelper::create_block<DataTypeFloat64>({-0.0, 5.0});
+        EXPECT_TRUE(sink_op->sink(state.get(), &block, true));
+    }
+    {
+        Block block = ColumnHelper::create_block<DataTypeFloat64>({5.0});
+        EXPECT_TRUE(probe_sink_ops[0]->sink(states[0].get(), &block, true));
+    }
+    {
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(source_op->get_block(state.get(), &block, &eos));
+        ASSERT_EQ(block.rows(), 1);
+        const auto value =
+                assert_cast<const ColumnFloat64&>(*block.get_by_position(0).column).get_data()[0];
+        EXPECT_EQ(value, 0.0);
+        EXPECT_TRUE(std::signbit(value));
     }
 }
 

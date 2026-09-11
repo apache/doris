@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "exec/common/hash_table/hash.h"
+#include "exec/common/hash_table/hash_key_normalize.h"
 #include "exec/operator/partition_sort_source_operator.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -189,6 +190,10 @@ Status PartitionSortSinkOperatorX::_split_block_by_partition(
     Columns key_columns(_partition_exprs_num);
     for (int i = 0; i < _partition_exprs_num; ++i) {
         RETURN_IF_ERROR(_partition_expr_ctxs[i]->execute(input_block, key_columns[i]));
+        // Same rule as aggregation / hash join keys: -0.0 == +0.0 and NaN payloads must hash
+        // alike. `key_columns[i]` shares the block column, so a float key is copied and the
+        // partitioned rows keep their stored values.
+        normalize_float_hash_key(key_columns[i], _partition_expr_ctxs[i]->root()->data_type());
         key_columns_raw_ptr[i] = key_columns[i].get();
     }
     RETURN_IF_ERROR(_emplace_into_hash_table(key_columns_raw_ptr, input_block, local_state, eos));
