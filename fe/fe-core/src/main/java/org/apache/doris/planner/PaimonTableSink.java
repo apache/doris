@@ -34,8 +34,8 @@ import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TPaimonTableSink;
 import org.apache.doris.thrift.TPaimonStorageDescriptor;
+import org.apache.doris.thrift.TPaimonTableSink;
 import org.apache.doris.thrift.TPaimonWriteBackendType;
 import org.apache.doris.thrift.TPaimonWriteMode;
 
