@@ -412,8 +412,8 @@ Status SniiPlainT2MergePlan::merge_terms(
     }
 
     if (eligibility_.destination_writes_norms) {
-        // 累加的是原始长度（0..255 饱和）；encode_norm 把 0 映射成 1，与 writer 的
-        // encode_norm(len) = clamp(len, 1, 255) 一致。
+        // Accumulated raw lengths saturate at 255. encode_norm maps 0 to 1, matching the
+        // writer's encode_norm(len) = clamp(len, 1, 255).
         for (size_t destination_ordinal = 0; destination_ordinal < sessions.size();
              ++destination_ordinal) {
             for (uint8_t& value : destination_encoded_norms_[destination_ordinal]) {

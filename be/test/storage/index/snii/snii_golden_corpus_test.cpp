@@ -15,20 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// SNII 黄金语料回读测试（跨版本 / 跨改动的查询语义锁定）。
+// SNII golden-corpus readback test: preserve query semantics across versions and changes.
 //
-// 用途：把一组「普通」SNII 段（无 CommonGrams、无打分扩展）用生产写入栈写到磁盘，
-// 并把每条查询在写入时的结果（docid 集合、null bitmap、状态码）记成期望文件；
-// 之后任何改动（删 CommonGrams、格式对齐、norms 写入……）都必须能原样回读这些段，
-// 且每条查询结果逐条一致。段文件也可以由其它版本的 writer（例如生产分支）写出，
-// 只要目录里有同名的 .expect 即可校验。
+// Write ordinary SNII segments without CommonGrams or scoring extensions through the production
+// writer stack. Record each query's docids, null bitmap, and status codes as expectations.
+// Later changes, including CommonGrams removal, format alignment, or norms support, must preserve
+// readback and query results. Other writer versions, such as a production branch, may also supply
+// segment files with matching .expect files in the same directory.
 //
-//   SNII_GOLDEN_DIR=<dir> SNII_GOLDEN_MODE=write   写段 + 写期望
-//   SNII_GOLDEN_DIR=<dir>                          回读校验（默认）
-//   未设置 SNII_GOLDEN_DIR                          跳过
+//   SNII_GOLDEN_DIR=<dir> SNII_GOLDEN_MODE=write   Write segments and expectations.
+//   SNII_GOLDEN_DIR=<dir>                          Verify readback (default).
+//   SNII_GOLDEN_DIR unset                          Skip the test.
 //
-// 校验模式下每条查询跑三遍：结果缓存关闭（冷）、缓存开启（冷）、缓存开启（热），
-// 三遍都必须等于期望。
+// Verification runs each query with the result cache disabled, enabled but cold, and warm.
+// All three results must match the expectations.
 
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
@@ -69,30 +69,30 @@ namespace {
 constexpr int64_t kIndexId = 7001;
 constexpr const char* kColumn = "c1";
 
-// ---------------------------------------------------------------- 语料
+// ---------------------------------------------------------------- Corpus
 
 using ScalarRow = std::optional<std::string>; // nullopt = NULL
 
 std::vector<ScalarRow> scalar_corpus() {
     std::vector<ScalarRow> rows;
-    rows.emplace_back("hello world hello doris");                                     // 0
-    rows.emplace_back("");                                                            // 1 空串
-    rows.emplace_back("The QUICK brown-fox; jumped!! over_the lazy dog 42 times");    // 2
+    rows.emplace_back("hello world hello doris");                                  // 0
+    rows.emplace_back("");                                                         // 1 Empty string
+    rows.emplace_back("The QUICK brown-fox; jumped!! over_the lazy dog 42 times"); // 2
     rows.emplace_back("重复 重复 重复 词元 Doris 数据库 全文检索 mixed 中英 tokens"); // 3
     rows.emplace_back(std::nullopt);                                                  // 4 NULL
     rows.emplace_back(std::nullopt);                                                  // 5 NULL
     rows.emplace_back(std::nullopt);                                                  // 6 NULL
     rows.emplace_back(std::string(300, 'x'));                      // 7 > ignore_above
     rows.emplace_back("single");                                   // 8
-    rows.emplace_back("!!! ??? ,,,");                              // 9 无词元
+    rows.emplace_back("!!! ??? ,,,");                              // 9 No tokens
     rows.emplace_back("hello world again and again and again");    // 10
     rows.emplace_back(std::nullopt);                               // 11 NULL
-    rows.emplace_back(std::string("\x1f") + "hidden term inside"); // 12 内部命名空间前缀
-    rows.emplace_back(std::string("\x1e") + "escaped start");      // 13 转义前缀
+    rows.emplace_back(std::string("\x1f") + "hidden term inside"); // 12 Control-byte prefix
+    rows.emplace_back(std::string("\x1e") + "escaped start");      // 13 Escape control byte
     rows.emplace_back("prefix prefixes prefixing prefab");         // 14
     rows.emplace_back("alpha beta gamma alpha beta alpha");        // 15
     {
-        std::string long_doc; // 16 超过 255 个词元（norm 饱和）
+        std::string long_doc; // 16 More than 255 tokens (norm saturation)
         for (int i = 0; i < 300; ++i) long_doc += (i ? " tok" : "tok");
         rows.emplace_back(std::move(long_doc));
     }
@@ -162,7 +162,7 @@ struct Sample {
     std::string name;
     std::map<std::string, std::string> properties;
     bool keyword_lane;
-    bool array = false; // ARRAY<STRING> 列：经 add_array_values / add_array_nulls 写入
+    bool array = false; // ARRAY<STRING>, written via add_array_values / add_array_nulls.
 };
 
 std::vector<Sample> samples() {
@@ -185,27 +185,27 @@ std::vector<Sample> samples() {
     };
 }
 
-// ARRAY 语料：每行是若干元素；nullopt 行 = 整行 NULL；元素级 NULL 用 std::nullopt 元素表示。
+// ARRAY corpus: an absent row is SQL NULL; absent elements represent element-level NULLs.
 using ArrayRow = std::optional<std::vector<std::optional<std::string>>>;
 
 std::vector<ArrayRow> array_corpus() {
     std::vector<ArrayRow> rows;
     rows.emplace_back(std::vector<std::optional<std::string>> {"hello world", "hello doris"}); // 0
-    rows.emplace_back(std::vector<std::optional<std::string>> {});         // 1 空数组
-    rows.emplace_back(std::nullopt);                                       // 2 NULL 行
+    rows.emplace_back(std::vector<std::optional<std::string>> {});         // 1 Empty array
+    rows.emplace_back(std::nullopt);                                       // 2 NULL row
     rows.emplace_back(std::vector<std::optional<std::string>> {"single"}); // 3
-    rows.emplace_back(std::vector<std::optional<std::string>> {"alpha beta", std::nullopt,
-                                                               "gamma alpha"}); // 4 含元素 NULL
-    rows.emplace_back(
-            std::vector<std::optional<std::string>> {"world", "hello"}); // 5 跨元素不成短语
+    rows.emplace_back(std::vector<std::optional<std::string>> {
+            "alpha beta", std::nullopt, "gamma alpha"}); // 4 Contains a NULL element
+    rows.emplace_back(std::vector<std::optional<std::string>> {
+            "world", "hello"}); // 5 Phrases do not span elements
     rows.emplace_back(std::vector<std::optional<std::string>> {"重复 词元", "Doris 数据库"}); // 6
-    rows.emplace_back(std::nullopt); // 7 NULL 行
+    rows.emplace_back(std::nullopt); // 7 NULL row
     rows.emplace_back(std::vector<std::optional<std::string>> {"prefix prefixes", "",
                                                                "hello world hello doris"}); // 8
     return rows;
 }
 
-// ---------------------------------------------------------------- 工具
+// ---------------------------------------------------------------- Helpers
 
 TabletIndex make_meta(const Sample& sample) {
     TabletIndexPB pb;
@@ -281,8 +281,8 @@ struct Observation {
     InvertedIndexQueryType type;
     std::string text;
     int status_code = 0;
-    std::string docids;      // 逗号分隔
-    std::string null_docids; // 逗号分隔
+    std::string docids;      // Comma-separated.
+    std::string null_docids; // Comma-separated.
     int null_status_code = 0;
 
     std::string line() const {
@@ -319,7 +319,7 @@ std::optional<Observation> parse_line(const std::string& sample, const std::stri
     return o;
 }
 
-// 查询上下文：仿生产的 IndexQueryContext 装配（enable_query_cache 可选）。
+// Assemble IndexQueryContext as in production, with optional query-cache support.
 struct QueryEnv {
     explicit QueryEnv(bool enable_query_cache) {
         TQueryOptions options;
@@ -337,7 +337,7 @@ struct QueryEnv {
     IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
 };
 
-// ---------------------------------------------------------------- 写入
+// ---------------------------------------------------------------- Writing
 
 Status write_sample(const std::string& dir, const Sample& sample, const TabletIndex& meta) {
     const std::string prefix = dir + "/" + sample.name;
@@ -354,8 +354,8 @@ Status write_sample(const std::string& dir, const Sample& sample, const TabletIn
     SniiIndexColumnWriter writer(&index_file_writer, &meta, FieldType::OLAP_FIELD_TYPE_VARCHAR);
     RETURN_IF_ERROR(writer.init());
     if (sample.array) {
-        // 仿 ArrayColumnWriter::append_nullable：所有行（含 NULL 行）都喂给 add_array_values，
-        // NULL 行是空数组；行级 NULL 再通过 add_array_nulls 声明。
+        // Follow ArrayColumnWriter::append_nullable: pass all rows to add_array_values,
+        // representing NULL rows as empty arrays, then mark them with add_array_nulls.
         const auto rows = array_corpus();
         std::vector<std::string> storage;
         std::vector<uint8_t> element_nulls;
@@ -409,7 +409,7 @@ Status write_sample(const std::string& dir, const Sample& sample, const TabletIn
     return Status::OK();
 }
 
-// ---------------------------------------------------------------- 读取 + 查询
+// ---------------------------------------------------------------- Reading and querying
 
 struct OpenedSample {
     std::shared_ptr<IndexFileReader> file_reader;
@@ -459,7 +459,7 @@ protected:
     void SetUp() override {
         const char* dir = std::getenv("SNII_GOLDEN_DIR");
         if (dir == nullptr || *dir == '\0') {
-            GTEST_SKIP() << "SNII_GOLDEN_DIR 未设置";
+            GTEST_SKIP() << "SNII_GOLDEN_DIR is not set";
         }
         _dir = dir;
         const char* mode = std::getenv("SNII_GOLDEN_MODE");
@@ -506,16 +506,16 @@ TEST_F(SniiGoldenCorpus, WriteOrVerify) {
             continue;
         }
 
-        // 校验模式：期望文件缺失 = 该样本不存在（可能由其它版本 writer 未写出），跳过并提示。
+        // Report missing expectations as a failure, then continue checking the remaining samples.
         std::ifstream in(expect_path, std::ios::binary);
         if (!in.good()) {
-            ADD_FAILURE() << "缺少期望文件: " << expect_path;
+            ADD_FAILURE() << "Missing expectation file: " << expect_path;
             continue;
         }
         OpenedSample opened;
         const Status os = open_sample(_dir, sample, meta, &opened);
         if (!os.ok()) {
-            ADD_FAILURE() << sample.name << " 打开失败: " << os.to_string();
+            ADD_FAILURE() << sample.name << " failed to open: " << os.to_string();
             ++mismatches;
             continue;
         }
@@ -524,7 +524,8 @@ TEST_F(SniiGoldenCorpus, WriteOrVerify) {
         while (std::getline(in, line)) {
             if (line.empty() || line[0] == '#') continue;
             auto parsed = parse_line(sample.name, line);
-            ASSERT_TRUE(parsed.has_value()) << "期望文件格式错误: " << expect_path << ": " << line;
+            ASSERT_TRUE(parsed.has_value())
+                    << "Invalid expectation file format: " << expect_path << ": " << line;
             expected.push_back(*parsed);
         }
         for (const Observation& want : expected) {
@@ -540,14 +541,14 @@ TEST_F(SniiGoldenCorpus, WriteOrVerify) {
                                   got->null_docids == want.null_docids;
                 if (!same) {
                     ++mismatches;
-                    ADD_FAILURE() << want.describe() << "\n  期望: " << want.line()
-                                  << "\n  实际: " << got->line();
+                    ADD_FAILURE() << want.describe() << "\n  Expected: " << want.line()
+                                  << "\n  Actual: " << got->line();
                 }
             }
         }
     }
     if (!_write_mode) {
-        EXPECT_EQ(mismatches, 0) << "共校验 " << checked << " 条";
+        EXPECT_EQ(mismatches, 0) << "Checked " << checked << " observations";
         std::cout << "[golden] checked=" << checked << " mismatches=" << mismatches << std::endl;
     }
 }

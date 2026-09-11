@@ -49,8 +49,8 @@ constexpr size_t kWriteFlushBytes = 1u << 22; // 4 MiB
 // merge-phase peak RSS at low spill thresholds (each reader holds a window).
 constexpr size_t kReadChunkBytes = 1u << 16; // 64 KiB
 
-// 形状值 0 曾是 CommonGrams 的无频次 docs-only 记录，已删除；run 文件是构建期临时文件，
-// 读到 0 一律按损坏处理。
+// Shape 0 was the removed CommonGrams docs-only record without frequencies. Run files are
+// temporary build artifacts, so encountering shape 0 is always treated as corruption.
 enum class RunPostingShape : uint8_t {
     kDocsAndFreqs = 1,
     kPositioned = 2,

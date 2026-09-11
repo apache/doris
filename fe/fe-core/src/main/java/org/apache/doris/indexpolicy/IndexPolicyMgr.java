@@ -117,9 +117,10 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     }
 
     /**
-     * 安全网：老版本可能持久化了 BE 已不再支持的 token filter 类型（例如已删除的 common_grams）。
-     * 这类策略仍会被加载（不能让 FE 因为镜像里的一条策略起不来），但任何引用它的 analyzer
-     * 都必须在使用时被明确拒绝，而不是等到 BE 建索引/查询时才报"未知 token filter"。
+     * Older metadata may retain token filter types no longer supported by BE, such as common_grams.
+     * Load these policies so a single obsolete policy cannot prevent FE startup, but reject any
+     * analyzer that references them at use time, before BE reports an unknown token filter during
+     * index construction or querying.
      */
     private void validateReferencedTokenFiltersUsableLocked(String analyzerName, IndexPolicy analyzer)
             throws DdlException {

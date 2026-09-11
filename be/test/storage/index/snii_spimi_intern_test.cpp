@@ -110,7 +110,7 @@ TEST(SniiSpimiTermBufferTest, InternHashUsesFastStringViewHash) {
 }
 
 TEST(SniiSpimiTermBufferTest, OrdinaryDocsOnlyMarkerTermRetainsFrequency) {
-    // 落在内部命名空间（\x1f 开头）里的普通词项也只是普通词项：照常记录频次。
+    // Ordinary terms starting with the internal \x1f namespace still record frequencies normally.
     const std::string literal_marker_term =
             std::string("\x1f") + "SNII_TEST_MARKER\x1f" + "literal";
     SpimiTermBuffer ordinary(/*has_positions=*/false);

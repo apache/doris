@@ -1537,9 +1537,10 @@ void ExpectFixtureReadable(const std::vector<uint8_t>& file) {
 
 } // namespace
 
-// 夹具尺寸随格式演进漂移（core 元数据字段的增减就会改动几十字节）。从"跨 2*kMinPaddingLeverage
-// 个块"的导出值往下找第一个"确实要补齐、且补齐便宜（2*pad < block）"的块大小：块越小跨的块越多，
-// 阈值门只会更宽松，所以门不会成为这些用例的决定因素。
+// Fixture sizes vary with the format; core-metadata fields alone can shift them by dozens of
+// bytes. Starting from a size spanning 2*kMinPaddingLeverage blocks, search downward for a block
+// size that needs padding and satisfies 2*pad < block. Smaller blocks only relax the block-count
+// threshold, keeping that threshold from determining these test results.
 int64_t CheapPaddingBlockSize(size_t unpadded) {
     auto block = static_cast<int64_t>(unpadded / (2 * kMinPaddingLeverage));
     while (block >= 2) {

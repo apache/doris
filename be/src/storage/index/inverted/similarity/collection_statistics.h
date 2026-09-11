@@ -119,8 +119,9 @@ struct SniiScoringSegmentStats {
     uint64_t token_count = 0;
 };
 
-// 一个 SNII 段能参与打分的条件：带位置（词频来自位置）且带 norms（新版 writer 对分词 + 带位置
-// 的索引一律写出）。老段没有 norms → NOT_SUPPORTED，重建索引或等 compaction 补齐。
+// SNII scoring requires positions (which provide term frequencies) and norms. The current writer
+// emits norms for every analyzed index with positions. Older segments without norms return
+// NOT_SUPPORTED until an index rebuild or compaction supplies them.
 Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_count,
                                                              uint64_t sum_total_term_freq,
                                                              bool has_positions, bool has_norms);

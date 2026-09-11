@@ -78,8 +78,8 @@ SniiIndexInput make_input(uint32_t doc_count, std::vector<uint32_t> null_docids,
     return input;
 }
 
-// 带 norms 的 T2 输入（A2：分词 + 带位置的索引一律写 norms）。norms 由调用方给出，必须与
-// postings 的每 doc 词频一致，这样 compaction 从 postings 重建出的 norms 才能与之逐字节相同。
+// T2 input with norms (A2: analyzed indexes with positions always write norms). Caller-supplied
+// norms must match per-document posting frequencies so compaction can rebuild identical bytes.
 SniiIndexInput make_norms_input(uint32_t doc_count, std::vector<uint32_t> null_docids,
                                 std::vector<uint8_t> norms, std::vector<TermPostings> terms) {
     SniiIndexInput input = make_input(doc_count, std::move(null_docids), std::move(terms));
@@ -509,19 +509,20 @@ TEST(SniiIndexCompactionTest, MergesTwentyFourRunSourcesByteIdenticallyToReferen
     }
 }
 
-// A2 验收：目标写 norms 时，compaction 不重分词，而是在合并 postings 的同一趟里按每 doc Σfreq
-// 重建 norms；结果必须与"用同样 postings 与一致 norms 重新构建"的段逐字节相同。
+// Verify A2: compaction rebuilds destination norms from per-document frequency sums in the
+// posting merge pass, without reanalysis. The result must be byte-identical to a segment rebuilt
+// from the same postings and matching norms.
 TEST(SniiIndexCompactionTest, NormsMergeMatchesRebuildAfterDeletesAndRemap) {
     OpenedIndex source_zero;
     OpenedIndex source_one;
-    // 源 0：doc0 = alpha×2，doc1 = alpha×1，doc2（null 但带 posting）= beta×1 → norms {2, 1, 1}
+    // Source 0: doc0 = alpha*2, doc1 = alpha*1, doc2 (null with a posting) = beta*1; norms {2, 1, 1}.
     build_index(make_norms_input(
                         /*doc_count=*/3, /*null_docids=*/ {2}, /*norms=*/ {2, 1, 1},
                         {make_term("alpha", {{.docid = 0, .positions = {0, 2}},
                                              {.docid = 1, .positions = {0}}}),
                          make_term("beta", {{.docid = 2, .positions = {0}}})}),
                 &source_zero, reader::LogicalIndexOpenMode::kCompaction);
-    // 源 1：doc0 = alpha×1，doc1 = gamma×2 → norms {1, 2}
+    // Source 1: doc0 = alpha*1, doc1 = gamma*2; norms {1, 2}.
     build_index(make_norms_input(
                         /*doc_count=*/2, /*null_docids=*/ {}, /*norms=*/ {1, 2},
                         {make_term("alpha", {{.docid = 0, .positions = {0}}}),
@@ -561,7 +562,8 @@ TEST(SniiIndexCompactionTest, NormsMergeMatchesRebuildAfterDeletesAndRemap) {
         assert_ok(compound->finish());
     }
 
-    // 目标 0 = [源0 doc0, 源1 doc0, 源1 doc1] → norms {2, 1, 2}；目标 1 = [源0 doc2] → {1}
+    // Destination 0 = [source0 doc0, source1 doc0, source1 doc1], norms {2, 1, 2}.
+    // Destination 1 = [source0 doc2], norms {1}.
     std::array<OpenedIndex, 2> rebuilt;
     build_index(make_norms_input(
                         /*doc_count=*/3, /*null_docids=*/ {}, /*norms=*/ {2, 1, 2},
@@ -603,8 +605,9 @@ TEST(SniiIndexCompactionTest, NormsMergeMatchesRebuildAfterDeletesAndRemap) {
     EXPECT_EQ(merged_docs, rebuilt_docs);
 }
 
-// 老段（没有 norms 的 T2）参与 compaction 时同样能重建出 norms：这是生产升级后无需重建索引就
-// 获得打分能力的路径。空文档（无任何 token）编码为 1，超过 255 个 token 饱和到 255。
+// Compaction also rebuilds norms from older T2 segments without norms, enabling scoring after
+// a production upgrade without rebuilding indexes. Empty documents encode as 1; token counts
+// above 255 saturate at 255.
 TEST(SniiIndexCompactionTest, NormsAreReconstructedFromLegacySourcesWithSaturation) {
     std::vector<uint32_t> long_positions(300);
     std::iota(long_positions.begin(), long_positions.end(), 0U);
@@ -678,7 +681,7 @@ TEST(SniiIndexCompactionTest, NormsMergeReclaimsResidentDictBeforeLargePlainTerm
     source_terms.push_back(make_term(
             "zeta", {{.docid = 0, .positions = make_positions(kPlainPositions, /*salt=*/99)}}));
 
-    // 单 doc 里的 token 远超 255，norm 饱和到 255。
+    // The document contains far more than 255 tokens, so its norm saturates at 255.
     SniiIndexInput source_input = make_norms_input(/*doc_count=*/1, /*null_docids=*/ {},
                                                    /*norms=*/ {255}, std::move(source_terms));
     source_input.target_dict_block_bytes = 1;

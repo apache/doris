@@ -123,8 +123,8 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
                 GsonUtils.GSON.toJson(this.properties));
     }
 
-    // 已从 BE 删除、但老版本镜像/edit log 里可能仍持久化着的 token filter 类型。
-    // 这类策略可以被加载（否则 FE 起不来），但不可再被 analyzer 引用。
+    // Token filter types removed from BE but possibly retained in older images or edit logs.
+    // Load these policies so FE can start, but reject analyzers that reference them.
     public static final Set<String> LEGACY_UNSUPPORTED_TOKEN_FILTER_TYPES =
             ImmutableSet.of("common_grams");
 

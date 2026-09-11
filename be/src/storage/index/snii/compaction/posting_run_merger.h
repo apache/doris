@@ -57,8 +57,9 @@ class MergedPostingRuns final : public writer::TermPostingSource {
     };
 
 public:
-    // destination_doc_lengths 非空时，每个 (目标段, 目标 docid) 的词频按 u8 饱和累加（0..255），
-    // 合并结束后由调用方 encode 成 norms；为空表示目标不写 norms。
+    // If destination_doc_lengths is nonempty, accumulate frequencies for each destination
+    // (segment, docid), saturating at 255. The caller encodes them as norms after the merge.
+    // An empty vector means the destination does not write norms.
     MergedPostingRuns(std::vector<std::unique_ptr<SniiPostingCursor>> cursors,
                       bool retain_positions, std::span<const uint32_t> destination_doc_counts,
                       std::span<std::vector<uint8_t>> destination_doc_lengths);

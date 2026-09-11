@@ -57,7 +57,7 @@ static_assert(!std::is_constructible_v<
 
 constexpr uint64_t kIndexId = 9;
 constexpr std::string_view kIndexSuffix = "body";
-constexpr uint32_t kDocCount = 20000; // slim 项的 docid 间距不规则，最大约 1.6 万
+constexpr uint32_t kDocCount = 20000; // Slim docids have irregular gaps, reaching about 16,000.
 constexpr uint32_t kFreqDroppedDocCount = 65536;
 constexpr auto kDeleted = std::pair<uint32_t, uint32_t> {std::numeric_limits<uint32_t>::max(),
                                                          std::numeric_limits<uint32_t>::max()};
@@ -95,8 +95,8 @@ Status build_source(std::vector<writer::TermPostings> terms, uint32_t doc_count,
     return fixture->segment.open_index(kIndexId, kIndexSuffix, &fixture->index);
 }
 
-// 500 个 docid，间距 1..62 不规则：dd 区（PFOR）超过 256B 的 inline 阈值，
-// 且 df < 512，仍是 slim pod_ref。docid 0 一定在列表里。
+// 500 docids with irregular gaps of 1..62: the PFOR dd region exceeds the 256-byte inline
+// threshold, while df < 512 still selects a slim pod_ref. The list always includes docid 0.
 std::vector<uint32_t> slim_docids() {
     std::vector<uint32_t> docids;
     docids.reserve(500);
@@ -110,7 +110,8 @@ std::vector<uint32_t> slim_docids() {
     return docids;
 }
 
-// slim 项每个 doc 的位置只由 docid 决定（哈希取 1..97 个位置），测试据此重算期望。
+// Each slim document's positions depend only on its docid (hashed to 1..97 positions), allowing
+// the test to recompute the expected values.
 std::vector<uint32_t> slim_positions(uint32_t docid) {
     uint32_t mixed = docid * 2654435761U;
     mixed ^= mixed >> 16;

@@ -624,9 +624,10 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
         parse_phrase_slop(&plain_analysis_str, &query_info);
     }
-    // 结果缓存只以 (索引文件, 列, 查询类型, 原始查询字节) 为键：分词结果由索引属性与
-    // policy 唯一决定（policy 被引用后不可变），因此打开 segment 之前就能判定是否可共享；
-    // 只有打分查询（结果随集合统计变化）不进缓存，也不走 single-flight 合并。
+    // Result cache keys contain only (index file, column, query type, raw query bytes). Analysis
+    // is determined by index properties and policies, which are immutable once referenced, so
+    // sharing can be decided before opening the segment. Scoring queries depend on collection
+    // statistics and use neither the result cache nor single-flight coalescing.
     const bool allow_result_cache = !actual_similarity;
     const InvertedIndexRawQuerySemantic raw_semantic {.raw_query_bytes = search_str,
                                                       .query_type = query_type,

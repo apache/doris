@@ -114,7 +114,7 @@ SniiIndexInput MakeIndex(const Corpus& c) {
     SniiIndexInput in;
     in.index_id = 1;
     in.index_suffix = "body";
-    in.config = IndexConfig::kDocsPositions; // norms 随 encoded_norms 一起写出
+    in.config = IndexConfig::kDocsPositions; // Norms are written from encoded_norms.
     in.doc_count = c.doc_count;
     in.target_dict_block_bytes = 1; // one block per term
     in.encoded_norms.resize(c.doc_count);
