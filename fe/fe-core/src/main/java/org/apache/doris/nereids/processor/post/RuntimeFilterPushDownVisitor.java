@@ -18,13 +18,13 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.processor.post.RuntimeFilterPushDownVisitor.PushDownContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.NullInputEvaluator;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -72,11 +73,13 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         final boolean hasUnknownColStats;
         final long buildSideNdv;
         final int exprOrder;
+        final ExpressionRewriteContext expressionRewriteContext;
 
         private PushDownContext(RuntimeFilterContext rfContext,
                 AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
                 TRuntimeFilterType type, TMinMaxRuntimeFilterType singleSideMinMax,
-                boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
+                boolean hasUnknownColStats, long buildSideNdv, int exprOrder,
+                ExpressionRewriteContext expressionRewriteContext) {
             this.rfContext = rfContext;
             this.builderNode = builderNode;
             this.srcExpr = srcExpr;
@@ -86,20 +89,23 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             this.hasUnknownColStats = hasUnknownColStats;
             this.buildSideNdv = buildSideNdv;
             this.exprOrder = exprOrder;
+            this.expressionRewriteContext = expressionRewriteContext;
         }
 
         public static PushDownContext createPushDownContext(RuntimeFilterContext rfContext,
                 AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
-                TRuntimeFilterType type) {
+                TRuntimeFilterType type, ExpressionRewriteContext expressionRewriteContext) {
             return createPushDownContext(rfContext, builderNode, srcExpr, probeExpr,
-                    type, false, -1, -1);
+                    type, false, -1, -1, expressionRewriteContext);
         }
 
         public static PushDownContext createPushDownContext(RuntimeFilterContext rfContext,
                 AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
-                TRuntimeFilterType type, boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
+                TRuntimeFilterType type, boolean hasUnknownColStats, long buildSideNdv, int exprOrder,
+                ExpressionRewriteContext expressionRewriteContext) {
             return createPushDownContext(rfContext, builderNode, srcExpr, probeExpr,
-                    type, TMinMaxRuntimeFilterType.MIN_MAX, hasUnknownColStats, buildSideNdv, exprOrder);
+                    type, TMinMaxRuntimeFilterType.MIN_MAX, hasUnknownColStats, buildSideNdv, exprOrder,
+                    expressionRewriteContext);
         }
 
         /**
@@ -110,9 +116,11 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         public static PushDownContext createPushDownContext(RuntimeFilterContext rfContext,
                 AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
                 TRuntimeFilterType type, TMinMaxRuntimeFilterType singleSideMinMax,
-                boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
+                boolean hasUnknownColStats, long buildSideNdv, int exprOrder,
+                ExpressionRewriteContext expressionRewriteContext) {
             return new PushDownContext(rfContext, builderNode, srcExpr, probeExpr,
-                    type, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder);
+                    type, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder,
+                    expressionRewriteContext);
         }
 
         /**
@@ -125,7 +133,8 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         public PushDownContext withNewProbeExpression(Expression newProbe) {
             return new PushDownContext(rfContext, builderNode, srcExpr, newProbe,
-                    type, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder);
+                    type, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder,
+                    expressionRewriteContext);
         }
     }
 
@@ -341,7 +350,8 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         // A runtime filter is still safe on the null-generating side if generated NULL rows
         // cannot become non-NULL before the parent join condition is evaluated. For example,
         // `b.pk = c.pk` rejects generated NULLs, while `coalesce(b.pk, 0) = c.pk` may match them.
-        return isNullPropagating(ctx.probeExpr);
+        return NullInputEvaluator.evaluateOnFE(ctx.probeExpr, ctx.probeExpr.getInputSlots(),
+                ctx.expressionRewriteContext) == NullInputEvaluator.Result.NULL;
     }
 
     private boolean isNullGeneratingChild(JoinType joinType, boolean isLeftChild) {
@@ -352,24 +362,6 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             return joinType.isRightOuterJoin() || joinType.isAsofRightOuterJoin();
         }
         return joinType.isLeftOuterJoin() || joinType.isAsofLeftOuterJoin();
-    }
-
-    private boolean isNullPropagating(Expression expression) {
-        if (expression instanceof Slot) {
-            return true;
-        }
-        if (expression instanceof Cast) {
-            return isNullPropagating(((Cast) expression).child());
-        }
-        if (expression instanceof PropagateNullable) {
-            for (Expression child : expression.children()) {
-                if (!child.getInputSlots().isEmpty() && !isNullPropagating(child)) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        return false;
     }
 
     @Override
