@@ -93,13 +93,25 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * The Lance catalog properties whose change moves the persisted target identity
      * (provider, stable locator, or namespace mapping) out from under unresolved index
-     * jobs. Credential and other properties are not target-changing and stay unguarded.
-     * Keys match case-insensitively because the catalog property chain performs no key
+     * jobs. Credentials stay unguarded and may be rotated freely: an access key, secret
+     * key or session token authenticates to the same target. Storage-routing properties
+     * are part of the identity instead, because a job persists only a URI and a different
+     * endpoint or region can land that same URI on a different storage service. The
+     * routing entries are the canonical endpoint/region spellings of every S3-compatible
+     * property family the Lance storage chain consumes: an s3 dataset reads whichever
+     * S3-compatible configuration the catalog carries (LanceS3StorageProvider prefers a
+     * concrete family over the generic s3 keys), while an oss dataset reads the oss keys
+     * only. Other properties are not target-changing and stay unguarded. Keys match
+     * case-insensitively because the catalog property chain performs no key
      * normalization.
      */
     private static final Set<String> LANCE_TARGET_IDENTITY_KEYS = ImmutableSet.of(
             "lance.catalog.type", "warehouse",
-            "lance.namespace.parent", "lance.namespace.delimiter", "lance.namespace.root_database");
+            "lance.namespace.parent", "lance.namespace.delimiter", "lance.namespace.root_database",
+            "s3.endpoint", "s3.region", "oss.endpoint", "oss.region",
+            "cos.endpoint", "cos.region", "obs.endpoint", "obs.region",
+            "minio.endpoint", "minio.region", "gs.endpoint",
+            "ozone.endpoint", "ozone.region");
 
     private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 

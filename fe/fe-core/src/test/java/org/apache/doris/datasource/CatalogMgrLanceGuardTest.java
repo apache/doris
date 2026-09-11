@@ -55,11 +55,13 @@ import java.util.function.Supplier;
 /**
  * Coverage for the Lance catalog DDL guard in {@link CatalogMgr}: while the catalog has
  * unresolved Lance index jobs, ALTER CATALOG ... SET PROPERTIES must reject actual value
- * changes of the five target identity keys (lance.catalog.type, warehouse,
+ * changes of the target identity keys - the namespace keys (lance.catalog.type, warehouse,
  * lance.namespace.parent, lance.namespace.delimiter, lance.namespace.root_database) and
- * DROP CATALOG must be rejected; credential-only/unrelated property changes, same-value
- * rewrites, renames, and the replay path stay unguarded. The guard message must stay
- * neutral: no locator and no release-statement syntax.
+ * the storage-routing keys (the s3.endpoint/s3.region family) that can land the same
+ * persisted URI on a different storage service - and DROP CATALOG must be rejected;
+ * credential-only/unrelated property changes, same-value rewrites, renames, and the
+ * replay path stay unguarded. The guard message must stay neutral: no locator and no
+ * release-statement syntax.
  */
 public class CatalogMgrLanceGuardTest {
     private static final long CATALOG_ID = 10L;
@@ -67,7 +69,8 @@ public class CatalogMgrLanceGuardTest {
     private static final String LOCATOR = "s3://bucket/dataset";
     private static final String[] IDENTITY_KEYS = {
         "lance.catalog.type", "warehouse",
-        "lance.namespace.parent", "lance.namespace.delimiter", "lance.namespace.root_database"};
+        "lance.namespace.parent", "lance.namespace.delimiter", "lance.namespace.root_database",
+        "s3.endpoint", "s3.region"};
 
     private static final class Fixture {
         private final CatalogMgr catalogMgr = new CatalogMgr();
@@ -87,6 +90,7 @@ public class CatalogMgrLanceGuardTest {
             oldProperties.put("lance.namespace.root_database", "root_db");
             oldProperties.put("s3.access_key", "ak");
             oldProperties.put("s3.endpoint", "https://s3.example.com");
+            oldProperties.put("s3.region", "us-east-1");
 
             AtomicReference<String> catalogName = new AtomicReference<>(CATALOG_NAME);
             Mockito.when(catalog.getId()).thenReturn(CATALOG_ID);
@@ -223,14 +227,39 @@ public class CatalogMgrLanceGuardTest {
         Fixture fixture = new Fixture("filesystem");
         fixture.admitUnresolvedJob();
         Map<String, String> newProperties = new HashMap<>();
+        // Credentials authenticate to the same target, so rotating them stays allowed;
+        // storage routing (s3.endpoint and family) is identity and is covered below.
         newProperties.put("s3.access_key", "rotated-ak");
         newProperties.put("s3.secret_key", "rotated-sk");
-        newProperties.put("s3.endpoint", "https://s3.other-example.com");
         newProperties.put("custom.unrelated.property", "value");
         try (MockedStatic<Env> mockedEnv = fixture.mockCurrentEnv()) {
             fixture.catalogMgr.alterCatalogProps(CATALOG_NAME, newProperties);
             Mockito.verify(fixture.editLog, Mockito.times(1))
                     .logCatalogLog(Mockito.eq(OperationType.OP_ALTER_CATALOG_PROPS), Mockito.any());
+        }
+    }
+
+    @Test
+    public void testStorageRoutingKeyChangeWithUnresolvedJobIsBlocked() throws Exception {
+        // s3.endpoint and its family route the persisted URI to storage rather than
+        // authenticate to it: a changed endpoint can be a different storage service, so
+        // it is target identity, not a credential.
+        Fixture fixture = new Fixture("filesystem");
+        fixture.admitUnresolvedJob();
+        try (MockedStatic<Env> mockedEnv = fixture.mockCurrentEnv()) {
+            DdlException e = Assertions.assertThrows(DdlException.class,
+                    () -> fixture.catalogMgr.alterCatalogProps(CATALOG_NAME,
+                            ImmutableMap.of("s3.endpoint", "https://s3.other-example.com")));
+            assertNeutralGuardMessage(e);
+            // A routing key the catalog never carried still counts as a change from its
+            // implicit absence, exactly like the namespace identity keys.
+            DdlException absent = Assertions.assertThrows(DdlException.class,
+                    () -> fixture.catalogMgr.alterCatalogProps(CATALOG_NAME,
+                            ImmutableMap.of("oss.endpoint", "https://oss.example.com")));
+            assertNeutralGuardMessage(absent);
+            Mockito.verify(fixture.editLog, Mockito.never())
+                    .logCatalogLog(Mockito.anyShort(), Mockito.any());
+            Mockito.verify(fixture.catalog, Mockito.never()).modifyCatalogProps(Mockito.any());
         }
     }
 

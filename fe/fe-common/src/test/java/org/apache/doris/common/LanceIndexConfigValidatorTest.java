@@ -52,9 +52,9 @@ public class LanceIndexConfigValidatorTest {
                 LanceIndexConfigValidator.PositiveLongConfigHandler.class);
         assertCallbackWiring("lance_index_job_max_unresolved_global", true,
                 LanceIndexConfigValidator.PositiveLongConfigHandler.class);
-        assertCallbackWiring("lance_index_max_num_partitions", false,
+        assertCallbackWiring("lance_index_max_num_partitions", true,
                 LanceIndexConfigValidator.PositiveIntConfigHandler.class);
-        assertCallbackWiring("lance_index_max_num_sub_vectors", false,
+        assertCallbackWiring("lance_index_max_num_sub_vectors", true,
                 LanceIndexConfigValidator.PositiveIntConfigHandler.class);
 
         ConfigBase.ConfField gate = Config.class.getField("enable_lance_index_mutation")

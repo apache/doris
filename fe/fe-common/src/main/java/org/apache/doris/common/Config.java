@@ -4254,13 +4254,13 @@ public class Config extends ConfigBase {
                     "Max unresolved Lance index jobs across all catalogs (global)."})
     public static long lance_index_job_max_unresolved_global = 256;
 
-    @ConfField(mutable = true, masterOnly = false,
+    @ConfField(mutable = true, masterOnly = true,
             callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
             description = {"Lance IVF_PQ 索引 num_partitions 的静态上限。",
                     "Static upper bound for num_partitions of Lance IVF_PQ indexes."})
     public static int lance_index_max_num_partitions = 4096;
 
-    @ConfField(mutable = true, masterOnly = false,
+    @ConfField(mutable = true, masterOnly = true,
             callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
             description = {"Lance IVF_PQ 索引 num_sub_vectors 的静态上限。",
                     "Static upper bound for num_sub_vectors of Lance IVF_PQ indexes."})
