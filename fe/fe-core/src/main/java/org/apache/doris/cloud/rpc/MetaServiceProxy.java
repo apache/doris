@@ -470,6 +470,12 @@ public class MetaServiceProxy {
                 Cloud.CheckTxnConflictResponse::getStatus);
     }
 
+    public Cloud.GetTsoRecoveryTransactionsResponse getTsoRecoveryTransactions(
+            Cloud.GetTsoRecoveryTransactionsRequest request) throws RpcException {
+        return executeWithMetrics("getTsoRecoveryTransactions", (client) -> client.getTsoRecoveryTransactions(request),
+                Cloud.GetTsoRecoveryTransactionsResponse::getStatus);
+    }
+
     public Cloud.CleanTxnLabelResponse cleanTxnLabel(Cloud.CleanTxnLabelRequest request)
             throws RpcException {
         return executeWithMetrics("cleanTxnLabel", (client) -> client.cleanTxnLabel(request),

@@ -34,6 +34,11 @@ std::vector<SchemaScanner::ColumnDesc> SchemaTsoStatusScanner::_s_tso_status_col
         {"CURRENT_TSO", TYPE_BIGINT, sizeof(int64_t), true},
         {"CURRENT_TSO_PHYSICAL_TIME", TYPE_BIGINT, sizeof(int64_t), true},
         {"CURRENT_TSO_LOGICAL_COUNTER", TYPE_BIGINT, sizeof(int64_t), true},
+        {.name = "COMMITTED_TSO", .type = TYPE_BIGINT, .size = sizeof(int64_t), .is_null = true},
+        {.name = "COMMITTED_TSO_PHYSICAL_TIME",
+         .type = TYPE_BIGINT,
+         .size = sizeof(int64_t),
+         .is_null = true},
 };
 
 SchemaTsoStatusScanner::SchemaTsoStatusScanner()
@@ -51,6 +56,11 @@ Status SchemaTsoStatusScanner::_get_tso_status_block_from_fe() {
     TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
 
     TSchemaTableRequestParams schema_table_request_params;
+    std::vector<std::string> columns;
+    for (const auto& column : _s_tso_status_columns) {
+        columns.emplace_back(column.name);
+    }
+    schema_table_request_params.__set_columns_name(columns);
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::TSO_STATUS);
     request.__set_schema_table_params(schema_table_request_params);
