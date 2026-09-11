@@ -25,6 +25,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.lance.LanceExternalDatabase;
+import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.job.LanceIndexFenceKey;
 import org.apache.doris.datasource.lance.job.LanceIndexJob;
 import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
@@ -62,10 +65,13 @@ import java.util.List;
 /**
  * Covers SHOW LANCE INDEX JOBS: row-level SHOW privilege filtering, orphan and
  * half-orphan rows restricted to global ADMIN with no existence or count leakage,
- * FROM/WHERE in-memory filtering, null-result rendering, FORCE audit columns, the
- * deliberately narrowed WHERE grammar (EqualTo + AND only), FORWARD_NO_SYNC redirect,
- * and that authorization runs against the connection context handed to the command
- * (the forwarded original user identity in proxy mode).
+ * provider failures during target resolution treated as orphans, dataset-locator
+ * revalidation (matching, repointed and unresolvable locators, resolved once per
+ * target within one listing), FROM db-name normalization through the target catalog's
+ * own naming rules, FROM/WHERE in-memory filtering, null-result rendering, FORCE audit
+ * columns, the deliberately narrowed WHERE grammar (EqualTo + AND only),
+ * FORWARD_NO_SYNC redirect, and that authorization runs against the connection context
+ * handed to the command (the forwarded original user identity in proxy mode).
  */
 public class ShowLanceIndexJobsCommandTest {
     @Mocked
@@ -86,6 +92,12 @@ public class ShowLanceIndexJobsCommandTest {
     private DatabaseIf database;
     @Mocked
     private TableIf table;
+    @Mocked
+    private LanceExternalCatalog lanceCatalog;
+    @Mocked
+    private LanceExternalDatabase lanceDatabase;
+    @Mocked
+    private LanceExternalTable lanceTable;
 
     private static LanceIndexJob newJob(long jobId, long catalogId, String dbName, String tableName,
             String indexName) {
@@ -153,9 +165,50 @@ public class ShowLanceIndexJobsCommandTest {
                 minTimes = 0;
                 result = database;
 
+                database.getFullName();
+                minTimes = 0;
+                result = "db1";
+
                 database.getTableNullable("tbl1");
                 minTimes = 0;
                 result = table;
+
+                accessControllerManager.checkTblPriv(connectContext, "lance_ctl", "db1", "tbl1",
+                        PrivPredicate.SHOW);
+                minTimes = 0;
+                result = tableVisible;
+            }
+        };
+    }
+
+    /**
+     * Catalog id 10 resolves as a Lance catalog whose db1.tbl1 names resolve and whose
+     * current dataset locator is the given value: "s3://bucket/dataset" is what
+     * {@link #newJob} persists, anything else simulates a table repointed at a new
+     * dataset, and null a locator resolution that fails outright.
+     */
+    private void expectLanceCatalog(String currentLocator, boolean tableVisible) {
+        new Expectations() {
+            {
+                catalogMgr.getCatalog(10L);
+                minTimes = 0;
+                result = lanceCatalog;
+
+                lanceCatalog.getName();
+                minTimes = 0;
+                result = "lance_ctl";
+
+                lanceCatalog.getDbNullable("db1");
+                minTimes = 0;
+                result = lanceDatabase;
+
+                lanceDatabase.getTableNullable("tbl1");
+                minTimes = 0;
+                result = lanceTable;
+
+                lanceCatalog.resolveCurrentIndexJobLocator("db1", "tbl1");
+                minTimes = 0;
+                result = currentLocator;
 
                 accessControllerManager.checkTblPriv(connectContext, "lance_ctl", "db1", "tbl1",
                         PrivPredicate.SHOW);
@@ -360,6 +413,171 @@ public class ShowLanceIndexJobsCommandTest {
 
         ShowLanceIndexJobsCommand command = new ShowLanceIndexJobsCommand(null, null);
         Assertions.assertTrue(command.doRun(connectContext, null).getResultRows().isEmpty());
+    }
+
+    @Test
+    public void testProviderFailureResolvingTargetIsOrphan() throws Exception {
+        // A provider failure while resolving a job's target (expired credentials, remote
+        // fault) is indistinguishable from a missing target: no provider error surfaces,
+        // the row is omitted for non-ADMIN and visible to ADMIN.
+        expectEnv(Collections.singletonList(newJob(5L, 10L, "db1", "tbl1", "idx1")));
+        new Expectations() {
+            {
+                catalogMgr.getCatalog(10L);
+                minTimes = 0;
+                result = catalog;
+
+                catalog.getName();
+                minTimes = 0;
+                result = "lance_ctl";
+
+                catalog.getDbNullable("db1");
+                minTimes = 0;
+                result = new RuntimeException("provider exploded");
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = false;
+                result = true;
+            }
+        };
+
+        ShowLanceIndexJobsCommand command = new ShowLanceIndexJobsCommand(null, null);
+        Assertions.assertTrue(Assertions.assertDoesNotThrow(() -> command.doRun(connectContext, null))
+                .getResultRows().isEmpty());
+        ShowResultSet resultSet = command.doRun(connectContext, null);
+        Assertions.assertEquals(1, resultSet.getResultRows().size());
+        Assertions.assertEquals("5", resultSet.getResultRows().get(0).get(colIndex(resultSet, "JobId")));
+    }
+
+    @Test
+    public void testLocatorMatchVisibleThroughTableShow() throws Exception {
+        // The Lance catalog still points db1.tbl1 at the dataset (s3://bucket/dataset) the
+        // job was admitted against, so ordinary table-level SHOW is enough to see the row.
+        expectEnv(Collections.singletonList(newJob(1L, 10L, "db1", "tbl1", "idx1")));
+        expectLanceCatalog("s3://bucket/dataset", true);
+
+        ShowResultSet resultSet = new ShowLanceIndexJobsCommand(null, null).doRun(connectContext, null);
+        Assertions.assertEquals(1, resultSet.getResultRows().size());
+        Assertions.assertEquals("1", resultSet.getResultRows().get(0).get(colIndex(resultSet, "JobId")));
+    }
+
+    @Test
+    public void testLocatorMismatchIsAdminOnly() throws Exception {
+        // db1.tbl1 was repointed at a different dataset after the job terminated: a user
+        // who would hold SHOW on the new target still sees nothing (no count leak), while
+        // ADMIN keeps the row.
+        expectEnv(Collections.singletonList(newJob(1L, 10L, "db1", "tbl1", "idx1")));
+        expectLanceCatalog("s3://bucket/repointed", true);
+        new Expectations() {
+            {
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = false;
+                result = true;
+            }
+        };
+
+        ShowLanceIndexJobsCommand command = new ShowLanceIndexJobsCommand(null, null);
+        Assertions.assertTrue(command.doRun(connectContext, null).getResultRows().isEmpty());
+        Assertions.assertEquals(1, command.doRun(connectContext, null).getResultRows().size());
+    }
+
+    @Test
+    public void testLocatorResolutionFailureIsAdminOnly() throws Exception {
+        // The current locator cannot be resolved right now (provider failure): the target
+        // is treated as not resolved - orphan semantics - instead of granting SHOW
+        // through the stale names.
+        expectEnv(Collections.singletonList(newJob(1L, 10L, "db1", "tbl1", "idx1")));
+        expectLanceCatalog(null, true);
+        new Expectations() {
+            {
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = false;
+                result = true;
+            }
+        };
+
+        ShowLanceIndexJobsCommand command = new ShowLanceIndexJobsCommand(null, null);
+        Assertions.assertTrue(command.doRun(connectContext, null).getResultRows().isEmpty());
+        Assertions.assertEquals(1, command.doRun(connectContext, null).getResultRows().size());
+    }
+
+    @Test
+    public void testLocatorResolvedOncePerTargetWithinListing() throws Exception {
+        // Two jobs share one persisted target: one listing resolves its current locator
+        // once (each resolution is a provider round trip), not once per job row.
+        expectEnv(Arrays.asList(newJob(1L, 10L, "db1", "tbl1", "idx1"),
+                newJob(2L, 10L, "db1", "tbl1", "idx2")));
+        expectLanceCatalog("s3://bucket/dataset", true);
+
+        ShowResultSet resultSet = new ShowLanceIndexJobsCommand(null, null).doRun(connectContext, null);
+        Assertions.assertEquals(2, resultSet.getResultRows().size());
+
+        new Verifications() {
+            {
+                lanceCatalog.resolveCurrentIndexJobLocator("db1", "tbl1");
+                times = 1;
+            }
+        };
+    }
+
+    @Test
+    public void testFromDbNameNormalizedThroughCatalog() throws Exception {
+        // lower_case_database_names=1/2: jobs persist the resolved full name db1, so
+        // FROM DB1 must still select those rows instead of missing them case-sensitively.
+        LanceIndexJob match = newJob(1L, 10L, "db1", "tbl1", "idx1");
+        LanceIndexJob otherDb = newJob(4L, 10L, "db2", "tbl1", "idx4");
+        expectEnv(Arrays.asList(match, otherDb));
+        expectResolvableCatalog(true);
+        new Expectations() {
+            {
+                connectContext.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                catalog.getDbNullable("DB1");
+                minTimes = 0;
+                result = database;
+            }
+        };
+
+        ShowLanceIndexJobsCommand command = new ShowLanceIndexJobsCommand(Lists.newArrayList("DB1"), null);
+        ShowResultSet resultSet = command.doRun(connectContext, null);
+        Assertions.assertEquals(1, resultSet.getResultRows().size());
+        Assertions.assertEquals("1", resultSet.getResultRows().get(0).get(colIndex(resultSet, "JobId")));
+    }
+
+    @Test
+    public void testFromDbNameResolutionFailureKeepsRawName() throws Exception {
+        // The catalog cannot resolve the FROM name (provider failure): the statement must
+        // not fail, and the filter falls back to the exact raw-string comparison, which
+        // matches no persisted (already resolved) db name.
+        expectEnv(Collections.singletonList(newJob(1L, 10L, "db1", "tbl1", "idx1")));
+        new Expectations() {
+            {
+                connectContext.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                catalog.getName();
+                minTimes = 0;
+                result = "lance_ctl";
+
+                catalog.getDbNullable("DB1");
+                minTimes = 0;
+                result = new RuntimeException("provider exploded");
+
+                catalogMgr.getCatalog(10L);
+                minTimes = 0;
+                result = catalog;
+            }
+        };
+
+        ShowLanceIndexJobsCommand command = new ShowLanceIndexJobsCommand(Lists.newArrayList("DB1"), null);
+        ShowResultSet resultSet = Assertions.assertDoesNotThrow(() -> command.doRun(connectContext, null));
+        Assertions.assertTrue(resultSet.getResultRows().isEmpty());
     }
 
     @Test

@@ -25,6 +25,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 import org.apache.doris.datasource.property.metastore.AbstractLanceProperties;
 import org.apache.doris.datasource.property.metastore.LanceFileSystemMetastoreProperties;
 import org.apache.doris.datasource.property.metastore.LanceRestMetastoreProperties;
@@ -103,6 +104,33 @@ public class LanceExternalCatalog extends ExternalCatalog {
 
     public void advanceIndexTargetVersion() {
         indexTargetVersion++;
+    }
+
+    /**
+     * Resolves the dataset the given (db, table) names currently point at, through the
+     * same table-access resolution the readers use, and returns its durable locator form
+     * ({@link LanceIndexDatasetLocator#normalize}).
+     *
+     * <p>This exists for SHOW-authorization revalidation of persisted Lance index jobs:
+     * once a job reaches a terminal state and releases its guard, a legitimate catalog
+     * ALTER can repoint the same db.table names at a different dataset, and the job must
+     * stop being readable through table-level SHOW on the new target. Any failure - the
+     * catalog is not initialized, the provider is unreachable, credentials expired, or
+     * the names no longer resolve - yields {@code null}; callers must treat null as
+     * "not resolved" (the orphan, ADMIN-only visibility rule), never as an authorization
+     * grant.
+     *
+     * @return the normalized locator of the dataset the names currently point at, or
+     *         null when it cannot be resolved
+     */
+    public String resolveCurrentIndexJobLocator(String dbName, String tableName) {
+        try {
+            makeSureInitialized();
+            ResolvedTableAccess tableAccess = resolveTableAccess(dbName, tableName);
+            return LanceIndexDatasetLocator.normalize(tableAccess.datasetUri);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public LanceExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,

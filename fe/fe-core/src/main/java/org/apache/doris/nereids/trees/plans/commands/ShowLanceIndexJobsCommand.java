@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.job.LanceIndexJob;
 import org.apache.doris.datasource.lance.job.LanceIndexJobMutationState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -45,20 +46,24 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
  * SHOW LANCE INDEX JOBS [FROM [catalog.]db] [WHERE TableName = "tbl" [AND State = "PENDING"]].
  *
  * <p>Lists the durable Lance index job records held by the master. Rows whose persisted
- * target no longer resolves (the catalog is gone, or the catalog is there but the db or
- * table no longer resolves) are visible to global ADMIN only; every other row requires
- * table-level SHOW on the persisted (catalog, db, table). Rows that fail the check are
- * omitted entirely, so non-ADMIN users see no orphan trace, not even a count. The job
- * locator, provider, normalized names, propertiesJson and schema contract are never shown.
+ * target no longer resolves (the catalog is gone, the catalog is there but the db or
+ * table no longer resolves, or the resolution itself fails because the provider is
+ * unreachable), or whose persisted dataset locator no longer matches the catalog's
+ * current one, are visible to global ADMIN only; every other row requires table-level
+ * SHOW on the persisted (catalog, db, table). Rows that fail the check are omitted
+ * entirely, so non-ADMIN users see no orphan trace, not even a count. The job locator,
+ * provider, normalized names, propertiesJson and schema contract are never shown.
  *
  * <p>The WHERE clause is deliberately narrowed to EqualTo predicates combined with AND
  * over the case-insensitive keys TableName and State (no Like, unlike the SHOW COPY
@@ -126,15 +131,43 @@ public class ShowLanceIndexJobsCommand extends ShowCommand {
                 dbName = nameParts.get(0);
                 CatalogIf currentCatalog = ctx.getCurrentCatalog();
                 ctlName = currentCatalog == null ? null : currentCatalog.getName();
+                normalizeDbName(currentCatalog);
             } else if (nameParts.size() == 2) {
                 ctlName = nameParts.get(0);
                 dbName = nameParts.get(1);
+                normalizeDbName(Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName));
             } else {
                 throw new AnalysisException(
                         "Only support SHOW LANCE INDEX JOBS FROM [catalog.]database, but get: " + nameParts);
             }
         }
         analyzeWhereClause();
+    }
+
+    /**
+     * Resolves the FROM database name through the target catalog's own naming rules
+     * before it is compared against the persisted job records: with
+     * lower_case_database_names = 1/2, {@code FROM DB1} must still match jobs stored
+     * under the resolved full name {@code db1}. A name the catalog cannot resolve (or a
+     * resolution that fails outright) keeps the raw requested string, so the filter just
+     * stays an exact comparison; the resolution itself must never fail the statement.
+     */
+    private void normalizeDbName(CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog) {
+        if (dbName == null || catalog == null) {
+            return;
+        }
+        try {
+            DatabaseIf<? extends TableIf> db = catalog.getDbNullable(dbName);
+            if (db == null) {
+                return;
+            }
+            String fullName = db.getFullName();
+            if (fullName != null && !fullName.isEmpty()) {
+                dbName = fullName;
+            }
+        } catch (Exception e) {
+            // Keep the raw requested name; the filter remains an exact comparison.
+        }
     }
 
     private void analyzeWhereClause() throws AnalysisException {
@@ -191,13 +224,17 @@ public class ShowLanceIndexJobsCommand extends ShowCommand {
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         List<List<String>> rows = new ArrayList<>();
+        // One locator resolution per unique (catalogId, db, table) for the whole listing:
+        // each resolution is a provider round trip, and failed (null) resolutions are
+        // cached too so a broken target is probed once, not once per sibling job.
+        Map<String, String> locatorCache = new HashMap<>();
         for (LanceIndexJob job : Env.getCurrentEnv().getLanceIndexJobManager().getAllJobsSnapshot()) {
             CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog =
                     Env.getCurrentEnv().getCatalogMgr().getCatalog(job.getCatalogId());
             if (!matchesFilters(catalog, job)) {
                 continue;
             }
-            if (!isAuthorized(ctx, catalog, job)) {
+            if (!isAuthorized(ctx, catalog, job, locatorCache)) {
                 continue;
             }
             rows.add(renderRow(job, catalog));
@@ -220,14 +257,29 @@ public class ShowLanceIndexJobsCommand extends ShowCommand {
     }
 
     /**
-     * Orphan and half-orphan rows (catalog gone, or persisted db/table no longer resolvable)
-     * are visible to global ADMIN only; every other row needs table-level SHOW on the
-     * persisted target. The caller omits the row when this returns false, so non-ADMIN users
-     * see no trace of orphaned jobs, not even a count.
+     * Orphan and half-orphan rows (catalog gone, persisted db/table no longer resolvable,
+     * or a resolution that fails outright because the provider is unreachable) are
+     * visible to global ADMIN only. A Lance catalog target is additionally revalidated
+     * against the catalog's current durable dataset locator: after a job reaches a
+     * terminal state and releases its guard, a legitimate ALTER can repoint the same
+     * db.table names at a different dataset, and SHOW on the new target must not
+     * disclose the old job. Every other row needs table-level SHOW on the persisted
+     * target. The caller omits the row when this returns false, so non-ADMIN users see
+     * no trace of orphaned jobs, not even a count.
      */
     static boolean isAuthorized(ConnectContext ctx, CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog,
             LanceIndexJob job) {
-        if (!targetResolves(catalog, job)) {
+        return isAuthorized(ctx, catalog, job, null);
+    }
+
+    /**
+     * Same authorization as {@link #isAuthorized(ConnectContext, CatalogIf, LanceIndexJob)},
+     * with an optional (catalogId, db, table)-keyed locator cache so a listing resolves
+     * each unique target's current locator once per run instead of once per job row.
+     */
+    static boolean isAuthorized(ConnectContext ctx, CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog,
+            LanceIndexJob job, Map<String, String> locatorCache) {
+        if (!targetResolves(catalog, job) || !locatorMatches(catalog, job, locatorCache)) {
             return Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN);
         }
         return Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, catalog.getName(),
@@ -238,8 +290,42 @@ public class ShowLanceIndexJobsCommand extends ShowCommand {
         if (catalog == null) {
             return false;
         }
-        DatabaseIf<? extends TableIf> db = catalog.getDbNullable(job.getDbName());
-        return db != null && db.getTableNullable(job.getTableName()) != null;
+        try {
+            DatabaseIf<? extends TableIf> db = catalog.getDbNullable(job.getDbName());
+            return db != null && db.getTableNullable(job.getTableName()) != null;
+        } catch (Exception e) {
+            // External metadata resolution can fail outright (credentials expired,
+            // provider down). That must not leak the provider error or abort the listing:
+            // a failed resolution is handled exactly like an unresolvable (orphan) target.
+            return false;
+        }
+    }
+
+    /**
+     * Whether the catalog's current durable dataset locator still points at the dataset
+     * this job was admitted against. Only Lance catalogs carry a durable locator; for
+     * any other catalog instance (theoretically unreachable, since jobs are only
+     * admitted for Lance catalogs) the name resolution above is the whole rule. A
+     * locator that cannot be resolved right now counts as a mismatch, so authorization
+     * fails closed to the orphan rule instead of granting SHOW through stale names.
+     */
+    private static boolean locatorMatches(CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog,
+            LanceIndexJob job, Map<String, String> locatorCache) {
+        if (!(catalog instanceof LanceExternalCatalog)) {
+            return true;
+        }
+        String key = job.getCatalogId() + ":" + job.getDbName() + ":" + job.getTableName();
+        String currentLocator;
+        if (locatorCache != null && locatorCache.containsKey(key)) {
+            currentLocator = locatorCache.get(key);
+        } else {
+            currentLocator = ((LanceExternalCatalog) catalog).resolveCurrentIndexJobLocator(
+                    job.getDbName(), job.getTableName());
+            if (locatorCache != null) {
+                locatorCache.put(key, currentLocator);
+            }
+        }
+        return currentLocator != null && currentLocator.equals(job.getNormalizedLocator());
     }
 
     private static List<String> renderRow(LanceIndexJob job,
