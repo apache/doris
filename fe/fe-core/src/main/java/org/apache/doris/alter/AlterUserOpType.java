@@ -25,5 +25,12 @@ public enum AlterUserOpType {
     LOCK_ACCOUNT,
     UNLOCK_ACCOUNT,
     MODIFY_COMMENT,
-    SET_TLS_REQUIRE
+    SET_TLS_REQUIRE,
+    // MySQL-compatible "DISCARD OLD PASSWORD": evict the retained secondary
+    // password. NB: this name is NEVER written to the journal — a pre-feature
+    // binary would deserialize the unknown enum value as null and fail replay.
+    // The entry is journaled with op = SET_PASSWORD_POLICY (every option
+    // UNSET, a no-op for such binaries) plus a discard marker; see
+    // AlterUserOperationLog.discardOldPassword / Auth.discardOldPasswordInternal.
+    DISCARD_OLD_PASSWORD
 }
