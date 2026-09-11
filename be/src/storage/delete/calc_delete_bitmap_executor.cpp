@@ -20,13 +20,10 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <ostream>
-#include <thread>
 
-#include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
 #include "load/memtable/memtable.h"
-#include "load/memtable/memtable_flush_executor.h"
 #include "storage/tablet/base_tablet.h"
 #include "util/time.h"
 
@@ -174,17 +171,8 @@ void CalcDeleteBitmapToken::cancel(const Status& st) {
 }
 
 void CalcDeleteBitmapExecutor::init(const std::string& name, int max_threads) {
-    int min_threads = 1;
-    if (config::enable_adaptive_flush_threads) {
-        int num_cpus = std::thread::hardware_concurrency();
-        if (num_cpus <= 0) num_cpus = 1;
-        // Disk count and per-store count are unused in adaptive mode.
-        const auto limits = MemTableFlushExecutor::calc_flush_thread_count(num_cpus, 0, 0);
-        min_threads = limits.first;
-        max_threads = limits.second;
-    }
     static_cast<void>(ThreadPoolBuilder(name)
-                              .set_min_threads(min_threads)
+                              .set_min_threads(1)
                               .set_max_threads(max_threads)
                               .build(&_thread_pool));
 }

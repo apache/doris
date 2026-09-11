@@ -284,10 +284,9 @@ DECLARE_Int32(publish_version_worker_count);
 DECLARE_Int32(tablet_publish_txn_max_thread);
 // the timeout of EnginPublishVersionTask
 DECLARE_Int32(publish_version_task_timeout_s);
-// Maximum threads to calculate delete bitmap when adaptive adjustment is disabled.
+// the count of thread to calc delete bitmap
 DECLARE_Int32(calc_delete_bitmap_max_thread);
-// Maximum threads to calculate delete bitmap when building rowset with adaptive adjustment disabled.
-// Non-positive values use max(1, number of CPU cores / 2).
+// the num of threads to calc delete bitmap when building rowset
 DECLARE_Int32(calc_delete_bitmap_for_load_max_thread);
 // the count of thread to calc delete bitmap worker, only used for cloud
 DECLARE_Int32(calc_delete_bitmap_worker_count);
@@ -941,12 +940,11 @@ DECLARE_mInt32(flush_thread_num_per_store);
 DECLARE_mInt32(high_priority_flush_thread_num_per_store);
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
-// Also caps the two delete bitmap pools in adaptive mode.
 DECLARE_mInt32(max_flush_thread_num_per_cpu);
-// Minimum threads per CPU for flush and delete bitmap pools in adaptive mode (default 0.5).
+// minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
 DECLARE_mDouble(min_flush_thread_num_per_cpu);
 
-// Whether to enable adaptive flush and delete bitmap thread adjustment
+// Whether to enable adaptive flush thread adjustment
 DECLARE_mBool(enable_adaptive_flush_threads);
 
 // Whether to block writes when one table has too many pending flush memtables on this BE.

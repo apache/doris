@@ -138,8 +138,6 @@ public:
     std::unique_ptr<CalcDeleteBitmapToken> create_token(
             std::shared_ptr<DeleteBitmapCancellation> delete_bitmap_cancellation = nullptr);
 
-    ThreadPool* thread_pool() { return _thread_pool.get(); }
-
 private:
     std::unique_ptr<ThreadPool> _thread_pool;
 };
