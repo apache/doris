@@ -740,6 +740,7 @@ void StorageEngine::stop() {
     }
 
     _stop_background_threads_latch.count_down();
+    _stop_row_binlog_ttl_scanner();
 #define THREAD_JOIN(thread) \
     if (thread) {           \
         thread->join();     \

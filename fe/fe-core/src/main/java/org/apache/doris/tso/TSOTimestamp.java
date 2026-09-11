@@ -113,6 +113,23 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
     }
 
     /**
+     * Calculate the inclusive expiration boundary for a row-binlog TTL policy.
+     */
+    public static long calculateCutoff(long referenceTso, long ttlSeconds) {
+        if (referenceTso <= 0) {
+            throw new IllegalArgumentException("reference TSO must be positive");
+        }
+        if (ttlSeconds < 0) {
+            throw new IllegalArgumentException("TTL seconds must be non-negative");
+        }
+        long referenceMillis = extractPhysicalTime(referenceTso);
+        if (ttlSeconds > referenceMillis / 1000) {
+            return 0;
+        }
+        return composeFullTimestamp(referenceMillis - ttlSeconds * 1000);
+    }
+
+    /**
      * Extract physical time (milliseconds) from TSO timestamp
      *
      * @param timestamp 64-bit TSO timestamp

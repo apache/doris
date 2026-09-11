@@ -90,6 +90,21 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
     }
 
     @Test
+    public void testDirectRowTtlUpdate() throws Exception {
+        createTable("create table ttl_update(k int, v int) unique key(k) "
+                + "distributed by hash(k) buckets 1 properties('replication_num'='1', "
+                + "'enable_unique_key_merge_on_write'='true', 'function_column.enable_row_ttl'='true')");
+        for (String assignment : new String[] {"v = v + 1", "__DORIS_TTL_COL__ = NULL",
+                "__DORIS_TTL_COL__ = cast('2099-01-01 00:00:00.123456' as datetime(6))"}) {
+            UpdateCommand command = (UpdateCommand) new NereidsParser()
+                    .parseSingle("update ttl_update set " + assignment + " where k=1");
+            LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
+            String rewritten = PlanChecker.from(connectContext, plan).analyze(plan).rewrite().getPlan().treeString();
+            Assertions.assertTrue(rewritten.contains("__DORIS_TTL_COL__"), rewritten);
+        }
+    }
+
+    @Test
     public void testFromClauseUpdate() {
         String sql = "update t1 a set v1 = t2.v1 + 2, v2 = a.v1 * 2 "
                 + "from src join t2 on src.k1 = t2.k1 where t2.k1 = a.k1";

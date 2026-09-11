@@ -45,6 +45,19 @@ import java.util.Set;
 
 public class MaterializedViewHandlerTest {
     @Test
+    public void testRejectCreateMaterializedViewOnRowTtlTable() {
+        CreateMaterializedViewCommand command = Mockito.mock(CreateMaterializedViewCommand.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Mockito.when(olapTable.hasRowTtl()).thenReturn(true);
+        Mockito.when(olapTable.getName()).thenReturn("ttl_table");
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> new MaterializedViewHandler().processCreateMaterializedView(command, db, olapTable));
+        Assertions.assertTrue(exception.getMessage().contains("do not support tables with row ttl"));
+    }
+
+    @Test
     public void testDifferentBaseTable() {
         CreateMaterializedViewCommand createMaterializedViewCommand = Mockito.mock(CreateMaterializedViewCommand.class);
         Database db = Mockito.mock(Database.class);

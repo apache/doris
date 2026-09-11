@@ -165,6 +165,7 @@ Status CloudCumulativeCompaction::prepare_compact() {
         st = cloud_tablet()->sync_rowsets();
         RETURN_IF_ERROR(st);
     }
+    snapshot_row_binlog_ttl();
 
     // pick rowsets to compact
     st = pick_rowsets_to_compact();
@@ -488,6 +489,9 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                 "CumulativeCompaction.modify_rowsets.trigger_abort_job_failed for tablet_id {}",
                 cloud_tablet()->tablet_id());
     });
+    if (_row_binlog_ttl_filtered_rows > 0) {
+        compaction_job->set_row_binlog_ttl_seconds(*_row_binlog_ttl_seconds);
+    }
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -668,6 +672,10 @@ Status CloudCumulativeCompaction::advance_cumulative_point_before_pick(
         }
 
         auto rowset_meta = rowset->rowset_meta();
+        if (_row_binlog_ttl_cutoff_tso.has_value() &&
+            row_binlog_rowset_expired(*rowset_meta, *_row_binlog_ttl_cutoff_tso)) {
+            break;
+        }
         if (rowset_meta->has_delete_predicate()) {
             output_cumulative_point = rowset->end_version() + 1;
             continue;
@@ -700,6 +708,27 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
 
     int64_t min_conflict_version = _min_conflict_version;
     int64_t max_conflict_version = _max_conflict_version;
+    if (_row_binlog_ttl_cutoff_tso.has_value()) {
+        std::vector<RowsetSharedPtr> ttl_candidates;
+        {
+            std::shared_lock rlock(_tablet->get_header_lock());
+            _base_compaction_cnt = cloud_tablet()->base_compaction_cnt();
+            _cumulative_compaction_cnt = cloud_tablet()->cumulative_compaction_cnt();
+            _picked_cumulative_point = cloud_tablet()->cumulative_layer_point();
+            cloud_tablet()->traverse_rowsets_unlocked(
+                    [&ttl_candidates, min_conflict_version,
+                     max_conflict_version](const RowsetSharedPtr& rs) {
+                        if (rs->end_version() < min_conflict_version ||
+                            rs->start_version() > max_conflict_version) {
+                            ttl_candidates.push_back(rs);
+                        }
+                    });
+        }
+        std::sort(ttl_candidates.begin(), ttl_candidates.end(), Rowset::comparator);
+        if (pick_expired_row_binlog_rowset(ttl_candidates)) {
+            return Status::OK();
+        }
+    }
     RETURN_IF_ERROR(advance_cumulative_point_before_pick(min_conflict_version));
 
     int64_t max_score = config::cumulative_compaction_max_deltas;
@@ -727,6 +756,9 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
         if (auto st = check_version_continuity(candidates); !st.ok()) {
             DCHECK(false) << st;
             return st;
+        }
+        if (pick_expired_row_binlog_rowset(candidates)) {
+            return Status::OK();
         }
 
         size_t compaction_score = 0;
@@ -813,7 +845,8 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
 }
 
 Status CloudCumulativeCompaction::prepare_merge_input_rowsets(MergeInputRowsetsResult* result) {
-    if (!_single_rowset_compaction_segment_group_size.has_value()) {
+    if (_row_binlog_ttl_filtered_rows > 0 ||
+        !_single_rowset_compaction_segment_group_size.has_value()) {
         return Status::OK();
     }
 

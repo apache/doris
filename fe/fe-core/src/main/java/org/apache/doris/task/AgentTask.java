@@ -145,6 +145,11 @@ public abstract class AgentTask {
         return isFinished;
     }
 
+    /** Whether this task operates on Row TTL tablet data and requires the Row TTL node capability. */
+    public boolean isRowTtlTask() {
+        return false;
+    }
+
     public boolean isNeedResendType() {
         // these tasks no need to do diff
         // 1. CREATE

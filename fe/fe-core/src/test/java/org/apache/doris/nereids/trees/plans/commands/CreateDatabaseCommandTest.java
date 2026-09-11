@@ -65,4 +65,27 @@ public class CreateDatabaseCommandTest extends TestWithFeService {
         CreateDatabaseCommand command = new CreateDatabaseCommand(false, new DbName("", ""), properties);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext));
     }
+
+    @Test
+    public void testRowBinlogTtlValidationAndInternalMarker() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("binlog.ttl_seconds", "0");
+        CreateDatabaseCommand enabled = new CreateDatabaseCommand(
+                false, new DbName("", "test_ttl"), properties);
+        Assertions.assertDoesNotThrow(() -> enabled.validate(connectContext));
+        Assertions.assertEquals("true", enabled.getProperties().get("binlog.row_ttl_enabled"));
+
+        properties = new HashMap<>();
+        properties.put("binlog.ttl_seconds", "-1");
+        CreateDatabaseCommand disabled = new CreateDatabaseCommand(
+                false, new DbName("", "test_no_ttl"), properties);
+        Assertions.assertDoesNotThrow(() -> disabled.validate(connectContext));
+        Assertions.assertEquals("false", disabled.getProperties().get("binlog.row_ttl_enabled"));
+
+        Map<String, String> invalidProperties = new HashMap<>();
+        invalidProperties.put("binlog.ttl_seconds", "-2");
+        CreateDatabaseCommand invalid = new CreateDatabaseCommand(
+                false, new DbName("", "test_invalid_ttl"), invalidProperties);
+        Assertions.assertThrows(UserException.class, () -> invalid.validate(connectContext));
+    }
 }

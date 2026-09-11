@@ -162,6 +162,22 @@ public class MTMVRewriteUtilTest {
     }
 
     @Test
+    public void testRowTtlBaseTableCannotRewrite() throws AnalysisException {
+        Mockito.when(mtmv.getGracePeriod()).thenReturn(Long.MAX_VALUE);
+        mtmvUtilStatic.when(() -> MTMVUtil.checkNoRowTtlBaseTable(relation))
+                .thenThrow(new AnalysisException("row ttl base table"));
+
+        Assertions.assertTrue(MTMVRewriteUtil
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false, null).isEmpty());
+        Assertions.assertTrue(MTMVRewriteUtil
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, true, null).isEmpty());
+
+        Mockito.when(mtmv.getGracePeriod()).thenReturn(0L);
+        Assertions.assertTrue(MTMVRewriteUtil
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false, null).isEmpty());
+    }
+
+    @Test
     public void testGetMTMVCanRewritePartitionsNotInGracePeriod() throws AnalysisException {
         Mockito.when(mtmv.getGracePeriod()).thenReturn(1L);
 

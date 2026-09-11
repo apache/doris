@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlExpiration;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -342,7 +343,8 @@ public class InsertUtils {
                                             + " all ordinary columns referenced"
                                             + " by generated columns, missing: " + col.getName());
                                 }
-                                if (!(col.isAutoInc() && col.isKey()) && !insertCol.isPresent() && col.isVisible()) {
+                                if (!(col.isAutoInc() && col.isKey()) && !insertCol.isPresent()
+                                        && (col.isVisible() || (col.isTtlColumn() && olapTable.isDirectRowTtl()))) {
                                     hasMissingColExceptAutoIncKey = true;
                                 }
                                 if (col.isAutoInc() && col.isKey() && !insertCol.isPresent()) {
@@ -441,7 +443,13 @@ public class InsertUtils {
                                     null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
-                            addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
+                            NamedExpression value = values.get(i);
+                            if (sameNameColumn.isTtlColumn() && targetType.isBigIntType()) {
+                                value = new UnboundAlias(new UnboundFunction(RowTtlExpiration.FUNCTION_NAME,
+                                        ImmutableList.of(value instanceof Alias || value instanceof UnboundAlias
+                                                ? value.child(0) : value)));
+                            }
+                            addColumnValue(analyzer, optimizedRowConstructor, value,
                                     targetType, rewriteContext, strictCast);
                         }
                     }

@@ -57,6 +57,8 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "io/io_common.h"
+#include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "storage/compaction/cumulative_compaction.h"
@@ -167,13 +169,22 @@ bool is_rowset_tidy(std::string& pre_max_key, bool& pre_rs_key_bounds_truncated,
     return true;
 }
 
-TsoRange commit_tso_range(const std::vector<RowsetSharedPtr>& rowsets) {
-    DCHECK(!rowsets.empty());
-    auto range = rowsets.front()->commit_tso();
+std::optional<TsoRange> commit_tso_range(const std::vector<RowsetSharedPtr>& rowsets) {
+    std::optional<TsoRange> range;
     for (const auto& rowset : rowsets) {
+        if (rowset->num_rows() == 0) {
+            continue;
+        }
+        if (!rowset->rowset_meta()->has_commit_tso()) {
+            return std::nullopt;
+        }
         const auto commit_tso = rowset->commit_tso();
-        range.first = std::min(range.first, commit_tso.start_tso());
-        range.second = std::max(range.second, commit_tso.end_tso());
+        if (!range.has_value()) {
+            range = commit_tso;
+            continue;
+        }
+        range->first = std::min(range->first, commit_tso.start_tso());
+        range->second = std::max(range->second, commit_tso.end_tso());
     }
     return range;
 }
@@ -274,20 +285,102 @@ void Compaction::init_profile(const std::string& label) {
 
 int64_t Compaction::merge_way_num() {
     int64_t way_num = 0;
-    for (auto&& rowset : _input_rowsets) {
+    for (const auto& rowset : _data_input_rowsets) {
         way_num += rowset->rowset_meta()->get_merge_way_num();
     }
 
     return way_num;
 }
 
+void Compaction::snapshot_row_binlog_ttl() {
+    if (_tablet->is_row_binlog_tablet() && !config::is_cloud_mode()) {
+        _row_binlog_ttl_visible_version = std::get<0>(
+                static_cast<Tablet*>(_tablet.get())->get_visible_version_and_time(false));
+    }
+    std::shared_lock lock(_tablet->get_header_lock());
+    const auto& meta = _tablet->tablet_meta();
+    if (_tablet->is_row_binlog_tablet()) {
+        _row_binlog_ttl_reference_tso =
+                ExecEnv::GetInstance()->cluster_info()->row_binlog_ttl_reference_tso();
+        int64_t cutoff = meta->binlog_config().row_ttl_cutoff_tso(_row_binlog_ttl_reference_tso);
+        if (cutoff >= 0) {
+            _row_binlog_ttl_seconds = meta->binlog_config().effective_row_ttl_seconds();
+            _row_binlog_ttl_cutoff_tso = cutoff;
+        }
+    }
+}
+
+bool Compaction::pick_expired_row_binlog_rowset(const std::vector<RowsetSharedPtr>& candidates) {
+    if (!_row_binlog_ttl_cutoff_tso.has_value()) {
+        return false;
+    }
+    auto expired = std::ranges::find_if(candidates, [this](const RowsetSharedPtr& rowset) {
+        return rowset->end_version() <= _row_binlog_ttl_visible_version &&
+               row_binlog_rowset_expired(*rowset->rowset_meta(), *_row_binlog_ttl_cutoff_tso);
+    });
+    if (expired == candidates.end()) {
+        return false;
+    }
+    // Coalesce a bounded run into one empty version-covering rowset. Empty neighbours
+    // have no business data or commit TSO to inspect; a task still needs an expired rowset.
+    constexpr int max_inputs = 64;
+    auto first = expired;
+    while (first != candidates.begin() && expired - first + 1 < max_inputs) {
+        auto previous = std::prev(first);
+        if ((*previous)->num_rows() != 0 ||
+            (*previous)->end_version() + 1 != (*first)->start_version()) {
+            break;
+        }
+        first = previous;
+    }
+    auto end = std::next(expired);
+    while (end != candidates.end() && end - first < max_inputs &&
+           (*end)->start_version() == (*std::prev(end))->end_version() + 1 &&
+           (*end)->end_version() <= _row_binlog_ttl_visible_version &&
+           ((*end)->num_rows() == 0 ||
+            row_binlog_rowset_expired(*(*end)->rowset_meta(), *_row_binlog_ttl_cutoff_tso))) {
+        ++end;
+    }
+    {
+        std::shared_lock lock(_tablet->get_header_lock());
+        auto versions = _tablet->capture_consistent_versions_unlocked(
+                Version(0, (*std::prev(end))->end_version()), CaptureRowsetOps {});
+        if (!versions.has_value()) {
+            return false;
+        }
+    }
+    _input_rowsets.assign(first, end);
+    return true;
+}
+
+void Compaction::filter_row_binlog_ttl_rowsets() {
+    _data_input_rowsets.clear();
+    _row_binlog_ttl_filtered_rows = 0;
+    for (const auto& rowset : _input_rowsets) {
+        if (!_row_binlog_ttl_cutoff_tso.has_value()) {
+            _data_input_rowsets.push_back(rowset);
+            continue;
+        }
+        if (rowset->num_rows() == 0) {
+            continue;
+        }
+        if (rowset->end_version() > _row_binlog_ttl_visible_version ||
+            !row_binlog_rowset_expired(*rowset->rowset_meta(), *_row_binlog_ttl_cutoff_tso)) {
+            _data_input_rowsets.push_back(rowset);
+            continue;
+        }
+        _row_binlog_ttl_filtered_rows += rowset->num_rows();
+    }
+}
+
 Status Compaction::merge_input_rowsets() {
+    filter_row_binlog_ttl_rowsets();
     MergeInputRowsetsResult result;
     RETURN_IF_ERROR(prepare_merge_input_rowsets(&result));
 
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
-    input_rs_readers.reserve(_input_rowsets.size());
-    for (auto& rowset : _input_rowsets) {
+    input_rs_readers.reserve(_data_input_rowsets.size());
+    for (auto& rowset : _data_input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
         input_rs_readers.push_back(std::move(rs_reader));
@@ -313,10 +406,13 @@ Status Compaction::merge_input_rowsets() {
     {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
         // 1. Merge segment files and write bkd inverted index
-        RETURN_IF_ERROR(do_merge_input_rowsets(input_rs_readers, &result));
-        // 2. Merge the remaining inverted index files of the string type
-        RETURN_IF_ERROR(do_inverted_index_compaction());
+        if (!input_rs_readers.empty()) {
+            RETURN_IF_ERROR(do_merge_input_rowsets(input_rs_readers, &result));
+            // 2. Merge the remaining inverted index files of the string type
+            RETURN_IF_ERROR(do_inverted_index_compaction());
+        }
     }
+    _stats.filtered_rows += _row_binlog_ttl_filtered_rows;
 
     COUNTER_UPDATE(_merged_rows_counter, _stats.merged_rows);
     COUNTER_UPDATE(_filtered_rows_counter, _stats.filtered_rows);
@@ -325,7 +421,9 @@ Status Compaction::merge_input_rowsets() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_output_rs_writer->build(_output_rowset),
                                    fmt::format("rowset writer build failed. output_version: {}",
                                                _output_version.to_string()));
-    _output_rowset->rowset_meta()->set_commit_tso(commit_tso_range(_input_rowsets));
+    if (auto commit_tso = commit_tso_range(_data_input_rowsets); commit_tso.has_value()) {
+        _output_rowset->rowset_meta()->set_commit_tso(*commit_tso);
+    }
 
     // When true, writers should remove variant extracted subcolumns from the
     // schema stored in RowsetMeta. This is used when compaction temporarily
@@ -507,7 +605,9 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
              !_tablet->enable_unique_key_merge_on_write() && !tablet()->is_row_binlog_tablet());
     rowset_meta->set_segments_key_bounds(segment_key_bounds, aggregate_key_bounds);
     rowset_meta->set_num_segment_rows(num_segment_rows);
-    rowset_meta->set_commit_tso(commit_tso_range(_input_rowsets));
+    if (auto commit_tso = commit_tso_range(_input_rowsets); commit_tso.has_value()) {
+        rowset_meta->set_commit_tso(*commit_tso);
+    }
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
 
@@ -573,6 +673,12 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         return false;
     }
     if (!config::enable_ordered_data_compaction) {
+        return false;
+    }
+    if (_row_binlog_ttl_cutoff_tso.has_value() &&
+        std::ranges::any_of(_input_rowsets, [this](const RowsetSharedPtr& rowset) {
+            return row_binlog_rowset_expired(*rowset->rowset_meta(), *_row_binlog_ttl_cutoff_tso);
+        })) {
         return false;
     }
 
@@ -691,7 +797,9 @@ Status CompactionMixin::execute_compact() {
     int64_t profile_start_time_ms = UnixMillis();
     uint32_t checksum_before;
     uint32_t checksum_after;
-    bool enable_compaction_checksum = config::enable_compaction_checksum;
+    bool enable_compaction_checksum = config::enable_compaction_checksum &&
+                                      !_row_binlog_ttl_cutoff_tso.has_value() &&
+                                      EngineChecksumTask::is_supported(*_tablet->tablet_schema());
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_before);
@@ -1777,9 +1885,10 @@ void CompactionMixin::find_longest_consecutive_version(std::vector<RowsetSharedP
 
 Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // only do index compaction for dup_keys and unique_keys with mow enabled
-    if (_enable_inverted_index_compaction && (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                                                _tablet->enable_unique_key_merge_on_write()) ||
-                                               _tablet->keys_type() == KeysType::DUP_KEYS))) {
+    if (_row_binlog_ttl_filtered_rows == 0 && _enable_inverted_index_compaction &&
+        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+           _tablet->enable_unique_key_merge_on_write()) ||
+          _tablet->keys_type() == KeysType::DUP_KEYS))) {
         construct_index_compaction_columns(ctx);
     }
     if (_tablet->is_row_binlog_tablet()) {
@@ -1833,9 +1942,13 @@ Status CompactionMixin::modify_rowsets() {
                 &output_rowset_delete_bitmap);
         if (missed_rows) {
             missed_rows_size = missed_rows->size();
-            std::size_t merged_missed_rows_size = _stats.merged_rows;
+            // missed_rows only contains delete-bitmap rows without an output rowid mapping.
+            // Rows removed later by the delete-sign/TTL visibility filter are not part of it.
+            std::size_t expected_missed_rows_size = _stats.merged_rows;
+            int64_t cluster_key_filtered_rows = 0;
             if (!_tablet->tablet_meta()->tablet_schema()->cluster_key_uids().empty()) {
-                merged_missed_rows_size += _stats.filtered_rows;
+                cluster_key_filtered_rows = _stats.filtered_rows;
+                expected_missed_rows_size += cluster_key_filtered_rows;
             }
 
             // Suppose a heavy schema change process on BE converting tablet A to tablet B.
@@ -1861,11 +1974,12 @@ Status CompactionMixin::modify_rowsets() {
             }
 
             if (_tablet->tablet_state() == TABLET_RUNNING &&
-                merged_missed_rows_size != missed_rows_size && need_to_check_missed_rows) {
+                expected_missed_rows_size != missed_rows_size && need_to_check_missed_rows) {
                 std::stringstream ss;
-                ss << "cumulative compaction: the merged rows(" << _stats.merged_rows
-                   << "), filtered rows(" << _stats.filtered_rows
-                   << ") is not equal to missed rows(" << missed_rows_size
+                ss << "cumulative compaction: expected missed rows(" << expected_missed_rows_size
+                   << ") from merged rows(" << _stats.merged_rows
+                   << ") and cluster key filtered rows(" << cluster_key_filtered_rows
+                   << "), but found missed rows(" << missed_rows_size
                    << ") in rowid conversion, tablet_id: " << _tablet->tablet_id()
                    << ", table_id:" << _tablet->table_id();
                 if (missed_rows_size == 0) {
@@ -1881,12 +1995,7 @@ Status CompactionMixin::modify_rowsets() {
                     }
                     ss << ", version[0-" << version.second + 1 << "]";
                 }
-                std::string err_msg = fmt::format(
-                        "cumulative compaction: the merged rows({}), filtered rows({})"
-                        " is not equal to missed rows({}) in rowid conversion,"
-                        " tablet_id: {}, table_id:{}",
-                        _stats.merged_rows, _stats.filtered_rows, missed_rows_size,
-                        _tablet->tablet_id(), _tablet->table_id());
+                std::string err_msg = ss.str();
                 LOG(WARNING) << err_msg;
                 if (config::enable_mow_compaction_correctness_check_core) {
                     CHECK(false) << err_msg;
@@ -1963,6 +2072,15 @@ Status CompactionMixin::modify_rowsets() {
     } else {
         std::lock_guard wrlock(_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
+        if (_row_binlog_ttl_filtered_rows > 0) {
+            const auto& current = _tablet->tablet_meta()->binlog_config();
+            if (!current.row_ttl_enabled() ||
+                current.effective_row_ttl_seconds() != *_row_binlog_ttl_seconds) {
+                return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                        "ROW binlog TTL changed during compaction, tablet={}",
+                        _tablet->tablet_id());
+            }
+        }
         RETURN_IF_ERROR(tablet()->modify_rowsets(output_rowsets, _input_rowsets, true));
     }
 
@@ -2349,9 +2467,10 @@ Status CloudCompactionMixin::set_storage_resource_from_input_rowsets(RowsetWrite
 
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // only do index compaction for dup_keys and unique_keys with mow enabled
-    if (_enable_inverted_index_compaction && (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                                                _tablet->enable_unique_key_merge_on_write()) ||
-                                               _tablet->keys_type() == KeysType::DUP_KEYS))) {
+    if (_row_binlog_ttl_filtered_rows == 0 && _enable_inverted_index_compaction &&
+        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+           _tablet->enable_unique_key_merge_on_write()) ||
+          _tablet->keys_type() == KeysType::DUP_KEYS))) {
         construct_index_compaction_columns(ctx);
     }
 

@@ -93,7 +93,7 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
         if (olapTable instanceof RemoteOlapTable) {
             return false;
         }
-        if (olapTable.hasVariantColumns()) {
+        if (olapTable.hasVariantColumns() || olapTable.hasRowTtl()) {
             return false;
         }
         return olapTable.getEnableLightSchemaChange() && olapTable.getEnableUniqueKeyMergeOnWrite()

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.binlog.BinlogUtils;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -62,10 +63,15 @@ public class AlterDatabasePropertiesCommand extends AlterCommand {
         if (properties == null || properties.isEmpty()) {
             throw new UserException("Properties is null or empty");
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED)
+                || properties.containsKey("binlog.effective_row_ttl_seconds")) {
+            throw new UserException("ROW binlog TTL metadata properties are reserved for internal use");
+        }
 
         // clone properties for analyse
         Map<String, String> analysisProperties = new HashMap<String, String>(properties);
         PropertyAnalyzer.analyzeBinlogConfig(analysisProperties);
+        BinlogUtils.markExplicitRowTtl(properties);
     }
 
     @Override

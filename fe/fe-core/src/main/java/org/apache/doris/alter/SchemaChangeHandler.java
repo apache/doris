@@ -2384,6 +2384,9 @@ public class SchemaChangeHandler extends AlterHandler {
                             .forEach(entry -> sequenceMappingSettings.put(entry.getKey(), entry.getValue()));
                 }
             }
+            if (olapTable.hasRowTtl() && !sequenceMappingSettings.isEmpty()) {
+                throw new DdlException(PropertyAnalyzer.ROW_TTL_SEQUENCE_COLUMN_CONFLICT);
+            }
 
             for (AlterOp alterOp : alterOps) {
                 Map<String, String> properties = alterOp.getProperties();
@@ -3086,7 +3089,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
             }
 
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                 int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
@@ -3957,6 +3960,12 @@ public class SchemaChangeHandler extends AlterHandler {
                             newBinlogConfig.mergeFromProperties(binlogConfigMap, false);
                     if (!mergePropertiesStatus.first) {
                         throw new AnalysisException(mergePropertiesStatus.second);
+                    }
+                    if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
+                        if (newBinlogConfig.isEnableForStreaming()) {
+                            org.apache.doris.system.RowTtlFeatureGate.ensureRowBinlogTtlSupported();
+                        }
+                        newBinlogConfig.applyExplicitRowTtl(newBinlogConfig.getTtlSeconds());
                     }
                 }
             } catch (AnalysisException e) {

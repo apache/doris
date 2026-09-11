@@ -50,6 +50,8 @@ struct TMasterInfo {
     12: optional i64 tablet_report_inactive_duration_ms;
     13: optional string auth_token;
     14: optional TCloudClusterInfo cloud_cluster_info;
+    // Cleanup reference only; this is not an active-query safe point.
+    15: optional i64 row_binlog_ttl_reference_tso;
 }
 
 struct TBackendInfo {
@@ -63,6 +65,8 @@ struct TBackendInfo {
     8: optional bool is_shutdown
     9: optional Types.TPort arrow_flight_sql_port
     10: optional i64 be_mem // The physical memory available for use by BE.
+    // Bit set advertised by the BE. Missing on an old BE means no optional features.
+    11: optional i64 node_feature_flags
     // For cloud
     1000: optional i64 fragment_executing_count
     1001: optional i64 fragment_last_active_time

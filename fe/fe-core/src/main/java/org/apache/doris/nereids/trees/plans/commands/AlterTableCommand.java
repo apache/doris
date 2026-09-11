@@ -61,10 +61,12 @@ import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplaceTableOp;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.RowTtlFeatureGate;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -133,6 +135,17 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             op.validate(ctx);
         }
         if (tableIf instanceof OlapTable) {
+            boolean requiresRowTtlGate = ((OlapTable) tableIf).hasRowTtl();
+            for (AlterTableOp op : ops) {
+                if (op instanceof ReplaceTableOp) {
+                    TableIf replacement = dbIf.getTableOrDdlException(((ReplaceTableOp) op).getTblName());
+                    requiresRowTtlGate |= replacement instanceof OlapTable
+                            && ((OlapTable) replacement).hasRowTtl();
+                }
+            }
+            if (requiresRowTtlGate) {
+                RowTtlFeatureGate.ensureReadyForUse();
+            }
             rewriteAlterOpForOlapTable(ctx, (OlapTable) tableIf);
         } else {
             checkExternalTableOperationAllow(tableIf);
@@ -281,6 +294,9 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 EnableFeatureOp.Features alterFeature = ((EnableFeatureOp) alterClause).getFeature();
                 if (alterFeature == null || alterFeature == EnableFeatureOp.Features.UNKNOWN) {
                     throw new AnalysisException("unknown feature for alter clause");
+                }
+                if (alterFeature == EnableFeatureOp.Features.SEQUENCE_LOAD && table.hasRowTtl()) {
+                    throw new AnalysisException(PropertyAnalyzer.ROW_TTL_SEQUENCE_COLUMN_CONFLICT);
                 }
                 if (table.getKeysType() != KeysType.UNIQUE_KEYS
                         && alterFeature == EnableFeatureOp.Features.BATCH_DELETE) {

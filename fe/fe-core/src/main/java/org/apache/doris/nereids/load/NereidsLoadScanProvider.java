@@ -236,6 +236,10 @@ public class NereidsLoadScanProvider {
                         LOG.debug("add hidden column {} to stream load task", Column.SEQUENCE_COL);
                     }
                 }
+                // Direct TTL is a writable value; the JSON reader records absence in the skip bitmap.
+                if (((OlapTable) tbl).isDirectRowTtl()) {
+                    copiedColumnExprs.add(new NereidsImportColumnDesc(Column.TTL_COL));
+                }
                 copiedColumnExprs.add(new NereidsImportColumnDesc(Column.SKIP_BITMAP_COL));
             }
 

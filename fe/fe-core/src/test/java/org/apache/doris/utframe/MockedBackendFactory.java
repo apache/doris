@@ -27,6 +27,7 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.proto.Types;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.FrontendService.Client;
 import org.apache.doris.thrift.HeartbeatService;
@@ -141,6 +142,7 @@ public class MockedBackendFactory {
             TBackendInfo backendInfo = new TBackendInfo(beThriftPort, beHttpPort);
             backendInfo.setBrpcPort(beBrpcPort);
             backendInfo.setArrowFlightSqlPort(beArrowFlightSqlPort);
+            backendInfo.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
             THeartbeatResult result = new THeartbeatResult(new TStatus(TStatusCode.OK), backendInfo);
             return result;
         }

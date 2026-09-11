@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
@@ -324,7 +325,7 @@ public class CreateTableInfo {
         return sortOrderFields;
     }
 
-    private boolean isEffectiveRowBinlogEnabled() {
+    private boolean isEffectiveRowBinlogEnabled() throws org.apache.doris.common.AnalysisException {
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         BinlogConfig binlogConfig = db == null
                 ? BinlogConfig.fromProperties(properties)
@@ -437,6 +438,10 @@ public class CreateTableInfo {
 
         if (properties == null) {
             properties = Maps.newHashMap();
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED)
+                || properties.containsKey("binlog.effective_row_ttl_seconds")) {
+            throw new AnalysisException("ROW binlog TTL metadata properties are reserved for internal use");
         }
 
         if (targetIsInternalCatalog) {
@@ -651,6 +656,71 @@ public class CreateTableInfo {
                 for (int i = keys.size(); i < columns.size(); ++i) {
                     columns.get(i).setAggType(type);
                 }
+            }
+
+            boolean enableRowTtl;
+            String rowTtlCol;
+            try {
+                enableRowTtl = PropertyAnalyzer.analyzeEnableRowTtl(properties, keysType);
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL,
+                            Boolean.toString(enableRowTtl));
+                }
+                rowTtlCol = PropertyAnalyzer.analyzeRowTtlCol(properties, keysType);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+            if (enableRowTtl) {
+                DataType ttlColumnType = BigIntType.INSTANCE;
+                if (rowTtlCol != null) {
+                    long durationMicros;
+                    try {
+                        durationMicros = PropertyAnalyzer.analyzeRowTtlDurationMicros(properties);
+                    } catch (org.apache.doris.common.AnalysisException e) {
+                        throw new AnalysisException(e.getMessage(), e.getCause());
+                    }
+                    properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                                    + PropertyAnalyzer.PROPERTIES_TTL,
+                            Long.toString(durationMicros / 1_000_000L));
+                    ColumnDefinition sourceColumn = columnMap.get(rowTtlCol);
+                    if (sourceColumn == null) {
+                        throw new AnalysisException("row ttl column does not exist: " + rowTtlCol);
+                    }
+                    if (sourceColumn.getGeneratedColumnDesc().isPresent()) {
+                        throw new AnalysisException(
+                                "row ttl column does not support generated columns: " + rowTtlCol);
+                    }
+                    if (sourceColumn.isKey()) {
+                        throw new AnalysisException("row ttl column must be a value column: " + rowTtlCol);
+                    }
+                    // TIMESTAMP_NS is date-like, but the BE Row TTL expiration path does not support it.
+                    if (!sourceColumn.getType().isDateLikeType() || sourceColumn.getType().isTimeStampNsType()) {
+                        throw new AnalysisException("row ttl column only supports DATE/DATETIME types: " + rowTtlCol);
+                    }
+                    ttlColumnType = sourceColumn.getType();
+                    String rowTtlTimeZone;
+                    try {
+                        rowTtlTimeZone = PropertyAnalyzer.analyzeRowTtlTimeZone(properties);
+                    } catch (org.apache.doris.common.AnalysisException e) {
+                        throw new AnalysisException(e.getMessage(), e.getCause());
+                    }
+                    String timeZoneProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                            + PropertyAnalyzer.PROPERTIES_TTL_TIME_ZONE;
+                    if (sourceColumn.getType().isTimeStampTzType()) {
+                        if (rowTtlTimeZone == null) {
+                            properties.put(timeZoneProperty, "+00:00");
+                        } else if (!rowTtlTimeZone.equals("+00:00")) {
+                            throw new AnalysisException(
+                                    "TIMESTAMPTZ row ttl column only supports +00:00 time zone");
+                        }
+                    } else if (rowTtlTimeZone == null) {
+                        throw new AnalysisException(timeZoneProperty
+                                + " is required for DATE/DATETIME row ttl columns");
+                    }
+                }
+                AggregateType ttlAggregateType = keysType == KeysType.DUP_KEYS
+                        ? AggregateType.NONE : AggregateType.REPLACE;
+                columns.add(ColumnDefinition.newTtlColumnDefinition(ttlColumnType, ttlAggregateType));
             }
 
             properties = addOlapHiddenColumns(columns, keysType, isEnableMergeOnWrite, properties);

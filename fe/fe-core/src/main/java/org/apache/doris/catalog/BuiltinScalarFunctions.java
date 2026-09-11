@@ -446,6 +446,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Reverse;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Right;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RoundBankers;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlExpiration;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlIsVisible;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rtrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RtrimIn;
@@ -1044,6 +1046,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Right.class, "right", "strright"),
             scalar(Round.class, "round"),
             scalar(RoundBankers.class, "round_bankers"),
+            scalar(RowTtlIsVisible.class, "row_ttl_is_visible"),
+            scalar(RowTtlExpiration.class, "row_ttl_expiration"),
             scalar(FormatRound.class, "format_round"),
             scalar(Rpad.class, "rpad"),
             scalar(Rtrim.class, "rtrim"),

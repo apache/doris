@@ -1006,6 +1006,8 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             tablet->set_binlog_config(new_binlog_config);
             need_to_save = true;
         }
+        // Legacy per-tablet references are ignored. Only validated heartbeats
+        // may advance the process-wide cleanup reference.
         if (tablet_meta_info.__isset.disable_auto_compaction) {
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(

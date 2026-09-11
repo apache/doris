@@ -49,6 +49,8 @@
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
 #include "storage/compaction/compaction.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/index/inverted/inverted_index_desc.h"
@@ -947,7 +949,22 @@ int64_t CloudTablet::get_cloud_base_compaction_score() const {
 int64_t CloudTablet::get_cloud_cumu_compaction_score() const {
     // TODO(plat1ko): Propose an algorithm that considers tablet's key type, number of delete rowsets,
     //  number of tablet versions simultaneously.
-    return _approximate_cumu_num_deltas.load(std::memory_order_relaxed);
+    int64_t score = _approximate_cumu_num_deltas.load(std::memory_order_relaxed);
+    if (!is_row_binlog_tablet()) {
+        return score;
+    }
+    std::shared_lock lock(_meta_lock);
+    int64_t cutoff = _tablet_meta->binlog_config().row_ttl_cutoff_tso(
+            ExecEnv::GetInstance()->cluster_info()->row_binlog_ttl_reference_tso());
+    if (cutoff < 0) {
+        return score;
+    }
+    for (const auto& [_, rowset_meta] : _tablet_meta->all_rs_metas()) {
+        if (row_binlog_rowset_expired(*rowset_meta, cutoff)) {
+            return std::max<int64_t>(score, 1);
+        }
+    }
+    return score;
 }
 
 // return a json string to show the compaction status of this tablet
@@ -1554,6 +1571,7 @@ Status CloudTablet::sync_meta() {
     auto new_disable_auto_compaction = tablet_meta->tablet_schema()->disable_auto_compaction();
     auto new_vertical_compaction_num_columns_per_group =
             tablet_meta->vertical_compaction_num_columns_per_group();
+    auto new_binlog_config = tablet_meta->binlog_config();
 
     {
         std::unique_lock wlock(_meta_lock);
@@ -1598,6 +1616,7 @@ Status CloudTablet::sync_meta() {
             _tablet_meta->set_vertical_compaction_num_columns_per_group(
                     new_vertical_compaction_num_columns_per_group);
         }
+        _tablet_meta->set_binlog_config(std::move(new_binlog_config));
     }
 
     return Status::OK();

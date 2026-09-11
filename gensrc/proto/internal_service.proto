@@ -1106,6 +1106,7 @@ message PAlterVaultSyncResponse {
 
 message PSyncTabletMetaRequest {
     repeated int64 tablet_ids = 1;
+    optional bool discover_row_binlog_ttl = 2 [default = false];
 }
 
 message PSyncTabletMetaResponse {
