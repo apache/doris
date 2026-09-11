@@ -17,6 +17,7 @@
 
 #include "meta-service/meta_service_tablet_stats.h"
 
+#include <byteswap.h>
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
