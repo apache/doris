@@ -25,13 +25,13 @@ suite("test_gram_policy_recovery", "p0") {
     // degenerate into a tautology.
     sql "SET enable_condition_cache=false"
 
-    def waitAnalyzerInstalled = { int expectedTokenCount ->
+    def waitAnalyzerInstalledNamed = { String name, int expectedTokenCount ->
         def deadline = System.currentTimeMillis() + 180_000
         Exception lastNotFound = null
         while (System.currentTimeMillis() < deadline) {
             try {
                 def result = sql """SELECT JSON_LENGTH(TOKENIZE('abcdef',
-                    '"analyzer"="gram_recovery_analyzer"'))"""
+                    '"analyzer"="${name}"'))"""
                 // The replacement has the same name: successful lookup alone could still
                 // observe the old policy before BE receives the next heartbeat update.
                 if (result[0][0].toString() == expectedTokenCount.toString()) {
@@ -46,8 +46,11 @@ suite("test_gram_policy_recovery", "p0") {
             sleep(1000)
         }
         throw new IllegalStateException(
-                "gram_recovery_analyzer did not produce ${expectedTokenCount} tokens on BE",
+                "${name} did not produce ${expectedTokenCount} tokens on BE",
                 lastNotFound)
+    }
+    def waitAnalyzerInstalled = { int expectedTokenCount ->
+        waitAnalyzerInstalledNamed("gram_recovery_analyzer", expectedTokenCount)
     }
 
     sql "DROP TABLE IF EXISTS test_gram_policy_recovery"
@@ -96,6 +99,12 @@ suite("test_gram_policy_recovery", "p0") {
             WHERE msg MATCH_ANY 'abcdef'""")
         "order_qt_recovered_${useIndex}_match_all"("""SELECT id FROM test_gram_policy_recovery
             WHERE msg MATCH_ALL 'abcdef'""")
+        // MATCH_REGEXP carries a raw pattern, but it is matched against terms: the scalar
+        // function against what the current analyzer cuts each row into, the index against the
+        // dictionary the segment was written with. On a dense3 segment read under a dense4
+        // analyzer those are different sets, so the index has to step aside here as well.
+        "order_qt_recovered_${useIndex}_match_regexp"("""SELECT id FROM test_gram_policy_recovery
+            WHERE msg MATCH_REGEXP '^abcd\$'""")
     }
 
     // This writer sees dense4, while the recovered rowset retains its dense3 dictionary.
@@ -120,8 +129,58 @@ suite("test_gram_policy_recovery", "p0") {
             WHERE msg MATCH_ANY 'abcdef'""")
         "order_qt_mixed_${useIndex}_match_all"("""SELECT id FROM test_gram_policy_recovery
             WHERE msg MATCH_ALL 'abcdef'""")
+        "order_qt_mixed_${useIndex}_match_regexp"("""SELECT id FROM test_gram_policy_recovery
+            WHERE msg MATCH_REGEXP '^abcd\$'""")
+    }
+
+    // A second recovery, this time from a tokenizer that predates gram mode. Such a segment
+    // records no gram scheme, and its dictionary holds that tokenizer's own terms -- here
+    // bigrams. Once the policy is recreated in gram mode, an analyzed query is cut into grams
+    // that mean nothing in that dictionary, so the index has to step aside exactly as it does
+    // for a scheme that differs. "No scheme at all" is a mismatch, not an exemption.
+    sql "DROP TABLE IF EXISTS test_gram_legacy_recovery"
+    sql "DROP INVERTED INDEX ANALYZER IF EXISTS gram_legacy_analyzer"
+    sql "DROP INVERTED INDEX TOKENIZER IF EXISTS gram_legacy_tokenizer"
+    sql """CREATE INVERTED INDEX TOKENIZER gram_legacy_tokenizer PROPERTIES (
+        "type"="ngram", "min_gram"="2", "max_gram"="2")"""
+    sql """CREATE INVERTED INDEX ANALYZER gram_legacy_analyzer
+        PROPERTIES ("tokenizer"="gram_legacy_tokenizer")"""
+    waitAnalyzerInstalledNamed("gram_legacy_analyzer", 5)
+
+    sql """CREATE TABLE test_gram_legacy_recovery (
+        id INT,
+        msg VARCHAR(128),
+        INDEX idx_msg (msg) USING INVERTED PROPERTIES ("analyzer"="gram_legacy_analyzer")
+    ) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ("replication_num"="1", "disable_auto_compaction"="true",
+                "inverted_index_storage_format"="SNII")"""
+    sql """INSERT INTO test_gram_legacy_recovery VALUES
+        (1, 'abcdef'), (2, 'old abcdef row'), (3, 'unrelated'), (4, NULL)"""
+    sql "sync"
+
+    sql "DROP TABLE test_gram_legacy_recovery"
+    sql "DROP INVERTED INDEX ANALYZER gram_legacy_analyzer"
+    sql "DROP INVERTED INDEX TOKENIZER gram_legacy_tokenizer"
+    sql """CREATE INVERTED INDEX TOKENIZER gram_legacy_tokenizer PROPERTIES (
+        "type"="ngram", "mode"="dense", "min_gram"="3")"""
+    sql """CREATE INVERTED INDEX ANALYZER gram_legacy_analyzer
+        PROPERTIES ("tokenizer"="gram_legacy_tokenizer")"""
+    waitAnalyzerInstalledNamed("gram_legacy_analyzer", 4)
+    sql "RECOVER TABLE test_gram_legacy_recovery"
+
+    [false, true].each { useIndex ->
+        sql "SET enable_inverted_index_query=${useIndex}"
+        "order_qt_legacy_${useIndex}_match_any"("""SELECT id FROM test_gram_legacy_recovery
+            WHERE msg MATCH_ANY 'abcdef'""")
+        "order_qt_legacy_${useIndex}_match_all"("""SELECT id FROM test_gram_legacy_recovery
+            WHERE msg MATCH_ALL 'abcdef'""")
+        "order_qt_legacy_${useIndex}_like"("""SELECT id FROM test_gram_legacy_recovery
+            WHERE msg LIKE '%abcdef%'""")
     }
     sql "SET enable_inverted_index_query=true"
+    sql "DROP TABLE IF EXISTS test_gram_legacy_recovery"
+    sql "DROP INVERTED INDEX ANALYZER IF EXISTS gram_legacy_analyzer"
+    sql "DROP INVERTED INDEX TOKENIZER IF EXISTS gram_legacy_tokenizer"
     // The policies live cluster-wide and the cluster is shared, so a suite that leaves
     // its own behind eats into the instance-wide policy limit for everyone else.
     sql "DROP TABLE IF EXISTS test_gram_policy_recovery"

@@ -164,10 +164,13 @@ bool uses_phrase_frequency_scoring(InvertedIndexQueryType query_type,
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
 }
 
-// Query types whose terms come out of the current analyzer. On a gram-family index those
-// terms are grams, and they only mean what the segment's own grams mean when both were cut
-// by the same scheme; a gram query compiles against the segment's scheme itself and a raw
-// pattern query never analyzes, so neither is affected.
+// Query types whose answer is decided by terms the current analyzer produced. On a
+// gram-family index those terms are grams, and they only mean what the segment's own grams
+// mean when both were cut by the same scheme. MATCH_REGEXP belongs here even though its
+// pattern is raw: the scalar function matches that pattern against the terms the current
+// analyzer cuts each row into, while the index matches it against the persisted dictionary,
+// so the two answer the same question only when both were cut alike. A gram query compiles
+// against the segment's own scheme, so it is not affected.
 bool analyzes_query_terms(InvertedIndexQueryType query_type) {
     switch (query_type) {
     case InvertedIndexQueryType::MATCH_ANY_QUERY:
@@ -175,6 +178,7 @@ bool analyzes_query_terms(InvertedIndexQueryType query_type) {
     case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
     case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
     case InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY:
+    case InvertedIndexQueryType::MATCH_REGEXP_QUERY:
         return true;
     default:
         return false;
@@ -737,7 +741,11 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
     RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
                                         &logical_reader));
-    if (analyzed_query && logical_reader->gram_scheme().has_value() &&
+    // Compare the two optionals, not just two schemes: a segment written by a legacy ngram
+    // tokenizer carries no scheme at all, and its dictionary holds that tokenizer's terms. Once
+    // the current analyzer cuts grams, looking those grams up in that dictionary answers a
+    // different question, so an absent persisted scheme is a mismatch like any other.
+    if (analyzed_query && current_gram_scheme.has_value() &&
         current_gram_scheme != logical_reader->gram_scheme()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                 "gram index segment was cut with a different scheme than the current "
