@@ -174,9 +174,10 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         if (node instanceof LogicalProject) {
             LogicalProject<? extends Plan> project = (LogicalProject<? extends Plan>) node;
             Set<ExprId> childBlockedExprIds = new HashSet<>(blockedExprIds);
+            Set<ExprId> repeatedIdentitySourceExprIds = collectRepeatedIdentitySourceExprIds(project.getProjects());
             for (NamedExpression ne : project.getProjects()) {
                 info.addPullUpExprReplace(ne);
-                boolean canPullUp = canPullUp(ne);
+                boolean canPullUp = canPullUp(ne, repeatedIdentitySourceExprIds);
                 if (canPullUp && !blockedExprIds.contains(ne.getExprId())) {
                     info.addPulledUpExpr(project, ne);
                 }
@@ -275,14 +276,17 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
 
     /**
      * Check if a named expression can be pulled up above TopN.
-     * Eligible: Alias with non-trivial child, not blocked, no NoneMovableFunction.
+     * Eligible: repeated Alias(Slot), or Alias with a non-trivial movable child.
      */
-    static boolean canPullUp(NamedExpression ne) {
+    static boolean canPullUp(NamedExpression ne, Set<ExprId> repeatedIdentitySourceExprIds) {
         if (!(ne instanceof Alias)) {
             return false;
         }
         Expression child = ((Alias) ne).child();
-        if (child instanceof Slot || child instanceof Literal) {
+        if (child instanceof Slot) {
+            return repeatedIdentitySourceExprIds.contains(((Slot) child).getExprId());
+        }
+        if (child instanceof Literal) {
             return false;
         }
         if (ne.anyMatch(e -> e instanceof NoneMovableFunction)) {
@@ -298,6 +302,25 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             return false;
         }
         return true;
+    }
+
+    private static Set<ExprId> collectRepeatedIdentitySourceExprIds(List<NamedExpression> projects) {
+        Set<ExprId> identitySourceExprIds = new HashSet<>();
+        Set<ExprId> repeatedIdentitySourceExprIds = new HashSet<>();
+        for (NamedExpression project : projects) {
+            ExprId sourceExprId;
+            if (project instanceof Slot) {
+                sourceExprId = project.getExprId();
+            } else if (project instanceof Alias && project.child(0) instanceof Slot) {
+                sourceExprId = ((Slot) project.child(0)).getExprId();
+            } else {
+                continue;
+            }
+            if (!identitySourceExprIds.add(sourceExprId)) {
+                repeatedIdentitySourceExprIds.add(sourceExprId);
+            }
+        }
+        return repeatedIdentitySourceExprIds;
     }
 
     private static boolean shouldBlockProjectInputs(

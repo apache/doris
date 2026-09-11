@@ -108,6 +108,115 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testPullUpTwoAndThreeAliasesOfSameSlot() {
+        assertRepeatedIdentityAliasesPulledUp(2);
+        assertRepeatedIdentityAliasesPulledUp(3);
+    }
+
+    @Test
+    void testPullUpDirectSlotAndRepeatedAliases() {
+        Slot id = scan1.getOutput().get(0);
+        Slot source = scan1.getOutput().get(1);
+        Alias first = source.alias("first");
+        Alias second = source.alias("second");
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .projectExprs(ImmutableList.of(source, first, second, id))
+                .topN(3, 0, ImmutableList.of(3))
+                .build();
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .getPlan();
+
+        LogicalProject<?> upperProject = (LogicalProject<?>) rewritten;
+        Assertions.assertEquals(4, upperProject.getProjects().size());
+        Assertions.assertEquals(source.getExprId(), upperProject.getProjects().get(0).getExprId());
+        Assertions.assertEquals(first.getExprId(), upperProject.getProjects().get(1).getExprId());
+        Assertions.assertEquals(second.getExprId(), upperProject.getProjects().get(2).getExprId());
+        Assertions.assertEquals(id.getExprId(), upperProject.getProjects().get(3).getExprId());
+
+        LogicalTopN<?> topN = (LogicalTopN<?>) upperProject.child(0);
+        LogicalProject<?> lowerProject = (LogicalProject<?>) topN.child(0);
+        Assertions.assertEquals(2, lowerProject.getProjects().size());
+        Assertions.assertEquals(source.getExprId(), lowerProject.getProjects().get(0).getExprId());
+        Assertions.assertEquals(id.getExprId(), lowerProject.getProjects().get(1).getExprId());
+    }
+
+    @Test
+    void testPullUpRepeatedAliasesThroughForwardingProject() {
+        Slot id = scan1.getOutput().get(0);
+        Slot source = scan1.getOutput().get(1);
+        Alias first = source.alias("first");
+        Alias second = source.alias("second");
+        LogicalProject<LogicalOlapScan> lowerProject = new LogicalProject<>(
+                ImmutableList.of(first, second, id), scan1);
+        LogicalProject<LogicalProject<LogicalOlapScan>> forwardingProject = new LogicalProject<>(
+                ImmutableList.of(first.toSlot(), second.toSlot(), id), lowerProject);
+        LogicalPlan plan = new LogicalPlanBuilder(forwardingProject)
+                .topN(3, 0, ImmutableList.of(2))
+                .build();
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .getPlan();
+
+        LogicalProject<?> upperProject = (LogicalProject<?>) rewritten;
+        Assertions.assertEquals(first.getExprId(), upperProject.getProjects().get(0).getExprId());
+        Assertions.assertEquals(second.getExprId(), upperProject.getProjects().get(1).getExprId());
+        Assertions.assertEquals(id.getExprId(), upperProject.getProjects().get(2).getExprId());
+
+        LogicalTopN<?> topN = (LogicalTopN<?>) upperProject.child(0);
+        LogicalProject<?> rewrittenForwardingProject = (LogicalProject<?>) topN.child(0);
+        LogicalProject<?> rewrittenLowerProject = (LogicalProject<?>) rewrittenForwardingProject.child(0);
+        for (LogicalProject<?> project : ImmutableList.of(rewrittenForwardingProject, rewrittenLowerProject)) {
+            Assertions.assertEquals(2, project.getProjects().size());
+            Assertions.assertEquals(id.getExprId(), project.getProjects().get(0).getExprId());
+            Assertions.assertEquals(source.getExprId(), project.getProjects().get(1).getExprId());
+        }
+    }
+
+    private void assertRepeatedIdentityAliasesPulledUp(int aliasCount) {
+        Slot id = scan1.getOutput().get(0);
+        Slot source = scan1.getOutput().get(1);
+        ImmutableList.Builder<Alias> aliasesBuilder = ImmutableList.builder();
+        for (int i = 0; i < aliasCount; i++) {
+            aliasesBuilder.add(source.alias("alias_" + i));
+        }
+        List<Alias> aliases = aliasesBuilder.build();
+        ImmutableList.Builder<NamedExpression> projectsBuilder = ImmutableList.builder();
+        projectsBuilder.addAll(aliases).add(id);
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .projectExprs(projectsBuilder.build())
+                .topN(3, 0, ImmutableList.of(aliasCount))
+                .build();
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .getPlan();
+
+        LogicalProject<?> upperProject = (LogicalProject<?>) rewritten;
+        Assertions.assertEquals(aliasCount + 1, upperProject.getProjects().size());
+        for (int i = 0; i < aliasCount; i++) {
+            Assertions.assertEquals(aliases.get(i).getExprId(), upperProject.getProjects().get(i).getExprId());
+            Assertions.assertEquals(aliases.get(i).getName(), upperProject.getProjects().get(i).getName());
+            Assertions.assertEquals(aliases.get(i).getDataType(), upperProject.getProjects().get(i).getDataType());
+            Assertions.assertEquals(aliases.get(i).nullable(), upperProject.getProjects().get(i).nullable());
+        }
+        Assertions.assertEquals(id.getExprId(), upperProject.getProjects().get(aliasCount).getExprId());
+
+        LogicalTopN<?> topN = (LogicalTopN<?>) upperProject.child(0);
+        Assertions.assertEquals(id.getExprId(), topN.getOrderKeys().get(0).getExpr().getInputSlots().iterator()
+                .next().getExprId());
+        LogicalProject<?> lowerProject = (LogicalProject<?>) topN.child(0);
+        Assertions.assertEquals(2, lowerProject.getProjects().size());
+        Assertions.assertEquals(id.getExprId(), lowerProject.getProjects().get(0).getExprId());
+        Assertions.assertEquals(source.getExprId(), lowerProject.getProjects().get(1).getExprId());
+        Assertions.assertEquals(1, lowerProject.getProjects().stream()
+                .filter(expression -> expression.getExprId().equals(source.getExprId()))
+                .count());
+    }
+
+    @Test
     void testNotPullUpScoreExpression() {
         List<NamedExpression> exprs = ImmutableList.of(
                 new Alias(new Score(), "score"),
