@@ -365,6 +365,7 @@ public class CloudTabletRebalancerTest {
         Long beId = 60_001L;
         String clusterId = "cluster-a";
         setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(beId)));
+        setField(rebalancer, "allBes", Set.of(beId));
 
         try (MockedStatic<Env> ignored = mockRouteEnvironment(
                 dbId, tableId, partitionId, indexId, tabletId, clusterId, beId, 3)) {
@@ -387,6 +388,7 @@ public class CloudTabletRebalancerTest {
         Long beId = 60_001L;
         String clusterId = "cluster-a";
         setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(beId)));
+        setField(rebalancer, "allBes", Set.of(beId));
 
         try (MockedStatic<Env> ignored = mockRouteEnvironment(
                 dbId, tableId, partitionId, indexId, tabletId, clusterId, beId, 3, true)) {
@@ -1250,6 +1252,14 @@ public class CloudTabletRebalancerTest {
 
             // a backend that disappeared triggers a sweep
             Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(new HashSet<>(Arrays.asList(1L))));
+
+            // deleting the last compute group cannot run a sweep, so keep it pending until a new group exists
+            TestRebalancer lastGroupRebalancer = new TestRebalancer();
+            Assertions.assertTrue(lastGroupRebalancer.staleRouteSweepNeeded(new HashSet<>(Arrays.asList(1L))));
+            Assertions.assertTrue(lastGroupRebalancer.staleRouteSweepNeeded(new HashSet<>(Arrays.asList(1L))));
+            Assertions.assertFalse(lastGroupRebalancer.staleRouteSweepNeeded(new HashSet<>()));
+            Assertions.assertFalse(lastGroupRebalancer.staleRouteSweepNeeded(new HashSet<>()));
+            Assertions.assertTrue(lastGroupRebalancer.staleRouteSweepNeeded(new HashSet<>(Arrays.asList(2L))));
 
             // turning the switch off drops the baseline so turning it back on sweeps again
             Config.enable_cloud_replica_stale_route_clean = false;

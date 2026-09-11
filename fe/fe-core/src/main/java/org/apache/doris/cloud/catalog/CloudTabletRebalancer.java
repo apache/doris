@@ -1018,6 +1018,11 @@ public class CloudTabletRebalancer extends MasterDaemon {
             pendingSweepRounds = 0;
             return false;
         }
+        // An empty topology cannot run the replica callback. Keep the last non-empty baseline so a
+        // newly created compute group triggers the pending sweep.
+        if (currentBes.isEmpty()) {
+            return false;
+        }
         if (lastSweptBackends == null || !currentBes.containsAll(lastSweptBackends)) {
             // Only a backend that went away can strand a route. Two rounds rather than one: a query
             // thread can pick a backend in hashReplicaToBe() before the drop and publish the route in
