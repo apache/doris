@@ -18,12 +18,12 @@
 package org.apache.doris.qe.protocol;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.FlightSqlConnectProcessor;
+import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
-import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
-import org.apache.doris.service.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
