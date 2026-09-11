@@ -29,7 +29,15 @@ namespace doris::io {
 /// by the caller's RuntimeProfile, so outstanding tasks can finish after the scanner is destroyed.
 struct ReadAheadStatistics {
     RuntimeProfile::Counter plan_calls {TUnit::UNIT};
+    /// Range planning and submission in apply_plans(), after physical-column planning.
     RuntimeProfile::Counter plan_time {TUnit::TIME_NS};
+    /// Physical-column preparation, including initialization, validation and empty plans.
+    RuntimeProfile::Counter column_plan_time {TUnit::TIME_NS};
+    RuntimeProfile::Counter column_init_time {TUnit::TIME_NS};
+    RuntimeProfile::Counter window_discard_time {TUnit::TIME_NS};
+    /// Current-rowid loop, including any window extensions triggered inside that loop.
+    RuntimeProfile::Counter current_batch_plan_time {TUnit::TIME_NS};
+    RuntimeProfile::Counter window_extend_time {TUnit::TIME_NS};
     RuntimeProfile::Counter candidate_pages {TUnit::UNIT};
     RuntimeProfile::Counter candidate_bytes {TUnit::BYTES};
     RuntimeProfile::Counter page_cache_hits {TUnit::UNIT};
