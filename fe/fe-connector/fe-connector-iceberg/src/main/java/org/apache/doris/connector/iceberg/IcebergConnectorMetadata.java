@@ -1027,6 +1027,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void createTable(ConnectorSession session, ConnectorCreateTableRequest request) {
+        // Reject DLF before any namespace lookup: the DLF adapter is read-only and a remote lookup could
+        // otherwise hide that invariant behind an unrelated missing-namespace or connectivity failure.
+        if (IcebergCatalogProperties.TYPE_DLF.equals(catalogProps.getFlavor())) {
+            throw new DorisConnectorException("CREATE TABLE is not supported for Iceberg DLF catalogs");
+        }
         rejectDistribution(request);
         rejectReservedRowLineageColumns(request);
         validateSortOrder(request);

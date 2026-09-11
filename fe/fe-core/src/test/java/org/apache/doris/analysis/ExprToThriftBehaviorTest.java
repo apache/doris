@@ -244,6 +244,17 @@ public class ExprToThriftBehaviorTest {
     }
 
     @Test
+    public void testStrictCastExprFlagIsSerialized() {
+        CastExpr expr = new CastExpr(Type.BIGINT, new IntLiteral(42), false);
+        expr.setStrict(true);
+
+        TExprNode node = firstNode(expr);
+        Assertions.assertEquals(TExprNodeType.CAST_EXPR, node.node_type);
+        Assertions.assertTrue(node.isSetIsStrictCast());
+        Assertions.assertTrue(node.isIsStrictCast());
+    }
+
+    @Test
     public void testCastExprNoOpTrue() {
         // Cast TINYINT to TINYINT -> noOp should be true (same type)
         IntLiteral child = new IntLiteral(42);

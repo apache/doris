@@ -69,7 +69,7 @@
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_loader.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_column_object_pool.h"
@@ -81,12 +81,12 @@ namespace doris::variant_segment_benchmark {
 namespace {
 
 // P0 workload: 200 top-level BIGINT paths, with one hot path and 29 additional paths per row.
-// Ingest cases parse the same canonical JSON before SegmentWriter. Read cases use the same
+// Ingest cases parse the same canonical JSON before VerticalSegmentWriter. Read cases use the same
 // V1-written physical segment and only switch the requested V1/V2 output representation. Input
 // generation, buffer destruction, warmup, checksum, physical-layout validation, and route
 // validation are paused. Scan-and-rewrite cases query key plus whole Variant from that prevalidated
 // source, then time scan/writer initialization, read, append, and destination finalize; destination
-// validation is paused. Ingest rotates SegmentWriter at
+// validation is paused. Ingest rotates VerticalSegmentWriter at
 // DORIS_VARIANT_BENCHMARK_ROWS_PER_SEGMENT; read cases retain their historical single-segment
 // semantics.
 constexpr uint32_t DEFAULT_ROWS = 1'000'000;
@@ -593,14 +593,14 @@ public:
         rowset_context.tablet_schema = destination_schema;
         rowset_context.tablet_path = _directory;
 
-        segment_v2::SegmentWriterOptions writer_options;
+        segment_v2::VerticalSegmentWriterOptions writer_options;
         writer_options.num_rows_per_block = BATCH_ROWS;
         writer_options.max_rows_per_segment = _rows_per_segment;
         writer_options.compression_type = CompressionTypePB::LZ4;
         writer_options.rowset_ctx = &rowset_context;
         writer_options.write_type = DataWriteType::TYPE_DIRECT;
-        segment_v2::SegmentWriter writer(file_writer.get(), 0, destination_schema, nullptr, nullptr,
-                                         writer_options, nullptr);
+        segment_v2::VerticalSegmentWriter writer(file_writer.get(), 0, destination_schema, nullptr,
+                                                 nullptr, writer_options, nullptr);
         RETURN_IF_ERROR(writer.init());
         result->writer_init_ns += elapsed_ns(writer_init_start);
 
@@ -638,8 +638,8 @@ public:
         }
 
         const auto finalize_start = std::chrono::steady_clock::now();
-        RETURN_IF_ERROR(writer.finalize(&result->destination_segment_bytes,
-                                        &result->destination_index_bytes));
+        RETURN_IF_ERROR(writer.finalize_columns(&result->destination_index_bytes));
+        RETURN_IF_ERROR(writer.finalize_footer(&result->destination_segment_bytes));
         result->finalize_ns += elapsed_ns(finalize_start);
         result->source_segment_bytes = prepared.fixture->segment_bytes;
         return Status::OK();
@@ -668,15 +668,15 @@ public:
                 rowset_context.tablet_schema = schema;
                 rowset_context.tablet_path = _directory;
 
-                segment_v2::SegmentWriterOptions options;
+                segment_v2::VerticalSegmentWriterOptions options;
                 options.num_rows_per_block = BATCH_ROWS;
                 options.max_rows_per_segment = _rows_per_segment;
                 options.compression_type = CompressionTypePB::LZ4;
                 options.rowset_ctx = &rowset_context;
                 options.write_type = DataWriteType::TYPE_DIRECT;
 
-                segment_v2::SegmentWriter writer(file_writer.get(), segment_id, schema, nullptr,
-                                                 nullptr, options, nullptr);
+                segment_v2::VerticalSegmentWriter writer(file_writer.get(), segment_id, schema,
+                                                         nullptr, nullptr, options, nullptr);
                 RETURN_IF_ERROR(writer.init());
                 result->init_ns += elapsed_ns(init_start);
 
@@ -720,7 +720,8 @@ public:
                 uint64_t bytes = 0;
                 uint64_t index_bytes = 0;
                 const auto finalize_start = std::chrono::steady_clock::now();
-                RETURN_IF_ERROR(writer.finalize(&bytes, &index_bytes));
+                RETURN_IF_ERROR(writer.finalize_columns(&index_bytes));
+                RETURN_IF_ERROR(writer.finalize_footer(&bytes));
                 result->finalize_ns += elapsed_ns(finalize_start);
                 result->segment_bytes += bytes;
                 result->index_bytes += index_bytes;

@@ -65,36 +65,6 @@ inline void add_phrase_query_stats(OlapReaderStatistics* target,
             static_cast<int64_t>(delta.prefix_leading_candidate_docs);
     stats.phrase_prefix_tail_candidate_visits +=
             static_cast<int64_t>(delta.prefix_tail_candidate_visits);
-    stats.common_grams_candidate_queries +=
-            static_cast<int64_t>(delta.common_grams_candidate_queries);
-    stats.common_grams_plain_plans += static_cast<int64_t>(delta.common_grams_plain_plans);
-    stats.common_grams_gram_plans += static_cast<int64_t>(delta.common_grams_gram_plans);
-    stats.common_grams_fallback_no_gram +=
-            static_cast<int64_t>(delta.common_grams_fallback_no_gram);
-    stats.common_grams_fallback_incompatible +=
-            static_cast<int64_t>(delta.common_grams_fallback_incompatible);
-    stats.common_grams_fallback_kill_switch +=
-            static_cast<int64_t>(delta.common_grams_fallback_kill_switch);
-    stats.common_grams_fallback_cost += static_cast<int64_t>(delta.common_grams_fallback_cost);
-    stats.common_grams_fallback_base_analyzer_mismatch +=
-            static_cast<int64_t>(delta.common_grams_fallback_base_analyzer_mismatch);
-    stats.common_grams_fallback_prefix_tail_empty +=
-            static_cast<int64_t>(delta.common_grams_fallback_prefix_tail_empty);
-    stats.common_grams_authoritative_empty +=
-            static_cast<int64_t>(delta.common_grams_authoritative_empty);
-    stats.common_grams_plain_posting_bytes +=
-            static_cast<int64_t>(delta.common_grams_plain_posting_bytes);
-    stats.common_grams_gram_posting_bytes +=
-            static_cast<int64_t>(delta.common_grams_gram_posting_bytes);
-    stats.common_grams_plain_estimated_candidate_df +=
-            static_cast<int64_t>(delta.common_grams_plain_estimated_candidate_df);
-    stats.common_grams_gram_estimated_candidate_df +=
-            static_cast<int64_t>(delta.common_grams_gram_estimated_candidate_df);
-    stats.common_grams_plain_estimated_cost +=
-            static_cast<int64_t>(delta.common_grams_plain_estimated_cost);
-    stats.common_grams_gram_estimated_cost +=
-            static_cast<int64_t>(delta.common_grams_gram_estimated_cost);
-    stats.common_grams_planning_ns += static_cast<int64_t>(delta.common_grams_planning_ns);
 }
 
 // Exists only around an actual SNII compute execution. Query-cache hits,
@@ -214,45 +184,6 @@ public:
         prefix_tail_candidate_visits_ =
                 profile->add_nonzero_counter("SniiPhrasePrefixTailCandidateVisits", TUnit::UNIT,
                                              RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_candidate_queries_ = profile->add_nonzero_counter(
-                "SniiCommonGramsCandidateQueries", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_plain_plans_ = profile->add_nonzero_counter(
-                "SniiCommonGramsPlainPlans", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_gram_plans_ = profile->add_nonzero_counter(
-                "SniiCommonGramsGramPlans", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_fallback_no_gram_ = profile->add_nonzero_counter(
-                "SniiCommonGramsFallbackNoGram", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_fallback_incompatible_ =
-                profile->add_nonzero_counter("SniiCommonGramsFallbackIncompatible", TUnit::UNIT,
-                                             RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_fallback_kill_switch_ = profile->add_nonzero_counter(
-                "SniiCommonGramsFallbackKillSwitch", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_fallback_cost_ = profile->add_nonzero_counter(
-                "SniiCommonGramsFallbackCost", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_fallback_base_analyzer_mismatch_ =
-                profile->add_nonzero_counter("SniiCommonGramsFallbackBaseAnalyzerMismatch",
-                                             TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_fallback_prefix_tail_empty_ =
-                profile->add_nonzero_counter("SniiCommonGramsFallbackPrefixTailEmpty", TUnit::UNIT,
-                                             RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_authoritative_empty_ = profile->add_nonzero_counter(
-                "SniiCommonGramsAuthoritativeEmpty", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_plain_posting_bytes_ = profile->add_nonzero_counter(
-                "SniiCommonGramsPlainPostingBytes", TUnit::BYTES, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_gram_posting_bytes_ = profile->add_nonzero_counter(
-                "SniiCommonGramsGramPostingBytes", TUnit::BYTES, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_plain_estimated_candidate_df_ =
-                profile->add_nonzero_counter("SniiCommonGramsPlainEstimatedCandidateDf",
-                                             TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_gram_estimated_candidate_df_ =
-                profile->add_nonzero_counter("SniiCommonGramsGramEstimatedCandidateDf", TUnit::UNIT,
-                                             RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_plain_estimated_cost_ = profile->add_nonzero_counter(
-                "SniiCommonGramsPlainEstimatedCost", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_gram_estimated_cost_ = profile->add_nonzero_counter(
-                "SniiCommonGramsGramEstimatedCost", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
-        common_grams_planning_ns_ = profile->add_nonzero_counter(
-                "SniiCommonGramsPlanningTime", TUnit::TIME_NS, RuntimeProfile::ROOT_COUNTER, 1);
     }
 
     void update(const OlapReaderStatistics& stats) const {
@@ -262,27 +193,6 @@ public:
         COUNTER_UPDATE(streaming_prx_frames_, s.prx_streaming_frames);
         COUNTER_UPDATE(prefix_leading_candidate_docs_, s.phrase_prefix_leading_candidate_docs);
         COUNTER_UPDATE(prefix_tail_candidate_visits_, s.phrase_prefix_tail_candidate_visits);
-        COUNTER_UPDATE(common_grams_candidate_queries_, s.common_grams_candidate_queries);
-        COUNTER_UPDATE(common_grams_plain_plans_, s.common_grams_plain_plans);
-        COUNTER_UPDATE(common_grams_gram_plans_, s.common_grams_gram_plans);
-        COUNTER_UPDATE(common_grams_fallback_no_gram_, s.common_grams_fallback_no_gram);
-        COUNTER_UPDATE(common_grams_fallback_incompatible_, s.common_grams_fallback_incompatible);
-        COUNTER_UPDATE(common_grams_fallback_kill_switch_, s.common_grams_fallback_kill_switch);
-        COUNTER_UPDATE(common_grams_fallback_cost_, s.common_grams_fallback_cost);
-        COUNTER_UPDATE(common_grams_fallback_base_analyzer_mismatch_,
-                       s.common_grams_fallback_base_analyzer_mismatch);
-        COUNTER_UPDATE(common_grams_fallback_prefix_tail_empty_,
-                       s.common_grams_fallback_prefix_tail_empty);
-        COUNTER_UPDATE(common_grams_authoritative_empty_, s.common_grams_authoritative_empty);
-        COUNTER_UPDATE(common_grams_plain_posting_bytes_, s.common_grams_plain_posting_bytes);
-        COUNTER_UPDATE(common_grams_gram_posting_bytes_, s.common_grams_gram_posting_bytes);
-        COUNTER_UPDATE(common_grams_plain_estimated_candidate_df_,
-                       s.common_grams_plain_estimated_candidate_df);
-        COUNTER_UPDATE(common_grams_gram_estimated_candidate_df_,
-                       s.common_grams_gram_estimated_candidate_df);
-        COUNTER_UPDATE(common_grams_plain_estimated_cost_, s.common_grams_plain_estimated_cost);
-        COUNTER_UPDATE(common_grams_gram_estimated_cost_, s.common_grams_gram_estimated_cost);
-        COUNTER_UPDATE(common_grams_planning_ns_, s.common_grams_planning_ns);
     }
 
 private:
@@ -291,23 +201,6 @@ private:
     RuntimeProfile::Counter* streaming_prx_frames_ = nullptr;
     RuntimeProfile::Counter* prefix_leading_candidate_docs_ = nullptr;
     RuntimeProfile::Counter* prefix_tail_candidate_visits_ = nullptr;
-    RuntimeProfile::Counter* common_grams_candidate_queries_ = nullptr;
-    RuntimeProfile::Counter* common_grams_plain_plans_ = nullptr;
-    RuntimeProfile::Counter* common_grams_gram_plans_ = nullptr;
-    RuntimeProfile::Counter* common_grams_fallback_no_gram_ = nullptr;
-    RuntimeProfile::Counter* common_grams_fallback_incompatible_ = nullptr;
-    RuntimeProfile::Counter* common_grams_fallback_kill_switch_ = nullptr;
-    RuntimeProfile::Counter* common_grams_fallback_cost_ = nullptr;
-    RuntimeProfile::Counter* common_grams_fallback_base_analyzer_mismatch_ = nullptr;
-    RuntimeProfile::Counter* common_grams_fallback_prefix_tail_empty_ = nullptr;
-    RuntimeProfile::Counter* common_grams_authoritative_empty_ = nullptr;
-    RuntimeProfile::Counter* common_grams_plain_posting_bytes_ = nullptr;
-    RuntimeProfile::Counter* common_grams_gram_posting_bytes_ = nullptr;
-    RuntimeProfile::Counter* common_grams_plain_estimated_candidate_df_ = nullptr;
-    RuntimeProfile::Counter* common_grams_gram_estimated_candidate_df_ = nullptr;
-    RuntimeProfile::Counter* common_grams_plain_estimated_cost_ = nullptr;
-    RuntimeProfile::Counter* common_grams_gram_estimated_cost_ = nullptr;
-    RuntimeProfile::Counter* common_grams_planning_ns_ = nullptr;
 };
 
 } // namespace doris::snii

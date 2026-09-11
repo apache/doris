@@ -68,3 +68,57 @@ past a gate is never to bypass it, but one of:
       skip entry present?
 - [ ] `git grep` for a deleted/renamed header in skip lists and gate tables:
       stale entries fail configure loudly — fix them in the same PR.
+
+## Preserve the glibc 2.17 runtime baseline
+
+Treat glibc 2.17 compatibility as part of the ABI contract of a production Doris BE release.
+The final `doris_be` executable and the shared libraries shipped with it must not contain an
+undefined symbol-version requirement newer than `GLIBC_2.17` on any supported architecture.
+A successful build on a newer Linux distribution is not sufficient evidence of compatibility.
+
+The 2.17 baseline is specifically required for CentOS 7, which ships glibc 2.17 and still has a
+large Doris deployment base. Do not dismiss a `GLIBC_2.18` requirement as a minor version increase:
+the CentOS 7 dynamic loader cannot satisfy it, so `doris_be` fails during process startup before any
+application-level fallback can run. Requiring even one `GLIBC_2.18` symbol therefore drops CentOS 7
+compatibility and is a release-blocking regression.
+
+Apply this requirement when reviewing changes to BE source code, CMake or linker options, the LDB
+toolchain/sysroot, third-party libraries, Rust crates or static archives, and
+`be/src/glibc-compatibility/`. A sysroot helps constrain symbol selection, but it does not by itself
+guarantee the final ABI: an archive built against newer headers/libraries or a symbol resolved from
+the wrong library or in the wrong link order can still add a newer GLIBC requirement.
+
+For every relevant release build, inspect the completed ELF artifacts rather than only their
+individual inputs. At minimum, audit `doris_be` with one of the following and investigate every
+version greater than 2.17:
+
+```shell
+objdump -T path/to/doris_be \
+  | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' \
+  | sort -Vu
+
+readelf --version-info --wide path/to/doris_be
+```
+
+Use `objdump -T path/to/doris_be | grep GLIBC_...` or `readelf --dyn-syms --wide` to identify the
+specific undefined symbols. Repeat the audit for shipped BE shared libraries; a clean executable
+does not make a bundled library with a newer requirement safe. When a glibc 2.17 environment is
+available, also start and exercise the release artifact there.
+
+Known accidental bindings that deserve explicit attention include `logf`, `log2f`, and `expf` at
+`GLIBC_2.27`, `copy_file_range` at `GLIBC_2.27`, `strfromf128` at `GLIBC_2.26`, and
+`__cxa_thread_atexit_impl` at `GLIBC_2.18`. These version tags describe what the final binary asks
+the dynamic loader to provide; they do not necessarily mean that the underlying API was first
+created in that glibc release.
+
+When a dependency needs a post-2.17 libc API, use an existing Doris compatibility implementation
+or add a narrowly scoped implementation with matching semantics. If a raw syscall is appropriate,
+preserve the caller's expected `ENOSYS` or other fallback behavior on old kernels. If a compatible
+definition lives in a static archive or object library, ensure the final link actually extracts and
+binds that definition; verify this in the completed ELF symbol table. Do not treat an implementation
+present in an archive as proof that it was selected.
+
+Do not solve a compatibility regression by bundling a newer glibc, changing `LD_LIBRARY_PATH` to a
+private libc, or allowing host include/library paths to leak into the build. Such changes can mix an
+incompatible loader, libc, and NSS/runtime components. Fix the build input, symbol implementation,
+or link selection, then repeat the final-artifact audit.

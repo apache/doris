@@ -136,6 +136,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         ConnectorMvccSnapshot pin = md.beginQuerySnapshot(session, foreignHandle).orElse(null);
         md.getTableFreshness(session, foreignHandle);
         md.getPartitionFreshnessMillis(session, foreignHandle, "p");
+        Map<String, Long> partitionFreshness = md.getPartitionsFreshnessMillis(
+                session, foreignHandle, Collections.singletonList("p"));
         md.dropTable(session, foreignHandle);
         md.truncateTable(session, foreignHandle, Collections.emptyList());
 
@@ -162,6 +164,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "estimateDataSize must return the sibling's value, not hive's -1");
         Assertions.assertEquals(RecordingSiblingMetadata.SENTINEL_SNAPSHOT_ID, pin.getSnapshotId(),
                 "beginQuerySnapshot must return the sibling's snapshot-id pin, not hive's -1 last-modified pin");
+        Assertions.assertEquals(Collections.singletonMap("p", 55L), partitionFreshness,
+                "getPartitionsFreshnessMillis must return the sibling's result");
         Assertions.assertEquals(Collections.singletonList("sibling-part"), partNames,
                 "listPartitionNames must return the sibling's names");
         Assertions.assertEquals(Collections.singletonList("snapshots"), sysTables,
@@ -372,13 +376,14 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // Option C: fe-core's PluginDrivenExternalTable.hasCapability reads only the CATALOG (hive) connector,
         // never the embedded sibling — so the hive gateway must reflect the sibling's connector-wide scan
         // capabilities onto the delegated schema as a per-table marker, or an iceberg-on-HMS table silently loses
-        // auto-analyze / Top-N lazy / nested-column prune (all of which the iceberg sibling declares connector-wide).
+        // auto-analyze / Top-N lazy / nested-column prune / storage predicate pruning (all declared connector-wide).
         // MUTATION: dropping the reflection -> the returned schema carries no marker -> the embedded table drops the
         // capabilities post-flip -> red here.
         Set<ConnectorCapability> siblingCaps = EnumSet.of(
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
-                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING);
         HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(siblingCaps),
@@ -392,6 +397,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "Top-N lazy must survive the delegation as a per-table capability");
         Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
                 "nested-column prune must survive the delegation as a per-table capability");
+        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING),
+                "storage predicate pruning must survive the delegation as a per-table capability");
         Assertions.assertEquals("sibling-generation", schema.getWriteMetadataIdentity(),
                 "capability reflection must not discard the sibling's write-generation fence");
     }
@@ -594,7 +601,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "getTableSchema", "getColumnHandles", "getTableStatistics", "getColumnStatistics",
                 "estimateDataSizeByListingFiles",
                 "applyFilter", "listPartitionNames", "listPartitions",
-                "beginQuerySnapshot", "getTableFreshness", "getPartitionFreshnessMillis", "dropTable",
+                "beginQuerySnapshot", "getTableFreshness", "getPartitionFreshnessMillis",
+                "getPartitionsFreshnessMillis", "dropTable",
                 "truncateTable", "getTableSchemaAtSnapshot", "getMvccPartitionView", "resolveTimeTravel",
                 "applySnapshot", "getSyntheticScanPredicates", "applyRewriteFileScope",
                 "applyTopnLazyMaterialization", "listSupportedSysTables", "getSysTableHandle",
@@ -696,6 +704,13 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 String partitionName) {
             calls.add("getPartitionFreshnessMillis");
             return OptionalLong.of(55L);
+        }
+
+        @Override
+        public Map<String, Long> getPartitionsFreshnessMillis(ConnectorSession session,
+                ConnectorTableHandle handle, List<String> partitionNames) {
+            calls.add("getPartitionsFreshnessMillis");
+            return Collections.singletonMap(partitionNames.get(0), 55L);
         }
 
         @Override

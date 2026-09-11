@@ -241,7 +241,11 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
                     "DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error");
         })
         if (!st.ok()) {
-            _CLTHROWA(CL_ERR_IO, "read past EOF");
+            // Carry NotFound across the CLucene boundary so index callers can downgrade
+            if (st.is<ErrorCode::NOT_FOUND>()) {
+                _CLTHROWA(CL_ERR_FileNotFound, st.to_string_no_stack().c_str());
+            }
+            _CLTHROWA(CL_ERR_IO, st.to_string_no_stack().c_str());
         }
         bufferLength = len;
         DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_bytes_read_error",

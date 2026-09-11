@@ -27,7 +27,9 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
 public class CreateViewTest extends TestWithFeService {
 
@@ -123,6 +125,25 @@ public class CreateViewTest extends TestWithFeService {
         Assertions.assertEquals(2, view8.getFullSchema().size());
         Assertions.assertNotNull(view8.getColumn("id"));
         Assertions.assertNotNull(view8.getColumn("c_array"));
+    }
+
+    @Test
+    public void testViewCommentDdlRoundTrip() throws Exception {
+        createView("create view test.view_comment_round_trip comment \"O'Reilly\" as select 1 as c");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View originalView = (View) db.getTableOrDdlException("view_comment_round_trip");
+        List<String> createViewStmts = new ArrayList<>();
+        Env.getDdlStmt(originalView, createViewStmts, null, null, false, true, -1L);
+
+        String exportedDdl = createViewStmts.get(0);
+        Assertions.assertTrue(exportedDdl.contains(" COMMENT \"O'Reilly\""));
+        String copiedDdl = exportedDdl.replace("CREATE VIEW `view_comment_round_trip`",
+                "CREATE VIEW test.`view_comment_round_trip_copy`");
+        createView(copiedDdl);
+
+        View copiedView = (View) db.getTableOrDdlException("view_comment_round_trip_copy");
+        Assertions.assertEquals(originalView.getComment(), copiedView.getComment());
     }
 
     @Test

@@ -106,6 +106,25 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_pb) {
     EXPECT_TRUE(tablet_column.variant_enable_typed_paths_to_sparse());
 }
 
+TEST_F(TabletSchemaTest, test_tablet_column_type_does_not_depend_on_frac) {
+    ColumnPB column_pb;
+    column_pb.set_name("datetime_v2_column");
+    column_pb.set_type("DATETIMEV2");
+    column_pb.set_frac(9);
+
+    TabletColumn tablet_column;
+    tablet_column.init_from_pb(column_pb);
+
+    // The protobuf type is authoritative. An invalid DATETIMEV2 scale must be rejected by type
+    // validation instead of silently changing the column's physical representation.
+    EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_DATETIMEV2, tablet_column.type());
+    EXPECT_EQ(9, tablet_column.frac());
+
+    column_pb.set_type("TIMESTAMP_NS");
+    tablet_column.init_from_pb(column_pb);
+    EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, tablet_column.type());
+}
+
 TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     TColumn tcolumn;
     tcolumn.__set_column_name("thrift_column");

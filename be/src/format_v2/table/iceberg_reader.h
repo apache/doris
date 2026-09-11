@@ -33,6 +33,7 @@
 
 namespace doris {
 class Block;
+class EqualityDeleteHashIndex;
 struct DeleteFileDesc;
 namespace io {
 struct FileDescription;
@@ -71,6 +72,12 @@ public:
                                            ? schema_has_any_field_id(_data_reader.file_schema)
                                            : schema_has_all_field_ids(_data_reader.file_schema);
         if (!_data_reader.file_schema.empty() && has_field_ids) {
+            return format::TableColumnMappingMode::BY_FIELD_ID;
+        }
+        if (!_data_reader.file_schema.empty() && supports_iceberg_scan_semantics_v2(_scan_params) &&
+            !_scan_has_any_authoritative_name_mapping()) {
+            // ID-less migrated files are name-readable only while Iceberg's explicit default name
+            // mapping exists; current names must not resurrect file fields after it is removed.
             return format::TableColumnMappingMode::BY_FIELD_ID;
         }
         return format::TableColumnMappingMode::BY_NAME;
@@ -114,6 +121,8 @@ private:
     static constexpr const char* ICEBERG_ROW_POS = "pos";
     static constexpr size_t ICEBERG_FILE_PATH_BLOCK_POSITION = 0;
     static constexpr size_t ICEBERG_ROW_POS_BLOCK_POSITION = 1;
+
+    bool _scan_has_any_authoritative_name_mapping() const;
 
     class PositionDeleteRowsCollector final {
     public:
@@ -201,6 +210,7 @@ private:
         std::vector<std::string> field_names;
         std::vector<DataTypePtr> key_types;
         Block delete_block;
+        std::shared_ptr<const EqualityDeleteHashIndex> hash_index;
     };
     std::vector<EqualityDeleteFilter> _equality_delete_filters;
     // Scanner-shared cache supplied in SplitReadOptions. Parsed delete files outlive one data-file

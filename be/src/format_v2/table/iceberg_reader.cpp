@@ -53,6 +53,7 @@
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
+#include "format_v2/table/schema_history_util.h"
 #include "format_v2/table_reader.h"
 #include "io/file_factory.h"
 #include "util/debug_points.h"
@@ -65,6 +66,40 @@ static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr int32_t ROW_LINEAGE_ROW_ID_FIELD_ID = 2147483540;
 
 namespace {
+
+bool external_field_has_authoritative_name_mapping(const schema::external::TField& field) {
+    if (field.__isset.name_mapping_is_authoritative && field.name_mapping_is_authoritative) {
+        return true;
+    }
+    if (!field.__isset.nestedField) {
+        return false;
+    }
+    if (field.nestedField.__isset.struct_field && field.nestedField.struct_field.__isset.fields) {
+        return std::ranges::any_of(field.nestedField.struct_field.fields, [](const auto& child) {
+            const auto* child_field = format::get_field_ptr(child);
+            return child_field != nullptr &&
+                   external_field_has_authoritative_name_mapping(*child_field);
+        });
+    }
+    if (field.nestedField.__isset.array_field && field.nestedField.array_field.__isset.item_field) {
+        const auto* item = format::get_field_ptr(field.nestedField.array_field.item_field);
+        return item != nullptr && external_field_has_authoritative_name_mapping(*item);
+    }
+    if (field.nestedField.__isset.map_field) {
+        const auto& map_field = field.nestedField.map_field;
+        if (map_field.__isset.key_field) {
+            const auto* key = format::get_field_ptr(map_field.key_field);
+            if (key != nullptr && external_field_has_authoritative_name_mapping(*key)) {
+                return true;
+            }
+        }
+        if (map_field.__isset.value_field) {
+            const auto* value = format::get_field_ptr(map_field.value_field);
+            return value != nullptr && external_field_has_authoritative_name_mapping(*value);
+        }
+    }
+    return false;
+}
 
 bool contains_variant_type(const DataTypePtr& input) {
     if (input == nullptr) {
@@ -128,6 +163,30 @@ const char* file_format_name(FileFormat format) {
 }
 
 } // namespace
+
+bool IcebergTableReader::_scan_has_any_authoritative_name_mapping() const {
+    if (schema_has_any_authoritative_name_mapping(_projected_columns)) {
+        return true;
+    }
+    if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info) {
+        return false;
+    }
+    // Metadata-only scans have no projected data column carrying aliases. Consult the complete
+    // schema so hidden equality-delete keys use the same authoritative mapping as visible fields.
+    for (const auto& schema : _scan_params->history_schema_info) {
+        if (!schema.__isset.root_field || !schema.root_field.__isset.fields) {
+            continue;
+        }
+        if (std::ranges::any_of(schema.root_field.fields, [](const auto& field) {
+                const auto* schema_field = format::get_field_ptr(field);
+                return schema_field != nullptr &&
+                       external_field_has_authoritative_name_mapping(*schema_field);
+            })) {
+            return true;
+        }
+    }
+    return false;
+}
 
 Status IcebergTableReader::validate_variant_file_mappings(
         FileFormat format, const std::vector<format::ColumnMapping>& mappings) {
@@ -1180,7 +1239,7 @@ Status IcebergTableReader::_parse_deletion_vector_file(const TTableFormatFileDes
     desc->path = deletion_vector->path;
     desc->start_offset = deletion_vector->content_offset;
     desc->size = static_cast<int64_t>(bytes_read);
-    desc->file_size = -1;
+    desc->file_size = deletion_vector->__isset.file_size ? deletion_vector->file_size : -1;
     desc->format = DeleteFileDesc::Format::ICEBERG;
     *has_delete_file = true;
     return Status::OK();
@@ -1481,8 +1540,8 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
 Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRequest* request) {
     DORIS_CHECK(request != nullptr);
     for (const auto& filter : _equality_delete_filters) {
-        auto delete_predicate =
-                std::make_shared<EqualityDeletePredicate>(filter.delete_block, filter.field_ids);
+        auto delete_predicate = std::make_shared<EqualityDeletePredicate>(
+                filter.delete_block, filter.field_ids, filter.hash_index);
         DCHECK_EQ(filter.field_ids.size(), filter.key_types.size());
         bool has_missing_key = false;
         for (size_t idx = 0; idx < filter.field_ids.size(); ++idx) {
@@ -1536,7 +1595,8 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
         return Status::NotSupported("Unsupported Iceberg delete file format {}",
                                     delete_file.file_format);
     }
-    auto delete_range = build_iceberg_delete_file_range(delete_file.path);
+    auto delete_range = build_iceberg_delete_file_range(
+            delete_file.path, delete_file.__isset.file_size ? delete_file.file_size : -1);
     if (_current_task != nullptr && _current_task->data_file != nullptr &&
         !_current_task->data_file->fs_name.empty()) {
         delete_range.__set_fs_name(_current_task->data_file->fs_name);
@@ -1792,6 +1852,7 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     }
     RETURN_IF_ERROR(reader->close());
     result->delete_block = mutable_delete_block.to_block();
+    result->hash_index = EqualityDeletePredicate::build_hash_index(result->delete_block);
     return Status::OK();
 }
 
@@ -1808,11 +1869,13 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
         cache_key << ':' << field_id;
     }
     Status read_status = Status::OK();
+    bool cache_hit = false;
     // Include the ordered equality ids in the key because the same physical delete file can be
-    // projected with different key layouts. The cached block and its key metadata are immutable
-    // after construction and therefore safe to copy into each split-local predicate.
+    // projected with different key layouts. The cached block, key metadata, and contiguous index
+    // are immutable after construction and therefore safe to share across split-local predicates.
     auto* cached_filter = _split_cache->get<EqualityDeleteFilter>(
-            cache_key.str(), [&]() -> EqualityDeleteFilter* {
+            cache_key.str(),
+            [&]() -> EqualityDeleteFilter* {
                 auto result = std::make_unique<EqualityDeleteFilter>();
                 read_status = _load_equality_delete_file(delete_file, scan_params, delete_io_ctx,
                                                          result.get());
@@ -1820,9 +1883,17 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
                     return nullptr;
                 }
                 return result.release();
-            });
+            },
+            &cache_hit);
     RETURN_IF_ERROR(read_status);
     DORIS_CHECK(cached_filter != nullptr);
+    COUNTER_UPDATE(cache_hit ? _profile.equality_delete_index_cache_hit_count
+                             : _profile.equality_delete_index_cache_miss_count,
+                   1);
+    if (!cache_hit) {
+        COUNTER_UPDATE(_profile.equality_delete_hash_index_memory,
+                       static_cast<int64_t>(cached_filter->hash_index->memory_usage()));
+    }
     _equality_delete_filters.push_back(*cached_filter);
     return Status::OK();
 }

@@ -74,7 +74,9 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlCursorFetchCompatibility;
 import org.apache.doris.mysql.MysqlEofPacket;
+import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -208,6 +210,10 @@ public class StmtExecutor {
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
     // is skipped.
     private volatile boolean deferredForArrowFlight = false;
+    // The execution timeout in effect when the coordinator was deferred. Captured at that moment
+    // because per-statement SET_VAR values are reverted at the end of execute(), so reading
+    // ConnectContext.getExecTimeoutS() later would report the session value instead.
+    private volatile int deferredExecTimeoutS = -1;
     private MasterOpExecutor masterOpExecutor = null;
     // Optional forward target for cancellations issued on this executor: statements that
     // spawn a nested internal executor with its own query id (e.g. IVM dry-run delta
@@ -911,6 +917,15 @@ public class StmtExecutor {
                 if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                     throw new UserException("Forward master command is not supported for prepare statement");
                 }
+                if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
+                    // The master returns a query result as MySQL wire packets in
+                    // TMasterOpResult.queryResultBufList, which only ConnectProcessor.finalizeCommand()
+                    // can replay and which cannot be converted to Arrow batches. Refuse here, before
+                    // the RPC, rather than let the master build a result set this FE would discard
+                    // and answer the client with a synthesized empty success.
+                    throw new UserException("Forwarding a query to the master FE is not supported on an"
+                            + " Arrow Flight SQL connection. Connect to the master FE to run this query.");
+                }
                 if (isProxy) {
                     // This is already a stmt forwarded from other FE.
                     // If we goes here, means we can't find a valid Master FE(some error happens).
@@ -1082,6 +1097,21 @@ public class StmtExecutor {
 
     public boolean isDeferredForArrowFlight() {
         return deferredForArrowFlight;
+    }
+
+    // Execution timeout (seconds) the deferred query was run with; -1 when the query is not deferred.
+    public int getDeferredExecTimeoutS() {
+        return deferredExecTimeoutS;
+    }
+
+    // Keep this query's coordinator alive past GetFlightInfo (see the gate in executeAndSendResult)
+    // and hand it to the ConnectContext, which finalizes it later. Records the execution timeout in
+    // effect right now: it floors the idle reaper's bound and must be the value the query actually
+    // ran with, not the session value left behind after SET_VAR hints are reverted.
+    void deferForArrowFlight() {
+        deferredForArrowFlight = true;
+        deferredExecTimeoutS = context.getExecTimeoutS();
+        context.addFlightSqlDeferredExecutor(this);
     }
 
     // Finalize an Arrow Flight query whose coordinator was kept alive across the
@@ -1563,23 +1593,21 @@ public class StmtExecutor {
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
-                // Defer closing the coordinator to ConnectContext (closed on the next query or
-                // connection teardown) instead of in the finally block below. This gate covers
-                // every Arrow Flight query whose results are produced on the BE (coordBase ==
-                // coord) -- internal-table and external, batch or not. It is REQUIRED only for an
-                // external-table scan in batch mode, where the BE lazily fetches splits from the FE
-                // during the later DoGet phase, so closing the coordinator here would release its
-                // batch SplitSource too early and break DoGet. Other remote-result queries do not
-                // need deferral (the BE buffers their result independently) but are captured by the
-                // same gate; the trade-off is their coordinator, query queue slot and query
-                // registration stay held until the next query / teardown instead of being released
-                // at the end of GetFlightInfo. A short-circuit point query is the one case with a
-                // different coordBase, and it can no longer reach here: it has no Arrow result on
-                // either side, so LogicalResultSinkToShortCircuitPointQuery keeps Arrow Flight SQL
-                // on the normal execution path. See #62259 and #67368.
-                if (coordBase == coord) {
-                    deferredForArrowFlight = true;
-                    context.addFlightSqlDeferredExecutor(this);
+                // The client pulls the results from the BE later (DoGet). Only an external-table
+                // scan in batch mode still needs the coordinator after this point: the BE fetches
+                // its splits lazily from the split source the coordinator holds, so closing the
+                // coordinator here would release that source too early and break DoGet (#62259).
+                // Such a coordinator is closed later by ConnectContext: on the session's next
+                // query, on teardown, or by the idle reaper in checkTimeout. The trade-off is that
+                // its query queue slot and query registration stay held until then. Every other
+                // query closes its coordinator in the finally block below and releases both right
+                // away, the BE buffering its results independently of the coordinator (#67503).
+                // A short-circuit point query is the one case with a different coordBase, and it
+                // can no longer reach here: it has no Arrow result on either side, so
+                // LogicalResultSinkToShortCircuitPointQuery keeps Arrow Flight SQL on the normal
+                // execution path (#67368).
+                if (coordBase == coord && coord.hasBatchSplitSource()) {
+                    deferForArrowFlight();
                 }
                 return;
             }
@@ -1843,15 +1871,7 @@ public class StmtExecutor {
             }
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
-        // When CLIENT_DEPRECATE_EOF is set, the server should not send the intermediate
-        // EOF packet after column definitions. The client will go directly from column
-        // definitions to reading data rows.
-        if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-            serializer.reset();
-            MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-            eofPacket.writeTo(serializer);
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-        }
+        sendMetadataTerminatorIfNeeded(context.getMysqlChannel());
     }
 
     private List<PrimitiveType> exprToStringType(List<Expr> exprs) {
@@ -1987,15 +2007,28 @@ public class StmtExecutor {
                 channel.sendOnePacket(serializer.toByteBuffer());
             }
         }
-        // When CLIENT_DEPRECATE_EOF is set, the server should not send the intermediate
-        // EOF packet after column definitions. The client will go directly from column
-        // definitions to reading data rows.
+        sendMetadataTerminatorIfNeeded(channel);
+    }
+
+    private void sendMetadataTerminatorIfNeeded(MysqlChannel channel) throws IOException {
         if (!channel.clientDeprecatedEOF()) {
             serializer.reset();
-            MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-            eofPacket.writeTo(serializer);
+            new MysqlEofPacket(context.getState()).writeTo(serializer);
+            channel.sendOnePacket(serializer.toByteBuffer());
+        } else if (connectorJConsumesCursorMetadataTerminator()) {
+            // Connector/J before 9.5 consumes the first OK packet after column definitions
+            // while probing whether a requested cursor was created. Doris does not create a
+            // cursor, so an empty result would otherwise lose its only end marker and block.
+            serializer.reset();
+            new MysqlResultSetEndPacket(context.getState()).writeTo(serializer);
             channel.sendOnePacket(serializer.toByteBuffer());
         }
+    }
+
+    private boolean connectorJConsumesCursorMetadataTerminator() {
+        return context.isCursorFetchRequested()
+                && MysqlCursorFetchCompatibility.resolve(context.getConnectAttributes())
+                        != MysqlCursorFetchCompatibility.Behavior.STANDARD;
     }
 
     public void sendResultSet(ResultSet resultSet) throws IOException {
@@ -2094,6 +2127,11 @@ public class StmtExecutor {
                             if (microSecond > 0) {
                                 serializer.writeInt4((int) microSecond);
                             }
+                            break;
+                        case TIMESTAMP_NS:
+                            // MySQL temporal binary values cannot carry nanoseconds. The metadata advertises
+                            // MYSQL_TYPE_STRING, so encode the result as length-encoded text.
+                            serializer.writeLenEncodedString(item);
                             break;
                         default:
                             serializer.writeLenEncodedString(item);
@@ -2548,6 +2586,7 @@ public class StmtExecutor {
         if (masterOpExecutor == null) {
             return;
         }
+        masterOpExecutor.prepareQueryResultForClient();
         List<ByteBuffer> queryResultBufList = masterOpExecutor.getQueryResultBufList();
         for (ByteBuffer byteBuffer : queryResultBufList) {
             context.getMysqlChannel().sendOnePacket(byteBuffer);

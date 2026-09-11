@@ -649,6 +649,19 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
+    public void supportsStoragePredicatePruningReflectsConnectorCapability() {
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING))
+                .supportsStoragePredicatePruning());
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class),
+                EnumSet.of(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING))
+                .supportsStoragePredicatePruning());
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class)).supportsStoragePredicatePruning());
+    }
+
+    @Test
     public void scanCapabilityHonorsPerTableSetWhenConnectorWideAbsent() {
         // WHY: a heterogeneous connector (hive) cannot declare Top-N lazy / nested-column-prune connector-wide
         // because eligibility is per-table file-format gated (orc/parquet only) — blanket-declaring would
