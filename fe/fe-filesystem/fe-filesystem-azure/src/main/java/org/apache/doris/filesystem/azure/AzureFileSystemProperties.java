@@ -391,6 +391,7 @@ public final class AzureFileSystemProperties
         }
         rules.validate("Invalid Azure filesystem properties");
         if (authType == AzureAuthType.OAUTH2) {
+            validateOAuthServerUri();
             if (StringUtils.isNotBlank(accountName) && !accountName.equalsIgnoreCase(accountHost.accountName())) {
                 throw new StoragePropertiesException("Azure OAuth2 account name does not match the account host");
             }
@@ -400,6 +401,23 @@ public final class AzureFileSystemProperties
                     && !accountHost.blobHost().equalsIgnoreCase(AzureAccountHost.parse(endpoint).blobHost())) {
                 throw new StoragePropertiesException("Azure OAuth2 account host does not match the storage endpoint");
             }
+        }
+    }
+
+    private void validateOAuthServerUri() {
+        final URI uri;
+        try {
+            uri = URI.create(oauthServerUri);
+        } catch (IllegalArgumentException e) {
+            throw new StoragePropertiesException("Invalid Azure OAuth2 server URI");
+        }
+        String path = uri.getPath();
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
+                || uri.getRawUserInfo() != null || uri.getRawQuery() != null
+                || uri.getRawFragment() != null
+                || path == null || !path.matches("/[^/]+/oauth2(/v2\\.0)?/token")) {
+            throw new StoragePropertiesException(
+                    "Azure OAuth2 server URI must be an HTTPS Entra token endpoint");
         }
     }
 

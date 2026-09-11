@@ -21,6 +21,7 @@ import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Arrays;
 import java.util.Locale;
 
 /** Parsed Azure account authority and endpoint shared by provider configuration renderers. */
@@ -29,6 +30,9 @@ public final class AzureAccountHost {
     private static final String DEFAULT_CLOUD_SUFFIX = "core.windows.net";
     private static final String DFS_MARKER = ".dfs.";
     private static final String BLOB_MARKER = ".blob.";
+    private static final String[] AZURE_CLOUD_SUFFIXES = {
+            "core.windows.net", "core.chinacloudapi.cn", "core.usgovcloudapi.net",
+            "core.cloudapi.de"};
 
     private final String accountName;
     private final String cloudSuffix;
@@ -66,6 +70,7 @@ public final class AzureAccountHost {
         }
 
         String lowerHost = host.toLowerCase(Locale.ROOT);
+        validateEndpoint(endpoint);
         int dfsIndex = lowerHost.indexOf(DFS_MARKER);
         if (dfsIndex > 0) {
             return new AzureAccountHost(host.substring(0, dfsIndex),
@@ -80,6 +85,22 @@ public final class AzureAccountHost {
         int dot = host.indexOf('.');
         String accountName = dot > 0 ? host.substring(0, dot) : host;
         return new AzureAccountHost(accountName, "", false, endpoint);
+    }
+
+    private static void validateEndpoint(URI endpoint) {
+        if (!("http".equalsIgnoreCase(endpoint.getScheme())
+                || "https".equalsIgnoreCase(endpoint.getScheme()))
+                || endpoint.getRawUserInfo() != null || endpoint.getRawQuery() != null
+                || endpoint.getRawFragment() != null) {
+            throw new StoragePropertiesException(
+                    "Azure endpoint must use HTTP(S) and must not contain credentials, query or fragment");
+        }
+    }
+
+    private static boolean isOfficialAzureServiceHost(String host, int serviceIndex, String service) {
+        String suffix = host.substring(serviceIndex + service.length() + 2);
+        return Arrays.stream(AZURE_CLOUD_SUFFIXES).anyMatch(suffix::equals)
+                && serviceIndex > 0 && host.charAt(serviceIndex - 1) != '.';
     }
 
     /** Creates a public-cloud account host when only the account name is configured. */
@@ -107,7 +128,8 @@ public final class AzureAccountHost {
     }
 
     public String blobEndpoint() {
-        if (!dfsHost) {
+        if (!dfsHost || !isOfficialAzureServiceHost(endpoint.getHost().toLowerCase(Locale.ROOT),
+                endpoint.getHost().toLowerCase(Locale.ROOT).indexOf(DFS_MARKER), "dfs")) {
             return endpoint.toString();
         }
         String value = endpoint.toString();

@@ -23,8 +23,6 @@ import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -55,12 +53,6 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
      * Includes Azure Public, Azure China, Azure US Government, and the deprecated
      * Azure Germany cloud (still spec'd for completeness).
      */
-    private static final List<String> AZURE_BLOB_HOST_SUFFIXES = Arrays.asList(
-            "blob.core.windows.net",
-            "blob.core.chinacloudapi.cn",
-            "blob.core.usgovcloudapi.net",
-            "blob.core.cloudapi.de");
-
     @Override
     public boolean supports(Map<String, String> properties) {
         if (isExplicitAzure(properties)) {
@@ -73,15 +65,7 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
             return true;
         }
         String endpoint = firstPresent(properties, ENDPOINT_KEYS);
-        if (endpoint == null) {
-            return false;
-        }
-        for (String suffix : AZURE_BLOB_HOST_SUFFIXES) {
-            if (endpoint.contains(suffix)) {
-                return true;
-            }
-        }
-        return false;
+        return endpoint != null && AzureBlobEndpointSignals.isAzureBlobEndpoint(endpoint, properties);
     }
 
     @Override
