@@ -345,6 +345,15 @@ class AzureVendedCredentialsTest {
     }
 
     @Test
+    void bindVended_preservesHistoricalUppercaseEndpointWithAccountAlias() {
+        AzureFileSystemProperties properties = provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
+                "AZURE_ENDPOINT", "https://proxy.example.test:8443",
+                "AZURE_ACCOUNT_NAME", "account")).orElseThrow();
+
+        Assertions.assertEquals("https://proxy.example.test:8443", properties.getEndpoint());
+    }
+
+    @Test
     void bindVendedSharedKey_rejectsLegacyAccountConflictWhenReplacingCredentials() {
         StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
                 () -> provider.bindVended(Map.of(

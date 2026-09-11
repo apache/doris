@@ -456,12 +456,29 @@ class AzureFileSystemPropertiesTest {
     }
 
     @Test
+    void bind_preservesCustomDfsLabelEndpointForAbfsLocations() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "provider", "azure", "azure.endpoint", "https://proxy.dfs.internal",
+                "azure.account_name", "account", "azure.account_key", "key"));
+
+        Assertions.assertDoesNotThrow(() -> properties.validateAndNormalizeUri(
+                "abfss://container@account.dfs.core.windows.net/dir/file.parquet"));
+    }
+
+    @Test
     void bind_preservesLegacyAccountAliasFallbackWithoutProviderMarker() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
                 "AZURE_ACCOUNT_NAME", "account", "s3.secret_key", "legacy-key"));
 
         Assertions.assertEquals("account", properties.getAccountName());
         Assertions.assertEquals("legacy-key", properties.getAccountKey());
+    }
+
+    @Test
+    void bind_doesNotUseLegacyS3SecretWhenS3ProviderIsExplicit() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> AzureFileSystemProperties.of(Map.of(
+                "AZURE_ACCOUNT_NAME", "account", "s3.secret_key", "s3-secret",
+                "fs.s3.support", "true")));
     }
 
     @ParameterizedTest

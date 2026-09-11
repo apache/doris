@@ -350,9 +350,9 @@ public final class AzureFileSystemProperties
                 }
             }
         }
-        if (!includeLegacyEndpointAliases && StringUtils.isBlank(properties.get(ENDPOINT))) {
-            result.keySet().removeIf(key -> Set.of("s3.endpoint", "AWS_ENDPOINT", "endpoint",
-                    "ENDPOINT").contains(key));
+        if (!includeLegacyEndpointAliases && PROVIDER_ENDPOINT_ALIASES.stream()
+                .map(properties::get).noneMatch(StringUtils::isNotBlank)) {
+            result.keySet().removeIf(LEGACY_ENDPOINT_ALIASES::contains);
         }
         return result;
     }
@@ -448,12 +448,16 @@ public final class AzureFileSystemProperties
         if (!legacyAzure) {
             return;
         }
+        if (hasS3ProviderMarker(properties)) {
+            return;
+        }
         if (StringUtils.isBlank(accountName)) {
             accountName = legacyValue(properties, matched,
                     "s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key");
         }
         if (StringUtils.isBlank(accountKey)) {
-            if (matched.containsKey("AZURE_ACCOUNT_NAME") && !matched.containsKey(ACCOUNT_NAME)) {
+            if (matched.containsKey("AZURE_ACCOUNT_NAME") && !matched.containsKey(ACCOUNT_NAME)
+                    && !hasS3ProviderMarker(properties)) {
                 // AZURE_ACCOUNT_NAME is a historical input alias. Preserve its old pairing with
                 // the provider-qualified s3.secret_key, but do not absorb an AWS wire secret
                 // merely because an Azure account alias is present.
@@ -470,7 +474,13 @@ public final class AzureFileSystemProperties
         // historical aliases and must continue to participate in the legacy SharedKey fallback
         // when paired with an old s3.secret_key.
         return Set.of(ENDPOINT, ACCOUNT_NAME, ACCOUNT_KEY, AUTH_TYPE).stream()
-                .anyMatch(matched::containsKey);
+                .map(matched::get).anyMatch(StringUtils::isNotBlank);
+    }
+
+    private static boolean hasS3ProviderMarker(Map<String, String> properties) {
+        return "s3".equalsIgnoreCase(properties.get("provider"))
+                || "S3".equalsIgnoreCase(properties.get("_STORAGE_TYPE_"))
+                || Boolean.parseBoolean(properties.get("fs.s3.support"));
     }
 
     private static boolean hasMatchedProperty(Map<String, String> properties, Set<String> names) {
@@ -855,7 +865,7 @@ public final class AzureFileSystemProperties
         }
         if (accountInAuthority && accountHost != null && uri.accountHost().isPresent()) {
             AzureAccountHost uriHost = uri.accountHost().get();
-            if (!accountHost.cloudSuffix().isEmpty() && !uriHost.cloudSuffix().isEmpty()
+            if (accountHost.isAzureCloudHost() && uriHost.isAzureCloudHost()
                     && !accountHost.blobHost().equalsIgnoreCase(uriHost.blobHost())) {
                 throw new StoragePropertiesException("Azure URI account host does not match the binding");
             }

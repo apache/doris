@@ -32,6 +32,9 @@ public final class AzureAccountHost {
     private static final String BLOB_MARKER = ".blob.";
     private static final Set<String> AZURE_CLOUD_SUFFIXES = Set.of(
             "core.windows.net", "core.chinacloudapi.cn", "core.usgovcloudapi.net",
+            "core.cloudapi.de", "fabric.microsoft.com");
+    private static final Set<String> AZURE_BLOB_CLOUD_SUFFIXES = Set.of(
+            "core.windows.net", "core.chinacloudapi.cn", "core.usgovcloudapi.net",
             "core.cloudapi.de");
 
     private final String accountName;
@@ -122,7 +125,7 @@ public final class AzureAccountHost {
     }
 
     public String blobEndpoint() {
-        if (!dfsHost || !AZURE_CLOUD_SUFFIXES.contains(cloudSuffix.toLowerCase(Locale.ROOT))) {
+        if (!dfsHost || !AZURE_BLOB_CLOUD_SUFFIXES.contains(cloudSuffix.toLowerCase(Locale.ROOT))) {
             return endpoint.toString();
         }
         String value = endpoint.toString();
@@ -134,5 +137,10 @@ public final class AzureAccountHost {
 
     public boolean isDfsHost() {
         return dfsHost;
+    }
+
+    /** Whether this authority is an official Azure account host, rather than a custom transport. */
+    public boolean isAzureCloudHost() {
+        return AZURE_CLOUD_SUFFIXES.contains(cloudSuffix.toLowerCase(Locale.ROOT));
     }
 }
