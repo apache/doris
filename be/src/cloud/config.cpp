@@ -88,7 +88,8 @@ DEFINE_mBool(enable_sync_tablet_delete_bitmap_by_cache, "true");
 DEFINE_mInt32(delete_bitmap_store_write_version, "1");
 DEFINE_mInt32(delete_bitmap_store_read_version, "1");
 DEFINE_mBool(enable_delete_bitmap_store_v2_check_correctness, "false");
-DEFINE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb, "1024"); // TODO change default value
+// same as split_size of blob_put
+DEFINE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb, "90000");
 DEFINE_Int32(sync_delete_bitmap_task_max_thread, "32");
 DEFINE_mBool(enable_agg_delta_delete_bitmap_for_store_v2, "true");
 
