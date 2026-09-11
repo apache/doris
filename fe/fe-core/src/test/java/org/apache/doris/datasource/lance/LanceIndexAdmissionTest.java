@@ -78,6 +78,14 @@ public class LanceIndexAdmissionTest {
     private static final String NORMALIZED_ANN_PROPERTIES_JSON =
             "{\"index_type\":\"IVF_PQ\",\"metric\":\"l2\",\"num_bits\":\"8\","
                     + "\"num_partitions\":\"256\",\"num_sub_vectors\":\"16\"}";
+    /**
+     * The KELVIN SIGN (U+212A) and the A-with-diaeresis pair: {@code String.equalsIgnoreCase}
+     * folds both pairs case-insensitively (the Kelvin sign through its per-character
+     * {@code Character.toLowerCase} fallback), so they probe the exact lookup relation.
+     */
+    private static final String KELVIN_SIGN = new String(Character.toChars(0x212A));
+    private static final String CAPITAL_A_WITH_DIAERESIS = new String(Character.toChars(0xC4));
+    private static final String SMALL_A_WITH_DIAERESIS = new String(Character.toChars(0xE4));
 
     private MockedStatic<Env> mockedEnv;
     private Env env;
@@ -87,6 +95,7 @@ public class LanceIndexAdmissionTest {
     private LanceExternalDatabase database;
     private LanceExternalTable table;
     private ConnectContext connectContext;
+    private final Map<String, Column> tableColumns = new HashMap<>();
     private long originalTableQuota;
     private long originalCatalogQuota;
     private long originalGlobalQuota;
@@ -117,15 +126,14 @@ public class LanceIndexAdmissionTest {
         table = Mockito.mock(LanceExternalTable.class);
         Mockito.when(table.getRemoteName()).thenReturn(REMOTE_TBL);
         Mockito.when(table.getName()).thenReturn(TBL);
-        Map<String, Column> columns = new HashMap<>();
-        columns.put("v", notNullColumn("v", new ArrayType(Type.FLOAT)));
-        columns.put("c", notNullColumn("c", Type.INT));
-        columns.put("s", notNullColumn("s", Type.STRING));
-        columns.put("Embedding", notNullColumn("Embedding", new ArrayType(Type.FLOAT)));
+        tableColumns.put("v", notNullColumn("v", new ArrayType(Type.FLOAT)));
+        tableColumns.put("c", notNullColumn("c", Type.INT));
+        tableColumns.put("s", notNullColumn("s", Type.STRING));
+        tableColumns.put("Embedding", notNullColumn("Embedding", new ArrayType(Type.FLOAT)));
         // Case-insensitive lookup, mirroring ExternalTable.getColumn.
         Mockito.when(table.getColumn(Mockito.anyString())).thenAnswer(invocation -> {
             String name = invocation.getArgument(0);
-            for (Map.Entry<String, Column> entry : columns.entrySet()) {
+            for (Map.Entry<String, Column> entry : tableColumns.entrySet()) {
                 if (entry.getKey().equalsIgnoreCase(name)) {
                     return entry.getValue();
                 }
@@ -211,6 +219,11 @@ public class LanceIndexAdmissionTest {
         return snapshot(Collections.emptyList(), Collections.emptyList());
     }
 
+    private static LanceIndexAdmissionSnapshot snapshotWithFields(LanceField... fields) {
+        return new LanceIndexAdmissionSnapshot(DATASET_VERSION, DATASET_URI,
+                Collections.emptyList(), Collections.emptyList(), Arrays.asList(fields));
+    }
+
     private static LanceLogicalIndex logicalIndex(String name, String column, String indexType,
             String propertiesJson) {
         return new LanceLogicalIndex(name, Collections.singletonList(column), indexType, propertiesJson);
@@ -238,6 +251,12 @@ public class LanceIndexAdmissionTest {
             Map<String, String> properties) {
         return new IndexDefinition(name, ifNotExists, Collections.singletonList("v"), "ANN",
                 properties, "", orReplace);
+    }
+
+    private static IndexDefinition annDef(String name, String column, boolean ifNotExists,
+            boolean orReplace) {
+        return new IndexDefinition(name, ifNotExists, Collections.singletonList(column), "ANN",
+                annProperties(), "", orReplace);
     }
 
     private static IndexDefinition scalarDef(String name, String lanceType, String column,
@@ -404,6 +423,27 @@ public class LanceIndexAdmissionTest {
     }
 
     @Test
+    public void createIfNotExistsMatchesPathSegmentEscapedColumns() throws Exception {
+        // The logical column is a loader path segment: field names containing characters outside
+        // [A-Za-z0-9_] are backtick-escaped (embedded backticks doubled). The raw parser spelling
+        // of the same column must be formatted with the same rule before the comparison, or the
+        // preflight falsely rejects these columns as a different definition.
+        String[][] pathSegments = {{"a.b", "`a.b`"}, {"c d", "`c d`"}, {"e`f", "`e``f`"}};
+        for (String[] pathSegment : pathSegments) {
+            String fieldName = pathSegment[0];
+            LanceIndexAdmissionSnapshot snapshot = new LanceIndexAdmissionSnapshot(DATASET_VERSION,
+                    DATASET_URI,
+                    Collections.singletonList(logicalIndex("idx", pathSegment[1], "IVF_PQ",
+                            MATCHING_ANN_PROPERTIES_JSON)),
+                    Collections.singletonList(physicalIndex("idx", "VECTOR")),
+                    Collections.singletonList(vectorField(fieldName, 1)));
+            Assertions.assertNull(admitCreate(snapshot,
+                    annDef("idx", fieldName, true, false), true).getJobId(), fieldName);
+        }
+        assertNothingPersisted();
+    }
+
+    @Test
     public void sameNameDifferentScalarAlgorithmIsRejected() {
         // M1: a BTREE request against a same-name BITMAP index must never no-op.
         LanceIndexAdmissionSnapshot snapshot = snapshot(
@@ -509,6 +549,26 @@ public class LanceIndexAdmissionTest {
                 Collections.singletonList(physicalIndex("idx", "VECTOR")));
         assertInvalid(() -> admitCreate(nonNumeric, annDef("idx", true, false), true),
                 "index 'idx' already exists with a different definition");
+        assertNothingPersisted();
+    }
+
+    @Test
+    public void omittedNumBitsComparesAsThePersistedEight() throws Exception {
+        // The validator accepts an omitted num_bits and admission always persists 8, so the
+        // preflight compares an effective 8 — never skips the property — against any exposed
+        // compression.num_bits.
+        LanceIndexAdmissionSnapshot fourBits = snapshot(
+                Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ",
+                        "{\"compression\":{\"num_bits\":4}}")),
+                Collections.singletonList(physicalIndex("idx", "VECTOR")));
+        assertInvalid(() -> admitCreate(fourBits, annDef("idx", true, false), true),
+                "index 'idx' already exists with a different definition");
+
+        LanceIndexAdmissionSnapshot eightBits = snapshot(
+                Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ",
+                        "{\"compression\":{\"num_bits\":8}}")),
+                Collections.singletonList(physicalIndex("idx", "VECTOR")));
+        Assertions.assertNull(admitCreate(eightBits, annDef("idx", true, false), true).getJobId());
         assertNothingPersisted();
     }
 
@@ -639,6 +699,54 @@ public class LanceIndexAdmissionTest {
         Assertions.assertEquals(4L, field.getFieldId());
         Assertions.assertEquals("embedding", field.getNormalizedName());
         Assertions.assertEquals("fixed_size_list", field.getNormalizedType());
+    }
+
+    @Test
+    public void ambiguousColumnCaseCollisionIsRejectedEveryWay() {
+        // P1 fail-closed: a dataset can hold top-level fields that differ only by case, and
+        // ExternalTable.getColumn returns the first equalsIgnoreCase hit, so admitting would
+        // journal an arbitrary one of them. CREATE, IF NOT EXISTS and REPLACE all fail closed.
+        LanceIndexAdmissionSnapshot snapshot = snapshotWithFields(
+                vectorField("V", 1), vectorField("v", 2));
+        String message = "index column 'v' is ambiguous: multiple Lance fields differ only by case";
+
+        assertInvalid(() -> admitCreate(snapshot, annDef("idx", "v", false, false), false), message);
+        assertInvalid(() -> admitCreate(snapshot, annDef("idx", "v", true, false), true), message);
+        assertInvalid(() -> admitCreate(snapshot, annDef("idx", "v", false, true), false), message);
+        // The opposite user spelling hits the same collision.
+        assertInvalid(() -> admitCreate(snapshot, annDef("idx", "V", false, false), false),
+                "index column 'V' is ambiguous: multiple Lance fields differ only by case");
+        assertNothingPersisted();
+    }
+
+    @Test
+    public void columnAmbiguityAppliesTheExactTableLookupRelation() throws Exception {
+        // The collision check applies the exact relation of ExternalTable.getColumn —
+        // String.equalsIgnoreCase — never a ROOT-lowercase fold. On this JDK that per-character
+        // relation folds 'Ä' onto 'ä' and, through its Character.toLowerCase fallback, the KELVIN
+        // SIGN (U+212A) onto ASCII 'k', so a dataset holding such a pair is genuinely
+        // unresolvable by the lookup and fails closed; a lone KELVIN SIGN field still resolves
+        // a 'k' request uniquely and admits without a false ambiguity.
+        LanceIndexAdmissionSnapshot kelvinPair = snapshotWithFields(
+                vectorField(KELVIN_SIGN, 1), vectorField("k", 2));
+        assertInvalid(() -> admitCreate(kelvinPair, annDef("idx", "k", false, false), false),
+                "index column 'k' is ambiguous: multiple Lance fields differ only by case");
+
+        LanceIndexAdmissionSnapshot diaeresisPair = snapshotWithFields(
+                vectorField(CAPITAL_A_WITH_DIAERESIS, 1),
+                vectorField(SMALL_A_WITH_DIAERESIS, 2));
+        assertInvalid(() -> admitCreate(diaeresisPair,
+                annDef("idx", SMALL_A_WITH_DIAERESIS, false, false), false),
+                "index column '" + SMALL_A_WITH_DIAERESIS + "' is ambiguous: "
+                        + "multiple Lance fields differ only by case");
+        assertNothingPersisted();
+
+        // Unique resolution: exactly one lookup hit, and the stored field name is journaled.
+        tableColumns.put(KELVIN_SIGN, notNullColumn(KELVIN_SIGN, new ArrayType(Type.FLOAT)));
+        LanceIndexAdmission.Outcome outcome = admitCreate(snapshotWithFields(
+                vectorField(KELVIN_SIGN, 1)), annDef("idx", "k", false, false), false);
+        Assertions.assertNotNull(outcome.getJobId());
+        Assertions.assertEquals(KELVIN_SIGN, manager.getJob(outcome.getJobId()).getColumnName());
     }
 
     @Test

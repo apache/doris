@@ -336,7 +336,9 @@ public final class LanceIndexMetadataLoader {
         }
     }
 
-    private static String formatFieldPathSegment(String segment) {
+    // Package-visible so admission formats request-side column names into the same path-segment
+    // representation the logical side of the IF preflight carries (test-seam convention).
+    static String formatFieldPathSegment(String segment) {
         boolean requiresQuoting = segment.codePoints()
                 .anyMatch(codePoint -> !Character.isLetterOrDigit(codePoint)
                         && codePoint != '_');

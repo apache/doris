@@ -37,6 +37,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import org.lance.schema.LanceField;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -57,7 +58,8 @@ import javax.annotation.Nullable;
  * first, before target capture and the snapshot read (fail cheap-first — a reserved name
  * rejected at admission depth costs no remote read), then case-only collision analysis, IF
  * preflight (including the two-stage {@code matches}: requested-algorithm equality plus
- * physical-family corroboration), schema contract from the stored column name, locator
+ * physical-family corroboration), column-lookup collision analysis, schema contract from
+ * the stored column name, locator
  * normalization, deterministic properties JSON, positive-quota assertion, and only then exactly
  * one id allocation and the durable {@code createJob} transfer.
  * Every rejection before {@code createJob} leaves no job, no fence, no quota charge, no journal
@@ -147,13 +149,18 @@ public final class LanceIndexAdmission {
             }
             return catalogMgr.withLanceIndexAdmission(catalog, target, () -> new Outcome(null));
         }
-        // 5. Schema contract v1 from the stored column name (never the raw user spelling).
+        // 5. Fail closed when the table lookup relation cannot resolve the request column
+        // uniquely: a dataset can hold top-level fields that differ only by case (V versus v),
+        // and ExternalTable.getColumn returns the first hit, so admitting would journal an
+        // arbitrary one of them. The pinned snapshot decides, never the cached table schema.
+        rejectIfAmbiguousLookupColumn(snapshot, def.getCols().get(0));
+        // 6. Schema contract v1 from the stored column name (never the raw user spelling).
         String storedColumnName = storedColumnName(table, def.getCols().get(0));
         LanceIndexSchemaContract contract =
                 LanceSchemaContractBuilder.build(snapshot.getTopLevelFields(), storedColumnName);
-        // 6. The fence locator is the normalized dataset uri of the same pinned snapshot.
+        // 7. The fence locator is the normalized dataset uri of the same pinned snapshot.
         String locator = normalizeLocator(snapshot);
-        // 7. Deterministic normalized properties JSON for ANN; scalar families persist null.
+        // 8. Deterministic normalized properties JSON for ANN; scalar families persist null.
         boolean ann = def.getLanceIndexType() == null;
         String indexType = ann ? annIndexType(def) : def.getLanceIndexType();
         String propertiesJson = ann ? buildAnnPropertiesJson(def) : null;
@@ -161,10 +168,10 @@ public final class LanceIndexAdmission {
         // re-asserts positivity before any id allocation or durable transfer.
         assertPositiveQuotas();
         return catalogMgr.withLanceIndexAdmission(catalog, target, () -> {
-            // 8. Exactly one id allocation, after every preflight above has passed.
+            // 9. Exactly one id allocation, after every preflight above has passed.
             long jobId = Env.getCurrentEnv().getNextId();
             String creator = ConnectContext.get().getQualifiedUser();
-            // 9. REPLACE on an existing name persists the stored display name (section 4.1) so the
+            // 10. REPLACE on an existing name persists the stored display name (section 4.1) so the
             // worker locates the case-sensitive target; a fresh REPLACE keeps the user's spelling.
             String persistedDisplayName = (orReplace && storedName != null) ? storedName : displayName;
             LanceIndexJob job;
@@ -181,7 +188,7 @@ public final class LanceIndexAdmission {
                     Config.lance_index_job_max_unresolved_per_table,
                     Config.lance_index_job_max_unresolved_per_catalog,
                     Config.lance_index_job_max_unresolved_global);
-            // 10. The job and its fence are durable once createJob returns.
+            // 11. The job and its fence are durable once createJob returns.
             return new Outcome(jobId);
         });
     }
@@ -246,9 +253,11 @@ public final class LanceIndexAdmission {
      * stored logical algorithm under family normalization — a same-name different-algorithm
      * request is a mismatch, never a no-op; (b) the physical entry of the same name must exist
      * and back the logical algorithm (snapshot self-consistency, failing closed); (c) the single
-     * normalized column must be equal; (d) whitelist properties are compared per property — a
+     * normalized column, with the request side in the same loader path-segment representation as
+     * the logical side, must be equal; (d) whitelist properties are compared per property — a
      * value the request sets and the snapshot exposes must be equal, an unexposed snapshot value
-     * is skipped, and a property the request omits is never compared.
+     * is skipped, and a property the request omits is never compared except num_bits, whose
+     * omitted request value defaults to the always-persisted 8.
      */
     private static boolean matchesExistingDefinition(LanceIndexAdmissionSnapshot snapshot,
             String storedName, IndexDefinition def) {
@@ -281,7 +290,12 @@ public final class LanceIndexAdmission {
         if (logical.getColumns().size() != 1) {
             return false;
         }
-        String requestColumn = LanceIndexNameNormalizer.normalize(def.getCols().get(0));
+        // The logical column is a loader path segment: field names containing characters outside
+        // [A-Za-z0-9_] are backtick-escaped (embedded backticks doubled). The parser hands over the
+        // raw spelling, so the request column is formatted with the same rule before both sides
+        // pass name normalization — otherwise such columns are falsely rejected as a mismatch.
+        String requestColumn = LanceIndexNameNormalizer.normalize(
+                LanceIndexMetadataLoader.formatFieldPathSegment(def.getCols().get(0)));
         if (!LanceIndexNameNormalizer.normalize(logical.getColumns().get(0)).equals(requestColumn)) {
             return false;
         }
@@ -290,9 +304,9 @@ public final class LanceIndexAdmission {
 
     /**
      * Per-property whitelist comparison (metric ↔ metric_type, num_sub_vectors ↔
-     * compression.num_sub_vectors, num_bits ↔ compression.num_bits). num_partitions is never
-     * compared (section 2.2). BTREE/BITMAP carry no user build properties, so the comparison is
-     * vacuous for them.
+     * compression.num_sub_vectors, num_bits ↔ compression.num_bits; an omitted request num_bits
+     * compares as the always-persisted 8). num_partitions is never compared (section 2.2).
+     * BTREE/BITMAP carry no user build properties, so the comparison is vacuous for them.
      */
     private static boolean whitelistPropertiesMatch(LanceLogicalIndex logical, IndexDefinition def) {
         if (def.getLanceIndexType() != null) {
@@ -327,8 +341,12 @@ public final class LanceIndexAdmission {
         }
         JsonObject compression = exposed == null || !exposed.has("compression")
                 ? null : exposed.getAsJsonObject("compression");
+        // The request side of num_bits is never "unset": the validator accepts an omitted value
+        // and the persisted job pins it to 8 (section 2.4), so the preflight compares an
+        // effective 8 against any exposed compression.num_bits instead of skipping.
+        String requestNumBits = request.get("num_bits") == null ? "8" : request.get("num_bits");
         return numericPropertyMatches(request.get("num_sub_vectors"), compression, "num_sub_vectors")
-                && numericPropertyMatches(request.get("num_bits"), compression, "num_bits");
+                && numericPropertyMatches(requestNumBits, compression, "num_bits");
     }
 
     /**
@@ -436,6 +454,28 @@ public final class LanceIndexAdmission {
             normalized.put(entry.getKey().toLowerCase(Locale.ROOT), entry.getValue());
         }
         return normalized;
+    }
+
+    /**
+     * Fails closed when more than one top-level field of the pinned snapshot matches the request
+     * column under the table lookup relation {@code String.equalsIgnoreCase} — deliberately not a
+     * ROOT-lowercase fold, which decides some Unicode pairs differently and would diverge from
+     * the relation {@link org.apache.doris.datasource.ExternalTable#getColumn} actually applies.
+     * That lookup returns the first hit, so an ambiguous request could journal the wrong stored
+     * column (design section 4.1 fail-closed rule, applied to columns).
+     */
+    private static void rejectIfAmbiguousLookupColumn(LanceIndexAdmissionSnapshot snapshot,
+            String requestColumn) throws AnalysisException {
+        int matches = 0;
+        for (LanceField field : snapshot.getTopLevelFields()) {
+            if (requestColumn.equalsIgnoreCase(field.getName())) {
+                ++matches;
+            }
+        }
+        if (matches > 1) {
+            rejectInvalid("index column '" + requestColumn
+                    + "' is ambiguous: multiple Lance fields differ only by case");
+        }
     }
 
     private static String storedColumnName(LanceExternalTable table, String requestColumn)
