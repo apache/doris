@@ -1,0 +1,237 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cstddef>
+#include <cstdint>
+#include <list>
+#include <memory>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
+
+#include "common/status.h"
+#include "io/cache/async_cache_write_manager.h"
+#include "io/fs/file_range_coalescer.h"
+#include "io/fs/file_range_read_scheduler.h"
+#include "io/fs/file_reader.h"
+#include "util/slice.h"
+
+namespace doris {
+
+class ThreadPool;
+class ThreadPoolToken;
+
+} // namespace doris
+
+namespace doris::io {
+
+class InflightWriteBufferIndex;
+
+struct PartialBlockWritebackOptions {
+    /// Allocation and persistence unit; also bounds each pending task's owned buffer.
+    size_t block_size {1};
+    /// Number of long-running workers coordinating block completion.
+    size_t worker_count {1};
+    /// Maximum pool threads for multi-range blocks; single-range reads run on block workers.
+    int remote_read_thread_count {1};
+    /// Minimum queued time for merging fragments, measured from first admission; zero disables it.
+    int32_t merge_delay_ms {10};
+    /// BE-wide byte limit for queued and active full-block buffers.
+    size_t max_pending_bytes {1};
+    /// Limits used to combine uncovered intervals within one block into source reads.
+    FileRangeCoalesceOptions hole_fill_coalesce;
+
+    Status validate() const;
+};
+
+enum class PartialBlockSubmitResult : uint8_t {
+    /// A new per-block task owns a copy of the fragment and is waiting for a worker.
+    QUEUED,
+    /// The fragment was copied into an existing queued task for the same block.
+    MERGED,
+    /// The block is already being filled; the fragment was not copied because that worker reads
+    /// every byte not present when it took the task.
+    ACTIVE_DEDUPLICATED,
+    /// An inflight buffer, downloaded cache block, or existing downloader already covers the block.
+    CACHE_BLOCK_PRESENT,
+    /// The cache invalidation fence changed before the fragment could be accepted.
+    STALE_EPOCH,
+    /// A tracked full-block buffer could not be allocated for a new task.
+    BUFFER_ALLOCATION_FAILED,
+    /// The manager is unavailable or all pending capacity is occupied by active tasks.
+    REJECTED,
+};
+
+/// One foreground fragment of a partial File Cache block. `data` is copied before try_submit()
+/// returns. The target write manager and inflight index must outlive every accepted task;
+/// source_reader is retained by the task. `write_epoch` is captured before the foreground read.
+struct PartialBlockWritebackRequest {
+    AsyncCacheWriteManager* write_manager {nullptr};
+    InflightWriteBufferIndex* inflight_index {nullptr};
+    FileReaderSPtr source_reader;
+    UInt128Wrapper cache_hash;
+    size_t block_offset {0};
+    size_t block_valid_size {0};
+    size_t fragment_offset {0};
+    Slice data;
+    CacheAdmissionContext admission_ctx;
+    AsyncCacheWriteEpoch write_epoch;
+    FileRangeReadIOContext io_context;
+};
+
+/// BE-level bounded queue, block workers, and a shared remote-read pool for completing partial
+/// File Cache blocks. Query threads probe existing blocks, admit memory, and copy one fragment.
+class PartialBlockWritebackManager {
+public:
+    ~PartialBlockWritebackManager();
+
+    PartialBlockWritebackManager(const PartialBlockWritebackManager&) = delete;
+    PartialBlockWritebackManager& operator=(const PartialBlockWritebackManager&) = delete;
+
+    /// Validate options, create the worker and remote-read pools, and start block worker loops.
+    static Status create(const PartialBlockWritebackOptions& options,
+                         std::unique_ptr<PartialBlockWritebackManager>* output_manager);
+
+    /// Best-effort submission that probes existing cache metadata before copying a fragment.
+    /// QUEUED and MERGED retain a copy of `request.data`; deduplication results mean the block
+    /// is already cached or being filled. Other results retain none of the fragment bytes.
+    PartialBlockSubmitResult try_submit(PartialBlockWritebackRequest request);
+
+    /// Resize block workers. Shrinking waits for retiring workers to finish all reads for their
+    /// active blocks; queued blocks remain available to retained workers.
+    Status resize_workers(size_t worker_count);
+    /// Resize the shared remote-read pool. Running GETs finish before excess threads retire.
+    Status resize_remote_read_threads(int remote_read_thread_count);
+    /// Apply a nonnegative delay to queued tasks and wake waiting workers. Active tasks continue
+    /// unchanged; merging another fragment preserves the task's original admission time.
+    void set_merge_delay_ms(int32_t merge_delay_ms);
+    /// Return the configured worker target; a resize may still be converging to this value.
+    size_t worker_count() const { return _configured_worker_count.load(std::memory_order_acquire); }
+    /// Return block worker loops currently alive.
+    size_t running_worker_count() const {
+        return _running_worker_count.load(std::memory_order_relaxed);
+    }
+
+    /// Stop admission, discard queued tasks, and wait for active remote reads. Idempotent.
+    void shutdown();
+    /// Return whether a new submission may currently enter admission.
+    bool accepting() const;
+    /// Return unique block tasks owned by the manager, including queued and active tasks.
+    size_t pending_count() const;
+    /// Return full-block buffer capacity owned by all pending tasks.
+    size_t pending_bytes() const;
+    /// Return tasks still waiting for source-read and cache-writer capacity.
+    size_t queued_count() const;
+    /// Return tasks currently owned by source-read workers.
+    size_t active_count() const;
+
+private:
+    class Worker;
+
+    struct BlockKey {
+        AsyncCacheWriteManager* write_manager {nullptr};
+        UInt128Wrapper cache_hash;
+        size_t block_offset {0};
+
+        bool operator==(const BlockKey&) const = default;
+    };
+
+    struct BlockKeyHash {
+        size_t operator()(const BlockKey& key) const;
+    };
+
+    struct Task;
+
+    using TaskPtr = std::shared_ptr<Task>;
+    using Queue = std::list<TaskPtr>;
+
+    enum class EnqueueResult : uint8_t {
+        /// The candidate became the queued task for its block key.
+        QUEUED,
+        /// A current task already owns the key and is returned to the caller.
+        EXISTING,
+        /// Admission stopped or no queued task could be displaced for the candidate.
+        REJECTED,
+    };
+
+    explicit PartialBlockWritebackManager(PartialBlockWritebackOptions options);
+
+    Status _start();
+    /// Resize workers while `_lifecycle_mutex` is held.
+    Status _resize_workers_locked(size_t worker_count);
+    /// Stop and join workers in `[keep_worker_count, _workers.size())` under the lifecycle lock.
+    void _stop_workers_locked(size_t keep_worker_count);
+    void _validate_request(const PartialBlockWritebackRequest& request) const;
+    /// Allocate one tracked block buffer and copy the first fragment into it.
+    TaskPtr _create_task(PartialBlockWritebackRequest request, const BlockKey& key);
+    /// Atomically install `candidate`, replace a stale queued task, or return a current same-key
+    /// task. Destruction of a displaced task occurs after the manager lock is released.
+    EnqueueResult _enqueue_or_get_existing(const TaskPtr& candidate, TaskPtr* existing);
+    /// Keep tasks queued and mergeable until their delay expires and their writer has capacity.
+    /// Wait until the earliest pending deadline or the next cache-writer capacity retry.
+    TaskPtr _take_task(const Worker& worker);
+    /// Under `_mutex`, discard stale/deduplicated entries and activate one eligible task. If none
+    /// is runnable, return the next deadline or capacity retry time in `next_wakeup`.
+    TaskPtr _take_runnable_task_locked(Queue* discarded_tasks,
+                                       std::chrono::steady_clock::time_point* next_wakeup);
+    /// Remove one queued task under `_mutex` and defer its destruction to `discarded_tasks`.
+    void _discard_queued_task_locked(Queue::iterator iterator, Queue* discarded_tasks);
+    /// Plan holes, wait for parallel source reads, and hand the completed buffer to the cache
+    /// writer. Every failure drops this best-effort task after its reads finish.
+    void _process_task(const TaskPtr& task, ThreadPoolToken& token);
+    /// Read a single range on the block worker; submit multiple ranges through its reusable token
+    /// and join them, including on failure.
+    Status _read_holes(const TaskPtr& task, const std::vector<FileRange>& read_ranges,
+                       ThreadPoolToken& token);
+    /// Read one buffer slice with per-call IO statistics on a block worker or remote-read thread.
+    Status _read_hole(const TaskPtr& task, const FileRange& range);
+    /// Remove an active task and release its per-cache-writer slot accounting.
+    void _complete_task(const TaskPtr& task);
+
+    const PartialBlockWritebackOptions _options;
+    const size_t _max_pending_tasks;
+    // `_tasks` owns every queued or active block; `_queue` orders only queued blocks.
+    Queue _queue;
+    std::unordered_map<BlockKey, TaskPtr, BlockKeyHash> _tasks;
+    // Count active hole-fill tasks against each writer's point-in-time spare capacity. This does
+    // not reserve capacity inside AsyncCacheWriteManager.
+    std::unordered_map<AsyncCacheWriteManager*, size_t> _active_hole_fill_slots_by_writer;
+    bool _accepting {false};
+    // Protected by `_mutex`, including runtime updates.
+    std::chrono::milliseconds _merge_delay;
+    // Lock order is `_lifecycle_mutex` then `_mutex`; the reverse order is never used. Cache writer
+    // and inflight-index calls made under `_mutex` do not call back into this manager. A Task
+    // fragment mutex is always acquired alone, and removed tasks are destroyed after `_mutex` is
+    // released.
+    mutable std::mutex _mutex;
+    std::condition_variable _queue_cv;
+    // Worker loops wait on remote-read tokens, so they must run in a separate pool.
+    std::unique_ptr<ThreadPool> _worker_pool;
+    std::unique_ptr<ThreadPool> _remote_read_pool;
+    std::atomic<size_t> _configured_worker_count {0};
+    std::atomic<size_t> _running_worker_count {0};
+    // Serializes startup, worker resizing, and shutdown.
+    std::mutex _lifecycle_mutex;
+    std::vector<std::shared_ptr<Worker>> _workers;
+};
+
+} // namespace doris::io
