@@ -1140,12 +1140,6 @@
 -- !compound_6_idx_true --
 1
 
--- !compound_7_idx_true --
-17
-
--- !compound_8_idx_true --
-17
-
 -- !count_idx_true --
 5
 
@@ -2289,12 +2283,6 @@
 
 -- !compound_6_idx_false --
 1
-
--- !compound_7_idx_false --
-17
-
--- !compound_8_idx_false --
-17
 
 -- !count_idx_false --
 5

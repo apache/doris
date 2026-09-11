@@ -28,6 +28,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
+#include "exprs/function/like.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
@@ -511,6 +512,28 @@ TEST_F(LikeGramBindingTest, MatchIsSkippedWhenTheCurrentSchemeDiffersFromTheSegm
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_NE(bitmap, nullptr);
     EXPECT_FALSE(bitmap->isEmpty()) << "the segment's own scheme answers the query";
+}
+
+// Which LIKE forms the index may answer. A backslash escape is the default escaping spelled out,
+// so that three-child form is compiled and accelerated like the two-child one. A LIKE carrying its
+// own escape character is not: the gram compiler implements the default escaping only, so
+// `%100!%%` ESCAPE `!` -- which means "contains 100%" -- would be compiled as if `!` were an
+// ordinary byte and would look for rows holding `100!`, dropping the row that matches. It is
+// refused on its arguments, before any index is opened, and the predicate is evaluated on the rows.
+TEST_F(LikeGramBindingTest, OnlyTheDefaultEscapingIsEligibleForTheIndex) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    const auto literal = [&](const std::string& value) {
+        return VLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(value));
+    };
+    auto column = VSlotRef::create_shared(0, 0, 0, string_type, "p");
+    auto pattern = literal("%100!%%");
+    auto like = FunctionLike::create();
+
+    EXPECT_TRUE(like->can_evaluate_inverted_index({column, pattern}));
+    EXPECT_TRUE(like->can_evaluate_inverted_index({column, pattern, literal("\\")}));
+    EXPECT_FALSE(like->can_evaluate_inverted_index({column, pattern, literal("!")}));
+    // An escape that is not a literal cannot be read at all, so it is refused as well.
+    EXPECT_FALSE(like->can_evaluate_inverted_index({column, pattern, column}));
 }
 
 } // namespace

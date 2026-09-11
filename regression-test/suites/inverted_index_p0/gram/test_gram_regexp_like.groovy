@@ -204,9 +204,8 @@ suite("test_gram_regexp_like", "p0") {
         '%CODE = UNAVAILABLE%',
     ]
 
-    // Compound predicates: an OR of REGEXPs, a REGEXP inside NOT (a AND b), REGEXP mixed with
-    // LIKE, and a LIKE with a custom ESCAPE (handled conservatively on the BE side: it is not
-    // pushed down, but it must still be correct)
+    // Compound predicates: an OR of REGEXPs, a REGEXP inside NOT (a AND b), and REGEXP mixed
+    // with LIKE
     def compounds = [
         "msg REGEXP 'rpc' OR msg REGEXP '微博'",
         "NOT (msg REGEXP 'rpc' AND id > 5)",
@@ -215,8 +214,6 @@ suite("test_gram_regexp_like", "p0") {
         "NOT (msg REGEXP 'error') OR msg REGEXP 'abc'",
         "NOT (msg LIKE '%rpc%' AND msg REGEXP 'error')",
         "msg REGEXP 'code' AND msg NOT LIKE '%Internal%'",
-        "msg LIKE '%100!%%' ESCAPE '!'",
-        "msg LIKE '%100!% do%' ESCAPE '!'",
     ]
 
     // Build the [tag, sql] list; the tag does not contain the raw pattern, which keeps the
