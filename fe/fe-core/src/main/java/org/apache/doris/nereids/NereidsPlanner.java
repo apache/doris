@@ -343,7 +343,7 @@ public class NereidsPlanner extends Planner {
         }
 
         physicalPlan = postProcess(physicalPlan);
-        if (Config.hbo_use_struct_info_fingerprint && cascadesContext != null
+        if (cascadesContext != null
                 && cascadesContext.getMemo() != null
                 && ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable().isShowHboFingerprint()) {
@@ -637,8 +637,7 @@ public class NereidsPlanner extends Planner {
         // lost their group-expression back reference during post process (only needed when the
         // struct-info fingerprint is in use)
         Map<Integer, Group> groupsById = null;
-        if (Config.hbo_use_struct_info_fingerprint && cascadesContext != null
-                && cascadesContext.getMemo() != null) {
+        if (cascadesContext != null && cascadesContext.getMemo() != null) {
             groupsById = new HashMap<>();
             for (Group group : cascadesContext.getMemo().getGroups()) {
                 groupsById.put(group.getGroupId().asInt(), group);
@@ -672,7 +671,7 @@ public class NereidsPlanner extends Planner {
                 planToIdMap.put(root, planId.asInt());
                 // snapshot the hbo fingerprint (simplified group struct info) per plan node id;
                 // consumed by the profile publish path after the memo has been released
-                if (Config.hbo_use_struct_info_fingerprint) {
+                {
                     Optional<String> fingerprint = GroupStructInfo.fingerprintOfPlanNode(
                             (AbstractPlan) root, groupsById);
                     if (fingerprint.isPresent()) {
@@ -772,10 +771,9 @@ public class NereidsPlanner extends Planner {
         String queryId = DebugUtil.printId(cascadesContext.getConnectContext().queryId());
         boolean showHboFingerprint = ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable().isShowHboFingerprint();
-        // plan-info registration runs for learned collection, and (with struct fingerprint) also
-        // whenever the hbo fingerprint/struct info must be printed inline in the physical plan
-        if (StatisticsUtil.isEnableHboInfoCollection()
-                || (Config.hbo_use_struct_info_fingerprint && showHboFingerprint)) {
+        // plan-info registration runs for learned collection, and also whenever the hbo
+        // fingerprint/struct info must be printed inline in the physical plan
+        if (StatisticsUtil.isEnableHboInfoCollection() || showHboFingerprint) {
             collectHboPlanInfo(queryId, physicalPlan, planTranslatorContext);
         }
 
@@ -1326,8 +1324,8 @@ public class NereidsPlanner extends Planner {
             sb.append("\n");
         }
         if (sb.toString().indexOf("kind=") < 0) {
-            sb.append("  (no hbo fingerprint attached; check that hbo_use_struct_info_fingerprint "
-                    + "is enabled and the plan went through the planner attach step)\n");
+            sb.append("  (no hbo fingerprint attached; check that the plan went through the "
+                    + "planner attach step)\n");
         }
         return sb.toString();
     }
