@@ -58,6 +58,15 @@ suite("test_leading_row_policy") {
     sql "GRANT SELECT_PRIV ON internal.${dbName}.leading_row_policy_t1 TO ${user}"
     sql "GRANT SELECT_PRIV ON internal.${dbName}.leading_row_policy_t2 TO ${user}"
     sql "GRANT SELECT_PRIV ON internal.${dbName}.leading_row_policy_agg TO ${user}"
+    //cloud-mode
+    // a cloud user is only allowed to use the compute groups it has the usage privilege of, without it the
+    // connection is rejected with CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP before the first query runs
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
+    }
     sql """
         CREATE ROW POLICY leading_row_policy ON ${dbName}.leading_row_policy_t1
         AS RESTRICTIVE TO ${user} USING (k = 1)
