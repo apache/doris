@@ -119,7 +119,7 @@ public:
 
     Status start() {
         auto self = shared_from_this();
-        return _manager._read_pool->submit_func([self = std::move(self)]() { self->_run(); });
+        return _manager._worker_pool->submit_func([self = std::move(self)]() { self->_run(); });
     }
 
     // The caller holds the manager mutex so the changed wait predicate and notification are
@@ -140,12 +140,15 @@ private:
             _stopped.count_down();
         }};
 
+        // Destroy the token before mark_stopped lets shutdown release the remote-read pool.
+        auto remote_read_token =
+                _manager._remote_read_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT);
         while (!stop_requested()) {
             auto task = _manager._take_task(*this);
             if (task == nullptr) {
                 return;
             }
-            _manager._process_task(task);
+            _manager._process_task(task, *remote_read_token);
         }
     }
 
@@ -162,6 +165,9 @@ Status PartialBlockWritebackOptions::validate() const {
     if (worker_count == 0 || worker_count > kMaxHoleFillWorkerCount) {
         return Status::InvalidArgument("partial block writeback worker count {} is invalid",
                                        worker_count);
+    }
+    if (remote_read_thread_count <= 0) {
+        return Status::InvalidArgument("partial block remote-read thread count must be positive");
     }
     if (max_pending_bytes < block_size) {
         return Status::InvalidArgument(
@@ -197,13 +203,18 @@ Status PartialBlockWritebackManager::create(
 
 Status PartialBlockWritebackManager::_start() {
     std::lock_guard lifecycle_lock(_lifecycle_mutex);
-    DORIS_CHECK(_read_pool == nullptr);
+    DORIS_CHECK(_worker_pool == nullptr);
     const size_t worker_count = _configured_worker_count.load(std::memory_order_acquire);
-    RETURN_IF_ERROR(ThreadPoolBuilder("HoleFillReadPool")
-                            .set_min_threads(0)
+    RETURN_IF_ERROR(ThreadPoolBuilder("HoleFillWorkerPool")
+                            .set_min_threads(static_cast<int>(worker_count))
                             .set_max_threads(static_cast<int>(worker_count))
                             .set_max_queue_size(static_cast<int>(kMaxHoleFillWorkerCount))
-                            .build(&_read_pool));
+                            .build(&_worker_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("HoleFillRemoteReadPool")
+                            // Keep a reader available even if creating additional threads fails.
+                            .set_min_threads(1)
+                            .set_max_threads(_options.remote_read_thread_count)
+                            .build(&_remote_read_pool));
     {
         std::lock_guard lock(_mutex);
         DORIS_CHECK(!_accepting);
@@ -378,7 +389,7 @@ PartialBlockWritebackManager::EnqueueResult PartialBlockWritebackManager::_enque
 
 void PartialBlockWritebackManager::shutdown() {
     std::lock_guard lifecycle_lock(_lifecycle_mutex);
-    if (_read_pool == nullptr) {
+    if (_worker_pool == nullptr) {
         return;
     }
 
@@ -399,8 +410,14 @@ void PartialBlockWritebackManager::shutdown() {
     queued.clear();
     _queue_cv.notify_all();
     _stop_workers_locked(0);
-    _read_pool->shutdown();
-    _read_pool.reset();
+    // Workers finish their GETs and release their tokens before signalling completion.
+    // The remote-read pool may be absent if startup failed.
+    if (_remote_read_pool != nullptr) {
+        _remote_read_pool->shutdown();
+        _remote_read_pool.reset();
+    }
+    _worker_pool->shutdown();
+    _worker_pool.reset();
     {
         std::lock_guard lock(_mutex);
         DORIS_CHECK(_queue.empty());
@@ -427,24 +444,35 @@ Status PartialBlockWritebackManager::resize_workers(size_t worker_count) {
 }
 
 Status PartialBlockWritebackManager::_resize_workers_locked(size_t worker_count) {
-    DORIS_CHECK(_read_pool != nullptr);
+    DORIS_CHECK(_worker_pool != nullptr);
     if (worker_count < _workers.size()) {
         _stop_workers_locked(worker_count);
-        RETURN_IF_ERROR(_read_pool->set_min_threads(static_cast<int>(worker_count)));
-        RETURN_IF_ERROR(_read_pool->set_max_threads(static_cast<int>(worker_count)));
+        RETURN_IF_ERROR(_worker_pool->set_min_threads(static_cast<int>(worker_count)));
+        RETURN_IF_ERROR(_worker_pool->set_max_threads(static_cast<int>(worker_count)));
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(_read_pool->set_max_threads(static_cast<int>(worker_count)));
+    RETURN_IF_ERROR(_worker_pool->set_max_threads(static_cast<int>(worker_count)));
     // Each Worker owns one long-lived pool task. Create the backing pool threads before submitting
     // more workers so accepted worker tasks cannot remain queued behind other worker loops.
-    RETURN_IF_ERROR(_read_pool->set_min_threads(static_cast<int>(worker_count)));
+    RETURN_IF_ERROR(_worker_pool->set_min_threads(static_cast<int>(worker_count)));
     while (_workers.size() < worker_count) {
         auto worker = std::make_shared<Worker>(*this);
         RETURN_IF_ERROR(worker->start());
         _workers.emplace_back(std::move(worker));
     }
     return Status::OK();
+}
+
+Status PartialBlockWritebackManager::resize_remote_read_threads(int remote_read_thread_count) {
+    if (remote_read_thread_count <= 0) {
+        return Status::InvalidArgument("partial block remote-read thread count must be positive");
+    }
+    std::lock_guard lifecycle_lock(_lifecycle_mutex);
+    if (_remote_read_pool == nullptr) {
+        return Status::InternalError("partial block writeback manager is shut down");
+    }
+    return _remote_read_pool->set_max_threads(remote_read_thread_count);
 }
 
 void PartialBlockWritebackManager::_stop_workers_locked(size_t keep_worker_count) {
@@ -560,7 +588,7 @@ void PartialBlockWritebackManager::_discard_queued_task_locked(Queue::iterator i
     read_ahead_bvars().hole_fill_dropped_blocks << 1;
 }
 
-void PartialBlockWritebackManager::_process_task(const TaskPtr& task) {
+void PartialBlockWritebackManager::_process_task(const TaskPtr& task, ThreadPoolToken& token) {
     bool write_submitted = false;
     Defer complete {[&]() {
         if (!write_submitted) {
@@ -587,33 +615,12 @@ void PartialBlockWritebackManager::_process_task(const TaskPtr& task) {
         return;
     }
 
-    FileCacheStatistics file_cache_stats;
-    FileReaderStats file_reader_stats;
-    auto io_context = task->io_context;
-    io_context.io_context.file_cache_stats = &file_cache_stats;
-    io_context.io_context.file_reader_stats = &file_reader_stats;
-    for (const auto& range : read_ranges) {
-        size_t bytes_read = 0;
-        read_ahead_bvars().hole_fill_remote_requests << 1;
-        int64_t read_ns = 0;
-        {
-            SCOPED_RAW_TIMER(&read_ns);
-            status = task->source_reader->read_at(
-                    range.offset,
-                    Slice(task->buffer->data() + range.offset - task->key.block_offset, range.size),
-                    &bytes_read, &io_context.io_context);
-        }
-        read_ahead_bvars().hole_fill_remote_read_time_ns << read_ns;
-        read_ahead_bvars().hole_fill_remote_bytes << static_cast<int64_t>(bytes_read);
-        if (!status.ok() || bytes_read != range.size) {
-            read_ahead_bvars().hole_fill_failed_blocks << 1;
-            LOG(WARNING) << "Read partial block hole failed, hash="
-                         << task->key.cache_hash.to_string()
-                         << ", block_offset=" << task->key.block_offset
-                         << ", read_offset=" << range.offset << ", read_size=" << range.size
-                         << ", bytes_read=" << bytes_read << ", status=" << status;
-            return;
-        }
+    status = _read_holes(task, read_ranges, token);
+    if (!status.ok()) {
+        read_ahead_bvars().hole_fill_failed_blocks << 1;
+        LOG(WARNING) << "Read partial block holes failed, hash=" << task->key.cache_hash.to_string()
+                     << ", block_offset=" << task->key.block_offset << ", status=" << status;
+        return;
     }
 
     const auto result =
@@ -631,6 +638,58 @@ void PartialBlockWritebackManager::_process_task(const TaskPtr& task) {
     if (write_submitted) {
         read_ahead_bvars().hole_fill_write_submitted_blocks << 1;
     }
+}
+
+Status PartialBlockWritebackManager::_read_holes(const TaskPtr& task,
+                                                 const std::vector<FileRange>& read_ranges,
+                                                 ThreadPoolToken& token) {
+    if (read_ranges.empty()) {
+        return Status::OK();
+    }
+    if (read_ranges.size() == 1) {
+        return _read_hole(task, read_ranges.front());
+    }
+    std::vector<Status> results(read_ranges.size());
+    for (size_t index = 0; index < read_ranges.size(); ++index) {
+        Status status = token.submit_func(
+                [&, index]() { results[index] = _read_hole(task, read_ranges[index]); });
+        if (!status.ok()) {
+            results[index] = std::move(status);
+            break;
+        }
+    }
+    // Even a failed submission/read must join accepted GETs before releasing the block buffer.
+    token.wait();
+    for (const auto& result : results) {
+        RETURN_IF_ERROR(result);
+    }
+    return Status::OK();
+}
+
+Status PartialBlockWritebackManager::_read_hole(const TaskPtr& task, const FileRange& range) {
+    FileCacheStatistics file_cache_stats;
+    FileReaderStats file_reader_stats;
+    auto io_context = task->io_context;
+    io_context.io_context.file_cache_stats = &file_cache_stats;
+    io_context.io_context.file_reader_stats = &file_reader_stats;
+    size_t bytes_read = 0;
+    int64_t read_ns = 0;
+    Status status;
+    read_ahead_bvars().hole_fill_remote_requests << 1;
+    {
+        SCOPED_RAW_TIMER(&read_ns);
+        status = task->source_reader->read_at(
+                range.offset,
+                Slice(task->buffer->data() + range.offset - task->key.block_offset, range.size),
+                &bytes_read, &io_context.io_context);
+    }
+    read_ahead_bvars().hole_fill_remote_read_time_ns << read_ns;
+    read_ahead_bvars().hole_fill_remote_bytes << static_cast<int64_t>(bytes_read);
+    if (!status.ok() || bytes_read != range.size) {
+        return Status::IOError("read_offset={}, read_size={}, bytes_read={}, status={}",
+                               range.offset, range.size, bytes_read, status.to_string());
+    }
+    return Status::OK();
 }
 
 void PartialBlockWritebackManager::_complete_task(const TaskPtr& task) {
