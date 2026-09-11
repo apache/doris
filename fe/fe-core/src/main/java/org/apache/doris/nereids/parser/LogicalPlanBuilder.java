@@ -7239,7 +7239,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // HBO SHOW EXPANSION STATISTICS: the expansion entries injected by HBO SET EXPANSION
             return new HboShowExpansionCommand(likePattern);
         }
-        return new HboShowStatisticsCommand(scope, likePattern);
+        return new HboShowStatisticsCommand(scope, ctx.FULL() != null, likePattern);
     }
 
     private LogicalPlan visitHboSetExpansionWords(

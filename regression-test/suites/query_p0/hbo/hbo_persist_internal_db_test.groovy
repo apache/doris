@@ -22,13 +22,16 @@ suite("hbo_persist_internal_db_test", "nonConcurrent") {
     // in-memory-only behavior. The in-memory pinned entry is authoritative: SET writes through
     // synchronously and DELETE removes the row again.
     def prevPersist = (sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'hbo_persist_pinned_to_internal_db'; """)[0][1].toString()
-    def fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    // a pinned entry must carry the struct info its fingerprint was computed from, so the pair
+    // below is self consistent (sha256 of the canonical struct info)
+    def structCanonical = "S{internal.hbo_test.hbo_persist_t,v1}"
+    def fingerprint = "543c7cbc00025dcfb7ead462e174640e63a791b63ce70d2d62b5f76a33208e19"
     def tableName = "__internal_schema.hbo_statistics"
     try {
         sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "true"); """
         try {
             // SET persists the pinned entry (including its stats type) into the internal table
-            sql """ HBO SET STATISTICS '${fingerprint}' = 123456 TYPE FILTER_SMALL; """
+            sql """ HBO SET STATISTICS '${fingerprint}' = 123456 TYPE FILTER_SMALL STRUCT '${structCanonical}'; """
             qt_set_persisted """ SELECT fingerprint, row_count, stats_type, fingerprint_kind, struct_info
                 FROM ${tableName} WHERE fingerprint = '${fingerprint}'; """
 

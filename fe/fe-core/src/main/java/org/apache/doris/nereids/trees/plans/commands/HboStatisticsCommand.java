@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.stats.GroupStructInfo;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager.PinnedType;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -27,6 +28,9 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.hash.Hashing;
+
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -102,10 +106,14 @@ public class HboStatisticsCommand extends Command {
         if (type == null) {
             throw new AnalysisException("invalid hbo statistics type, expect EXACT or FILTER_SMALL");
         }
-        if (scope == Scope.LEARNED && (type != PinnedType.EXACT || !structCanonical.isEmpty())) {
-            // a learned entry only carries the row count; the guard type and the readable struct
-            // info are pinned-only concepts
-            throw new AnalysisException("TYPE and STRUCT are not supported for hbo learned statistics");
+        if (scope == Scope.LEARNED && type != PinnedType.EXACT) {
+            // a learned entry only carries the row count; the guard type is a pinned-only concept
+            throw new AnalysisException("TYPE is not supported for hbo learned statistics");
+        }
+        if (op == Op.SET) {
+            // a pinned entry is only displayable when it carries its struct info, and a struct info
+            // which does not belong to the fingerprint would make the SHOW output misleading
+            validateStructCanonical(fingerprint, structCanonical, scope != Scope.LEARNED);
         }
         switch (op) {
             case SET:
@@ -113,7 +121,7 @@ public class HboStatisticsCommand extends Command {
                     throw new AnalysisException("hbo statistics rows must be non-negative: " + rows);
                 }
                 if (scope == Scope.LEARNED) {
-                    hboManager.putLearnedPlanStatistics(fingerprint, rows);
+                    hboManager.putLearnedPlanStatistics(fingerprint, rows, structCanonical);
                 } else {
                     hboManager.putPinnedPlanStatistics(fingerprint, rows, type, structCanonical);
                 }
@@ -168,6 +176,37 @@ public class HboStatisticsCommand extends Command {
         }
         throw new IllegalArgumentException(
                 "invalid hbo statistics scope, expect PINNED or LEARNED: " + scopeName);
+    }
+
+    /**
+     * Check that the pasted struct info describes the sub tree the fingerprint was taken from. The
+     * canonical form is accepted as it is printed by EXPLAIN, and also with every literal replaced
+     * by {@code lit(*)} (see {@link GroupStructInfo#toNoLiteral}) because the constant agnostic
+     * fingerprint of a filter node is looked up with exactly that struct info.
+     *
+     * @param required whether a missing struct info is an error (pinned entries are displayed by
+     *                 {@code HBO SHOW STATISTICS}, so they must carry one)
+     */
+    private void validateStructCanonical(String targetFingerprint, String structCanonical, boolean required)
+            throws AnalysisException {
+        if (structCanonical.isEmpty()) {
+            if (required) {
+                throw new AnalysisException("hbo statistics STRUCT is required,"
+                        + " copy the struct= value of the target node from EXPLAIN");
+            }
+            return;
+        }
+        if (isFingerprintOf(targetFingerprint, structCanonical)
+                || isFingerprintOf(targetFingerprint, GroupStructInfo.toNoLiteral(structCanonical))) {
+            return;
+        }
+        throw new AnalysisException("hbo statistics STRUCT does not match the fingerprint " + targetFingerprint
+                + ", copy the struct= value of the target node from EXPLAIN");
+    }
+
+    private static boolean isFingerprintOf(String targetFingerprint, String structCanonical) {
+        return targetFingerprint.equals(Hashing.sha256()
+                .hashString(structCanonical, StandardCharsets.UTF_8).toString());
     }
 
     private void validateFingerprint(String targetFingerprint) throws AnalysisException {

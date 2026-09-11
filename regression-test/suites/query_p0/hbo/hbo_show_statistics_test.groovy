@@ -16,19 +16,60 @@
 // under the License.
 
 suite("hbo_show_statistics_test", "nonConcurrent") {
-    // HBO SHOW [PINNED|LEARNED] STATISTICS [LIKE '<pattern>'] lists the hbo entries recorded by
-    // this FE. Assertions are used instead of qt_* because the pinned Detail column carries the
-    // entry creation time, which is not reproducible across runs; every query below is filtered
-    // by an exact fingerprint so the result set is deterministic in size and content.
-    def fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-    def structCanonical = "S{internal.hbo_test.hbo_si_r,v2}"
-    try {
-        sql """ HBO SET STATISTICS '${fingerprint}' = 123456 STRUCT '${structCanonical}'; """
+    // HBO SHOW [PINNED|LEARNED] STATISTICS [FULL] [LIKE '<pattern>'] lists the hbo entries of this
+    // FE: the simplified struct info by default, the canonical struct info (the fingerprint input)
+    // with FULL, and LIKE matches whichever of the two columns is printed. Assertions are used
+    // instead of qt_* because the struct info carries the table visible version, which is not
+    // reproducible across runs; every query below is filtered by a struct info pattern instead.
+    sql "create database if not exists hbo_test;"
+    sql "use hbo_test;"
 
-        // pinned scope: exactly the injected entry
-        // columns: Kind, Fingerprint, Granularity, Type, Rows, StructInfo, Detail
-        def pinnedRows = sql """ HBO SHOW PINNED STATISTICS LIKE '${fingerprint}'; """
-        assertEquals(1, pinnedRows.size())
+    sql "drop table if exists hbo_sp_r;"
+    sql "drop table if exists hbo_sp_t;"
+    sql """create table hbo_sp_r(a int, b int) distributed by hash(a) buckets 4 properties("replication_num"="1");"""
+    sql """create table hbo_sp_t(a int, b int) distributed by hash(a) buckets 4 properties("replication_num"="1");"""
+    sql """insert into hbo_sp_r select number, number % 100 from numbers("number" = "1000");"""
+    sql """insert into hbo_sp_t select number, number % 100 from numbers("number" = "1000");"""
+    sql """analyze table hbo_sp_r with sync;"""
+    sql """analyze table hbo_sp_t with sync;"""
+
+    def prevInfoCollection = (sql "show global variables like 'enable_hbo_info_collection'")[0][1].toString()
+    sql "set global enable_hbo_info_collection=true;"
+    sql "set enable_hbo_optimization=true;"
+    sql "set show_hbo_fingerprint=true;"
+    sql "set enable_sql_cache=false;"
+    sql "set enable_query_cache=false;"
+    def injected = []
+    try {
+        def explainText = { q -> (sql """ explain $q """).flatten().join("\n") }
+        // the exact and the constant agnostic fingerprint of the same filter node, and the struct
+        // info printed for it (what a user copies into HBO SET STATISTICS)
+        def fakeFingerprint = "f" * 64
+        def filterText = explainText("select * from hbo_sp_r where b = 1")
+        def matcher = (filterText =~
+                /kind=filter-on-scan\(table=[^)]*hbo_sp_r[^)]*\) fingerprint=([0-9a-f]+) fingerprintNoLiteral=([0-9a-f]+) struct=(\S+)/)
+        assertTrue(matcher.find(), "no filter-on-scan annotation found:\n" + filterText)
+        def fingerprint = matcher.group(1)
+        def noLiteralFingerprint = matcher.group(2)
+        def structCanonical = matcher.group(3)
+
+        // a pinned entry must be labelled with the struct info of the node it was taken from: a
+        // missing struct info, or one which does not belong to the fingerprint, is rejected
+        test {
+            sql """ HBO SET STATISTICS '${fingerprint}' = 123456; """
+            exception "hbo statistics STRUCT is required, copy the struct= value of the target node from EXPLAIN"
+        }
+        test {
+            sql """ HBO SET STATISTICS '${fakeFingerprint}' = 123456 STRUCT '${structCanonical}'; """
+            exception "hbo statistics STRUCT does not match the fingerprint ${fakeFingerprint}, copy the struct= value of the target node from EXPLAIN"
+        }
+        sql """ HBO SET STATISTICS '${fingerprint}' = 123456 STRUCT '${structCanonical}'; """
+        injected.add(fingerprint)
+
+        // default output: the simplified struct info, which LIKE matches
+        // columns: Kind, Fingerprint, Granularity, Type, Rows, SimpleStruct, State, Detail
+        def pinnedRows = sql """ HBO SHOW PINNED STATISTICS LIKE '%hbo\\_sp\\_r%'; """
+        assertEquals(1, pinnedRows.size(), pinnedRows.toString())
         assertEquals("pinned", pinnedRows[0][0].toString())
         assertEquals(fingerprint, pinnedRows[0][1].toString())
         // the granularity is unknown until the entry matched a plan node; the type comes from the
@@ -36,32 +77,79 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         assertEquals("unknown", pinnedRows[0][2].toString())
         assertEquals("exact", pinnedRows[0][3].toString())
         assertEquals("123456", pinnedRows[0][4].toString())
-        assertEquals(structCanonical, pinnedRows[0][5].toString())
+        assertEquals("F{b = 1}(S{hbo_test.hbo_sp_r})", pinnedRows[0][5].toString())
+        // the recorded visible version is still the current one, so the entry is live
+        assertEquals("live", pinnedRows[0][6].toString())
 
-        // default scope covers pinned + learned; the injected fingerprint is never a learned key
-        def allRows = sql """ HBO SHOW STATISTICS LIKE '${fingerprint}'; """
-        assertEquals(1, allRows.size())
-        assertEquals("pinned", allRows[0][0].toString())
-        assertEquals(fingerprint, allRows[0][1].toString())
+        // an escaped underscore only matches a literal underscore
+        def escapedRows = sql """ HBO SHOW PINNED STATISTICS LIKE '%hbo\\_XX\\_r%'; """
+        assertTrue(escapedRows.isEmpty(), escapedRows.toString())
 
-        // learned scope: nothing recorded for an injected-only fingerprint
-        def learnedRows = sql """ HBO SHOW LEARNED STATISTICS LIKE '${fingerprint}'; """
-        assertTrue(learnedRows.isEmpty(), learnedRows.toString())
+        // the canonical form is not printed by default, so a canonical pattern matches nothing
+        assertTrue(sql(""" HBO SHOW PINNED STATISTICS LIKE '%lit(1:INT)%'; """).isEmpty())
 
-        // LIKE prefix form
-        def prefixRows = sql """ HBO SHOW PINNED STATISTICS LIKE '${fingerprint.substring(0, 8)}%'; """
-        assertEquals(1, prefixRows.size())
-        assertEquals(fingerprint, prefixRows[0][1].toString())
+        // FULL prints the canonical struct info (the fingerprint input) and LIKE matches it
+        def fullRows = sql """ HBO SHOW PINNED STATISTICS FULL LIKE '%lit(1:INT)%'; """
+        assertEquals(1, fullRows.size(), fullRows.toString())
+        assertEquals(structCanonical, fullRows[0][5].toString())
 
-        // a non-matching pattern filters everything out
-        def noMatchRows = sql """ HBO SHOW PINNED STATISTICS LIKE 'ffffffff%'; """
-        assertTrue(noMatchRows.isEmpty(), noMatchRows.toString())
+        // the constant agnostic fingerprint of the same node accepts the same struct info: the
+        // literals of the pasted canonical form are wildcarded before the check
+        sql """ HBO SET STATISTICS '${noLiteralFingerprint}' = 123456 STRUCT '${structCanonical}'; """
+        assertEquals(2, sql(""" HBO SHOW PINNED STATISTICS LIKE '%F{b = 1}%'; """).size())
+        sql """ HBO DELETE STATISTICS '${noLiteralFingerprint}'; """
+
+        // join entry: the simplified form keeps only the leaves of the chain (no join type, no join
+        // condition), the aggregation entry keeps only its grouping keys and its child
+        def joinText = explainText("select * from hbo_sp_t x join hbo_sp_r y on x.a = y.a")
+        def joinMatcher = (joinText =~ /kind=join fingerprint=([0-9a-f]+) struct=(\S+) condFingerprint=/)
+        assertTrue(joinMatcher.find(), "no join annotation found:\n" + joinText)
+        def joinFingerprint = joinMatcher.group(1)
+        def joinStructCanonical = joinMatcher.group(2)
+        def aggText = explainText("select x.a, count(*) from hbo_sp_t x join hbo_sp_r y on x.a = y.a group by x.a")
+        def aggMatcher = (aggText =~ /kind=aggregation fingerprint=([0-9a-f]+) struct=(\S+)/)
+        assertTrue(aggMatcher.find(), "no aggregation annotation found:\n" + aggText)
+        def aggFingerprint = aggMatcher.group(1)
+        def aggStructCanonical = aggMatcher.group(2)
+        sql """ HBO SET STATISTICS '${joinFingerprint}' = 100 STRUCT '${joinStructCanonical}'; """
+        sql """ HBO SET STATISTICS '${aggFingerprint}' = 10 STRUCT '${aggStructCanonical}'; """
+        injected.add(joinFingerprint)
+        injected.add(aggFingerprint)
+
+        def joinRows = sql """ HBO SHOW PINNED STATISTICS LIKE 'J{%'; """
+        assertEquals(1, joinRows.size(), joinRows.toString())
+        assertEquals("J{S{hbo_test.hbo_sp_r}, S{hbo_test.hbo_sp_t}}", joinRows[0][5].toString())
+        def aggRows = sql """ HBO SHOW PINNED STATISTICS LIKE 'A{%'; """
+        assertEquals(1, aggRows.size(), aggRows.toString())
+        assertEquals("A{x.a}(J{S{hbo_test.hbo_sp_r}, S{hbo_test.hbo_sp_t}})", aggRows[0][5].toString())
+        // FULL prints the canonical form of both (the filter entry above is the only one which was
+        // matched by a canonical pattern in the default mode, and only because it was in FULL mode)
+        assertEquals(joinStructCanonical,
+                (sql """ HBO SHOW PINNED STATISTICS FULL LIKE 'J{inner%'; """)[0][5].toString())
+        assertEquals(aggStructCanonical,
+                (sql """ HBO SHOW PINNED STATISTICS FULL LIKE 'A{gb%'; """)[0][5].toString())
+
+        sql """ HBO DELETE STATISTICS '${joinFingerprint}'; """
+        injected.remove(joinFingerprint)
+        sql """ HBO DELETE STATISTICS '${aggFingerprint}'; """
+        injected.remove(aggFingerprint)
+
+        // a load bumps the visible version of the table: the version recorded in the struct info is
+        // then stale, and because the fingerprint itself contains the version such an entry can
+        // never be applied to a new plan any more
+        sql """ insert into hbo_sp_r select number + 1000, number % 100 from numbers("number" = "10"); """
+        def staleRows = sql """ HBO SHOW PINNED STATISTICS LIKE '%F{b = 1}%'; """
+        assertEquals(1, staleRows.size(), staleRows.toString())
+        assertEquals("stale", staleRows[0][6].toString())
     } finally {
-        sql """ HBO DELETE STATISTICS '${fingerprint}'; """
+        injected.each { sql """ HBO DELETE STATISTICS '${it}'; """ }
+        sql "set global enable_hbo_info_collection=${prevInfoCollection};"
     }
 
-    def afterDeleteRows = sql """ HBO SHOW PINNED STATISTICS LIKE '${fingerprint}'; """
-    assertTrue(afterDeleteRows.isEmpty(), afterDeleteRows.toString())
+    assertTrue(sql(""" HBO SHOW PINNED STATISTICS LIKE '%hbo\\_sp\\_r%'; """).isEmpty())
+
+    // learned scope: nothing was recorded for these nodes by injection alone
+    assertTrue(sql(""" HBO SHOW LEARNED STATISTICS LIKE '%hbo\\_sp\\_r%'; """).isEmpty())
 
     // an unknown scope is rejected with a clear error
     test {

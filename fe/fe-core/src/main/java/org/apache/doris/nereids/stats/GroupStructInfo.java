@@ -458,6 +458,46 @@ public class GroupStructInfo {
     }
 
     /**
+     * Rewrite every literal of a canonical string into its constant agnostic form ({@code lit(*)}),
+     * i.e. turn a WITH_LITERAL canonical string into the NO_LITERAL one. Used to accept a struct info
+     * which a user copied from a filter node of EXPLAIN for the constant agnostic fingerprint of the
+     * same node.
+     *
+     * <p>A literal value is not quoted in the canonical form and a data type may even contain
+     * parentheses ({@code lit(abc:VARCHAR(10))}), so the closing parenthesis is found by counting
+     * instead of by a regular expression.
+     */
+    public static String toNoLiteral(String canonicalString) {
+        StringBuilder sb = new StringBuilder(canonicalString.length());
+        int index = 0;
+        while (index < canonicalString.length()) {
+            int start = canonicalString.indexOf("lit(", index);
+            if (start < 0) {
+                sb.append(canonicalString, index, canonicalString.length());
+                break;
+            }
+            sb.append(canonicalString, index, start).append("lit(*)");
+            int depth = 0;
+            int cursor = start + 3;
+            while (cursor < canonicalString.length()) {
+                char c = canonicalString.charAt(cursor);
+                if (c == '(') {
+                    depth++;
+                } else if (c == ')') {
+                    depth--;
+                    if (depth == 0) {
+                        cursor++;
+                        break;
+                    }
+                }
+                cursor++;
+            }
+            index = cursor;
+        }
+        return sb.toString();
+    }
+
+    /**
      * Normalize a single expression into its canonical component (slot -&gt; {@code col(qualifier.name)},
      * literal -&gt; {@code lit(value:type)} / {@code lit(*)}, other nodes -&gt; {@code ClassName(children)}).
      * Shared with the hbo join-condition canonicalizer.

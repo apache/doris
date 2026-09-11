@@ -49,19 +49,25 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
     }
     def firstFragment = { String text -> text.substring(0, text.indexOf("PLAN FRAGMENT 1")) }
     def probeTable = { String predicate -> firstFragment(explainText(predicate)) }
-    def shapeFingerprint = { String predicate ->
-        def matcher = (explainText(predicate) =~ /fingerprintNoLiteral=([0-9a-f]+)/)
-        assertTrue(matcher.find(), "no agnostic fingerprint for ${predicate}")
-        matcher.group(1)
+    def filterAnnotationOf = { String predicate ->
+        def matcher = (explainText(predicate) =~
+                /kind=filter-on-scan\(table=[^)]*hbo_gs_r[^)]*\) fingerprint=[0-9a-f]+ fingerprintNoLiteral=([0-9a-f]+) struct=(\S+)/)
+        assertTrue(matcher.find(), "no filter annotation for ${predicate}")
+        matcher
     }
+    def shapeFingerprint = { String predicate -> filterAnnotationOf(predicate).group(1) }
+    // the struct info printed for the node is what HBO SET STATISTICS is labelled with; it is
+    // accepted for the constant agnostic fingerprint because the literals are wildcarded first
+    def structOf = { String predicate -> filterAnnotationOf(predicate).group(2) }
 
     def shapeOfPathological = shapeFingerprint(pathological)
+    def structOfPathological = structOf(pathological)
     def shapeOfHealthy = shapeFingerprint(healthy)
     assertEquals(shapeOfPathological, shapeOfHealthy)
 
     try {
         // FILTER_SMALL: applied for the pathological estimate ...
-        sql """ HBO SET STATISTICS '${shapeOfPathological}' = 500000 TYPE FILTER_SMALL; """
+        sql """ HBO SET STATISTICS '${shapeOfPathological}' = 500000 TYPE FILTER_SMALL STRUCT '${structOfPathological}'; """
         assertTrue(probeTable(pathological).contains("TABLE: hbo_test.hbo_gs_r(hbo_gs_r)"),
                 probeTable(pathological))
         // the applied node reports its injected entry type in the physical plan
@@ -78,13 +84,14 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
         assertFalse((healthyNode =~ /PhysicalFilter\[\d+\][^\n]*hboUsed=true/).find(), healthyNode)
 
         // the entry reports the granularity that matched and its guard type
-        def showRows = sql """ HBO SHOW PINNED STATISTICS LIKE '${shapeOfPathological}'; """
+        // LIKE matches the struct info column, so the entry is located by a struct info pattern
+        def showRows = sql """ HBO SHOW PINNED STATISTICS LIKE 'F{%hbo_gs_r%'; """
         assertEquals(1, showRows.size())
         assertEquals("no_literal", showRows[0][2].toString())
         assertEquals("filter_small", showRows[0][3].toString())
 
         // control: the same fingerprint injected as EXACT overrides the healthy estimate as well
-        sql """ HBO SET STATISTICS '${shapeOfPathological}' = 500000 TYPE EXACT; """
+        sql """ HBO SET STATISTICS '${shapeOfPathological}' = 500000 TYPE EXACT STRUCT '${structOfPathological}'; """
         assertTrue(probeTable(healthy).contains("TABLE: hbo_test.hbo_gs_r(hbo_gs_r)"), probeTable(healthy))
         def exactNode = nodePlanText(healthy)
         assertTrue((exactNode =~ /PhysicalFilter\[\d+\][^\n]*hboType=exact[^\n]*hboUsed=true/).find(), exactNode)

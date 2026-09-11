@@ -146,7 +146,7 @@ hboStatement
           (structWord=identifier structCanonical=STRING_LITERAL)?      #hboSetStatistics
     | hbo=identifier DELETE scope=identifier? statistics=identifier key=STRING_LITERAL
                                                                        #hboDeleteStatistics
-    | hbo=identifier SHOW scope=identifier? statistics=identifier
+    | hbo=identifier SHOW scope=identifier? statistics=identifier (FULL)?
           (LIKE likePattern=STRING_LITERAL)?                           #hboShowStatistics
     | hbo=identifier SET expansionWord=identifier key=STRING_LITERAL EQ value=(INTEGER_VALUE | DECIMAL_VALUE)
           (condWord=identifier condCanonical=STRING_LITERAL)?          #hboSetExpansion

@@ -26,6 +26,8 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager.PinnedHboStatistics;
+import org.apache.doris.nereids.stats.HboStructFreshness;
+import org.apache.doris.nereids.stats.SimpleStructInfo;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -43,47 +45,59 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
  * Manual HBO statistics inspection:
  * <pre>
- *   HBO SHOW STATISTICS [LIKE '&lt;pattern&gt;']              -- pinned + learned
- *   HBO SHOW PINNED STATISTICS [LIKE '&lt;pattern&gt;']       -- injected entries only
- *   HBO SHOW LEARNED STATISTICS [LIKE '&lt;pattern&gt;']      -- automatically collected entries only
+ *   HBO SHOW STATISTICS [LIKE '&lt;pattern&gt;']              -- pinned + learned, simplified struct info
+ *   HBO SHOW STATISTICS FULL [LIKE '&lt;pattern&gt;']         -- canonical struct info
+ *   HBO SHOW PINNED STATISTICS [FULL] [LIKE '&lt;pattern&gt;']   -- injected entries only
+ *   HBO SHOW LEARNED STATISTICS [FULL] [LIKE '&lt;pattern&gt;']  -- learned entries only
  * </pre>
- * Pinned entries come from the in-memory (authoritative) pinned cache of this FE; learned entries
+ * {@code FULL} decides both which struct info is printed and which one {@code LIKE} matches (the
+ * canonical form, i.e. the fingerprint input, or its simplified rendering). The simplified form is
+ * a pure function of the canonical form (see {@link SimpleStructInfo}), so it is never persisted and
+ * can never be stale.
+ *
+ * <p>Pinned entries come from the in-memory (authoritative) pinned cache of this FE; learned entries
  * come from the recent-runs cache keyed by hbo fingerprint. The learned row count is the output
- * row count of the latest recorded run of that fingerprint (see the Detail column for the number
- * of recorded runs), so it is a summary, not a single current value.
+ * row count of the latest recorded run of that fingerprint (see the Detail column for the number of
+ * recorded runs), so it is a summary, not a single current value.
  */
 public class HboShowStatisticsCommand extends ShowCommand {
     private static final String SCOPE_PINNED = "pinned";
     private static final String SCOPE_LEARNED = "learned";
 
-    private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Kind", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("Fingerprint", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Granularity", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("Type", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("Rows", ScalarType.createVarchar(32)))
-                    .addColumn(new Column("StructInfo", ScalarType.createVarchar(65533)))
-                    .addColumn(new Column("Detail", ScalarType.createVarchar(64)))
-                    .build();
-
     private final String scope;
+    private final boolean fullStructInfo;
     private final String likePattern;
+    private final ShowResultSetMetaData metaData;
 
     /**
      * HboShowStatisticsCommand
      * @param scope PINNED / LEARNED, null or empty means both
-     * @param likePattern optional SQL LIKE pattern applied to the fingerprint
+     * @param fullStructInfo print (and match against) the canonical struct info instead of the
+     *                       simplified one
+     * @param likePattern optional SQL LIKE pattern applied to the printed struct info column
      */
-    public HboShowStatisticsCommand(String scope, String likePattern) {
+    public HboShowStatisticsCommand(String scope, boolean fullStructInfo, String likePattern) {
         super(PlanType.HBO_SHOW_STATISTICS_COMMAND);
         this.scope = scope == null || scope.isEmpty() ? null : scope.toLowerCase(Locale.ROOT);
+        this.fullStructInfo = fullStructInfo;
         this.likePattern = likePattern == null || likePattern.isEmpty() ? null : likePattern;
+        this.metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("Kind", ScalarType.createVarchar(16)))
+                .addColumn(new Column("Fingerprint", ScalarType.createVarchar(64)))
+                .addColumn(new Column("Granularity", ScalarType.createVarchar(16)))
+                .addColumn(new Column("Type", ScalarType.createVarchar(16)))
+                .addColumn(new Column("Rows", ScalarType.createVarchar(32)))
+                .addColumn(new Column(fullStructInfo ? "StructInfo" : "SimpleStruct",
+                        ScalarType.createVarchar(65533)))
+                .addColumn(new Column("State", ScalarType.createVarchar(16)))
+                .addColumn(new Column("Detail", ScalarType.createVarchar(64)))
+                .build();
     }
 
     @Override
@@ -100,7 +114,8 @@ public class HboShowStatisticsCommand extends ShowCommand {
         List<List<String>> rows = new ArrayList<>();
         if (scope == null || SCOPE_PINNED.equals(scope)) {
             for (PinnedHboStatistics pinned : hboManager.getAllPinnedPlanStatistics().values()) {
-                if (!matches(pattern, pinned.getFingerprint())) {
+                String structInfo = displayedStructInfo(pinned.getStructCanonical());
+                if (!matches(pattern, pinned.getStructCanonical(), structInfo)) {
                     continue;
                 }
                 List<String> row = new ArrayList<>();
@@ -110,7 +125,8 @@ public class HboShowStatisticsCommand extends ShowCommand {
                 row.add(pinned.getFingerprintKind().name().toLowerCase(Locale.ROOT));
                 row.add(pinned.getType().name().toLowerCase(Locale.ROOT));
                 row.add(String.valueOf(pinned.getRows()));
-                row.add(pinned.getStructCanonical());
+                row.add(structInfo);
+                row.add(HboStructFreshness.of(pinned.getStructCanonical()).getState());
                 row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.ofInstant(
                         Instant.ofEpochMilli(pinned.getCreateTime()), ZoneId.systemDefault())));
                 rows.add(row);
@@ -119,7 +135,11 @@ public class HboShowStatisticsCommand extends ShowCommand {
         if (scope == null || SCOPE_LEARNED.equals(scope)) {
             for (Map.Entry<String, RecentRunsPlanStatistics> entry : hboManager.getHboPlanStatisticsProvider()
                     .getAllHboPlanStats().entrySet()) {
-                if (!matches(pattern, entry.getKey())) {
+                Optional<String> canonical = hboManager.getLearnedStructCanonical(entry.getKey());
+                // a learned key is generated internally, so it only has a struct info when it was
+                // injected together with a struct literal
+                String structInfo = canonical.map(this::displayedStructInfo).orElse("");
+                if (!matches(pattern, canonical.orElse(null), structInfo)) {
                     continue;
                 }
                 List<RecentRunsPlanStatisticsEntry> recentRuns = entry.getValue().getRecentRunsStatistics();
@@ -128,24 +148,26 @@ public class HboShowStatisticsCommand extends ShowCommand {
                 List<String> row = new ArrayList<>();
                 row.add(SCOPE_LEARNED);
                 row.add(entry.getKey());
-                // learned keys are generated internally (constant agnostic for join / aggregation,
-                // scan token for scans), so no user facing granularity can be reported
+                // learned keys are constant agnostic for join / aggregation and the scan token for
+                // scans, so no user facing granularity can be reported
                 row.add("-");
                 row.add("-");
                 row.add(rowsText);
-                row.add("");
+                row.add(structInfo.isEmpty() ? "-" : structInfo);
+                row.add(canonical.map(HboStructFreshness::of)
+                        .map(HboStructFreshness::getState).orElse(HboStructFreshness.STATE_UNKNOWN));
                 row.add("runs=" + recentRuns.size());
                 rows.add(row);
             }
         }
         rows.sort(Comparator.comparing((List<String> row) -> row.get(0))
                 .thenComparing(row -> row.get(1)));
-        return new ShowResultSet(META_DATA, rows);
+        return new ShowResultSet(metaData, rows);
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        return META_DATA;
+        return metaData;
     }
 
     @Override
@@ -158,31 +180,49 @@ public class HboShowStatisticsCommand extends ShowCommand {
         return visitor.visitCommand(this, context);
     }
 
-    private static boolean matches(Pattern pattern, String fingerprint) {
-        return pattern == null || pattern.matcher(fingerprint).matches();
+    private String displayedStructInfo(String canonicalStructInfo) {
+        return fullStructInfo ? canonicalStructInfo : SimpleStructInfo.render(canonicalStructInfo);
+    }
+
+    /**
+     * {@code LIKE} matches the printed struct info column. An entry without a struct info (a learned
+     * entry injected by fingerprint only) cannot match a struct info pattern.
+     */
+    private boolean matches(Pattern pattern, String canonicalStructInfo, String displayedStructInfo) {
+        if (pattern == null) {
+            return true;
+        }
+        return canonicalStructInfo != null && !displayedStructInfo.isEmpty()
+                && pattern.matcher(displayedStructInfo).matches();
     }
 
     /**
      * Translate a SQL LIKE pattern into an equivalent regex ('%' matches any sequence, '_' matches
-     * a single character, everything else is literal), anchored by the caller via matches().
+     * a single character, a backslash escapes the next character, which is needed because table and
+     * column names in a struct info contain underscores), anchored by the caller via matches().
      */
     private static Pattern compileLikePattern(String like) {
         if (like == null) {
             return null;
         }
         StringBuilder regex = new StringBuilder();
+        boolean escaped = false;
         for (char c : like.toCharArray()) {
-            switch (c) {
-                case '%':
-                    regex.append(".*");
-                    break;
-                case '_':
-                    regex.append('.');
-                    break;
-                default:
-                    regex.append(Pattern.quote(String.valueOf(c)));
-                    break;
+            if (escaped) {
+                regex.append(Pattern.quote(String.valueOf(c)));
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '%') {
+                regex.append(".*");
+            } else if (c == '_') {
+                regex.append('.');
+            } else {
+                regex.append(Pattern.quote(String.valueOf(c)));
             }
+        }
+        if (escaped) {
+            regex.append(Pattern.quote("\\"));
         }
         return Pattern.compile(regex.toString(), Pattern.DOTALL);
     }

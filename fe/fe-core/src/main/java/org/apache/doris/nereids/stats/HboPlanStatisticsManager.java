@@ -123,6 +123,16 @@ public class HboPlanStatisticsManager {
                     ? Caffeine.newBuilder().maximumSize(Config.hbo_expansion_cache_num)
                     : Caffeine.newBuilder())
                     .build();
+    // canonical struct info of the learned entries which were injected together with a struct
+    // literal (HBO SET LEARNED STATISTICS ... STRUCT '...'): a learned key is generated internally,
+    // so this is the only way HBO SHOW STATISTICS can print (and match) the struct info of a
+    // learned entry. Display only, bounded like the sibling caches, empty for learned entries
+    // injected by fingerprint alone.
+    private final Cache<String, String> learnedStructCanonical =
+            (Config.hbo_pinned_stats_cache_num > 0
+                    ? Caffeine.newBuilder().maximumSize(Config.hbo_pinned_stats_cache_num)
+                    : Caffeine.newBuilder())
+                    .build();
     // serializes the memory phases of the lazy load, SET and DELETE against each other (including
     // the best-effort persistence SQL of DELETE, so no load can observe a row in between a
     // DELETE's memory invalidation and its DB removal)
@@ -242,17 +252,26 @@ public class HboPlanStatisticsManager {
      * lookup path can be exercised without waiting for a real profile publish. The injected entry
      * carries no input table statistics and therefore matches by fingerprint alone.
      */
-    public void putLearnedPlanStatistics(String fingerprint, long rows) {
+    public void putLearnedPlanStatistics(String fingerprint, long rows, String structCanonical) {
         PlanStatistics planStatistics = new PlanStatistics(0, rows, rows, rows, rows,
                 rows, rows, rows, rows, 0, 0, 1);
         RecentRunsPlanStatistics runs = new RecentRunsPlanStatistics(
                 Lists.newArrayList(new RecentRunsPlanStatisticsEntry(planStatistics, Lists.newArrayList())));
         hboPlanStatisticsProvider.putHboPlanStatsByFingerprint(fingerprint, runs);
+        if (structCanonical != null && !structCanonical.isEmpty()) {
+            learnedStructCanonical.put(fingerprint, structCanonical);
+        }
+    }
+
+    /** The struct info a learned entry was injected with, when it was injected with one. */
+    public Optional<String> getLearnedStructCanonical(String fingerprint) {
+        return Optional.ofNullable(learnedStructCanonical.getIfPresent(fingerprint));
     }
 
     /** Remove a learned entry by fingerprint. */
     public void removeLearnedPlanStatistics(String fingerprint) {
         hboPlanStatisticsProvider.removeHboPlanStats(fingerprint);
+        learnedStructCanonical.invalidate(fingerprint);
     }
 
     public Map<String, PinnedHboStatistics> getAllPinnedPlanStatistics() {

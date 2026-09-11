@@ -64,9 +64,14 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     assertTrue(matcher.find(), "no filter-on-scan fingerprint annotation found for hbo_si_r:\n" + beforeText)
     def fingerprint = matcher.group(1)
     log.info("filter(hbo_si_r) fingerprint: " + fingerprint)
+    // the struct info printed for the same node is what HBO SET STATISTICS is labelled with
+    def structMatcher = (beforeText =~
+            /kind=filter-on-scan\(table=[^)]*hbo_si_r[^)]*\) fingerprint=[0-9a-f]+ fingerprintNoLiteral=[0-9a-f]+ struct=(\S+)/)
+    assertTrue(structMatcher.find(), "no filter struct info annotation found:\n" + beforeText)
+    def filterStruct = structMatcher.group(1)
 
     // inject hbo statistics so that |filter(R)| (500000) > |T| (100000)
-    sql """ HBO SET STATISTICS '${fingerprint}' = 500000 STRUCT 'S{internal.hbo_test.hbo_si_r,v2}'; """
+    sql """ HBO SET STATISTICS '${fingerprint}' = 500000 STRUCT '${filterStruct}'; """
 
     def afterText = explainText(query)
     def afterFragment0 = firstFragment(afterText)
@@ -96,7 +101,9 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     assertTrue(shapeMatcher.find(), "no agnostic fingerprint annotation found:\n" + beforeText)
     def shapeFingerprint = shapeMatcher.group(1)
     sql """ HBO DELETE STATISTICS '${fingerprint}'; """
-    sql """ HBO SET STATISTICS '${shapeFingerprint}' = 500000; """
+    // the struct info of the exact form is accepted for the constant agnostic fingerprint too:
+    // the literals of the pasted struct info are wildcarded before the check
+    sql """ HBO SET STATISTICS '${shapeFingerprint}' = 500000 STRUCT '${filterStruct}'; """
     def shapeText = firstFragment(explainText(otherConstantQuery))
     assertTrue(shapeText.contains("TABLE: hbo_test.hbo_si_r(hbo_si_r)"), shapeText)
 
