@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletMetaInfo;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ListMultimap;
@@ -89,7 +90,7 @@ public abstract class TabletInvertedIndex {
                              Set<Long> tabletFoundInMeta,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, Long> partitionVersionSyncMap,
-                             Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                             Map<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>> transactionsToPublish,
                              SetMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<TTabletMetaInfo> tabletToUpdate,

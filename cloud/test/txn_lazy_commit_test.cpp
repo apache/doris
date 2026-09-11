@@ -968,7 +968,6 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
                       TxnErrorCode::TXN_OK);
             RowsetMetaCloudPB legacy_rowset_meta;
             ASSERT_TRUE(legacy_rowset_meta.ParseFromString(legacy_rowset_val));
-            ASSERT_FALSE(legacy_rowset_meta.has_row_binlog_column_mappings());
 
             // Check versioned rowset meta exists.
             std::string rowset_key = versioned::meta_rowset_load_key({mock_instance, tablet_id, 2});
@@ -976,7 +975,6 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
             Versionstamp versionstamp;
             ASSERT_EQ(versioned::document_get(txn.get(), rowset_key, &rowset_val, &versionstamp),
                       TxnErrorCode::TXN_OK);
-            ASSERT_FALSE(rowset_val.has_row_binlog_column_mappings());
         }
     }
 

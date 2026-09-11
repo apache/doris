@@ -1148,7 +1148,6 @@ TEST_F(MetaServiceTableStreamTest, CommitTargetRowsetAndOffsetAtomically) {
               TxnErrorCode::TXN_OK);
     doris::RowsetMetaCloudPB staged_rowset;
     ASSERT_TRUE(staged_rowset.ParseFromString(value));
-    EXPECT_FALSE(staged_rowset.has_row_binlog_column_mappings());
     CommitTxnRequest commit_request = make_consume_request(committed_txn_id, kSourcePartitionId,
                                                            TABLE_STREAM_OFFSET_CONSUMED, 100, 120);
     commit_request.set_commit_tso(999);
@@ -1165,7 +1164,6 @@ TEST_F(MetaServiceTableStreamTest, CommitTargetRowsetAndOffsetAtomically) {
     doris::RowsetMetaCloudPB committed_rowset;
     ASSERT_TRUE(committed_rowset.ParseFromString(value));
     EXPECT_EQ(committed_rowset.txn_id(), committed_txn_id);
-    EXPECT_FALSE(committed_rowset.has_row_binlog_column_mappings());
     ASSERT_EQ(txn->get(partition_version_key(
                                {instance_id_, kTargetDbId, kTargetTableId, kTargetPartitionId}),
                        &value),

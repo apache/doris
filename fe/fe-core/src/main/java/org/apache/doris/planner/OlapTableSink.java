@@ -88,6 +88,7 @@ import org.apache.doris.thrift.TRowBinlogWriteColumnMapping;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
@@ -476,6 +477,15 @@ public class OlapTableSink extends DataSink {
 
         setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
+        // GroupCommitBlockSink only queues input. Its actual batch writer plans a regular sink
+        // with the batch transaction ID. Cloud owns the snapshot in the BE transaction cache.
+        if (table.needRowBinlog() && !Config.isCloudMode() && getDataSinkType() == TDataSinkType.OLAP_TABLE_SINK) {
+            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, txnId);
+            if (state == null) {
+                throw new AnalysisException("txn does not exist: " + txnId);
+            }
+            state.captureRowBinlogColumnMappings(txnId, schemaParam);
+        }
         return schemaParam;
     }
 

@@ -70,17 +70,20 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
     protected boolean memtableOnSinkNode;
     protected int timeoutSec;
+    private final long txnId;
 
     /**
      * NereidsRoutineLoadTaskInfo
      */
-    public NereidsRoutineLoadTaskInfo(long execMemLimit, Map<String, String> jobProperties, long maxBatchIntervalS,
+    public NereidsRoutineLoadTaskInfo(long txnId, long execMemLimit,
+            Map<String, String> jobProperties, long maxBatchIntervalS,
             PartitionNamesInfo partitions, LoadTask.MergeType mergeType, Expression deleteCondition,
             String sequenceCol, double maxFilterRatio, NereidsImportColumnDescs columnDescs,
             Expression precedingFilter, Expression whereExpr, Separator columnSeparator,
             Separator lineDelimiter, byte enclose, byte escape, int sendBatchParallelism,
             boolean loadToSingleTablet, TUniqueKeyUpdateMode uniqueKeyUpdateMode,
             TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy, boolean memtableOnSinkNode) {
+        this.txnId = txnId;
         this.execMemLimit = execMemLimit;
         this.jobProperties = jobProperties;
         this.maxBatchIntervalS = maxBatchIntervalS;
@@ -111,7 +114,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
 
     @Override
     public long getTxnId() {
-        return -1L;
+        return txnId;
     }
 
     public int calTimeoutSec() {

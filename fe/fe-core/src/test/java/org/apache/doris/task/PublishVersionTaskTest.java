@@ -17,12 +17,37 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.master.ReportHandler;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TPartitionVersionInfo;
+import org.apache.doris.thrift.TPublishVersionRequest;
+import org.apache.doris.thrift.TRowBinlogWriteColumnMappings;
+import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.PartitionCommitInfo;
+import org.apache.doris.transaction.PublishVersionDaemon;
+import org.apache.doris.transaction.TableCommitInfo;
+import org.apache.doris.transaction.TransactionState;
+
 import com.google.common.collect.ImmutableMap;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Regression tests for the invariant: PublishVersionTask.getSuccTablets() must never return null,
@@ -31,6 +56,86 @@ import java.util.Map;
  * non-OK BE callback (MasterImpl.finishPublishVersion path).
  */
 public class PublishVersionTaskTest {
+
+    @Test
+    public void testReportRetainsSnapshotAfterSubtransactionAliasRemoved() throws Exception {
+        TransactionState state = GsonUtils.GSON.fromJson("{\"dbId\":1,\"txnId\":100,\"rowBinlogMappings\":{"
+                + "\"101\":{\"10\":{\"historical\":false,\"columns\":[{\"source\":1,\"current\":31}]}}}}",
+                TransactionState.class);
+        Deencapsulation.setField(state, "subTxnIds", Arrays.asList(100L, 101L));
+        TableCommitInfo table = new TableCommitInfo(123L);
+        PartitionCommitInfo partition = new PartitionCommitInfo();
+        Deencapsulation.setField(partition, "partitionId", 2L);
+        partition.setVersion(3L);
+        table.addPartitionCommitInfo(partition);
+        state.getSubTxnIdToTableCommitInfo().put(101L, table);
+        Map<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>> classified = new HashMap<>();
+        TabletMeta tablet = new TabletMeta(1L, 123L, 2L, 10L, 1, TStorageMedium.HDD, false);
+        LocalTabletInvertedIndex index = new LocalTabletInvertedIndex();
+        Deencapsulation.invoke(index, "publishPartition", state, 101L, tablet, 2L, classified);
+        Deencapsulation.invoke(index, "publishPartition", state, 101L, tablet, 2L, classified);
+        Assertions.assertEquals(1, classified.size());
+        Assertions.assertEquals(1, classified.get(101L).second.size());
+        long backendId = 10002L;
+        // Becoming VISIBLE removes the subtransaction alias, not the parent state's snapshot.
+        GlobalTransactionMgrIface manager = Mockito.mock(GlobalTransactionMgrIface.class);
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class);
+                MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
+            env.when(Env::getCurrentGlobalTransactionMgr).thenReturn(manager);
+            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", classified, backendId);
+            PublishVersionTask task = (PublishVersionTask) AgentTaskQueue.getTask(
+                    backendId, TTaskType.PUBLISH_VERSION, 101L);
+            Assertions.assertNotNull(task);
+            assertWireMapping(task, 101L, 31, false);
+        } finally {
+            AgentTaskQueue.removeTask(backendId, TTaskType.PUBLISH_VERSION, 101L);
+        }
+    }
+
+    @Test
+    public void testNormalAndReportPublishUseReplayedSubtransactionSnapshots() throws Exception {
+        TransactionState state = GsonUtils.GSON.fromJson("{\"dbId\":1,\"txnId\":100,\"rowBinlogMappings\":{"
+                + "\"100\":{\"10\":{\"historical\":true,\"columns\":[{\"source\":1,\"current\":11}]}},"
+                + "\"101\":{\"10\":{\"historical\":false,\"columns\":[{\"source\":1,\"current\":31}]}}}}",
+                TransactionState.class);
+        long backendId = 10001L;
+        TPartitionVersionInfo version = new TPartitionVersionInfo(2L, 3L, 0L);
+        try {
+            AgentBatchTask batch = new AgentBatchTask();
+            Deencapsulation.invoke(new PublishVersionDaemon(), "addPublishVersionTask",
+                    Collections.singleton(backendId), 100L, state, Collections.singletonList(version),
+                    Collections.emptyMap(), 0L, batch);
+            Assertions.assertEquals(1, batch.getAllTasks().size());
+            assertWireMapping((PublishVersionTask) batch.getAllTasks().get(0), 100L, 11, true);
+
+            try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
+                Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo",
+                        ImmutableMap.of(101L, Pair.of(state, Collections.singleton(version))), backendId);
+                PublishVersionTask republish = (PublishVersionTask) AgentTaskQueue.getTask(
+                        backendId, TTaskType.PUBLISH_VERSION, 101L);
+                Assertions.assertNotNull(republish);
+                assertWireMapping(republish, 101L, 31, false);
+            }
+        } finally {
+            AgentTaskQueue.removeTask(backendId, TTaskType.PUBLISH_VERSION, 100L);
+            AgentTaskQueue.removeTask(backendId, TTaskType.PUBLISH_VERSION, 101L);
+        }
+    }
+
+    private static void assertWireMapping(PublishVersionTask task, long txnId, int current, boolean historical)
+            throws Exception {
+        TPublishVersionRequest request = new TPublishVersionRequest();
+        new TDeserializer().deserialize(request, new TSerializer().serialize(task.toThrift()));
+        Assertions.assertEquals(txnId, request.getTransactionId());
+        Assertions.assertEquals(1, request.getRowBinlogColumnMappingsSize());
+        TRowBinlogWriteColumnMappings mapping = request.getRowBinlogColumnMappings().get(10L);
+        Assertions.assertTrue(mapping.isSetNeedHistoricalValue());
+        Assertions.assertEquals(historical, mapping.isNeedHistoricalValue());
+        Assertions.assertEquals(1, mapping.getEntriesSize());
+        Assertions.assertEquals(1, mapping.getEntries().get(0).getSourceColumnUniqueId());
+        Assertions.assertEquals(current, mapping.getEntries().get(0).getCurrentColumnUniqueId());
+        Assertions.assertFalse(mapping.getEntries().get(0).isSetBeforeColumnUniqueId());
+    }
 
     private PublishVersionTask newTask() {
         return new PublishVersionTask(

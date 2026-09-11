@@ -449,8 +449,6 @@ protected:
                           (segment_v2::RowBinlogColumnCidMapping {
                                   1, 1, historical ? std::optional<ColumnId>(5) : std::nullopt}));
             }
-            EXPECT_FALSE(txn_info.rowset->rowset_meta()->has_row_binlog_column_mappings());
-            EXPECT_FALSE(attached.rowset->rowset_meta()->has_row_binlog_column_mappings());
         }
         if (historical) {
             const bool debug_points_enabled = config::enable_debug_points;
@@ -517,22 +515,11 @@ TEST_F(CloudGroupRowsetBuilderWriterTest, builderBuildsRowBinlogMeta) {
     ASSERT_EQ(mappings.size(), 2U);
     EXPECT_EQ(mappings[0], (segment_v2::RowBinlogColumnCidMapping {0, 0, std::nullopt}));
     EXPECT_EQ(mappings[1], (segment_v2::RowBinlogColumnCidMapping {1, 1, std::nullopt}));
-    const auto& data_writer_meta = builder.data_builder()->rowset_writer()->rowset_meta();
-    EXPECT_FALSE(data_writer_meta->has_row_binlog_column_mappings());
-    EXPECT_FALSE(builder.row_binlog_builder()
-                         ->rowset_writer()
-                         ->rowset_meta()
-                         ->has_row_binlog_column_mappings());
 
     ASSERT_TRUE(builder.rowset_writer()->flush().ok());
     ASSERT_TRUE(builder.build_rowset().ok());
 
     assert_rowset_meta(builder.data_builder()->rowset(), builder.row_binlog_builder()->rowset());
-    EXPECT_FALSE(builder.data_builder()->rowset()->rowset_meta()->has_row_binlog_column_mappings());
-    EXPECT_FALSE(builder.row_binlog_builder()
-                         ->rowset()
-                         ->rowset_meta()
-                         ->has_row_binlog_column_mappings());
 }
 
 TEST_F(CloudGroupRowsetBuilderWriterTest, writerBuildsRowBinlogMeta) {

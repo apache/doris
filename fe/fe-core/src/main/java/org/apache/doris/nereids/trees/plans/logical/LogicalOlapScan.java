@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
@@ -1334,7 +1335,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     @Override
     public boolean supportPruneNestedColumn() {
-        return true;
+        // Row-binlog pairs need matching full values, including unprojected fields for MIN_DELTA comparisons.
+        return !(getTable() instanceof RowBinlogTableWrapper);
     }
 
     public Optional<TableScanParams> getScanParams() {

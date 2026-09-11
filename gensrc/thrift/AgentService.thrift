@@ -504,6 +504,8 @@ struct TPublishVersionRequest {
     3: optional bool strict_mode = false
     // for delta rows statistics to exclude rollup tablets
     4: optional set<Types.TTabletId> base_tablet_ids
+    // Write-time snapshots keyed by source index, scoped to transaction_id (including subtransactions).
+    5: optional map<i64, Descriptors.TRowBinlogWriteColumnMappings> row_binlog_column_mappings
 }
 
 struct TVisibleVersionReq {

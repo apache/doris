@@ -354,6 +354,11 @@ struct TRowBinlogWriteColumnMapping {
     3: optional i32 before_column_unique_id
 }
 
+struct TRowBinlogWriteColumnMappings {
+    1: optional list<TRowBinlogWriteColumnMapping> entries
+    2: optional bool need_historical_value
+}
+
 struct TOlapTableIndexSchema {
     1: required i64 id
     2: required list<string> columns
