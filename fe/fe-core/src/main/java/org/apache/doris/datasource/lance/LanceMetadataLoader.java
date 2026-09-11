@@ -115,8 +115,8 @@ public final class LanceMetadataLoader {
             }
             Map<String, Integer> lanceFieldIds = includeIndexSegments
                     ? loadTopLevelFieldIds(dataset, allowSchemaFallback) : Collections.emptyMap();
-            // Index discovery stays strict even when SDK schema conversion prevents field-ID
-            // mapping. Do not hide inconsistent index metadata behind the schema workaround.
+            // Index discovery still validates metadata when schema conversion prevents field-ID
+            // mapping. Only confirmed legacy indexes without details are omitted by the loader.
             List<LanceIndexSegmentInfo> indexSegments = includeIndexSegments
                     ? loadIndexSegments(dataset) : Collections.emptyList();
             return includeIndexSegments
@@ -141,7 +141,8 @@ public final class LanceMetadataLoader {
             // map makes LanceScalarIndexPlanner choose fragment scans; filters still reach
             // Lance. This does not add support for reading Dictionary values in Doris.
             // Restrict the catch to the SDK call: invalid IDs and duplicate names below must
-            // remain errors, as must all index-description failures in loadIndexSegments().
+            // remain errors. Legacy indexes without details are handled separately by the
+            // index loader; this schema workaround must not suppress other index errors.
             LOG.warn("Lance SDK schema conversion failed at dataset version {}; "
                     + "disabling FE scalar index segment planning for this snapshot: {}",
                     dataset.version(), e.getMessage());
