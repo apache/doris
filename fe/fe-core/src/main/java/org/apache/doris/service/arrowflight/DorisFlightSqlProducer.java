@@ -137,22 +137,26 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         String queryId = handleParts[1];
         // The tokens used for authentication between getStreamStatement and getFlightInfoStatement are different.
         ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
-        try {
-            final FlightSqlResultCacheEntry flightSqlResultCacheEntry = Objects.requireNonNull(
-                    connectContext.getFlightSqlChannel().getResult(queryId));
-            final VectorSchemaRoot vectorSchemaRoot = flightSqlResultCacheEntry.getVectorSchemaRoot();
-            listener.start(vectorSchemaRoot);
-            listener.putNext();
-        } catch (Throwable e) {
-            String errMsg = "get stream statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
-                    + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
-                    + connectContext.getState().getErrorMessage();
-            handleStreamException(e, errMsg, listener);
-        } finally {
-            listener.completed();
-            // The result has been sent or sent failed, delete it.
-            connectContext.getFlightSqlChannel().invalidate(queryId);
-        }
+        // The result is streamed under the session's command lock: the next statement of the
+        // session resets the channel, which would close the VectorSchemaRoot while it is being sent.
+        FlightProtocolAdapter.of(connectContext).runCommand(connectContext, () -> {
+            try {
+                final FlightSqlResultCacheEntry flightSqlResultCacheEntry = Objects.requireNonNull(
+                        connectContext.getFlightSqlChannel().getResult(queryId));
+                final VectorSchemaRoot vectorSchemaRoot = flightSqlResultCacheEntry.getVectorSchemaRoot();
+                listener.start(vectorSchemaRoot);
+                listener.putNext();
+            } catch (Throwable e) {
+                String errMsg = "get stream statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
+                        + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
+                        + connectContext.getState().getErrorMessage();
+                handleStreamException(e, errMsg, listener);
+            } finally {
+                listener.completed();
+                // The result has been sent or sent failed, delete it.
+                connectContext.getFlightSqlChannel().invalidate(queryId);
+            }
+        });
     }
 
     @Override
@@ -175,7 +179,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 String[] handleParts = request.getPreparedStatementHandle().toStringUtf8().split(":");
                 String executedPeerIdentity = handleParts[0];
                 String preparedStatementId = handleParts[1];
-                flightSessionsManager.getConnectContext(executedPeerIdentity).removePreparedQuery(preparedStatementId);
+                ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
+                FlightProtocolAdapter.of(connectContext).runCommand(connectContext,
+                        () -> connectContext.removePreparedQuery(preparedStatementId));
             } catch (final Throwable e) {
                 listener.onError(e);
                 return;
@@ -307,7 +313,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             final FlightDescriptor descriptor) {
         try {
             ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
-            return executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(), descriptor);
+            return FlightProtocolAdapter.of(connectContext).callCommand(connectContext,
+                    () -> executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(),
+                            descriptor));
         } catch (Throwable e) {
             String errMsg = "get flight info statement failed, " + e.getMessage();
             LOG.error(errMsg, e);
@@ -322,8 +330,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         String executedPeerIdentity = handleParts[0];
         String preparedStatementId = handleParts[1];
         ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
-        return executeQueryStatement(executedPeerIdentity, connectContext,
-                connectContext.getPreparedQuery(preparedStatementId), descriptor);
+        return FlightProtocolAdapter.of(connectContext).callCommand(connectContext,
+                () -> executeQueryStatement(executedPeerIdentity, connectContext,
+                        connectContext.getPreparedQuery(preparedStatementId), descriptor));
     }
 
     @Override
@@ -360,47 +369,60 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         // if the server raises any error except for NotImplemented it will fail. (If it gets NotImplemented,
         // it will ignore and execute without a prepared statement.) see: https://github.com/apache/arrow/issues/38786
         executorService.submit(() -> {
-            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
             try {
-                connectContext.setCommand(MysqlCommand.COM_QUERY);
-                final String query = request.getQuery();
-                String preparedStatementId = UUID.randomUUID().toString();
-                final ByteString handle = ByteString.copyFromUtf8(context.peerIdentity() + ":" + preparedStatementId);
-                connectContext.addPreparedQuery(preparedStatementId, query);
-
-                // Close the temporary VectorSchemaRoot after extracting its Schema, otherwise the
-                // off-heap buffers backing its vectors are leaked on every prepare (FE direct memory leak).
-                final Schema parameterSchema;
-                try (VectorSchemaRoot emptyVectorSchemaRoot =
-                        new VectorSchemaRoot(new ArrayList<>(), new ArrayList<>())) {
-                    parameterSchema = emptyVectorSchemaRoot.getSchema();
-                }
-                // TODO FE does not have the ability to convert root fragment output expr into arrow schema.
-                // However, the metaData schema returned by createPreparedStatement is usually not used by the client,
-                // but it cannot be empty, otherwise it will be mistaken by the client as an updata statement.
-                // see: https://github.com/apache/arrow/issues/38911
-                final Schema metaData;
-                try (VectorSchemaRoot metaSchemaRoot = connectContext.getFlightSqlChannel()
-                        .createOneOneSchemaRoot("ResultMeta", "UNIMPLEMENTED")) {
-                    metaData = metaSchemaRoot.getSchema();
-                }
-                listener.onNext(new Result(
-                        Any.pack(buildCreatePreparedStatementResult(handle, parameterSchema, metaData)).toByteArray()));
-            } catch (Exception e) {
-                String errMsg = "create prepared statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(
-                        e) + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
-                        + connectContext.getState().getErrorMessage();
-                LOG.error(errMsg, e);
-                listener.onError(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
-                return;
-            } catch (final Throwable t) {
-                listener.onError(CallStatus.INTERNAL.withDescription("Unknown error: " + t).toRuntimeException());
-                return;
-            } finally {
-                connectContext.setCommand(MysqlCommand.COM_SLEEP);
+                ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+                FlightProtocolAdapter.of(connectContext).runCommand(connectContext, () -> createPreparedStatement(
+                        request, context.peerIdentity(), connectContext, listener));
+            } catch (final Throwable e) {
+                // The session could not be resolved or is busy; without this the failure would be
+                // lost in the executor and the client would wait for a result that never comes.
+                LOG.error("create prepared statement failed", e);
+                listener.onError(e);
             }
-            listener.onCompleted();
         });
+    }
+
+    private void createPreparedStatement(final ActionCreatePreparedStatementRequest request, String peerIdentity,
+            ConnectContext connectContext, final StreamListener<Result> listener) {
+        try {
+            connectContext.setCommand(MysqlCommand.COM_QUERY);
+            final String query = request.getQuery();
+            String preparedStatementId = UUID.randomUUID().toString();
+            final ByteString handle = ByteString.copyFromUtf8(peerIdentity + ":" + preparedStatementId);
+            connectContext.addPreparedQuery(preparedStatementId, query);
+
+            // Close the temporary VectorSchemaRoot after extracting its Schema, otherwise the
+            // off-heap buffers backing its vectors are leaked on every prepare (FE direct memory leak).
+            final Schema parameterSchema;
+            try (VectorSchemaRoot emptyVectorSchemaRoot =
+                    new VectorSchemaRoot(new ArrayList<>(), new ArrayList<>())) {
+                parameterSchema = emptyVectorSchemaRoot.getSchema();
+            }
+            // TODO FE does not have the ability to convert root fragment output expr into arrow schema.
+            // However, the metaData schema returned by createPreparedStatement is usually not used by the client,
+            // but it cannot be empty, otherwise it will be mistaken by the client as an updata statement.
+            // see: https://github.com/apache/arrow/issues/38911
+            final Schema metaData;
+            try (VectorSchemaRoot metaSchemaRoot = connectContext.getFlightSqlChannel()
+                    .createOneOneSchemaRoot("ResultMeta", "UNIMPLEMENTED")) {
+                metaData = metaSchemaRoot.getSchema();
+            }
+            listener.onNext(new Result(
+                    Any.pack(buildCreatePreparedStatementResult(handle, parameterSchema, metaData)).toByteArray()));
+        } catch (Exception e) {
+            String errMsg = "create prepared statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(
+                    e) + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
+                    + connectContext.getState().getErrorMessage();
+            LOG.error(errMsg, e);
+            listener.onError(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
+            return;
+        } catch (final Throwable t) {
+            listener.onError(CallStatus.INTERNAL.withDescription("Unknown error: " + t).toRuntimeException());
+            return;
+        } finally {
+            connectContext.setCommand(MysqlCommand.COM_SLEEP);
+        }
+        listener.onCompleted();
     }
 
     @Override
@@ -480,8 +502,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     @Override
     public void getStreamCatalogs(final CallContext context, final ServerStreamListener listener) {
-        try {
-            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+        streamMetadata(context, listener, connectContext -> {
             FlightSqlSchemaHelper flightSqlSchemaHelper = new FlightSqlSchemaHelper(connectContext);
             final Schema schema = Schemas.GET_CATALOGS_SCHEMA;
 
@@ -492,9 +513,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 listener.putNext();
                 listener.completed();
             }
-        } catch (final Throwable e) {
-            handleStreamException(e, "", listener);
-        }
+        });
     }
 
     @Override
@@ -506,8 +525,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void getStreamSchemas(final CommandGetDbSchemas command, final CallContext context,
             final ServerStreamListener listener) {
-        try {
-            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+        streamMetadata(context, listener, connectContext -> {
             FlightSqlSchemaHelper flightSqlSchemaHelper = new FlightSqlSchemaHelper(connectContext);
             flightSqlSchemaHelper.setParameterForGetDbSchemas(command);
             final Schema schema = Schemas.GET_SCHEMAS_SCHEMA;
@@ -519,9 +537,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 listener.putNext();
                 listener.completed();
             }
-        } catch (final Throwable e) {
-            handleStreamException(e, "", listener);
-        }
+        });
     }
 
     @Override
@@ -537,8 +553,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void getStreamTables(final CommandGetTables command, final CallContext context,
             final ServerStreamListener listener) {
-        try {
-            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+        streamMetadata(context, listener, connectContext -> {
             FlightSqlSchemaHelper flightSqlSchemaHelper = new FlightSqlSchemaHelper(connectContext);
             flightSqlSchemaHelper.setParameterForGetTables(command);
             final Schema schema = command.getIncludeSchema() ? Schemas.GET_TABLES_SCHEMA
@@ -551,9 +566,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 listener.putNext();
                 listener.completed();
             }
-        } catch (final Throwable e) {
-            handleStreamException(e, "", listener);
-        }
+        });
     }
 
     @Override
@@ -632,6 +645,23 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         }
         listener.onNext(new CloseSessionResult(CloseSessionResult.Status.CLOSED));
         listener.onCompleted();
+    }
+
+    @FunctionalInterface
+    private interface MetadataStream {
+        void send(ConnectContext connectContext) throws Exception;
+    }
+
+    // Answers a metadata request (catalogs, schemas, tables) from the session's context, as one
+    // command of that session.
+    private void streamMetadata(final CallContext context, final ServerStreamListener listener,
+            MetadataStream stream) {
+        try {
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            FlightProtocolAdapter.of(connectContext).runCommand(connectContext, () -> stream.send(connectContext));
+        } catch (final Throwable e) {
+            handleStreamException(e, "", listener);
+        }
     }
 
     private <T extends Message> FlightInfo getFlightInfoForSchema(final T request, final FlightDescriptor descriptor,

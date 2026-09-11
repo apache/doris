@@ -22,7 +22,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.service.arrowflight.sessions.FlightSessionsManager;
-import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectContext;
 
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightProducer.CallContext;
@@ -48,7 +47,7 @@ public class DorisFlightSqlProducerTest {
 
     @BeforeEach
     public void setUp() {
-        // FlightSqlConnectContext.init() only reaches Env when this is false; keep it true so the
+        // ConnectContext.init() only reaches Env when this is false; keep it true so the
         // context can be built without a running FE.
         prevRunningUnitTest = FeConstants.runningUnitTest;
         FeConstants.runningUnitTest = true;
@@ -77,7 +76,7 @@ public class DorisFlightSqlProducerTest {
     public void createPreparedStatementDoesNotLeakChannelAllocator() throws Exception {
         // A real flight session context owns a real FlightSqlChannel (and thus a real Arrow allocator),
         // so allocator bookkeeping is exercised for real instead of mocked away.
-        FlightSqlConnectContext connectContext = new FlightSqlConnectContext("test-peer-identity");
+        ConnectContext connectContext = ConnectContext.forFlight("test-peer-identity");
         FlightSqlChannel channel = connectContext.getFlightSqlChannel();
         Assertions.assertEquals(0L, channel.getAllocatedMemory(), "channel allocator should start empty");
 
@@ -154,9 +153,7 @@ public class DorisFlightSqlProducerTest {
     // and query registration leak until the next query starts or the connection is torn down.
     @Test
     public void testGetFlightInfoFinalizesDeferredExecutorWhenSchemaFetchFails() throws Exception {
-        // A flight ConnectContext whose getFlightSqlChannel() works (the base context throws).
-        ConnectContext ctx = Mockito.spy(new ConnectContext());
-        Mockito.doReturn(Mockito.mock(FlightSqlChannel.class)).when(ctx).getFlightSqlChannel();
+        ConnectContext ctx = Mockito.spy(ConnectContext.forFlight("token"));
 
         // Stands in for the just-planned external-table query whose results DoGet would pull from BE.
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);

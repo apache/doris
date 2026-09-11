@@ -20,10 +20,10 @@ package org.apache.doris.qe.protocol;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.service.arrowflight.results.FlightSqlResultCacheEntry;
-import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -100,7 +100,7 @@ public class FlightResultGoldenTest extends TestWithFeService {
     }
 
     private String render(String statement, Detail detail) throws Exception {
-        FlightSqlConnectContext ctx = newContext();
+        ConnectContext ctx = newContext();
         StringBuilder rendered = new StringBuilder();
         rendered.append("=== statement ").append(statement).append(" ===\n");
         try (FlightSqlConnectProcessor processor = new FlightSqlConnectProcessor(ctx)) {
@@ -113,7 +113,7 @@ public class FlightResultGoldenTest extends TestWithFeService {
         return rendered.toString();
     }
 
-    private String renderOutcome(FlightSqlConnectContext ctx, Detail detail) {
+    private String renderOutcome(ConnectContext ctx, Detail detail) {
         StringBuilder rendered = new StringBuilder();
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String message = ctx.getState().getErrorMessage().replace("\n", "\\n").replace("\r", "\\r");
@@ -193,8 +193,8 @@ public class FlightResultGoldenTest extends TestWithFeService {
         }
     }
 
-    private FlightSqlConnectContext newContext() {
-        FlightSqlConnectContext ctx = new FlightSqlConnectContext(PEER_IDENTITY);
+    private ConnectContext newContext() {
+        ConnectContext ctx = ConnectContext.forFlight(PEER_IDENTITY);
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setRemoteIP("127.0.0.1");
         ctx.setEnv(Env.getCurrentEnv());

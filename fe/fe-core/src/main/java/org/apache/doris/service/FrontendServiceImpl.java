@@ -1262,7 +1262,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private ConnectContext createForwardContext(TMasterOpRequest params, Frontend requester) {
-        ConnectContext context = new ConnectContext(null, true, params.getSessionId());
+        ConnectContext context = ConnectContext.forMysqlProxy(params.getSessionId());
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
@@ -4039,7 +4039,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             if (syncJournal) {
-                ConnectContext ctx = new ConnectContext(null);
+                ConnectContext ctx = new ConnectContext();
                 ctx.setDatabase(request.getDb());
                 ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
                 ctx.setEnv(Env.getCurrentEnv());

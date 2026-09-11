@@ -74,11 +74,11 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.MysqlCursorFetchCompatibility;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.ProxyMysqlChannel;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
@@ -2026,9 +2026,7 @@ public class StmtExecutor {
     }
 
     private boolean connectorJConsumesCursorMetadataTerminator() {
-        return context.isCursorFetchRequested()
-                && MysqlCursorFetchCompatibility.resolve(context.getConnectAttributes())
-                        != MysqlCursorFetchCompatibility.Behavior.STANDARD;
+        return MysqlProtocolAdapter.of(context).clientConsumesCursorMetadataTerminator(context);
     }
 
     public void sendResultSet(ResultSet resultSet) throws IOException {
