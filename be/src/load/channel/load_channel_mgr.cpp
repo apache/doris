@@ -241,15 +241,20 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
         std::lock_guard<std::mutex> l(_lock);
         if (_load_channels.contains(load_id)) {
             cancelled_channel = _load_channels[load_id];
+            // Publish while this exact instance is still mapped, then cache its
+            // effective first failure instead of a later cancel request's reason.
+            // cancel() only updates the shared status; it takes no writer locks.
+            RETURN_IF_ERROR(cancelled_channel->cancel(Status::Cancelled(reason)));
             _load_channels.erase(load_id);
+            _record_cancelled_load_channel(load_id, cancelled_channel->cancel_status().to_string());
+        } else {
+            _record_cancelled_load_channel(load_id, reason);
         }
-        _record_cancelled_load_channel(load_id, reason);
     }
 
     if (cancelled_channel != nullptr) {
-        // Publish without channel/writer locks. The final owner may still wait
-        // for in-flight work during destruction, outside the manager lock.
-        RETURN_IF_ERROR(cancelled_channel->cancel(Status::Cancelled(reason)));
+        // Keep the final owner's destruction outside the manager lock, since it
+        // may still wait for in-flight work.
         LOG(INFO) << "load channel has been cancelled: " << load_id;
     }
 

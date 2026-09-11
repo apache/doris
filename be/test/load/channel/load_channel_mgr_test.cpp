@@ -92,6 +92,62 @@ TEST_F(LoadChannelMgrTest, FailedBatchCancelsRetainedChannelAndCachesReason) {
     EXPECT_TRUE(_mgr->open(open_request).is<ErrorCode::CANCELLED>());
 }
 
+TEST_F(LoadChannelMgrTest, PublicCancelCachesAlreadyPublishedFailure) {
+    auto channel = create_channel();
+    const auto first_failure = Status::InternalError("first writer failure");
+    CountDownLatch published(1);
+    CountDownLatch resume_failure(1);
+    Status publish_status;
+    Status failure_status;
+    std::thread failed_request([&] {
+        SCOPED_INIT_THREAD_CONTEXT();
+        // Stage the publication separately to model _cancel_load_channel paused
+        // before taking the manager lock. Its repeated publication is idempotent.
+        publish_status = channel->cancel(first_failure);
+        published.count_down();
+        resume_failure.wait();
+        failure_status = _mgr->_cancel_load_channel(channel, first_failure);
+    });
+    published.wait();
+
+    PTabletWriterCancelRequest cancel_request;
+    *cancel_request.mutable_id() = _load_id.to_proto();
+    cancel_request.set_cancel_reason("later upstream cancellation");
+    const auto cancel_status = _mgr->cancel(cancel_request);
+    resume_failure.count_down();
+    failed_request.join();
+
+    ASSERT_TRUE(publish_status.ok()) << publish_status;
+    ASSERT_TRUE(cancel_status.ok()) << cancel_status;
+    ASSERT_TRUE(failure_status.ok()) << failure_status;
+    EXPECT_EQ(channel->cancel_status().to_string(), first_failure.to_string());
+    EXPECT_TRUE(_mgr->_load_channels.empty());
+
+    auto* handle = _mgr->_load_state_channels->lookup(_load_id.to_string());
+    ASSERT_NE(handle, nullptr);
+    auto* value =
+            static_cast<LoadChannelMgr::CacheValue*>(_mgr->_load_state_channels->value(handle));
+    EXPECT_NE(value, nullptr);
+    if (value != nullptr) {
+        EXPECT_EQ(value->_cancel_reason, first_failure.to_string());
+    }
+    _mgr->_load_state_channels->release(handle);
+
+    PTabletWriterOpenRequest open_request;
+    *open_request.mutable_id() = _load_id.to_proto();
+    const auto open_status = _mgr->open(open_request);
+    EXPECT_TRUE(open_status.is<ErrorCode::CANCELLED>()) << open_status;
+    EXPECT_NE(open_status.to_string().find(first_failure.to_string()), std::string::npos);
+
+    PTabletWriterAddBlockRequest add_request;
+    *add_request.mutable_id() = _load_id.to_proto();
+    add_request.set_eos(true);
+    PTabletWriterAddBlockResult response;
+    const auto add_status = _mgr->add_batch(add_request, &response);
+    EXPECT_TRUE(add_status.is<ErrorCode::CANCELLED>()) << add_status;
+    EXPECT_NE(add_status.to_string().find(first_failure.to_string()), std::string::npos);
+}
+
 TEST_F(LoadChannelMgrTest, LateFailureDoesNotCancelReplacementAfterTimeout) {
     auto original = create_channel();
     CountDownLatch captured(1);
