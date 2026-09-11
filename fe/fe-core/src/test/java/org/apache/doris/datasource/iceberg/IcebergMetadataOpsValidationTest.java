@@ -600,7 +600,7 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
-    public void testPrimitiveModifyPreservesActualTypeWhenMappingDisabled() throws Throwable {
+    public void testPrimitiveModifyIgnoresRemovedVarbinaryMappingFlag() throws Throwable {
         Schema schema = mappedPrimitiveSchema();
         ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
         Table icebergTable = Mockito.mock(Table.class);
@@ -611,9 +611,12 @@ public class IcebergMetadataOpsValidationTest {
         Mockito.when(dorisCatalog.getEnableMappingVarbinary()).thenReturn(false);
         Mockito.when(dorisCatalog.getEnableMappingTimestampTz()).thenReturn(false);
 
-        Column topUuid = new Column("top_uuid", Type.STRING, true);
+        // The removed binary mapping flag must not recreate the legacy STRING schema contract.
+        Column topUuid = new Column("top_uuid",
+                IcebergUtils.icebergTypeToDorisType(Types.UUIDType.get(), false, false), true);
         topUuid.setNullableSpecified(true);
-        Column nestedUuid = new Column("uuid_value", Type.STRING, true);
+        Column nestedUuid = new Column("uuid_value",
+                IcebergUtils.icebergTypeToDorisType(Types.UUIDType.get(), false, false), true);
         nestedUuid.setNullableSpecified(true);
         Column nestedTimestamp = new Column(
                 "tz_value", ScalarType.createDatetimeV2Type(6), true);

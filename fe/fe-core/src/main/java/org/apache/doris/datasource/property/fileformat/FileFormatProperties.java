@@ -47,8 +47,9 @@ public abstract class FileFormatProperties {
     protected TFileFormatType fileFormatType;
 
     protected TFileCompressType compressionType;
-    // Keep this true for the rolling-upgrade Thrift field consumed by older BEs.
-    public boolean enableMappingVarbinary = true;
+    // TVFs are schema-on-read entry points, so callers must opt in before their result contract
+    // changes from STRING to VARBINARY. Catalog binary mappings do not use this setting.
+    public boolean enableMappingVarbinary = false;
     public boolean enableMappingTimestampTz = false;
 
     public FileFormatProperties(TFileFormatType fileFormatType, String formatName) {

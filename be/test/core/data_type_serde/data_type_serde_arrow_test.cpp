@@ -747,8 +747,8 @@ TEST(DataTypeSerDeArrowTest, PaimonTimestampBindsTargetTimezone) {
     EXPECT_NE(std::string::npos, status.to_string().find("Paimon timestamp writer has no binding"));
 
     status = convert(ntz_schema, plain_arrow_write_converter(), &unused_batch);
-    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
-    EXPECT_NE(std::string::npos, status.to_string().find("Plain Arrow writer is not bound"));
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(unused_batch->Equals(*ntz_batch));
 }
 
 TEST(DataTypeSerDeArrowTest, TargetConvertersWriteNullableTimestampTz) {
@@ -1407,8 +1407,9 @@ TEST(DataTypeSerDeArrowTest, NestedDateTimeV2PlainArrowAcceptsNaiveSchema) {
     array_value.push_back(Field::create_field<TYPE_DATETIMEV2>(datetime_value));
     array_column->insert(Field::create_field<TYPE_ARRAY>(array_value));
 
-    const auto map_type =
-            std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(), datetime_type);
+    // ColumnMap stores nullable key/value children even though Arrow rejects null map keys.
+    const auto map_type = std::make_shared<DataTypeMap>(
+            make_nullable(std::make_shared<DataTypeString>()), make_nullable(datetime_type));
     auto map_column = map_type->create_column();
     Array map_keys;
     map_keys.push_back(Field::create_field<TYPE_STRING>("event"));
