@@ -273,6 +273,51 @@ TEST(EMBED_TEST, embed_function_test) {
     }
 }
 
+TEST(EMBED_TEST, prefer_embed_resource_properties) {
+    TQueryOptions query_options = create_fake_query_options();
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+
+    TAIResource ai_resource;
+    ai_resource.__set_endpoint("invalid://general-endpoint");
+    ai_resource.__set_provider_type("OPENAI");
+    ai_resource.__set_model_name("general-model");
+    ai_resource.__set_api_key("general-api-key");
+    ai_resource.__set_embed_endpoint("http://localhost");
+    ai_resource.__set_embed_provider_type("MOCK");
+    ai_resource.__set_embed_model_name("embed-model");
+    ai_resource.__set_embed_api_key("embed-api-key");
+    ai_resource.__set_temperature(0.5);
+    ai_resource.__set_max_tokens(16);
+    ai_resource.__set_max_retries(1);
+    ai_resource.__set_retry_delay_second(1);
+    ai_resource.__set_dimensions(514);
+    query_ctx->set_ai_resources(
+            std::map<std::string, TAIResource> {{"embed_resource", ai_resource}});
+
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(
+            std::vector<std::string> {"embed_resource"});
+    auto col_text =
+            ColumnHelper::create_column<DataTypeString>(std::vector<std::string> {"test input"});
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
+
+    auto embed_func = FunctionEmbed::create();
+    Status exec_status = embed_func->execute_impl(ctx.get(), block, {0, 1}, 2, 1);
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+}
+
 TEST(EMBED_TEST, embed_function_text_multi_rows) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});

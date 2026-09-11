@@ -108,6 +108,11 @@ public class Embed extends AIFunction {
         throw new AnalysisException("Function EMBED only accepts 1 or 2 arguments");
     }
 
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
+    }
+
     private static String requireStringLiteral(Expression arg, String argName, String errorMsg) {
         if (!(arg instanceof StringLikeLiteral)) {
             throw new AnalysisException(errorMsg);

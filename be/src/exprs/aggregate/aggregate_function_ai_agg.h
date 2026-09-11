@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <memory>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "core/column/column_string.h"
 #include "core/string_ref.h"
@@ -68,20 +69,20 @@ public:
         }
     }
 
-    void write(BufferWritable& buf) const {
+    void write(BufferWritable& buf, int be_exec_version) const {
         buf.write_binary(data);
         buf.write_binary(inited);
         buf.write_binary(_task);
 
-        _ai_config.serialize(buf);
+        _ai_config.serialize(buf, be_exec_version >= SUPPORT_AI_AGG_EFFORT_VERSION);
     }
 
-    void read(BufferReadable& buf) {
+    void read(BufferReadable& buf, int be_exec_version) {
         buf.read_binary(data);
         buf.read_binary(inited);
         buf.read_binary(_task);
 
-        _ai_config.deserialize(buf);
+        _ai_config.deserialize(buf, be_exec_version >= SUPPORT_AI_AGG_EFFORT_VERSION);
         _ai_adapter = AIAdapterFactory::create_adapter(_ai_config.provider_type);
         _ai_adapter->init(_ai_config);
     }
@@ -332,12 +333,12 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        data(place).write(buf);
+        data(place).write(buf, version);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
-        data(place).read(buf);
+        data(place).read(buf, version);
         data(place).set_query_context(_ctx);
     }
 

@@ -23,6 +23,7 @@ import org.apache.doris.datasource.property.constants.AIProperties;
 import org.apache.doris.thrift.TAIResource;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -96,6 +97,13 @@ public class AIResource extends Resource {
         return properties.get(propertyKey);
     }
 
+    public boolean hasCompleteGeneralProperties() {
+        return AIProperties.REQUIRED_FIELDS.stream()
+                .allMatch(field -> !Strings.isNullOrEmpty(properties.get(field)))
+                && ("LOCAL".equalsIgnoreCase(properties.get(AIProperties.PROVIDER_TYPE))
+                        || !Strings.isNullOrEmpty(properties.get(AIProperties.API_KEY)));
+    }
+
     private boolean isNeedCheck(Map<String, String> newProperties) {
         boolean needCheck = !this.properties.containsKey(AIProperties.VALIDITY_CHECK)
                 || Boolean.parseBoolean(this.properties.get(AIProperties.VALIDITY_CHECK));
@@ -127,8 +135,12 @@ public class AIResource extends Resource {
         writeLock();
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
-            if (kv.getKey().equals(AIProperties.API_KEY)) {
+            if (kv.getKey().equals(AIProperties.API_KEY)
+                    || kv.getKey().equals(AIProperties.EMBED_API_KEY)) {
                 this.properties.put(kv.getKey(), kv.getValue());
+            } else if (kv.getKey().equals(AIProperties.EFFORT)
+                    && Strings.isNullOrEmpty(kv.getValue())) {
+                this.properties.remove(kv.getKey());
             }
         }
         ++version;
@@ -148,7 +160,8 @@ public class AIResource extends Resource {
         readLock();
         result.addRow(Lists.newArrayList(name, lowerCaseType, "version", String.valueOf(version)));
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().equals(AIProperties.API_KEY)) {
+            if (entry.getKey().equals(AIProperties.API_KEY)
+                    || entry.getKey().equals(AIProperties.EMBED_API_KEY)) {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), "******"));
             } else {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
@@ -159,10 +172,33 @@ public class AIResource extends Resource {
 
     public TAIResource toThrift() throws NumberFormatException {
         TAIResource tAIResource = new TAIResource();
-        tAIResource.setProviderType(properties.get(AIProperties.PROVIDER_TYPE));
-        tAIResource.setEndpoint(properties.get(AIProperties.ENDPOINT));
-        tAIResource.setApiKey(properties.get(AIProperties.API_KEY));
-        tAIResource.setModelName(properties.get(AIProperties.MODEL_NAME));
+        if (properties.containsKey(AIProperties.PROVIDER_TYPE)) {
+            tAIResource.setProviderType(properties.get(AIProperties.PROVIDER_TYPE));
+        }
+        if (properties.containsKey(AIProperties.ENDPOINT)) {
+            tAIResource.setEndpoint(properties.get(AIProperties.ENDPOINT));
+        }
+        if (properties.containsKey(AIProperties.API_KEY)) {
+            tAIResource.setApiKey(properties.get(AIProperties.API_KEY));
+        }
+        if (properties.containsKey(AIProperties.MODEL_NAME)) {
+            tAIResource.setModelName(properties.get(AIProperties.MODEL_NAME));
+        }
+        if (properties.containsKey(AIProperties.EMBED_PROVIDER_TYPE)) {
+            tAIResource.setEmbedProviderType(properties.get(AIProperties.EMBED_PROVIDER_TYPE));
+        }
+        if (properties.containsKey(AIProperties.EMBED_ENDPOINT)) {
+            tAIResource.setEmbedEndpoint(properties.get(AIProperties.EMBED_ENDPOINT));
+        }
+        if (properties.containsKey(AIProperties.EMBED_API_KEY)) {
+            tAIResource.setEmbedApiKey(properties.get(AIProperties.EMBED_API_KEY));
+        }
+        if (properties.containsKey(AIProperties.EMBED_MODEL_NAME)) {
+            tAIResource.setEmbedModelName(properties.get(AIProperties.EMBED_MODEL_NAME));
+        }
+        if (!Strings.isNullOrEmpty(properties.get(AIProperties.EFFORT))) {
+            tAIResource.setEffort(properties.get(AIProperties.EFFORT));
+        }
         tAIResource.setAnthropicVersion(properties.get(AIProperties.ANTHROPIC_VERSION));
 
         try {
