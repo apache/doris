@@ -8,12 +8,6 @@
 -- !explicit_lg_max_k --
 18	17	17	17
 
--- !precision_by_lg_max_k --
-218945	191171	203363	18945	8829	3363
-
--- !precision_typed_state_merge --
-218945	191171	203363
-
 -- !default_typed_state_merge --
 17
 
