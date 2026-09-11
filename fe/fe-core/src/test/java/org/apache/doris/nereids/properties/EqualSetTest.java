@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -96,6 +98,103 @@ class EqualSetTest extends TestWithFeService {
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isEmpty());
+    }
+
+    @Test
+    void testUnionEqualSetUsesRegularChildOutputMapping() {
+        String sql = "select name, id, id2 from agg where id = id2 "
+                + "union all select name, id, id2 from agg where id = id2";
+        LogicalUnion union = analyzeLogicalUnion(sql);
+        Assertions.assertNotEquals(union.child(0).getOutput(), union.getRegularChildOutput(0),
+                "the test must exercise an ordinal mapping that differs from child.getOutput()");
+        assertUnionEqualPair(sql, union, 1, 2, true);
+        assertUnionEqualPair(sql, union, 0, 1, false);
+    }
+
+    @Test
+    void testUnionEqualSetChecksEveryConstantRow() {
+        assertUnionEqualPair(
+                "select id, id2 from agg where id = id2 "
+                        + "union all select 1, 1 union all select 2, 2",
+                0, 1, true);
+        assertUnionEqualPair(
+                "select id, id2 from agg where id = id2 "
+                        + "union all select 1, 1 union all select 2, 3",
+                0, 1, false);
+        assertUnionEqualPair(
+                "select id, id2 from agg where id = id2 "
+                        + "union all select 1, 2 union all select 2, 1",
+                0, 1, false);
+    }
+
+    @Test
+    void testConstantOnlyUnionEqualSetUsesSqlEquality() {
+        assertUnionEqualPair(
+                "select cast(1 as int), cast(1 as bigint) "
+                        + "union all select cast(2 as int), cast(2 as bigint)",
+                0, 1, true);
+        assertUnionEqualPair(
+                "select 1 + 1, cast(2 as bigint) "
+                        + "union all select 2 * 2, cast(4 as bigint)",
+                0, 1, true);
+        assertUnionEqualPair(
+                "select 1, 1 union all select 2, 3",
+                0, 1, false);
+        assertUnionEqualPair(
+                "select cast(null as int), cast(null as bigint) union all select 1, 1",
+                0, 1, false);
+    }
+
+    private void assertUnionEqualPair(String sql, int leftIndex, int rightIndex, boolean expected) {
+        assertUnionEqualPair(sql, analyzeLogicalUnion(sql), leftIndex, rightIndex, expected);
+    }
+
+    private void assertUnionEqualPair(String sql, LogicalUnion logicalUnion,
+            int leftIndex, int rightIndex, boolean expected) {
+        Assertions.assertEquals(expected, logicalUnion.getLogicalProperties().getTrait().isNullSafeEqual(
+                logicalUnion.getOutput().get(leftIndex), logicalUnion.getOutput().get(rightIndex)));
+
+        Plan physicalPlan = PlanChecker.from(connectContext).analyze(sql).rewrite().implement().getPhysicalPlan();
+        PhysicalUnion physicalUnion = findPhysicalUnion(physicalPlan);
+        Assertions.assertNotNull(physicalUnion, "expected a PhysicalUnion in: " + physicalPlan.treeString());
+        DataTrait.Builder builder = new DataTrait.Builder();
+        physicalUnion.computeEqualSet(builder);
+        DataTrait physicalTrait = builder.build();
+        Assertions.assertEquals(expected, physicalTrait.isNullSafeEqual(
+                physicalUnion.getOutput().get(leftIndex), physicalUnion.getOutput().get(rightIndex)));
+    }
+
+    private LogicalUnion analyzeLogicalUnion(String sql) {
+        Plan rewritten = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
+        LogicalUnion logicalUnion = findLogicalUnion(rewritten);
+        Assertions.assertNotNull(logicalUnion, "expected a LogicalUnion in: " + rewritten.treeString());
+        return logicalUnion;
+    }
+
+    private LogicalUnion findLogicalUnion(Plan plan) {
+        if (plan instanceof LogicalUnion) {
+            return (LogicalUnion) plan;
+        }
+        for (Plan child : plan.children()) {
+            LogicalUnion union = findLogicalUnion(child);
+            if (union != null) {
+                return union;
+            }
+        }
+        return null;
+    }
+
+    private PhysicalUnion findPhysicalUnion(Plan plan) {
+        if (plan instanceof PhysicalUnion) {
+            return (PhysicalUnion) plan;
+        }
+        for (Plan child : plan.children()) {
+            PhysicalUnion union = findPhysicalUnion(child);
+            if (union != null) {
+                return union;
+            }
+        }
+        return null;
     }
 
     @Test
