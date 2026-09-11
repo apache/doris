@@ -37,6 +37,7 @@
 namespace doris {
 
 class ThreadPool;
+class ThreadPoolToken;
 
 } // namespace doris
 
@@ -47,8 +48,10 @@ class InflightWriteBufferIndex;
 struct PartialBlockWritebackOptions {
     /// Allocation and persistence unit; also bounds each pending task's owned buffer.
     size_t block_size {1};
-    /// Number of long-running workers allowed to perform hole-fill source reads.
+    /// Number of long-running workers coordinating block completion.
     size_t worker_count {1};
+    /// Maximum pool threads for multi-range blocks; single-range reads run on block workers.
+    int remote_read_thread_count {1};
     /// BE-wide byte limit for queued and active full-block buffers.
     size_t max_pending_bytes {1};
     /// Limits used to combine uncovered intervals within one block into source reads.
@@ -92,8 +95,8 @@ struct PartialBlockWritebackRequest {
     FileRangeReadIOContext io_context;
 };
 
-/// BE-level bounded queue and dedicated remote-read workers for completing partial File Cache
-/// blocks. Query threads probe existing blocks, perform memory admission, and copy one fragment.
+/// BE-level bounded queue, block workers, and a shared remote-read pool for completing partial
+/// File Cache blocks. Query threads probe existing blocks, admit memory, and copy one fragment.
 class PartialBlockWritebackManager {
 public:
     ~PartialBlockWritebackManager();
@@ -101,7 +104,7 @@ public:
     PartialBlockWritebackManager(const PartialBlockWritebackManager&) = delete;
     PartialBlockWritebackManager& operator=(const PartialBlockWritebackManager&) = delete;
 
-    /// Validate options, create the dedicated source-read pool, and start its worker loops.
+    /// Validate options, create the worker and remote-read pools, and start block worker loops.
     static Status create(const PartialBlockWritebackOptions& options,
                          std::unique_ptr<PartialBlockWritebackManager>* output_manager);
 
@@ -110,17 +113,19 @@ public:
     /// is already cached or being filled. Other results retain none of the fragment bytes.
     PartialBlockSubmitResult try_submit(PartialBlockWritebackRequest request);
 
-    /// Resize the dedicated remote-read worker set. Shrinking waits for retiring workers to finish
-    /// their active reads; queued tasks remain available to retained workers.
+    /// Resize block workers. Shrinking waits for retiring workers to finish all reads for their
+    /// active blocks; queued blocks remain available to retained workers.
     Status resize_workers(size_t worker_count);
+    /// Resize the shared remote-read pool. Running GETs finish before excess threads retire.
+    Status resize_remote_read_threads(int remote_read_thread_count);
     /// Return the configured worker target; a resize may still be converging to this value.
     size_t worker_count() const { return _configured_worker_count.load(std::memory_order_acquire); }
-    /// Return worker loops currently alive in the dedicated source-read pool.
+    /// Return block worker loops currently alive.
     size_t running_worker_count() const {
         return _running_worker_count.load(std::memory_order_relaxed);
     }
 
-    /// Stop admission, discard queued tasks, and wait for active source reads. Idempotent.
+    /// Stop admission, discard queued tasks, and wait for active remote reads. Idempotent.
     void shutdown();
     /// Return whether a new submission may currently enter admission.
     bool accepting() const;
@@ -183,9 +188,15 @@ private:
     TaskPtr _take_runnable_task_locked(Queue* discarded_tasks);
     /// Remove one queued task under `_mutex` and defer its destruction to `discarded_tasks`.
     void _discard_queued_task_locked(Queue::iterator iterator, Queue* discarded_tasks);
-    /// Plan holes, perform blocking source reads, and hand the completed owned buffer to the cache
-    /// writer. Every failure drops this best-effort task.
-    void _process_task(const TaskPtr& task);
+    /// Plan holes, wait for parallel source reads, and hand the completed buffer to the cache
+    /// writer. Every failure drops this best-effort task after its reads finish.
+    void _process_task(const TaskPtr& task, ThreadPoolToken& token);
+    /// Read a single range on the block worker; submit multiple ranges through its reusable token
+    /// and join them, including on failure.
+    Status _read_holes(const TaskPtr& task, const std::vector<FileRange>& read_ranges,
+                       ThreadPoolToken& token);
+    /// Read one buffer slice with per-call IO statistics on a block worker or remote-read thread.
+    Status _read_hole(const TaskPtr& task, const FileRange& range);
     /// Remove an active task and release its per-cache-writer slot accounting.
     void _complete_task(const TaskPtr& task);
 
@@ -204,7 +215,9 @@ private:
     // released.
     mutable std::mutex _mutex;
     std::condition_variable _queue_cv;
-    std::unique_ptr<ThreadPool> _read_pool;
+    // Worker loops wait on remote-read tokens, so they must run in a separate pool.
+    std::unique_ptr<ThreadPool> _worker_pool;
+    std::unique_ptr<ThreadPool> _remote_read_pool;
     std::atomic<size_t> _configured_worker_count {0};
     std::atomic<size_t> _running_worker_count {0};
     // Serializes startup, worker resizing, and shutdown.
