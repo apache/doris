@@ -586,6 +586,18 @@ public class Config extends ConfigBase {
     @ConfField(description = "The timeout of RPC for high-concurrency short-circuit queries")
     public static int point_query_timeout_ms = 10000; // 10s
 
+    @ConfField(mutable = true, description = "Coalesce concurrent point lookups into per-backend RPC batches")
+    public static volatile boolean enable_point_query_rpc_batch = false;
+
+    @ConfField(mutable = true, description = "Maximum point lookups per RPC batch, clamped to [1, 8]; 1 uses unary RPC")
+    public static volatile int point_query_rpc_batch_max_size = 8;
+
+    @ConfField(mutable = true, description = "Maximum point-query coalescing delay in microseconds; 0 uses unary RPC")
+    public static volatile int point_query_rpc_batch_max_wait_us = 10;
+
+    @ConfField(mutable = true, description = "Maximum serialized point-query batch bytes, capped at 1 MiB")
+    public static volatile int point_query_rpc_batch_max_request_bytes = 1048576;
+
     @ConfField(mutable = true, masterOnly = true, description = "Default timeout for insert load jobs, in seconds.")
     public static int insert_load_default_timeout_second = 14400; // 4 hour
 

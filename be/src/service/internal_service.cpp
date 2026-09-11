@@ -991,6 +991,7 @@ void PInternalService::tablet_fetch_data(google::protobuf::RpcController* contro
                                          const PTabletKeyLookupRequest* request,
                                          PTabletKeyLookupResponse* response,
                                          google::protobuf::Closure* done) {
+    DorisMetrics::instance()->point_query_rpc_unary_total->increment(1);
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         [[maybe_unused]] auto* cntl = static_cast<brpc::Controller*>(controller);
         brpc::ClosureGuard guard(done);
@@ -1000,6 +1001,88 @@ void PInternalService::tablet_fetch_data(google::protobuf::RpcController* contro
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
         return;
+    }
+}
+
+Status PInternalService::_validate_tablet_fetch_data_batch(
+        const PTabletKeyLookupBatchRequest& request) {
+    if (request.items_size() == 0 || request.items_size() > 8) {
+        return Status::InvalidArgument("point query batch must contain between 1 and 8 items");
+    }
+    if (request.ByteSizeLong() > 1024 * 1024) {
+        return Status::InvalidArgument("point query batch exceeds 1 MiB");
+    }
+    for (const auto& item : request.items()) {
+        if (!item.IsInitialized() || item.remaining_timeout_ms() == 0) {
+            return Status::InvalidArgument(
+                    "point query batch item requires a request and positive timeout");
+        }
+    }
+    return Status::OK();
+}
+
+void PInternalService::_execute_tablet_fetch_data_batch(
+        const PTabletKeyLookupBatchRequest& request, PTabletKeyLookupBatchResponse* response,
+        int64_t start_ns,
+        const std::function<Status(const PTabletKeyLookupRequest*, PTabletKeyLookupResponse*)>&
+                lookup,
+        const std::function<bool()>& is_cancelled, const std::function<int64_t()>& nano_time) {
+    response->mutable_results()->Reserve(request.items_size());
+    for (const auto& item : request.items()) {
+        auto* result = response->add_results();
+        const auto expired = [&]() {
+            return (nano_time() - start_ns) / NANOS_PER_MILLIS >= item.remaining_timeout_ms();
+        };
+        Status st;
+        if (is_cancelled()) {
+            st = Status::Cancelled("point query batch cancelled");
+        } else if (expired()) {
+            st = Status::TimedOut("point query batch item timed out before execution");
+        } else {
+            // Preserve lookup isolation, including the prepared-context cache-miss response.
+            // A large or failed lookup must not suppress subsequent results.
+            st = [&]() { RETURN_IF_CATCH_EXCEPTION(return lookup(&item.request(), result)); }();
+            if (is_cancelled()) {
+                st = Status::Cancelled("point query batch cancelled during execution");
+            } else if (expired()) {
+                st = Status::TimedOut("point query batch item timed out during execution");
+            }
+        }
+        if (!st.ok()) {
+            result->Clear();
+        }
+        st.to_protobuf(result->mutable_status());
+    }
+    Status::OK().to_protobuf(response->mutable_status());
+}
+
+void PInternalService::tablet_fetch_data_batch(google::protobuf::RpcController* controller,
+                                               const PTabletKeyLookupBatchRequest* request,
+                                               PTabletKeyLookupBatchResponse* response,
+                                               google::protobuf::Closure* done) {
+    DorisMetrics::instance()->point_query_rpc_batch_total->increment(1);
+    const int64_t start_ns = MonotonicNanos();
+    Status st = _validate_tablet_fetch_data_batch(*request);
+    if (!st.ok()) {
+        brpc::ClosureGuard guard(done);
+        st.to_protobuf(response->mutable_status());
+        return;
+    }
+    DorisMetrics::instance()->point_query_rpc_batch_items_total->increment(request->items_size());
+    bool offered =
+            _light_work_pool.try_offer([this, controller, request, response, done, start_ns]() {
+                brpc::ClosureGuard guard(done);
+                SCOPED_ATTACH_TASK(_exec_env->point_query_executor_mem_tracker());
+                _execute_tablet_fetch_data_batch(
+                        *request, response, start_ns,
+                        [this](const PTabletKeyLookupRequest* req, PTabletKeyLookupResponse* res) {
+                            return _tablet_fetch_data(req, res);
+                        },
+                        [controller]() { return controller->IsCanceled(); },
+                        []() { return MonotonicNanos(); });
+            });
+    if (!offered) {
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
