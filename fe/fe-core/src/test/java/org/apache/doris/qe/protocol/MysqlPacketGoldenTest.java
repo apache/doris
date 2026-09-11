@@ -20,6 +20,7 @@ package org.apache.doris.qe.protocol;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.MysqlCapability;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MysqlConnectProcessor;
@@ -183,7 +184,7 @@ public class MysqlPacketGoldenTest extends TestWithFeService {
     }
 
     private ConnectContext newContext(RecordingMysqlChannel channel, int clientFlags) {
-        ConnectContext ctx = new GoldenConnectContext(channel);
+        ConnectContext ctx = new ConnectContext(new MysqlProtocolAdapter(channel));
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setRemoteIP("127.0.0.1");
         ctx.setEnv(Env.getCurrentEnv());
@@ -244,14 +245,6 @@ public class MysqlPacketGoldenTest extends TestWithFeService {
         byte[] argumentBytes = argument.getBytes(StandardCharsets.UTF_8);
         payload.write(argumentBytes, 0, argumentBytes.length);
         return new Command(label, payload.toByteArray());
-    }
-
-    /** A ConnectContext wired to a channel of our choosing; the field is protected, so subclass it. */
-    private static class GoldenConnectContext extends ConnectContext {
-        GoldenConnectContext(RecordingMysqlChannel channel) {
-            super();
-            this.mysqlChannel = channel;
-        }
     }
 
     private static class Command {

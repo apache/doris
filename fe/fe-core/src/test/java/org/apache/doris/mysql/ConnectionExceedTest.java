@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
@@ -102,11 +103,13 @@ public class ConnectionExceedTest {
     public void testHandleReadEventRejectedExecution() throws Exception {
         try (MockedStatic<XnioIoThread> mockedIoThread = Mockito.mockStatic(XnioIoThread.class)) {
             ConnectContext context = Mockito.mock(ConnectContext.class);
+            MysqlProtocolAdapter protocol = Mockito.mock(MysqlProtocolAdapter.class);
             QueryState queryState = Mockito.mock(QueryState.class);
             ConnectProcessor processor = Mockito.mock(ConnectProcessor.class);
             ConduitStreamSourceChannel channel = Mockito.mock(ConduitStreamSourceChannel.class);
             XnioWorker worker = Mockito.mock(XnioWorker.class);
 
+            Mockito.when(context.getProtocolAdapter()).thenReturn(protocol);
             Mockito.when(context.getState()).thenReturn(queryState);
             Mockito.when(channel.getWorker()).thenReturn(worker);
             Mockito.doThrow(new RejectedExecutionException("queue full"))
@@ -115,8 +118,8 @@ public class ConnectionExceedTest {
             ReadListener listener = new ReadListener(context, processor);
             listener.handleEvent(channel);
 
-            InOrder contextInOrder = Mockito.inOrder(context);
-            contextInOrder.verify(context).suspendAcceptQuery();
+            InOrder contextInOrder = Mockito.inOrder(protocol, context);
+            contextInOrder.verify(protocol).suspendAcceptQuery();
             contextInOrder.verify(context).setThreadLocalInfo();
             contextInOrder.verify(context).setKilled();
             contextInOrder.verify(context).cleanup();

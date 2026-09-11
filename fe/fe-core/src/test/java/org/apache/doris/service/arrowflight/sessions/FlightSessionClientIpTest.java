@@ -20,6 +20,7 @@ package org.apache.doris.service.arrowflight.sessions;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
 import org.junit.jupiter.api.AfterEach;
@@ -39,7 +40,7 @@ import java.util.Optional;
  * is resolved when the bearer token is issued (FlightRemoteIpServerStreamTracer) and stored on the
  * context, so that is what the session reports.
  */
-public class FlightSqlConnectContextClientIpTest {
+public class FlightSessionClientIpTest {
     private static final String CLIENT_IP = "10.26.20.3";
     private static final String UNKNOWN_IP = "0.0.0.0";
 
@@ -60,7 +61,7 @@ public class FlightSqlConnectContextClientIpTest {
     @Test
     public void testProcesslistAndAuditSeeTheAuthenticatedClientIp() {
         try (MockedStatic<Env> mockedEnv = mockSelfNode()) {
-            FlightSqlConnectContext ctx = new FlightSqlConnectContext("test-peer-identity");
+            ConnectContext ctx = ConnectContext.forFlight("test-peer-identity");
             ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("alice", "%"));
             ctx.setRemoteIP(CLIENT_IP);
 
@@ -77,7 +78,7 @@ public class FlightSqlConnectContextClientIpTest {
     @Test
     public void testFallsBackWhenTheAddressWasNotResolved() {
         try (MockedStatic<Env> mockedEnv = mockSelfNode()) {
-            FlightSqlConnectContext ctx = new FlightSqlConnectContext("test-peer-identity");
+            ConnectContext ctx = ConnectContext.forFlight("test-peer-identity");
 
             Assertions.assertEquals(UNKNOWN_IP, ctx.getRemoteHostPortString());
             ctx.setRemoteIP("");
