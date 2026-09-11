@@ -253,8 +253,10 @@ Status VParquetTransformer::_parse_schema() {
     } else {
         for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
             std::shared_ptr<arrow::DataType> type;
+            // DATETIMEV2 is a wall-clock value. Giving its Arrow schema the session timezone would
+            // turn it into an instant and shift it when a Parquet file is read in another zone.
             RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->data_type(), &type,
-                                                  _state->timezone()));
+                                                  _state->timezone(), /*datetime_naive=*/true));
             if (!_parquet_schemas.empty()) {
                 std::shared_ptr<arrow::Field> field =
                         arrow::field(_parquet_schemas[i].schema_column_name, type,

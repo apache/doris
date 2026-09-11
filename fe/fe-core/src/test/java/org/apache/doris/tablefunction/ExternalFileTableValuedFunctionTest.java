@@ -74,6 +74,27 @@ public class ExternalFileTableValuedFunctionTest {
     }
 
     @Test
+    public void testTvfVarbinaryMappingRemainsExplicit() throws AnalysisException {
+        ExternalFileTableValuedFunction defaultTvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Map<String, String> defaultProperties = Maps.newHashMap();
+        defaultProperties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+
+        defaultTvf.parseCommonProperties(defaultProperties);
+
+        Assert.assertFalse(defaultTvf.fileFormatProperties.enableMappingVarbinary);
+
+        ExternalFileTableValuedFunction enabledTvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Map<String, String> enabledProperties = Maps.newHashMap(defaultProperties);
+        enabledProperties.put(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "true");
+
+        enabledTvf.parseCommonProperties(enabledProperties);
+
+        Assert.assertTrue(enabledTvf.fileFormatProperties.enableMappingVarbinary);
+    }
+
+    @Test
     public void testCsvSchemaParse() {
         Config.enable_date_conversion = true;
         Map<String, String> properties = Maps.newHashMap();

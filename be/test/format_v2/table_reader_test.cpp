@@ -140,9 +140,23 @@ TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates)
     ASSERT_TRUE(target.children[2].project_all_children);
 
     LocalColumnIndex full_source {.index = 10};
+    full_source.children.push_back({.index = 4});
+    full_source.children.back().timestamp_is_adjusted_to_utc = true;
     ASSERT_TRUE(merge_local_column_index(&target, full_source).ok());
     ASSERT_TRUE(target.project_all_children);
-    ASSERT_TRUE(target.children.empty());
+    ASSERT_EQ(std::vector<int32_t>({1, 2, 3, 4}), projection_ids(target.children));
+    ASSERT_TRUE(target.children.back().timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*target.children.back().timestamp_is_adjusted_to_utc);
+
+    LocalColumnIndex full_target {.index = 10};
+    LocalColumnIndex semantic_source {.index = 10, .project_all_children = false};
+    semantic_source.children.push_back({.index = 5});
+    semantic_source.children.back().timestamp_is_adjusted_to_utc = false;
+    ASSERT_TRUE(merge_local_column_index(&full_target, semantic_source).ok());
+    ASSERT_TRUE(full_target.project_all_children);
+    ASSERT_EQ(std::vector<int32_t>({5}), projection_ids(full_target.children));
+    ASSERT_TRUE(full_target.children[0].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_FALSE(*full_target.children[0].timestamp_is_adjusted_to_utc);
 }
 
 TEST(LocalColumnIndexTest, FindsProjectedChildren) {

@@ -465,6 +465,11 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
 
     query_options.__set_enable_file_scanner_v2(false);
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    params.format_type = TFileFormatType::FORMAT_PARQUET;
+    params.__set_parquet_timestamp_semantics_version(1);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
 }
 
 TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {

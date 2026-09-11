@@ -249,7 +249,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
-        // Keep the field set for old BEs participating in a rolling upgrade.
         params.setEnableMappingVarbinary(getEnableMappingVarbinary());
         params.setEnableMappingTimestampTz(getEnableMappingTimestampTz());
         // The marker makes an omitted timezone an explicit wall-clock choice while old FE plans
@@ -804,10 +803,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 return tvf.fileFormatProperties.enableMappingVarbinary;
             }
         } catch (Exception e) {
-            LOG.info("Failed to get varbinary mapping from catalog, use binary-safe mapping. Error: {}",
-                    e.getMessage());
+            LOG.info("Failed to get enable_mapping_varbinary from catalog or TVF, "
+                    + "use default value false. Error: {}", e.getMessage());
         }
-        return true;
+        return false;
     }
 
     protected boolean getEnableMappingTimestampTz() {
