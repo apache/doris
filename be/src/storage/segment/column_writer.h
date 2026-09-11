@@ -652,6 +652,11 @@ private:
                       std::span<const uint8_t> outer_nulls);
     Status _ensure_input_format(const VariantColumnData& column);
     Status _initialize_v2_builder();
+    DataTypePtr _v2_storage_type(const TabletColumn& parent_column) const;
+    Result<bool> _prepare_v2_values(const DataTypePtr& storage_type);
+    Status _create_flush_writer(const TabletColumn& parent_column, const DataTypePtr& flush_type,
+                                int64_t non_null_value_size);
+    Status _flush_v2_chunk();
     bool is_finalized() const;
     bool _is_finalized = false;
     ordinal_t _next_rowid = 0;
@@ -660,6 +665,10 @@ private:
     ColumnVariant::MutablePtr _v1_column;
     std::unique_ptr<VariantPathBuilder> _v2_builder;
     size_t _num_rows = 0;
+    size_t _flushed_rows = 0;
+    DataTypePtr _storage_type;
+    DataTypePtr _stream_type;
+    TabletColumnPtr _flush_column;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;
     TabletIndexes _indexes;

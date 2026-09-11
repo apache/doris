@@ -1560,6 +1560,9 @@ DECLARE_mInt32(variant_storage_parse_mode);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);
+// Once a V2 Variant extracted subcolumn buffers more bytes than this in one segment, its storage
+// type is locked and the remaining rows are written in a streaming way instead of being buffered.
+DECLARE_mInt64(variant_subcolumn_stream_write_threshold_bytes);
 // When true, discard scalar data that conflicts with NestedGroup array<object>
 // data at the same path. This simplifies compaction by always prioritizing
 // nested structure over scalar. When false, report an error on conflict.

@@ -1201,6 +1201,7 @@ DEFINE_mBool(variant_enable_duplicate_json_path_check, "false");
 DEFINE_mInt32(variant_storage_parse_mode, "0");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
 DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
+DEFINE_mInt64(variant_subcolumn_stream_write_threshold_bytes, "2147483648");
 // Maximum depth of nested arrays to track with NestedGroup
 // Reserved for future use when NestedGroup expansion moves to storage layer
 // Deeper arrays will be stored as JSONB

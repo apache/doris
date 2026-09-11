@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <ranges>
@@ -1748,7 +1749,8 @@ protected:
 
     Status write_extracted_variant_segment(const ColumnPtr& source, const DataTypePtr& source_type,
                                            std::string_view rowset_id, SegmentFooterPB* footer,
-                                           std::string* file_path, size_t first_batch_rows = 0) {
+                                           std::string* file_path, size_t first_batch_rows = 0,
+                                           const std::function<void()>& after_batch = {}) {
         DORIS_CHECK(source.get() != nullptr);
         DORIS_CHECK(source_type != nullptr);
         DORIS_CHECK(footer != nullptr);
@@ -1791,6 +1793,9 @@ protected:
             DORIS_CHECK(accessor != nullptr);
             RETURN_IF_ERROR(writer->append(accessor->get_nullmap(), accessor->get_data(), rows));
             converter.clear_source_content(0);
+            if (after_batch) {
+                after_batch();
+            }
             return Status::OK();
         };
         if (first_batch_rows > 0 && first_batch_rows < source->size()) {
@@ -2981,6 +2986,122 @@ TEST_F(VariantColumnWriterReaderTest,
                               "{}",
                               "NULL",
                       }));
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       v2_extracted_subcolumn_writer_streams_after_buffer_threshold) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 1);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+    const TabletColumn& parent_column = _tablet_schema->column_by_uid(1);
+    TabletColumn extracted_column;
+    extracted_column.set_name(parent_column.name_lower_case() + ".payload");
+    extracted_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    extracted_column.set_parent_unique_id(parent_column.unique_id());
+    extracted_column.set_path_info(PathInData(parent_column.name_lower_case() + ".payload"));
+    extracted_column.set_is_nullable(true);
+    _tablet_schema->append_column(extracted_column);
+    init_tablet_from_current_schema(11902);
+
+    struct ConfigGuard {
+        int64_t old_value;
+        ~ConfigGuard() { config::variant_subcolumn_stream_write_threshold_bytes = old_value; }
+    };
+    ConfigGuard guard {config::variant_subcolumn_stream_write_threshold_bytes};
+    config::variant_subcolumn_stream_write_threshold_bytes = 64 * 1024;
+
+    const std::string big_string = "\"" + std::string(100 * 1024, 'x') + "\"";
+    const std::vector<std::string> jsons {
+            R"("small")", big_string, "7", "null", R"({"k":[1,2]})", big_string, "8",
+    };
+    const std::vector<UInt8> outer_nulls {0, 0, 0, 0, 0, 0, 1};
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 0, false, outer_nulls,
+                                             &source, &source_type)
+                        .ok());
+
+    SegmentFooterPB footer;
+    std::string file_path;
+    std::vector<int> types_after_batch;
+    ASSERT_TRUE(write_extracted_variant_segment(
+                        source, source_type, "v2_extracted_stream_after_threshold", &footer,
+                        &file_path, /*first_batch_rows=*/1,
+                        [&]() { types_after_batch.push_back(footer.columns(0).type()); })
+                        .ok());
+    // The first batch stays buffered; the second one crosses the threshold and locks JSONB.
+    EXPECT_EQ(types_after_batch,
+              (std::vector<int> {static_cast<int>(FieldType::OLAP_FIELD_TYPE_VARIANT),
+                                 static_cast<int>(FieldType::OLAP_FIELD_TYPE_JSONB)}));
+    ASSERT_EQ(footer.columns_size(), 1);
+    EXPECT_EQ(footer.columns(0).type(), static_cast<int>(FieldType::OLAP_FIELD_TYPE_JSONB));
+    EXPECT_EQ(footer.columns(0).num_rows(), jsons.size());
+    EXPECT_EQ(footer.columns(0).none_null_size(), 5);
+
+    std::vector<std::string> actual;
+    ASSERT_TRUE(read_extracted_variant_rows(footer, file_path, &actual).ok());
+    EXPECT_EQ(actual, (std::vector<std::string> {
+                              R"("small")",
+                              big_string,
+                              "7",
+                              "NULL",
+                              R"({"k":[1,2]})",
+                              big_string,
+                              "NULL",
+                      }));
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       v2_typed_extracted_subcolumn_writer_streams_with_storage_type) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 1);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+    auto typed_path = make_int_typed_path_template("typed_i");
+    _tablet_schema->mutable_column_by_uid(1).add_sub_column(typed_path);
+    const TabletColumn& parent_column = _tablet_schema->column_by_uid(1);
+    TabletColumn extracted_column;
+    extracted_column.set_name(parent_column.name_lower_case() + ".typed_i");
+    extracted_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    extracted_column.set_parent_unique_id(parent_column.unique_id());
+    extracted_column.set_path_info(PathInData(parent_column.name_lower_case() + ".typed_i", true));
+    extracted_column.set_variant_max_subcolumns_count(0);
+    extracted_column.set_is_nullable(true);
+    _tablet_schema->append_column(extracted_column);
+    init_tablet_from_current_schema(11903);
+
+    struct ConfigGuard {
+        int64_t old_value;
+        ~ConfigGuard() { config::variant_subcolumn_stream_write_threshold_bytes = old_value; }
+    };
+    ConfigGuard guard {config::variant_subcolumn_stream_write_threshold_bytes};
+    config::variant_subcolumn_stream_write_threshold_bytes = 1;
+
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(
+            create_typed_int_extracted_source(VariantWriterInput::V2, &source, &source_type).ok());
+
+    SegmentFooterPB footer;
+    std::string file_path;
+    std::vector<int> types_after_batch;
+    ASSERT_TRUE(write_extracted_variant_segment(
+                        source, source_type, "v2_typed_stream_with_storage_type", &footer,
+                        &file_path, /*first_batch_rows=*/2,
+                        [&]() { types_after_batch.push_back(footer.columns(0).type()); })
+                        .ok());
+    EXPECT_EQ(types_after_batch,
+              (std::vector<int>(2, static_cast<int>(FieldType::OLAP_FIELD_TYPE_INT))));
+    ASSERT_EQ(footer.columns_size(), 1);
+    EXPECT_EQ(footer.columns(0).type(), static_cast<int>(FieldType::OLAP_FIELD_TYPE_INT));
+    EXPECT_FALSE(footer.columns(0).has_none_null_size());
+
+    std::vector<std::string> actual;
+    ASSERT_TRUE(read_extracted_variant_rows(footer, file_path, &actual).ok());
+    EXPECT_EQ(actual, (std::vector<std::string> {"1", "NULL", "NULL", "4"}));
 }
 
 TEST_F(VariantColumnWriterReaderTest, v2_root_only_preserves_layout_validation) {

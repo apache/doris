@@ -1989,7 +1989,7 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
             const size_t input_row = begin + offset;
             const VariantRef value = view.value_at(input_row);
             if (!value.is_null()) {
-                RETURN_IF_ERROR(_v2_builder->append(value, _num_rows + offset));
+                RETURN_IF_ERROR(_v2_builder->append(value, _num_rows - _flushed_rows + offset));
             }
         }
         return Status::OK();
@@ -2033,6 +2033,11 @@ Status VariantSubcolumnWriter::_append(const uint8_t* null_map, const uint8_t** 
     }
     _num_rows += num_rows;
     _next_rowid += num_rows;
+    if (_input_format == VariantWriterInputFormat::V2 &&
+        (_writer != nullptr || cast_set<int64_t>(_v2_builder->byte_size()) >
+                                       config::variant_subcolumn_stream_write_threshold_bytes)) {
+        RETURN_IF_ERROR(_flush_v2_chunk());
+    }
     return Status::OK();
 }
 
@@ -2045,13 +2050,91 @@ uint64_t VariantSubcolumnWriter::estimate_buffer_size() {
         return _writer ? _writer->estimate_buffer_size() : 0;
     }
     if (_input_format == VariantWriterInputFormat::V2) {
-        return _v2_builder->byte_size();
+        return _v2_builder->byte_size() + (_writer ? _writer->estimate_buffer_size() : 0);
     }
     return _v1_column->byte_size();
 }
 
 bool VariantSubcolumnWriter::is_finalized() const {
     return _is_finalized;
+}
+
+static bool should_record_none_null_value_size(const TabletColumn& column) {
+    return !column.path_info_ptr()->get_is_typed() && !column.path_info_ptr()->has_nested_part();
+}
+
+DataTypePtr VariantSubcolumnWriter::_v2_storage_type(const TabletColumn& parent_column) const {
+    TabletSchema::SubColumnInfo subcolumn_info;
+    if (!variant_util::generate_sub_column_info(*_opts.rowset_ctx->tablet_schema,
+                                                parent_column.unique_id(),
+                                                _v2_builder->path().get_path(), &subcolumn_info)) {
+        return nullptr;
+    }
+    return DataTypeFactory::instance().create_data_type(subcolumn_info.column);
+}
+
+Result<bool> VariantSubcolumnWriter::_prepare_v2_values(const DataTypePtr& storage_type) {
+    if (_v2_builder->non_null_rows() == 0) {
+        return false;
+    }
+    RETURN_IF_ERROR_RESULT(
+            _v2_builder->convert_to(normalize_variant_path_integer_widths(_v2_builder->type())));
+    if (variant_path_type_contains_nothing(_v2_builder->type()) &&
+        (storage_type == nullptr || variant_path_type_contains_nothing(storage_type))) {
+        return false;
+    }
+    if (storage_type != nullptr) {
+        RETURN_IF_ERROR_RESULT(_v2_builder->convert_to(storage_type));
+    }
+    return true;
+}
+
+Status VariantSubcolumnWriter::_create_flush_writer(const TabletColumn& parent_column,
+                                                    const DataTypePtr& flush_type,
+                                                    int64_t non_null_value_size) {
+    _flush_column = std::make_shared<TabletColumn>(variant_util::get_column_by_type(
+            flush_type, get_column()->name(),
+            variant_util::ExtraInfo {.unique_id = -1,
+                                     .parent_unique_id = get_column()->parent_unique_id(),
+                                     .path_info = *get_column()->path_info_ptr()}));
+    const bool record_none_null_value_size = should_record_none_null_value_size(*_flush_column);
+    ColumnWriterOptions opts = _opts;
+    variant_util::inherit_column_attributes(parent_column, *_flush_column);
+    RETURN_IF_ERROR(variant_writer_helpers::create_column_writer(
+            0, *_flush_column, _opts.rowset_ctx->tablet_schema, _opts.index_file_writer, &_writer,
+            _indexes, &opts, non_null_value_size, record_none_null_value_size));
+    _opts = opts;
+    return Status::OK();
+}
+
+// Locks the storage type (predefined type or JSONB) and writes the buffered V2 rows through _writer.
+Status VariantSubcolumnWriter::_flush_v2_chunk() {
+    const auto& parent_column =
+            _opts.rowset_ctx->tablet_schema->column_by_uid(get_column()->parent_unique_id());
+    if (_writer == nullptr) {
+        DORIS_CHECK(!parent_column.variant_enable_nested_group());
+        _storage_type = _v2_storage_type(parent_column);
+        _stream_type = make_nullable(_storage_type != nullptr ? _storage_type
+                                                              : std::make_shared<DataTypeJsonb>());
+        RETURN_IF_ERROR(_create_flush_writer(parent_column, _stream_type, 0));
+    }
+    const size_t chunk_rows = _num_rows - _flushed_rows;
+    RETURN_IF_ERROR(_v2_builder->complete_rows(chunk_rows));
+    const bool publish = DORIS_TRY(_prepare_v2_values(_storage_type));
+    ColumnPtr values = _stream_type->create_column();
+    std::span<const uint32_t> rowids;
+    if (publish) {
+        RETURN_IF_ERROR(_v2_builder->convert_to(_stream_type));
+        values = _v2_builder->column();
+        rowids = _v2_builder->rowids();
+    }
+    RETURN_IF_ERROR(write_variant_subcolumn_values(_input_format, *_flush_column, _writer.get(),
+                                                   _stream_type, values, rowids, chunk_rows));
+    none_null_size += rowids.size();
+    _flushed_rows = _num_rows;
+    _v2_builder =
+            std::make_unique<VariantPathBuilder>(get_column()->path_info_ptr()->copy_pop_front());
+    return Status::OK();
 }
 
 Status VariantSubcolumnWriter::finalize() {
@@ -2064,6 +2147,17 @@ Status VariantSubcolumnWriter::finalize() {
     const auto& parent_column =
             _opts.rowset_ctx->tablet_schema->column_by_uid(get_column()->parent_unique_id());
     DORIS_CHECK(!parent_column.variant_enable_nested_group());
+
+    if (_writer != nullptr) {
+        RETURN_IF_ERROR(_flush_v2_chunk());
+        _v2_builder.reset();
+        if (should_record_none_null_value_size(*_flush_column)) {
+            _opts.meta->set_none_null_size(none_null_size);
+        }
+        _opts.meta->set_num_rows(_num_rows);
+        _is_finalized = true;
+        return Status::OK();
+    }
 
     DataTypePtr flush_type;
     ColumnPtr flush_values;
@@ -2086,25 +2180,7 @@ Status VariantSubcolumnWriter::finalize() {
     } else {
         DORIS_CHECK(_v2_builder != nullptr);
         RETURN_IF_ERROR(_v2_builder->complete_rows(_num_rows));
-        DataTypePtr storage_type;
-        TabletSchema::SubColumnInfo subcolumn_info;
-        if (variant_util::generate_sub_column_info(
-                    *_opts.rowset_ctx->tablet_schema, parent_column.unique_id(),
-                    _v2_builder->path().get_path(), &subcolumn_info)) {
-            storage_type = DataTypeFactory::instance().create_data_type(subcolumn_info.column);
-        }
-
-        bool publish_builder = _v2_builder->non_null_rows() != 0;
-        if (publish_builder) {
-            RETURN_IF_ERROR(_v2_builder->convert_to(
-                    normalize_variant_path_integer_widths(_v2_builder->type())));
-            publish_builder =
-                    !variant_path_type_contains_nothing(_v2_builder->type()) ||
-                    (storage_type != nullptr && !variant_path_type_contains_nothing(storage_type));
-        }
-        if (publish_builder && storage_type != nullptr) {
-            RETURN_IF_ERROR(_v2_builder->convert_to(storage_type));
-        }
+        const bool publish_builder = DORIS_TRY(_prepare_v2_values(_v2_storage_type(parent_column)));
 
         if (!publish_builder) {
             flush_type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TINYINT,
@@ -2121,23 +2197,8 @@ Status VariantSubcolumnWriter::finalize() {
         _v2_builder.reset();
     }
 
-    TabletColumn flush_column = variant_util::get_column_by_type(
-            flush_type, get_column()->name(),
-            variant_util::ExtraInfo {.unique_id = -1,
-                                     .parent_unique_id = get_column()->parent_unique_id(),
-                                     .path_info = *get_column()->path_info_ptr()});
-
-    bool need_record_none_null_value_size = (!flush_column.path_info_ptr()->get_is_typed()) &&
-                                            !flush_column.path_info_ptr()->has_nested_part();
-    ColumnWriterOptions opts = _opts;
-
-    variant_util::inherit_column_attributes(parent_column, flush_column);
-    RETURN_IF_ERROR(variant_writer_helpers::create_column_writer(
-            0, flush_column, _opts.rowset_ctx->tablet_schema, _opts.index_file_writer, &_writer,
-            _indexes, &opts, non_null_value_size, need_record_none_null_value_size));
-
-    _opts = opts;
-    RETURN_IF_ERROR(write_variant_subcolumn_values(_input_format, flush_column, _writer.get(),
+    RETURN_IF_ERROR(_create_flush_writer(parent_column, flush_type, non_null_value_size));
+    RETURN_IF_ERROR(write_variant_subcolumn_values(_input_format, *_flush_column, _writer.get(),
                                                    flush_type, flush_values, flush_rowids,
                                                    _num_rows));
     _opts.meta->set_num_rows(_num_rows);
