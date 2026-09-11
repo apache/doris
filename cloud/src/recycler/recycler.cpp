@@ -221,6 +221,57 @@ static int txn_remove(TxnKv* txn_kv, std::vector<std::string> keys) {
     }
 }
 
+// Remove versioned delete bitmap keys grouped by rowset.
+// Each inner vector represents all DBM shard keys for one rowset that MUST be deleted
+// atomically in the same txn. Transaction splitting only occurs between rowsets, never
+// within a rowset's shard keys.
+//
+// This ensures that a DBM blob with multiple shards is either fully deleted or not
+// deleted at all, preventing partial deletion that would leave the blob unrecoverable.
+//
+// return 0 for success otherwise error
+static int delete_versioned_delete_bitmap_by_rowset(
+        TxnKv* txn_kv, const std::vector<std::vector<std::string>>& rowset_dbm_key_groups) {
+    if (rowset_dbm_key_groups.empty()) {
+        return 0;
+    }
+    size_t idx = 0;
+    while (idx < rowset_dbm_key_groups.size()) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            return -1;
+        }
+
+        bool has_keys = false;
+        while (idx < rowset_dbm_key_groups.size()) {
+            const auto& keys = rowset_dbm_key_groups[idx];
+            const auto keys_bytes =
+                    std::accumulate(keys.begin(), keys.end(), size_t {0},
+                                    [](size_t sum, const auto& key) { return sum + key.size(); });
+
+            if (has_keys && txn->approximate_bytes() + keys_bytes >= config::max_txn_commit_byte) {
+                break;
+            }
+
+            for (const auto& key : keys) {
+                txn->remove(key);
+            }
+
+            has_keys = true;
+            ++idx;
+        }
+
+        TEST_SYNC_POINT_CALLBACK("delete_versioned_delete_bitmap_by_rowset::commit_result");
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to remove delete bitmap keys, err=" << err;
+            return -1;
+        }
+    }
+    return 0;
+}
+
 void scan_restore_job_rowset(
         Transaction* txn, const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
         std::string& msg,
@@ -4111,8 +4162,8 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
 }
 
 int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
-        int64_t tablet_id, const std::string& rowset_id,
-        DeleteBitmapStorageType* out_storage_type) {
+        int64_t tablet_id, const std::string& rowset_id, DeleteBitmapStorageType* out_storage_type,
+        std::vector<std::string>* keys) {
     if (out_storage_type) {
         *out_storage_type = DeleteBitmapStorageType::NOT_FOUND;
     }
@@ -4147,6 +4198,12 @@ int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
                 .tag("rowset_id", rowset_id)
                 .tag("err", err);
         return -1;
+    }
+
+    if (keys) {
+        for (auto& key : dbm_val.keys()) {
+            keys->push_back(std::move(key));
+        }
     }
 
     DeleteBitmapStoragePB storage;
@@ -4458,7 +4515,8 @@ int InstanceRecycler::delete_packed_file_and_kv(const std::string& packed_file_p
 
 int InstanceRecycler::delete_rowset_data(
         const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets, RowsetRecyclingState type,
-        RecyclerMetricsContext& metrics_context) {
+        RecyclerMetricsContext& metrics_context,
+        std::vector<std::vector<std::string>>* delete_bitmap_key_groups) {
     int ret = 0;
     // resource_id -> file_paths
     std::map<std::string, std::vector<std::string>> resource_file_paths;
@@ -4513,16 +4571,20 @@ int InstanceRecycler::delete_rowset_data(
             continue;
         }
 
-        // Process delete bitmap - check where it's stored.
         DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
-        if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
-                                                           &delete_bitmap_storage_type) != 0) {
+        std::vector<std::string> rowset_dbm_keys;
+        if (decrement_delete_bitmap_packed_file_ref_counts(
+                    tablet_id, rowset_id, &delete_bitmap_storage_type,
+                    delete_bitmap_key_groups ? &rowset_dbm_keys : nullptr) != 0) {
             LOG_WARNING("failed to decrement delete bitmap packed file ref count")
                     .tag("instance_id", instance_id_)
                     .tag("tablet_id", tablet_id)
                     .tag("rowset_id", rowset_id);
             ret = -1;
             continue;
+        }
+        if (!rowset_dbm_keys.empty() && delete_bitmap_key_groups) {
+            delete_bitmap_key_groups->emplace_back(std::move(rowset_dbm_keys));
         }
         if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
             file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
@@ -5962,17 +6024,19 @@ int InstanceRecycler::recycle_rowsets() {
                                              std::map<std::string, RowsetMetaCloudPB> rowsets) {
         worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys),
                              rowsets_to_delete = std::move(rowsets)]() {
+            std::vector<std::vector<std::string>> versioned_delete_bitmap_key_groups;
             if (!rowsets_to_delete.empty() &&
                 delete_rowset_data(rowsets_to_delete, RowsetRecyclingState::FORMAL_ROWSET,
-                                   metrics_context) != 0) {
+                                   metrics_context, &versioned_delete_bitmap_key_groups) != 0) {
                 LOG(WARNING) << "failed to delete rowset data, instance_id=" << instance_id_;
                 return;
             }
-            for (const auto& [_, rs] : rowsets_to_delete) {
-                if (delete_versioned_delete_bitmap_kvs(rs.partition_id(), rs.tablet_id(),
-                                                       rs.rowset_id_v2()) != 0) {
-                    return;
-                }
+            if (!versioned_delete_bitmap_key_groups.empty() &&
+                delete_versioned_delete_bitmap_by_rowset(txn_kv_.get(),
+                                                         versioned_delete_bitmap_key_groups) != 0) {
+                LOG(WARNING) << "failed to delete versioned delete bitmap kv, instance_id="
+                             << instance_id_;
+                return;
             }
             if (txn_remove(txn_kv_.get(), rowset_keys_to_delete) != 0) {
                 LOG(WARNING) << "failed to delete recycle rowset kv, instance_id=" << instance_id_;
@@ -6016,6 +6080,7 @@ int InstanceRecycler::recycle_rowsets() {
         // rowset_id -> rowset_meta
         // store rowset id and meta for statistics rs size when delete
         std::map<std::string, doris::RowsetMetaCloudPB> rowsets_to_delete;
+        std::vector<std::vector<std::string>> versioned_delete_bitmap_key_groups;
 
         size_t rowsets_per_batch_size = 0;
         for (auto& rowset : rowsets) {
@@ -6045,7 +6110,6 @@ int InstanceRecycler::recycle_rowsets() {
                                                            std::make_move_iterator(end));
             submit_delete_rowset_data_job(std::move(rowset_keys_to_remove), {});
         }
-
         return 0;
     };
 

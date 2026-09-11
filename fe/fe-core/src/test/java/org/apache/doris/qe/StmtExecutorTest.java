@@ -33,6 +33,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -118,13 +119,17 @@ public class StmtExecutorTest extends TestWithFeService {
     // the idle reaper must not read the session value later.
     @Test
     public void testDeferForArrowFlightFreezesExecTimeoutInEffect() throws Exception {
-        int savedQueryTimeout = connectContext.getSessionVariable().getQueryTimeoutS();
+        // Only an Arrow Flight SQL session defers a query's coordinator.
+        ConnectContext flightContext = ConnectContext.forFlight("test-peer-identity");
+        flightContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+        flightContext.setEnv(connectContext.getEnv());
         int savedIdleTimeout = Config.arrow_flight_deferred_query_idle_timeout_second;
-        connectContext.setQueryId(new TUniqueId(0x67503L, 0x1L));
+        flightContext.setQueryId(new TUniqueId(0x67503L, 0x1L));
         try {
             Config.arrow_flight_deferred_query_idle_timeout_second = 1;
-            connectContext.getSessionVariable().setQueryTimeoutS(1234);
-            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+            flightContext.getSessionVariable().setQueryTimeoutS(1234);
+            StmtExecutor stmtExecutor = new StmtExecutor(flightContext,
+                    analyzeAndGetStmtByNereids("select 1", flightContext));
             Assertions.assertFalse(stmtExecutor.isDeferredForArrowFlight());
             Assertions.assertEquals(-1, stmtExecutor.getDeferredExecTimeoutS());
 
@@ -133,14 +138,13 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertTrue(stmtExecutor.isDeferredForArrowFlight());
             Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
             // the reaper's bound is floored at the frozen value ...
-            Assertions.assertEquals(1234L, connectContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+            Assertions.assertEquals(1234L, flightContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
             // ... even after the session value moved on, as it does when a SET_VAR hint is reverted
-            connectContext.getSessionVariable().setQueryTimeoutS(5);
+            flightContext.getSessionVariable().setQueryTimeoutS(5);
             Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
-            Assertions.assertEquals(1234L, connectContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+            Assertions.assertEquals(1234L, flightContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
         } finally {
-            connectContext.closeFlightSqlDeferredExecutors();
-            connectContext.getSessionVariable().setQueryTimeoutS(savedQueryTimeout);
+            flightContext.closeFlightSqlDeferredExecutors();
             Config.arrow_flight_deferred_query_idle_timeout_second = savedIdleTimeout;
         }
     }
@@ -500,11 +504,13 @@ public class StmtExecutorTest extends TestWithFeService {
             Map<String, String> connectAttributes, boolean clientDeprecatedEof) throws IOException {
         ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
         MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        MysqlProtocolAdapter protocol = new MysqlProtocolAdapter(channel);
+        protocol.setCursorFetchRequested(cursorFetchRequested);
         Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getProtocolAdapter()).thenReturn(protocol);
         Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
         Mockito.when(mockCtx.getState()).thenReturn(new QueryState());
         Mockito.when(mockCtx.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
-        Mockito.when(mockCtx.isCursorFetchRequested()).thenReturn(cursorFetchRequested);
         Mockito.when(mockCtx.getConnectAttributes()).thenReturn(connectAttributes);
         Mockito.when(channel.clientDeprecatedEOF()).thenReturn(clientDeprecatedEof);
         Mockito.when(channel.getSerializer()).thenReturn(MysqlSerializer.newInstance());

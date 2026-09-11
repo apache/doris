@@ -53,7 +53,7 @@ public interface FlightSessionsManager {
     void closeConnectContext(String peerIdentity);
 
     static ConnectContext buildConnectContext(String peerIdentity, UserIdentity userIdentity, String remoteIP) {
-        ConnectContext connectContext = new FlightSqlConnectContext(peerIdentity);
+        ConnectContext connectContext = ConnectContext.forFlight(peerIdentity);
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setStartTime();
         connectContext.setCurrentUserIdentity(userIdentity);

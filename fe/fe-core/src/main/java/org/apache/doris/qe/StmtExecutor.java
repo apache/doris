@@ -75,11 +75,11 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.MysqlCursorFetchCompatibility;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.ProxyMysqlChannel;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
@@ -1864,11 +1864,16 @@ public class StmtExecutor {
     }
 
     private void sendMetaData(ResultSetMetaData metaData, List<FieldInfo> fieldInfos) throws IOException {
+        sendMetaData(metaData, fieldInfos, context.getMysqlChannel());
+    }
+
+    private void sendMetaData(ResultSetMetaData metaData, List<FieldInfo> fieldInfos, MysqlChannel channel)
+            throws IOException {
         Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(metaData.getColumnCount());
-        context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        channel.sendOnePacket(serializer.toByteBuffer());
         // send field one by one
         for (int i = 0; i < metaData.getColumns().size(); i++) {
             Column col = metaData.getColumn(i);
@@ -1879,9 +1884,9 @@ public class StmtExecutor {
             } else {
                 serializer.writeField(fieldInfos.get(i), col.getType());
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            channel.sendOnePacket(serializer.toByteBuffer());
         }
-        sendMetadataTerminatorIfNeeded(context.getMysqlChannel());
+        sendMetadataTerminatorIfNeeded(channel);
     }
 
     private List<PrimitiveType> exprToStringType(List<Expr> exprs) {
@@ -2036,9 +2041,7 @@ public class StmtExecutor {
     }
 
     private boolean connectorJConsumesCursorMetadataTerminator() {
-        return context.isCursorFetchRequested()
-                && MysqlCursorFetchCompatibility.resolve(context.getConnectAttributes())
-                        != MysqlCursorFetchCompatibility.Behavior.STANDARD;
+        return MysqlProtocolAdapter.of(context).clientConsumesCursorMetadataTerminator(context);
     }
 
     public void sendResultSet(ResultSet resultSet) throws IOException {
@@ -2046,19 +2049,34 @@ public class StmtExecutor {
     }
 
     public void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos) throws IOException {
+        sendResultSet(resultSet, fieldInfos, null);
+    }
+
+    /**
+     * Sends a FE-computed result set to the given mysql channel. Regular queries use the
+     * executor's own channel; internal queries have to stream to the channel of the caller
+     * that issued them, because the executor's own channel is not connected to that client.
+     *
+     * <p>A null channel means the session's own. It is resolved inside the mysql branch on
+     * purpose: a connection of any other type has no mysql channel, and asking for one throws,
+     * so a caller must be able to hand a result set over without naming a channel first.
+     */
+    private void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos, MysqlChannel channel)
+            throws IOException {
         if (context.getConnectType().equals(ConnectType.MYSQL)) {
+            MysqlChannel targetChannel = channel == null ? context.getMysqlChannel() : channel;
             context.updateReturnRows(resultSet.getResultRows().size());
             // Send meta data.
-            sendMetaData(resultSet.getMetaData(), fieldInfos);
+            sendMetaData(resultSet.getMetaData(), fieldInfos, targetChannel);
 
             // Send result set.
             if (isComStmtExecute) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Use binary protocol to set result.");
                 }
-                sendBinaryResultRow(resultSet);
+                sendBinaryResultRow(resultSet, targetChannel);
             } else {
-                sendTextResultRow(resultSet);
+                sendTextResultRow(resultSet, targetChannel);
             }
             context.getState().setEof();
         } else if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
@@ -2072,6 +2090,10 @@ public class StmtExecutor {
     }
 
     protected void sendTextResultRow(ResultSet resultSet) throws IOException {
+        sendTextResultRow(resultSet, context.getMysqlChannel());
+    }
+
+    protected void sendTextResultRow(ResultSet resultSet, MysqlChannel channel) throws IOException {
         for (List<String> row : resultSet.getResultRows()) {
             serializer.reset();
             for (String item : row) {
@@ -2081,11 +2103,15 @@ public class StmtExecutor {
                     serializer.writeLenEncodedString(item);
                 }
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            channel.sendOnePacket(serializer.toByteBuffer());
         }
     }
 
     protected void sendBinaryResultRow(ResultSet resultSet) throws IOException {
+        sendBinaryResultRow(resultSet, context.getMysqlChannel());
+    }
+
+    protected void sendBinaryResultRow(ResultSet resultSet, MysqlChannel channel) throws IOException {
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html#sect_protocol_binary_resultset_row_value
         ResultSetMetaData metaData = resultSet.getMetaData();
         int nullBitmapLength = (metaData.getColumnCount() + 7 + 2) / 8;
@@ -2148,7 +2174,7 @@ public class StmtExecutor {
                     }
                 }
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            channel.sendOnePacket(serializer.toByteBuffer());
         }
     }
 
@@ -2322,6 +2348,31 @@ public class StmtExecutor {
             }
             planner = new NereidsPlanner(statementContext);
             planner.plan(adapter, context.getSessionVariable().toThrift());
+
+            // A plan that FE can compute on its own (e.g. the empty delta of a dry run) must be
+            // answered by the frontend, like a regular query does. Otherwise the coordinator
+            // would send fragments to the placeholder backend registered when no backend is
+            // needed (see NereidsPlanner#notNeedBackend), which cannot resolve. Results go to the
+            // caller's channel: the executor's own channel is not connected to that client.
+            if (context.supportHandleByFe()) {
+                Optional<ResultSet> resultSet = planner.handleQueryInFe(adapter);
+                if (resultSet.isPresent()) {
+                    boolean sendToChannel = !collectMode;
+                    if (sendToChannel) {
+                        sendResultSet(resultSet.get(), adapter.getFieldInfos(), sendChannel);
+                    }
+                    isHandleQueryInFe = true;
+                    if (context.getSessionVariable().enableProfile() && profile != null) {
+                        profile.getSummaryProfile().setExecutedByFrontend(true);
+                    }
+                    if (sendToChannel) {
+                        return new ArrayList<>();
+                    }
+                    return resultSet.get().getResultRows().stream()
+                            .map(ResultRow::new)
+                            .collect(Collectors.toList());
+                }
+            }
 
             if (!collectMode) {
                 executeAndSendResult(false, false, adapter, sendChannel, null, null);

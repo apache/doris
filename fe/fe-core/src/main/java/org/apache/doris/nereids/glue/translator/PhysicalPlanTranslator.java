@@ -2274,8 +2274,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalRecursiveUnion(PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveCte,
             PlanTranslatorContext context) {
         List<PlanFragment> childrenFragments = new ArrayList<>();
-        for (Plan plan : recursiveCte.children()) {
-            childrenFragments.add(plan.accept(this, context));
+        // Like a join or a set operation, a recursive union consumes its children's fragments
+        // without an exchange boundary, so bucketed fusion must not delete the exchange that
+        // keeps an olap scan in a fragment of its own.
+        context.enterFragmentMergeChild();
+        try {
+            for (Plan plan : recursiveCte.children()) {
+                childrenFragments.add(plan.accept(this, context));
+            }
+        } finally {
+            context.exitFragmentMergeChild();
         }
         List<List<Expr>> distributeExprLists = getDistributeExprs(recursiveCte.children().toArray(new Plan[0]));
         TupleDescriptor setTuple = generateTupleDesc(recursiveCte.getOutput(), null, context);

@@ -331,7 +331,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
 
         // Send Protocol::AuthSwitchRequest to client if auth plugin name is not mysql_native_password
         if (!MysqlHandshakePacket.AUTH_PLUGIN_NAME.equals(authPluginName)) {
-            MysqlChannel channel = ctx.mysqlChannel;
+            MysqlChannel channel = ctx.getMysqlChannel();
             MysqlSerializer serializer = MysqlSerializer.newInstance();
             serializer.writeInt1((byte) 0xfe);
             serializer.writeNulTerminateString(MysqlHandshakePacket.AUTH_PLUGIN_NAME);

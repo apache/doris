@@ -25,7 +25,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -254,7 +253,7 @@ public class InvertedIndexUtil {
                             + "or 'normalizer' for text normalization without tokenization.");
         }
 
-        checkAnalyzerName(analyzerName, colType, invertedIndexFileStorageFormat, supportPhrase);
+        checkAnalyzerName(analyzerName, colType);
         checkNormalizerName(normalizerName, colType);
 
         if (parser != null
@@ -345,36 +344,16 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_KEY_ALIAS);
     }
 
-    private static void checkAnalyzerName(String analyzerName, PrimitiveType colType,
-            TInvertedIndexFileStorageFormat storageFormat, String supportPhrase) throws AnalysisException {
+    private static void checkAnalyzerName(String analyzerName, PrimitiveType colType) throws AnalysisException {
         if (analyzerName == null || analyzerName.isEmpty()) {
             return;
         }
+        if (!colType.isStringType() && !colType.isVariantType()) {
+            throw new AnalysisException("INVERTED index with analyzer: " + analyzerName
+                    + " is not supported for column of type " + colType);
+        }
         try {
-            IndexPolicyMgr indexPolicyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
-            if (indexPolicyMgr.validateAnalyzerUsesCommonGrams(analyzerName)) {
-                if (colType.isArrayType()) {
-                    throw new AnalysisException("CommonGrams analyzer '" + analyzerName
-                            + "' does not support ARRAY columns");
-                }
-                if (!colType.isCharFamily()) {
-                    throw new AnalysisException("CommonGrams analyzer '" + analyzerName
-                            + "' is supported only on scalar CHAR, VARCHAR, or STRING columns");
-                }
-                if (storageFormat != TInvertedIndexFileStorageFormat.SNII) {
-                    throw new AnalysisException("CommonGrams analyzer '" + analyzerName
-                            + "' is supported only by SNII inverted indexes");
-                }
-                if (!"true".equals(supportPhrase)) {
-                    throw new AnalysisException("CommonGrams analyzer '" + analyzerName
-                            + "' requires support_phrase=true");
-                }
-                return;
-            }
-            if (!colType.isStringType() && !colType.isVariantType()) {
-                throw new AnalysisException("INVERTED index with analyzer: " + analyzerName
-                        + " is not supported for column of type " + colType);
-            }
+            Env.getCurrentEnv().getIndexPolicyMgr().validateAnalyzerExists(analyzerName);
         } catch (DdlException e) {
             throw new AnalysisException("Invalid custom analyzer: " + e.getMessage());
         }

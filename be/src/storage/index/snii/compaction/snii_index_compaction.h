@@ -83,11 +83,7 @@ public:
     const std::vector<uint8_t>& destination_encoded_norms(size_t destination_segment) const;
     writer::TrackedEncodedNorms take_destination_encoded_norms(size_t destination_segment);
     format::IndexConfig destination_index_config() const;
-    std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata>
-    destination_common_grams_metadata(size_t destination_segment) const;
-    format::CommonGramsPostingPolicy destination_common_grams_posting_policy() const {
-        return eligibility_.common_grams_posting_policy;
-    }
+    bool destination_writes_norms() const { return eligibility_.destination_writes_norms; }
     size_t destination_segment_count() const { return destination_segment_num_rows_.size(); }
 
     // Sessions must correspond one-for-one with destination segments and must
@@ -101,8 +97,6 @@ private:
         std::string term;
         std::vector<std::unique_ptr<SniiPostingCursor>> posting_cursors;
         std::optional<bool> has_positions;
-        bool common_gram = false;
-        bool counts_as_semantic_token = false;
     };
 
     SniiPlainT2MergePlan(
@@ -137,7 +131,6 @@ private:
     std::vector<writer::MemoryReporter::Reservation> destination_norm_reservations_;
     std::vector<std::vector<uint8_t>> destination_encoded_norms_;
     std::vector<bool> destination_encoded_norms_taken_;
-    std::vector<uint64_t> destination_semantic_token_counts_;
     std::vector<std::unique_ptr<SniiPostingReadContext>> read_contexts_;
     bool executed_ = false;
     Status failed_ = Status::OK();

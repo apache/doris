@@ -326,7 +326,7 @@ public class TSOService extends MasterDaemon {
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_TSO_CLOCK_GET_SUCCESS.increase(1L);
             }
-            return TSOTimestamp.composeTimestamp(physical, logical);
+            return TSOTimestamp.composeRealTso(physical, logical);
         }
         throw new RuntimeException("Failed to get TSO after " + maxGetTSORetryCount + " retries", lastFailure);
     }
