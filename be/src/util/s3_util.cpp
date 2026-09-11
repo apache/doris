@@ -290,8 +290,6 @@ std::string normalize_azure_endpoint(std::string endpoint) {
         endpoint.replace(authority_begin + dfs_pos, 5, ".blob.");
     } else if (!has_scheme && authority.find('.') == std::string::npos &&
                authority.find(':') == std::string::npos) {
-        // Preserve the legacy SharedKey endpoint shorthand. Native FE bindings always
-        // materialize custom endpoints with an explicit scheme before reaching this layer.
         endpoint.insert(authority_begin + authority.size(), ".blob.core.windows.net");
     }
     while (endpoint.ends_with('/')) {

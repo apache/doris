@@ -181,6 +181,16 @@ class AzureFileSystemPropertiesTest {
     }
 
     @Test
+    void sas_prefersAzureEndpointAliasOverSiblingS3Endpoint() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "provider", "azure", "azure.auth_type", "SAS", "azure.account_name", "account",
+                "azure.sas_token", "sig=temporary", "AZURE_ENDPOINT", "https://proxy.example.test",
+                "s3.endpoint", "https://s3.example.test"));
+
+        Assertions.assertEquals("https://proxy.example.test", properties.getEndpoint());
+    }
+
+    @Test
     void sharedKey_doesNotUseS3EndpointWhenAzureCredentialsAreTyped() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
                 "provider", "azure", "azure.account_name", "account", "azure.account_key", "key",

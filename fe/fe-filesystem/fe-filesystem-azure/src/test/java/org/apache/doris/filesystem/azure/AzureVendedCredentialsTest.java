@@ -326,13 +326,13 @@ class AzureVendedCredentialsTest {
     }
 
     @Test
-    void bindVended_rejectsCanonicalEndpointAccountConflictWhenReplacingCredentials() {
-        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
-                () -> provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
-                        "azure.endpoint", "https://old-account.blob.core.windows.net")));
+    void bindVended_prefersProviderEndpointOverSiblingS3Endpoint() {
+        AzureFileSystemProperties properties = provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
+                "provider", "azure",
+                "azure.endpoint", "https://proxy.example.test:8443",
+                "s3.endpoint", "https://old-account.blob.core.windows.net")).orElseThrow();
 
-        Assertions.assertEquals("Azure vended credential account does not match the legacy endpoint",
-                error.getMessage());
+        Assertions.assertEquals("https://proxy.example.test:8443", properties.getEndpoint());
     }
 
     @Test
@@ -341,8 +341,14 @@ class AzureVendedCredentialsTest {
                 () -> provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
                         "AZURE_ENDPOINT", "https://old-account.blob.core.windows.net")));
 
-        Assertions.assertEquals("Azure vended credential account does not match the legacy endpoint",
-                error.getMessage());
+        Assertions.assertTrue(error.getMessage().contains("does not match"));
+    }
+
+    @Test
+    void bindVended_ignoresSiblingS3AccountWhenAzureIdentityIsExplicit() {
+        Assertions.assertDoesNotThrow(() -> provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
+                "provider", "azure", "azure.account_name", "account",
+                "s3.access_key", "s3-account")));
     }
 
     @Test

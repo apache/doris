@@ -43,6 +43,7 @@ import java.time.Clock;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -97,11 +98,11 @@ public final class AzureFileSystemProperties
             "blob.core.cloudapi.de"
     };
 
-    private static final Set<String> PROVIDER_ENDPOINT_ALIASES = Set.of(ENDPOINT, "AZURE_ENDPOINT");
+    private static final List<String> PROVIDER_ENDPOINT_ALIASES = List.of(ENDPOINT, "AZURE_ENDPOINT");
+    private static final Set<String> PROVIDER_ACCOUNT_ALIASES = Set.of(
+            ACCOUNT_NAME, "azure.access_key", "AZURE_ACCOUNT_NAME");
     private static final Set<String> LEGACY_ENDPOINT_ALIASES = Set.of(
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "AZURE_ENDPOINT");
-    private static final Set<String> ALL_ENDPOINT_ALIASES = Set.of(
-            ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "AZURE_ENDPOINT");
 
     // In each @ConnectorProperty below, the first name is the canonical key, kept as a
     // constant because other code references it. The remaining literal names are input aliases
@@ -197,8 +198,9 @@ public final class AzureFileSystemProperties
         // Defensive copy before wrapping: unmodifiableMap alone is only a read-only view,
         // so without the copy later mutations of the caller's map would leak through.
         this.rawProperties = Collections.unmodifiableMap(new HashMap<>(rawProperties));
-        Map<String, String> matched = collectMatchedProperties(rawProperties);
-        ConnectorPropertiesUtils.bindConnectorProperties(this, rawProperties);
+        Map<String, String> bindingProperties = azureBindingProperties(rawProperties);
+        Map<String, String> matched = collectMatchedProperties(bindingProperties);
+        ConnectorPropertiesUtils.bindConnectorProperties(this, bindingProperties);
         this.authType = resolveAuthType();
         // S3/generic endpoint aliases belong to the legacy SharedKey compatibility path. Native
         // SAS/OAuth2 bindings must derive the endpoint from the Azure account unless the caller
@@ -346,17 +348,25 @@ public final class AzureFileSystemProperties
                 "forceParsingByStandardUrl");
         for (Field field : ConnectorPropertiesUtils.getConnectorProperties(AzureFileSystemProperties.class)) {
             if (fields.contains(field.getName())) {
-                String matched = ConnectorPropertiesUtils.getMatchedPropertyName(field, properties);
+                String matched = field.getName().equals("endpoint")
+                        ? matchedEndpointProperty(field, properties, includeLegacyEndpointAliases)
+                        : ConnectorPropertiesUtils.getMatchedPropertyName(field, properties);
                 if (matched != null) {
                     result.put(matched, properties.get(matched));
                 }
             }
         }
-        if (!includeLegacyEndpointAliases && PROVIDER_ENDPOINT_ALIASES.stream()
-                .map(properties::get).noneMatch(StringUtils::isNotBlank)) {
-            result.keySet().removeIf(LEGACY_ENDPOINT_ALIASES::contains);
-        }
         return result;
+    }
+
+    private static String matchedEndpointProperty(Field field, Map<String, String> properties,
+            boolean includeLegacyEndpointAliases) {
+        String providerEndpoint = firstNonBlankKey(properties, PROVIDER_ENDPOINT_ALIASES);
+        if (providerEndpoint != null) {
+            return providerEndpoint;
+        }
+        return includeLegacyEndpointAliases
+                ? ConnectorPropertiesUtils.getMatchedPropertyName(field, properties) : null;
     }
 
     @Override
@@ -458,8 +468,7 @@ public final class AzureFileSystemProperties
                     "s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key");
         }
         if (StringUtils.isBlank(accountKey)) {
-            if (matched.containsKey("AZURE_ACCOUNT_NAME") && !matched.containsKey(ACCOUNT_NAME)
-                    && !hasS3ProviderMarker(properties)) {
+            if (matched.containsKey("AZURE_ACCOUNT_NAME") && !matched.containsKey(ACCOUNT_NAME)) {
                 // AZURE_ACCOUNT_NAME is a historical input alias. Preserve its old pairing with
                 // the provider-qualified s3.secret_key, but do not absorb an AWS wire secret
                 // merely because an Azure account alias is present.
@@ -476,7 +485,7 @@ public final class AzureFileSystemProperties
         // historical aliases and must continue to participate in the legacy SharedKey fallback
         // when paired with an old s3.secret_key.
         return Set.of(ENDPOINT, ACCOUNT_NAME, ACCOUNT_KEY, AUTH_TYPE).stream()
-                .map(matched::get).anyMatch(StringUtils::isNotBlank);
+                .anyMatch(matched::containsKey);
     }
 
     private static boolean hasS3ProviderMarker(Map<String, String> properties) {
@@ -485,8 +494,13 @@ public final class AzureFileSystemProperties
                 || Boolean.parseBoolean(properties.get("fs.s3.support"));
     }
 
-    private static boolean hasMatchedProperty(Map<String, String> properties, Set<String> names) {
-        return names.stream().anyMatch(properties::containsKey);
+    private static boolean hasMatchedProperty(Map<String, String> properties, Iterable<String> names) {
+        for (String name : names) {
+            if (properties.containsKey(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void validateVendedAccountAgainstLegacyAliases(Map<String, String> properties,
@@ -494,13 +508,17 @@ public final class AzureFileSystemProperties
         boolean azureBinding = "azure".equalsIgnoreCase(properties.get("provider"))
                 || "AZURE".equalsIgnoreCase(properties.get("_STORAGE_TYPE_"))
                 || Boolean.parseBoolean(properties.get("fs.azure.support"))
-                || StringUtils.isNotBlank(properties.get(ENDPOINT))
-                || StringUtils.isNotBlank(properties.get(ACCOUNT_NAME))
-                || StringUtils.isNotBlank(properties.get("azure.access_key"))
+                || hasProviderOwnedAzureIdentity(properties)
                 || LEGACY_ENDPOINT_ALIASES
                         .stream().map(properties::get).filter(StringUtils::isNotBlank)
                         .anyMatch(value -> AzureBlobEndpointSignals.isAzureBlobEndpoint(value, properties));
         if (!azureBinding) {
+            return;
+        }
+        // Provider-owned Azure fields are resolved by the typed binding and validated by the
+        // constructor. Generic aliases are only legacy Azure inputs when no provider-owned
+        // identity is present; otherwise they may belong to a sibling S3 binding.
+        if (hasProviderOwnedAzureIdentity(properties)) {
             return;
         }
         for (String key : new String[] {"s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"}) {
@@ -511,7 +529,7 @@ public final class AzureFileSystemProperties
                         "Azure vended credential account does not match the legacy account");
             }
         }
-        for (String key : ALL_ENDPOINT_ALIASES) {
+        for (String key : LEGACY_ENDPOINT_ALIASES) {
             String legacyEndpoint = properties.get(key);
             if (StringUtils.isBlank(legacyEndpoint)
                     || !AzureBlobEndpointSignals.isAzureBlobEndpoint(legacyEndpoint, properties)) {
@@ -523,6 +541,34 @@ public final class AzureFileSystemProperties
                         "Azure vended credential account does not match the legacy endpoint");
             }
         }
+    }
+
+    private static boolean hasProviderOwnedAzureIdentity(Map<String, String> properties) {
+        return firstNonBlankKey(properties, PROVIDER_ACCOUNT_ALIASES) != null
+                || firstNonBlankKey(properties, PROVIDER_ENDPOINT_ALIASES) != null
+                || StringUtils.isNotBlank(properties.get(ACCOUNT_KEY))
+                || StringUtils.isNotBlank(properties.get(AUTH_TYPE));
+    }
+
+    private static String firstNonBlankKey(Map<String, String> properties, Iterable<String> names) {
+        for (String name : names) {
+            String value = properties.get(name);
+            if (StringUtils.isNotBlank(value)) {
+                return name;
+            }
+        }
+        return null;
+    }
+
+    private static Map<String, String> azureBindingProperties(Map<String, String> properties) {
+        String providerEndpoint = firstNonBlankKey(properties, PROVIDER_ENDPOINT_ALIASES);
+        if (providerEndpoint == null) {
+            return properties;
+        }
+        Map<String, String> result = new HashMap<>(properties);
+        LEGACY_ENDPOINT_ALIASES.forEach(result::remove);
+        result.put(providerEndpoint, properties.get(providerEndpoint));
+        return result;
     }
 
     private static String legacyValue(Map<String, String> properties, Map<String, String> matched, String... names) {
