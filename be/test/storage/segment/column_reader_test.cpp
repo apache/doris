@@ -737,8 +737,8 @@ TEST_F(ColumnReaderTest, FileColumnIteratorPreparesCompressedPageByteWindow) {
     roaring::Roaring scan_rowids;
     scan_rowids.addRange(0, num_rows);
     ColumnReadAheadContext read_ahead_context {
-            .eager_options = {.high_watermark_bytes = 1024 * 1024, .low_watermark_bytes = 0},
-            .lazy_options = {.high_watermark_bytes = 1024 * 1024, .low_watermark_bytes = 0},
+            .eager_options = {.window_bytes = 1024 * 1024},
+            .lazy_options = {.window_bytes = 1024 * 1024},
     };
     const rowid_t first_batch[] = {0, 5};
     std::vector<ColumnReadAheadPlan> plans;
@@ -814,8 +814,8 @@ TEST_F(ColumnReaderTest, FileColumnIteratorConsumesSubmittedReadAheadPage) {
     roaring::Roaring scan_rowids;
     scan_rowids.addRange(0, num_rows);
     ColumnReadAheadContext read_ahead_context {
-            .eager_options = {.high_watermark_bytes = 1, .low_watermark_bytes = 0},
-            .lazy_options = {.high_watermark_bytes = 1, .low_watermark_bytes = 0},
+            .eager_options = {.window_bytes = 1},
+            .lazy_options = {.window_bytes = 1},
             .segment = segment_read_ahead.get(),
     };
     const rowid_t rowid = 0;
@@ -827,7 +827,7 @@ TEST_F(ColumnReaderTest, FileColumnIteratorConsumesSubmittedReadAheadPage) {
                                           &plans);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(plans.size(), 1);
-    ASSERT_EQ(plans[0].new_pages.size(), 1);
+    ASSERT_EQ(plans[0].new_pages.size(), 2);
     auto* column = plans[0].column;
     const int32_t page_index = plans[0].new_pages[0].page_index;
     const auto submit_result = segment_read_ahead->apply_plans(std::move(plans));
@@ -892,8 +892,8 @@ TEST_F(ColumnReaderTest, FileColumnIteratorFallsBackAfterReadAheadChecksumFailur
     roaring::Roaring scan_rowids;
     scan_rowids.addRange(0, num_rows);
     ColumnReadAheadContext read_ahead_context {
-            .eager_options = {.high_watermark_bytes = 1, .low_watermark_bytes = 0},
-            .lazy_options = {.high_watermark_bytes = 1, .low_watermark_bytes = 0},
+            .eager_options = {.window_bytes = 1},
+            .lazy_options = {.window_bytes = 1},
             .segment = segment_read_ahead.get(),
     };
     const rowid_t rowid = 0;
@@ -905,10 +905,13 @@ TEST_F(ColumnReaderTest, FileColumnIteratorFallsBackAfterReadAheadChecksumFailur
                                           &plans);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(plans.size(), 1);
-    ASSERT_EQ(plans[0].new_pages.size(), 1);
+    ASSERT_EQ(plans[0].new_pages.size(), 2);
     auto* column = plans[0].column;
     const int32_t page_index = plans[0].new_pages[0].page_index;
     const io::FileRange page_range = plans[0].new_pages[0].range;
+    const io::FileRange read_range {
+            .offset = page_range.offset,
+            .size = plans[0].new_pages.back().range.end() - page_range.offset};
     source_reader->corrupt_next_read();
     const size_t reads_before_submit = source_reader->read_calls();
     const auto submit_result = segment_read_ahead->apply_plans(std::move(plans));
@@ -921,7 +924,7 @@ TEST_F(ColumnReaderTest, FileColumnIteratorFallsBackAfterReadAheadChecksumFailur
     EXPECT_EQ(assert_cast<const ColumnInt32&>(*output).get_data()[0], 0);
     EXPECT_EQ(source_reader->read_calls(), reads_before_submit + 2);
     EXPECT_FALSE(column->pending(page_index));
-    EXPECT_THAT(consumed_ranges, ::testing::ElementsAre(page_range));
+    EXPECT_THAT(consumed_ranges, ::testing::ElementsAre(read_range));
     EXPECT_EQ(stats.read_ahead_stats->fallback_pages.value(), 1);
     EXPECT_EQ(stats.read_ahead_stats->fallback_bytes.value(), page_range.size);
     EXPECT_GT(stats.read_ahead_stats->fallback_time.value(), 0);
@@ -948,9 +951,8 @@ TEST_F(ColumnReaderTest, StructReadAheadRoutesPhysicalColumnsByReadPhase) {
     scan_rowids.addRange(0, 16);
     const rowid_t current_rowids[] = {2, 5};
     ColumnReadAheadContext context {
-            .eager_options = {.high_watermark_bytes = 8 * 1024 * 1024,
-                              .low_watermark_bytes = 4 * 1024 * 1024},
-            .lazy_options = {.high_watermark_bytes = 256 * 1024, .low_watermark_bytes = 128 * 1024},
+            .eager_options = {.window_bytes = 4 * 1024 * 1024},
+            .lazy_options = {.window_bytes = 128 * 1024},
     };
     std::vector<ColumnReadAheadPlan> prepared;
 
@@ -1002,9 +1004,8 @@ TEST_F(ColumnReaderTest, MapReadAheadPlansOffsetsOnlyInTheirMaterializationPhase
     scan_rowids.addRange(0, 10);
     const rowid_t current_rowids[] = {1, 3};
     ColumnReadAheadContext context {
-            .eager_options = {.high_watermark_bytes = 8 * 1024 * 1024,
-                              .low_watermark_bytes = 4 * 1024 * 1024},
-            .lazy_options = {.high_watermark_bytes = 256 * 1024, .low_watermark_bytes = 128 * 1024},
+            .eager_options = {.window_bytes = 4 * 1024 * 1024},
+            .lazy_options = {.window_bytes = 128 * 1024},
     };
     std::vector<ColumnReadAheadPlan> prepared;
 
@@ -1046,9 +1047,8 @@ TEST_F(ColumnReaderTest, ArrayReadAheadPlansOffsetsOnlyInTheirMaterializationPha
     scan_rowids.addRange(0, 10);
     const rowid_t current_rowids[] = {1, 3};
     ColumnReadAheadContext context {
-            .eager_options = {.high_watermark_bytes = 8 * 1024 * 1024,
-                              .low_watermark_bytes = 4 * 1024 * 1024},
-            .lazy_options = {.high_watermark_bytes = 256 * 1024, .low_watermark_bytes = 128 * 1024},
+            .eager_options = {.window_bytes = 4 * 1024 * 1024},
+            .lazy_options = {.window_bytes = 128 * 1024},
     };
     std::vector<ColumnReadAheadPlan> prepared;
 
@@ -1092,9 +1092,8 @@ TEST_F(ColumnReaderTest, MapReadAheadPlansDependentChildrenAfterOffsets) {
     scan_rowids.addRange(0, 10);
     const rowid_t current_rowids[] = {1, 3};
     ColumnReadAheadContext context {
-            .eager_options = {.high_watermark_bytes = 8 * 1024 * 1024,
-                              .low_watermark_bytes = 4 * 1024 * 1024},
-            .lazy_options = {.high_watermark_bytes = 256 * 1024, .low_watermark_bytes = 128 * 1024},
+            .eager_options = {.window_bytes = 4 * 1024 * 1024},
+            .lazy_options = {.window_bytes = 128 * 1024},
     };
     std::vector<ColumnReadAheadPlan> prepared;
     auto status = iterator.prepare_read_ahead({.current_rowids = current_rowids,
@@ -1141,9 +1140,8 @@ TEST_F(ColumnReaderTest, ArrayReadAheadPlansDependentItemsAfterOffsets) {
     scan_rowids.addRange(0, 3);
     const rowid_t current_rowids[] = {0, 1};
     ColumnReadAheadContext context {
-            .eager_options = {.high_watermark_bytes = 8 * 1024 * 1024,
-                              .low_watermark_bytes = 4 * 1024 * 1024},
-            .lazy_options = {.high_watermark_bytes = 256 * 1024, .low_watermark_bytes = 128 * 1024},
+            .eager_options = {.window_bytes = 4 * 1024 * 1024},
+            .lazy_options = {.window_bytes = 128 * 1024},
     };
     std::vector<ColumnReadAheadPlan> prepared;
     auto status = iterator.prepare_read_ahead({.current_rowids = current_rowids,
