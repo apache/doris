@@ -25,7 +25,13 @@ RUN sed -i \
   /etc/yum.repos.d/*.repo
 
 # install epel repo for ccache
-RUN yum install epel-release -y && yum install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-repo.x86_64.rpm -y && yum clean all && yum makecache
+# EPEL 7 is EOL; use its archive instead of the retired metalink.
+RUN yum install epel-release -y \
+    && sed -i -e 's|^metalink=|#metalink=|' \
+       -e 's|^#baseurl=.*/pub/epel/7/|baseurl=https://archives.fedoraproject.org/pub/archive/epel/7/|' \
+       /etc/yum.repos.d/epel.repo \
+    && yum install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-repo.x86_64.rpm -y \
+    && yum clean all && yum makecache
 
 # install dependencies
 RUN yum install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \
@@ -103,9 +109,21 @@ RUN wget https://doris-community-bj-1308700295.cos.ap-beijing.myqcloud.com/tools
 RUN rm -f /etc/profile.d/ccache.* \
     && cp /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
 
+# Install the Rust toolchain required by Lance-C.
+ENV CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
+ENV PATH="/opt/cargo/bin:${PATH}"
+RUN wget -q https://sh.rustup.rs -O /tmp/rustup-init.sh \
+    && sh /tmp/rustup-init.sh -y --no-modify-path --profile minimal --default-toolchain 1.91.0 \
+    && rm -f /tmp/rustup-init.sh \
+    && cargo --version && rustc --version
+
 # clone lastest source code, download and build third party
 COPY doris ${DEFAULT_DIR}/doris
-RUN cd ${DEFAULT_DIR}/doris && /bin/bash thirdparty/build-thirdparty.sh \
+# Cargo build scripts run on CentOS 7. The LDB linker introduces a
+# GLIBC_2.18 dependency; use system GCC for Rust linking and retain LDB for C/C++.
+RUN cd ${DEFAULT_DIR}/doris \
+    && CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/gcc \
+       /bin/bash thirdparty/build-thirdparty.sh \
     && rm -rf ${DEFAULT_DIR}/doris/thirdparty/src \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty.tar.gz \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty \
@@ -120,7 +138,9 @@ ENV JAVA_HOME="/usr/lib/jvm/jdk-17.0.2/" \
     MAVEN_HOME="/usr/share/maven" \
     REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty" \
     DEFAULT_DIR="/var/local" \
-    PATH="/usr/local/bin:/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:/usr/lib/jvm/jdk-17.0.2/bin/:$PATH" \
+    CARGO_HOME="/opt/cargo" \
+    RUSTUP_HOME="/opt/rustup" \
+    PATH="/opt/cargo/bin:/usr/local/bin:/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:/usr/lib/jvm/jdk-17.0.2/bin/:$PATH" \
     DORIS_THIRDPARTY="/var/local/thirdparty"
 WORKDIR /root
 
