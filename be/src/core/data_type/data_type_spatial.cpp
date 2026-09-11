@@ -66,7 +66,7 @@ int64_t DataTypeSpatial::get_uncompressed_serialized_bytes(const IColumn& column
     for (size_t i = 0; i < stored_rows; ++i) {
         payload_size += spatial.get_data_at(i).size;
     }
-    return sizeof(bool) + sizeof(size_t) * (3 + stored_rows) + payload_size;
+    return sizeof(bool) + sizeof(size_t) * (2 + stored_rows) + payload_size;
 }
 
 char* DataTypeSpatial::serialize(const IColumn& column, char* buf, int be_exec_version) const {
