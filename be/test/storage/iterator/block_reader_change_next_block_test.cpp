@@ -67,7 +67,7 @@ namespace {
 // row-binlog scan produces after merge:
 //   0: key         (Int64, the primary key used to group same-key rows)
 //   1: val         (Int64, the "after" value of a data column)
-//   2: __DORIS_BEFORE__val__ (Int64, the "before" value mirror of `val`)
+//   2: __BEFORE__val__ (Int64, the "before" value mirror of `val`)
 //   3: __DORIS_BINLOG_TSO__ (Int64)
 //   4: __DORIS_BINLOG_LSN__ (Int64)
 //   5: __DORIS_BINLOG_OP__  (Int64, one of ROW_BINLOG_APPEND/UPDATE/DELETE)
@@ -214,9 +214,9 @@ std::shared_ptr<Block> make_colliding_name_source_block(int64_t after_v, int64_t
     const std::vector<std::pair<std::string, int64_t>> values = {
             {"key", 1},
             {"v", after_v},
-            {"__DORIS_BEFORE__v__", after_collision},
+            {"__BEFORE__v__", after_collision},
             {binlog::build_before_column_name("v"), before_v},
-            {binlog::build_before_column_name("__DORIS_BEFORE__v__"), before_collision},
+            {binlog::build_before_column_name("__BEFORE__v__"), before_collision},
             {BINLOG_TSO_COL, 1},
             {BINLOG_LSN_COL, 1},
             {BINLOG_OP_COL, ROW_BINLOG_UPDATE},
@@ -528,7 +528,7 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaDelete) {
     ASSERT_EQ(out.size(), 1);
     EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_DELETE);
     EXPECT_EQ(out[0].key, 1);
-    // delete uses the first op's before value (val's __DORIS_BEFORE__ mirror of row 0).
+    // delete uses the first op's before value (val's __BEFORE__ mirror of row 0).
     EXPECT_EQ(out[0].val, 10);
 }
 
@@ -586,9 +586,8 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaAllNullBeforeImageIsRetained) {
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpWithCollidingBeforeNameIsSkipped) {
     auto source = make_colliding_name_source_block(/*after_v=*/10, /*after_collision=*/20,
                                                    /*before_v=*/10, /*before_collision=*/20);
-    auto schema =
-            make_test_tablet_schema({{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
-                                     {"__DORIS_BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT}});
+    auto schema = make_test_tablet_schema({{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
+                                           {"__BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT}});
     BlockReader reader;
     configure_reader(reader, source, 16, std::move(schema));
 
@@ -970,7 +969,7 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailDelete) {
     ASSERT_EQ(out.size(), 1);
     EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_DELETE);
     EXPECT_EQ(out[0].key, 1);
-    EXPECT_EQ(out[0].val, 99); // delete uses __DORIS_BEFORE__ mirror
+    EXPECT_EQ(out[0].val, 99); // delete uses __BEFORE__ mirror
 }
 
 // UPDATE -> a BEFORE (before value) + AFTER (after value) pair.
@@ -992,9 +991,8 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePair) {
 TEST_F(BlockReaderChangeNextBlockTest, DetailUsesOrdinalBeforePairWhenNamesCollide) {
     auto source = make_colliding_name_source_block(/*after_v=*/11, /*after_collision=*/20,
                                                    /*before_v=*/10, /*before_collision=*/20);
-    auto schema =
-            make_test_tablet_schema({{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
-                                     {"__DORIS_BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT}});
+    auto schema = make_test_tablet_schema({{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
+                                           {"__BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT}});
     BlockReader reader;
     configure_reader(reader, source, 16, std::move(schema));
 

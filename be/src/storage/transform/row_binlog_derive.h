@@ -32,7 +32,7 @@ Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mapping
         const std::vector<RowBinlogColumnUidMapping>& uid_mappings);
 
 // The binlog<Row> derive stages rebuild the load block into a full-width block
-// over the binlog schema -- key + AFTER values, optional __DORIS_BEFORE__* values, and
+// over the binlog schema -- key + AFTER values, optional __BEFORE__* values, and
 // the TSO / LSN / op columns -- so the ordinary segment writers can write
 // it like any DUP_KEYS block. build_transform_chain picks Plain (no historical
 // probe) or Mow (with probe) via binlog_needs_historical_lookup().

@@ -75,7 +75,7 @@ namespace {
 // merge-heap key comparison and for MIN_DELTA group boundaries:
 //   0: key                  (Int64, the only key column)
 //   1: val                  (Int64, "after" value)
-//   2: __DORIS_BEFORE__val__ (Int64, "before" value mirror)
+//   2: __BEFORE__val__ (Int64, "before" value mirror)
 //   3: __DORIS_BINLOG_TSO__  (Int64, the merge sequence / order column)
 //   4: __DORIS_BINLOG_LSN__  (Int64)
 //   5: __DORIS_BINLOG_OP__   (Int64, ROW_BINLOG_APPEND/UPDATE/DELETE)
@@ -96,7 +96,7 @@ struct Row {
     int64_t op;
 };
 
-// Row-binlog read schema: single leading key column, a value column plus its __DORIS_BEFORE__
+// Row-binlog read schema: single leading key column, a value column plus its __BEFORE__
 // mirror, and the three binlog meta columns. Marking BINLOG_TSO_COL by name makes
 // TabletSchema::binlog_tso_col_idx() return its position, which Level1Iterator::init()
 // uses to pick the TSO as the merge sequence column.
@@ -383,7 +383,7 @@ TEST_F(BlockReaderBinlogVCollectMergeTest, MinDeltaInterleavedKeysAcrossRowsets)
     EXPECT_EQ(out[0].val, 15); // most recent value for key 1
     EXPECT_EQ(out[1].key, 2);
     EXPECT_EQ(out[1].op, binlog::STREAM_CHANGE_DELETE);
-    EXPECT_EQ(out[1].val, 18); // delete uses the first op's __DORIS_BEFORE__ value
+    EXPECT_EQ(out[1].val, 18); // delete uses the first op's __BEFORE__ value
 }
 
 // DETAIL scan over the same two-rowset / same-key / different-TSO input emits every event
