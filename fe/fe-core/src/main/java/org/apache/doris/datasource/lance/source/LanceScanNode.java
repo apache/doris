@@ -166,7 +166,7 @@ public class LanceScanNode extends FileQueryScanNode {
         }
     }
 
-    /** Checks whether any projected Lance column requires the current BE extension reader. */
+    /** Checks whether any projected Lance column requires the current BE reader. */
     private boolean projectsCurrentReaderType() {
         Set<String> projectedColumns = new HashSet<>();
         for (SlotDescriptor slot : desc.getSlots()) {
@@ -183,7 +183,7 @@ public class LanceScanNode extends FileQueryScanNode {
         return false;
     }
 
-    /** Rejects old smooth-upgrade source BEs for JSON or BFloat16 Lance projections. */
+    /** Rejects old smooth-upgrade source BEs for additional Lance type projections. */
     @VisibleForTesting
     public static void checkAdditionalTypeBackendCompatibility(
             boolean requiresCurrentReader, Iterable<Backend> backends) throws UserException {
@@ -193,7 +193,7 @@ public class LanceScanNode extends FileQueryScanNode {
         for (Backend backend : backends) {
             if (backend.isSmoothUpgradeSrc()) {
                 throw new UserException(
-                        "Lance JSON and BFloat16 columns are unavailable while backend "
+                        "Additional Lance types are unavailable while backend "
                                 + backend.getId() + " is a smooth upgrade source");
             }
         }
