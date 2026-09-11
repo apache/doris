@@ -42,9 +42,11 @@ import java.util.regex.Pattern;
  * <p>The input is the stored column name (byte-identical to the LanceField name), never the
  * raw user input: callers resolve it via the table's column lookup first. Matching is exact
  * and top-level only; a missing field fails closed. The builder makes no supportability
- * judgment — every ArrowType yields a deterministic canonical string, so the only failure is
- * the indexed field not being found. The canonical vocabulary defined here is the Java-side
- * authority the Rust worker's golden fixtures align to (design section 4.2).
+ * judgment — every ArrowType yields a deterministic canonical string — but the numeric facts
+ * it copies into the contract (field id, fixed-size-list dimension) are validated: a negative
+ * field id (0 is legal) or a non-positive dimension is a malformed provider fact and fails
+ * closed the same way. The canonical vocabulary defined here is the Java-side authority the
+ * Rust worker's golden fixtures align to (design section 4.2).
  */
 final class LanceSchemaContractBuilder {
     /** Timezones that fit the canonical {@code tz="…"} slot without any escaping (IANA names). */
@@ -79,16 +81,29 @@ final class LanceSchemaContractBuilder {
         throw new IllegalStateException("unreachable");
     }
 
-    private static LanceIndexSchemaContract.IndexedField indexedField(LanceField field) {
+    private static LanceIndexSchemaContract.IndexedField indexedField(LanceField field)
+            throws AnalysisException {
         ArrowType type = field.getType();
         if (type == null) {
             throw new IllegalArgumentException("Lance field type must not be null");
+        }
+        long fieldId = field.getId();
+        if (fieldId < 0) {
+            // Field id 0 is a legal provider id; only negatives are malformed facts, and they
+            // fail closed like a missing field — bounded error, no provider string echoed.
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_LANCE_INDEX_INVALID,
+                    "unsupported schema contract: indexed field id must not be negative");
         }
         Integer fixedSizeListDimension = null;
         String vectorElementType = null;
         Boolean vectorElementNullable = null;
         if (type instanceof ArrowType.FixedSizeList) {
-            fixedSizeListDimension = ((ArrowType.FixedSizeList) type).getListSize();
+            int listSize = ((ArrowType.FixedSizeList) type).getListSize();
+            if (listSize <= 0) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_LANCE_INDEX_INVALID,
+                        "unsupported schema contract: fixed-size list dimension must be positive");
+            }
+            fixedSizeListDimension = listSize;
             List<LanceField> children = field.getChildren();
             if (children == null || children.size() != 1 || children.get(0) == null) {
                 throw new IllegalArgumentException(
@@ -99,7 +114,7 @@ final class LanceSchemaContractBuilder {
             vectorElementNullable = element.isNullable();
         }
         return new LanceIndexSchemaContract.IndexedField(
-                field.getId(), field.getName().toLowerCase(Locale.ROOT), canonicalType(type),
+                fieldId, field.getName().toLowerCase(Locale.ROOT), canonicalType(type),
                 field.isNullable(), fixedSizeListDimension, vectorElementType, vectorElementNullable);
     }
 
