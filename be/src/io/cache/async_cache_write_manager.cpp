@@ -419,7 +419,7 @@ Status AsyncCacheWriteManager::start() {
         RETURN_IF_ERROR(
                 ThreadPoolBuilder(fmt::format("AsyncFileCacheWrite-{}",
                                               std::hash<std::string> {}(_cache->get_base_path())))
-                        .set_min_threads(0)
+                        .set_min_threads(static_cast<int>(worker_count))
                         .set_max_threads(static_cast<int>(worker_count))
                         .set_max_queue_size(128)
                         .build(&_worker_pool));

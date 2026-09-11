@@ -336,6 +336,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         io::PartialBlockWritebackOptions options {
                 .block_size = cast_set<size_t>(config::file_cache_each_block_size),
                 .worker_count = cast_set<size_t>(config::hole_fill_workers_per_be),
+                .remote_read_thread_count = config::hole_fill_remote_read_threads_per_be,
                 .max_pending_bytes = cast_set<size_t>(config::hole_fill_max_pending_bytes_per_be),
                 .hole_fill_coalesce =
                         {
@@ -1112,6 +1113,13 @@ void refresh_ms_backpressure_coordinator_params() {
 } // namespace
 
 DEFINE_ON_UPDATE(hole_fill_workers_per_be, resize_hole_fill_workers);
+DEFINE_ON_UPDATE(hole_fill_remote_read_threads_per_be, [](int32_t old_value, int32_t new_value) {
+    auto* manager = ExecEnv::GetInstance()->partial_block_writeback_manager();
+    if (manager != nullptr && old_value != new_value) {
+        WARN_IF_ERROR(manager->resize_remote_read_threads(new_value),
+                      "Failed to resize partial block remote-read pool");
+    }
+});
 
 // Callback to update warmup download rate limiter when config changes is registered
 DEFINE_ON_UPDATE(file_cache_warmup_download_rate_limit_bytes_per_second,

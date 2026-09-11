@@ -1825,6 +1825,8 @@ DECLARE_Int64(hole_fill_max_range_bytes);
 DECLARE_Double(hole_fill_max_read_amplification_ratio);
 DECLARE_Int64(hole_fill_max_pending_bytes_per_be);
 DECLARE_mInt32(hole_fill_workers_per_be);
+// Pool threads for multi-range hole reads; single-range reads run on block workers.
+DECLARE_mInt32(hole_fill_remote_read_threads_per_be);
 // Enable segment file cache block prefetch for compaction
 DECLARE_mBool(enable_compaction_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for compaction
