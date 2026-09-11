@@ -59,7 +59,7 @@ constexpr std::string_view kRowBinlogPrefix = "binlog_row_";
 namespace binlog {
 
 inline std::string build_before_column_name(std::string_view name) {
-    std::string before_name = "__DORIS_BEFORE__";
+    std::string before_name = "__BEFORE__";
     before_name.append(name.data(), name.size());
     before_name.append("__");
     return before_name;

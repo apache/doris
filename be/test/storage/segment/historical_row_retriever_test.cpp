@@ -154,7 +154,7 @@ TEST_F(HistoricalRowRetrieverTest, UpdateReadsHistoryAndAppendTakesDefault) {
 }
 
 // A delete-signed row: without the BEFORE image there is nothing to read back, with it the old row
-// must still be fetched so __DORIS_BEFORE__* can be filled.
+// must still be fetched so __BEFORE__* can be filled.
 TEST_F(HistoricalRowRetrieverTest, DeleteReadsHistoryOnlyWhenBeforeImageIsWanted) {
     for (bool need_before : {false, true}) {
         auto schema = create_mow_schema(/*has_seq=*/false);

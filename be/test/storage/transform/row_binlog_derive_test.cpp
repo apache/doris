@@ -117,11 +117,11 @@ protected:
         return assert_cast<const ColumnInt64&>(*col).get_data()[row];
     }
 
-    // A row-binlog DUP schema WITH __DORIS_BEFORE__* mirror columns for the binlog
+    // A row-binlog DUP schema WITH __BEFORE__* mirror columns for the binlog
     // source `create_binlog_pu_source_schema()` (k1 key, v1, v2, hidden
     // delete_sign). The visible source columns come first, followed by one BEFORE
     // column per visible value column, then TSO/LSN/OP.
-    //   [k1(0), v1(1), v2(2), __DORIS_BEFORE__v1__(3), __DORIS_BEFORE__v2__(4),
+    //   [k1(0), v1(1), v2(2), __BEFORE__v1__(3), __BEFORE__v2__(4),
     //    __DORIS_BINLOG_TSO__(5), __DORIS_BINLOG_LSN__(6), __DORIS_BINLOG_OP__(7)]
     // The fixture's create_binlog_tablet builds a binlog schema with no BEFORE
     // columns, so this variant is defined locally for explicit BEFORE mappings.
@@ -159,13 +159,13 @@ protected:
         add_col(1, "v1", "INT", false, true);
         add_col(2, "v2", "INT", false, true);
         // BEFORE mirror columns -- always nullable (NULL when no historical row).
-        add_col(3, "__DORIS_BEFORE__v1__", "INT", false, true);
-        add_col(4, "__DORIS_BEFORE__v2__", "INT", false, true);
+        add_col(3, "__BEFORE__v1__", "INT", false, true);
+        add_col(4, "__BEFORE__v2__", "INT", false, true);
         add_col(5, BINLOG_TSO_COL, "BIGINT", false, true);
         add_col(6, BINLOG_LSN_COL, "BIGINT", false, false);
         add_col(7, BINLOG_OP_COL, "BIGINT", false, false);
         // init_from_pb reads this straight from the PB (it is not inferred from
-        // the column name). [k1,v1,v2,__DORIS_BEFORE__v1__,__DORIS_BEFORE__v2__,TSO,LSN,OP]
+        // the column name). [k1,v1,v2,__BEFORE__v1__,__BEFORE__v2__,TSO,LSN,OP]
         pb.set_binlog_tso_col_idx(5);
         pb.set_binlog_lsn_col_idx(6);
         pb.set_binlog_op_col_idx(7);
@@ -175,7 +175,7 @@ protected:
         return schema;
     }
 
-    // A row-binlog DUP schema with __DORIS_BEFORE__* columns for a key-only source
+    // A row-binlog DUP schema with __BEFORE__* columns for a key-only source
     // (k1 key, hidden delete_sign, 0 visible value columns) -- the BEFORE no-op
     // case. Layout: [k1(0), TSO(1), LSN(2), OP(3)]; no BEFORE column is emitted
     // because num_visible_value_columns()==0.
@@ -990,7 +990,7 @@ TEST_F(RowBinlogDeriveTest, MowHiddenKeyColumnIsPartOfTheProbeKey) {
 // BEFORE is read first, then the op is revised from the old delete signs.
 TEST_F(RowBinlogDeriveTest, MowPartialUpdateWithBeforeImage) {
     auto source_schema = create_binlog_pu_source_schema(); // k1,v1,v2,delete_sign(hidden)
-    auto binlog_schema = create_binlog_before_schema(); // + __DORIS_BEFORE__v1__/v2__ + TSO/LSN/OP
+    auto binlog_schema = create_binlog_before_schema();    // + __BEFORE__v1__/v2__ + TSO/LSN/OP
 
     // history: key 1 -> (v1=100, v2=777); key 99 does not exist
     TabletSharedPtr probe_tablet;
@@ -1320,11 +1320,11 @@ TEST_F(RowBinlogDeriveTest, MowDeleteExistingAndNewKey) {
 // ===========================================================================
 
 // B19/B21: UPDATE & DELETE rows mirror the historical value columns into the
-// __DORIS_BEFORE__* columns; the APPEND row (no history) has BEFORE == NULL. BEFORE
+// __BEFORE__* columns; the APPEND row (no history) has BEFORE == NULL. BEFORE
 // covers value columns only (not the key, not delete_sign).
 TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
     auto source_schema = create_binlog_pu_source_schema(); // k1,v1,v2,delete_sign(3 hidden)
-    auto binlog_schema = create_binlog_before_schema(); // + __DORIS_BEFORE__v1__/v2__ + TSO/LSN/OP
+    auto binlog_schema = create_binlog_before_schema();    // + __BEFORE__v1__/v2__ + TSO/LSN/OP
     ASSERT_EQ(binlog_schema->binlog_lsn_col_idx(), 6);
     ASSERT_EQ(binlog_schema->num_columns(), 8U);
 

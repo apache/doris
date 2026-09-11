@@ -100,7 +100,7 @@ public:
                                            const TabletSchema& tablet_schema);
 
     // Return the matching before-image ordinal for a Row Binlog value column. For example, in
-    // [v1, v2, __DORIS_BEFORE__v1__, __DORIS_BEFORE__v2__], 0 maps to 2 and 1 maps to 3.
+    // [v1, v2, __BEFORE__v1__, __BEFORE__v2__], 0 maps to 2 and 1 maps to 3.
     // Columns without a before image, including TSO/LSN/OP, map to themselves.
     ColumnId before_column_ordinal(ColumnId ordinal) const {
         DCHECK_LT(ordinal, _before_column_ordinals.size());
@@ -129,7 +129,7 @@ public:
     size_t num_key_columns() const { return _num_key_columns; }
 
     // All special-column ordinals below address the caller-visible Block prefix and are -1 when
-    // absent. A Row Binlog layout may be [k1, v1, __DORIS_BEFORE__v1__, TSO, LSN, OP]; a snapshot layout
+    // absent. A Row Binlog layout may be [k1, v1, __BEFORE__v1__, TSO, LSN, OP]; a snapshot layout
     // may instead contain COMMIT_TSO.
     // Logical-delete marker used by unique-key reads.
     int32_t delete_sign_ordinal() const { return _delete_sign_ordinal; }

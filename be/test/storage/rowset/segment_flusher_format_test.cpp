@@ -2490,14 +2490,14 @@ Status verify_row_binlog_before_segment(const TabletSharedPtr& tablet, uint32_t 
                 Field::create_field<TYPE_BIGINT>(static_cast<Int64>(operation))));
         if (row_id < 2) {
             RETURN_IF_ERROR(verify_segment_field(
-                    block, "__DORIS_BEFORE__v1__", row_id,
+                    block, "__BEFORE__v1__", row_id,
                     Field::create_field<TYPE_INT>(static_cast<Int32>(3000 + key))));
             RETURN_IF_ERROR(verify_segment_field(
-                    block, "__DORIS_BEFORE__v2__", row_id,
+                    block, "__BEFORE__v2__", row_id,
                     Field::create_field<TYPE_BIGINT>(static_cast<Int64>(4000 + key))));
         } else {
-            RETURN_IF_ERROR(verify_segment_field(block, "__DORIS_BEFORE__v1__", row_id, Field {}));
-            RETURN_IF_ERROR(verify_segment_field(block, "__DORIS_BEFORE__v2__", row_id, Field {}));
+            RETURN_IF_ERROR(verify_segment_field(block, "__BEFORE__v1__", row_id, Field {}));
+            RETURN_IF_ERROR(verify_segment_field(block, "__BEFORE__v2__", row_id, Field {}));
         }
     }
     return Status::OK();
@@ -3176,11 +3176,11 @@ protected:
                                  kRowBinlogSystemColumnCount;
         if (include_before_columns) {
             auto before_v1 = find_binlog_column("v1");
-            before_v1.__set_column_name("__DORIS_BEFORE__v1__");
+            before_v1.__set_column_name("__BEFORE__v1__");
             before_v1.__set_is_key(false);
             before_v1.__set_is_allow_null(true);
             auto before_v2 = find_binlog_column("v2");
-            before_v2.__set_column_name("__DORIS_BEFORE__v2__");
+            before_v2.__set_column_name("__BEFORE__v2__");
             before_v2.__set_is_key(false);
             before_v2.__set_is_allow_null(true);
             binlog_request.tablet_schema.columns.insert(

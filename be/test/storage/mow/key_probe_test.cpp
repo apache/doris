@@ -311,7 +311,7 @@ TEST_F(KeyProbeTest, DeleteSignTakesDefaultsOnlyWithoutSequenceColumn) {
 }
 
 // The row binlog retriever keeps the old values of a delete-signed row so it can emit the
-// __DORIS_BEFORE__ image: use_defaults_for_delete_signed off flips that same case.
+// __BEFORE__ image: use_defaults_for_delete_signed off flips that same case.
 TEST_F(KeyProbeTest, DeleteSignReadsHistoryWhenDefaultsForDeleteSignedIsOff) {
     auto schema = create_mow_schema(/*has_seq=*/false);
     TabletSharedPtr tablet;

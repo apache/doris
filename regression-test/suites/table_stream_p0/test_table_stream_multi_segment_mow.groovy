@@ -515,7 +515,7 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
                 SELECT __DORIS_BINLOG_OP__ AS op,
                        id,
                        v,
-                       __DORIS_BEFORE__v__
+                       __BEFORE__v__
                 FROM binlog("table" = "ts_ms_mow_qm_base")
                 ORDER BY id, v, op
             """

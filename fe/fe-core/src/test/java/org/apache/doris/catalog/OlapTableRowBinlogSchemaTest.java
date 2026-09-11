@@ -63,7 +63,7 @@ public class OlapTableRowBinlogSchemaTest {
 
     @Test
     public void testRowBinlogSchemaOnEnable() {
-        Assertions.assertEquals("__DORIS_BEFORE__v1__", Column.generateBeforeColName("v1"));
+        Assertions.assertEquals("__BEFORE__v1__", Column.generateBeforeColName("v1"));
 
         OlapTable tableWithoutBefore = newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, false));
         Assertions.assertTrue(tableWithoutBefore.needRowBinlog());
