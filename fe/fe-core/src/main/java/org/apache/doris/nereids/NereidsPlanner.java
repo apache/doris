@@ -52,6 +52,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
 import org.apache.doris.nereids.stats.GroupStructInfo;
+import org.apache.doris.nereids.stats.HboJoinConditions;
 import org.apache.doris.nereids.stats.HboPlanInfoProvider;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -735,6 +736,9 @@ public class NereidsPlanner extends Planner {
             noLiteralStructInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById,
                     GroupStructInfo.LiteralMode.NO_LITERAL);
         }
+        if (isJoinOrAgg && node instanceof AbstractPhysicalJoin) {
+            attachHboJoinConditionInfo(node);
+        }
         if (structInfo.isPresent()) {
             node.setMutableState(MutableState.KEY_HBO_FP, structInfo.get().getFingerprint());
             if (noLiteralStructInfo.isPresent()) {
@@ -760,6 +764,35 @@ public class NereidsPlanner extends Planner {
                     && nodeGroup.getStatistics().isFromHbo()) {
                 node.setMutableState(MutableState.KEY_HBO_USED, "true");
             }
+        }
+    }
+
+    /**
+     * Attach the join equality-condition fingerprint (the {@code HBO SET EXPANSION} key) and the
+     * applied / skipped expansion state of this query, so that the physical plan and the explain
+     * annotation can show what to inject and whether it took effect.
+     */
+    private void attachHboJoinConditionInfo(AbstractPlan node) {
+        AbstractPhysicalJoin<?, ?> join = (AbstractPhysicalJoin<?, ?>) node;
+        Optional<String> condFingerprint = HboJoinConditions.fingerprintOf(join);
+        if (!condFingerprint.isPresent()) {
+            return;
+        }
+        node.setMutableState(MutableState.KEY_HBO_COND_FP, condFingerprint.get());
+        HboJoinConditions.canonicalOf(join)
+                .ifPresent(canonical -> node.setMutableState(MutableState.KEY_HBO_COND, canonical));
+        if (ConnectContext.get() == null) {
+            return;
+        }
+        String queryId = DebugUtil.printId(ConnectContext.get().queryId());
+        HboPlanInfoProvider provider = Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider();
+        String applied = provider.getExpansionApplied(queryId).get(condFingerprint.get());
+        if (applied != null) {
+            node.setMutableState(MutableState.KEY_HBO_EXPANSION, applied);
+        }
+        String skipped = provider.getPinnedGuardSkip(queryId).get(condFingerprint.get());
+        if (skipped != null && applied == null) {
+            node.setMutableState(MutableState.KEY_HBO_EXPANSION, "skipped=" + skipped);
         }
     }
 
@@ -1334,6 +1367,18 @@ public class NereidsPlanner extends Planner {
             Object struct = node.getMutableState(MutableState.KEY_HBO_STRUCT).orElse(null);
             if (struct != null) {
                 sb.append(" struct=").append(struct);
+            }
+            Object condFingerprint = node.getMutableState(MutableState.KEY_HBO_COND_FP).orElse(null);
+            if (condFingerprint != null) {
+                sb.append(" condFingerprint=").append(condFingerprint);
+            }
+            Object cond = node.getMutableState(MutableState.KEY_HBO_COND).orElse(null);
+            if (cond != null) {
+                sb.append(" cond=").append(cond);
+            }
+            Object expansion = node.getMutableState(MutableState.KEY_HBO_EXPANSION).orElse(null);
+            if (expansion != null) {
+                sb.append(" expansion=").append(expansion);
             }
             // a FILTER_SMALL entry can be skipped under either granularity (the exact form or the
             // constant agnostic form), so both fingerprints are consulted

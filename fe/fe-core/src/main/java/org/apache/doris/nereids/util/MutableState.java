@@ -40,6 +40,12 @@ public interface MutableState {
     String KEY_HBO_STRUCT = "hbo-struct";
     /** marks that the node statistics actually came from hbo (learned or pinned) */
     String KEY_HBO_USED = "hbo-used";
+    /** canonical string of the join equality conditions (join nodes, for HBO SET EXPANSION) */
+    String KEY_HBO_COND = "hbo-cond";
+    /** fingerprint of the join equality conditions (join nodes, the expansion injection key) */
+    String KEY_HBO_COND_FP = "hbo-cond-fp";
+    /** applied injected join expansion, e.g. {@code exp=200x} */
+    String KEY_HBO_EXPANSION = "hbo-expansion";
 
     <T> Optional<T> get(String key);
 

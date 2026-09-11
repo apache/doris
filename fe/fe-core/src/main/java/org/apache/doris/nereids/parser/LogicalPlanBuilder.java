@@ -774,6 +774,8 @@ import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeComma
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.HboStatisticsCommand;
+import org.apache.doris.nereids.trees.plans.commands.HboExpansionCommand;
+import org.apache.doris.nereids.trees.plans.commands.HboShowExpansionCommand;
 import org.apache.doris.nereids.trees.plans.commands.HboShowStatisticsCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.InstallPluginCommand;
@@ -7186,6 +7188,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitHboSetStatistics(DorisParser.HboSetStatisticsContext ctx) {
+        if ("expansion".equalsIgnoreCase(ctx.statistics.getText())) {
+            // HBO SET EXPANSION '<condFp>' = <value> [COND '...']: 'EXPANSION' is not a lexer
+            // keyword, so it is matched as the statistics word and dispatched here
+            return visitHboSetExpansionWords(ctx.hbo, ctx.scope, ctx.key, ctx.rows, ctx.structWord,
+                    ctx.structCanonical);
+        }
         checkHboStatementWords(ctx.hbo, ctx.statistics);
         String fingerprint = stripQuotes(ctx.key.getText());
         long rows;
@@ -7209,6 +7217,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitHboDeleteStatistics(DorisParser.HboDeleteStatisticsContext ctx) {
+        if ("expansion".equalsIgnoreCase(ctx.statistics.getText())) {
+            if (ctx.scope != null) {
+                throw new ParseException("unexpected scope in hbo delete expansion statement");
+            }
+            return new HboExpansionCommand(HboExpansionCommand.Op.DELETE, stripQuotes(ctx.key.getText()), 0, "");
+        }
         checkHboStatementWords(ctx.hbo, ctx.statistics);
         String fingerprint = stripQuotes(ctx.key.getText());
         return new HboStatisticsCommand(HboStatisticsCommand.Op.DELETE,
@@ -7221,7 +7235,76 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         checkHboStatementWords(ctx.hbo, ctx.statistics);
         String scope = ctx.scope == null ? null : ctx.scope.getText();
         String likePattern = ctx.likePattern == null ? null : stripQuotes(ctx.likePattern.getText());
+        if (scope != null && "expansion".equalsIgnoreCase(scope)) {
+            // HBO SHOW EXPANSION STATISTICS: the expansion entries injected by HBO SET EXPANSION
+            return new HboShowExpansionCommand(likePattern);
+        }
         return new HboShowStatisticsCommand(scope, likePattern);
+    }
+
+    private LogicalPlan visitHboSetExpansionWords(
+            org.antlr.v4.runtime.ParserRuleContext hboWord,
+            org.antlr.v4.runtime.ParserRuleContext scopeWord,
+            org.antlr.v4.runtime.Token key,
+            org.antlr.v4.runtime.Token value,
+            org.antlr.v4.runtime.ParserRuleContext condWord,
+            org.antlr.v4.runtime.Token condCanonical) {
+        if (!"hbo".equalsIgnoreCase(hboWord.getText())) {
+            throw new ParseException("expect 'HBO' at the beginning of hbo statement");
+        }
+        if (scopeWord != null) {
+            throw new ParseException("unexpected scope in hbo set expansion statement");
+        }
+        double expansion;
+        try {
+            expansion = Double.parseDouble(value.getText());
+        } catch (NumberFormatException e) {
+            throw new ParseException("hbo expansion value out of range: " + value.getText());
+        }
+        String cond = "";
+        if (condWord != null && condCanonical != null) {
+            if (!"cond".equalsIgnoreCase(condWord.getText())) {
+                throw new ParseException("expect 'COND' keyword in hbo set expansion statement");
+            }
+            cond = stripQuotes(condCanonical.getText());
+        }
+        return new HboExpansionCommand(HboExpansionCommand.Op.SET, stripQuotes(key.getText()), expansion, cond);
+    }
+
+    @Override
+    public LogicalPlan visitHboSetExpansion(DorisParser.HboSetExpansionContext ctx) {
+        if (!"hbo".equalsIgnoreCase(ctx.hbo.getText())) {
+            throw new ParseException("expect 'HBO' at the beginning of hbo statement");
+        }
+        if (!"expansion".equalsIgnoreCase(ctx.expansionWord.getText())) {
+            throw new ParseException("expect 'EXPANSION' keyword in hbo set expansion statement");
+        }
+        String condFingerprint = stripQuotes(ctx.key.getText());
+        double expansion;
+        try {
+            expansion = Double.parseDouble(ctx.value.getText());
+        } catch (NumberFormatException e) {
+            throw new ParseException("hbo expansion value out of range: " + ctx.value.getText());
+        }
+        String condCanonical = "";
+        if (ctx.condWord != null && ctx.condCanonical != null) {
+            if (!"cond".equalsIgnoreCase(ctx.condWord.getText())) {
+                throw new ParseException("expect 'COND' keyword in hbo set expansion statement");
+            }
+            condCanonical = stripQuotes(ctx.condCanonical.getText());
+        }
+        return new HboExpansionCommand(HboExpansionCommand.Op.SET, condFingerprint, expansion, condCanonical);
+    }
+
+    @Override
+    public LogicalPlan visitHboDeleteExpansion(DorisParser.HboDeleteExpansionContext ctx) {
+        if (!"hbo".equalsIgnoreCase(ctx.hbo.getText())) {
+            throw new ParseException("expect 'HBO' at the beginning of hbo statement");
+        }
+        if (!"expansion".equalsIgnoreCase(ctx.expansionWord.getText())) {
+            throw new ParseException("expect 'EXPANSION' keyword in hbo delete expansion statement");
+        }
+        return new HboExpansionCommand(HboExpansionCommand.Op.DELETE, stripQuotes(ctx.key.getText()), 0, "");
     }
 
     private void checkHboStatementWords(

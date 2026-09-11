@@ -116,6 +116,13 @@ public class HboPlanStatisticsManager {
     // whether pinned statistics have been loaded from the internal table (only when persistence
     // is enabled); planner/command threads access it concurrently
     private volatile boolean hboPinnedLoaded = false;
+    // per join-condition expansion entries injected by HBO SET EXPANSION; they are pure memory
+    // state (no persistence) so the Caffeine cache itself is the synchronization point
+    private final Cache<String, PinnedJoinExpansion> pinnedJoinExpansion =
+            (Config.hbo_expansion_cache_num > 0
+                    ? Caffeine.newBuilder().maximumSize(Config.hbo_expansion_cache_num)
+                    : Caffeine.newBuilder())
+                    .build();
     // serializes the memory phases of the lazy load, SET and DELETE against each other (including
     // the best-effort persistence SQL of DELETE, so no load can observe a row in between a
     // DELETE's memory invalidation and its DB removal)
@@ -206,6 +213,31 @@ public class HboPlanStatisticsManager {
     }
 
     /**
+     * Inject (or overwrite) the expansion factor of a set of join equality conditions.
+     *
+     * @param condFingerprint sha256 of the canonical equality-condition set
+     * @param expansion measured fan-out factor: output rows / max(left rows, right rows), >= 1
+     * @param condCanonical optional human readable canonical condition string
+     */
+    public void putPinnedJoinExpansion(String condFingerprint, double expansion, String condCanonical) {
+        pinnedJoinExpansion.put(condFingerprint, new PinnedJoinExpansion(condFingerprint, expansion,
+                condCanonical == null ? "" : condCanonical, System.currentTimeMillis()));
+    }
+
+    /** Remove an injected join expansion entry. */
+    public void removePinnedJoinExpansion(String condFingerprint) {
+        pinnedJoinExpansion.invalidate(condFingerprint);
+    }
+
+    public Optional<PinnedJoinExpansion> getPinnedJoinExpansion(String condFingerprint) {
+        return Optional.ofNullable(pinnedJoinExpansion.getIfPresent(condFingerprint));
+    }
+
+    public Map<String, PinnedJoinExpansion> getAllPinnedJoinExpansion() {
+        return Collections.unmodifiableMap(pinnedJoinExpansion.asMap());
+    }
+
+    /**
      * Inject a learned entry (used by {@code HBO SET LEARNED STATISTICS}) so that the learned
      * lookup path can be exercised without waiting for a real profile publish. The injected entry
      * carries no input table statistics and therefore matches by fingerprint alone.
@@ -290,6 +322,40 @@ public class HboPlanStatisticsManager {
 
     private static boolean persistenceEnabled() {
         return Config.hbo_persist_pinned_to_internal_db && FeConstants.enableInternalSchemaDb;
+    }
+
+    /**
+     * A manually injected join expansion entry: the measured fan-out factor of a set of equality
+     * conditions, used to push that join as late as possible in the join order.
+     */
+    public static class PinnedJoinExpansion {
+        private final String condFingerprint;
+        private final double expansion;
+        private final String condCanonical;
+        private final long createTime;
+
+        PinnedJoinExpansion(String condFingerprint, double expansion, String condCanonical, long createTime) {
+            this.condFingerprint = condFingerprint;
+            this.expansion = expansion;
+            this.condCanonical = condCanonical;
+            this.createTime = createTime;
+        }
+
+        public String getCondFingerprint() {
+            return condFingerprint;
+        }
+
+        public double getExpansion() {
+            return expansion;
+        }
+
+        public String getCondCanonical() {
+            return condCanonical;
+        }
+
+        public long getCreateTime() {
+            return createTime;
+        }
     }
 
     /**

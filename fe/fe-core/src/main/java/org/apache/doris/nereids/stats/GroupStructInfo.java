@@ -410,6 +410,15 @@ public class GroupStructInfo {
         return String.join(SEP, fnSet);
     }
 
+    /**
+     * Normalize a single expression into its canonical component (slot -&gt; {@code col(qualifier.name)},
+     * literal -&gt; {@code lit(value:type)} / {@code lit(*)}, other nodes -&gt; {@code ClassName(children)}).
+     * Shared with the hbo join-condition canonicalizer.
+     */
+    public static String normalizeExpression(Expression expression) {
+        return normalizeExpression(expression, LiteralMode.WITH_LITERAL);
+    }
+
     private static String normalizeExpression(Expression expression, LiteralMode mode) {
         if (expression instanceof SlotReference) {
             SlotReference slot = (SlotReference) expression;

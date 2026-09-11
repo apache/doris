@@ -57,6 +57,7 @@ public class HboPlanInfoProvider {
     private volatile Cache<String, Map<RelationId, Set<Expression>>> scanToFilterCache;
     private volatile Cache<String, Map<Integer, String>> nodeIdToFingerprintCache;
     private volatile Cache<String, Map<String, String>> pinnedGuardSkipCache;
+    private volatile Cache<String, Map<String, String>> pinnedExpansionAppliedCache;
 
     /**
      * Hbo plan info provider.
@@ -79,6 +80,10 @@ public class HboPlanInfoProvider {
                 Config.expire_hbo_plan_info_cache_in_fe_second
         );
         pinnedGuardSkipCache = buildHboPinnedGuardSkipCache(
+                Config.hbo_plan_info_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second
+        );
+        pinnedExpansionAppliedCache = buildHboPinnedGuardSkipCache(
                 Config.hbo_plan_info_cache_num,
                 Config.expire_hbo_plan_info_cache_in_fe_second
         );
@@ -202,6 +207,22 @@ public class HboPlanInfoProvider {
     public Map<String, String> getPinnedGuardSkip(String queryId) {
         Map<String, String> skips = pinnedGuardSkipCache.getIfPresent(queryId);
         return skips == null ? Collections.emptyMap() : skips;
+    }
+
+    /** Record that a pinned join expansion entry was applied for the given query. */
+    public void putExpansionApplied(String queryId, String condFingerprint, String detail) {
+        Map<String, String> applied = pinnedExpansionAppliedCache.getIfPresent(queryId);
+        if (applied == null) {
+            applied = new HashMap<>();
+            pinnedExpansionAppliedCache.put(queryId, applied);
+        }
+        applied.put(condFingerprint, detail);
+    }
+
+    /** Applied join expansion entries of a query, keyed by condition fingerprint. */
+    public Map<String, String> getExpansionApplied(String queryId) {
+        Map<String, String> applied = pinnedExpansionAppliedCache.getIfPresent(queryId);
+        return applied == null ? Collections.emptyMap() : applied;
     }
 
     /**

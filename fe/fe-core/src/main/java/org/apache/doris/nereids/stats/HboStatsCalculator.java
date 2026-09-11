@@ -33,6 +33,7 @@ import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.model.Statistics;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -91,9 +92,105 @@ public class HboStatsCalculator extends StatsCalculator {
     public Statistics computeJoin(Join join, Statistics leftStats, Statistics rightStats) {
         Statistics legacyStats = super.computeJoin(join, groupExpression.childStatistics(0),
                 groupExpression.childStatistics(1));
-        // join / aggregation keys never carry literals: only the constant agnostic fingerprint
-        return getStatsFromHboPlanStats((AbstractPlan) join, legacyStats,
-                GroupStructInfo.LiteralMode.NO_LITERAL, null);
+        AbstractPlan joinNode = (AbstractPlan) join;
+        // 1) exact pinned row count for this join group (authoritative)
+        Statistics pinnedStats = applyPinnedStats(joinNode, legacyStats, null);
+        if (pinnedStats != null) {
+            return pinnedStats;
+        }
+        // 2) injected per-condition expansion: inflate the estimated output so that this join is
+        //    placed as late as possible in the join order (not an accuracy correction)
+        Statistics expansionStats = applyPinnedJoinExpansion(join, legacyStats);
+        if (expansionStats != null) {
+            return expansionStats;
+        }
+        // 3) learned (join / aggregation keys never carry literals)
+        Statistics learnedStats = applyLearnedStats(
+                HboUtils.getHboPlanNodeAndHash(joinNode, GroupStructInfo.LiteralMode.NO_LITERAL), legacyStats);
+        return learnedStats == null ? legacyStats : learnedStats;
+    }
+
+    /**
+     * Apply an injected join expansion entry ({@code HBO SET EXPANSION}): the measured fan-out
+     * factor of the join equality conditions scales the current input estimates, so that a join
+     * known to explode looks expensive and is scheduled as late as possible.
+     *
+     * <p>Semi / anti / asof style joins can never expand, so an injected entry is deliberately not
+     * applied there (the reason is reported by the explain annotation). A cross join has no
+     * equality condition and therefore no key at all.
+     */
+    private Statistics applyPinnedJoinExpansion(Join join, Statistics delegateStats) {
+        Optional<String> condFingerprint = HboJoinConditions.fingerprintOf(join);
+        if (!condFingerprint.isPresent()) {
+            return null;
+        }
+        Optional<HboPlanStatisticsManager.PinnedJoinExpansion> expansionOpt = Env.getCurrentEnv()
+                .getHboPlanStatisticsManager().getPinnedJoinExpansion(condFingerprint.get());
+        if (!expansionOpt.isPresent()) {
+            return null;
+        }
+        if (!HboJoinConditions.isExpansionApplicable(join.getJoinType())) {
+            recordExpansionSkip(condFingerprint.get(), join.getJoinType().toString().toLowerCase(Locale.ROOT)
+                    + "-join-never-expands");
+            return null;
+        }
+        double leftRows = groupExpression.childStatistics(0).getRowCount();
+        double rightRows = groupExpression.childStatistics(1).getRowCount();
+        double expansion = expansionOpt.get().getExpansion();
+        double estimated = expansion * Math.max(leftRows, rightRows);
+        // an equi join can never produce more rows than the cartesian product of its inputs
+        estimated = Math.min(estimated, leftRows * rightRows);
+        // outer joins can not produce fewer rows than their preserved side
+        switch (join.getJoinType()) {
+            case LEFT_OUTER_JOIN:
+                estimated = Math.max(estimated, leftRows);
+                break;
+            case RIGHT_OUTER_JOIN:
+                estimated = Math.max(estimated, rightRows);
+                break;
+            case FULL_OUTER_JOIN:
+                estimated = Math.max(estimated, Math.max(leftRows, rightRows));
+                break;
+            default:
+                break;
+        }
+        long rows = Math.max(1L, (long) estimated);
+        recordExpansionApplied(condFingerprint.get(), expansion, leftRows, rightRows, rows);
+        return delegateStats.withRowCountAndHboFlag(rows);
+    }
+
+    private void recordExpansionApplied(String condFingerprint, double expansion, double leftRows,
+            double rightRows, long estimated) {
+        String queryId = currentQueryId();
+        if (queryId == null) {
+            return;
+        }
+        Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                .putExpansionApplied(queryId, condFingerprint, "exp=" + trimDouble(expansion) + "x (left="
+                        + (long) leftRows + ",right=" + (long) rightRows + ",est=" + estimated + ")");
+    }
+
+    private void recordExpansionSkip(String condFingerprint, String reason) {
+        String queryId = currentQueryId();
+        if (queryId == null) {
+            return;
+        }
+        Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                .putPinnedGuardSkip(queryId, condFingerprint, reason);
+    }
+
+    private String currentQueryId() {
+        if (cascadesContext == null || cascadesContext.getConnectContext() == null) {
+            return null;
+        }
+        return DebugUtil.printId(cascadesContext.getConnectContext().queryId());
+    }
+
+    private static String trimDouble(double value) {
+        if (value == Math.floor(value) && !Double.isInfinite(value)) {
+            return String.valueOf((long) value);
+        }
+        return String.valueOf(value);
     }
 
     @Override

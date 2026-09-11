@@ -123,6 +123,18 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         if (struct.isPresent()) {
             builder.append(" hboStruct=").append(struct.get());
         }
+        Optional<Object> condFingerprint = getMutableState(MutableState.KEY_HBO_COND_FP);
+        if (condFingerprint.isPresent()) {
+            builder.append(" hboCondFingerprint=").append(condFingerprint.get());
+        }
+        Optional<Object> cond = getMutableState(MutableState.KEY_HBO_COND);
+        if (cond.isPresent()) {
+            builder.append(" hboCond=").append(cond.get());
+        }
+        Optional<Object> expansion = getMutableState(MutableState.KEY_HBO_EXPANSION);
+        if (expansion.isPresent()) {
+            builder.append(" hboExpansionApplied=").append(expansion.get());
+        }
         if (getMutableState(MutableState.KEY_HBO_USED).isPresent()) {
             builder.append(" hboUsed=true");
         }

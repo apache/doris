@@ -135,8 +135,11 @@ statementBase
     | hboStatement
     ;
 
-// HBO manual statistics management. 'HBO' and 'STATISTICS' are not reserved keywords, so they
-// are matched as identifiers and validated in the logical plan builder.
+// HBO manual statistics management. 'HBO', 'STATISTICS' and 'EXPANSION' are not reserved
+// keywords, so they are matched as identifiers and validated in the logical plan builder (adding
+// them to the lexer would break user identifiers). The more specific STATISTICS forms come first:
+// 'HBO DELETE EXPANSION <fp>' can only match the expansion alternative because the statistics
+// alternative would require an extra identifier token after the scope.
 hboStatement
     : hbo=identifier SET scope=identifier? statistics=identifier key=STRING_LITERAL EQ rows=INTEGER_VALUE
           (typeWord=TYPE typeName=identifier)?
@@ -145,6 +148,9 @@ hboStatement
                                                                        #hboDeleteStatistics
     | hbo=identifier SHOW scope=identifier? statistics=identifier
           (LIKE likePattern=STRING_LITERAL)?                           #hboShowStatistics
+    | hbo=identifier SET expansionWord=identifier key=STRING_LITERAL EQ value=(INTEGER_VALUE | DECIMAL_VALUE)
+          (condWord=identifier condCanonical=STRING_LITERAL)?          #hboSetExpansion
+    | hbo=identifier DELETE expansionWord=identifier key=STRING_LITERAL  #hboDeleteExpansion
     ;
 
 queryOrDmlStatement
