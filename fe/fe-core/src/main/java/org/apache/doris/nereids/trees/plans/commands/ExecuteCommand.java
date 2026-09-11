@@ -82,6 +82,14 @@ public class ExecuteCommand extends Command {
                     "prepare statement " + stmtName + " not found,  maybe expired");
         }
         PrepareCommand prepareCommand = preparedStmtCtx.command;
+        // Allocate a fresh StatementContext per EXECUTE so the per-statement state accumulated by
+        // prior executions (bound tables, CTE maps, statistics, snapshots, ...) is released
+        // promptly instead of living as long as the connection, which can OOM long-lived
+        // connections. The necessary cross-execution state (placeholder bindings, comparison
+        // slots, id generator positions, short-circuit flags) is carried over to the new context.
+        StatementContext statementContext = preparedStmtCtx.nextStatementContext();
+        statementContext.setPrepareStage(false);
+        statementContext.setIsInsert(false);
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
         List<LogicalPlan> relationRoots = new ArrayList<>();
         if (logicalPlan instanceof InsertIntoTableCommand) {
@@ -132,12 +140,20 @@ public class ExecuteCommand extends Command {
         LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(
                 logicalPlan, executor.getContext().getStatementContext());
         executor.setParsedStmt(planAdapter);
-        // If it's not a short circuit query, schema version or file cache query limit changed, or
-        // the statement has nondeterministic functions, then reanalyze and plan.
-        if (executor.getContext().getStatementContext().isShortCircuitQuery()
-                && preparedStmtCtx.shortCircuitQueryContext.isPresent()
-                && preparedStmtCtx.shortCircuitQueryContext.get().isReusable(ctx)
-                && !executor.getContext().getStatementContext().hasNondeterministic()) {
+        boolean hasShortCircuitContext = preparedStmtCtx.shortCircuitQueryContext.isPresent();
+        boolean shortCircuitContextReusable = hasShortCircuitContext
+                && preparedStmtCtx.shortCircuitQueryContext.get().isReusable(ctx);
+        // Reuse the cached short-circuit plan only when table metadata is unchanged and the statement
+        // has no nondeterministic functions. Otherwise fall back to the normal execution path below.
+        if (statementContext.isShortCircuitQuery()
+                && hasShortCircuitContext
+                && shortCircuitContextReusable
+                && !statementContext.hasNondeterministic()) {
+            // The fresh per-execution context carries the short-circuit flag but not the cached plan.
+            // Install the just-validated cache before the direct path: result sending reads it via
+            // statementContext.getShortCircuitQueryContext(), and the fallback (building one from a
+            // null planner, since this path skips planning) would NPE.
+            statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
             PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }
