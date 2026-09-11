@@ -19,7 +19,7 @@ version: '3'
 
 services:
   doris--minio:
-    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    image: quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
     restart: always
     ports:
       - ${DOCKER_MINIO_EXTERNAL_PORT}:9000
