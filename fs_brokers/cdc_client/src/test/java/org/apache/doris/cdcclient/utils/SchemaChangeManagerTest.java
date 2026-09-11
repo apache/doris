@@ -142,7 +142,7 @@ class SchemaChangeManagerTest {
     @Test
     void successfulDdlDoesNotQuerySchema() throws Exception {
         server.createContext(
-                "/api/query/default_cluster/target_db",
+                "/api/streaming/schema_change",
                 exchange -> respond(exchange, "{\"code\":0,\"msg\":\"success\"}"));
 
         SchemaChangeManager.execute(
@@ -159,7 +159,7 @@ class SchemaChangeManagerTest {
 
     private void respondToDdlWithUnknownError() {
         server.createContext(
-                "/api/query/default_cluster/target_db",
+                "/api/streaming/schema_change",
                 exchange ->
                         respond(
                                 exchange,

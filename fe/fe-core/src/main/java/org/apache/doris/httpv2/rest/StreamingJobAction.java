@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
@@ -24,6 +25,10 @@ import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Strings;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,6 +38,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
 
 @RestController
 public class StreamingJobAction extends RestBaseController {
@@ -48,6 +55,35 @@ public class StreamingJobAction extends RestBaseController {
     public Object reportTaskFailure(@RequestBody TaskFailureRequest failureRequest, HttpServletRequest request) {
         checkAuth(request);
         return failTask(failureRequest);
+    }
+
+    @RequestMapping(path = "/api/streaming/schema_change", method = RequestMethod.POST)
+    public Object executeSchemaChange(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        checkAuth(request);
+        if (!Env.getCurrentEnv().isMaster()) {
+            return ResponseEntityBuilder.okWithCommonError("Schema change must be executed on the master FE");
+        }
+        String stmt = body.get("stmt");
+        if (Strings.isNullOrEmpty(stmt)) {
+            return ResponseEntityBuilder.badRequest("Missing statement request body");
+        }
+
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setRemoteIP(request.getRemoteAddr());
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+        ctx.getState().setInternal(true);
+        try (AutoCloseConnectContext ignored = new AutoCloseConnectContext(ctx)) {
+            StmtExecutor executor = new StmtExecutor(ctx, stmt);
+            executor.execute();
+            if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+                return ResponseEntityBuilder.okWithCommonError(ctx.getState().getErrorMessage());
+            }
+            return ResponseEntityBuilder.ok();
+        } catch (Exception e) {
+            LOG.warn("Failed to execute schema change", e);
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
     }
 
     private void checkAuth(HttpServletRequest request) {

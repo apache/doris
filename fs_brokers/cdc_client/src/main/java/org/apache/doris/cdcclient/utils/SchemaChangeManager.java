@@ -38,7 +38,7 @@ import org.slf4j.LoggerFactory;
 public class SchemaChangeManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(SchemaChangeManager.class);
-    private static final String SCHEMA_CHANGE_API = "http://%s/api/query/default_cluster/%s";
+    private static final String SCHEMA_CHANGE_API = "http://%s/api/streaming/schema_change";
     private static final String TABLE_SCHEMA_API = "http://%s/api/%s/%s/_schema";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String COLUMN_EXISTS_MSG = "Can not add column which already exists";
@@ -72,7 +72,7 @@ public class SchemaChangeManager {
     }
 
     /**
-     * Execute a single SQL statement via the FE query API.
+     * Execute a single SQL statement via the FE streaming schema change API.
      *
      * <p>Known idempotent errors are swallowed directly. For other failures, the current Doris
      * schema is checked before the failure is propagated.
@@ -80,7 +80,7 @@ public class SchemaChangeManager {
     public static void execute(
             String feAddr, String db, String token, SchemaChangeOperation operation)
             throws IOException {
-        HttpPost post = buildHttpPost(feAddr, db, token, operation.getSql());
+        HttpPost post = buildHttpPost(feAddr, token, operation.getSql());
         try {
             String responseBody = handleResponse(post);
             LOG.info("Executed DDL {} with response: {}", operation.getSql(), responseBody);
@@ -104,16 +104,15 @@ public class SchemaChangeManager {
 
     // ─── Internal helpers ─────────────────────────────────────────────────────
 
-    private static HttpPost buildHttpPost(String feAddr, String db, String token, String sql)
+    private static HttpPost buildHttpPost(String feAddr, String token, String sql)
             throws IOException {
-        String url = String.format(SCHEMA_CHANGE_API, feAddr, db);
+        String url = String.format(SCHEMA_CHANGE_API, feAddr);
         Map<String, Object> bodyMap = new HashMap<>();
         bodyMap.put("stmt", sql);
         String body = OBJECT_MAPPER.writeValueAsString(bodyMap);
 
         HttpPost post = new HttpPost(url);
         post.setHeader("Content-Type", "application/json;charset=UTF-8");
-        post.setHeader("Authorization", HttpUtil.getAuthHeader());
         post.setHeader("token", token);
         post.setEntity(new StringEntity(body, "UTF-8"));
         return post;
@@ -134,7 +133,6 @@ public class SchemaChangeManager {
             throws IOException {
         String url = String.format(TABLE_SCHEMA_API, feAddr, db, operation.getTableName());
         HttpGet request = new HttpGet(url);
-        request.setHeader("Authorization", HttpUtil.getAuthHeader());
         request.setHeader("token", token);
 
         String responseBody;

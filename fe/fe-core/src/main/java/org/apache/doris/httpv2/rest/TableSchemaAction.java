@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -35,6 +36,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.httpv2.rest.response.GsonSchemaResponse;
 import org.apache.doris.httpv2.rest.response.SchemaTypeDesc;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -42,6 +44,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Strings;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import jakarta.servlet.http.HttpServletRequest;
@@ -110,7 +113,20 @@ public class TableSchemaAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
+        String authToken = request.getHeader("token");
+        if (Strings.isNullOrEmpty(authToken)) {
+            executeCheckPassword(request, response);
+        } else {
+            if (!checkClusterToken(authToken)) {
+                throw new UnauthorizedException("Invalid token: " + authToken);
+            }
+            ConnectContext ctx = new ConnectContext();
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setRemoteIP(request.getRemoteAddr());
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            ctx.getState().setInternal(true);
+            ctx.setThreadLocalInfo();
+        }
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);
 
