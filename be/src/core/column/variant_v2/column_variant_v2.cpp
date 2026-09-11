@@ -1591,7 +1591,8 @@ size_t ColumnVariantV2::get_max_row_byte_size() const {
     return maximum_size;
 }
 
-void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
+template <bool with_nullable>
+void ColumnVariantV2::_serialize(StringRef* keys, size_t num_rows) const {
     DCHECK(keys != nullptr || num_rows == 0);
     DCHECK_LE(num_rows, size());
     if (_typed) {
@@ -1599,6 +1600,10 @@ void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
         visit_typed_scalar_column(
                 nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), 0, num_rows,
                 [&](size_t row, const VariantScalarRef& scalar) {
+                    if constexpr (with_nullable) {
+                        *(const_cast<char*>(keys[row].data) + keys[row].size) = 0;
+                        keys[row].size += sizeof(UInt8);
+                    }
                     const CanonicalScalarSerializationPlan plan =
                             prepare_canonical_serialize(scalar);
                     DCHECK(keys[row].data != nullptr);
@@ -1610,6 +1615,10 @@ void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
     }
     DCHECK(_typed_type == nullptr);
     for (size_t row = 0; row < num_rows; ++row) {
+        if constexpr (with_nullable) {
+            *(const_cast<char*>(keys[row].data) + keys[row].size) = 0;
+            keys[row].size += sizeof(UInt8);
+        }
         const CanonicalSerializationPlan plan = prepare_canonical_serialize(get_value_ref(row));
         const size_t cell_size = plan.size();
         DCHECK(keys[row].data != nullptr);
@@ -1619,18 +1628,17 @@ void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
     }
 }
 
+void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
+    _serialize<false>(keys, num_rows);
+}
+
 void ColumnVariantV2::serialize_with_nullable(StringRef* keys, size_t num_rows, bool has_null,
                                               const uint8_t* __restrict null_map) const {
     if (has_null) {
         IColumn::serialize_with_nullable(keys, num_rows, has_null, null_map);
         return;
     }
-    // Keep the nullable prefix while reusing the column's batch serialization.
-    for (size_t row = 0; row < num_rows; ++row) {
-        *(const_cast<char*>(keys[row].data) + keys[row].size) = 0;
-        keys[row].size += sizeof(UInt8);
-    }
-    serialize(keys, num_rows);
+    _serialize<true>(keys, num_rows);
 }
 
 void ColumnVariantV2::deserialize(StringRef* keys, size_t num_rows) {

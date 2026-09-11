@@ -270,6 +270,8 @@ private:
     void _adopt_state_from(ColumnVariantV2& replacement);
     void _detach_metadata_for_write();
     void _check_invariants() const;
+    template <bool with_nullable>
+    void _serialize(StringRef* keys, size_t num_rows) const;
     void mutate_subcolumns() override;
 
     // Encoded state: each row owns a value and references one deduplicated metadata blob. The
