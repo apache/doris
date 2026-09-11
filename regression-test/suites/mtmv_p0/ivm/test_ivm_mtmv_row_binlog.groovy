@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_ivm_mtmv_row_binlog", "nonConcurrent") {
+suite("test_ivm_mtmv_row_binlog") {
     if (isCloudMode()) {
         return
     }

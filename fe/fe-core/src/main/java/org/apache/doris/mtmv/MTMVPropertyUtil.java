@@ -219,6 +219,19 @@ public class MTMVPropertyUtil {
     }
 
     /**
+     * True when the MV keeps only a recent slice of each base table's partitions. This is the only
+     * property that can leave the MV without a partition the base table still has, so it is also
+     * the only case where the incremental delta has to be told which base partitions it may read.
+     */
+    public static boolean hasPartitionSyncLimit(Map<String, String> mvProperties) {
+        if (mvProperties == null) {
+            return false;
+        }
+        String value = mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT);
+        return !StringUtils.isEmpty(value) && Integer.parseInt(value) > 0;
+    }
+
+    /**
      * Look up the window limit configured for a base table, mirroring the
      * excluded_trigger_tables name-matching semantics (empty db/ctl wildcard).
      * Returns -1 when the table is not configured, meaning the full table.
