@@ -15,12 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.qe;
+package org.apache.doris.arrowflight.protocol;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.AfterEach;
@@ -32,18 +37,17 @@ import org.mockito.Mockito;
 import java.util.List;
 
 /**
- * ConnectProcessor.finalizeCommand() is the only place a forwarded statement's status and result set
- * are replayed to the client, and it is MySQL-only (it opens with a Preconditions.checkState on the
- * connect type). carryForwardedOutcomeToFlightSession() is its Arrow Flight SQL counterpart. Without
+ * MysqlProtocolAdapter.finishCommand() replays a forwarded statement's status and result set to a
+ * MySQL client. FlightProtocolAdapter.finishStatement() is its Arrow Flight SQL counterpart. Without
  * it, ctx.getState() stays at the OK that executeQuery() set with reset() and the FlightSqlChannel
  * stays empty, so DorisFlightSqlProducer answers with addOKResult()'s synthesized StatusResult=0:
  * success for a statement that failed on the master, and that same row instead of the rows a
  * forwarded SHOW produced.
  */
-public class ConnectProcessorFlightForwardOutcomeTest {
+public class FlightForwardedOutcomeTest {
     private boolean savedRunningUnitTest;
     private ConnectContext context;
-    private ConnectProcessor processor;
+    private FlightProtocolAdapter adapter;
 
     @BeforeEach
     public void setUp() {
@@ -51,7 +55,7 @@ public class ConnectProcessorFlightForwardOutcomeTest {
         // ConnectContext.init() registers the session with Env unless running as a unit test.
         FeConstants.runningUnitTest = true;
         context = ConnectContext.forFlight("test-peer-identity");
-        processor = new TestConnectProcessor(context);
+        adapter = FlightProtocolAdapter.of(context);
     }
 
     @AfterEach
@@ -61,12 +65,12 @@ public class ConnectProcessorFlightForwardOutcomeTest {
 
     @Test
     public void testMasterFailureIsReportedToTheFlightClient() throws Exception {
-        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        StmtExecutor executor = forwardedExecutor();
         // e.g. CREATE TABLE on a table that already exists.
         Mockito.when(executor.getProxyStatusCode()).thenReturn(1050);
         Mockito.when(executor.getProxyErrMsg()).thenReturn("Table 'tbl' already exists");
 
-        processor.carryForwardedOutcomeToFlightSession(executor);
+        Assertions.assertTrue(adapter.finishStatement(context, executor, 0, 1));
 
         Assertions.assertEquals(QueryState.MysqlStateType.ERR, context.getState().getStateType());
         Assertions.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, context.getState().getErrorCode());
@@ -86,35 +90,47 @@ public class ConnectProcessorFlightForwardOutcomeTest {
                         .addColumn(new Column("JobId", ScalarType.createVarchar(20)))
                         .build(),
                 Lists.<List<String>>newArrayList(Lists.newArrayList("10086")));
-        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        StmtExecutor executor = forwardedExecutor();
         Mockito.when(executor.getProxyStatusCode()).thenReturn(0);
         Mockito.when(executor.getShowResultSet()).thenReturn(resultSet);
 
-        processor.carryForwardedOutcomeToFlightSession(executor);
+        Assertions.assertTrue(adapter.finishStatement(context, executor, 0, 1));
 
         Assertions.assertNotEquals(QueryState.MysqlStateType.ERR, context.getState().getStateType());
-        // sendResultSet()'s ARROW_FLIGHT_SQL branch puts the rows into the FlightSqlChannel, which is
-        // what DorisFlightSqlProducer hands back instead of the synthesized StatusResult row.
+        // sendResultSet() puts the rows into the FlightSqlChannel through the FlightResultSender,
+        // which is what DorisFlightSqlProducer hands back instead of the synthesized StatusResult row.
         Mockito.verify(executor).sendResultSet(resultSet);
     }
 
     @Test
     public void testForwardedDdlKeepsTheSynthesizedOkResult() throws Exception {
-        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        StmtExecutor executor = forwardedExecutor();
         Mockito.when(executor.getProxyStatusCode()).thenReturn(0);
         // A forwarded DDL carries no result set, and StatusResult=0 is the right answer for it.
         Mockito.when(executor.getShowResultSet()).thenReturn(null);
 
-        processor.carryForwardedOutcomeToFlightSession(executor);
+        Assertions.assertTrue(adapter.finishStatement(context, executor, 0, 1));
 
         Assertions.assertNotEquals(QueryState.MysqlStateType.ERR, context.getState().getStateType());
         Assertions.assertEquals(0L, context.getFlightSqlChannel().resultNum());
         Mockito.verify(executor, Mockito.never()).sendResultSet(Mockito.any());
     }
 
-    private static class TestConnectProcessor extends ConnectProcessor {
-        private TestConnectProcessor(ConnectContext context) {
-            super(context);
-        }
+    @Test
+    public void testStatementNotForwardedIsLeftAlone() throws Exception {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.hasForwardedToMaster()).thenReturn(false);
+
+        Assertions.assertTrue(adapter.finishStatement(context, executor, 0, 1));
+
+        Mockito.verify(executor, Mockito.never()).getProxyStatusCode();
+        Mockito.verify(executor, Mockito.never()).sendResultSet(Mockito.any());
+    }
+
+    private StmtExecutor forwardedExecutor() {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.hasForwardedToMaster()).thenReturn(true);
+        Mockito.when(executor.getProxyStatusCode()).thenReturn(0);
+        return executor;
     }
 }

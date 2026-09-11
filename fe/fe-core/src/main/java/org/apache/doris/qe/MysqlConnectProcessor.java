@@ -19,8 +19,10 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MysqlColType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
@@ -33,6 +35,7 @@ import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
@@ -40,7 +43,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -69,7 +71,6 @@ public class MysqlConnectProcessor extends ConnectProcessor {
 
     public MysqlConnectProcessor(ConnectContext context) {
         super(context);
-        connectType = ConnectType.MYSQL;
     }
 
     // COM_INIT_DB: change current database of this session.
@@ -317,6 +318,37 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         handleFieldList(tableName);
     }
 
+    // COM_FIELD_LIST: the column definitions of a table
+    @SuppressWarnings("rawtypes")
+    protected void handleFieldList(String tableName) throws ConnectionException {
+        // Already get command code.
+        if (Strings.isNullOrEmpty(tableName)) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
+            return;
+        }
+        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(ctx.getDatabase());
+        if (db == null) {
+            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
+            return;
+        }
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
+            return;
+        }
+
+        table.readLock();
+        try {
+            MysqlProtocolAdapter.of(ctx).resultSender(ctx)
+                    .sendFieldList(db.getFullName(), table.getName(), table.getBaseSchema());
+        } catch (Throwable throwable) {
+            handleQueryException(throwable, "", null, null);
+        } finally {
+            table.readUnlock();
+        }
+        ctx.getState().setEof();
+    }
+
     private void handleChangeUser() throws IOException {
         // Random bytes generated when creating connection.
         byte[] authPluginData = getConnectContext().getAuthPluginData();
@@ -420,6 +452,12 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         ctx.setCommand(MysqlCommand.COM_SLEEP);
         ctx.clear();
         executor = null;
+    }
+
+    // When any request is completed, it will generally need to send a response packet to the client
+    // This method is used to send a response packet to the client
+    public void finalizeCommand() throws IOException {
+        MysqlProtocolAdapter.of(ctx).finishCommand(ctx, executor);
     }
 
     public void loop() {

@@ -32,10 +32,8 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -55,12 +53,9 @@ import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCapability;
-import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.MysqlPacket;
-import org.apache.doris.mysql.MysqlResultSetEndPacket;
-import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.StatementContext;
@@ -70,13 +65,11 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
-import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.proto.Data;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -87,7 +80,6 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -115,7 +107,8 @@ public abstract class ConnectProcessor {
     private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
     protected final ConnectContext ctx;
     protected StmtExecutor executor;
-    protected ConnectType connectType;
+    // Executors of this request whose query result stays on the backend for the client to pull;
+    // they are finalized when the request is closed. Only an Arrow Flight SQL session has any.
     protected ArrayList<StmtExecutor> returnResultFromRemoteExecutor = new ArrayList<>();
 
     public ConnectProcessor(ConnectContext context) {
@@ -279,14 +272,10 @@ public abstract class ConnectProcessor {
         ctx.setSqlHash(sqlHash);
 
         SessionVariable sessionVariable = ctx.getSessionVariable();
-        // The sql cache keeps the result rows in MySQL wire format and replays them through a
-        // MysqlChannel (StmtExecutor.sendCachedValues -> sendFields), which only exists on a MySQL
-        // connection. An Arrow Flight SQL connection has no channel and needs Arrow batches built by
-        // the BE, and the cached rows would be wrong for it anyway (object types such as HLL /
-        // BITMAP / QUANTILE_STATE were serialized as NULL under return_object_data_as_binary=false).
-        // So a non-MySQL connection must always re-execute the query instead of replaying the cache.
-        // The cache is never populated by such a connection either, see StmtExecutor.handleQueryStmt.
-        boolean wantToParseSqlFromSqlCache = connectType.equals(ConnectType.MYSQL)
+        // The sql cache keeps the result rows in wire format, so only a protocol that can replay
+        // them looks the cache up; another one re-executes the query and never populates the
+        // cache either, see StmtExecutor.handleQueryStmt.
+        boolean wantToParseSqlFromSqlCache = ctx.getProtocolAdapter().supportsSqlCacheReplay()
                 && CacheAnalyzer.canUseSqlCache(sessionVariable);
         List<StatementBase> stmts = null;
         long parseSqlStartTime = System.currentTimeMillis();
@@ -352,8 +341,8 @@ public abstract class ConnectProcessor {
                 // When the Follower/Observer received the return result of Master, the Follower/Observer
                 // will check CLIENT_MULTI_STATEMENTS is set or not. It sends SERVER_MORE_RESULTS_EXISTS back to client
                 // only when CLIENT_MULTI_STATEMENTS is set.
-                // See the code below : if (getConnectContext().getMysqlChannel().clientMultiStatements())
-                if (i != stmts.size() - 1 && connectType.equals(ConnectType.MYSQL)) {
+                // See MysqlProtocolAdapter.finishStatement.
+                if (i != stmts.size() - 1) {
                     executor.setMoreStmtExists(true);
                 }
                 if (MetricRepo.isInit) {
@@ -370,35 +359,11 @@ public abstract class ConnectProcessor {
 
                 try {
                     executor.execute();
-                    if (connectType.equals(ConnectType.MYSQL)) {
-                        if (i != stmts.size() - 1) {
-                            ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
-                            if (ctx.getState().getStateType() != MysqlStateType.ERR) {
-                                // here, doris do different with mysql.
-                                // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
-                                // single statement. Doris treat it with multi statement, but only return
-                                // the last statement result.
-                                if (getConnectContext().getMysqlChannel().clientMultiStatements()) {
-                                    finalizeCommand();
-                                }
-                            }
-                        }
-                    } else if (connectType.equals(ConnectType.ARROW_FLIGHT_SQL)) {
-                        if (executor.hasForwardedToMaster()) {
-                            carryForwardedOutcomeToFlightSession(executor);
-                        }
-                        if (!ctx.isReturnResultFromLocal()) {
-                            returnResultFromRemoteExecutor.add(executor);
-                        }
-                        Preconditions.checkState(ctx.getFlightSqlChannel().resultNum() <= 1);
-                        if (ctx.getFlightSqlChannel().resultNum() == 1 && i != stmts.size() - 1) {
-                            String errMsg = "Only be one stmt that returns the result and it is at the end. "
-                                    + "stmts.size(): " + stmts.size();
-                            LOG.warn(errMsg);
-                            ctx.getState().setError(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, errMsg);
-                            ctx.getState().setErrType(QueryState.ErrType.OTHER_ERR);
-                            break;
-                        }
+                    if (!ctx.isReturnResultFromLocal()) {
+                        returnResultFromRemoteExecutor.add(executor);
+                    }
+                    if (!ctx.getProtocolAdapter().finishStatement(ctx, executor, i, stmts.size())) {
+                        break;
                     }
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
                             true);
@@ -574,151 +539,6 @@ public abstract class ConnectProcessor {
         auditAfterExec(origStmt, parsedStmt, statistics, true);
     }
 
-    // Get the column definitions of a table
-    @SuppressWarnings("rawtypes")
-    protected void handleFieldList(String tableName) throws ConnectionException {
-        // Already get command code.
-        if (Strings.isNullOrEmpty(tableName)) {
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
-            return;
-        }
-        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(ctx.getDatabase());
-        if (db == null) {
-            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
-            return;
-        }
-        TableIf table = db.getTableNullable(tableName);
-        if (table == null) {
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
-            return;
-        }
-
-        table.readLock();
-        try {
-            if (connectType.equals(ConnectType.MYSQL)) {
-                MysqlChannel channel = ctx.getMysqlChannel();
-                MysqlSerializer serializer = channel.getSerializer();
-
-                // Send fields
-                // NOTE: Field list doesn't send number of fields
-                List<Column> baseSchema = table.getBaseSchema();
-                for (Column column : baseSchema) {
-                    serializer.reset();
-                    serializer.writeField(db.getFullName(), table.getName(), column, true);
-                    channel.sendOnePacket(serializer.toByteBuffer());
-                }
-            } else if (connectType.equals(ConnectType.ARROW_FLIGHT_SQL)) {
-                // TODO
-            }
-        } catch (Throwable throwable) {
-            handleQueryException(throwable, "", null, null);
-        } finally {
-            table.readUnlock();
-        }
-        ctx.getState().setEof();
-    }
-
-    // only Mysql protocol
-    protected ByteBuffer getResultPacket() {
-        Preconditions.checkState(connectType.equals(ConnectType.MYSQL));
-        MysqlPacket packet;
-        // When CLIENT_DEPRECATE_EOF is set and the state is EOF (end of result set),
-        // we need to send a "ResultSet OK" packet (0xFE header with payload > 5 bytes)
-        // instead of the traditional EOF packet. This is required by the MySQL protocol
-        // and expected by MySQL Connector/J 9.5.0+.
-        if (ctx.getState().getStateType() == QueryState.MysqlStateType.EOF
-                && ctx.getMysqlChannel().clientDeprecatedEOF()) {
-            packet = new MysqlResultSetEndPacket(ctx.getState());
-        } else {
-            packet = ctx.getState().toResponsePacket();
-        }
-        if (packet == null) {
-            // possible two cases:
-            // 1. handler has send request
-            // 2. this command need not to send response
-            return null;
-        }
-
-        MysqlSerializer serializer = ctx.getMysqlChannel().getSerializer();
-        serializer.reset();
-        packet.writeTo(serializer);
-        return serializer.toByteBuffer();
-    }
-
-    // When any request is completed, it will generally need to send a response packet to the client
-    // This method is used to send a response packet to the client
-    // only Mysql protocol
-    public void finalizeCommand() throws IOException {
-        LOG.debug("Finalize command for query {}", DebugUtil.printId(ctx.queryId));
-        Preconditions.checkState(connectType.equals(ConnectType.MYSQL));
-        ByteBuffer packet;
-        if (executor != null && executor.hasForwardedToMaster()
-                && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
-            ShowResultSet resultSet = executor.getShowResultSet();
-            if (resultSet == null) {
-                executor.sendProxyQueryResult();
-                packet = executor.getOutputPacket();
-            } else {
-                executor.sendResultSet(resultSet);
-                packet = getResultPacket();
-            }
-        } else {
-            packet = getResultPacket();
-        }
-
-        if (packet == null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("packet == null");
-            }
-            return;
-        }
-
-        LOG.debug("Send to mysql channel for query {}", DebugUtil.printId(ctx.queryId));
-        MysqlChannel channel = ctx.getMysqlChannel();
-        channel.sendAndFlush(packet);
-        // note(wb) we should write profile after return result to mysql client
-        // because write profile maybe take too much time
-        // explain query stmt do not have profile
-        if (executor != null && executor.getParsedStmt() != null && !executor.getParsedStmt().isExplain()
-                && (executor.getParsedStmt() instanceof LogicalPlanAdapter)) {
-            executor.updateProfile(true);
-            StatsErrorEstimator statsErrorEstimator = ConnectContext.get().getStatsErrorEstimator();
-            if (statsErrorEstimator != null) {
-                statsErrorEstimator.updateProfile(ConnectContext.get().queryId());
-            }
-        }
-        LOG.debug("End finalizing command for query {}", DebugUtil.printId(ctx.queryId));
-    }
-
-    // Arrow Flight SQL counterpart of the forwarded-statement branch of finalizeCommand(). That
-    // method is the only place a forwarded statement's status and result set are replayed to the
-    // client, and it is MySQL-only: it opens with
-    // Preconditions.checkState(connectType.equals(ConnectType.MYSQL)). Without this method a
-    // forwarded statement leaves ctx.getState() at the OK that executeQuery() set with reset() and
-    // leaves the FlightSqlChannel empty, so DorisFlightSqlProducer answers with addOKResult()'s
-    // synthesized StatusResult=0 -- reporting success for a statement that failed on the master,
-    // and an empty status row instead of the rows a forwarded SHOW produced.
-    @VisibleForTesting
-    void carryForwardedOutcomeToFlightSession(StmtExecutor executor) throws IOException {
-        if (executor.getProxyStatusCode() != 0) {
-            // The master rejected the statement, e.g. CREATE TABLE on a table that already exists.
-            // TMasterOpResult carries the master's error code as a plain int and ErrorCode has no
-            // reverse lookup, so the master's code travels in the message instead.
-            String errMsg = "forwarded statement failed on master FE, error code: "
-                    + executor.getProxyStatusCode() + ", error message: " + executor.getProxyErrMsg();
-            LOG.warn(errMsg);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, errMsg);
-            return;
-        }
-        // Set exactly when the forwarded statement produced rows: proxyExecute() fills
-        // TMasterOpResult.resultSet from getProxyShowResultSet(). A forwarded DDL produces none,
-        // and the synthesized StatusResult=0 is the right answer for it.
-        ShowResultSet resultSet = executor.getShowResultSet();
-        if (resultSet != null) {
-            executor.sendResultSet(resultSet);
-        }
-    }
-
     public TMasterOpResult proxyExecute(TMasterOpRequest request) throws TException {
         ctx.setDatabase(request.db);
         ctx.setEnv(Env.getCurrentEnv());
@@ -843,8 +663,9 @@ public abstract class ConnectProcessor {
         if (request.moreResultExists) {
             ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
         }
-        result.setPacket(getResultPacket());
-        result.setClientDeprecatedEofApplied(ctx.getMysqlChannel().clientDeprecatedEOF());
+        MysqlProtocolAdapter mysqlAdapter = MysqlProtocolAdapter.of(ctx);
+        result.setPacket(mysqlAdapter.responsePacket(ctx));
+        result.setClientDeprecatedEofApplied(mysqlAdapter.getChannel().clientDeprecatedEOF());
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);

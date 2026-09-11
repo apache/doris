@@ -30,13 +30,11 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.StringValueContext;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
@@ -47,7 +45,6 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
@@ -72,11 +69,7 @@ import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
-import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.MysqlEofPacket;
-import org.apache.doris.mysql.MysqlResultSetEndPacket;
-import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -90,8 +83,6 @@ import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
@@ -135,6 +126,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
+import org.apache.doris.qe.protocol.ResultSender;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -168,6 +160,7 @@ import org.apache.thrift.TSerializer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -194,7 +187,6 @@ public class StmtExecutor {
     private static final Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
     private ConnectContext context;
     private StatementContext statementContext;
-    private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
     // Snapshot of changed session variables taken BEFORE per-query SET_VAR hint values are
@@ -247,13 +239,11 @@ public class StmtExecutor {
 
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
-        Preconditions.checkState(context.getConnectType().equals(ConnectType.MYSQL));
         this.context = context;
         if (context != null) {
             context.setExecutor(this);
         }
         this.originStmt = originStmt;
-        this.serializer = context.getMysqlChannel().getSerializer();
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
@@ -279,11 +269,6 @@ public class StmtExecutor {
         this.parsedStmt = parsedStmt;
         this.originStmt = parsedStmt.getOrigStmt();
         this.isComStmtExecute = isComStmtExecute;
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            this.serializer = context.getMysqlChannel().getSerializer();
-        } else {
-            this.serializer = null;
-        }
         this.isProxy = false;
         if (parsedStmt instanceof LogicalPlanAdapter) {
             this.statementContext = ((LogicalPlanAdapter) parsedStmt).getStatementContext();
@@ -1399,7 +1384,7 @@ public class StmtExecutor {
     // return true if the meta fields has been sent, otherwise, return false.
     // the meta fields must be sent right before the first batch of data(or eos flag).
     // so if it has data(or eos is true), this method must return true.
-    private boolean sendCachedValues(MysqlChannel channel, List<InternalService.PCacheValue> cacheValues,
+    private boolean sendCachedValues(ResultSender sender, List<InternalService.PCacheValue> cacheValues,
             Queriable selectStmt, boolean isSendFields, boolean isEos)
             throws Exception {
         RowBatch batch = null;
@@ -1418,12 +1403,12 @@ public class StmtExecutor {
             batch.setEos(true);
             if (!isSend) {
                 // send meta fields before sending first data batch.
-                sendFields(selectStmt.getColLabels(), selectStmt.getFieldInfos(),
+                sender.sendFields(selectStmt.getColLabels(), selectStmt.getFieldInfos(),
                         exprToType(selectStmt.getResultExprs()));
                 isSend = true;
             }
             for (ByteBuffer row : batch.getBatch().getRows()) {
-                channel.sendOnePacket(row);
+                sender.sendRow(row);
             }
             context.updateReturnRows(batch.getBatch().getRows().size());
         }
@@ -1434,7 +1419,7 @@ public class StmtExecutor {
                         ? null : batch.getQueryStatistics().toBuilder();
             }
             if (!isSend) {
-                sendFields(selectStmt.getColLabels(), selectStmt.getFieldInfos(),
+                sender.sendFields(selectStmt.getColLabels(), selectStmt.getFieldInfos(),
                         exprToType(selectStmt.getResultExprs()));
                 isSend = true;
             }
@@ -1446,13 +1431,13 @@ public class StmtExecutor {
     /**
      * Handle the SelectStmt via Cache.
      */
-    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel) throws Exception {
+    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer) throws Exception {
         // only compute CacheTable, but not get cache from be, because there has a case in nereids planner:
         // `select * from tbl`. the tbl has 2 columns and create cache in be, use the **original sql** as the cache key,
         // and then we add another column to the table, and the cache in be will not remove. if we use the result in be,
         // it will return 2 columns result, but the correct result is 3 columns. so we will not trust the cache in be.
         cacheAnalyzer.getCacheData(false);
-        executeAndSendResult(false, false, (Queriable) parsedStmt, channel, cacheAnalyzer, null);
+        executeAndSendResult(false, false, (Queriable) parsedStmt, context.getResultSender(), cacheAnalyzer, null);
     }
 
     // Process a select statement.
@@ -1462,10 +1447,9 @@ public class StmtExecutor {
                     originStmt.originStmt, DebugUtil.printId(context.queryId));
         }
 
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            // Every time set no send flag and clean all data in buffer
-            context.getMysqlChannel().reset();
-        }
+        ResultSender sender = context.getResultSender();
+        // Every time set no send flag and clean all data in buffer
+        sender.reset();
 
         Queriable queryStmt = (Queriable) parsedStmt;
 
@@ -1499,24 +1483,20 @@ public class StmtExecutor {
             }
         }
 
-        MysqlChannel channel = null;
-        if (context.getConnectType().equals(ConnectType.MYSQL)) {
-            channel = context.getMysqlChannel();
-        }
+        boolean sqlCacheReplayable = context.getProtocolAdapter().supportsSqlCacheReplay();
         boolean isOutfileQuery = queryStmt.hasOutFileClause();
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
             LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
             if (logicalPlan instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache) {
-                // sendCachedValues replays MySQL protocol packets, so it needs a MysqlChannel.
-                // ConnectProcessor.executeQuery only looks the sql cache up for a MySQL connection,
-                // so a cached plan must never reach another protocol here.
-                Preconditions.checkState(channel != null,
+                // ConnectProcessor.executeQuery only looks the sql cache up for a connection that
+                // can replay it, so a cached plan must never reach another protocol here.
+                Preconditions.checkState(sqlCacheReplayable,
                         "sql cache can only be replayed on a MySQL connection, but connect type is %s",
                         context.getConnectType());
                 NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
                 PhysicalSqlCache physicalSqlCache = (PhysicalSqlCache) nereidsPlanner.getPhysicalPlan();
-                sendCachedValues(channel, physicalSqlCache.getCacheValues(), logicalPlanAdapter, false, true);
+                sendCachedValues(sender, physicalSqlCache.getCacheValues(), logicalPlanAdapter, false, true);
                 return;
             }
         }
@@ -1526,19 +1506,23 @@ public class StmtExecutor {
         // TODO support arrow flight sql
         // NOTE: If you want to add another condition about SessionVariable, please consider whether
         // add to CacheAnalyzer.commonCacheCondition
-        if (channel != null && !isOutfileQuery && CacheAnalyzer.canUseCache(context.getSessionVariable())
+        if (sqlCacheReplayable && !isOutfileQuery && CacheAnalyzer.canUseCache(context.getSessionVariable())
                 && parsedStmt.getOrigStmt() != null && parsedStmt.getOrigStmt().originStmt != null) {
             if (queryStmt instanceof LogicalPlanAdapter) {
-                handleCacheStmt(cacheAnalyzer, channel);
+                handleCacheStmt(cacheAnalyzer);
                 return;
             }
         }
 
-        executeAndSendResult(isOutfileQuery, false, queryStmt, channel, null, null);
+        executeAndSendResult(isOutfileQuery, false, queryStmt, sender, null, null);
     }
 
+    /**
+     * Runs the planned query and delivers its result through {@code sender}: normally the
+     * session's own, or the caller's when an internal executor streams to another session.
+     */
     public void executeAndSendResult(boolean isOutfileQuery, boolean isSendFields,
-            Queriable queryStmt, MysqlChannel channel,
+            Queriable queryStmt, ResultSender sender,
             CacheAnalyzer cacheAnalyzer, InternalService.PFetchCacheResult cacheResult) throws Exception {
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
@@ -1632,18 +1616,18 @@ public class StmtExecutor {
                     // so We need to send fields after first batch arrived
                     if (!isSendFields) {
                         if (!isOutfileQuery) {
-                            sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                    getReturnTypes(queryStmt), channel);
+                            sender.sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
+                                    getReturnTypes(queryStmt));
                         } else {
                             if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
                                 outfileWriteSuccess(outFileClause);
                             }
-                            sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES, channel);
+                            sender.sendFields(OutFileClause.RESULT_COL_NAMES, null, OutFileClause.RESULT_COL_TYPES);
                         }
                         isSendFields = true;
                     }
                     for (ByteBuffer row : batch.getBatch().getRows()) {
-                        channel.sendOnePacket(row);
+                        sender.sendRow(row);
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
@@ -1656,7 +1640,7 @@ public class StmtExecutor {
             if (cacheAnalyzer != null && !isDryRun) {
                 if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
                     isSendFields =
-                            sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields,
+                            sendCachedValues(sender, cacheResult.getValuesList(), queryStmt, isSendFields,
                                     false);
                 }
 
@@ -1681,14 +1665,14 @@ public class StmtExecutor {
                         List<String> data = Lists.newArrayList(String.valueOf(rows));
                         ResultSet resultSet = new CommonResultSet(DRY_RUN_QUERY_METADATA,
                                 Collections.singletonList(data));
-                        sendResultSet(resultSet);
+                        sendResultSet(resultSet, null, sender);
                         return;
                     } else {
-                        sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                getReturnTypes(queryStmt), channel);
+                        sender.sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
+                                getReturnTypes(queryStmt));
                     }
                 } else {
-                    sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES, channel);
+                    sender.sendFields(OutFileClause.RESULT_COL_NAMES, null, OutFileClause.RESULT_COL_TYPES);
                 }
             }
 
@@ -1849,189 +1833,9 @@ public class StmtExecutor {
         }));
     }
 
-    private void sendMetaData(ResultSetMetaData metaData) throws IOException {
-        sendMetaData(metaData, null);
-    }
-
-    private void sendMetaData(ResultSetMetaData metaData, List<FieldInfo> fieldInfos) throws IOException {
-        sendMetaData(metaData, fieldInfos, context.getMysqlChannel());
-    }
-
-    private void sendMetaData(ResultSetMetaData metaData, List<FieldInfo> fieldInfos, MysqlChannel channel)
-            throws IOException {
-        Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
-        // sends how many columns
-        serializer.reset();
-        serializer.writeVInt(metaData.getColumnCount());
-        channel.sendOnePacket(serializer.toByteBuffer());
-        // send field one by one
-        for (int i = 0; i < metaData.getColumns().size(); i++) {
-            Column col = metaData.getColumn(i);
-            serializer.reset();
-            if (fieldInfos == null) {
-                // TODO(zhaochun): only support varchar type
-                serializer.writeField(col.getName(), col.getType());
-            } else {
-                serializer.writeField(fieldInfos.get(i), col.getType());
-            }
-            channel.sendOnePacket(serializer.toByteBuffer());
-        }
-        sendMetadataTerminatorIfNeeded(channel);
-    }
-
-    private List<PrimitiveType> exprToStringType(List<Expr> exprs) {
-        return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
-    }
-
     public void sendStmtPrepareOK(int stmtId, List<String> labels, List<Slot> output) throws IOException {
-        Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
-        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
-        serializer.reset();
-        // 0x00 OK
-        serializer.writeInt1(0);
-        // statement_id
-        serializer.writeInt4(stmtId);
-        // num_columns
-        int numColumns = output == null ? 0 : output.size();
-        serializer.writeInt2(numColumns);
-        // num_params
-        int numParams = labels.size();
-        serializer.writeInt2(numParams);
-        // reserved_1
-        serializer.writeInt1(0);
-        if (numParams > 0 || numColumns > 0) {
-            // warning_count
-            serializer.writeInt2(0);
-            // metadata_follows
-            serializer.writeInt1(1);
-        }
-        context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-        if (numParams > 0) {
-            // send field one by one
-            // TODO use real type instead of string, for JDBC client it's ok
-            // but for other client, type should be correct
-            // List<PrimitiveType> types = exprToStringType(labels);
-            List<String> colNames = labels;
-            for (int i = 0; i < colNames.size(); ++i) {
-                serializer.reset();
-                // serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
-                serializer.writeField(colNames.get(i), Type.STRING);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-            // When CLIENT_DEPRECATE_EOF is set, no EOF/OK packet should be sent after
-            // parameter definitions. The driver knows how many params to expect from the
-            // prepare OK packet and simply stops reading after that count.
-            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-                serializer.reset();
-                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-                eofPacket.writeTo(serializer);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-        }
-        if (numColumns > 0) {
-            for (Slot slot : output) {
-                serializer.reset();
-                if (slot instanceof SlotReference
-                        && ((SlotReference) slot).getOriginalColumn().isPresent()
-                        && ((SlotReference) slot).getOriginalTable().isPresent()) {
-                    SlotReference slotReference = (SlotReference) slot;
-                    TableIf table = slotReference.getOriginalTable().get();
-                    Column column = slotReference.getOriginalColumn().get();
-                    DatabaseIf database = table.getDatabase();
-                    String dbName = database == null ? "" : database.getFullName();
-                    serializer.writeField(dbName, table.getName(), column, false);
-                } else {
-                    serializer.writeField(slot.getName(), slot.getDataType().toCatalogDataType());
-                }
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-            // When CLIENT_DEPRECATE_EOF is set, no EOF/OK packet should be sent after
-            // column definitions. The driver knows how many columns to expect from the
-            // prepare OK packet and simply stops reading after that count.
-            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-                serializer.reset();
-                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-                eofPacket.writeTo(serializer);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-        }
-        context.getMysqlChannel().flush();
+        MysqlProtocolAdapter.of(context).resultSender(context).sendStmtPrepareOK(stmtId, labels, output);
         context.getState().setNoop();
-    }
-
-    private void sendFields(List<String> colNames, List<Type> types) throws IOException {
-        sendFields(colNames, null, types);
-    }
-
-    private void sendFields(List<String> colNames, List<Type> types, MysqlChannel channel) throws IOException {
-        sendFields(colNames, null, types, channel);
-    }
-
-    private void sendFields(List<String> colNames, List<FieldInfo> fieldInfos, List<Type> types) throws
-            IOException {
-        sendFields(colNames, fieldInfos, types, context.getMysqlChannel());
-    }
-
-    private void sendFields(List<String> colNames, List<FieldInfo> fieldInfos, List<Type> types,
-            MysqlChannel channel) throws IOException {
-        Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
-        // sends how many columns
-        serializer.reset();
-        serializer.writeVInt(colNames.size());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("sendFields {}", colNames);
-        }
-        channel.sendOnePacket(serializer.toByteBuffer());
-        StatementContext statementContext = context.getStatementContext();
-        boolean isShortCircuited = statementContext.isShortCircuitQuery()
-                && statementContext.getShortCircuitQueryContext() != null;
-        ShortCircuitQueryContext ctx = statementContext.getShortCircuitQueryContext();
-        // send field one by one
-        for (int i = 0; i < colNames.size(); ++i) {
-            serializer.reset();
-            if (context.getCommand() == MysqlCommand.COM_STMT_EXECUTE && isShortCircuited) {
-                // Using PreparedStatment pre serializedField to avoid serialize each time
-                // we send a field
-                byte[] serializedField = ctx.getSerializedField(i);
-                if (serializedField == null) {
-                    if (fieldInfos != null) {
-                        serializer.writeField(fieldInfos.get(i), types.get(i));
-                    } else {
-                        serializer.writeField(colNames.get(i), types.get(i));
-                    }
-                    serializedField = serializer.toArray();
-                    ctx.addSerializedField(i, serializedField);
-                }
-                channel.sendOnePacket(ByteBuffer.wrap(serializedField));
-            } else {
-                if (fieldInfos != null) {
-                    serializer.writeField(fieldInfos.get(i), types.get(i));
-                } else {
-                    serializer.writeField(colNames.get(i), types.get(i));
-                }
-                channel.sendOnePacket(serializer.toByteBuffer());
-            }
-        }
-        sendMetadataTerminatorIfNeeded(channel);
-    }
-
-    private void sendMetadataTerminatorIfNeeded(MysqlChannel channel) throws IOException {
-        if (!channel.clientDeprecatedEOF()) {
-            serializer.reset();
-            new MysqlEofPacket(context.getState()).writeTo(serializer);
-            channel.sendOnePacket(serializer.toByteBuffer());
-        } else if (connectorJConsumesCursorMetadataTerminator()) {
-            // Connector/J before 9.5 consumes the first OK packet after column definitions
-            // while probing whether a requested cursor was created. Doris does not create a
-            // cursor, so an empty result would otherwise lose its only end marker and block.
-            serializer.reset();
-            new MysqlResultSetEndPacket(context.getState()).writeTo(serializer);
-            channel.sendOnePacket(serializer.toByteBuffer());
-        }
-    }
-
-    private boolean connectorJConsumesCursorMetadataTerminator() {
-        return MysqlProtocolAdapter.of(context).clientConsumesCursorMetadataTerminator(context);
     }
 
     public void sendResultSet(ResultSet resultSet) throws IOException {
@@ -2039,143 +1843,19 @@ public class StmtExecutor {
     }
 
     public void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos) throws IOException {
-        sendResultSet(resultSet, fieldInfos, null);
+        sendResultSet(resultSet, fieldInfos, context.getResultSender());
     }
 
     /**
-     * Sends a FE-computed result set to the given mysql channel. Regular queries use the
-     * executor's own channel; internal queries have to stream to the channel of the caller
-     * that issued them, because the executor's own channel is not connected to that client.
-     *
-     * <p>A null channel means the session's own. It is resolved inside the mysql branch on
-     * purpose: a connection of any other type has no mysql channel, and asking for one throws,
-     * so a caller must be able to hand a result set over without naming a channel first.
+     * Delivers a result set the frontend computed through {@code sender}. Regular statements use
+     * the session's own sender; an internal executor streams to the sender of the session that
+     * issued it, because its own session is not connected to that client.
      */
-    private void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos, MysqlChannel channel)
+    private void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos, ResultSender sender)
             throws IOException {
-        if (context.getConnectType().equals(ConnectType.MYSQL)) {
-            MysqlChannel targetChannel = channel == null ? context.getMysqlChannel() : channel;
-            context.updateReturnRows(resultSet.getResultRows().size());
-            // Send meta data.
-            sendMetaData(resultSet.getMetaData(), fieldInfos, targetChannel);
-
-            // Send result set.
-            if (isComStmtExecute) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Use binary protocol to set result.");
-                }
-                sendBinaryResultRow(resultSet, targetChannel);
-            } else {
-                sendTextResultRow(resultSet, targetChannel);
-            }
-            context.getState().setEof();
-        } else if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
-            context.updateReturnRows(resultSet.getResultRows().size());
-            context.getFlightSqlChannel()
-                    .addResult(DebugUtil.printId(context.queryId()), context.getRunningQuery(), resultSet);
-            context.getState().setEof();
-        } else {
-            LOG.error("sendResultSet error connect type");
-        }
-    }
-
-    protected void sendTextResultRow(ResultSet resultSet) throws IOException {
-        sendTextResultRow(resultSet, context.getMysqlChannel());
-    }
-
-    protected void sendTextResultRow(ResultSet resultSet, MysqlChannel channel) throws IOException {
-        for (List<String> row : resultSet.getResultRows()) {
-            serializer.reset();
-            for (String item : row) {
-                if (item == null || item.equals(FeConstants.null_string)) {
-                    serializer.writeNull();
-                } else {
-                    serializer.writeLenEncodedString(item);
-                }
-            }
-            channel.sendOnePacket(serializer.toByteBuffer());
-        }
-    }
-
-    protected void sendBinaryResultRow(ResultSet resultSet) throws IOException {
-        sendBinaryResultRow(resultSet, context.getMysqlChannel());
-    }
-
-    protected void sendBinaryResultRow(ResultSet resultSet, MysqlChannel channel) throws IOException {
-        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html#sect_protocol_binary_resultset_row_value
-        ResultSetMetaData metaData = resultSet.getMetaData();
-        int nullBitmapLength = (metaData.getColumnCount() + 7 + 2) / 8;
-        for (List<String> row : resultSet.getResultRows()) {
-            serializer.reset();
-            // Reserved one byte.
-            serializer.writeByte((byte) 0x00);
-            byte[] nullBitmap = new byte[nullBitmapLength];
-            // Generate null bitmap
-            for (int i = 0; i < row.size(); i++) {
-                String item = row.get(i);
-                if (item == null || item.equals(FeConstants.null_string)) {
-                    // The first 2 bits are reserved.
-                    int byteIndex = (i + 2) / 8;  // Index of the byte in the bitmap array
-                    int bitInByte = (i + 2) % 8;  // Position within the target byte (0-7)
-                    nullBitmap[byteIndex] |= (1 << bitInByte);
-                }
-            }
-            // Null bitmap
-            serializer.writeBytes(nullBitmap);
-            // Non-null columns
-            for (int i = 0; i < row.size(); i++) {
-                String item = row.get(i);
-                if (item != null && !item.equals(FeConstants.null_string)) {
-                    Column col = metaData.getColumn(i);
-                    switch (col.getType().getPrimitiveType()) {
-                        case BOOLEAN:
-                            serializer.writeInt1(parseBooleanResultValue(item));
-                            break;
-                        case INT:
-                            serializer.writeInt4(Integer.parseInt(item));
-                            break;
-                        case BIGINT:
-                            serializer.writeInt8(Long.parseLong(item));
-                            break;
-                        case DATETIME:
-                        case DATETIMEV2:
-                            DateTimeV2Literal datetime = new DateTimeV2Literal(item);
-                            long microSecond = datetime.getMicroSecond();
-                            // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_query_response_text_resultset.html
-                            int length = microSecond == 0 ? 7 : 11;
-                            serializer.writeInt1(length);
-                            serializer.writeInt2((int) (datetime.getYear()));
-                            serializer.writeInt1((int) datetime.getMonth());
-                            serializer.writeInt1((int) datetime.getDay());
-                            serializer.writeInt1((int) datetime.getHour());
-                            serializer.writeInt1((int) datetime.getMinute());
-                            serializer.writeInt1((int) datetime.getSecond());
-                            if (microSecond > 0) {
-                                serializer.writeInt4((int) microSecond);
-                            }
-                            break;
-                        case TIMESTAMP_NS:
-                            // MySQL temporal binary values cannot carry nanoseconds. The metadata advertises
-                            // MYSQL_TYPE_STRING, so encode the result as length-encoded text.
-                            serializer.writeLenEncodedString(item);
-                            break;
-                        default:
-                            serializer.writeLenEncodedString(item);
-                    }
-                }
-            }
-            channel.sendOnePacket(serializer.toByteBuffer());
-        }
-    }
-
-    private static int parseBooleanResultValue(String item) {
-        if ("1".equals(item) || "true".equalsIgnoreCase(item)) {
-            return 1;
-        }
-        if ("0".equals(item) || "false".equalsIgnoreCase(item)) {
-            return 0;
-        }
-        throw new IllegalArgumentException("Invalid boolean result value: " + item);
+        context.updateReturnRows(resultSet.getResultRows().size());
+        sender.sendResultSet(resultSet, fieldInfos, isComStmtExecute);
+        context.getState().setEof();
     }
 
     public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {
@@ -2184,18 +1864,10 @@ public class StmtExecutor {
                 .addColumn(new Column("Before", ScalarType.createVarchar(-1)))
                 .addColumn(new Column("After", ScalarType.createVarchar(-1)))
                 .build();
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            sendMetaData(metaData);
-
-            for (PlanProcess row : result) {
-                serializer.reset();
-                serializer.writeLenEncodedString(row.ruleName);
-                serializer.writeLenEncodedString(row.beforeShape);
-                serializer.writeLenEncodedString(row.afterShape);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-        }
-        context.getState().setEof();
+        List<List<String>> rows = result.stream()
+                .map(row -> Lists.newArrayList(row.ruleName, row.beforeShape, row.afterShape))
+                .collect(Collectors.toList());
+        sendResultSet(new ShowResultSet(metaData, rows));
     }
 
     public void handleExplainStmt(String result, boolean isNereids) throws IOException {
@@ -2203,21 +1875,7 @@ public class StmtExecutor {
                 .addColumn(new Column("Explain String" + (isNereids ? "(Nereids Planner)" : "(Old Planner)"),
                         ScalarType.createVarchar(20)))
                 .build();
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            sendMetaData(metaData);
-
-            // Send result set.
-            for (String item : result.split("\n")) {
-                serializer.reset();
-                serializer.writeLenEncodedString(item);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-        } else if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-            context.getFlightSqlChannel()
-                    .addResult(DebugUtil.printId(context.queryId()), context.getRunningQuery(), metaData, result);
-            context.setReturnResultFromLocal(true);
-        }
-        context.getState().setEof();
+        sendResultSet(new ShowResultSet(metaData, oneColumnPerLine(result)));
     }
 
     public void handleReplayStmt(String result) throws IOException {
@@ -2225,21 +1883,13 @@ public class StmtExecutor {
                 .addColumn(new Column("Plan Replayer dump url",
                         ScalarType.createVarchar(20)))
                 .build();
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            sendMetaData(metaData);
+        sendResultSet(new ShowResultSet(metaData, oneColumnPerLine(result)));
+    }
 
-            // Send result set.
-            for (String item : result.split("\n")) {
-                serializer.reset();
-                serializer.writeLenEncodedString(item);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-        } else if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-            context.getFlightSqlChannel()
-                    .addResult(DebugUtil.printId(context.queryId()), context.getRunningQuery(), metaData, result);
-            context.setReturnResultFromLocal(true);
-        }
-        context.getState().setEof();
+    private static List<List<String>> oneColumnPerLine(String text) {
+        return Arrays.stream(text.split("\n"))
+                .map(line -> Lists.newArrayList(line))
+                .collect(Collectors.toList());
     }
 
     public Data.PQueryStatistics getQueryStatisticsForAuditLog() {
@@ -2300,20 +1950,21 @@ public class StmtExecutor {
 
     /**
      * Execute a pre-built logical plan adapter as a read-only query and stream each result
-     * batch to the given mysql channel, without collecting them in FE memory.
+     * batch through the given sender, without collecting them in FE memory. The sender is the
+     * calling session's: this executor's own session is not connected to any client.
      */
-    public void executeInternalQueryAndSend(LogicalPlanAdapter adapter, MysqlChannel channel) throws Exception {
-        executeInternalQueryCommon(adapter, channel);
+    public void executeInternalQueryAndSend(LogicalPlanAdapter adapter, ResultSender sender) throws Exception {
+        executeInternalQueryCommon(adapter, sender);
     }
 
     /**
      * Common internal query lifecycle. When {@code prebuilt} is non-null the plan is already
      * constructed (e.g. IVM dry-run delta) and the usual parse step is skipped. When
-     * {@code sendChannel} is non-null, rows are streamed to that channel via
+     * {@code sendTo} is non-null, rows are streamed through that sender via
      * {@link #executeAndSendResult}; otherwise they are collected into a {@code List<ResultRow>}.
      */
     private List<ResultRow> executeInternalQueryCommon(LogicalPlanAdapter prebuilt,
-            MysqlChannel sendChannel) throws Exception {
+            ResultSender sendTo) throws Exception {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         context.setQueryId(queryId);
         if (originStmt != null && originStmt.originStmt != null) {
@@ -2324,7 +1975,7 @@ public class StmtExecutor {
         context.getState().setInternal(true);
 
         LogicalPlanAdapter adapter;
-        boolean collectMode = (sendChannel == null);
+        boolean collectMode = (sendTo == null);
         try {
             if (prebuilt != null) {
                 setParsedStmt(prebuilt);
@@ -2342,14 +1993,14 @@ public class StmtExecutor {
             // A plan that FE can compute on its own (e.g. the empty delta of a dry run) must be
             // answered by the frontend, like a regular query does. Otherwise the coordinator
             // would send fragments to the placeholder backend registered when no backend is
-            // needed (see NereidsPlanner#notNeedBackend), which cannot resolve. Results go to the
-            // caller's channel: the executor's own channel is not connected to that client.
+            // needed (see NereidsPlanner#notNeedBackend), which cannot resolve. Results go through
+            // the caller's sender: the executor's own session is not connected to that client.
             if (context.supportHandleByFe()) {
                 Optional<ResultSet> resultSet = planner.handleQueryInFe(adapter);
                 if (resultSet.isPresent()) {
                     boolean sendToChannel = !collectMode;
                     if (sendToChannel) {
-                        sendResultSet(resultSet.get(), adapter.getFieldInfos(), sendChannel);
+                        sendResultSet(resultSet.get(), adapter.getFieldInfos(), sendTo);
                     }
                     isHandleQueryInFe = true;
                     if (context.getSessionVariable().enableProfile() && profile != null) {
@@ -2365,7 +2016,7 @@ public class StmtExecutor {
             }
 
             if (!collectMode) {
-                executeAndSendResult(false, false, adapter, sendChannel, null, null);
+                executeAndSendResult(false, false, adapter, sendTo, null, null);
                 return new ArrayList<>();
             }
 
@@ -2639,8 +2290,9 @@ public class StmtExecutor {
         }
         masterOpExecutor.prepareQueryResultForClient();
         List<ByteBuffer> queryResultBufList = masterOpExecutor.getQueryResultBufList();
+        ResultSender sender = context.getResultSender();
         for (ByteBuffer byteBuffer : queryResultBufList) {
-            context.getMysqlChannel().sendOnePacket(byteBuffer);
+            sender.sendRow(byteBuffer);
         }
     }
 
