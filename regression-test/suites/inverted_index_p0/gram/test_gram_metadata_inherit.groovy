@@ -155,6 +155,71 @@ suite("test_gram_metadata_inherit", "p0") {
         FROM test_gram_metadata_inherit WHERE tag MATCH 'fox'"""
     order_qt_inherited_and_new """SELECT /*+ SET_VAR(enable_match_without_inverted_index=false) */ id
         FROM test_gram_metadata_inherit WHERE dense LIKE '%abcdefgh%' AND tag MATCH 'fox'"""
+
+    // A second inheritance, over a segment big enough for stop-gram to have fired. The phases
+    // above run on three rows, and a segment under kHighDfDigestDivisor rows never drops a
+    // posting, so they cannot tell whether a dictionary holding locator-less entries survives
+    // BUILD INDEX. This one holds 4,000 rows in a single segment, where the commonest grams
+    // are over the threshold and their posting lists are gone from the file. The index has to
+    // keep answering the same rows as a plain scan after the rewrite -- an inherited entry that
+    // lost its dropped-posting declaration reads as absent rather than as matching everything,
+    // which turns a common literal into zero rows.
+    sql "DROP TABLE IF EXISTS test_gram_inherit_stopped"
+    sql """CREATE TABLE test_gram_inherit_stopped (
+        id INT,
+        msg VARCHAR(128),
+        tag VARCHAR(32),
+        INDEX idx_msg (msg) USING INVERTED PROPERTIES ("analyzer"="gram_inherit_dense")
+    ) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ("replication_num"="1", "disable_auto_compaction"="true",
+                "inverted_index_storage_format"="SNII")"""
+    def stoppedRows = []
+    for (int i = 0; i < 4000; i++) {
+        // Every row carries "shared_prefix_common_text", whose grams land far above the
+        // threshold and lose their postings; one row in a thousand carries a rare marker whose
+        // grams stay under it and keep theirs.
+        def marker = (i % 1000 == 0) ? "rare_marker_${i}" : "filler_${i}"
+        stoppedRows.add("(${i}, 'shared_prefix_common_text ${marker}', 'tag_${i % 3}')")
+    }
+    // One statement, so all 4,000 rows land in one segment and the floor is crossed.
+    sql "INSERT INTO test_gram_inherit_stopped VALUES ${stoppedRows.join(',')}"
+    sql "sync"
+
+    // The inverted-index result cache is keyed by the raw query bytes, so the "after" phase
+    // could otherwise be served the "before" phase's bitmaps and never reach the rewritten
+    // container at all -- which is exactly what this phase exists to read.
+    sql "SET enable_inverted_index_query_cache=false"
+
+    def checkStopped = { String phaseName ->
+        [false, true].each { useIndex ->
+            sql "SET enable_inverted_index_query=${useIndex}"
+            // A literal whose grams were dropped. The index cannot narrow it and must say so.
+            "order_qt_stopped_${phaseName}_${useIndex}_common"("""SELECT COUNT(*)
+                FROM test_gram_inherit_stopped WHERE msg LIKE '%shared_prefix_common%'""")
+            // A literal whose grams were kept, so the index really does filter here.
+            "order_qt_stopped_${phaseName}_${useIndex}_rare"("""SELECT id
+                FROM test_gram_inherit_stopped WHERE msg LIKE '%rare_marker_%' ORDER BY id""")
+            "order_qt_stopped_${phaseName}_${useIndex}_regexp"("""SELECT COUNT(*)
+                FROM test_gram_inherit_stopped WHERE msg REGEXP 'shared_prefix_[a-z]+'""")
+        }
+        sql "SET enable_inverted_index_query=true"
+    }
+
+    checkStopped("before")
+    sql "SET enable_add_index_for_new_data=true"
+    sql """CREATE INDEX idx_stopped_tag ON test_gram_inherit_stopped(tag) USING INVERTED
+        PROPERTIES ("parser"="english")"""
+    sql "BUILD INDEX idx_stopped_tag ON test_gram_inherit_stopped"
+    wait_for_last_build_index_finish("test_gram_inherit_stopped", 180_000)
+    def stoppedJobs = sql_return_maparray("""SHOW BUILD INDEX
+        WHERE TableName='test_gram_inherit_stopped' ORDER BY JobId DESC LIMIT 1""")
+    if (stoppedJobs.isEmpty() || stoppedJobs[0].State != "FINISHED") {
+        throw new IllegalStateException("stopped-posting BUILD INDEX did not finish: ${stoppedJobs}")
+    }
+    sql "sync"
+    checkStopped("after")
+    sql "DROP TABLE IF EXISTS test_gram_inherit_stopped"
+
     // The policies live cluster-wide and the cluster is shared, so a suite that leaves
     // its own behind eats into the instance-wide policy limit for everyone else.
     sql "DROP TABLE IF EXISTS test_gram_metadata_inherit"

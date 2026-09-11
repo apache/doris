@@ -65,8 +65,9 @@ struct LogicalIndexMetadataRef {
     // original members so existing designated-initializer sites stay valid.
     LogicalIndexKind kind = LogicalIndexKind::kInverted;
     std::vector<NamedBlobFileRef> files; // blob kinds only
-    // kInverted only: the dictionary carries at least one entry with a dropped posting list.
-    // Not serialized per entry; it raises kFeatureDroppedPostings on the directory.
+    // kInverted only: this index's dictionary carries at least one entry with a dropped
+    // posting list. Serialized per entry, and it also raises kFeatureDroppedPostings on the
+    // directory as the fence for readers that cannot parse such an entry.
     bool dropped_postings = false;
 };
 

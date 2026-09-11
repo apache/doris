@@ -66,6 +66,14 @@ message SniiLogicalIndexMetadataPB {
     // change the bytes of every pure-text directory.
     optional uint32 kind = 6;
     repeated SniiNamedBlobPB files = 7; // blob kinds only
+    // INVERTED only: this index's dictionary holds at least one entry whose posting list the
+    // writer dropped (stop-gram), so its body ends early and carries no locator. Writers MUST
+    // NOT set this field when it is false, for the same reason as `kind`: proto2 presence
+    // would change the bytes of every directory that drops nothing. The directory-wide
+    // required feature stays the fence for readers that cannot parse such an entry; this
+    // field is what says WHICH index needs it, which a rewrite has to know to re-declare it
+    // for exactly the indexes it carries over.
+    optional bool dropped_postings = 8;
 }
 
 message SniiBlobRefPB {

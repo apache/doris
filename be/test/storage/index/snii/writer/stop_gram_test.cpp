@@ -77,19 +77,21 @@ struct Segment {
 // gated on it, because a match-all term is only sound where the candidates get re-checked
 // and the digest is only ever read by the gram query's cost gate.
 void Build(Segment* out, const std::vector<std::pair<std::string, uint32_t>>& term_strides,
-           uint32_t threshold) {
+           uint32_t threshold, bool with_gram_scheme = true) {
     SniiIndexInput input;
     input.index_id = 11;
     input.index_suffix = "body";
     input.config = format::IndexConfig::kDocsOnly;
     input.doc_count = kDocCount;
     input.stop_gram_df_threshold = threshold;
-    segment_v2::gram::GramScheme scheme;
-    scheme.mode = segment_v2::gram::GramMode::SPARSE;
-    scheme.min_len = 3;
-    scheme.max_len = 4;
-    scheme.density_permille = 250;
-    input.gram_scheme = scheme;
+    if (with_gram_scheme) {
+        segment_v2::gram::GramScheme scheme;
+        scheme.mode = segment_v2::gram::GramMode::SPARSE;
+        scheme.min_len = 3;
+        scheme.max_len = 4;
+        scheme.density_permille = 250;
+        input.gram_scheme = scheme;
+    }
     for (const auto& [term, stride] : term_strides) {
         input.terms.push_back(make_term(term, EveryNth(stride)));
     }
@@ -238,6 +240,39 @@ TEST(SniiStopGram, HighDfDigestStaysProportionalToTheVocabulary) {
             << "digest of " << digest.term_hash.size() << " entries over " << terms << " terms";
     // Truncating must not cost the reader its bound: everything dropped is still covered.
     EXPECT_GT(digest.df_ceiling, 0U) << "a truncated digest must still bound what it omits";
+}
+
+// The digest is decoded with the core metadata and stays resident for as long as the reader
+// does, so the searcher cache has to be charged for it. Left out, the cache believes it holds
+// less than it does -- by up to 48 KiB per cached segment index at the writer's cap, across
+// however many segments the cache holds.
+//
+// Two readers over the same corpus isolate the charge: the only resident metadata the gram
+// scheme adds is the digest, so the difference between them is what the digest costs.
+TEST(SniiStopGram, TheSearcherCacheChargeIncludesTheResidentDigest) {
+    std::vector<std::pair<std::string, uint32_t>> corpus;
+    for (uint32_t i = 0; i < 300; i++) {
+        corpus.emplace_back("term_" + std::to_string(i), 2 + (i % 50));
+    }
+    Segment with_digest;
+    Build(&with_digest, corpus, /*threshold=*/0);
+    Segment without_digest;
+    Build(&without_digest, corpus, /*threshold=*/0, /*with_gram_scheme=*/false);
+
+    const auto& digest = with_digest.index.high_df_terms();
+    ASSERT_FALSE(digest.empty())
+            << "this corpus must reach the digest for the test to mean anything";
+    ASSERT_TRUE(without_digest.index.high_df_terms().empty());
+
+    const size_t digest_bytes = digest.term_hash.capacity() * sizeof(uint64_t) +
+                                digest.df.capacity() * sizeof(uint32_t);
+    ASSERT_GT(digest_bytes, 0U);
+    const size_t charged = with_digest.index.memory_usage();
+    const size_t baseline = without_digest.index.memory_usage();
+    ASSERT_GE(charged, baseline);
+    EXPECT_GE(charged - baseline, digest_bytes)
+            << "charge " << charged << " over baseline " << baseline << " omits " << digest_bytes
+            << " bytes of resident digest";
 }
 
 // An index no gram query can reach must not carry the digest at all. It would be pure loss:

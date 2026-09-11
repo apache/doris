@@ -239,6 +239,7 @@ Status SniiSegmentReader::load_inherited_index(const LogicalIndexKey& key,
     // Safe to sum and narrow: open() ran validate_metadata_group on every entry.
     out->index_id = entry->index_id;
     out->index_suffix = entry->index_suffix;
+    out->dropped_postings = entry->dropped_postings;
     out->core_length = static_cast<size_t>(entry->core_metadata.length);
     out->sampled_term_index_length = static_cast<size_t>(entry->sampled_term_index.length);
     out->dict_block_directory_length = static_cast<size_t>(entry->dict_block_directory.length);
