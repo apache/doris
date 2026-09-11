@@ -39,12 +39,18 @@ suite("distinct_agg_strategy_selector") {
     qt_should_use_cte_with_group_by """
     explain shape plan
     select count(distinct a_1) , count(distinct b_5) from t1000 group by d_20;"""
-    qt_should_use_multi_distinct_with_group_by """explain shape plan
+    // d_20 has ndv ~20 over ~1000 rows (>= row * MID_CARDINALITY_THRESHOLD), so this near-unique
+    // distinct argument makes a single MultiDistinct node hold a whole group's value set. Route to
+    // CTE split, matching the no-group-by branch that also falls back to CTE on a high-ndv argument.
+    qt_should_use_cte_with_group_by_high_ndv """explain shape plan
     select count(distinct d_20) , count(distinct b_5) from t1000 group by a_1;"""
     sql "drop stats t1000"
     qt_no_stats_should_use_cte """explain shape plan
     select count(distinct a_1) , count(distinct b_5) from t1000;"""
-    qt_no_stats_should_use_multi_distinct """explain shape plan
+    // With statistics dropped the distinct arguments are unknown and could be near-unique, so a single
+    // MultiDistinct node could hold a whole group's value set and OOM. Route to CTE split instead of
+    // MultiDistinct, matching the no-group-by branch that also falls back to CTE on unknown statistics.
+    qt_no_stats_should_use_cte_with_group_by """explain shape plan
     select count(distinct d_20) , count(distinct b_5) from t1000 group by a_1;"""
 
     test {
