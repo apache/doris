@@ -22,9 +22,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -38,20 +38,32 @@ import java.util.List;
  * Returns all matches of a regex pattern as an Array&lt;String&gt; instead of a string-formatted array.
  */
 public class RegexpExtractAllArray extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral {
+        implements ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
                     .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))
-                    .args(StringType.INSTANCE, StringType.INSTANCE)
+                    .args(StringType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, BigIntType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))
+                    .args(StringType.INSTANCE, StringType.INSTANCE, BigIntType.INSTANCE)
     );
 
     /**
-     * constructor with 2 arguments.
+     * constructor with 2 arguments. The optional group index follows Spark semantics
+     * and defaults to 1 (the first capturing group) in the BE.
      */
     public RegexpExtractAllArray(Expression arg0, Expression arg1) {
         super("regexp_extract_all_array", arg0, arg1);
+    }
+
+    /**
+     * constructor with 3 arguments.
+     */
+    public RegexpExtractAllArray(Expression arg0, Expression arg1, Expression arg2) {
+        super("regexp_extract_all_array", arg0, arg1, arg2);
     }
 
     /** constructor for withChildren and reuse signature */
@@ -64,7 +76,7 @@ public class RegexpExtractAllArray extends ScalarFunction
      */
     @Override
     public RegexpExtractAllArray withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
+        Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
         return new RegexpExtractAllArray(getFunctionParams(children));
     }
 

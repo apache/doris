@@ -328,31 +328,85 @@ TEST(FunctionLikeTest, regexp_extract_all) {
     std::string func_name = "regexp_extract_all";
 
     DataSet data_set = {
-            {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)")},
+            {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)"),
+              (int64_t)1},
              std::string("['18','17']")},
-            {{std::string("x=a3&x=18abc&x=2&y=3&x=4"), std::string("^x=([a-z]+)([0-9]+)")},
+            {{std::string("x=a3&x=18abc&x=2&y=3&x=4"), std::string("^x=([a-z]+)([0-9]+)"),
+              (int64_t)1},
              std::string("['a']")},
-            {{std::string("http://a.m.baidu.com/i41915173660.htm"), std::string("i([0-9]+)")},
+            {{std::string("http://a.m.baidu.com/i41915173660.htm"), std::string("i([0-9]+)"),
+              (int64_t)1},
              std::string("['41915173660']")},
-            {{std::string("http://a.m.baidu.com/i41915i73660.htm"), std::string("i([0-9]+)")},
+            {{std::string("http://a.m.baidu.com/i41915i73660.htm"), std::string("i([0-9]+)"),
+              (int64_t)1},
              std::string("['41915','73660']")},
 
-            {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)")}, std::string("['i']")},
-            {{std::string("hitdecisioendlist"), std::string("(i)(.*?)(e)")},
+            {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)"), (int64_t)1},
+             std::string("['i']")},
+            {{std::string("hitdecisioendlist"), std::string("(i)(.*?)(e)"), (int64_t)1},
              std::string("['i','i']")},
-            {{std::string("hitdecisioendliset"), std::string("(i)(.*?)(e)")},
+            {{std::string("hitdecisioendliset"), std::string("(i)(.*?)(e)"), (int64_t)1},
              std::string("['i','i','i']")},
+
+            // group index 0 extracts the whole match
+            {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)"),
+              (int64_t)0},
+             std::string("['x=18abc','x=17bcd']")},
+            {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)"), (int64_t)0},
+             std::string("['itde']")},
+            // other capturing groups
+            {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)"),
+              (int64_t)2},
+             std::string("['abc','bcd']")},
+            {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)"), (int64_t)2},
+             std::string("['td']")},
+            {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)"), (int64_t)3},
+             std::string("['e']")},
+            // non-participating groups contribute empty strings, consistent with Spark
+            {{std::string("a b"), std::string("(a)|(b)"), (int64_t)2}, std::string("['','b']")},
+            // group index 0 also works for patterns without capturing groups
+            {{std::string("ab1cd22"), std::string("[0-9]+"), (int64_t)0},
+             std::string("['1','22']")},
+            // Spark semantics: successful zero-width matches are emitted, including
+            // one terminal-position match
+            {{std::string("b"), std::string("a*"), (int64_t)0}, std::string("['','']")},
+            {{std::string(""), std::string("a*"), (int64_t)0}, std::string("['']")},
+            {{std::string("ab"), std::string("a*"), (int64_t)0}, std::string("['a','','']")},
+            // advancing past a match must use the match offset, not a textual find
+            {{std::string("ab b"), std::string("\\bb"), (int64_t)0}, std::string("['b']")},
+            // `^` stays anchored to the original subject between matches
+            {{std::string("aa"), std::string("^a"), (int64_t)0}, std::string("['a']")},
             // null
-            {{std::string("abc"), Null()}, Null()},
-            {{Null(), std::string("i([0-9]+)")}, Null()}};
+            {{std::string("abc"), Null(), (int64_t)1}, Null()},
+            {{Null(), std::string("i([0-9]+)"), (int64_t)1}, Null()}};
 
     // pattern is constant value
     InputTypeSet const_pattern_input_types = {PrimitiveType::TYPE_VARCHAR,
-                                              Consted {PrimitiveType::TYPE_VARCHAR}};
+                                              Consted {PrimitiveType::TYPE_VARCHAR},
+                                              PrimitiveType::TYPE_BIGINT};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
         static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
                                                                const_pattern_dataset));
+    }
+
+    // the two-argument form must keep working (old FE on new BE during rolling upgrades)
+    DataSet two_arg_data_set = {
+            {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)")},
+             std::string("['18','17']")},
+            {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)")}, std::string("['i']")},
+            // legacy behavior: patterns without capturing groups yield an empty result
+            {{std::string("xxfs"), std::string("f")}, std::string("")},
+            // legacy behavior: zero-width matches are skipped
+            {{std::string("asdfg"), std::string("(z|x|c|)")}, std::string("")},
+            {{std::string("abc"), Null()}, Null()},
+            {{Null(), std::string("i([0-9]+)")}, Null()}};
+    InputTypeSet two_arg_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                        Consted {PrimitiveType::TYPE_VARCHAR}};
+    for (const auto& line : two_arg_data_set) {
+        DataSet two_arg_dataset = {line};
+        static_cast<void>(check_function<DataTypeString, true>(func_name, two_arg_input_types,
+                                                               two_arg_dataset));
     }
 }
 
@@ -362,34 +416,40 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
     auto return_type = make_nullable(
             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>())));
 
-    auto run_case = [&](const std::string& str, const std::string& pattern,
+    auto bigint_type = std::make_shared<DataTypeInt64>();
+    auto run_case = [&](const std::string& str, const std::string& pattern, int64_t idx,
                         const std::string& expected, bool expect_null = false) {
         auto col_str = ColumnString::create();
         col_str->insert_data(str.data(), str.size());
         auto col_pattern = ColumnString::create();
         col_pattern->insert_data(pattern.data(), pattern.size());
+        auto col_idx = ColumnInt64::create();
+        col_idx->insert_value(idx);
 
         Block block;
         block.insert({std::move(col_str), str_type, "str"});
         block.insert({ColumnConst::create(std::move(col_pattern), 1), str_type, "pattern"});
+        block.insert({ColumnConst::create(std::move(col_idx), 1), bigint_type, "idx"});
         block.insert({nullptr, return_type, "result"});
 
-        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1),
+                                           block.get_by_position(2)};
         auto func =
                 SimpleFunctionFactory::instance().get_function(func_name, arg_cols, return_type);
         ASSERT_TRUE(func != nullptr);
 
-        std::vector<DataTypePtr> arg_types = {str_type, str_type};
+        std::vector<DataTypePtr> arg_types = {str_type, str_type, bigint_type};
         FunctionUtils fn_utils({}, arg_types, false);
         auto* fn_ctx = fn_utils.get_fn_ctx();
         fn_ctx->set_constant_cols(
-                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column),
+                 std::make_shared<ColumnPtrWrapper>(block.get_by_position(2).column)});
 
         ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
         ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
-        ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1}, 2, 1));
+        ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1, 2}, 3, 1));
 
-        auto result_col = block.get_by_position(2).column;
+        auto result_col = block.get_by_position(3).column;
         ASSERT_TRUE(result_col.get() != nullptr);
         if (expect_null) {
             EXPECT_TRUE(result_col->is_null_at(0));
@@ -397,20 +457,28 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
             ASSERT_FALSE(result_col->is_null_at(0));
             auto result_str = return_type->to_string(*result_col, 0);
             EXPECT_EQ(expected, result_str)
-                    << "input: '" << str << "', pattern: '" << pattern << "'";
+                    << "input: '" << str << "', pattern: '" << pattern << "', idx: " << idx;
         }
 
         static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     };
 
-    run_case("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd", "x=([0-9]+)([a-z]+)", "[\"18\", \"17\"]");
-    run_case("x=a3&x=18abc&x=2&y=3&x=4", "^x=([a-z]+)([0-9]+)", "[\"a\"]");
-    run_case("http://a.m.baidu.com/i41915173660.htm", "i([0-9]+)", "[\"41915173660\"]");
-    run_case("http://a.m.baidu.com/i41915i73660.htm", "i([0-9]+)", "[\"41915\", \"73660\"]");
-    run_case("hitdecisiondlist", "(i)(.*?)(e)", "[\"i\"]");
-    run_case("no_match_here", "x=([0-9]+)", "[]");
-    run_case("abc", "([a-z]+)", "[\"abc\"]");
+    run_case("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd", "x=([0-9]+)([a-z]+)", 1, "[\"18\", \"17\"]");
+    run_case("x=a3&x=18abc&x=2&y=3&x=4", "^x=([a-z]+)([0-9]+)", 1, "[\"a\"]");
+    run_case("http://a.m.baidu.com/i41915173660.htm", "i([0-9]+)", 1, "[\"41915173660\"]");
+    run_case("http://a.m.baidu.com/i41915i73660.htm", "i([0-9]+)", 1, "[\"41915\", \"73660\"]");
+    run_case("hitdecisiondlist", "(i)(.*?)(e)", 1, "[\"i\"]");
+    run_case("no_match_here", "x=([0-9]+)", 1, "[]");
+    run_case("abc", "([a-z]+)", 1, "[\"abc\"]");
+    // group index 0 extracts the whole match
+    run_case("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd", "x=([0-9]+)([a-z]+)", 0,
+             "[\"x=18abc\", \"x=17bcd\"]");
+    // other capturing groups
+    run_case("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd", "x=([0-9]+)([a-z]+)", 2, "[\"abc\", \"bcd\"]");
+    run_case("hitdecisiondlist", "(i)(.*?)(e)", 3, "[\"e\"]");
+    // non-participating groups contribute empty strings, consistent with Spark
+    run_case("a b", "(a)|(b)", 2, "[\"\", \"b\"]");
 
     // Helper for testing null input propagation
     auto nullable_str_type = make_nullable(str_type);
@@ -446,24 +514,31 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
         Block block;
         block.insert({col_str, str_col_type, "str"});
         block.insert({col_pattern, pattern_col_type, "pattern"});
+        auto col_idx = ColumnInt64::create();
+        col_idx->insert_value(1);
+        block.insert({ColumnConst::create(std::move(col_idx), 1), std::make_shared<DataTypeInt64>(),
+                      "idx"});
         block.insert({nullptr, return_type, "result"});
 
-        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1),
+                                           block.get_by_position(2)};
         auto func =
                 SimpleFunctionFactory::instance().get_function(func_name, arg_cols, return_type);
         ASSERT_TRUE(func != nullptr);
 
-        std::vector<DataTypePtr> arg_types = {str_col_type, pattern_col_type};
+        std::vector<DataTypePtr> arg_types = {str_col_type, pattern_col_type,
+                                              std::make_shared<DataTypeInt64>()};
         FunctionUtils fn_utils({}, arg_types, false);
         auto* fn_ctx = fn_utils.get_fn_ctx();
         fn_ctx->set_constant_cols(
-                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column),
+                 std::make_shared<ColumnPtrWrapper>(block.get_by_position(2).column)});
 
         ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
         ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
-        ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1}, 2, 1));
+        ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1, 2}, 3, 1));
 
-        EXPECT_TRUE(block.get_by_position(2).column->is_null_at(0))
+        EXPECT_TRUE(block.get_by_position(3).column->is_null_at(0))
                 << "Expected null for null_str=" << null_str << " null_pattern=" << null_pattern;
 
         static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
@@ -481,21 +556,26 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
         col_str->insert_data("abc", 3);
         auto col_pattern = ColumnString::create();
         col_pattern->insert_data("(", 1);
+        auto col_idx = ColumnInt64::create();
+        col_idx->insert_value(1);
         Block block;
         block.insert({std::move(col_str), str_type, "str"});
         block.insert({ColumnConst::create(std::move(col_pattern), 1), str_type, "pattern"});
+        block.insert({ColumnConst::create(std::move(col_idx), 1), bigint_type, "idx"});
         block.insert({nullptr, return_type, "result"});
 
-        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1),
+                                           block.get_by_position(2)};
         auto func =
                 SimpleFunctionFactory::instance().get_function(func_name, arg_cols, return_type);
         ASSERT_TRUE(func != nullptr);
 
-        std::vector<DataTypePtr> arg_types = {str_type, str_type};
+        std::vector<DataTypePtr> arg_types = {str_type, str_type, bigint_type};
         FunctionUtils fn_utils({}, arg_types, false);
         auto* fn_ctx = fn_utils.get_fn_ctx();
         fn_ctx->set_constant_cols(
-                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column),
+                 std::make_shared<ColumnPtrWrapper>(block.get_by_position(2).column)});
 
         ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
         // Invalid pattern should cause open() to fail for THREAD_LOCAL scope
@@ -504,6 +584,121 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
         static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     }
+}
+
+TEST(FunctionLikeTest, regexp_extract_all_invalid_group_index) {
+    // Same contract as Spark: a group index outside [0, number_of_capturing_groups]
+    // is an error, for both regexp_extract_all and regexp_extract_all_array.
+    auto str_type = std::make_shared<DataTypeString>();
+    auto bigint_type = std::make_shared<DataTypeInt64>();
+
+    auto run_error_case = [&](const std::string& func_name, DataTypePtr return_type, int64_t idx) {
+        auto col_str = ColumnString::create();
+        col_str->insert_data("hitdecisiondlist", 16);
+        auto col_pattern = ColumnString::create();
+        col_pattern->insert_data("(i)(.*?)(e)", 11);
+        auto col_idx = ColumnInt64::create();
+        col_idx->insert_value(idx);
+
+        Block block;
+        block.insert({std::move(col_str), str_type, "str"});
+        block.insert({ColumnConst::create(std::move(col_pattern), 1), str_type, "pattern"});
+        block.insert({ColumnConst::create(std::move(col_idx), 1), bigint_type, "idx"});
+        block.insert({nullptr, return_type, "result"});
+
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1),
+                                           block.get_by_position(2)};
+        auto func =
+                SimpleFunctionFactory::instance().get_function(func_name, arg_cols, return_type);
+        ASSERT_TRUE(func != nullptr);
+
+        std::vector<DataTypePtr> arg_types = {str_type, str_type, bigint_type};
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        fn_ctx->set_constant_cols(
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column),
+                 std::make_shared<ColumnPtrWrapper>(block.get_by_position(2).column)});
+
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        auto status = func->execute(fn_ctx, block, {0, 1, 2}, 3, 1);
+        EXPECT_FALSE(status.ok()) << "func: " << func_name << ", idx: " << idx;
+        EXPECT_NE(status.to_string().find("invalid"), std::string::npos);
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    };
+
+    auto string_return_type = make_nullable(std::make_shared<DataTypeString>());
+    auto array_return_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>())));
+
+    // negative group index
+    run_error_case("regexp_extract_all", string_return_type, -1);
+    run_error_case("regexp_extract_all_array", array_return_type, -1);
+    // group index beyond the number of capturing groups
+    run_error_case("regexp_extract_all", string_return_type, 4);
+    run_error_case("regexp_extract_all_array", array_return_type, 4);
+}
+
+TEST(FunctionLikeTest, regexp_extract_all_null_rows_yield_null_without_aborting) {
+    // Mixed nullable block: a NULL string row whose index value would otherwise trip
+    // the group-index bounds check must yield NULL for that row only, not abort the
+    // whole query (default null handling restores it afterwards).
+    auto str_type = std::make_shared<DataTypeString>();
+    auto bigint_type = std::make_shared<DataTypeInt64>();
+    auto return_type = make_nullable(std::make_shared<DataTypeString>());
+
+    auto str_data = ColumnString::create();
+    str_data->insert_data("hitdecisiondlist", 16);
+    str_data->insert_data("hitdecisiondlist", 16);
+    auto str_nulls = ColumnUInt8::create();
+    str_nulls->get_data().push_back(1);
+    str_nulls->get_data().push_back(0);
+
+    auto idx_data = ColumnInt64::create();
+    idx_data->insert_value(99); // would be out of range if it were validated
+    idx_data->insert_value(3);
+    auto idx_nulls = ColumnUInt8::create();
+    idx_nulls->get_data().push_back(0);
+    idx_nulls->get_data().push_back(0);
+
+    auto col_pattern = ColumnString::create();
+    col_pattern->insert_data("(i)(.*?)(e)", 11);
+
+    Block block;
+    block.insert({ColumnNullable::create(std::move(str_data), std::move(str_nulls)),
+                  make_nullable(str_type), "str"});
+    block.insert({ColumnConst::create(std::move(col_pattern), 2), str_type, "pattern"});
+    block.insert({ColumnNullable::create(std::move(idx_data), std::move(idx_nulls)),
+                  make_nullable(bigint_type), "idx"});
+    block.insert({nullptr, return_type, "result"});
+
+    ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1),
+                                       block.get_by_position(2)};
+    auto func = SimpleFunctionFactory::instance().get_function("regexp_extract_all", arg_cols,
+                                                               return_type);
+    ASSERT_TRUE(func != nullptr);
+
+    std::vector<DataTypePtr> arg_types = {make_nullable(str_type), str_type,
+                                          make_nullable(bigint_type)};
+    FunctionUtils fn_utils({}, arg_types, false);
+    auto* fn_ctx = fn_utils.get_fn_ctx();
+    fn_ctx->set_constant_cols({nullptr,
+                               std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column),
+                               nullptr});
+
+    ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+    ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1, 2}, 3, 2));
+
+    auto result_col = block.get_by_position(3).column;
+    EXPECT_TRUE(result_col->is_null_at(0)) << "null string row must yield NULL, not abort";
+    ASSERT_FALSE(result_col->is_null_at(1));
+    EXPECT_EQ("['e']", return_type->to_string(*result_col, 1));
+
+    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
 }
 
 TEST(FunctionLikeTest, regexp_replace) {
