@@ -41,7 +41,7 @@ public:
     // Use weak ptr to save resource ctx, to make sure if the query is cancelled
     // the resource will be released
     std::weak_ptr<ResourceContext> resource_ctx_;
-    std::chrono::system_clock::time_point enqueue_at;
+    std::chrono::steady_clock::time_point enqueue_at;
     size_t last_mem_usage {0};
     double cache_ratio_ {0.0};
     int64_t reserve_size_ {0};
@@ -50,7 +50,7 @@ public:
                 int64_t reserve_size);
 
     int64_t elapsed_time() const {
-        auto now = std::chrono::system_clock::now();
+        auto now = std::chrono::steady_clock::now();
         return std::chrono::duration_cast<std::chrono::milliseconds>(now - enqueue_at).count();
     }
 
