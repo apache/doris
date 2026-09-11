@@ -80,6 +80,15 @@ public interface ConnectorScanRange extends Serializable {
         return "jni";
     }
 
+    /**
+     * Returns an optional BE file type override for this range. Connectors use this when the URI scheme
+     * alone is not sufficient to select the reader, for example an Azure SAS range that must be read by
+     * Hadoop ABFS while retaining its {@code abfs[s]://} path.
+     */
+    default Optional<String> getBackendFileType() {
+        return Optional.empty();
+    }
+
     /** Returns the total file size in bytes, or -1 if unknown. */
     default long getFileSize() {
         return -1;

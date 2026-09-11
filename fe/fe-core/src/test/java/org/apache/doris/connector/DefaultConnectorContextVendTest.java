@@ -17,6 +17,9 @@
 
 package org.apache.doris.connector;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.azurebfs.AbfsConfiguration;
+import org.apache.hadoop.fs.azurebfs.services.AuthType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -58,6 +61,30 @@ public class DefaultConnectorContextVendTest {
         Assertions.assertEquals("STS.testAccessKey123", be.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("testSecretKey456", be.get("AWS_SECRET_KEY"));
         Assertions.assertEquals("testSessionToken789", be.get("AWS_TOKEN"));
+    }
+
+    @Test
+    public void normalizesAdlsTokenToBackendAbfsProps() throws Exception {
+        String accountHost = "account.dfs.core.windows.net";
+        String sasToken = "testSasToken";
+        Map<String, String> token = Map.of(
+                "adls.sas-token." + accountHost, sasToken,
+                "adls.sas-token-expires-at-ms." + accountHost, "4102444800000");
+
+        Map<String, String> be = context().vendStorageCredentials(token);
+
+        String authTypeKey = "fs.azure.account.auth.type." + accountHost;
+        String fixedSasTokenKey = "fs.azure.sas.fixed.token." + accountHost;
+        Assertions.assertEquals("SAS", be.get(authTypeKey));
+        Assertions.assertEquals(sasToken, be.get(fixedSasTokenKey));
+        Assertions.assertTrue(be.keySet().stream().noneMatch(key -> key.startsWith("adls.")));
+
+        Configuration configuration = new Configuration(false);
+        be.forEach(configuration::set);
+        AbfsConfiguration abfsConfiguration = new AbfsConfiguration(configuration, accountHost);
+        Assertions.assertEquals(AuthType.SAS, abfsConfiguration.getAuthType(accountHost));
+        Assertions.assertEquals(sasToken,
+                abfsConfiguration.getSASTokenProvider().getSASToken(accountHost, "container", "/table", "read"));
     }
 
     @Test

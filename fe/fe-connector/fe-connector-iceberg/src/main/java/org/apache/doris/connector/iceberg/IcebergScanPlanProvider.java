@@ -551,6 +551,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
         UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
+        String backendFileType = context != null && !vendedToken.isEmpty()
+                ? storage().getBackendFileType(table.location(), vendedToken) : null;
         long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
         long sliceSize = fileSplitSize > 0 ? fileSplitSize
                 : sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
@@ -558,7 +560,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(
                     scan, session, table, filter, sliceSize);
             return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
-                    orderedPartitionKeys, zone, uriNormalizer, sliceSize,
+                    orderedPartitionKeys, zone, uriNormalizer, backendFileType, sliceSize,
                     iceHandle.getRewriteFileScope(), iceHandle);
         } catch (RuntimeException e) {
             throw IcebergExceptionUtils.wrapMetadataReadFailure(iceHandle, e);
@@ -621,6 +623,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private final List<String> orderedPartitionKeys;
         private final ZoneId zone;
         private final UnaryOperator<String> uriNormalizer;
+        private final String backendFileType;
         private final long sliceSize;
         private final Set<String> rewriteScope;
         private final IcebergTableHandle handle;
@@ -638,7 +641,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
         IcebergStreamingSplitSource(CloseableIterable<FileScanTask> tasks, Table table, int formatVersion,
                 boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-                UnaryOperator<String> uriNormalizer, long sliceSize, Set<String> rewriteScope,
+                UnaryOperator<String> uriNormalizer, String backendFileType, long sliceSize, Set<String> rewriteScope,
                 IcebergTableHandle handle) {
             this.tasks = tasks;
             this.table = table;
@@ -647,6 +650,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             this.orderedPartitionKeys = orderedPartitionKeys;
             this.zone = zone;
             this.uriNormalizer = uriNormalizer;
+            this.backendFileType = backendFileType;
             this.sliceSize = sliceSize;
             this.rewriteScope = rewriteScope;
             this.handle = handle;
@@ -663,7 +667,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 }
                 while (iterator.hasNext()) {
                     IcebergScanRange range = buildRangeForTask(iterator.next(), table, formatVersion, partitioned,
-                            orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null, scratch);
+                            orderedPartitionKeys, zone, uriNormalizer, backendFileType, sliceSize, rewriteScope,
+                            null, scratch);
                     if (range != null) {
                         buffered = range;
                         return true;
@@ -748,6 +753,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // Derive the vended storage config ONCE per scan (the token is scan-invariant) and reuse it for every
         // per-file path normalization below, instead of rebuilding it per data/delete file (C3).
         UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
+        String backendFileType = context != null && !vendedToken.isEmpty()
+                ? storage().getBackendFileType(table.location(), vendedToken) : null;
 
         // COUNT(*) pushdown (T05): derive an exact count from the current manifest list and collapse the scan to
         // a single whole-file range. Snapshot summary fields are optional writer-provided metadata and must never
@@ -757,7 +764,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // upper bound. Keep those scans on the normal path even if the engine supplies the count signal.
         if (countPushdown && filter.isEmpty()) {
             Optional<List<ConnectorScanRange>> countRanges = planCountPushdown(table, scan, formatVersion,
-                    partitioned, orderedPartitionKeys, zone, uriNormalizer, session, filter);
+                    partitioned, orderedPartitionKeys, zone, uriNormalizer, backendFileType, session, filter);
             if (countRanges.isPresent()) {
                 return countRanges.get();
             }
@@ -797,8 +804,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 // Shared per-task mapping (rewrite-scope skip + M-2 weight denominator + v3 stash side-effect),
                 // identical to the streaming path's IcebergStreamingSplitSource so both produce the same ranges.
                 IcebergScanRange range = buildRangeForTask(task, table, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, uriNormalizer, plan.targetSplitSize, rewriteScope,
-                        rewritableDeleteSupply, scratch);
+                        orderedPartitionKeys, zone, uriNormalizer, backendFileType, plan.targetSplitSize,
+                        rewriteScope, rewritableDeleteSupply, scratch);
                 if (range != null) {
                     ranges.add(range);
                 }
@@ -856,7 +863,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private IcebergScanRange buildRangeForTask(FileScanTask task, Table table, int formatVersion,
             boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            UnaryOperator<String> uriNormalizer, long targetSplitSize, Set<String> rewriteScope,
+            UnaryOperator<String> uriNormalizer, String backendFileType, long targetSplitSize, Set<String> rewriteScope,
             Map<String, List<TIcebergDeleteFileDesc>> rewritableDeleteSupply, PerFileScratch scratch) {
         DataFile dataFile = task.file();
         if (rewriteScope != null && !rewriteScope.contains(dataFile.path().toString())) {
@@ -870,7 +877,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // targetSplitSize is the scan-level weight denominator (M-2): each data-file range carries a
         // size-proportional BE scheduling weight (selfSplitWeight computed inside buildRange).
         IcebergScanRange range = buildRange(table, dataFile, task, formatVersion, partitioned,
-                orderedPartitionKeys, zone, uriNormalizer, -1, targetSplitSize, scratch);
+                orderedPartitionKeys, zone, uriNormalizer, backendFileType, -1, targetSplitSize, scratch);
         if (rewritableDeleteSupply != null && firstSliceOfFile) {
             // Record this data file's non-equality delete supply keyed on its RAW path (the exact string the BE
             // matches a rewritable set against). An empty list (no old non-eq deletes) contributes nothing.
@@ -1050,12 +1057,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(metadataTable, restVendedCredentialsEnabled()) : Collections.emptyMap();
         UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
+        String backendFileType = context != null
+                ? storage().getBackendFileType(metadataTable.location(), vendedToken) : null;
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (PositionDeletesScanTask task : tasks) {
             for (PositionDeletesScanTask splitTask : splitPositionDeleteScanTask(task, targetSplitSize)) {
                 ranges.add(buildPositionDeleteRange(splitTask, metadataTable, outputPartitionFields,
-                        enableMappingVarbinary, zone, uriNormalizer));
+                        enableMappingVarbinary, zone, uriNormalizer, backendFileType));
             }
         }
         LOG.debug("Iceberg planScan produced {} position_deletes splits for {}.{}", ranges.size(),
@@ -1075,7 +1084,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private IcebergScanRange buildPositionDeleteRange(PositionDeletesScanTask task, Table metadataTable,
             List<NestedField> outputPartitionFields, boolean enableMappingVarbinary, ZoneId zone,
-            UnaryOperator<String> uriNormalizer) {
+            UnaryOperator<String> uriNormalizer, String backendFileType) {
         DeleteFile deleteFile = task.file();
         String originalPath = deleteFile.path().toString();
         IcebergScanRange.Builder builder = new IcebergScanRange.Builder()
@@ -1083,6 +1092,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .start(task.start())
                 .length(task.length())
                 .fileSize(deleteFile.fileSizeInBytes())
+                .backendFileType(backendFileType)
                 // The split's own scheduling weight, mirroring legacy newPositionDeleteSysTableSplit
                 // (selfSplitWeight = max(length, 1)).
                 .selfSplitWeight(Math.max(task.length(), 1L))
@@ -1292,7 +1302,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private Optional<List<ConnectorScanRange>> planCountPushdown(Table table, TableScan scan,
             int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter) {
+            UnaryOperator<String> uriNormalizer, String backendFileType, ConnectorSession session,
+            Optional<ConnectorExpression> filter) {
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
             return Optional.of(Collections.emptyList());
@@ -1321,14 +1332,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 return Optional.empty();
             }
             return planManifestCountRange(table, scan, visibleRows.getAsLong(), formatVersion,
-                    partitioned, orderedPartitionKeys, zone, uriNormalizer, session, filter,
+                    partitioned, orderedPartitionKeys, zone, uriNormalizer, backendFileType, session, filter,
                     netPositionDeletes);
         }
 
         // Older manifest lists may omit aggregate counters. Preserve correctness by falling back to the
         // bounded per-file enumeration instead of trusting snapshot summary metadata.
         return planCountPushdownFromFileTasks(table, scan, formatVersion, partitioned,
-                orderedPartitionKeys, zone, uriNormalizer, session, filter, netPositionDeletes,
+                orderedPartitionKeys, zone, uriNormalizer, backendFileType, session, filter, netPositionDeletes,
                 netPositionDeletes ? positionDeleteRows.getAsLong() : 0);
     }
 
@@ -1366,31 +1377,32 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     private Optional<List<ConnectorScanRange>> planManifestCountRange(Table table, TableScan scan, long exactCount,
             int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter,
-            boolean netPositionDeletes) {
+            UnaryOperator<String> uriNormalizer, String backendFileType, ConnectorSession session,
+            Optional<ConnectorExpression> filter, boolean netPositionDeletes) {
         if (!isManifestCacheEnabled()) {
             return buildManifestCountRange(table, scan.planFiles(), exactCount, formatVersion, partitioned,
-                    orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes);
+                    orderedPartitionKeys, zone, uriNormalizer, backendFileType, netPositionDeletes);
         }
         String statsQueryId = session != null ? session.getQueryId() : null;
         try {
             return buildManifestCountRange(table,
                     cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId), exactCount,
-                    formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes);
+                    formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer, backendFileType,
+                    netPositionDeletes);
         } catch (Exception e) {
             LOG.warn("Iceberg count-pushdown representative plan with manifest cache failed, "
                     + "falling back to SDK scan: {}", e.getMessage(), e);
             manifestCache.recordFailure(statsQueryId);
             // The SDK retry must own a new iterable because a lazy cache failure may leave the first one partial.
             return buildManifestCountRange(table, scan.planFiles(), exactCount, formatVersion, partitioned,
-                    orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes);
+                    orderedPartitionKeys, zone, uriNormalizer, backendFileType, netPositionDeletes);
         }
     }
 
     private Optional<List<ConnectorScanRange>> buildManifestCountRange(Table table,
             CloseableIterable<FileScanTask> tasks, long exactCount, int formatVersion, boolean partitioned,
             List<String> orderedPartitionKeys, ZoneId zone, UnaryOperator<String> uriNormalizer,
-            boolean netPositionDeletes) {
+            String backendFileType, boolean netPositionDeletes) {
         try (CloseableIterable<FileScanTask> closeableTasks = tasks) {
             for (FileScanTask task : closeableTasks) {
                 // Data-manifest rows and the separately netted live delete files are authoritative, but retain
@@ -1399,7 +1411,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     return Optional.empty();
                 }
                 return Optional.of(Collections.singletonList(buildRange(table, task.file(), task, formatVersion,
-                        partitioned, orderedPartitionKeys, zone, uriNormalizer, exactCount, -1, null)));
+                        partitioned, orderedPartitionKeys, zone, uriNormalizer, backendFileType, exactCount, -1,
+                        null)));
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to plan iceberg count-pushdown file, error message is:"
@@ -1410,17 +1423,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     private Optional<List<ConnectorScanRange>> planCountPushdownFromFileTasks(Table table, TableScan scan,
             int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter,
-            boolean netPositionDeletes, long positionDeleteRows) {
+            UnaryOperator<String> uriNormalizer, String backendFileType, ConnectorSession session,
+            Optional<ConnectorExpression> filter, boolean netPositionDeletes, long positionDeleteRows) {
         if (!isManifestCacheEnabled()) {
             return accumulateCountPushdownFileTasks(table, scan.planFiles(), formatVersion, partitioned,
-                    orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes, positionDeleteRows);
+                    orderedPartitionKeys, zone, uriNormalizer, backendFileType, netPositionDeletes,
+                    positionDeleteRows);
         }
         String statsQueryId = session != null ? session.getQueryId() : null;
         try {
             return accumulateCountPushdownFileTasks(table,
                     cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId), formatVersion,
-                    partitioned, orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes,
+                    partitioned, orderedPartitionKeys, zone, uriNormalizer, backendFileType, netPositionDeletes,
                     positionDeleteRows);
         } catch (Exception e) {
             LOG.warn("Iceberg count-pushdown plan with manifest cache failed, falling back to SDK scan: {}",
@@ -1429,14 +1443,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // The retry owns a fresh accumulator so rows consumed before a lazy cache failure are never counted
             // twice and the SDK fallback remains an exact restart.
             return accumulateCountPushdownFileTasks(table, scan.planFiles(), formatVersion, partitioned,
-                    orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes, positionDeleteRows);
+                    orderedPartitionKeys, zone, uriNormalizer, backendFileType, netPositionDeletes,
+                    positionDeleteRows);
         }
     }
 
     private Optional<List<ConnectorScanRange>> accumulateCountPushdownFileTasks(Table table,
             CloseableIterable<FileScanTask> tasks, int formatVersion, boolean partitioned,
             List<String> orderedPartitionKeys, ZoneId zone, UnaryOperator<String> uriNormalizer,
-            boolean netPositionDeletes, long positionDeleteRows) {
+            String backendFileType, boolean netPositionDeletes, long positionDeleteRows) {
         FileScanTask representative = null;
         long exactCount = 0;
         try (CloseableIterable<FileScanTask> closeableTasks = tasks) {
@@ -1469,7 +1484,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // targetSplitSize = -1: the count-pushdown collapse emits a single range, so its scheduling weight is
         // irrelevant and PluginDrivenSplit keeps SplitWeight.standard().
         return Optional.of(Collections.singletonList(buildRange(table, representative.file(), representative,
-                formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer,
+                formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer, backendFileType,
                 visibleRows.getAsLong(), -1, null)));
     }
 
@@ -1593,7 +1608,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private IcebergScanRange buildRange(Table table, DataFile dataFile, FileScanTask task, int formatVersion,
             boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            UnaryOperator<String> uriNormalizer, long pushDownRowCount, long targetSplitSize,
+            UnaryOperator<String> uriNormalizer, String backendFileType, long pushDownRowCount, long targetSplitSize,
             PerFileScratch scratch) {
         PerFileScratch file = (scratch != null && scratch.file == dataFile)
                 ? scratch
@@ -1618,6 +1633,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .length(task.length())
                 .fileSize(dataFile.fileSizeInBytes())
                 .fileFormat(file.fileFormat)
+                .backendFileType(backendFileType)
                 .formatVersion(formatVersion)
                 .partitionSpecId(file.partitionSpecId)
                 .partitionDataJson(file.partitionDataJson)
